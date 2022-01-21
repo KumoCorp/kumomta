@@ -62,6 +62,9 @@ quick_error! {
         BodyHashDidNotVerify {
             display("body hash did not verify")
         }
+        MalformedBody {
+            display("malformed email body")
+        }
     }
 }
 
@@ -83,6 +86,7 @@ impl DKIMError {
             | InappropriateKeyAlgorithm
             | SignatureDidNotVerify
             | BodyHashDidNotVerify
+            | MalformedBody
             | UnsupportedCanonicalizationType(_)
             | UnsupportedHashAlgorithm(_) => Status::Permfail,
             KeyUnavailable(_) | UnknownInternalError(_) => Status::Tempfail,

@@ -1,6 +1,8 @@
 use indexmap::set::IndexSet;
 use mailparse::MailHeaderMap;
 use slog::debug;
+use std::io::BufRead;
+use std::io::BufReader;
 
 use crate::canonicalization::{
     self, canonicalize_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
@@ -15,9 +17,31 @@ pub enum HashAlgo {
 }
 
 /// Get the body part of an email
-fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> &'a [u8] {
-    let body = email.raw_bytes;
-    bytes::get_all_after(body, b"\r\n\r\n")
+/// De-transparency according to RFC 5321, Section 4.5.2
+fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> Result<Vec<u8>, DKIMError> {
+    let body = bytes::get_all_after(email.raw_bytes, b"\r\n\r\n");
+    let mut reader = BufReader::new(body);
+
+    let mut buffer = Vec::new();
+
+    loop {
+        let mut line = Vec::new();
+        let byte_read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(|_err| DKIMError::MalformedBody)?;
+        if byte_read == 0 {
+            break;
+        }
+
+        // Remove leading period
+        if line[0] == b'.' {
+            line.remove(0);
+        }
+
+        buffer.append(&mut line);
+    }
+
+    Ok(buffer)
 }
 
 fn hash_sha1<T: AsRef<[u8]>>(data: T) -> Vec<u8> {
@@ -44,12 +68,12 @@ pub(crate) fn compute_body_hash<'a>(
     hash_algo: HashAlgo,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<String, DKIMError> {
-    let body = get_body(email);
+    let body = get_body(email)?;
 
     let mut canonicalized_body = if canonicalization_type == canonicalization::Type::Simple {
-        canonicalize_body_simple(body)
+        canonicalize_body_simple(&body)
     } else {
-        canonicalize_body_relaxed(body)
+        canonicalize_body_relaxed(&body)
     };
     if let Some(length) = length {
         let length = length
@@ -375,5 +399,15 @@ Hello Alice
                 70, 214, 16, 98, 216, 111, 230, 130, 196, 3, 60, 201, 166, 224
             ]
         )
+    }
+
+    #[test]
+    fn test_get_body() {
+        let email =
+            mailparse::parse_mail("Subject: A\r\n\r\nContent\n..hi\n..hello..".as_bytes()).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&get_body(&email).unwrap()),
+            "Content\n.hi\n.hello..".to_owned()
+        );
     }
 }
