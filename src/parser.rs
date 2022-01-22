@@ -22,7 +22,7 @@ pub struct Tag {
 }
 
 /// Main entrypoint of the parser. Parses the DKIM signature tag list
-/// as specified https://datatracker.ietf.org/doc/html/rfc6376#section-3.6.1.
+/// as specified <https://datatracker.ietf.org/doc/html/rfc6376#section-3.6.1>.
 /// tag-list  =  tag-spec *( ";" tag-spec ) [ ";" ]
 pub fn tag_list(input: &str) -> IResult<&str, Vec<Tag>> {
     let (input, start) = tag_spec(input)?;

@@ -24,9 +24,36 @@ The `verify_email` arguments are the following:
 
 ### Signing an email
 
-Work in progress.
+Example:
+```rust
+let private_key =
+    rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private"))?;
+
+let signer = SignerBuilder::new()
+    .with_signed_headers(&["From", "Subject"])?
+    .with_private_key(private_key)
+    .with_selector("2020")
+    .with_logger(&logger)
+    .with_signing_domain("example.com")
+    .build()?;
+let signature = signer.sign(&email)?;
+```
+
+See the SignerBuilder object documentation for more information.
+
+## Generate a test DKIM key
+
+Using [OpenDKIM]:
+```
+opendkim-genkey \
+    --testmode \
+    --domain=example.com \
+    --selector=2022 \
+    --nosubdomains
+```
 
 [RFC5322]: https://datatracker.ietf.org/doc/html/rfc5322
 [RFC6376]: https://datatracker.ietf.org/doc/html/rfc6376
 [slog]: https://crates.io/crates/slog
 [mailparse]: https://crates.io/crates/mailparse
+[OpenDKIM]: http://www.opendkim.org/

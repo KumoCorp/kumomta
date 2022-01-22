@@ -65,6 +65,12 @@ quick_error! {
         MalformedBody {
             display("malformed email body")
         }
+        FailedToSign(err: String) {
+            display("failed sign: {}", err)
+        }
+        BuilderError(err: &'static str) {
+            display("failed to build object: {}", err)
+        }
     }
 }
 
@@ -90,6 +96,7 @@ impl DKIMError {
             | UnsupportedCanonicalizationType(_)
             | UnsupportedHashAlgorithm(_) => Status::Permfail,
             KeyUnavailable(_) | UnknownInternalError(_) => Status::Tempfail,
+            BuilderError(_) | FailedToSign(_) => unreachable!(),
         }
     }
 }

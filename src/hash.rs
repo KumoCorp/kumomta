@@ -114,7 +114,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     canonicalization_type: canonicalization::Type,
     headers: &'b str,
     hash_algo: HashAlgo,
-    dkim_header: &'b DKIMHeader<'b>,
+    dkim_header: &'b DKIMHeader,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
@@ -150,7 +150,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
 mod tests {
     use super::*;
 
-    fn dkim_header() -> DKIMHeader<'static> {
+    fn dkim_header() -> DKIMHeader {
         crate::validate_header("v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; s=smtp; d=test.com; t=1641506955; h=content-type:to: subject:date:from:mime-version:sender; bh=PU2XIErWsXvhvt1W96ntPWZ2VImjVZ3vBY2T/A+wA3A=; b=PIO0A014nyntOGKdTdtvCJor9ZxvP1M3hoLeEh8HqZ+RvAyEKdAc7VOg+/g/OTaZgsmw6U sZCoN0YNVp+2o9nkaeUslsVz3M4I55HcZnarxl+fhplIMcJ/3s0nIhXL51MfGPRqPbB7/M Gjg9/07/2vFoid6Kitg6Z+CfoD2wlSRa8xDfmeyA2cHpeVuGQhGxu7BXuU8kGbeM4+weit Ql3t9zalhikEPI5Pr7dzYFrgWNOEO6w6rQfG7niKON1BimjdbJlGanC7cO4UL361hhXT4X iXLnC9TG39xKFPT/+4nkHy8pp6YvWkD3wKlBjwkYNm0JvKGwTskCMDeTwxXhAg==").unwrap()
     }
 
