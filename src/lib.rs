@@ -1,8 +1,8 @@
 // Implementation of DKIM: https://datatracker.ietf.org/doc/html/rfc6376
 
-use rsa::PublicKey;
+use indexmap::map::IndexMap;
 use slog::debug;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use trust_dns_resolver::TokioAsyncResolver;
 
@@ -12,7 +12,7 @@ use mailparse::MailHeaderMap;
 extern crate quick_error;
 
 mod bytes;
-mod canonicalization;
+pub mod canonicalization;
 mod dns;
 mod errors;
 mod hash;
@@ -20,18 +20,22 @@ mod header;
 mod parser;
 mod public_key;
 mod result;
+#[cfg(test)]
+mod roundtrip_test;
+mod sign;
 
 pub use errors::DKIMError;
-use header::*;
+use header::{DKIMHeader, HEADER, REQUIRED_TAGS};
 pub use parser::tag_list as parse_tag_list;
 pub use parser::Tag;
 pub use result::DKIMResult;
+pub use sign::{Signer, SignerBuilder};
 
 const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 const DNS_NAMESPACE: &str = "_domainkey";
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1
-fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader<'a>, DKIMError> {
+fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
     let (_, tags) =
         parser::tag_list(value).map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?;
 
@@ -48,13 +52,13 @@ fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader<'a>, DKIMError> {
         }
     }
 
-    let mut tags_map = HashMap::new();
+    let mut tags_map = IndexMap::new();
     for tag in &tags {
         tags_map.insert(tag.name.clone(), tag.clone());
     }
     let header = DKIMHeader {
         tags: tags_map,
-        raw_bytes: value,
+        raw_bytes: value.to_owned(),
     };
     // FIXME: we could get the keys instead of generating tag_names ourselves
 
@@ -112,7 +116,7 @@ fn verify_signature(
     hash_algo: hash::HashAlgo,
     header_hash: Vec<u8>,
     signature: Vec<u8>,
-    public_key: impl PublicKey,
+    public_key: impl rsa::PublicKey,
 ) -> Result<bool, DKIMError> {
     Ok(public_key
         .verify(
@@ -131,7 +135,7 @@ fn verify_signature(
 async fn verify_email_header<'a>(
     logger: &'a slog::Logger,
     resolver: Arc<dyn dns::Lookup>,
-    dkim_header: &'a DKIMHeader<'a>,
+    dkim_header: &'a DKIMHeader,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<(), DKIMError> {
     let public_key = public_key::retrieve_public_key(
@@ -177,17 +181,12 @@ async fn verify_email_header<'a>(
     Ok(())
 }
 
-/// Run the DKIM verification on the email
-pub async fn verify_email<'a>(
+pub(crate) async fn verify_email_with_resolver<'a>(
     logger: &slog::Logger,
     from_domain: &str,
     email: &'a mailparse::ParsedMail<'a>,
+    resolver: Arc<dyn dns::Lookup>,
 ) -> Result<DKIMResult, DKIMError> {
-    let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
-        DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
-    })?;
-    let resolver = dns::from_tokio_resolver(resolver);
-
     let mut last_error = None;
 
     for h in email.headers.get_all_headers(HEADER) {
@@ -224,6 +223,20 @@ pub async fn verify_email<'a>(
     } else {
         Ok(DKIMResult::neutral(from_domain.to_owned()))
     }
+}
+
+/// Run the DKIM verification on the email
+pub async fn verify_email<'a>(
+    logger: &slog::Logger,
+    from_domain: &str,
+    email: &'a mailparse::ParsedMail<'a>,
+) -> Result<DKIMResult, DKIMError> {
+    let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
+        DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
+    })?;
+    let resolver = dns::from_tokio_resolver(resolver);
+
+    verify_email_with_resolver(logger, from_domain, email, resolver).await
 }
 
 #[cfg(test)]

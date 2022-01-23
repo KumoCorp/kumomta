@@ -6,6 +6,14 @@ pub enum Type {
     Simple,
     Relaxed,
 }
+impl std::string::ToString for Type {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Simple => "simple".to_owned(),
+            Self::Relaxed => "relaxed".to_owned(),
+        }
+    }
+}
 
 /// Canonicalize body using the simple canonicalization algorithm.
 ///
