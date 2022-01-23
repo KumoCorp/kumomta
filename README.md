@@ -37,6 +37,8 @@ let signer = SignerBuilder::new()
     .with_signing_domain("example.com")
     .build()?;
 let signature = signer.sign(&email)?;
+
+println!("{}", signature); // DKIM-Signature: ...
 ```
 
 See the SignerBuilder object documentation for more information.
