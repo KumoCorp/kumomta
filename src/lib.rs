@@ -181,7 +181,8 @@ async fn verify_email_header<'a>(
     Ok(())
 }
 
-pub(crate) async fn verify_email_with_resolver<'a>(
+/// Run the DKIM verification on the email providing an existing resolver
+pub async fn verify_email_with_resolver<'a>(
     logger: &slog::Logger,
     from_domain: &str,
     email: &'a mailparse::ParsedMail<'a>,
