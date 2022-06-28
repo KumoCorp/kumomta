@@ -4,7 +4,7 @@ mod tests {
     use chrono::TimeZone;
     use futures::future::BoxFuture;
     use regex::Regex;
-    use rsa::pkcs1::FromRsaPrivateKey;
+    use rsa::pkcs1::DecodeRsaPrivateKey;
     use std::collections::HashMap;
     use std::path::Path;
     use std::sync::Arc;
