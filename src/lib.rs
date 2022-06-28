@@ -13,7 +13,7 @@ extern crate quick_error;
 
 mod bytes;
 pub mod canonicalization;
-mod dns;
+pub mod dns;
 mod errors;
 mod hash;
 mod header;
