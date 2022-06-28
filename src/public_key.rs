@@ -50,7 +50,7 @@ pub(crate) async fn retrieve_public_key(
     let bytes = base64::decode(&tag.value).map_err(|err| {
         DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
     })?;
-    let key = pkcs8::FromPublicKey::from_public_key_der(&bytes)
+    let key = pkcs8::DecodePublicKey::from_public_key_der(&bytes)
         .map_err(|err| DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err)))?;
     Ok(key)
 }

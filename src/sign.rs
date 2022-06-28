@@ -235,7 +235,7 @@ impl<'a> Signer<'a> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use rsa::pkcs1::FromRsaPrivateKey;
+    use rsa::pkcs1::DecodeRsaPrivateKey;
     use std::path::Path;
 
     fn test_logger() -> slog::Logger {
