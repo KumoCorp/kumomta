@@ -1,8 +1,6 @@
 use indexmap::set::IndexSet;
 use mailparse::MailHeaderMap;
 use slog::debug;
-use std::io::BufRead;
-use std::io::BufReader;
 
 use crate::canonicalization::{
     self, canonicalize_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
@@ -17,31 +15,8 @@ pub enum HashAlgo {
 }
 
 /// Get the body part of an email
-/// De-transparency according to RFC 5321, Section 4.5.2
 fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> Result<Vec<u8>, DKIMError> {
-    let body = bytes::get_all_after(email.raw_bytes, b"\r\n\r\n");
-    let mut reader = BufReader::new(body);
-
-    let mut buffer = Vec::new();
-
-    loop {
-        let mut line = Vec::new();
-        let byte_read = reader
-            .read_until(b'\n', &mut line)
-            .map_err(|_err| DKIMError::MalformedBody)?;
-        if byte_read == 0 {
-            break;
-        }
-
-        // Remove leading period
-        if line[0] == b'.' {
-            line.remove(0);
-        }
-
-        buffer.append(&mut line);
-    }
-
-    Ok(buffer)
+    Ok(bytes::get_all_after(email.raw_bytes, b"\r\n\r\n").to_vec())
 }
 
 fn hash_sha1<T: AsRef<[u8]>>(data: T) -> Vec<u8> {
@@ -404,7 +379,7 @@ Hello Alice
     #[test]
     fn test_get_body() {
         let email =
-            mailparse::parse_mail("Subject: A\r\n\r\nContent\n..hi\n..hello..".as_bytes()).unwrap();
+            mailparse::parse_mail("Subject: A\r\n\r\nContent\n.hi\n.hello..".as_bytes()).unwrap();
         assert_eq!(
             String::from_utf8_lossy(&get_body(&email).unwrap()),
             "Content\n.hi\n.hello..".to_owned()
