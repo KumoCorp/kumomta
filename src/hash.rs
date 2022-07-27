@@ -12,6 +12,7 @@ use crate::{bytes, DKIMError, DKIMHeader};
 pub enum HashAlgo {
     RsaSha1,
     RsaSha256,
+    Ed25519Sha256,
 }
 
 /// Get the body part of an email
@@ -60,6 +61,7 @@ pub(crate) fn compute_body_hash<'a>(
     let hash = match hash_algo {
         HashAlgo::RsaSha1 => hash_sha1(&canonicalized_body),
         HashAlgo::RsaSha256 => hash_sha256(&canonicalized_body),
+        HashAlgo::Ed25519Sha256 => hash_sha256(&canonicalized_body),
     };
     Ok(base64::encode(&hash))
 }
@@ -109,7 +111,11 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     {
         let sign = dkim_header.get_raw_tag("b").unwrap();
         let value = dkim_header.raw_bytes.replace(&sign, "");
-        input.extend_from_slice(&"dkim-signature:".as_bytes());
+        if canonicalization_type == canonicalization::Type::Simple {
+            input.extend_from_slice(&"DKIM-Signature: ".as_bytes());
+        } else {
+            input.extend_from_slice(&"dkim-signature:".as_bytes());
+        }
         input.extend_from_slice(&value.as_bytes());
     }
     debug!(logger, "headers to hash: {:?}", input);
@@ -117,6 +123,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     let hash = match hash_algo {
         HashAlgo::RsaSha1 => hash_sha1(&input),
         HashAlgo::RsaSha256 => hash_sha256(&input),
+        HashAlgo::Ed25519Sha256 => hash_sha256(&input),
     };
     Ok(hash)
 }
@@ -304,8 +311,8 @@ Hello Alice
             )
             .unwrap(),
             &[
-                139, 181, 80, 152, 144, 190, 55, 167, 172, 184, 152, 202, 222, 81, 169, 121, 20, 5,
-                213, 151
+                214, 155, 167, 0, 209, 70, 127, 126, 160, 53, 79, 106, 141, 240, 35, 121, 255, 190,
+                166, 229
             ],
         );
         let hash_algo = HashAlgo::RsaSha256;
@@ -320,8 +327,8 @@ Hello Alice
             )
             .unwrap(),
             &[
-                34, 222, 85, 83, 216, 70, 124, 226, 60, 174, 156, 184, 140, 247, 178, 88, 76, 99,
-                182, 251, 149, 224, 243, 172, 54, 202, 138, 72, 45, 45, 88, 9
+                76, 143, 13, 248, 17, 209, 243, 111, 40, 96, 160, 242, 116, 86, 37, 249, 134, 253,
+                196, 89, 6, 24, 157, 130, 142, 198, 27, 166, 127, 179, 72, 247
             ]
         )
     }

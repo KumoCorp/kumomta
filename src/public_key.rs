@@ -1,9 +1,12 @@
-use rsa::{pkcs8, RsaPublicKey};
+use rsa::{pkcs1, pkcs8};
 use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::{dns, parser, DKIMError, DNS_NAMESPACE};
+use crate::{dns, parser, DKIMError, DkimPublicKey, DNS_NAMESPACE};
+
+const RSA_KEY_TYPE: &str = "rsa";
+const ED25519_KEY_TYPE: &str = "ed25519";
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.2
 pub(crate) async fn retrieve_public_key(
@@ -11,8 +14,7 @@ pub(crate) async fn retrieve_public_key(
     resolver: Arc<dyn dns::Lookup>,
     domain: String,
     subdomain: String,
-    key_type: Option<String>,
-) -> Result<RsaPublicKey, DKIMError> {
+) -> Result<DkimPublicKey, DKIMError> {
     let dns_name = format!("{}.{}.{}", subdomain, DNS_NAMESPACE, domain);
     let res = resolver.lookup_txt(&dns_name).await?;
     // TODO: Return multiple keys for when verifiying the signatures. During key
@@ -38,20 +40,34 @@ pub(crate) async fn retrieve_public_key(
         }
     }
 
-    // Check key has right type
-    if let Some(v) = tags_map.get("k") {
-        let key_type = key_type.unwrap_or_else(|| "rsa".to_string());
-        if v.value != key_type {
-            return Err(DKIMError::InappropriateKeyAlgorithm);
+    // Get key type
+    let key_type = match tags_map.get("k") {
+        Some(v) => {
+            if v.value != RSA_KEY_TYPE && v.value != ED25519_KEY_TYPE {
+                return Err(DKIMError::InappropriateKeyAlgorithm);
+            }
+            v.value.clone()
         }
-    }
+        None => RSA_KEY_TYPE.to_string(),
+    };
 
     let tag = tags_map.get("p").ok_or(DKIMError::NoKeyForSignature)?;
     let bytes = base64::decode(&tag.value).map_err(|err| {
         DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
     })?;
-    let key = pkcs8::DecodePublicKey::from_public_key_der(&bytes)
-        .map_err(|err| DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err)))?;
+    let key = if key_type == RSA_KEY_TYPE {
+        DkimPublicKey::Rsa(
+            pkcs8::DecodePublicKey::from_public_key_der(&bytes)
+                .or_else(|_| pkcs1::DecodeRsaPublicKey::from_pkcs1_der(&bytes))
+                .map_err(|err| {
+                    DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+                })?,
+        )
+    } else {
+        DkimPublicKey::Ed25519(ed25519_dalek::PublicKey::from_bytes(&bytes).map_err(|err| {
+            DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+        })?)
+    };
     Ok(key)
 }
 
@@ -82,7 +98,6 @@ mod tests {
             resolver,
             "cloudflare.com".to_string(),
             "dkim".to_string(),
-            None,
         )
         .await
         .unwrap();
@@ -110,7 +125,6 @@ mod tests {
             resolver,
             "cloudflare.com".to_string(),
             "dkim".to_string(),
-            None,
         )
         .await
         .unwrap_err();
@@ -139,7 +153,6 @@ mod tests {
             resolver,
             "cloudflare.com".to_string(),
             "dkim".to_string(),
-            None,
         )
         .await
         .unwrap_err();

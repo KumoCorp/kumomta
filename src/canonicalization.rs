@@ -77,11 +77,9 @@ pub(crate) fn canonicalize_body_relaxed(body: &[u8]) -> Vec<u8> {
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.1
 pub(crate) fn canonicalize_header_simple(key: &str, value: &[u8]) -> Vec<u8> {
-    // TODO: according to the spec whitespace MUST NOT be changed? pydkim does
-    // change it too.
     let mut out = Vec::new();
     out.extend_from_slice(&key.as_bytes());
-    out.extend_from_slice(b":");
+    out.extend_from_slice(b": ");
     out.extend_from_slice(value);
     out.extend_from_slice(b"\r\n");
 
