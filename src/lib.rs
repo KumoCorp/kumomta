@@ -137,7 +137,7 @@ async fn verify_email_header<'a>(
     resolver: Arc<dyn dns::Lookup>,
     dkim_header: &'a DKIMHeader,
     email: &'a mailparse::ParsedMail<'a>,
-) -> Result<(), DKIMError> {
+) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
     let public_key = public_key::retrieve_public_key(
         logger,
         Arc::clone(&resolver),
@@ -151,14 +151,14 @@ async fn verify_email_header<'a>(
         parser::parse_canonicalization(dkim_header.get_tag("c"))?;
     let hash_algo = parser::parse_hash_algo(&dkim_header.get_required_tag("a"))?;
     let computed_body_hash = hash::compute_body_hash(
-        body_canonicalization_type,
+        body_canonicalization_type.clone(),
         dkim_header.get_tag("l"),
         hash_algo.clone(),
         email,
     )?;
     let computed_headers_hash = hash::compute_headers_hash(
         logger,
-        header_canonicalization_type,
+        header_canonicalization_type.clone(),
         &dkim_header.get_required_tag("h"),
         hash_algo.clone(),
         &dkim_header,
@@ -178,7 +178,7 @@ async fn verify_email_header<'a>(
         return Err(DKIMError::SignatureDidNotVerify);
     }
 
-    Ok(())
+    Ok((header_canonicalization_type, body_canonicalization_type))
 }
 
 /// Run the DKIM verification on the email providing an existing resolver
@@ -210,7 +210,13 @@ pub async fn verify_email_with_resolver<'a>(
         }
 
         match verify_email_header(logger, Arc::clone(&resolver), &dkim_header, email).await {
-            Ok(()) => return Ok(DKIMResult::pass(signing_domain)),
+            Ok((header_canonicalization_type, body_canonicalization_type)) => {
+                return Ok(DKIMResult::pass(
+                    signing_domain,
+                    header_canonicalization_type,
+                    body_canonicalization_type,
+                ))
+            }
             Err(err) => {
                 debug!(logger, "failed to verify: {}", err);
                 last_error = Some(err);
