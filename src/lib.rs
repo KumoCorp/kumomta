@@ -414,7 +414,15 @@ We lost the game.  Are you hungry yet?
 
 Joe."#
             .replace("\n", "\r\n");
-        let raw_header_dkim = r#"v=1; a=ed25519-sha256; c=relaxed/relaxed; d=football.example.com; i=@football.example.com; q=dns/txt; s=brisbane; t=1528637909; h=from : to : subject : date : message-id : from : subject : date; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; b=/gCrinpcQOoIfuHNQIbq4pgh9kyIK3AQUdt9OdqQehSwhEIug4D11BusFa3bT3FY5OsU7ZbnKELq+eXdp1Q1Dw=="#;
+
+        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+        let h = email
+            .headers
+            .get_all_headers(HEADER)
+            .first()
+            .unwrap()
+            .get_value_raw();
+        let raw_header_dkim = String::from_utf8_lossy(h);
 
         let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
 
@@ -422,7 +430,7 @@ Joe."#
             &slog::Logger::root(slog::Discard, slog::o!()),
             Arc::clone(&resolver),
             &validate_header(&raw_header_dkim).unwrap(),
-            &mailparse::parse_mail(raw_email.as_bytes()).unwrap(),
+            &email,
         )
         .await;
 
