@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2022-08-09
+
+### Changed
+
+- Add support for ed25519
+- Fix simple header canonicalization
 ## [0.2.1] - 2022-08-05
 
 ### Changed
