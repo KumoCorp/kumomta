@@ -1,6 +1,9 @@
 // Implementation of DKIM: https://datatracker.ietf.org/doc/html/rfc6376
 
 use indexmap::map::IndexMap;
+use rsa::PublicKey;
+use rsa::RsaPrivateKey;
+use rsa::RsaPublicKey;
 use slog::debug;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -33,6 +36,18 @@ pub use sign::{Signer, SignerBuilder};
 
 const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 const DNS_NAMESPACE: &str = "_domainkey";
+
+#[derive(Debug)]
+pub(crate) enum DkimPublicKey {
+    Rsa(RsaPublicKey),
+    Ed25519(ed25519_dalek::PublicKey),
+}
+
+#[derive(Debug)]
+pub enum DkimPrivateKey {
+    Rsa(RsaPrivateKey),
+    Ed25519(ed25519_dalek::Keypair),
+}
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1
 fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
@@ -111,25 +126,36 @@ fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4
-// TODO: implement verification with ed25519 keys
 fn verify_signature(
     hash_algo: hash::HashAlgo,
     header_hash: Vec<u8>,
     signature: Vec<u8>,
-    public_key: impl rsa::PublicKey,
+    public_key: DkimPublicKey,
 ) -> Result<bool, DKIMError> {
-    Ok(public_key
-        .verify(
-            rsa::PaddingScheme::PKCS1v15Sign {
-                hash: Some(match hash_algo {
-                    hash::HashAlgo::RsaSha1 => rsa::hash::Hash::SHA1,
-                    hash::HashAlgo::RsaSha256 => rsa::hash::Hash::SHA2_256,
-                }),
-            },
-            &header_hash,
-            &signature,
-        )
-        .is_ok())
+    Ok(match public_key {
+        DkimPublicKey::Rsa(public_key) => public_key
+            .verify(
+                rsa::PaddingScheme::PKCS1v15Sign {
+                    hash: Some(match hash_algo {
+                        hash::HashAlgo::RsaSha1 => rsa::hash::Hash::SHA1,
+                        hash::HashAlgo::RsaSha256 => rsa::hash::Hash::SHA2_256,
+                        hash => {
+                            return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash)))
+                        }
+                    }),
+                },
+                &header_hash,
+                &signature,
+            )
+            .is_ok(),
+        DkimPublicKey::Ed25519(public_key) => public_key
+            .verify_strict(
+                &header_hash,
+                &ed25519_dalek::Signature::from_bytes(&signature)
+                    .map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?,
+            )
+            .is_ok(),
+    })
 }
 
 async fn verify_email_header<'a>(
@@ -143,7 +169,6 @@ async fn verify_email_header<'a>(
         Arc::clone(&resolver),
         dkim_header.get_required_tag("d"),
         dkim_header.get_required_tag("s"),
-        dkim_header.get_tag("k"),
     )
     .await?;
 
@@ -191,7 +216,7 @@ pub async fn verify_email_with_resolver<'a>(
     let mut last_error = None;
 
     for h in email.headers.get_all_headers(HEADER) {
-        let value = h.get_value();
+        let value = String::from_utf8_lossy(h.get_value_raw());
         debug!(logger, "checking signature {:?}", value);
 
         let dkim_header = match validate_header(&value) {
@@ -248,7 +273,40 @@ pub async fn verify_email<'a>(
 
 #[cfg(test)]
 mod tests {
+    use crate::dns::Lookup;
+
     use super::*;
+
+    struct MockResolver {}
+
+    impl Lookup for MockResolver {
+        fn lookup_txt<'a>(
+            &'a self,
+            name: &'a str,
+        ) -> futures::future::BoxFuture<'a, Result<Vec<String>, DKIMError>> {
+            match name {
+                "brisbane._domainkey.football.example.com" => {
+                    Box::pin(futures::future::ready(Ok(vec![
+                        "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+                            .to_string(),
+                    ])))
+                }
+                "newengland._domainkey.example.com" => Box::pin(futures::future::ready(Ok(vec![
+                    "v=DKIM1; p=MIGJAoGBALVI635dLK4cJJAH3Lx6upo3X/Lm1tQz3mezcWTA3BUBnyIsdnRf57aD5BtNmhPrYYDlWlzw3UgnKisIxktkk5+iMQMlFtAS10JB8L3YadXNJY+JBcbeSi5TgJe4WFzNgW95FWDAuSTRXSWZfA/8xjflbTLDx0euFZOM7C4T0GwLAgMBAAE=".to_string(),
+                ]))),
+                _ => {
+                    println!("asked to resolve: {}", name);
+                    todo!()
+                }
+            }
+        }
+    }
+
+    impl MockResolver {
+        fn new() -> Self {
+            MockResolver {}
+        }
+    }
 
     #[test]
     fn test_validate_header() {
@@ -325,5 +383,100 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
             validate_header(&header).unwrap_err(),
             DKIMError::SignatureExpired
         );
+    }
+
+    #[tokio::test]
+    async fn test_validate_email_header_ed25519() {
+        let raw_email = r#"DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed;
+ d=football.example.com; i=@football.example.com;
+ q=dns/txt; s=brisbane; t=1528637909; h=from : to :
+ subject : date : message-id : from : subject : date;
+ bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=;
+ b=/gCrinpcQOoIfuHNQIbq4pgh9kyIK3AQUdt9OdqQehSwhEIug4D11Bus
+ Fa3bT3FY5OsU7ZbnKELq+eXdp1Q1Dw==
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=football.example.com; i=@football.example.com;
+ q=dns/txt; s=test; t=1528637909; h=from : to : subject :
+ date : message-id : from : subject : date;
+ bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=;
+ b=F45dVWDfMbQDGHJFlXUNB2HKfbCeLRyhDXgFpEL8GwpsRe0IeIixNTe3
+ DhCVlUrSjV4BwcVcOF6+FF3Zo9Rpo1tFOeS9mPYQTnGdaSGsgeefOsk2Jz
+ dA+L10TeYt9BgDfQNZtKdN1WO//KgIqXP7OdEFE4LjFYNcUxZQ4FADY+8=
+From: Joe SixPack <joe@football.example.com>
+To: Suzie Q <suzie@shopping.example.net>
+Subject: Is dinner ready?
+Date: Fri, 11 Jul 2003 21:00:37 -0700 (PDT)
+Message-ID: <20030712040037.46341.5F8J@football.example.com>
+
+Hi.
+
+We lost the game.  Are you hungry yet?
+
+Joe."#
+            .replace("\n", "\r\n");
+        let raw_header_dkim = r#"v=1; a=ed25519-sha256; c=relaxed/relaxed; d=football.example.com; i=@football.example.com; q=dns/txt; s=brisbane; t=1528637909; h=from : to : subject : date : message-id : from : subject : date; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; b=/gCrinpcQOoIfuHNQIbq4pgh9kyIK3AQUdt9OdqQehSwhEIug4D11BusFa3bT3FY5OsU7ZbnKELq+eXdp1Q1Dw=="#;
+
+        let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
+
+        let dkim_verify_result = verify_email_header(
+            &slog::Logger::root(slog::Discard, slog::o!()),
+            Arc::clone(&resolver),
+            &validate_header(&raw_header_dkim).unwrap(),
+            &mailparse::parse_mail(raw_email.as_bytes()).unwrap(),
+        )
+        .await;
+
+        assert!(dkim_verify_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_email_header_rsa() {
+        // unfortunately the original RFC spec had a typo, and the mail content differs
+        // between algorithms
+        // https://www.rfc-editor.org/errata_search.php?rfc=6376&rec_status=0
+        let raw_email =
+            r#"DKIM-Signature: a=rsa-sha256; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=;
+ c=simple/simple; d=example.com;
+ h=Received:From:To:Subject:Date:Message-ID; i=joe@football.example.com;
+ s=newengland; t=1615825284; v=1;
+ b=Xh4Ujb2wv5x54gXtulCiy4C0e+plRm6pZ4owF+kICpYzs/8WkTVIDBrzhJP0DAYCpnL62T0G
+ k+0OH8pi/yqETVjKtKk+peMnNvKkut0GeWZMTze0bfq3/JUK3Ln3jTzzpXxrgVnvBxeY9EZIL4g
+ s4wwFRRKz/1bksZGSjD8uuSU=
+Received: from client1.football.example.com  [192.0.2.1]
+      by submitserver.example.com with SUBMISSION;
+      Fri, 11 Jul 2003 21:01:54 -0700 (PDT)
+From: Joe SixPack <joe@football.example.com>
+To: Suzie Q <suzie@shopping.example.net>
+Subject: Is dinner ready?
+Date: Fri, 11 Jul 2003 21:00:37 -0700 (PDT)
+Message-ID: <20030712040037.46341.5F8J@football.example.com>
+
+Hi.
+
+We lost the game. Are you hungry yet?
+
+Joe.
+"#
+            .replace("\n", "\r\n");
+        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+        let h = email
+            .headers
+            .get_all_headers(HEADER)
+            .first()
+            .unwrap()
+            .get_value_raw();
+        let raw_header_rsa = String::from_utf8_lossy(h);
+
+        let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
+
+        let dkim_verify_result = verify_email_header(
+            &slog::Logger::root(slog::Discard, slog::o!()),
+            Arc::clone(&resolver),
+            &validate_header(&raw_header_rsa).unwrap(),
+            &email,
+        )
+        .await;
+
+        assert!(dkim_verify_result.is_ok());
     }
 }

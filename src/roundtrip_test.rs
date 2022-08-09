@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crate::{dns, verify_email_with_resolver, DKIMError, DKIMResult, SignerBuilder};
+    use crate::{
+        dns, verify_email_with_resolver, DKIMError, DKIMResult, DkimPrivateKey, SignerBuilder,
+    };
     use chrono::TimeZone;
     use futures::future::BoxFuture;
     use regex::Regex;
@@ -35,7 +37,7 @@ mod tests {
         let signer = SignerBuilder::new()
             .with_signed_headers(&["From", "Subject"])
             .unwrap()
-            .with_private_key(private_key)
+            .with_private_key(DkimPrivateKey::Rsa(private_key))
             .with_selector("2022")
             .with_logger(&logger)
             .with_signing_domain(domain)

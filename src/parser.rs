@@ -109,6 +109,7 @@ pub(crate) fn parse_hash_algo(value: &String) -> Result<hash::HashAlgo, DKIMErro
     match value.as_str() {
         "rsa-sha1" => Ok(HashAlgo::RsaSha1),
         "rsa-sha256" => Ok(HashAlgo::RsaSha256),
+        "ed25519-sha256" => Ok(HashAlgo::Ed25519Sha256),
         e => Err(DKIMError::UnsupportedHashAlgorithm(e.to_string())),
     }
 }
