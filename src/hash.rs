@@ -6,6 +6,7 @@ use crate::canonicalization::{
     self, canonicalize_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
     canonicalize_header_simple,
 };
+use crate::header::HEADER;
 use crate::{bytes, DKIMError, DKIMHeader};
 
 #[derive(Debug, Clone)]
@@ -111,12 +112,16 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     {
         let sign = dkim_header.get_raw_tag("b").unwrap();
         let value = dkim_header.raw_bytes.replace(&sign, "");
-        if canonicalization_type == canonicalization::Type::Simple {
-            input.extend_from_slice(&"DKIM-Signature: ".as_bytes());
+        let mut canonicalized_value = if canonicalization_type == canonicalization::Type::Simple {
+            canonicalize_header_simple(HEADER, &value.as_bytes())
         } else {
-            input.extend_from_slice(&"dkim-signature:".as_bytes());
-        }
-        input.extend_from_slice(&value.as_bytes());
+            canonicalize_header_relaxed(HEADER, &value.as_bytes())
+        };
+
+        // remove trailing "\r\n"
+        canonicalized_value.truncate(canonicalized_value.len() - 2);
+
+        input.extend_from_slice(&canonicalized_value);
     }
     debug!(logger, "headers to hash: {:?}", input);
 
