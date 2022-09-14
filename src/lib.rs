@@ -230,7 +230,7 @@ pub async fn verify_email_with_resolver<'a>(
 
         // Select the signature corresponding to the email sender
         let signing_domain = dkim_header.get_required_tag("d");
-        if signing_domain != from_domain {
+        if signing_domain.to_lowercase() != from_domain.to_lowercase() {
             continue;
         }
 
