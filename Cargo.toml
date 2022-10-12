@@ -1,6 +1,6 @@
 [package]
 name = "cfdkim"
-version = "0.2.4"
+version = "0.2.5"
 authors = ["Sven Sauleau <sven@cloudflare.com>"]
 edition = "2021"
 description = "DKIM (RFC6376) implementation"
