@@ -292,7 +292,7 @@ Hello Alice
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=frcCV1k9oG9oKj3dpUqdJg1PxRT2RSN/XKdLCPjaYaY=; h=from:subject; t=1609459201; b=aBDaKjZ/oFmC5nhOj1OYPBRSflM2eSHpkBL/KmAG28VQDcR0truIVf3NoY3Ja/pCq7DP2+oKlkdCTTEWatilAvdyPqn/G5Allie4YHivZ0ODawd640nVzmUk/l2YkvW65c6g3PjLd0YwVEd2WE8fdp81zJObgOdCYV0RgxK76qjVpsLrG4lRU6CNhCGcp7bNfPLqu+aB9iseZOa+LXpD/5ovuFvGWwsvbgEgGuCs6yWL3R9u+iiK25sk9t55myEq2c4FkDcX9Qzyuk1lHRqQ1TTeJRayIBkMSu27ifSfEZoUdGVxknQeOpJoF4Jbbtah610oddYJdGlGVb2xwy5GCA==;")
+        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=frcCV1k9oG9oKj3dpUqdJg1PxRT2RSN/XKdLCPjaYaY=; h=from:subject; t=1609459201; b=ohfeeUk89mJI/nTb8cViCbOY11tYBkj0xecrpXVwPdkvLMYMZemydr01nUuruhrzaqxFcqgjdEB/alen4NygDo3Kj//GsEUksRO13Hi1aW5lfxLj7Ifux96CbKm3EEcI5rD9tXQ0LaW5nYUdqYdFVIgmU/qTtXRenMxesHhggknm1n6x7K4NsqBS+9leidXtKf8hTSCC7f4XMGFe2YQrCKHfYFBb/MTuzCHbF/CgZHKgMhBAYXMkuEwIGjh4xnR256AmJdxHN+JdrWYzkMdRiuDmYvlnUJdPWq0hD3fR1DxS5/YF6hNHMP9b1yM8eiUQVnqrbzR8C5KWJiM8JhaBcg==;")
     }
 
     #[test]

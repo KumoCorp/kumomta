@@ -1,5 +1,5 @@
-use indexmap::set::IndexSet;
-use mailparse::MailHeaderMap;
+use std::collections::HashMap;
+
 use slog::debug;
 
 use crate::canonicalization::{
@@ -68,20 +68,34 @@ pub(crate) fn compute_body_hash<'a>(
 }
 
 fn select_headers<'a, 'b>(
-    headers: &'b str,
+    dkim_header: &'b str,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<Vec<(String, &'a [u8])>, DKIMError> {
     let mut signed_headers = vec![];
 
-    // Transform the header list into a ordered set to deduplicate the headers
-    // while precerving the order
-    let headers: IndexSet<&str> = IndexSet::from_iter(headers.split(":"));
+    let email_headers = &email.headers;
+    let num_headers = email_headers.len();
+    let mut last_index: HashMap<String, usize> = HashMap::new();
 
-    for name in headers {
-        let name = name.trim();
-        if let Some(header) = email.headers.get_first_header(name) {
-            signed_headers.push((name.to_owned(), header.get_value_raw()));
+    'outer: for name in dkim_header
+        .split(":")
+        .map(|h| h.trim().to_ascii_lowercase())
+    {
+        let index = last_index.get(&name).unwrap_or(&num_headers);
+        for header in email_headers
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(num_headers - index)
+        {
+            if header.1.get_key_ref().eq_ignore_ascii_case(&name) {
+                signed_headers.push((header.1.get_key(), header.1.get_value_raw()));
+                last_index.insert(name, header.0);
+                continue 'outer;
+            }
         }
+
+        last_index.insert(name, 0);
     }
 
     Ok(signed_headers)
@@ -395,6 +409,38 @@ Hello Alice
         assert_eq!(
             String::from_utf8_lossy(&get_body(&email).unwrap()),
             "Content\n.hi\n.hello..".to_owned()
+        );
+    }
+
+    #[test]
+    fn test_select_headers() {
+        let dkim_headers1 = ["from", "subject", "to", "from"].join(":");
+        let email1 = mailparse::parse_mail(
+            b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
+        )
+        .unwrap();
+
+        let result1 = select_headers(&dkim_headers1, &email1).unwrap();
+        assert_eq!(
+            result1,
+            vec![
+                ("from".to_owned(), &b"baz"[..]),
+                ("subject".to_owned(), &b"boring"[..]),
+                ("from".to_owned(), &b"biz"[..]),
+            ]
+        );
+
+        let dkim_headers2 = ["from", "subject", "to", "from"].join(":");
+        let email2 =
+            mailparse::parse_mail(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest").unwrap();
+
+        let result2 = select_headers(&dkim_headers2, &email2).unwrap();
+        assert_eq!(
+            result2,
+            vec![
+                ("From".to_owned(), &b"biz"[..]),
+                ("Subject".to_owned(), &b"Boring"[..]),
+            ]
         );
     }
 }
