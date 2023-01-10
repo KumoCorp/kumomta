@@ -27,5 +27,5 @@ slog = "2.7.0"
 indexmap = "1.8.0"
 
 [dev-dependencies]
-tokio = { version = "1.14.0", features = ["macros"] }
+tokio = { version = "1.20.3", features = ["macros"] }
 regex = "1"
