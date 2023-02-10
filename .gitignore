@@ -1,0 +1,10 @@
+.DS_Store
+dhat-heap.json
+/docs/_site
+/pkg
+/target/
+/gh_pages/
+**/*.rs.bk
+.*.sw*
+/perf.data*
+.idea/
