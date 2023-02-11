@@ -1,9 +1,13 @@
-use anyhow::{Context, Result};
-use clap::{Parser, ValueEnum, ValueHint};
-use tokio::net::{TcpListener, TcpStream};
-use tracing::{event, instrument, Level};
+use anyhow::Context;
+use clap::Parser;
+use tokio::net::TcpListener;
+use tracing::error;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
+
+mod smtp_server;
+
+use crate::smtp_server::SmtpServer;
 
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
@@ -32,24 +36,9 @@ async fn main() -> anyhow::Result<()> {
         // The second item contains the IP and port of the new connection.
         let (socket, _) = listener.accept().await?;
         tokio::spawn(async move {
-            process(socket).await;
+            if let Err(err) = SmtpServer::run(socket).await {
+                error!("Error in SmtpServer: {err:#}");
+            }
         });
     }
-}
-
-#[instrument(
-    skip(socket),
-    fields(
-        addr=%socket.local_addr().unwrap(),
-        peer_addr=%socket.peer_addr().unwrap()
-    )
-)]
-async fn process(socket: TcpStream) {
-    println!("Do something with client here");
-    inner().await;
-}
-
-#[instrument]
-async fn inner() {
-    event!(Level::TRACE, "I am inner");
 }
