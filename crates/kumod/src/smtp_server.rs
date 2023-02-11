@@ -35,7 +35,7 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
         server.process().await
     }
 
-    async fn write_message<S: AsRef<str>>(
+    async fn write_response<S: AsRef<str>>(
         &mut self,
         status: u16,
         message: S,
@@ -59,7 +59,7 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
 
     #[instrument]
     async fn process(&mut self) -> anyhow::Result<()> {
-        self.write_message(220, "mail.example.com KumoMTA\nW00t!\nYeah!")
+        self.write_response(220, "mail.example.com KumoMTA\nW00t!\nYeah!")
             .await?;
         loop {
             let line = self.read_line().await?;
@@ -67,32 +67,35 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
 
             match Command::parse(line) {
                 Err(err) => {
-                    self.write_message(501, format!("Syntax error in command or arguments: {err}"))
-                        .await?;
+                    self.write_response(
+                        501,
+                        format!("Syntax error in command or arguments: {err}"),
+                    )
+                    .await?;
                 }
                 Ok(Command::Quit) => {
-                    self.write_message(221, "So long, and thanks for all the fish!")
+                    self.write_response(221, "So long, and thanks for all the fish!")
                         .await?;
                     return Ok(());
                 }
                 Ok(Command::Ehlo(domain)) => {
                     // TODO: we are supposed to report extension commands in our EHLO
                     // response, but we don't have any yet.
-                    self.write_message(250, format!("mail.example.com Hello {domain}"))
+                    self.write_response(250, format!("mail.example.com Hello {domain}"))
                         .await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
-                    self.write_message(250, format!("Hello {domain}!")).await?;
+                    self.write_response(250, format!("Hello {domain}!")).await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Mail(address)) => {
                     if self.state.is_some() {
-                        self.write_message(503, "MAIL FROM already issued; you must RSET first")
+                        self.write_response(503, "MAIL FROM already issued; you must RSET first")
                             .await?;
                         continue;
                     }
-                    self.write_message(250, format!("OK {address:?}")).await?;
+                    self.write_response(250, format!("OK {address:?}")).await?;
                     self.state.replace(TransactionState {
                         sender: address,
                         recipients: vec![],
@@ -101,11 +104,11 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                 }
                 Ok(Command::Rcpt(address)) => {
                     if self.state.is_none() {
-                        self.write_message(503, "MAIL FROM must be issued first")
+                        self.write_response(503, "MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
-                    self.write_message(250, format!("OK {address:?}")).await?;
+                    self.write_response(250, format!("OK {address:?}")).await?;
                     self.state
                         .as_mut()
                         .expect("checked state above")
@@ -114,7 +117,7 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                 }
                 Ok(Command::Data) => {
                     if self.state.is_none() {
-                        self.write_message(503, "MAIL FROM must be issued first")
+                        self.write_response(503, "MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
@@ -124,11 +127,11 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                         .map(|s| s.recipients.is_empty())
                         .unwrap_or(true)
                     {
-                        self.write_message(503, "RCPT TO must be issued first")
+                        self.write_response(503, "RCPT TO must be issued first")
                             .await?;
                         continue;
                     }
-                    self.write_message(354, "Send body; end with CRLF.CRLF")
+                    self.write_response(354, "Send body; end with CRLF.CRLF")
                         .await?;
 
                     let mut data = vec![];
@@ -152,18 +155,18 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
 
                     tracing::trace!(?self.state);
 
-                    self.write_message(250, "OK TODO: insert queueid here")
+                    self.write_response(250, "OK TODO: insert queueid here")
                         .await?;
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
-                    self.write_message(250, "Reset state").await?;
+                    self.write_response(250, "Reset state").await?;
                 }
                 Ok(Command::Noop) => {
-                    self.write_message(250, "the goggles do nothing").await?;
+                    self.write_response(250, "the goggles do nothing").await?;
                 }
                 Ok(Command::Unknown(cmd)) => {
-                    self.write_message(502, format!("Command unrecognized/unimplemented: {cmd}"))
+                    self.write_response(502, format!("Command unrecognized/unimplemented: {cmd}"))
                         .await?;
                 }
             }
