@@ -8,7 +8,7 @@ pub struct EnvelopeAddress(String);
 impl EnvelopeAddress {
     pub fn parse(text: &str) -> anyhow::Result<Self> {
         if text.is_empty() {
-            Ok(Self("".to_string()))
+            Ok(Self::null_sender())
         } else {
             let fields: Vec<&str> = text.split('@').collect();
             anyhow::ensure!(fields.len() == 2, "expected user@domain");
@@ -29,6 +29,10 @@ impl EnvelopeAddress {
             Some(at) => &self.0[at + 1..],
             None => "",
         }
+    }
+
+    pub fn null_sender() -> Self {
+        Self("".to_string())
     }
 }
 

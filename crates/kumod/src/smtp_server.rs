@@ -303,14 +303,11 @@ mod test {
         );
         assert_equal!(
             Command::parse("MAIL From:<>").unwrap(),
-            Command::Mail(EnvelopeAddress::Null)
+            Command::Mail(EnvelopeAddress::null_sender())
         );
         assert_equal!(
             Command::parse("MAIL From:<user@example.com>").unwrap(),
-            Command::Mail(EnvelopeAddress::Mailbox {
-                user: "user".to_string(),
-                domain: "example.com".to_string()
-            })
+            Command::Mail(EnvelopeAddress::parse("user@example.com").unwrap())
         );
         assert_equal!(
             Command::parse("rcpt to:<>").unwrap_err().to_string(),
@@ -318,10 +315,7 @@ mod test {
         );
         assert_equal!(
             Command::parse("rcpt TO:<user@example.com>").unwrap(),
-            Command::Rcpt(EnvelopeAddress::Mailbox {
-                user: "user".to_string(),
-                domain: "example.com".to_string()
-            })
+            Command::Rcpt(EnvelopeAddress::parse("user@example.com").unwrap())
         );
     }
 }

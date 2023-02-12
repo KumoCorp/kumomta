@@ -1,5 +1,5 @@
 pub mod address;
 pub mod message;
 
-pub use address::EnvelopeAddress;
-pub use message::Message;
+pub use crate::address::EnvelopeAddress;
+pub use crate::message::Message;
