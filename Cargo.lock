@@ -219,6 +219,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
 
 [[package]]
+name = "hierarchical_hash_wheel_timer"
+version = "1.1.0"
+source = "git+https://github.com/wez/rust-hash-wheel-timer.git?branch=dont_panic#3c7ec31e550ce50b0feedee2edee09669138b1f5"
+dependencies = [
+ "rustc-hash",
+]
+
+[[package]]
 name = "io-lifetimes"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -696,6 +704,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "timeq"
+version = "0.1.0"
+dependencies = [
+ "hierarchical_hash_wheel_timer",
 ]
 
 [[package]]

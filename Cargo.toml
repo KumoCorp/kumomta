@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/kumod",
+  "crates/timeq",
 ]
 resolver = "2"
 
