@@ -146,7 +146,8 @@ impl Spool for LocalDiskSpool {
         let data_dir = self.path.join("data");
         Ok(tokio::task::spawn_blocking(move || {
             Self::cleanup_data(&data_dir);
-        }).await?)
+        })
+        .await?)
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::lua_config::{load_config, LuaConfig};
 use anyhow::anyhow;
-use mlua::{LuaSerdeExt, MetaMethod, UserData, UserDataFields, UserDataMethods};
+use message::EnvelopeAddress;
+use mlua::{LuaSerdeExt, UserData, UserDataFields, UserDataMethods};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use tokio::io::{
@@ -254,48 +255,6 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                 }
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum EnvelopeAddress {
-    Null,
-    Mailbox { user: String, domain: String },
-}
-
-impl EnvelopeAddress {
-    fn parse(text: &str) -> anyhow::Result<Self> {
-        if text.is_empty() {
-            Ok(Self::Null)
-        } else {
-            let fields: Vec<&str> = text.split('@').collect();
-            anyhow::ensure!(fields.len() == 2, "expected user@domain");
-            // TODO: stronger validation of local part and domain
-            Ok(Self::Mailbox {
-                user: fields[0].to_string(),
-                domain: fields[1].to_string(),
-            })
-        }
-    }
-}
-
-impl UserData for EnvelopeAddress {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("user", |_, this| match this {
-            EnvelopeAddress::Null => Ok(None),
-            EnvelopeAddress::Mailbox { user, .. } => Ok(Some(user.to_string())),
-        });
-        fields.add_field_method_get("domain", |_, this| match this {
-            EnvelopeAddress::Null => Ok(None),
-            EnvelopeAddress::Mailbox { domain, .. } => Ok(Some(domain.to_string())),
-        });
-    }
-
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| match this {
-            EnvelopeAddress::Null => Ok("".to_string()),
-            EnvelopeAddress::Mailbox { user, domain } => Ok(format!("{user}@{domain}")),
-        });
     }
 }
 
