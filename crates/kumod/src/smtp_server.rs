@@ -1,9 +1,13 @@
+use crate::lua_config::{load_config, LuaConfig};
+use anyhow::anyhow;
+use mlua::{LuaSerdeExt, MetaMethod, UserData, UserDataFields, UserDataMethods};
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex};
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, ReadHalf,
     WriteHalf,
 };
-use tracing::instrument;
+use tracing::{error, instrument};
 
 #[derive(Debug)]
 pub struct SmtpServer<T> {
@@ -11,6 +15,7 @@ pub struct SmtpServer<T> {
     writer: BufWriter<WriteHalf<T>>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
+    config: LuaConfig,
 }
 
 #[derive(Debug)]
@@ -18,11 +23,55 @@ struct TransactionState {
     sender: EnvelopeAddress,
     recipients: Vec<EnvelopeAddress>,
     data: Vec<u8>,
+    meta: serde_json::Value,
 }
 
-impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
-    #[instrument]
+#[derive(Clone)]
+struct WrappedTransactionState {
+    state: Arc<Mutex<TransactionState>>,
+}
+
+impl UserData for WrappedTransactionState {
+    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("sender", |_, this| {
+            Ok(this.state.lock().unwrap().sender.clone())
+        });
+        fields.add_field_method_get("recipients", |_, this| {
+            Ok(this.state.lock().unwrap().recipients.clone())
+        });
+    }
+
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method(
+            "meta_set",
+            |_, this, (name, value): (String, mlua::Value)| {
+                let mut state = this.state.lock().unwrap();
+                let value = serde_json::value::to_value(value)
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+                match &mut state.meta {
+                    serde_json::Value::Object(map) => {
+                        map.insert(name, value);
+                        Ok(())
+                    }
+                    _ => Err(mlua::Error::external(
+                        "metadata is not a json object".to_string(),
+                    )),
+                }
+            },
+        );
+        methods.add_method("meta_get", |lua, this, name: String| {
+            let state = this.state.lock().unwrap();
+            match state.meta.get(name) {
+                Some(value) => Ok(Some(lua.to_value(value)?)),
+                None => Ok(None),
+            }
+        });
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
     pub async fn run(socket: T) -> anyhow::Result<()> {
+        let config = load_config().await?;
         let (reader, writer) = tokio::io::split(socket);
         let reader = tokio::io::BufReader::new(reader);
         let writer = tokio::io::BufWriter::new(writer);
@@ -31,8 +80,19 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
             writer,
             state: None,
             said_hello: None,
+            config,
         };
-        server.process().await
+
+        tokio::spawn(async move {
+            if let Err(err) = server.process().await {
+                error!("Error in SmtpServer: {err:#}");
+                server
+                    .write_response(421, "technical difficulties")
+                    .await
+                    .ok();
+            }
+        });
+        Ok(())
     }
 
     async fn write_response<S: AsRef<str>>(
@@ -57,7 +117,7 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
         Ok(line)
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
         self.write_response(220, "mail.example.com KumoMTA\nW00t!\nYeah!")
             .await?;
@@ -81,11 +141,17 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                 Ok(Command::Ehlo(domain)) => {
                     // TODO: we are supposed to report extension commands in our EHLO
                     // response, but we don't have any yet.
+
+                    self.config
+                        .call_callback("smtp_server_ehlo", domain.clone())?;
+
                     self.write_response(250, format!("mail.example.com Hello {domain}"))
                         .await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
+                    self.config
+                        .call_callback("smtp_server_ehlo", domain.clone())?;
                     self.write_response(250, format!("Hello {domain}!")).await?;
                     self.said_hello.replace(domain);
                 }
@@ -95,12 +161,15 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                             .await?;
                         continue;
                     }
-                    self.write_response(250, format!("OK {address:?}")).await?;
+                    self.config
+                        .call_callback("smtp_server_mail_from", address.clone())?;
                     self.state.replace(TransactionState {
-                        sender: address,
+                        sender: address.clone(),
                         recipients: vec![],
                         data: vec![],
+                        meta: serde_json::json!({}),
                     });
+                    self.write_response(250, format!("OK {address:?}")).await?;
                 }
                 Ok(Command::Rcpt(address)) => {
                     if self.state.is_none() {
@@ -108,6 +177,8 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                             .await?;
                         continue;
                     }
+                    self.config
+                        .call_callback("smtp_server_mail_rcpt_to", address.clone())?;
                     self.write_response(250, format!("OK {address:?}")).await?;
                     self.state
                         .as_mut()
@@ -151,9 +222,21 @@ impl<T: AsyncRead + AsyncWrite + Debug> SmtpServer<T> {
                         data.extend_from_slice(line.as_bytes());
                     }
 
-                    self.state.as_mut().map(|state| state.data = data);
+                    let mut state = self
+                        .state
+                        .take()
+                        .ok_or_else(|| anyhow!("transaction state is impossibly not set!?"))?;
 
-                    tracing::trace!(?self.state);
+                    state.data = data;
+
+                    tracing::trace!(?state);
+
+                    let state = WrappedTransactionState {
+                        state: Arc::new(Mutex::new(state)),
+                    };
+
+                    self.config
+                        .call_callback("smtp_server_message_received", state.clone())?;
 
                     self.write_response(250, "OK TODO: insert queueid here")
                         .await?;
@@ -193,6 +276,26 @@ impl EnvelopeAddress {
                 domain: fields[1].to_string(),
             })
         }
+    }
+}
+
+impl UserData for EnvelopeAddress {
+    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("user", |_, this| match this {
+            EnvelopeAddress::Null => Ok(None),
+            EnvelopeAddress::Mailbox { user, .. } => Ok(Some(user.to_string())),
+        });
+        fields.add_field_method_get("domain", |_, this| match this {
+            EnvelopeAddress::Null => Ok(None),
+            EnvelopeAddress::Mailbox { domain, .. } => Ok(Some(domain.to_string())),
+        });
+    }
+
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| match this {
+            EnvelopeAddress::Null => Ok("".to_string()),
+            EnvelopeAddress::Mailbox { user, domain } => Ok(format!("{user}@{domain}")),
+        });
     }
 }
 
