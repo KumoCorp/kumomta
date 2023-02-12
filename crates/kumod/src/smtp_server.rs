@@ -1,9 +1,7 @@
 use crate::lua_config::{load_config, LuaConfig};
 use anyhow::anyhow;
-use message::EnvelopeAddress;
-use mlua::{LuaSerdeExt, UserData, UserDataFields, UserDataMethods};
+use message::{EnvelopeAddress, Message};
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, ReadHalf,
     WriteHalf,
@@ -25,49 +23,6 @@ struct TransactionState {
     recipients: Vec<EnvelopeAddress>,
     data: Vec<u8>,
     meta: serde_json::Value,
-}
-
-#[derive(Clone)]
-struct WrappedTransactionState {
-    state: Arc<Mutex<TransactionState>>,
-}
-
-impl UserData for WrappedTransactionState {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
-        fields.add_field_method_get("sender", |_, this| {
-            Ok(this.state.lock().unwrap().sender.clone())
-        });
-        fields.add_field_method_get("recipients", |_, this| {
-            Ok(this.state.lock().unwrap().recipients.clone())
-        });
-    }
-
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method(
-            "meta_set",
-            |_, this, (name, value): (String, mlua::Value)| {
-                let mut state = this.state.lock().unwrap();
-                let value = serde_json::value::to_value(value)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-                match &mut state.meta {
-                    serde_json::Value::Object(map) => {
-                        map.insert(name, value);
-                        Ok(())
-                    }
-                    _ => Err(mlua::Error::external(
-                        "metadata is not a json object".to_string(),
-                    )),
-                }
-            },
-        );
-        methods.add_method("meta_get", |lua, this, name: String| {
-            let state = this.state.lock().unwrap();
-            match state.meta.get(name) {
-                Some(value) => Ok(Some(lua.to_value(value)?)),
-                None => Ok(None),
-            }
-        });
-    }
 }
 
 impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
@@ -232,15 +187,23 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
 
                     tracing::trace!(?state);
 
-                    let state = WrappedTransactionState {
-                        state: Arc::new(Mutex::new(state)),
-                    };
+                    let mut ids = vec![];
+                    for recip in state.recipients {
+                        let message = Message::new_dirty(
+                            state.sender.clone(),
+                            recip,
+                            state.meta.clone(),
+                            state.data.clone(),
+                        )?;
 
-                    self.config
-                        .call_callback("smtp_server_message_received", state.clone())?;
+                        ids.push(message.id().await.to_string());
 
-                    self.write_response(250, "OK TODO: insert queueid here")
-                        .await?;
+                        self.config
+                            .call_callback("smtp_server_message_received", message.clone())?;
+                    }
+
+                    let ids = ids.join(" ");
+                    self.write_response(250, format!("OK ids={ids}")).await?;
                 }
                 Ok(Command::Rset) => {
                     self.state.take();

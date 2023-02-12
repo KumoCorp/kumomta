@@ -14,10 +14,10 @@ on("smtp_server_mail_rcpt_to", function(rcpt)
 end)
 
 -- Called once the body has been received
-on("smtp_server_message_received", function(state)
-  print("sender", tostring(state.sender))
+on("smtp_server_message_received", function(msg)
+  print("id", msg:id(), "sender", tostring(msg:sender()))
 
   -- set/get metadata fields
-  state:meta_set("foo", "bar")
-  print("meta foo is", state:meta_get("foo"))
+  msg:set_meta("foo", "bar")
+  print("meta foo is", msg:get_meta("foo"))
 end)
