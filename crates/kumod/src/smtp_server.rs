@@ -1,4 +1,5 @@
 use crate::lua_config::{load_config, LuaConfig};
+use crate::queue::QueueManager;
 use anyhow::anyhow;
 use message::{EnvelopeAddress, Message};
 use std::fmt::Debug;
@@ -203,9 +204,10 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                         messages.push(message);
                     }
 
+                    let mut queue_manager = QueueManager::get().await;
                     for msg in messages {
                         let domain = msg.recipient()?.domain().to_string();
-                        crate::queue::QueueManager::get().insert(&domain, msg);
+                        queue_manager.insert(&domain, msg).await?;
                     }
 
                     let ids = ids.join(" ");

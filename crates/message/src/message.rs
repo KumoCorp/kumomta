@@ -88,6 +88,11 @@ impl Message {
         inner.due
     }
 
+    pub fn delay_by(&self, duration: Duration) {
+        let due = Utc::now() + chrono::Duration::milliseconds(duration.as_millis() as _);
+        self.set_due(Some(due));
+    }
+
     pub fn set_due(&self, due: Option<DateTime<Utc>>) {
         let mut inner = self.inner.lock().unwrap();
         inner.due = due;

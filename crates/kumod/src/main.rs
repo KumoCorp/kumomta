@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
+mod dest_site;
 mod lua_config;
 mod mod_kumo;
 mod queue;
