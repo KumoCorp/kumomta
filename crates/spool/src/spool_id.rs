@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SpoolId(Uuid);
 
 impl std::fmt::Display for SpoolId {

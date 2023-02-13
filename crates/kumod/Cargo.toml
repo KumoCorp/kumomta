@@ -14,6 +14,7 @@ serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 message = {path="../message"}
 spool = {path="../spool"}
+timeq = {path="../timeq"}
 tokio = {version="1.25", features=["full"]}
 tracing = "0.1"
 tracing-subscriber = {version="0.3", features=["env-filter"]}

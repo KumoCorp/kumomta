@@ -2,6 +2,7 @@ use crate::lua_config::{load_config, LuaConfig};
 use anyhow::anyhow;
 use message::{EnvelopeAddress, Message};
 use std::fmt::Debug;
+use std::sync::Arc;
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, ReadHalf,
     WriteHalf,
@@ -21,7 +22,6 @@ pub struct SmtpServer<T> {
 struct TransactionState {
     sender: EnvelopeAddress,
     recipients: Vec<EnvelopeAddress>,
-    data: Vec<u8>,
     meta: serde_json::Value,
 }
 
@@ -122,7 +122,6 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.state.replace(TransactionState {
                         sender: address.clone(),
                         recipients: vec![],
-                        data: vec![],
                         meta: serde_json::json!({}),
                     });
                     self.write_response(250, format!("OK {address:?}")).await?;
@@ -178,14 +177,14 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                         data.extend_from_slice(line.as_bytes());
                     }
 
-                    let mut state = self
+                    let state = self
                         .state
                         .take()
                         .ok_or_else(|| anyhow!("transaction state is impossibly not set!?"))?;
 
-                    state.data = data;
-
                     tracing::trace!(?state);
+
+                    let data = Arc::new(data.into_boxed_slice());
 
                     let mut ids = vec![];
                     for recip in state.recipients {
@@ -193,10 +192,10 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             state.sender.clone(),
                             recip,
                             state.meta.clone(),
-                            state.data.clone(),
+                            Arc::clone(&data),
                         )?;
 
-                        ids.push(message.id().await.to_string());
+                        ids.push(message.id().to_string());
 
                         self.config
                             .call_callback("smtp_server_message_received", message.clone())?;

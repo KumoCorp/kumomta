@@ -1,10 +1,11 @@
-use hierarchical_hash_wheel_timer::wheels::cancellable::{
-    CancellableTimerEntry, QuadWheelWithOverflow,
-};
-use hierarchical_hash_wheel_timer::wheels::{Skip, TimerEntryWithDelay};
+use hierarchical_hash_wheel_timer::wheels::cancellable::QuadWheelWithOverflow;
+use hierarchical_hash_wheel_timer::wheels::Skip;
 use hierarchical_hash_wheel_timer::TimerError;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+pub use hierarchical_hash_wheel_timer::wheels::cancellable::CancellableTimerEntry;
+pub use hierarchical_hash_wheel_timer::wheels::TimerEntryWithDelay;
 
 /// A TimeQ is a queue datastructure where the contained items are time
 /// ordered.

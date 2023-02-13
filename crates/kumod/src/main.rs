@@ -5,6 +5,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 mod lua_config;
 mod mod_kumo;
+mod queue;
 mod smtp_server;
 
 #[derive(Debug, Parser)]
