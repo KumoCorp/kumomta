@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mlua::{Function, Lua, ToLuaMulti};
+use mlua::{Lua, Table, ToLuaMulti, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -25,14 +25,7 @@ fn get_policy_path() -> Option<PathBuf> {
 pub async fn load_config() -> anyhow::Result<LuaConfig> {
     let lua = Lua::new();
 
-    lua.globals().set(
-        "on",
-        lua.create_function(move |lua, (name, func): (String, Function)| {
-            let decorated_name = format!("kumomta-on-{}", name);
-            lua.set_named_registry_value(&decorated_name, func)?;
-            Ok(())
-        })?,
-    )?;
+    crate::mod_kumo::register(&lua)?;
 
     if let Some(policy) = get_policy_path() {
         let code = tokio::fs::read_to_string(&policy)
@@ -99,5 +92,47 @@ impl LuaConfig {
             }
             _ => Ok(()),
         }
+    }
+}
+
+pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<mlua::Table<'lua>> {
+    let globals = lua.globals();
+    let package: Table = globals.get("package")?;
+    let loaded: Table = package.get("loaded")?;
+
+    let module = loaded.get(name)?;
+    match module {
+        Value::Nil => {
+            let module = lua.create_table()?;
+            loaded.set(name, module.clone())?;
+            Ok(module)
+        }
+        Value::Table(table) => Ok(table),
+        wat => anyhow::bail!(
+            "cannot register module {} as package.loaded.{} is already set to a value of type {}",
+            name,
+            name,
+            wat.type_name()
+        ),
+    }
+}
+
+pub fn get_or_create_sub_module<'lua>(
+    lua: &'lua Lua,
+    name: &str,
+) -> anyhow::Result<mlua::Table<'lua>> {
+    let kumo_mod = get_or_create_module(lua, "kumo")?;
+    let sub = kumo_mod.get(name)?;
+    match sub {
+        Value::Nil => {
+            let sub = lua.create_table()?;
+            kumo_mod.set(name, sub.clone())?;
+            Ok(sub)
+        }
+        Value::Table(sub) => Ok(sub),
+        wat => anyhow::bail!(
+            "cannot register module kumo.{name} as it is already set to a value of type {}",
+            wat.type_name()
+        ),
     }
 }

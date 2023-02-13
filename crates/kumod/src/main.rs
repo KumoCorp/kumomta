@@ -1,15 +1,11 @@
-use anyhow::Context;
 use clap::Parser;
 use std::path::PathBuf;
-use tokio::net::TcpListener;
-use tracing::error;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod lua_config;
+mod mod_kumo;
 mod smtp_server;
-
-use crate::smtp_server::SmtpServer;
 
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
@@ -36,17 +32,10 @@ async fn main() -> anyhow::Result<()> {
         lua_config::set_policy_path(policy).await?;
     }
 
-    let listener = TcpListener::bind(&opts.listen)
-        .await
-        .with_context(|| format!("failed to bind to {}", opts.listen))?;
+    let mut config = lua_config::load_config().await?;
+    config.async_call_callback("init", ()).await?;
 
-    println!("Listening on {}", opts.listen);
+    tokio::signal::ctrl_c().await?;
 
-    loop {
-        // The second item contains the IP and port of the new connection.
-        let (socket, _) = listener.accept().await?;
-        if let Err(err) = SmtpServer::run(socket).await {
-            error!("Error in SmtpServer: {err:#}");
-        }
-    }
+    Ok(())
 }
