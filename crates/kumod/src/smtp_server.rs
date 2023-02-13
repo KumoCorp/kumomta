@@ -187,6 +187,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     let data = Arc::new(data.into_boxed_slice());
 
                     let mut ids = vec![];
+                    let mut messages = vec![];
                     for recip in state.recipients {
                         let message = Message::new_dirty(
                             state.sender.clone(),
@@ -195,10 +196,16 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             Arc::clone(&data),
                         )?;
 
-                        ids.push(message.id().to_string());
-
                         self.config
                             .call_callback("smtp_server_message_received", message.clone())?;
+
+                        ids.push(message.id().to_string());
+                        messages.push(message);
+                    }
+
+                    for msg in messages {
+                        let domain = msg.recipient()?.domain().to_string();
+                        crate::queue::QueueManager::get().insert(&domain, msg);
                     }
 
                     let ids = ids.join(" ");

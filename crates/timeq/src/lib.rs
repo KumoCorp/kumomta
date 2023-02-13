@@ -1,11 +1,14 @@
-use hierarchical_hash_wheel_timer::wheels::cancellable::QuadWheelWithOverflow;
 use hierarchical_hash_wheel_timer::wheels::Skip;
-use hierarchical_hash_wheel_timer::TimerError;
-use std::rc::Rc;
+pub use hierarchical_hash_wheel_timer::TimerError;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub use hierarchical_hash_wheel_timer::wheels::cancellable::CancellableTimerEntry;
 pub use hierarchical_hash_wheel_timer::wheels::TimerEntryWithDelay;
+
+mod cancellable;
+
+pub use crate::cancellable::QuadWheelWithOverflow;
 
 /// A TimeQ is a queue datastructure where the contained items are time
 /// ordered.
@@ -22,7 +25,7 @@ pub struct TimeQ<EntryType: CancellableTimerEntry + TimerEntryWithDelay> {
 #[must_use]
 pub enum PopResult<EntryType> {
     /// These items are ready for immediate action
-    Items(Vec<Rc<EntryType>>),
+    Items(Vec<Arc<EntryType>>),
     /// No items will be ready for the specified duration
     Sleep(Duration),
     /// The queue is empty
@@ -56,7 +59,7 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
     }
 
     /// Insert a new entry
-    pub fn insert(&mut self, entry: Rc<EntryType>) -> Result<(), TimerError<Rc<EntryType>>> {
+    pub fn insert(&mut self, entry: Arc<EntryType>) -> Result<(), TimerError<Arc<EntryType>>> {
         self.wheel.insert_ref(entry)?;
         self.len += 1;
         Ok(())
@@ -95,7 +98,7 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
 
     /// Drains the entire contents of the queue, returning all of the
     /// contained items
-    pub fn drain(&mut self) -> Vec<Rc<EntryType>> {
+    pub fn drain(&mut self) -> Vec<Arc<EntryType>> {
         let mut items = vec![];
         loop {
             match self.wheel.can_skip() {
@@ -143,26 +146,26 @@ mod tests {
 
     #[test]
     fn draining() {
-        let item1 = Rc::new(Entry {
+        let item1 = Arc::new(Entry {
             id: 1,
             value: "foo",
             delay: Duration::from_millis(1),
         });
-        let item2 = Rc::new(Entry {
+        let item2 = Arc::new(Entry {
             id: 2,
             value: "bar",
             delay: Duration::from_millis(10),
         });
-        let item3 = Rc::new(Entry {
+        let item3 = Arc::new(Entry {
             id: 3,
             value: "baz",
             delay: Duration::from_millis(5),
         });
 
         let mut queue = TimeQ::new();
-        queue.insert(Rc::clone(&item1)).unwrap();
-        queue.insert(Rc::clone(&item2)).unwrap();
-        queue.insert(Rc::clone(&item3)).unwrap();
+        queue.insert(Arc::clone(&item1)).unwrap();
+        queue.insert(Arc::clone(&item2)).unwrap();
+        queue.insert(Arc::clone(&item3)).unwrap();
 
         let items = queue.drain();
         assert_eq!(queue.len(), 0);
@@ -172,26 +175,26 @@ mod tests {
 
     #[test]
     fn cancel() {
-        let item1 = Rc::new(Entry {
+        let item1 = Arc::new(Entry {
             id: 1,
             value: "foo",
             delay: Duration::from_millis(1),
         });
-        let item2 = Rc::new(Entry {
+        let item2 = Arc::new(Entry {
             id: 2,
             value: "bar",
             delay: Duration::from_millis(10),
         });
-        let item3 = Rc::new(Entry {
+        let item3 = Arc::new(Entry {
             id: 3,
             value: "baz",
             delay: Duration::from_millis(5),
         });
 
         let mut queue = TimeQ::new();
-        queue.insert(Rc::clone(&item1)).unwrap();
-        queue.insert(Rc::clone(&item2)).unwrap();
-        queue.insert(Rc::clone(&item3)).unwrap();
+        queue.insert(Arc::clone(&item1)).unwrap();
+        queue.insert(Arc::clone(&item2)).unwrap();
+        queue.insert(Arc::clone(&item3)).unwrap();
         queue.cancel_by_id(&item2.id).unwrap();
 
         let items = queue.drain();
@@ -204,25 +207,25 @@ mod tests {
     fn basic_queue() {
         let mut queue = TimeQ::new();
 
-        let item1 = Rc::new(Entry {
+        let item1 = Arc::new(Entry {
             id: 1,
             value: "foo",
             delay: Duration::from_millis(1),
         });
-        let item2 = Rc::new(Entry {
+        let item2 = Arc::new(Entry {
             id: 2,
             value: "bar",
             delay: Duration::from_millis(10),
         });
-        let item3 = Rc::new(Entry {
+        let item3 = Arc::new(Entry {
             id: 3,
             value: "baz",
             delay: Duration::from_millis(5),
         });
 
-        queue.insert(Rc::clone(&item1)).unwrap();
-        queue.insert(Rc::clone(&item2)).unwrap();
-        queue.insert(Rc::clone(&item3)).unwrap();
+        queue.insert(Arc::clone(&item1)).unwrap();
+        queue.insert(Arc::clone(&item2)).unwrap();
+        queue.insert(Arc::clone(&item3)).unwrap();
 
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.is_empty(), false);
