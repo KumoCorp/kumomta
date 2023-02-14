@@ -1,10 +1,24 @@
-use mail_auth::{Resolver, MX};
+use crate::queue::QueueManager;
+use mail_auth::{IpLookupStrategy, Resolver, MX};
+use mail_send::smtp::message::Message as SendMessage;
+use mail_send::smtp::AssertReply;
+use mail_send::SmtpClient;
 use message::Message;
 use ringbuf::{HeapRb, Rb};
+use rustls::client::WebPkiVerifier;
+use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
+use smtp_proto::Response;
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::watch::{Receiver, Sender};
-use tokio::sync::{Mutex, MutexGuard};
+use std::net::IpAddr;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpStream;
+use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::task::JoinHandle;
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::TlsConnector;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<SiteManager> = Mutex::new(SiteManager::new());
@@ -37,14 +51,14 @@ impl SiteManager {
         let mut manager = Self::get().await;
         let max_ready_items = 1024; // FIXME: configurable
         let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
-            let ready = HeapRb::new(max_ready_items);
-            let (tx, rx) = tokio::sync::watch::channel(());
+            let ready = Arc::new(StdMutex::new(HeapRb::new(max_ready_items)));
+            let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
                 name: name.clone(),
                 ready,
                 mx,
-                tx,
-                rx,
+                notify,
+                connections: vec![],
             })))
         });
         Ok(handle.clone())
@@ -63,9 +77,9 @@ impl SiteHandle {
 pub struct DestinationSite {
     name: String,
     mx: Arc<Vec<MX>>,
-    ready: HeapRb<Message>,
-    tx: Sender<()>,
-    rx: Receiver<()>,
+    ready: Arc<StdMutex<HeapRb<Message>>>,
+    notify: Arc<Notify>,
+    connections: Vec<JoinHandle<()>>,
 }
 
 impl DestinationSite {
@@ -74,18 +88,306 @@ impl DestinationSite {
     }
 
     pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
-        self.ready.push(msg)?;
-        self.tx.send(()).ok();
+        self.ready.lock().unwrap().push(msg)?;
+        self.notify.notify_waiters();
+        self.maintain();
+
         Ok(())
     }
 
     pub fn ready_count(&self) -> usize {
-        self.ready.len()
+        self.ready.lock().unwrap().len()
     }
 
     pub fn ideal_connection_count(&self) -> usize {
         let connection_limit = 32; // TODO: configurable
         ideal_connection_count(self.ready_count(), connection_limit)
+    }
+
+    pub fn maintain(&mut self) {
+        // Prune completed connection tasks
+        self.connections.retain(|handle| !handle.is_finished());
+
+        let ideal = self.ideal_connection_count();
+
+        for _ in self.connections.len()..ideal {
+            // Open a new connection
+            let name = self.name.clone();
+            let mx = self.mx.clone();
+            let ready = Arc::clone(&self.ready);
+            let notify = self.notify.clone();
+            self.connections.push(tokio::spawn(async move {
+                if let Err(err) = Dispatcher::run(&name, mx, ready, notify).await {
+                    tracing::error!("Error in dispatch_queue for {name}: {err:#}");
+                }
+            }));
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ResolvedAddress {
+    #[allow(dead_code)] // used when logging, but rust warns anyway
+    mx_host: String,
+    addr: IpAddr,
+}
+async fn resolve_addresses(mx: &Arc<Vec<MX>>) -> Vec<ResolvedAddress> {
+    let mut result = vec![];
+
+    for entry in mx.iter() {
+        for mx_host in entry.exchanges.iter() {
+            match RESOLVER
+                .lock()
+                .await
+                .ip_lookup(mx_host, IpLookupStrategy::default(), 32)
+                .await
+            {
+                Err(err) => {
+                    tracing::error!("failed to resolve {mx_host}: {err:#}");
+                    continue;
+                }
+                Ok(addresses) => {
+                    for addr in addresses {
+                        result.push(ResolvedAddress {
+                            mx_host: mx_host.to_string(),
+                            addr,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    result.reverse();
+    result
+}
+
+trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Unpin + Send {}
+impl AsyncReadAndWrite for TlsStream<TcpStream> {}
+impl AsyncReadAndWrite for TcpStream {}
+
+struct Dispatcher {
+    name: String,
+    ready: Arc<StdMutex<HeapRb<Message>>>,
+    notify: Arc<Notify>,
+    addresses: Vec<ResolvedAddress>,
+    msg: Option<Message>,
+    client: Option<SmtpClient<Box<dyn AsyncReadAndWrite>>>,
+    client_address: Option<ResolvedAddress>,
+    ehlo_name: String,
+}
+
+impl Dispatcher {
+    async fn run(
+        name: &str,
+        mx: Arc<Vec<MX>>,
+        ready: Arc<StdMutex<HeapRb<Message>>>,
+        notify: Arc<Notify>,
+    ) -> anyhow::Result<()> {
+        let ehlo_name = gethostname::gethostname()
+            .to_str()
+            .unwrap_or("[127.0.0.1]")
+            .to_string();
+
+        let addresses = resolve_addresses(&mx).await;
+        let mut dispatcher = Self {
+            name: name.to_string(),
+            ready,
+            notify,
+            msg: None,
+            client: None,
+            client_address: None,
+            addresses,
+            ehlo_name,
+        };
+
+        dispatcher.obtain_message();
+        if dispatcher.msg.is_none() {
+            // We raced with another dispatcher and there is no
+            // more work to be done; no need to open a new connection.
+            return Ok(());
+        }
+
+        loop {
+            if !dispatcher.wait_for_message().await? {
+                // No more messages within our idle time; we can close
+                // the connection
+                println!("{} Idling out", dispatcher.name);
+                return Ok(());
+            }
+            if let Err(err) = dispatcher.attempt_connection().await {
+                if dispatcher.addresses.is_empty() {
+                    return Err(err);
+                }
+                tracing::error!("{err:#}");
+                // Try the next candidate MX address
+                continue;
+            }
+            dispatcher.deliver_message().await?;
+        }
+    }
+
+    fn obtain_message(&mut self) -> bool {
+        if self.msg.is_some() {
+            return true;
+        }
+        self.msg = self.ready.lock().unwrap().pop();
+        self.msg.is_some()
+    }
+
+    async fn wait_for_message(&mut self) -> anyhow::Result<bool> {
+        if self.obtain_message() {
+            return Ok(true);
+        }
+
+        let idle_timeout = Duration::from_secs(60); // TODO: configurable
+        match tokio::time::timeout(idle_timeout, self.notify.notified()).await {
+            Ok(()) => {}
+            Err(_) => {}
+        }
+        Ok(self.obtain_message())
+    }
+
+    async fn attempt_connection(&mut self) -> anyhow::Result<()> {
+        if self.client.is_some() {
+            return Ok(());
+        }
+
+        let address = self
+            .addresses
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("no more addresses to try!"))?;
+
+        let timeout = Duration::from_secs(60);
+        let ehlo_name = self.ehlo_name.to_string();
+        let mx_host = address.mx_host.to_string();
+
+        let client: SmtpClient<Box<dyn AsyncReadAndWrite>> =
+            tokio::time::timeout(timeout, async move {
+                let mut client = SmtpClient {
+                    stream: TcpStream::connect((address.addr, 25)).await?,
+                    timeout,
+                };
+
+                // Read banner
+                client
+                    .read()
+                    .await
+                    .map_err(|err| anyhow::anyhow!("{err:#}"))?
+                    .assert_positive_completion()
+                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+
+                // Say EHLO
+                let response = client
+                    .ehlo(&ehlo_name)
+                    .await
+                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+
+                // Use STARTTLS if available.
+                // We need to do some type erasure because SmtpClient is either
+                // SmtpClient<TlsStream<TcpStream>> or SmtpClient<TcpStream>
+                // depending on whether TLS is used or not.
+                // We do a little dance to end up with SmtpClient<Box<dyn AsyncReadAndWrite>>>
+                // in both cases.
+                let boxed_stream: Box<dyn AsyncReadAndWrite> =
+                    if response.has_capability(smtp_proto::EXT_START_TLS) {
+                        let tls_connector = build_tls_connector();
+                        let SmtpClient { stream, timeout: _ } = client
+                            .start_tls(&tls_connector, &mx_host)
+                            .await
+                            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+                        let boxed: Box<dyn AsyncReadAndWrite> = Box::new(stream);
+                        boxed
+                    } else {
+                        let SmtpClient { stream, timeout: _ } = client;
+                        let boxed: Box<dyn AsyncReadAndWrite> = Box::new(stream);
+                        boxed
+                    };
+                Ok::<SmtpClient<Box<dyn AsyncReadAndWrite>>, anyhow::Error>(SmtpClient {
+                    stream: boxed_stream,
+                    timeout,
+                })
+            })
+            .await??;
+
+        self.client.replace(client);
+        self.client_address.replace(address);
+        Ok(())
+    }
+
+    async fn requeue_message(msg: Message) -> anyhow::Result<()> {
+        let mut queue_manager = QueueManager::get().await;
+        msg.delay_by(Duration::from_secs(60));
+        let domain = msg.recipient()?.domain().to_string();
+        queue_manager.insert(&domain, msg).await?;
+        Ok(())
+    }
+
+    async fn deliver_message(&mut self) -> anyhow::Result<()> {
+        let data;
+        let message = {
+            let msg = self.msg.as_ref().unwrap();
+            data = msg.get_data();
+
+            SendMessage::new(
+                msg.sender()?.to_string(),
+                [msg.recipient()?.to_string()],
+                Cow::Borrowed(&**data),
+            )
+        };
+
+        match self.client.as_mut().unwrap().send(message).await {
+            Err(mail_send::Error::UnexpectedReply(Response { code, esc, message }))
+                if code >= 400 && code < 500 =>
+            {
+                // Transient failure
+                if let Some(msg) = self.msg.take() {
+                    Self::requeue_message(msg).await?;
+                }
+                tracing::debug!(
+                    "failed to send message to {} {:?}: {code} {esc:?} {message}",
+                    self.name,
+                    self.client_address
+                );
+            }
+            Err(mail_send::Error::UnexpectedReply(Response { code, esc, message })) => {
+                tracing::error!(
+                    "failed to send message to {} {:?}: {code} {esc:?} {message}",
+                    self.name,
+                    self.client_address
+                );
+                // FIXME: log permanent failure
+                // FIXME: remove from spool
+                self.msg.take();
+            }
+            Err(err) => {
+                // Transient failure; continue with another host
+                tracing::error!(
+                    "failed to send message to {} {:?}: {err:#}",
+                    self.name,
+                    self.client_address
+                );
+            }
+            Ok(()) => {
+                // FIXME: log success
+                // FIXME: remove from spool
+                self.msg.take();
+                println!("Delivered OK!");
+            }
+        };
+        Ok(())
+    }
+}
+
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        // Ensure that we re-queue any message that we had popped
+        if let Some(msg) = self.msg.take() {
+            tokio::spawn(async move {
+                if let Err(err) = Dispatcher::requeue_message(msg).await {
+                    tracing::error!("error requeuing message: {err:#}");
+                }
+            });
+        }
     }
 }
 
@@ -168,6 +470,26 @@ fn factor_names(names: &[&str]) -> String {
     result.reverse();
 
     result.join(".")
+}
+
+pub fn build_tls_connector() -> TlsConnector {
+    let config = ClientConfig::builder().with_safe_defaults();
+
+    let mut root_cert_store = RootCertStore::empty();
+
+    root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+
+    let config = config
+        .with_custom_certificate_verifier(Arc::new(WebPkiVerifier::new(root_cert_store, None)))
+        .with_no_client_auth();
+
+    TlsConnector::from(Arc::new(config))
 }
 
 #[cfg(test)]

@@ -8,18 +8,24 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 clap = {version="4.1", features=["derive"]}
+gethostname = "0.4"
 lazy_static = "1.4"
+mail-auth = "0.3"
+mail-send = "0.3"
+message = {path="../message"}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+ringbuf = "0.3"
+rustls = "0.20"
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
-mail-auth = "0.3"
-message = {path="../message"}
-ringbuf = "0.3"
+smtp-proto = "0.1"
 spool = {path="../spool"}
 timeq = {path="../timeq"}
 tokio = {version="1.25", features=["full"]}
+tokio-rustls = "0.23"
 tracing = "0.1"
 tracing-subscriber = {version="0.3", features=["env-filter"]}
+webpki-roots = "0.22"
 
 [dev-dependencies]
 k9 = "0.11"

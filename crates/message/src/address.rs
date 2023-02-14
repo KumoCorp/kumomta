@@ -34,6 +34,10 @@ impl EnvelopeAddress {
     pub fn null_sender() -> Self {
         Self("".to_string())
     }
+
+    pub fn to_string(&self) -> String {
+        self.0.to_string()
+    }
 }
 
 impl UserData for EnvelopeAddress {

@@ -197,6 +197,11 @@ impl Message {
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
     }
 
+    pub fn get_data(&self) -> Arc<Box<[u8]>> {
+        let inner = self.inner.lock().unwrap();
+        inner.data.clone()
+    }
+
     pub fn set_meta<S: AsRef<str>, V: Into<serde_json::Value>>(
         &self,
         key: S,
