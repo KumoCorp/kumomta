@@ -814,6 +814,7 @@ dependencies = [
  "mail-auth",
  "message",
  "mlua",
+ "ringbuf",
  "serde",
  "serde_json",
  "spool",
@@ -1349,6 +1350,15 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "ringbuf"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93ca10b9c9e53ac855a2d6953bce34cef6edbac32c4b13047a4d59d67299420a"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]

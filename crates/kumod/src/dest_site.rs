@@ -1,9 +1,9 @@
 use mail_auth::{Resolver, MX};
 use message::Message;
+use ringbuf::{HeapRb, Rb};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::watch::{Receiver, Sender};
 use tokio::sync::{Mutex, MutexGuard};
 
 lazy_static::lazy_static! {
@@ -35,10 +35,13 @@ impl SiteManager {
         let name = factor_mx_list(&mx);
 
         let mut manager = Self::get().await;
+        let max_ready_items = 1024; // FIXME: configurable
         let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
-            let (tx, rx) = tokio::sync::mpsc::channel(1024 /* FIXME: configurable */);
+            let ready = HeapRb::new(max_ready_items);
+            let (tx, rx) = tokio::sync::watch::channel(());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
                 name: name.clone(),
+                ready,
                 mx,
                 tx,
                 rx,
@@ -60,8 +63,9 @@ impl SiteHandle {
 pub struct DestinationSite {
     name: String,
     mx: Arc<Vec<MX>>,
-    tx: Sender<Message>,
-    rx: Receiver<Message>,
+    ready: HeapRb<Message>,
+    tx: Sender<()>,
+    rx: Receiver<()>,
 }
 
 impl DestinationSite {
@@ -69,9 +73,30 @@ impl DestinationSite {
         &self.name
     }
 
-    pub fn insert(&self, msg: Message) -> Result<(), TrySendError<Message>> {
-        self.tx.try_send(msg)
+    pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
+        self.ready.push(msg)?;
+        self.tx.send(()).ok();
+        Ok(())
     }
+
+    pub fn ready_count(&self) -> usize {
+        self.ready.len()
+    }
+
+    pub fn ideal_connection_count(&self) -> usize {
+        let connection_limit = 32; // TODO: configurable
+        ideal_connection_count(self.ready_count(), connection_limit)
+    }
+}
+
+/// Use an exponential decay curve in the increasing form, asymptotic up to connection_limit,
+/// passes through 0.0, increasing but bounded to connection_limit.
+///
+/// Visualize on wolframalpha: "plot 32 * (1-exp(-x * 0.023)), x from 0 to 100, y from 0 to 32"
+fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
+    let factor = 0.023;
+    let goal = (connection_limit as f32) * (1. - (-1.0 * queue_size as f32 * factor).exp());
+    goal.ceil() as usize
 }
 
 /// Given a set of MX records, produce a pseudo-regex style alternation
@@ -181,6 +206,47 @@ mod test {
                 "alt4.gmail-smtp-in.l.google.com",
             ]),
             "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com".to_string()
+        );
+    }
+
+    #[test]
+    fn connection_limit() {
+        let sizes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 32, 64, 128, 256, 400, 512, 1024,
+        ];
+        let max_connections = 32;
+        let targets: Vec<(usize, usize)> = sizes
+            .iter()
+            .map(|&queue_size| {
+                (
+                    queue_size,
+                    ideal_connection_count(queue_size, max_connections),
+                )
+            })
+            .collect();
+        assert_eq!(
+            vec![
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 3),
+                (5, 4),
+                (6, 5),
+                (7, 5),
+                (8, 6),
+                (9, 6),
+                (10, 7),
+                (20, 12),
+                (32, 17),
+                (64, 25),
+                (128, 31),
+                (256, 32),
+                (400, 32),
+                (512, 32),
+                (1024, 32)
+            ],
+            targets
         );
     }
 }

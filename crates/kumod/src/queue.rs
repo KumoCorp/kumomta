@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use timeq::{TimeQ, TimerError};
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
 
@@ -63,11 +62,11 @@ impl Queue {
                 let msg = (*msg).clone();
                 match SiteManager::resolve_domain(&self.name).await {
                     Ok(site) => {
-                        let site = site.lock().await;
+                        let mut site = site.lock().await;
                         println!("site is {}", site.name());
                         match site.insert(msg) {
                             Ok(_) => {}
-                            Err(TrySendError::Closed(msg)) | Err(TrySendError::Full(msg)) => {
+                            Err(msg) => {
                                 msg.delay_by(Duration::from_secs(60));
                                 self.queue
                                     .insert(Arc::new(msg))
