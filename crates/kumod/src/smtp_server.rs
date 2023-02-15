@@ -218,16 +218,26 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .call_callback("smtp_server_message_received", message.clone())?;
 
                         ids.push(message.id().to_string());
-                        message
-                            .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
-                            .await?;
-                        messages.push(message);
+
+                        let queue_name = match message.get_meta("queue")? {
+                            serde_json::Value::String(name) => name.to_string(),
+                            serde_json::Value::Null => message.recipient()?.domain().to_string(),
+                            value => anyhow::bail!(
+                                "expected 'queue' metadata to be a string value, got {value:?}"
+                            ),
+                        };
+
+                        if queue_name != "null" {
+                            message
+                                .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
+                                .await?;
+                            messages.push((queue_name, message));
+                        }
                     }
 
                     let mut queue_manager = QueueManager::get().await;
-                    for msg in messages {
-                        let domain = msg.recipient()?.domain().to_string();
-                        queue_manager.insert(&domain, msg).await?;
+                    for (queue_name, msg) in messages {
+                        queue_manager.insert(&queue_name, msg).await?;
                     }
 
                     let ids = ids.join(" ");
