@@ -3,6 +3,7 @@ check:
 
 fmt:
 	cargo +nightly fmt
+	stylua --config-path stylua.toml .
 
 sink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
