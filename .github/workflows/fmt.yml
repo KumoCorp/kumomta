@@ -1,0 +1,32 @@
+name: Check code formatting
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+        key: ${{ runner.os }}-cargo-mdbook-${{ hashFiles('.github/workflows/fmt.yml') }}
+    - name: Rust formatting
+      run: cargo +nightly fmt --all -- --check
+    - name: Lua formatting
+      run: |
+        cargo install stylua --features lua54
+        source $HOME/.cargo/env
+        stylua --check --config-path stylua.toml .
+        cargo test --verbose
