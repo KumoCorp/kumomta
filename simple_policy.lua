@@ -5,6 +5,14 @@ kumo.on("init", function()
   kumo.start_esmtp_listener{
     listen="127.0.0.1:2025"
   }
+  kumo.define_spool{
+    name="data",
+    path="/tmp/kumo-spool-data"
+  }
+  kumo.define_spool{
+    name="meta",
+    path="/tmp/kumo-spool-meta"
+  }
 end)
 
 -- Called to validate the helo and/or ehlo domain

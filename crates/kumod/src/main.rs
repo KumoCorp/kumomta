@@ -8,6 +8,7 @@ mod lua_config;
 mod mod_kumo;
 mod queue;
 mod smtp_server;
+mod spool;
 
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
@@ -36,6 +37,10 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = lua_config::load_config().await?;
     config.async_call_callback("init", ()).await?;
+
+    crate::spool::SpoolManager::get().await.start_spool().await;
+
+    // FIXME: defer starting the listeners until after start_spool
 
     tokio::signal::ctrl_c().await?;
 

@@ -1,4 +1,5 @@
 use crate::queue::QueueManager;
+use crate::spool::SpoolManager;
 use mail_auth::{IpLookupStrategy, Resolver, MX};
 use mail_send::smtp::message::Message as SendMessage;
 use mail_send::smtp::AssertReply;
@@ -356,7 +357,9 @@ impl Dispatcher {
                     self.client_address
                 );
                 // FIXME: log permanent failure
-                // FIXME: remove from spool
+                if let Some(msg) = self.msg.take() {
+                    Self::remove_from_spool(msg).await?;
+                }
                 self.msg.take();
             }
             Err(err) => {
@@ -369,11 +372,27 @@ impl Dispatcher {
             }
             Ok(()) => {
                 // FIXME: log success
-                // FIXME: remove from spool
-                self.msg.take();
+                if let Some(msg) = self.msg.take() {
+                    Self::remove_from_spool(msg).await?;
+                }
                 println!("Delivered OK!");
             }
         };
+        Ok(())
+    }
+
+    async fn remove_from_spool(msg: Message) -> anyhow::Result<()> {
+        let id = *msg.id();
+        let data_spool = SpoolManager::get_named("data").await?;
+        let meta_spool = SpoolManager::get_named("meta").await?;
+        let res_data = data_spool.lock().await.remove(id).await;
+        let res_meta = meta_spool.lock().await.remove(id).await;
+        if let Err(err) = res_data {
+            tracing::error!("Error removing data for {id}: {err:#}");
+        }
+        if let Err(err) = res_meta {
+            tracing::error!("Error removing meta for {id}: {err:#}");
+        }
         Ok(())
     }
 }

@@ -118,8 +118,8 @@ impl Message {
 
     pub async fn save_to(
         &self,
-        meta_spool: impl Spool,
-        data_spool: impl Spool,
+        meta_spool: &(dyn Spool + Send + Sync),
+        data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<()> {
         if let Some(data) = self.get_data_if_dirty() {
             anyhow::ensure!(!data.is_empty(), "message data must not be empty");

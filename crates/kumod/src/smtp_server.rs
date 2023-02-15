@@ -1,5 +1,6 @@
 use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
+use crate::spool::SpoolManager;
 use anyhow::anyhow;
 use message::{EnvelopeAddress, Message};
 use std::fmt::Debug;
@@ -189,6 +190,12 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
 
                     let mut ids = vec![];
                     let mut messages = vec![];
+
+                    // TODO: allow selecting a different set of spools by defining
+                    // a metadata key for that purpose
+                    let data_spool = SpoolManager::get_named("data").await?;
+                    let meta_spool = SpoolManager::get_named("meta").await?;
+
                     for recip in state.recipients {
                         let message = Message::new_dirty(
                             state.sender.clone(),
@@ -201,6 +208,9 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .call_callback("smtp_server_message_received", message.clone())?;
 
                         ids.push(message.id().to_string());
+                        message
+                            .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
+                            .await?;
                         messages.push(message);
                     }
 

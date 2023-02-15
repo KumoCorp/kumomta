@@ -2,6 +2,7 @@ use crate::lua_config::get_or_create_module;
 use anyhow::Context;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
+use std::path::PathBuf;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
@@ -28,6 +29,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    kumo_mod.set(
+        "define_spool",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params = lua.from_value(params)?;
+            tokio::spawn(async move {
+                if let Err(err) = define_spool(params).await {
+                    tracing::error!("Error in spool: {err:#}");
+                }
+            })
+            .await
+            .map_err(|err| mlua::Error::external(format!("{err:#}")))
+        })?,
+    )?;
+
     Ok(())
 }
 
@@ -47,7 +62,6 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
     use crate::smtp_server::SmtpServer;
     use tokio::net::TcpListener;
 
-    println!("cloning tx");
     let listener = TcpListener::bind(&params.listen)
         .await
         .with_context(|| format!("failed to bind to {}", params.listen))?;
@@ -59,4 +73,16 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
         let (socket, _) = listener.accept().await?;
         SmtpServer::run(socket).await?;
     }
+}
+
+#[derive(Deserialize)]
+struct DefineSpoolParams {
+    name: String,
+    path: PathBuf,
+}
+
+async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
+    crate::spool::SpoolManager::get()
+        .await
+        .new_local_disk(&params.name, &params.path)
 }

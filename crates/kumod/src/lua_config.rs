@@ -54,7 +54,6 @@ impl LuaConfig {
     /// plumbing to set up a thread pool + queue for handling incoming connections,
     /// but for now we just use the synchronous call_callback method below:
     /// it shouldn't matter much for sender-focused deployments
-    #[allow(unused)]
     pub async fn async_call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
         name: S,

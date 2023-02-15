@@ -32,7 +32,5 @@ pub trait Spool {
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()>;
 
     /// Perform some periodic cleanup/maintenance
-    async fn cleanup(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
+    async fn cleanup(&self) -> anyhow::Result<()>;
 }
