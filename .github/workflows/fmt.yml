@@ -18,7 +18,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         profile: "minimal"
-        toolchain: "stable"
+        toolchain: "nightly"
         default: true
         override: true
         components: "rustfmt"
@@ -33,10 +33,12 @@ jobs:
           ~/.cargo/git/db/
         key: ${{ runner.os }}-cargo-mdbook-${{ hashFiles('.github/workflows/fmt.yml') }}
     - name: Rust formatting
-      run: cargo +nightly fmt --all -- --check
+      run: |
+        source $HOME/.cargo/env
+        cargo +nightly fmt --all -- --check
     - name: Lua formatting
       run: |
-        cargo install stylua --features lua54
         source $HOME/.cargo/env
+        cargo install stylua --features lua54
         stylua --check --config-path stylua.toml .
         cargo test --verbose
