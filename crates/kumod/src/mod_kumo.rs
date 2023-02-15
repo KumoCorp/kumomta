@@ -50,11 +50,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 struct EsmtpListenerParams {
     #[serde(default = "EsmtpListenerParams::default_listen")]
     listen: String,
+    #[serde(default = "EsmtpListenerParams::default_hostname")]
+    hostname: String,
 }
 
 impl EsmtpListenerParams {
     fn default_listen() -> String {
         "127.0.0.1:2025".to_string()
+    }
+
+    fn default_hostname() -> String {
+        gethostname::gethostname()
+            .to_str()
+            .unwrap_or("localhost")
+            .to_string()
     }
 }
 
@@ -71,7 +80,7 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
     loop {
         // The second item contains the IP and port of the new connection.
         let (socket, _) = listener.accept().await?;
-        SmtpServer::run(socket).await?;
+        SmtpServer::run(socket, params.hostname.clone()).await?;
     }
 }
 

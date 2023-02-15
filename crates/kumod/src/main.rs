@@ -38,9 +38,10 @@ async fn main() -> anyhow::Result<()> {
     let mut config = lua_config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
-    crate::spool::SpoolManager::get().await.start_spool().await;
-
-    // FIXME: defer starting the listeners until after start_spool
+    crate::spool::SpoolManager::get()
+        .await
+        .start_spool()
+        .await?;
 
     tokio::signal::ctrl_c().await?;
 

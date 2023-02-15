@@ -46,12 +46,14 @@ impl Spool {}
 
 pub struct SpoolManager {
     named: HashMap<String, SpoolHandle>,
+    spooled_in: bool,
 }
 
 impl SpoolManager {
     pub fn new() -> Self {
         Self {
             named: HashMap::new(),
+            spooled_in: false,
         }
     }
 
@@ -80,11 +82,12 @@ impl SpoolManager {
             .ok_or_else(|| anyhow::anyhow!("no spool named '{name}' has been defined"))
     }
 
-    pub async fn start_spool(&mut self) {
-        if self.named.is_empty() {
-            tracing::error!("No spools have been defined");
-            return;
-        }
+    pub fn spool_started(&self) -> bool {
+        self.spooled_in
+    }
+
+    pub async fn start_spool(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.named.is_empty(), "No spools have been defined");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
 
@@ -165,6 +168,8 @@ impl SpoolManager {
                 }
             }
         }
+        self.spooled_in = true;
         tracing::debug!("start_spool: enumeration done");
+        Ok(())
     }
 }

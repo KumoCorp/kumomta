@@ -18,6 +18,7 @@ pub struct SmtpServer<T> {
     state: Option<TransactionState>,
     said_hello: Option<String>,
     config: LuaConfig,
+    hostname: String,
 }
 
 #[derive(Debug)]
@@ -28,7 +29,7 @@ struct TransactionState {
 }
 
 impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
-    pub async fn run(socket: T) -> anyhow::Result<()> {
+    pub async fn run(socket: T, hostname: String) -> anyhow::Result<()> {
         let config = load_config().await?;
         let (reader, writer) = tokio::io::split(socket);
         let reader = tokio::io::BufReader::new(reader);
@@ -39,6 +40,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
             state: None,
             said_hello: None,
             config,
+            hostname,
         };
 
         tokio::spawn(async move {
@@ -77,7 +79,15 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
-        self.write_response(220, "mail.example.com KumoMTA\nW00t!\nYeah!")
+        if !SpoolManager::get().await.spool_started() {
+            // Can't accept any messages until the spool is finished enumerating,
+            // else we risk re-injecting messages received during enumeration.
+            self.write_response(421, format!("{} Hold on just a moment!", self.hostname))
+                .await?;
+            return Ok(());
+        }
+
+        self.write_response(220, format!("{} KumoMTA\nW00t!\nYeah!", self.hostname))
             .await?;
         loop {
             let line = self.read_line().await?;
@@ -103,7 +113,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.config
                         .call_callback("smtp_server_ehlo", domain.clone())?;
 
-                    self.write_response(250, format!("mail.example.com Hello {domain}"))
+                    self.write_response(250, format!("{} Hello {domain}", self.hostname))
                         .await?;
                     self.said_hello.replace(domain);
                 }
