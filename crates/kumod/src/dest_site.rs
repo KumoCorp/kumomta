@@ -13,7 +13,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, MutexGuard, Notify};
@@ -52,6 +52,28 @@ impl SiteManager {
         let mut manager = Self::get().await;
         let max_ready_items = 1024; // FIXME: configurable
         let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
+            tokio::spawn({
+                let name = name.clone();
+                async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        let mut mgr = SiteManager::get().await;
+                        let site = { mgr.sites.get(&name).cloned() };
+                        match site {
+                            None => break,
+                            Some(site) => {
+                                let mut site = site.lock().await;
+                                if site.reapable() {
+                                    tracing::debug!("idle out {name}");
+                                    mgr.sites.remove(&name);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
             let ready = Arc::new(StdMutex::new(HeapRb::new(max_ready_items)));
             let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
@@ -60,6 +82,7 @@ impl SiteManager {
                 mx,
                 notify,
                 connections: vec![],
+                last_change: Instant::now(),
             })))
         });
         Ok(handle.clone())
@@ -81,9 +104,11 @@ pub struct DestinationSite {
     ready: Arc<StdMutex<HeapRb<Message>>>,
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
+    last_change: Instant,
 }
 
 impl DestinationSite {
+    #[allow(unused)]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -92,6 +117,7 @@ impl DestinationSite {
         self.ready.lock().unwrap().push(msg)?;
         self.notify.notify_waiters();
         self.maintain();
+        self.last_change = Instant::now();
 
         Ok(())
     }
@@ -109,6 +135,7 @@ impl DestinationSite {
         // Prune completed connection tasks
         self.connections.retain(|handle| !handle.is_finished());
 
+        // TODO: throttle rate at which connections are opened
         let ideal = self.ideal_connection_count();
 
         for _ in self.connections.len()..ideal {
@@ -123,6 +150,14 @@ impl DestinationSite {
                 }
             }));
         }
+    }
+
+    pub fn reapable(&mut self) -> bool {
+        self.maintain();
+        let ideal = self.ideal_connection_count();
+        ideal == 0
+            && self.connections.is_empty()
+            && self.last_change.elapsed() > Duration::from_secs(10 * 60)
     }
 }
 
@@ -212,7 +247,7 @@ impl Dispatcher {
             if !dispatcher.wait_for_message().await? {
                 // No more messages within our idle time; we can close
                 // the connection
-                println!("{} Idling out", dispatcher.name);
+                tracing::debug!("{} Idling out connection", dispatcher.name);
                 return Ok(());
             }
             if let Err(err) = dispatcher.attempt_connection().await {
@@ -375,7 +410,7 @@ impl Dispatcher {
                 if let Some(msg) = self.msg.take() {
                     Self::remove_from_spool(msg).await?;
                 }
-                println!("Delivered OK!");
+                tracing::debug!("Delivered OK!");
             }
         };
         Ok(())

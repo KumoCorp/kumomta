@@ -2,8 +2,8 @@ use crate::dest_site::SiteManager;
 use message::Message;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
-use timeq::{TimeQ, TimerError};
+use std::time::{Duration, Instant};
+use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
 
@@ -24,6 +24,7 @@ pub struct Queue {
     name: String,
     queue: TimeQ<Message>,
     maintainer: Option<JoinHandle<()>>,
+    last_change: Instant,
 }
 
 impl Drop for Queue {
@@ -40,6 +41,7 @@ impl Queue {
             name: name.clone(),
             queue: TimeQ::new(),
             maintainer: None,
+            last_change: Instant::now(),
         })));
 
         let queue_clone = handle.clone();
@@ -56,6 +58,7 @@ impl Queue {
     }
 
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
+        self.last_change = Instant::now();
         match self.queue.insert(Arc::new(msg)) {
             Ok(_) => Ok(()),
             Err(TimerError::Expired(msg)) => {
@@ -63,7 +66,6 @@ impl Queue {
                 match SiteManager::resolve_domain(&self.name).await {
                     Ok(site) => {
                         let mut site = site.lock().await;
-                        println!("site is {}", site.name());
                         match site.insert(msg) {
                             Ok(_) => {}
                             Err(msg) => {
@@ -128,15 +130,62 @@ impl QueueManager {
 }
 
 async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
+    let mut sleep_duration = Duration::from_secs(60);
+
     loop {
-        tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::time::sleep(sleep_duration).await;
         {
-            let q = queue.lock().await;
-            println!(
+            let mut q = queue.lock().await;
+            tracing::debug!(
                 "maintaining queue {} which has {} entries",
                 q.name,
                 q.queue.len()
             );
+            match q.queue.pop() {
+                PopResult::Items(messages) => match SiteManager::resolve_domain(&q.name).await {
+                    Ok(site) => {
+                        let mut site = site.lock().await;
+
+                        for msg in messages {
+                            match site.insert((*msg).clone()) {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    msg.delay_by(Duration::from_secs(60));
+                                    q.queue
+                                        .insert(msg)
+                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!("Failed to resolve {}: {err:#}", q.name);
+                        for msg in messages {
+                            msg.delay_by(Duration::from_secs(60));
+                            q.queue
+                                .insert(msg)
+                                .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                        }
+                    }
+                },
+                PopResult::Sleep(duration) => {
+                    // We sleep at most 1 minute in case some other actor
+                    // re-inserts a message with ~1 minute delay. If we were
+                    // sleeping for 4 hours, we wouldn't wake up soon enough
+                    // to notice and dispatch it.
+                    sleep_duration = duration.min(Duration::from_secs(60));
+                }
+                PopResult::Empty => {
+                    sleep_duration = Duration::from_secs(60);
+
+                    let mut mgr = QueueManager::get().await;
+                    if q.last_change.elapsed() > Duration::from_secs(60 * 10) {
+                        mgr.named.remove(&q.name);
+                        tracing::debug!("idling out queue {}", q.name);
+                        return Ok(());
+                    }
+                }
+            }
         }
     }
 }
