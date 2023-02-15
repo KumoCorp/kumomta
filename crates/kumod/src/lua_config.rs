@@ -46,14 +46,6 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 
 impl LuaConfig {
     /// Call a callback registered via `on`.
-    ///
-    /// I'd love to use this, but unfortunately, this is a !Send future
-    /// due to limitations of mlua and it can't be used within a tokio::spawn'd
-    /// block.
-    /// An alternative is to use `smol` instead of `tokio`, and do some more
-    /// plumbing to set up a thread pool + queue for handling incoming connections,
-    /// but for now we just use the synchronous call_callback method below:
-    /// it shouldn't matter much for sender-focused deployments
     pub async fn async_call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
         name: S,
@@ -74,6 +66,7 @@ impl LuaConfig {
     }
 
     /// Call a callback registered via `on`.
+    #[allow(unused)]
     pub fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
         name: S,

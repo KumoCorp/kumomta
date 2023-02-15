@@ -81,7 +81,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
             hostname,
         };
 
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             if let Err(err) = server.process().await {
                 error!("Error in SmtpServer: {err:#}");
                 server
@@ -115,12 +115,12 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
         Ok(line)
     }
 
-    pub fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+    pub async fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
         name: S,
         args: A,
     ) -> anyhow::Result<Result<(), RejectError>> {
-        match self.config.call_callback(name, args) {
+        match self.config.async_call_callback(name, args).await {
             Ok(_) => Ok(Ok(())),
             Err(err) => {
                 if let Some(rej) = RejectError::from_anyhow(&err) {
@@ -165,7 +165,10 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     // TODO: we are supposed to report extension commands in our EHLO
                     // response, but we don't have any yet.
 
-                    if let Err(rej) = self.call_callback("smtp_server_ehlo", domain.clone())? {
+                    if let Err(rej) = self
+                        .call_callback("smtp_server_ehlo", domain.clone())
+                        .await?
+                    {
                         self.write_response(rej.code, rej.message).await?;
                         continue;
                     }
@@ -175,7 +178,10 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
-                    if let Err(rej) = self.call_callback("smtp_server_ehlo", domain.clone())? {
+                    if let Err(rej) = self
+                        .call_callback("smtp_server_ehlo", domain.clone())
+                        .await?
+                    {
                         self.write_response(rej.code, rej.message).await?;
                         continue;
                     }
@@ -188,8 +194,9 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .await?;
                         continue;
                     }
-                    if let Err(rej) =
-                        self.call_callback("smtp_server_mail_from", address.clone())?
+                    if let Err(rej) = self
+                        .call_callback("smtp_server_mail_from", address.clone())
+                        .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
                         continue;
@@ -207,8 +214,9 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .await?;
                         continue;
                     }
-                    if let Err(rej) =
-                        self.call_callback("smtp_server_mail_rcpt_to", address.clone())?
+                    if let Err(rej) = self
+                        .call_callback("smtp_server_mail_rcpt_to", address.clone())
+                        .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
                         continue;
@@ -281,8 +289,9 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             Arc::clone(&data),
                         )?;
 
-                        if let Err(rej) =
-                            self.call_callback("smtp_server_message_received", message.clone())?
+                        if let Err(rej) = self
+                            .call_callback("smtp_server_message_received", message.clone())
+                            .await?
                         {
                             self.write_response(rej.code, rej.message).await?;
                             continue;

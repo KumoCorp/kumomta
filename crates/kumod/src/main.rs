@@ -7,6 +7,7 @@ mod dest_site;
 mod lua_config;
 mod mod_kumo;
 mod queue;
+mod runtime;
 mod smtp_server;
 mod spool;
 

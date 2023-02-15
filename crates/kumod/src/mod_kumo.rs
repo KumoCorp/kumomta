@@ -88,7 +88,15 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
     loop {
         // The second item contains the IP and port of the new connection.
         let (socket, _) = listener.accept().await?;
-        SmtpServer::run(socket, params.hostname.clone()).await?;
+        let hostname = params.hostname.to_string();
+        crate::runtime::Runtime::run(move || {
+            tokio::task::spawn_local(async move {
+                if let Err(err) = SmtpServer::run(socket, hostname).await {
+                    tracing::error!("SmtpServer::run: {err:#}");
+                }
+            });
+        })
+        .await?;
     }
 }
 
