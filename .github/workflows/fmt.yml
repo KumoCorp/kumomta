@@ -36,9 +36,11 @@ jobs:
       run: |
         source $HOME/.cargo/env
         cargo +nightly fmt --all -- --check
+    - name: Install stylua
+      run: |
+        source $HOME/.cargo/env
+        (test -x ~/.cargo/bin/stylua || (cd && cargo install stylua --features lua54 --vers "^0.16" --locked))
     - name: Lua formatting
       run: |
         source $HOME/.cargo/env
-        cargo install stylua --features lua54
         stylua --check --config-path stylua.toml .
-        cargo test --verbose
