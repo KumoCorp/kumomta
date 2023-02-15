@@ -3,13 +3,51 @@ use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::anyhow;
 use message::{EnvelopeAddress, Message};
+use mlua::ToLuaMulti;
 use std::fmt::Debug;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, ReadHalf,
     WriteHalf,
 };
 use tracing::{error, instrument};
+
+#[derive(Error, Debug, Clone)]
+#[error("{code} {message}")]
+#[must_use]
+pub struct RejectError {
+    /// SMTP 3-digit response code
+    pub code: u16,
+    /// The textual portion of the response to send
+    pub message: String,
+}
+
+impl RejectError {
+    pub fn from_lua(err: &mlua::Error) -> Option<Self> {
+        match err {
+            mlua::Error::CallbackError { cause, .. } => return Self::from_lua(cause),
+            mlua::Error::ExternalError(err) => return Self::from_std_error(&**err),
+            _ => None,
+        }
+    }
+
+    pub fn from_std_error(err: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        if let Some(cause) = err.source() {
+            return Self::from_std_error(cause);
+        } else if let Some(rej) = err.downcast_ref::<Self>() {
+            Some(rej.clone())
+        } else if let Some(lua_err) = err.downcast_ref::<mlua::Error>() {
+            Self::from_lua(lua_err)
+        } else {
+            None
+        }
+    }
+
+    pub fn from_anyhow(err: &anyhow::Error) -> Option<Self> {
+        Self::from_std_error(err.root_cause())
+    }
+}
 
 #[derive(Debug)]
 pub struct SmtpServer<T> {
@@ -77,6 +115,23 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
         Ok(line)
     }
 
+    pub fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+        &'lua mut self,
+        name: S,
+        args: A,
+    ) -> anyhow::Result<Result<(), RejectError>> {
+        match self.config.call_callback(name, args) {
+            Ok(_) => Ok(Ok(())),
+            Err(err) => {
+                if let Some(rej) = RejectError::from_anyhow(&err) {
+                    Ok(Err(rej))
+                } else {
+                    Err(err)
+                }
+            }
+        }
+    }
+
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
         if !SpoolManager::get().await.spool_started() {
@@ -110,16 +165,20 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     // TODO: we are supposed to report extension commands in our EHLO
                     // response, but we don't have any yet.
 
-                    self.config
-                        .call_callback("smtp_server_ehlo", domain.clone())?;
+                    if let Err(rej) = self.call_callback("smtp_server_ehlo", domain.clone())? {
+                        self.write_response(rej.code, rej.message).await?;
+                        continue;
+                    }
 
                     self.write_response(250, format!("{} Hello {domain}", self.hostname))
                         .await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
-                    self.config
-                        .call_callback("smtp_server_ehlo", domain.clone())?;
+                    if let Err(rej) = self.call_callback("smtp_server_ehlo", domain.clone())? {
+                        self.write_response(rej.code, rej.message).await?;
+                        continue;
+                    }
                     self.write_response(250, format!("Hello {domain}!")).await?;
                     self.said_hello.replace(domain);
                 }
@@ -129,8 +188,12 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .await?;
                         continue;
                     }
-                    self.config
-                        .call_callback("smtp_server_mail_from", address.clone())?;
+                    if let Err(rej) =
+                        self.call_callback("smtp_server_mail_from", address.clone())?
+                    {
+                        self.write_response(rej.code, rej.message).await?;
+                        continue;
+                    }
                     self.state.replace(TransactionState {
                         sender: address.clone(),
                         recipients: vec![],
@@ -144,8 +207,12 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             .await?;
                         continue;
                     }
-                    self.config
-                        .call_callback("smtp_server_mail_rcpt_to", address.clone())?;
+                    if let Err(rej) =
+                        self.call_callback("smtp_server_mail_rcpt_to", address.clone())?
+                    {
+                        self.write_response(rej.code, rej.message).await?;
+                        continue;
+                    }
                     self.write_response(250, format!("OK {address:?}")).await?;
                     self.state
                         .as_mut()
@@ -214,8 +281,12 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                             Arc::clone(&data),
                         )?;
 
-                        self.config
-                            .call_callback("smtp_server_message_received", message.clone())?;
+                        if let Err(rej) =
+                            self.call_callback("smtp_server_message_received", message.clone())?
+                        {
+                            self.write_response(rej.code, rej.message).await?;
+                            continue;
+                        }
 
                         ids.push(message.id().to_string());
 

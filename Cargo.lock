@@ -828,6 +828,7 @@ dependencies = [
  "serde_json",
  "smtp-proto",
  "spool",
+ "thiserror",
  "timeq",
  "tokio",
  "tokio-rustls",

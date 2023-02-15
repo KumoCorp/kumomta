@@ -1,4 +1,5 @@
 use crate::lua_config::get_or_create_module;
+use crate::smtp_server::RejectError;
 use anyhow::Context;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
@@ -40,6 +41,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             })
             .await
             .map_err(|err| mlua::Error::external(format!("{err:#}")))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "reject",
+        lua.create_function(move |_lua, (code, message): (u16, String)| {
+            Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
         })?,
     )?;
 

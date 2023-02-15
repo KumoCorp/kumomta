@@ -16,14 +16,14 @@ kumo.on('init', function()
   -- message bodies will be stored
   kumo.define_spool {
     name = 'data',
-    path = '/tmp/kumo-spool-data',
+    path = '/tmp/kumo-spool/data',
   }
 
   -- Define the default "meta" spool location; this is where
   -- message envelope and metadata will be stored
   kumo.define_spool {
     name = 'meta',
-    path = '/tmp/kumo-spool-meta',
+    path = '/tmp/kumo-spool/meta',
   }
 end)
 
@@ -35,6 +35,7 @@ end)
 -- Called to validate the sender
 kumo.on('smtp_server_mail_from', function(sender)
   print('sender', tostring(sender))
+  -- kumo.reject(420, 'wooooo!')
 end)
 
 -- Called to validate a recipient
