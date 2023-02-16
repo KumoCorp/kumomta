@@ -35,11 +35,16 @@ async fn resolve_mx(domain_name: &str) -> anyhow::Result<Vec<String>> {
     let resolver = RESOLVER.lock().await;
     match resolver.mx_lookup(domain_name).await {
         Ok(mxs) if mxs.is_empty() => Ok(vec![domain_name.to_string()]),
-        Ok(mxs) => Ok(mxs
-            .iter()
-            .map(|mx| mx.exchanges.iter().map(|s| s.to_string()))
-            .flatten()
-            .collect()),
+        Ok(mxs) => {
+            let mut hosts = vec![];
+            for mx in mxs.iter() {
+                let mut hosts_this_pref: Vec<String> =
+                    mx.exchanges.iter().map(|s| s.to_string()).collect();
+                hosts_this_pref.sort();
+                hosts.append(&mut hosts_this_pref);
+            }
+            Ok(hosts)
+        }
         err @ Err(mail_auth::Error::DnsRecordNotFound(_)) => {
             match resolver.exists(domain_name).await {
                 Ok(true) => Ok(vec![domain_name.to_string()]),
