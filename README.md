@@ -22,3 +22,15 @@ Then you can format both the rust and the lua code:
 ```bash
 $ make fmt
 ```
+
+### Fuzzing
+
+Some components have fuzzer coverage.  To run it, follow the setup from [the
+Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/setup.html)
+
+Then:
+
+```bash
+$ cd crates/rfc5321/
+$ cargo +nightly fuzz run parser
+```
