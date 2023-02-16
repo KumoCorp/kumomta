@@ -1,0 +1,70 @@
+
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+hexdig = { 'a'..'f' | 'A'..'F' | '0'..'9' }
+atext = { "!" | "#" | "$" | "%" | "&" | "'" | "*" | "+" | "-" | "/" | "=" |
+          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit }
+atom = { atext+ }
+
+let_dig = { alpha | digit }
+ldh_str = { (alpha | digit | "-")+ } // FIXME: validate that it doesn't end with -
+
+sub_domain = { let_dig ~ ldh_str? }
+domain = { sub_domain ~ ("." ~ sub_domain)* }
+
+dot_string = { atom ~ ("." ~ atom)* }
+
+quoted_string = { "\"" ~ q_content_smtp* ~ "\"" }
+q_content_smtp = { q_text_smtp | quoted_pair_smtp }
+quoted_pair_smtp = { "\\" ~ '\u{20}'..'\u{7e}' }
+q_text_smtp = { '\u{20}'..'\u{21}' | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' }
+
+string = { atom | quoted_string }
+
+local_part = { dot_string | quoted_string }
+mailbox = { local_part ~ "@" ~ ( domain | address_literal ) }
+
+address_literal = { "[" ~ ( ipv4_address_literal | ipv6_address_literal | general_address_literal ) ~ "]" }
+
+ipv4_address_literal = { snum ~ "." ~ snum ~ "." ~ snum ~ "." ~ snum }
+snum = { digit{1,3} }
+
+ipv6_address_literal = { ^"IPv6:" ~ ipv6_address }
+ipv6_address = { (hexdig | ":" | ".")+ }
+
+general_address_literal = { standardized_tag ~ ":" ~ tag_content }
+tag_content = { dcontent+ }
+dcontent = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' }
+standardized_tag = { ldh_str }
+
+path = { "<" ~ (adl ~ ":" )? ~ mailbox ~ ">" }
+adl = { at_domain ~ ( "," ~ at_domain )* }
+at_domain = { "@" ~ domain }
+
+forward_path = { path | postmaster }
+reverse_path = { path | null_sender }
+null_sender = { "<>" }
+
+mail = { ^"MAIL FROM:" ~ reverse_path ~ (" " ~ smtp_parameters )? }
+rcpt = { ^"RCPT TO:" ~ forward_path ~ ( " " ~ smtp_parameters )? }
+
+postmaster = { ^"<postmaster>" }
+
+smtp_parameters = { esmtp_param ~ ( " " ~ esmtp_param )* }
+esmtp_param = { esmtp_keyword  ~ ("=" ~ esmtp_value )? }
+esmtp_keyword = { (alpha | digit | "-")+ }
+esmtp_value = { ( '\u{21}' .. '\u{3c}' | '\u{3e}'..'\u{7e}' )+ }
+
+complete_domain = _{ SOI ~ domain ~ EOI }
+
+ehlo = { ^"EHLO " ~ ( domain | address_literal ) }
+helo = { ^"HELO " ~ domain }
+data = { ^"DATA" }
+rset = { ^"RSET" }
+quit = { ^"QUIT" }
+vrfy = { ^"VRFY " ~ string }
+expn = { ^"EXPN " ~ string }
+help = { ^"HELP" ~ (" " ~ string)? }
+noop = { ^"NOOP" ~ (" " ~ string)? }
+
+command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit ~ EOI }

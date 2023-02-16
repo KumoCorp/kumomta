@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/kumod",
+  "crates/rfc5321",
   "crates/spool",
   "crates/timeq",
 ]
