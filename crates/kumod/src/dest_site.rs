@@ -1,6 +1,7 @@
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
-use mail_auth::{IpLookupStrategy, Resolver, MX};
+use anyhow::Context;
+use mail_auth::{IpLookupStrategy, Resolver};
 use mail_send::smtp::message::Message as SendMessage;
 use mail_send::smtp::AssertReply;
 use mail_send::SmtpClient;
@@ -30,6 +31,25 @@ pub struct SiteManager {
     sites: HashMap<String, SiteHandle>,
 }
 
+async fn resolve_mx(domain_name: &str) -> anyhow::Result<Vec<String>> {
+    let resolver = RESOLVER.lock().await;
+    match resolver.mx_lookup(domain_name).await {
+        Ok(mxs) if mxs.is_empty() => Ok(vec![domain_name.to_string()]),
+        Ok(mxs) => Ok(mxs
+            .iter()
+            .map(|mx| mx.exchanges.iter().map(|s| s.to_string()))
+            .flatten()
+            .collect()),
+        err @ Err(mail_auth::Error::DnsRecordNotFound(_)) => {
+            match resolver.exists(domain_name).await {
+                Ok(true) => Ok(vec![domain_name.to_string()]),
+                _ => anyhow::bail!("{:#}", err.unwrap_err()),
+            }
+        }
+        Err(err) => anyhow::bail!("MX lookup for {domain_name} failed: {err:#}"),
+    }
+}
+
 impl SiteManager {
     pub fn new() -> Self {
         Self {
@@ -42,12 +62,8 @@ impl SiteManager {
     }
 
     pub async fn resolve_domain(name: &str) -> anyhow::Result<SiteHandle> {
-        let resolver = RESOLVER.lock().await;
-        let mx = resolver
-            .mx_lookup(name)
-            .await
-            .map_err(|err| anyhow::anyhow!("MX lookup for {name} failed: {err:#}"))?;
-        let name = factor_mx_list(&mx);
+        let mx = Arc::new(resolve_mx(name).await?.into_boxed_slice());
+        let name = factor_names(&mx);
 
         let mut manager = Self::get().await;
         let max_ready_items = 1024; // FIXME: configurable
@@ -100,7 +116,7 @@ impl SiteHandle {
 
 pub struct DestinationSite {
     name: String,
-    mx: Arc<Vec<MX>>,
+    mx: Arc<Box<[String]>>,
     ready: Arc<StdMutex<HeapRb<Message>>>,
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
@@ -161,34 +177,32 @@ impl DestinationSite {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ResolvedAddress {
     #[allow(dead_code)] // used when logging, but rust warns anyway
     mx_host: String,
     addr: IpAddr,
 }
-async fn resolve_addresses(mx: &Arc<Vec<MX>>) -> Vec<ResolvedAddress> {
+async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
     let mut result = vec![];
 
-    for entry in mx.iter() {
-        for mx_host in entry.exchanges.iter() {
-            match RESOLVER
-                .lock()
-                .await
-                .ip_lookup(mx_host, IpLookupStrategy::default(), 32)
-                .await
-            {
-                Err(err) => {
-                    tracing::error!("failed to resolve {mx_host}: {err:#}");
-                    continue;
-                }
-                Ok(addresses) => {
-                    for addr in addresses {
-                        result.push(ResolvedAddress {
-                            mx_host: mx_host.to_string(),
-                            addr,
-                        });
-                    }
+    for mx_host in mx.iter() {
+        match RESOLVER
+            .lock()
+            .await
+            .ip_lookup(mx_host, IpLookupStrategy::default(), 32)
+            .await
+        {
+            Err(err) => {
+                tracing::error!("failed to resolve {mx_host}: {err:#}");
+                continue;
+            }
+            Ok(addresses) => {
+                for addr in addresses {
+                    result.push(ResolvedAddress {
+                        mx_host: mx_host.to_string(),
+                        addr,
+                    });
                 }
             }
         }
@@ -215,7 +229,7 @@ struct Dispatcher {
 impl Dispatcher {
     async fn run(
         name: &str,
-        mx: Arc<Vec<MX>>,
+        mx: Arc<Box<[String]>>,
         ready: Arc<StdMutex<HeapRb<Message>>>,
         notify: Arc<Notify>,
     ) -> anyhow::Result<()> {
@@ -297,10 +311,13 @@ impl Dispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.mx_host.to_string();
 
-        let client: SmtpClient<Box<dyn AsyncReadAndWrite>> =
-            tokio::time::timeout(timeout, async move {
+        let client: SmtpClient<Box<dyn AsyncReadAndWrite>> = tokio::time::timeout(timeout, {
+            let address = address.clone();
+            async move {
                 let mut client = SmtpClient {
-                    stream: TcpStream::connect((address.addr, 25)).await?,
+                    stream: TcpStream::connect((address.addr, 25))
+                        .await
+                        .with_context(|| format!("connect to {address:?} port 25"))?,
                     timeout,
                 };
 
@@ -342,8 +359,9 @@ impl Dispatcher {
                     stream: boxed_stream,
                     timeout,
                 })
-            })
-            .await??;
+            }
+        })
+        .await??;
 
         self.client.replace(client);
         self.client_address.replace(address);
@@ -455,30 +473,18 @@ fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     goal.ceil() as usize
 }
 
-/// Given a set of MX records, produce a pseudo-regex style alternation
-/// list of the underlying hostnames
-fn factor_mx_list(mx: &Arc<Vec<MX>>) -> String {
-    let mut names = vec![];
-    for entry in mx.iter() {
-        for host in &entry.exchanges {
-            names.push(host.as_str());
-        }
-    }
-
-    factor_names(&names)
-}
-
 /// Given a list of host names, produce a pseudo-regex style alternation list
 /// of the different elements of the hostnames.
 /// The goal is to produce a more compact representation of the name list
 /// with the common components factored out.
-fn factor_names(names: &[&str]) -> String {
+fn factor_names<S: AsRef<str>>(names: &[S]) -> String {
     let mut max_element_count = 0;
 
     let mut elements: Vec<Vec<&str>> = vec![];
 
     let mut split_names = vec![];
     for name in names {
+        let name = name.as_ref();
         let mut fields: Vec<_> = name.split('.').map(|s| s.to_lowercase()).collect();
         fields.reverse();
         max_element_count = max_element_count.max(fields.len());
