@@ -239,18 +239,9 @@ mod test {
 
     #[test]
     fn parse_single_verbs() {
-        assert_eq!(
-            Parser::parse_command("data").unwrap(),
-            Command::Data,
-        );
-        assert_eq!(
-            Parser::parse_command("Quit").unwrap(),
-            Command::Quit,
-        );
-        assert_eq!(
-            Parser::parse_command("rset").unwrap(),
-            Command::Rset,
-        );
+        assert_eq!(Parser::parse_command("data").unwrap(), Command::Data,);
+        assert_eq!(Parser::parse_command("Quit").unwrap(), Command::Quit,);
+        assert_eq!(Parser::parse_command("rset").unwrap(), Command::Rset,);
     }
 
     #[test]
@@ -271,10 +262,7 @@ mod test {
 
     #[test]
     fn parse_help() {
-        assert_eq!(
-            Parser::parse_command("help").unwrap(),
-            Command::Help(None),
-        );
+        assert_eq!(Parser::parse_command("help").unwrap(), Command::Help(None),);
         assert_eq!(
             Parser::parse_command("help me").unwrap(),
             Command::Help(Some("me".to_string())),
@@ -283,10 +271,7 @@ mod test {
 
     #[test]
     fn parse_noop() {
-        assert_eq!(
-            Parser::parse_command("noop").unwrap(),
-            Command::Noop(None),
-        );
+        assert_eq!(Parser::parse_command("noop").unwrap(), Command::Noop(None),);
         assert_eq!(
             Parser::parse_command("noop param").unwrap(),
             Command::Noop(Some("param".to_string())),
@@ -312,9 +297,7 @@ mod test {
             Command::Helo(Domain::Name("there".to_string()))
         );
         // Cannot use address literals with HELO
-        assert!(
-            Parser::parse_command("HELO [127.0.0.1]").is_err(),
-        );
+        assert!(Parser::parse_command("HELO [127.0.0.1]").is_err(),);
     }
 
     #[test]
