@@ -109,6 +109,7 @@ pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<
     }
 }
 
+#[allow(unused)]
 pub fn get_or_create_sub_module<'lua>(
     lua: &'lua Lua,
     name: &str,
