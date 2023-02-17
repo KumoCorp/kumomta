@@ -2,16 +2,9 @@ use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use mail_auth::{IpLookupStrategy, Resolver};
-use mail_send::smtp::message::Message as SendMessage;
-use mail_send::smtp::AssertReply;
-use mail_send::SmtpClient;
 use message::Message;
-use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
+use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
 use ringbuf::{HeapRb, Rb};
-use rustls::client::WebPkiVerifier;
-use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
-use smtp_proto::Response;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -19,7 +12,6 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
-use tokio_rustls::TlsConnector;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<SiteManager> = Mutex::new(SiteManager::new());
@@ -221,7 +213,7 @@ struct Dispatcher {
     notify: Arc<Notify>,
     addresses: Vec<ResolvedAddress>,
     msg: Option<Message>,
-    client: Option<SmtpClient<BoxedAsyncReadAndWrite>>,
+    client: Option<SmtpClient>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
 }
@@ -311,54 +303,31 @@ impl Dispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.mx_host.to_string();
 
-        let client: SmtpClient<Box<dyn AsyncReadAndWrite>> = tokio::time::timeout(timeout, {
+        let client = tokio::time::timeout(timeout, {
             let address = address.clone();
             async move {
-                let mut client = SmtpClient {
-                    stream: TcpStream::connect((address.addr, 25))
+                let mut client = SmtpClient::with_stream(
+                    TcpStream::connect((address.addr, 25))
                         .await
                         .with_context(|| format!("connect to {address:?} port 25"))?,
-                    timeout,
-                };
+                    &mx_host,
+                );
 
                 // Read banner
-                client
-                    .read()
-                    .await
-                    .map_err(|err| anyhow::anyhow!("{err:#}"))?
-                    .assert_positive_completion()
-                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+                let banner = client.read_response().await?;
+                if banner.code != 220 {
+                    return Err(ClientError::Rejected(banner).into());
+                }
 
                 // Say EHLO
-                let response = client
-                    .ehlo(&ehlo_name)
-                    .await
-                    .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+                let caps = client.ehlo(&ehlo_name).await?;
 
                 // Use STARTTLS if available.
-                // We need to do some type erasure because SmtpClient is either
-                // SmtpClient<TlsStream<TcpStream>> or SmtpClient<TcpStream>
-                // depending on whether TLS is used or not.
-                // We do a little dance to end up with SmtpClient<Box<dyn AsyncReadAndWrite>>>
-                // in both cases.
-                let boxed_stream: Box<dyn AsyncReadAndWrite> =
-                    if response.has_capability(smtp_proto::EXT_START_TLS) {
-                        let tls_connector = build_tls_connector();
-                        let SmtpClient { stream, timeout: _ } = client
-                            .start_tls(&tls_connector, &mx_host)
-                            .await
-                            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
-                        let boxed: Box<dyn AsyncReadAndWrite> = Box::new(stream);
-                        boxed
-                    } else {
-                        let SmtpClient { stream, timeout: _ } = client;
-                        let boxed: Box<dyn AsyncReadAndWrite> = Box::new(stream);
-                        boxed
-                    };
-                Ok::<SmtpClient<Box<dyn AsyncReadAndWrite>>, anyhow::Error>(SmtpClient {
-                    stream: boxed_stream,
-                    timeout,
-                })
+                if caps.contains_key("STARTTLS") {
+                    client.starttls(false).await?;
+                }
+
+                Ok::<SmtpClient, anyhow::Error>(client)
             }
         })
         .await??;
@@ -378,34 +347,43 @@ impl Dispatcher {
 
     async fn deliver_message(&mut self) -> anyhow::Result<()> {
         let data;
-        let message = {
+        let sender: ReversePath;
+        let recipient: ForwardPath;
+
+        {
             let msg = self.msg.as_ref().unwrap();
             data = msg.get_data();
+            sender = msg
+                .sender()?
+                .try_into()
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+            recipient = msg
+                .recipient()?
+                .try_into()
+                .map_err(|err| anyhow::anyhow!("{err}"))?;
+        }
 
-            SendMessage::new(
-                msg.sender()?.to_string(),
-                [msg.recipient()?.to_string()],
-                Cow::Borrowed(&**data),
-            )
-        };
-
-        match self.client.as_mut().unwrap().send(message).await {
-            Err(mail_send::Error::UnexpectedReply(Response { code, esc, message }))
-                if code >= 400 && code < 500 =>
-            {
+        match self
+            .client
+            .as_mut()
+            .unwrap()
+            .send_mail(sender, recipient, &*data)
+            .await
+        {
+            Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
                 // Transient failure
                 if let Some(msg) = self.msg.take() {
                     Self::requeue_message(msg).await?;
                 }
                 tracing::debug!(
-                    "failed to send message to {} {:?}: {code} {esc:?} {message}",
+                    "failed to send message to {} {:?}: {response:?}",
                     self.name,
                     self.client_address
                 );
             }
-            Err(mail_send::Error::UnexpectedReply(Response { code, esc, message })) => {
+            Err(ClientError::Rejected(response)) => {
                 tracing::error!(
-                    "failed to send message to {} {:?}: {code} {esc:?} {message}",
+                    "failed to send message to {} {:?}: {response:?}",
                     self.name,
                     self.client_address
                 );
@@ -423,12 +401,12 @@ impl Dispatcher {
                     self.client_address
                 );
             }
-            Ok(()) => {
+            Ok(response) => {
                 // FIXME: log success
                 if let Some(msg) = self.msg.take() {
                     Self::remove_from_spool(msg).await?;
                 }
-                tracing::debug!("Delivered OK!");
+                tracing::debug!("Delivered OK! {response:?}");
             }
         };
         Ok(())
@@ -530,26 +508,6 @@ fn factor_names<S: AsRef<str>>(names: &[S]) -> String {
     result.reverse();
 
     result.join(".")
-}
-
-pub fn build_tls_connector() -> TlsConnector {
-    let config = ClientConfig::builder().with_safe_defaults();
-
-    let mut root_cert_store = RootCertStore::empty();
-
-    root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-
-    let config = config
-        .with_custom_certificate_verifier(Arc::new(WebPkiVerifier::new(root_cert_store, None)))
-        .with_no_client_auth();
-
-    TlsConnector::from(Arc::new(config))
 }
 
 #[cfg(test)]

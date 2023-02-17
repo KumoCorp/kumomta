@@ -103,12 +103,6 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
-
-[[package]]
-name = "base64"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
@@ -862,7 +856,6 @@ dependencies = [
  "k9",
  "lazy_static",
  "mail-auth",
- "mail-send",
  "message",
  "mlua",
  "rcgen",
@@ -871,7 +864,6 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "smtp-proto",
  "spool",
  "thiserror",
  "timeq",
@@ -1001,25 +993,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mail-send"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c28e47b5f1ae2a73b91e997cbb2785a3566bf9e51c518bc381a30a5a7e2d1a0e"
-dependencies = [
- "base64 0.20.0",
- "gethostname",
- "mail-auth",
- "mail-builder",
- "md5",
- "rand",
- "rustls",
- "smtp-proto",
- "tokio",
- "tokio-rustls",
- "webpki-roots",
-]
-
-[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1039,12 +1012,6 @@ name = "matches"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
-
-[[package]]
-name = "md5"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "memchr"
@@ -1069,6 +1036,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "mlua",
+ "rfc5321",
  "serde",
  "serde_json",
  "spool",
@@ -1494,6 +1462,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-rustls",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -1674,12 +1643,6 @@ name = "smallvec"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
-
-[[package]]
-name = "smtp-proto"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f8b30d6ea2e0f44cf94df94528b8cf4c577e2cb4e8389b5be60580f3d352b8d"
 
 [[package]]
 name = "socket2"

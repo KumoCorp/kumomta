@@ -13,7 +13,6 @@ clap = {version="4.1", features=["derive"]}
 gethostname = "0.4"
 lazy_static = "1.4"
 mail-auth = "0.3"
-mail-send = "0.3"
 message = {path="../message"}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 rcgen = "0.10"
@@ -22,7 +21,6 @@ ringbuf = "0.3"
 rustls = "0.20"
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
-smtp-proto = "0.1"
 spool = {path="../spool"}
 thiserror = "1.0"
 timeq = {path="../timeq"}

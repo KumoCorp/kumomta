@@ -1,4 +1,5 @@
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
+use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +38,20 @@ impl EnvelopeAddress {
 
     pub fn to_string(&self) -> String {
         self.0.to_string()
+    }
+}
+
+impl TryInto<ForwardPath> for EnvelopeAddress {
+    type Error = &'static str;
+    fn try_into(self) -> Result<ForwardPath, Self::Error> {
+        ForwardPath::try_from(self.0.as_str())
+    }
+}
+
+impl TryInto<ReversePath> for EnvelopeAddress {
+    type Error = &'static str;
+    fn try_into(self) -> Result<ReversePath, Self::Error> {
+        ReversePath::try_from(self.0.as_str())
     }
 }
 

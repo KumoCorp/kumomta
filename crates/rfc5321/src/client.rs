@@ -1,7 +1,13 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
+use tokio_rustls::rustls::{
+    Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
+};
+use tokio_rustls::TlsConnector;
 
 const MAX_LINE_LEN: usize = 4096;
 
@@ -19,6 +25,8 @@ pub enum ClientError {
     NotConnected,
     #[error("Command rejected {0:?}")]
     Rejected(Response),
+    #[error("invalid DNS name: {0}")]
+    InvalidDnsName(#[from] tokio_rustls::rustls::client::InvalidDnsNameError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +155,24 @@ impl SmtpClient {
 
         self.capabilities = capabilities;
         Ok(&self.capabilities)
+    }
+
+    pub async fn starttls(&mut self, insecure: bool) -> Result<(), ClientError> {
+        let resp = self.send_command(&Command::StartTls).await?;
+        if resp.code != 220 {
+            return Err(ClientError::Rejected(resp));
+        }
+
+        let connector = build_tls_connector(insecure);
+        let stream = connector
+            .connect(
+                ServerName::try_from(self.hostname.as_str())?,
+                self.socket.take().unwrap(),
+            )
+            .await?;
+        let stream: BoxedAsyncReadAndWrite = Box::new(stream);
+        self.socket.replace(stream);
+        Ok(())
     }
 
     pub async fn send_mail<B: AsRef<[u8]>, SENDER: Into<ReversePath>, RECIP: Into<ForwardPath>>(
@@ -289,10 +315,52 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     }
 }
 
+pub fn build_tls_connector(insecure: bool) -> TlsConnector {
+    let config = ClientConfig::builder().with_safe_defaults();
+
+    let verifier: Arc<dyn ServerCertVerifier> = if insecure {
+        struct VerifyAll;
+        impl ServerCertVerifier for VerifyAll {
+            fn verify_server_cert(
+                &self,
+                _: &Certificate,
+                _: &[Certificate],
+                _: &ServerName,
+                _: &mut dyn Iterator<Item = &[u8]>,
+                _: &[u8],
+                _: std::time::SystemTime,
+            ) -> Result<ServerCertVerified, tokio_rustls::rustls::Error> {
+                Ok(ServerCertVerified::assertion())
+            }
+        }
+        Arc::new(VerifyAll {})
+    } else {
+        let mut root_cert_store = RootCertStore::empty();
+
+        root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+            |ta| {
+                OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    ta.subject,
+                    ta.spki,
+                    ta.name_constraints,
+                )
+            },
+        ));
+        Arc::new(WebPkiVerifier::new(root_cert_store, None))
+    };
+
+    let config = config
+        .with_custom_certificate_verifier(verifier)
+        .with_no_client_auth();
+
+    TlsConnector::from(Arc::new(config))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
+    /*
     #[tokio::test]
     async fn test_against_sink() {
         use tokio::net::TcpStream;
@@ -300,6 +368,8 @@ mod test {
         let mut client = SmtpClient::with_stream(stream, "localhost");
         dbg!(client.read_response().await).unwrap();
         dbg!(client.ehlo("localhost").await).unwrap();
+        let insecure = true;
+        dbg!(client.starttls(insecure).await).unwrap();
         let resp = client
             .send_mail(
                 ReversePath::try_from("wez@wez").unwrap(),
@@ -310,6 +380,7 @@ mod test {
             .unwrap();
         panic!("{resp:#?}");
     }
+    */
 
     #[test]
     fn response_parsing() {
