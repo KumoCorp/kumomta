@@ -1,3 +1,4 @@
+use crate::dest_site::DestSiteConfig;
 use crate::lua_config::get_or_create_module;
 use crate::smtp_server::RejectError;
 use anyhow::Context;
@@ -49,6 +50,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
             Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "make_site_config",
+        lua.create_function(move |lua, params: Value| {
+            let config: DestSiteConfig = lua.from_value(params)?;
+            Ok(config)
         })?,
     )?;
 

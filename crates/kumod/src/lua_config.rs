@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mlua::{Lua, Table, ToLuaMulti, Value};
+use mlua::{FromLuaMulti, Lua, Table, ToLuaMulti, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -67,22 +67,24 @@ impl LuaConfig {
 
     /// Call a callback registered via `on`.
     #[allow(unused)]
-    pub fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+    pub fn call_callback<
+        'lua,
+        S: AsRef<str>,
+        A: ToLuaMulti<'lua> + Clone,
+        R: FromLuaMulti<'lua> + Default,
+    >(
         &'lua mut self,
         name: S,
         args: A,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<R> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
         match self
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
-            Ok(func) => {
-                func.call(args.clone())?;
-                Ok(())
-            }
-            _ => Ok(()),
+            Ok(func) => Ok(func.call(args.clone())?),
+            _ => Ok(R::default()),
         }
     }
 }

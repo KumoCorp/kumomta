@@ -1,10 +1,13 @@
+use crate::lua_config::load_config;
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use mail_auth::{IpLookupStrategy, Resolver};
 use message::Message;
+use mlua::prelude::*;
 use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
 use ringbuf::{HeapRb, Rb};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -16,6 +19,83 @@ use tokio::task::JoinHandle;
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<SiteManager> = Mutex::new(SiteManager::new());
     static ref RESOLVER: Mutex<Resolver> = Mutex::new(Resolver::new_system_conf().unwrap());
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
+pub enum Tls {
+    /// Use it if available. If the peer has invalid or self-signed certificates, then
+    /// delivery will fail. Will NOT fallback to not using TLS if the peer advertises
+    /// STARTTLS.
+    Opportunistic,
+    /// Use it if available, and allow self-signed or otherwise invalid server certs.
+    /// Not recommended for sending to the public internet; this is for local/lab
+    /// testing scenarios only.
+    OpportunisticInsecure,
+    /// TLS with valid certs is required.
+    Required,
+    /// Required, and allow self-signed or otherwise invalid server certs.
+    /// Not recommended for sending to the public internet; this is for local/lab
+    /// testing scenarios only.
+    RequiredInsecure,
+    /// Do not try to use TLS
+    Disabled,
+}
+
+impl Tls {
+    pub fn allow_insecure(&self) -> bool {
+        match self {
+            Self::OpportunisticInsecure | Self::RequiredInsecure => true,
+            _ => false,
+        }
+    }
+}
+
+impl Default for Tls {
+    fn default() -> Self {
+        Self::Opportunistic
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DestSiteConfig {
+    #[serde(default = "DestSiteConfig::default_connection_limit")]
+    connection_limit: usize,
+
+    #[serde(default)]
+    enable_tls: Tls,
+
+    #[serde(default = "DestSiteConfig::default_idle_timeout")]
+    idle_timeout: u64,
+
+    #[serde(default = "DestSiteConfig::default_max_ready")]
+    max_ready: usize,
+}
+
+impl LuaUserData for DestSiteConfig {}
+
+impl Default for DestSiteConfig {
+    fn default() -> Self {
+        Self {
+            connection_limit: Self::default_connection_limit(),
+            enable_tls: Tls::default(),
+            idle_timeout: Self::default_idle_timeout(),
+            max_ready: Self::default_max_ready(),
+        }
+    }
+}
+
+impl DestSiteConfig {
+    fn default_connection_limit() -> usize {
+        32
+    }
+
+    fn default_idle_timeout() -> u64 {
+        60
+    }
+
+    fn default_max_ready() -> usize {
+        1024
+    }
 }
 
 pub struct SiteManager {
@@ -57,12 +137,18 @@ impl SiteManager {
         MANAGER.lock().await
     }
 
-    pub async fn resolve_domain(name: &str) -> anyhow::Result<SiteHandle> {
-        let mx = Arc::new(resolve_mx(name).await?.into_boxed_slice());
+    pub async fn resolve_domain(domain_name: &str) -> anyhow::Result<SiteHandle> {
+        let mx = Arc::new(resolve_mx(domain_name).await?.into_boxed_slice());
         let name = factor_names(&mx);
 
+        let mut config = load_config().await?;
+
+        let site_config: DestSiteConfig = config.call_callback(
+            "get_site_config",
+            (domain_name.to_string(), name.to_string()),
+        )?;
+
         let mut manager = Self::get().await;
-        let max_ready_items = 1024; // FIXME: configurable
         let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
             tokio::spawn({
                 let name = name.clone();
@@ -86,7 +172,7 @@ impl SiteManager {
                 }
             });
 
-            let ready = Arc::new(StdMutex::new(HeapRb::new(max_ready_items)));
+            let ready = Arc::new(StdMutex::new(HeapRb::new(site_config.max_ready)));
             let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
                 name: name.clone(),
@@ -95,6 +181,7 @@ impl SiteManager {
                 notify,
                 connections: vec![],
                 last_change: Instant::now(),
+                site_config,
             })))
         });
         Ok(handle.clone())
@@ -117,6 +204,7 @@ pub struct DestinationSite {
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
+    site_config: DestSiteConfig,
 }
 
 impl DestinationSite {
@@ -139,8 +227,7 @@ impl DestinationSite {
     }
 
     pub fn ideal_connection_count(&self) -> usize {
-        let connection_limit = 32; // TODO: configurable
-        ideal_connection_count(self.ready_count(), connection_limit)
+        ideal_connection_count(self.ready_count(), self.site_config.connection_limit)
     }
 
     pub fn maintain(&mut self) {
@@ -156,8 +243,9 @@ impl DestinationSite {
             let mx = self.mx.clone();
             let ready = Arc::clone(&self.ready);
             let notify = self.notify.clone();
+            let site_config = self.site_config.clone();
             self.connections.push(tokio::spawn(async move {
-                if let Err(err) = Dispatcher::run(&name, mx, ready, notify).await {
+                if let Err(err) = Dispatcher::run(&name, mx, ready, notify, site_config).await {
                     tracing::error!("Error in dispatch_queue for {name}: {err:#}");
                 }
             }));
@@ -216,6 +304,7 @@ struct Dispatcher {
     client: Option<SmtpClient>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
+    site_config: DestSiteConfig,
 }
 
 impl Dispatcher {
@@ -224,6 +313,7 @@ impl Dispatcher {
         mx: Arc<Box<[String]>>,
         ready: Arc<StdMutex<HeapRb<Message>>>,
         notify: Arc<Notify>,
+        site_config: DestSiteConfig,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -240,6 +330,7 @@ impl Dispatcher {
             client_address: None,
             addresses,
             ehlo_name,
+            site_config,
         };
 
         dispatcher.obtain_message();
@@ -281,7 +372,7 @@ impl Dispatcher {
             return Ok(true);
         }
 
-        let idle_timeout = Duration::from_secs(60); // TODO: configurable
+        let idle_timeout = Duration::from_secs(self.site_config.idle_timeout);
         match tokio::time::timeout(idle_timeout, self.notify.notified()).await {
             Ok(()) => {}
             Err(_) => {}
@@ -302,6 +393,7 @@ impl Dispatcher {
         let timeout = Duration::from_secs(60);
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.mx_host.to_string();
+        let enable_tls = self.site_config.enable_tls;
 
         let client = tokio::time::timeout(timeout, {
             let address = address.clone();
@@ -323,8 +415,27 @@ impl Dispatcher {
                 let caps = client.ehlo(&ehlo_name).await?;
 
                 // Use STARTTLS if available.
-                if caps.contains_key("STARTTLS") {
-                    client.starttls(false).await?;
+
+                let has_tls = caps.contains_key("STARTTLS");
+                match (enable_tls, has_tls) {
+                    (Tls::Required | Tls::RequiredInsecure, false) => {
+                        anyhow::bail!(
+                            "tls policy is {enable_tls:?} but STARTTLS is not advertised",
+                        );
+                    }
+                    (Tls::Disabled, _)
+                    | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
+                        // Do not use TLS
+                    }
+                    (
+                        Tls::Opportunistic
+                        | Tls::OpportunisticInsecure
+                        | Tls::Required
+                        | Tls::RequiredInsecure,
+                        true,
+                    ) => {
+                        client.starttls(enable_tls.allow_insecure()).await?;
+                    }
                 }
 
                 Ok::<SmtpClient, anyhow::Error>(client)

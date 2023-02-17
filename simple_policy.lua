@@ -54,3 +54,12 @@ kumo.on('smtp_server_message_received', function(msg)
   msg:set_meta('foo', 'bar')
   print('meta foo is', msg:get_meta 'foo')
 end)
+
+-- Not the final form of this API, but this is currently how
+-- we retrieve configuration used when making outbound
+-- connections
+kumo.on('get_site_config', function(domain, site_name)
+  return kumo.make_site_config {
+    enable_tls = 'OpportunisticInsecure',
+  }
+end)

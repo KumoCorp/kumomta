@@ -8,6 +8,7 @@ kumo.on('init', function()
   -- define multiple listeners!
   kumo.start_esmtp_listener {
     listen = '127.0.0.1:2026',
+    relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
   }
 
   -- Define the default "data" spool location.
