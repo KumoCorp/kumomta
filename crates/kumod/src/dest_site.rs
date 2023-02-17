@@ -6,7 +6,7 @@ use mail_send::smtp::message::Message as SendMessage;
 use mail_send::smtp::AssertReply;
 use mail_send::SmtpClient;
 use message::Message;
-use rfc5321::AsyncReadAndWrite;
+use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite};
 use ringbuf::{HeapRb, Rb};
 use rustls::client::WebPkiVerifier;
 use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
@@ -221,7 +221,7 @@ struct Dispatcher {
     notify: Arc<Notify>,
     addresses: Vec<ResolvedAddress>,
     msg: Option<Message>,
-    client: Option<SmtpClient<Box<dyn AsyncReadAndWrite>>>,
+    client: Option<SmtpClient<BoxedAsyncReadAndWrite>>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
 }

@@ -5,15 +5,12 @@ use anyhow::anyhow;
 use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
-use rfc5321::Command;
+use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::io::{
-    AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter, ReadHalf,
-    WriteHalf,
-};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, ReadHalf, WriteHalf};
 use tracing::{error, instrument};
 
 #[derive(Error, Debug, Clone)]
@@ -53,9 +50,9 @@ impl RejectError {
 }
 
 #[derive(Debug)]
-pub struct SmtpServer<T> {
-    reader: BufReader<ReadHalf<T>>,
-    writer: BufWriter<WriteHalf<T>>,
+pub struct SmtpServer {
+    reader: BufReader<ReadHalf<BoxedAsyncReadAndWrite>>,
+    writer: BufWriter<WriteHalf<BoxedAsyncReadAndWrite>>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
     config: LuaConfig,
@@ -71,13 +68,17 @@ struct TransactionState {
     meta: serde_json::Value,
 }
 
-impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
-    pub async fn run(
+impl SmtpServer {
+    pub async fn run<T>(
         socket: T,
         peer_address: SocketAddr,
         relay_hosts: Vec<IpCidr>,
         hostname: String,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        T: AsyncReadAndWrite + Debug + Send + 'static,
+    {
+        let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
         let (reader, writer) = tokio::io::split(socket);
         let reader = tokio::io::BufReader::new(reader);
