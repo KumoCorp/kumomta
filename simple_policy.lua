@@ -33,6 +33,8 @@ end)
 -- Called to validate the helo and/or ehlo domain
 kumo.on('smtp_server_ehlo', function(domain)
   print('ehlo domain is', domain)
+  -- Use kumo.reject to return an error to the EHLO command
+  -- kumo.reject(420, 'wooooo!')
 end)
 
 -- Called to validate the sender
@@ -46,7 +48,8 @@ kumo.on('smtp_server_mail_rcpt_to', function(rcpt)
   print('rcpt', tostring(rcpt))
 end)
 
--- Called once the body has been received
+-- Called once the body has been received.
+-- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
   print('id', msg:id(), 'sender', tostring(msg:sender()))
 
