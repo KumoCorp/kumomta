@@ -1491,6 +1491,7 @@ version = "0.1.0"
 dependencies = [
  "pest",
  "pest_derive",
+ "thiserror",
  "tokio",
  "tokio-rustls",
 ]

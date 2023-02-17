@@ -171,6 +171,28 @@ pub enum ReversePath {
     NullSender,
 }
 
+impl TryFrom<&str> for ReversePath {
+    type Error = &'static str;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        if s.is_empty() {
+            Ok(Self::NullSender)
+        } else {
+            let fields: Vec<&str> = s.split('@').collect();
+            if fields.len() == 2 {
+                Ok(Self::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: fields[0].to_string(),
+                        domain: Domain::Name(fields[1].to_string()),
+                    },
+                }))
+            } else {
+                Err("wrong number of @ signs")
+            }
+        }
+    }
+}
+
 impl ToString for ReversePath {
     fn to_string(&self) -> String {
         match self {
@@ -184,6 +206,30 @@ impl ToString for ReversePath {
 pub enum ForwardPath {
     Path(MailPath),
     Postmaster,
+}
+
+impl TryFrom<&str> for ForwardPath {
+    type Error = &'static str;
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        if s.is_empty() {
+            Err("cannot send to null sender")
+        } else if s.eq_ignore_ascii_case("postmaster") {
+            Ok(Self::Postmaster)
+        } else {
+            let fields: Vec<&str> = s.split('@').collect();
+            if fields.len() == 2 {
+                Ok(Self::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: fields[0].to_string(),
+                        domain: Domain::Name(fields[1].to_string()),
+                    },
+                }))
+            } else {
+                Err("wrong number of @ signs")
+            }
+        }
+    }
 }
 
 impl ToString for ForwardPath {
@@ -221,7 +267,8 @@ pub struct Mailbox {
 
 impl ToString for Mailbox {
     fn to_string(&self) -> String {
-        format!("{}@{}", self.local_part, self.domain.to_string())
+        let domain = self.domain.to_string();
+        format!("{}@{}", self.local_part, domain)
     }
 }
 
@@ -250,6 +297,15 @@ pub struct EsmtpParameter {
     pub value: Option<String>,
 }
 
+impl ToString for EsmtpParameter {
+    fn to_string(&self) -> String {
+        match &self.value {
+            Some(value) => format!("{}={}", self.name, value),
+            None => self.name.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Ehlo(Domain),
@@ -275,6 +331,47 @@ pub enum Command {
 impl Command {
     pub fn parse(line: &str) -> Result<Self, String> {
         Parser::parse_command(line)
+    }
+
+    pub fn encode(&self) -> String {
+        match self {
+            Self::Ehlo(domain) => format!("EHLO {}\r\n", domain.to_string()),
+            Self::Helo(domain) => format!("HELO {}\r\n", domain.to_string()),
+            Self::MailFrom {
+                address,
+                parameters,
+            } => {
+                let mut params = String::new();
+                for p in parameters {
+                    params.push(' ');
+                    params.push_str(&p.to_string());
+                }
+
+                format!("MAIL FROM:<{}>{params}\r\n", address.to_string())
+            }
+            Self::RcptTo {
+                address,
+                parameters,
+            } => {
+                let mut params = String::new();
+                for p in parameters {
+                    params.push(' ');
+                    params.push_str(&p.to_string());
+                }
+
+                format!("RCPT TO:<{}>{params}\r\n", address.to_string())
+            }
+            Self::Data => "DATA\r\n".to_string(),
+            Self::Rset => "RSET\r\n".to_string(),
+            Self::Quit => "QUIT\r\n".to_string(),
+            Self::StartTls => "STARTTLS\r\n".to_string(),
+            Self::Vrfy(param) => format!("VRFY {param}\r\n"),
+            Self::Expn(param) => format!("EXPN {param}\r\n"),
+            Self::Help(Some(param)) => format!("HELP {param}\r\n"),
+            Self::Help(None) => format!("HELP\r\n"),
+            Self::Noop(Some(param)) => format!("NOOP {param}\r\n"),
+            Self::Noop(None) => format!("NOOP\r\n"),
+        }
     }
 }
 
