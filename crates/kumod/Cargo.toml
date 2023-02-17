@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-channel = "1.8"
+cidr = {version="0.2", features=["serde"]}
 clap = {version="4.1", features=["derive"]}
 gethostname = "0.4"
 lazy_static = "1.4"

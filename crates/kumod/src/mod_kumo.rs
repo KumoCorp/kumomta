@@ -1,6 +1,7 @@
 use crate::lua_config::get_or_create_module;
 use crate::smtp_server::RejectError;
 use anyhow::Context;
+use cidr::IpCidr;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -60,9 +61,18 @@ struct EsmtpListenerParams {
     listen: String,
     #[serde(default = "EsmtpListenerParams::default_hostname")]
     hostname: String,
+    #[serde(default = "EsmtpListenerParams::default_relay_hosts")]
+    relay_hosts: Vec<IpCidr>,
 }
 
 impl EsmtpListenerParams {
+    fn default_relay_hosts() -> Vec<IpCidr> {
+        vec![
+            IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
+            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
+        ]
+    }
+
     fn default_listen() -> String {
         "127.0.0.1:2025".to_string()
     }
@@ -86,12 +96,13 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
     println!("Listening on {}", params.listen);
 
     loop {
-        // The second item contains the IP and port of the new connection.
-        let (socket, _) = listener.accept().await?;
+        let (socket, peer_address) = listener.accept().await?;
         let hostname = params.hostname.to_string();
+        let relay_hosts = params.relay_hosts.clone();
         crate::runtime::Runtime::run(move || {
             tokio::task::spawn_local(async move {
-                if let Err(err) = SmtpServer::run(socket, hostname).await {
+                if let Err(err) = SmtpServer::run(socket, peer_address, relay_hosts, hostname).await
+                {
                     tracing::error!("SmtpServer::run: {err:#}");
                 }
             });

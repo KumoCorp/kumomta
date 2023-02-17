@@ -2,10 +2,12 @@ use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::anyhow;
+use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use rfc5321::Command;
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{
@@ -58,6 +60,8 @@ pub struct SmtpServer<T> {
     said_hello: Option<String>,
     config: LuaConfig,
     hostname: String,
+    peer_address: SocketAddr,
+    relay_hosts: Vec<IpCidr>,
 }
 
 #[derive(Debug)]
@@ -68,7 +72,12 @@ struct TransactionState {
 }
 
 impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
-    pub async fn run(socket: T, hostname: String) -> anyhow::Result<()> {
+    pub async fn run(
+        socket: T,
+        peer_address: SocketAddr,
+        relay_hosts: Vec<IpCidr>,
+        hostname: String,
+    ) -> anyhow::Result<()> {
         let config = load_config().await?;
         let (reader, writer) = tokio::io::split(socket);
         let reader = tokio::io::BufReader::new(reader);
@@ -80,6 +89,8 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
             said_hello: None,
             config,
             hostname,
+            peer_address,
+            relay_hosts,
         };
 
         tokio::task::spawn_local(async move {
@@ -211,6 +222,23 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                         .await?;
                         continue;
                     }
+
+                    let mut relay_allowed = false;
+                    for cidr in &self.relay_hosts {
+                        if cidr.contains(&self.peer_address.ip()) {
+                            relay_allowed = true;
+                            break;
+                        }
+                    }
+                    if !relay_allowed {
+                        self.write_response(
+                            550,
+                            format!("5.7.1 relaying not permitted for {}", self.peer_address),
+                        )
+                        .await?;
+                        continue;
+                    }
+
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_mail_from", address.clone())

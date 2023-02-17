@@ -208,6 +208,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cidr"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300bccc729b1ada84523246038aad61fead689ac362bb9d44beea6f6a188c34b"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cipher"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -841,6 +850,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "cidr",
  "clap",
  "gethostname",
  "k9",
