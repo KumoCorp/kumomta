@@ -6,11 +6,13 @@ use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
+use rustls::ServerConfig;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
 
 #[derive(Error, Debug, Clone)]
@@ -51,7 +53,7 @@ impl RejectError {
 
 #[derive(Debug)]
 pub struct SmtpServer {
-    socket: BoxedAsyncReadAndWrite,
+    socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
     config: LuaConfig,
@@ -82,7 +84,7 @@ impl SmtpServer {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
         let mut server = SmtpServer {
-            socket,
+            socket: Some(socket),
             state: None,
             said_hello: None,
             config,
@@ -110,14 +112,16 @@ impl SmtpServer {
         status: u16,
         message: S,
     ) -> anyhow::Result<()> {
-        let mut lines = message.as_ref().lines().peekable();
-        while let Some(line) = lines.next() {
-            let is_last = lines.peek().is_none();
-            let sep = if is_last { ' ' } else { '-' };
-            let text = format!("{status}{sep}{line}\r\n");
-            self.socket.write(text.as_bytes()).await?;
+        if let Some(socket) = self.socket.as_mut() {
+            let mut lines = message.as_ref().lines().peekable();
+            while let Some(line) = lines.next() {
+                let is_last = lines.peek().is_none();
+                let sep = if is_last { ' ' } else { '-' };
+                let text = format!("{status}{sep}{line}\r\n");
+                socket.write(text.as_bytes()).await?;
+            }
+            socket.flush().await?;
         }
-        self.socket.flush().await?;
         Ok(())
     }
 
@@ -147,7 +151,7 @@ impl SmtpServer {
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
-            let size = self.socket.read(&mut data).await?;
+            let size = self.socket.as_mut().unwrap().read(&mut data).await?;
             self.read_buffer.extend_from_slice(&data[0..size]);
         }
     }
@@ -212,7 +216,12 @@ impl SmtpServer {
                             .await?;
                         continue;
                     }
-                    anyhow::bail!("FIXME: implement STARTTLS");
+                    self.write_response(220, "Ready to Start TLS").await?;
+                    let acceptor = build_tls_acceptor(&self.hostname)?;
+                    let socket = acceptor.accept(self.socket.take().unwrap()).await?;
+                    let socket: BoxedAsyncReadAndWrite = Box::new(socket);
+                    self.socket.replace(socket);
+                    self.tls_active = true;
                 }
                 Ok(Command::Ehlo(domain)) => {
                     let domain = domain.to_string();
@@ -451,4 +460,17 @@ const MAX_LINE_LEN: usize = 998;
 enum ReadLine {
     Line(String),
     TooLong,
+}
+
+pub fn build_tls_acceptor(hostname: &str) -> anyhow::Result<TlsAcceptor> {
+    let cert = rcgen::generate_simple_self_signed(vec![hostname.to_string()])?;
+    let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
+    let cert = rustls::Certificate(cert.serialize_der()?);
+
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], private_key)?;
+
+    Ok(TlsAcceptor::from(Arc::new(config)))
 }
