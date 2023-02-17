@@ -86,7 +86,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
             if let Err(err) = server.process().await {
                 error!("Error in SmtpServer: {err:#}");
                 server
-                    .write_response(421, "technical difficulties")
+                    .write_response(421, "4.3.0 technical difficulties")
                     .await
                     .ok();
             }
@@ -138,8 +138,11 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
         if !SpoolManager::get().await.spool_started() {
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.
-            self.write_response(421, format!("{} Hold on just a moment!", self.hostname))
-                .await?;
+            self.write_response(
+                421,
+                format!("{} 4.3.2 Hold on just a moment!", self.hostname),
+            )
+            .await?;
             return Ok(());
         }
 
@@ -163,9 +166,6 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     return Ok(());
                 }
                 Ok(Command::Ehlo(domain)) => {
-                    // TODO: we are supposed to report extension commands in our EHLO
-                    // response, but we don't have any yet.
-
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
@@ -176,8 +176,14 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                         continue;
                     }
 
-                    self.write_response(250, format!("{} Hello {domain}", self.hostname))
-                        .await?;
+                    self.write_response(
+                        250,
+                        format!(
+                            "{} Aloha {domain}\nPIPELINING\nENHANCEDSTATUSCODES",
+                            self.hostname
+                        ),
+                    )
+                    .await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
@@ -198,8 +204,11 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     parameters: _,
                 }) => {
                     if self.state.is_some() {
-                        self.write_response(503, "MAIL FROM already issued; you must RSET first")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.0 MAIL FROM already issued; you must RSET first",
+                        )
+                        .await?;
                         continue;
                     }
                     let address = EnvelopeAddress::parse(&address.to_string())?;
@@ -222,7 +231,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     parameters: _,
                 }) => {
                     if self.state.is_none() {
-                        self.write_response(503, "MAIL FROM must be issued first")
+                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
@@ -243,7 +252,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                 }
                 Ok(Command::Data) => {
                     if self.state.is_none() {
-                        self.write_response(503, "MAIL FROM must be issued first")
+                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
@@ -253,7 +262,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                         .map(|s| s.recipients.is_empty())
                         .unwrap_or(true)
                     {
-                        self.write_response(503, "RCPT TO must be issued first")
+                        self.write_response(503, "5.5.0 RCPT TO must be issued first")
                             .await?;
                         continue;
                     }
@@ -344,7 +353,7 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.write_response(250, "the goggles do nothing").await?;
                 }
                 Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_)) => {
-                    self.write_response(502, format!("Command unimplemented"))
+                    self.write_response(502, format!("5.5.1 Command unimplemented"))
                         .await?;
                 }
             }
