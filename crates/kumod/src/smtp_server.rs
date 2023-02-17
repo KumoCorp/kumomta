@@ -4,6 +4,7 @@ use crate::spool::SpoolManager;
 use anyhow::anyhow;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
+use rfc5321::Command;
 use std::fmt::Debug;
 use std::sync::Arc;
 use thiserror::Error;
@@ -165,6 +166,8 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     // TODO: we are supposed to report extension commands in our EHLO
                     // response, but we don't have any yet.
 
+                    let domain = domain.to_string();
+
                     if let Err(rej) = self
                         .call_callback("smtp_server_ehlo", domain.clone())
                         .await?
@@ -178,6 +181,8 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
+                    let domain = domain.to_string();
+
                     if let Err(rej) = self
                         .call_callback("smtp_server_ehlo", domain.clone())
                         .await?
@@ -188,12 +193,16 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.write_response(250, format!("Hello {domain}!")).await?;
                     self.said_hello.replace(domain);
                 }
-                Ok(Command::Mail(address)) => {
+                Ok(Command::MailFrom {
+                    address,
+                    parameters: _,
+                }) => {
                     if self.state.is_some() {
                         self.write_response(503, "MAIL FROM already issued; you must RSET first")
                             .await?;
                         continue;
                     }
+                    let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_mail_from", address.clone())
                         .await?
@@ -208,12 +217,16 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     });
                     self.write_response(250, format!("OK {address:?}")).await?;
                 }
-                Ok(Command::Rcpt(address)) => {
+                Ok(Command::RcptTo {
+                    address,
+                    parameters: _,
+                }) => {
                     if self.state.is_none() {
                         self.write_response(503, "MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
+                    let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_mail_rcpt_to", address.clone())
                         .await?
@@ -327,113 +340,14 @@ impl<T: AsyncRead + AsyncWrite + Debug + Send + 'static> SmtpServer<T> {
                     self.state.take();
                     self.write_response(250, "Reset state").await?;
                 }
-                Ok(Command::Noop) => {
+                Ok(Command::Noop(_)) => {
                     self.write_response(250, "the goggles do nothing").await?;
                 }
-                Ok(Command::Unknown(cmd)) => {
-                    self.write_response(502, format!("Command unrecognized/unimplemented: {cmd}"))
+                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_)) => {
+                    self.write_response(502, format!("Command unimplemented"))
                         .await?;
                 }
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Command {
-    Ehlo(String),
-    Helo(String),
-    Mail(EnvelopeAddress),
-    Rcpt(EnvelopeAddress),
-    Data,
-    Rset,
-    Noop,
-    Quit,
-    Unknown(String),
-}
-
-impl Command {
-    fn parse(line: &str) -> anyhow::Result<Self> {
-        fn prefix_match(line: &str, candidate: &str) -> bool {
-            if line.len() < candidate.len() {
-                false
-            } else {
-                line[..candidate.len()].eq_ignore_ascii_case(candidate)
-            }
-        }
-
-        fn extract_envelope(line: &str) -> anyhow::Result<(&str, &str)> {
-            if !line.starts_with('<') {
-                anyhow::bail!("expected <: {line:?}");
-            }
-            let rangle = line
-                .bytes()
-                .position(|c| c == b'>')
-                .ok_or_else(|| anyhow::anyhow!("expected >: {line:?}"))?;
-
-            Ok((&line[1..rangle], &line[rangle + 1..]))
-        }
-
-        Ok(if line.eq_ignore_ascii_case("QUIT") {
-            Self::Quit
-        } else if line.eq_ignore_ascii_case("DATA") {
-            Self::Data
-        } else if line.eq_ignore_ascii_case("RSET") {
-            Self::Rset
-        } else if line.eq_ignore_ascii_case("NOOP") {
-            Self::Noop
-        } else if prefix_match(line, "EHLO ") {
-            Self::Ehlo(line[5..].to_string())
-        } else if prefix_match(line, "HELO ") {
-            Self::Helo(line[5..].to_string())
-        } else if prefix_match(line, "MAIL FROM:") {
-            let (address, _params) = extract_envelope(&line[10..])?;
-            // TODO: MAIL FROM can accept key/value parameters
-            Self::Mail(EnvelopeAddress::parse(address)?)
-        } else if prefix_match(line, "RCPT TO:") {
-            let (address, _params) = extract_envelope(&line[8..])?;
-            if address.is_empty() {
-                anyhow::bail!("Null sender not permitted as a recipient");
-            }
-            Self::Rcpt(EnvelopeAddress::parse(address)?)
-        } else {
-            Self::Unknown(line.to_string())
-        })
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use k9::assert_equal;
-
-    #[test]
-    fn command_parser() {
-        assert_equal!(Command::parse("QUIT").unwrap(), Command::Quit);
-        assert_equal!(Command::parse("quit").unwrap(), Command::Quit);
-        assert_equal!(
-            Command::parse("quite").unwrap(),
-            Command::Unknown("quite".to_string())
-        );
-        assert_equal!(
-            Command::parse("flibble").unwrap(),
-            Command::Unknown("flibble".to_string())
-        );
-        assert_equal!(
-            Command::parse("MAIL From:<>").unwrap(),
-            Command::Mail(EnvelopeAddress::null_sender())
-        );
-        assert_equal!(
-            Command::parse("MAIL From:<user@example.com>").unwrap(),
-            Command::Mail(EnvelopeAddress::parse("user@example.com").unwrap())
-        );
-        assert_equal!(
-            Command::parse("rcpt to:<>").unwrap_err().to_string(),
-            "Null sender not permitted as a recipient"
-        );
-        assert_equal!(
-            Command::parse("rcpt TO:<user@example.com>").unwrap(),
-            Command::Rcpt(EnvelopeAddress::parse("user@example.com").unwrap())
-        );
     }
 }

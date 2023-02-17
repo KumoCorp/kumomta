@@ -849,6 +849,7 @@ dependencies = [
  "mail-send",
  "message",
  "mlua",
+ "rfc5321",
  "ringbuf",
  "rustls",
  "serde",

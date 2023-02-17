@@ -15,6 +15,7 @@ mail-auth = "0.3"
 mail-send = "0.3"
 message = {path="../message"}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+rfc5321 = {path="../rfc5321"}
 ringbuf = "0.3"
 rustls = "0.20"
 serde = {version="1.0", features=["derive"]}

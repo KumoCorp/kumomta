@@ -170,10 +170,28 @@ pub enum ReversePath {
     NullSender,
 }
 
+impl ToString for ReversePath {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Path(p) => p.to_string(),
+            Self::NullSender => "".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardPath {
     Path(MailPath),
     Postmaster,
+}
+
+impl ToString for ForwardPath {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Path(p) => p.to_string(),
+            Self::Postmaster => "postmaster".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,10 +200,28 @@ pub struct MailPath {
     pub mailbox: Mailbox,
 }
 
+impl ToString for MailPath {
+    fn to_string(&self) -> String {
+        // Note: RFC5321 says about at_domain_list:
+        // Note that this form, the so-called "source
+        // route", MUST BE accepted, SHOULD NOT be
+        // generated, and SHOULD be ignored.
+        // So we don't include it in the stringified
+        // version of MailPath
+        self.mailbox.to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mailbox {
     pub local_part: String,
     pub domain: Domain,
+}
+
+impl ToString for Mailbox {
+    fn to_string(&self) -> String {
+        format!("{}@{}", self.local_part, self.domain.to_string())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +230,17 @@ pub enum Domain {
     V4(String),
     V6(String),
     Tagged { tag: String, literal: String },
+}
+
+impl ToString for Domain {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Name(name) => name.to_string(),
+            Self::V4(addr) => format!("[{addr}]"),
+            Self::V6(addr) => format!("[IPv6:{addr}]"),
+            Self::Tagged { tag, literal } => format!("[{tag}:{literal}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
