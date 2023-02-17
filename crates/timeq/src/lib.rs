@@ -230,7 +230,7 @@ mod tests {
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.is_empty(), false);
 
-        std::thread::sleep(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
 
         match queue.pop() {
             PopResult::Items(items) => assert_eq!(items, vec![item1]),
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.is_empty(), false);
 
-        std::thread::sleep(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
 
         match queue.pop() {
             PopResult::Sleep(ms) => std::thread::sleep(ms),
