@@ -6,6 +6,7 @@ use mail_send::smtp::message::Message as SendMessage;
 use mail_send::smtp::AssertReply;
 use mail_send::SmtpClient;
 use message::Message;
+use rfc5321::AsyncReadAndWrite;
 use ringbuf::{HeapRb, Rb};
 use rustls::client::WebPkiVerifier;
 use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
@@ -15,11 +16,9 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
-use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
 
 lazy_static::lazy_static! {
@@ -215,10 +214,6 @@ async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
     result.reverse();
     result
 }
-
-trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Unpin + Send {}
-impl AsyncReadAndWrite for TlsStream<TcpStream> {}
-impl AsyncReadAndWrite for TcpStream {}
 
 struct Dispatcher {
     name: String,
