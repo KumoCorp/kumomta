@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{error, instrument};
 
 #[derive(Error, Debug, Clone)]
@@ -51,14 +51,15 @@ impl RejectError {
 
 #[derive(Debug)]
 pub struct SmtpServer {
-    reader: BufReader<ReadHalf<BoxedAsyncReadAndWrite>>,
-    writer: BufWriter<WriteHalf<BoxedAsyncReadAndWrite>>,
+    socket: BoxedAsyncReadAndWrite,
     state: Option<TransactionState>,
     said_hello: Option<String>,
     config: LuaConfig,
     hostname: String,
     peer_address: SocketAddr,
     relay_hosts: Vec<IpCidr>,
+    tls_active: bool,
+    read_buffer: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -80,18 +81,16 @@ impl SmtpServer {
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
-        let (reader, writer) = tokio::io::split(socket);
-        let reader = tokio::io::BufReader::new(reader);
-        let writer = tokio::io::BufWriter::new(writer);
         let mut server = SmtpServer {
-            reader,
-            writer,
+            socket,
             state: None,
             said_hello: None,
             config,
             hostname,
             peer_address,
             relay_hosts,
+            tls_active: false,
+            read_buffer: Vec::with_capacity(1024),
         };
 
         tokio::task::spawn_local(async move {
@@ -116,16 +115,41 @@ impl SmtpServer {
             let is_last = lines.peek().is_none();
             let sep = if is_last { ' ' } else { '-' };
             let text = format!("{status}{sep}{line}\r\n");
-            self.writer.write(text.as_bytes()).await?;
+            self.socket.write(text.as_bytes()).await?;
         }
-        self.writer.flush().await?;
+        self.socket.flush().await?;
         Ok(())
     }
 
-    async fn read_line(&mut self) -> anyhow::Result<String> {
-        let mut line = String::new();
-        self.reader.read_line(&mut line).await?;
-        Ok(line)
+    async fn read_line(&mut self) -> anyhow::Result<ReadLine> {
+        let mut too_long = false;
+        loop {
+            let mut iter = self.read_buffer.iter().enumerate();
+            while let Some((i, &b)) = iter.next() {
+                if b != b'\r' {
+                    continue;
+                }
+                if let Some((_, b'\n')) = iter.next() {
+                    if too_long {
+                        self.read_buffer.drain(0..i + 2);
+                        return Ok(ReadLine::TooLong);
+                    }
+
+                    let line = String::from_utf8(self.read_buffer[0..i].to_vec());
+                    self.read_buffer.drain(0..i + 2);
+                    return Ok(ReadLine::Line(line?));
+                }
+            }
+            if self.read_buffer.len() > MAX_LINE_LEN {
+                self.read_buffer.clear();
+                too_long = true;
+            }
+
+            // Didn't find a complete line, fill up the rest of the buffer
+            let mut data = [0u8; 1024];
+            let size = self.socket.read(&mut data).await?;
+            self.read_buffer.extend_from_slice(&data[0..size]);
+        }
     }
 
     pub async fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
@@ -161,10 +185,15 @@ impl SmtpServer {
         self.write_response(220, format!("{} KumoMTA\nW00t!\nYeah!", self.hostname))
             .await?;
         loop {
-            let line = self.read_line().await?;
-            let line = line.trim_end();
+            let line = match self.read_line().await? {
+                ReadLine::Line(line) => line,
+                ReadLine::TooLong => {
+                    self.write_response(500, "5.2.3 line too long").await?;
+                    continue;
+                }
+            };
 
-            match Command::parse(line) {
+            match Command::parse(&line) {
                 Err(err) => {
                     self.write_response(
                         501,
@@ -177,6 +206,14 @@ impl SmtpServer {
                         .await?;
                     return Ok(());
                 }
+                Ok(Command::StartTls) => {
+                    if self.tls_active {
+                        self.write_response(501, "Cannot STARTTLS as TLS is already active")
+                            .await?;
+                        continue;
+                    }
+                    anyhow::bail!("FIXME: implement STARTTLS");
+                }
                 Ok(Command::Ehlo(domain)) => {
                     let domain = domain.to_string();
 
@@ -188,11 +225,17 @@ impl SmtpServer {
                         continue;
                     }
 
+                    let mut extensions = vec!["PIPELINING", "ENHANCEDSTATUSCODES"];
+                    if !self.tls_active {
+                        extensions.push("STARTTLS");
+                    }
+
                     self.write_response(
                         250,
                         format!(
-                            "{} Aloha {domain}\nPIPELINING\nENHANCEDSTATUSCODES",
-                            self.hostname
+                            "{} Aloha {domain}\n{}",
+                            self.hostname,
+                            extensions.join("\n"),
                         ),
                     )
                     .await?;
@@ -299,10 +342,18 @@ impl SmtpServer {
                         .await?;
 
                     let mut data = vec![];
+                    let mut too_long = false;
 
                     loop {
-                        let line = self.read_line().await?;
-                        if line == ".\r\n" {
+                        let line = match self.read_line().await? {
+                            ReadLine::Line(line) => line,
+                            ReadLine::TooLong => {
+                                too_long = true;
+                                data.clear();
+                                continue;
+                            }
+                        };
+                        if line == "." {
                             break;
                         }
 
@@ -313,6 +364,11 @@ impl SmtpServer {
                         };
 
                         data.extend_from_slice(line.as_bytes());
+                    }
+
+                    if too_long {
+                        self.write_response(500, "5.2.3 line too long").await?;
+                        continue;
                     }
 
                     let state = self
@@ -388,4 +444,11 @@ impl SmtpServer {
             }
         }
     }
+}
+
+const MAX_LINE_LEN: usize = 998;
+#[derive(PartialEq)]
+enum ReadLine {
+    Line(String),
+    TooLong,
 }

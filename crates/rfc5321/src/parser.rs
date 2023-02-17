@@ -21,6 +21,7 @@ impl Parser {
             Rule::data => Ok(Command::Data),
             Rule::rset => Ok(Command::Rset),
             Rule::quit => Ok(Command::Quit),
+            Rule::starttls => Ok(Command::StartTls),
             Rule::vrfy => Self::parse_vrfy(result.into_inner()),
             Rule::expn => Self::parse_expn(result.into_inner()),
             Rule::help => Self::parse_help(result.into_inner()),
@@ -268,6 +269,7 @@ pub enum Command {
     Expn(String),
     Help(Option<String>),
     Noop(Option<String>),
+    StartTls,
 }
 
 impl Command {

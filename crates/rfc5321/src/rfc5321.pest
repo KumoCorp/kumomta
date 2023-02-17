@@ -66,5 +66,6 @@ vrfy = { ^"VRFY " ~ string }
 expn = { ^"EXPN " ~ string }
 help = { ^"HELP" ~ (" " ~ string)? }
 noop = { ^"NOOP" ~ (" " ~ string)? }
+starttls = { ^"STARTTLS" }
 
-command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit ~ EOI }
+command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit | starttls ~ EOI }
