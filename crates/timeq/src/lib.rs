@@ -80,9 +80,23 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
         let elapsed = self.elapsed();
         if elapsed > 0 {
             let mut items = vec![];
-            for _ in 0..elapsed {
-                items.append(&mut self.wheel.tick());
+
+            let mut elapsed = elapsed as u32;
+            while elapsed > 0 {
+                match self.wheel.can_skip() {
+                    Skip::Empty => break,
+                    Skip::None => {
+                        items.append(&mut self.wheel.tick());
+                        elapsed -= 1;
+                    }
+                    Skip::Millis(m) => {
+                        let amount = m.min(elapsed);
+                        self.wheel.skip(amount);
+                        elapsed -= amount;
+                    }
+                }
             }
+
             if !items.is_empty() {
                 self.len -= items.len();
                 return PopResult::Items(items);
