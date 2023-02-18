@@ -8,7 +8,7 @@ use std::time::Duration;
 use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
 
 bitflags::bitflags! {
-    struct MessageFlags: u32 {
+    struct MessageFlags: u8 {
         /// true if Metadata needs to be saved
         const META_DIRTY = 1;
         /// true if Data needs to be saved
@@ -21,6 +21,7 @@ struct MessageInner {
     metadata: Option<MetaData>,
     data: Arc<Box<[u8]>>,
     flags: MessageFlags,
+    num_attempts: u16,
     due: Option<DateTime<Utc>>,
 }
 
@@ -34,8 +35,6 @@ pub struct Message {
 struct MetaData {
     sender: EnvelopeAddress,
     recipient: EnvelopeAddress,
-    #[serde(with = "chrono::serde::ts_seconds")]
-    created: DateTime<Utc>,
     meta: serde_json::Value,
 }
 
@@ -57,10 +56,10 @@ impl Message {
                     sender,
                     recipient,
                     meta,
-                    created: Utc::now(),
                 }),
                 data,
                 flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
+                num_attempts: 0,
                 due: None,
             })),
         })
@@ -78,9 +77,25 @@ impl Message {
                 metadata: Some(metadata),
                 data: Arc::new(vec![].into_boxed_slice()),
                 flags: MessageFlags::empty(),
+                num_attempts: 0,
                 due: None,
             })),
         })
+    }
+
+    pub fn get_num_attempts(&self) -> u16 {
+        let inner = self.inner.lock().unwrap();
+        inner.num_attempts
+    }
+
+    pub fn set_num_attempts(&self, num_attempts: u16) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.num_attempts = num_attempts;
+    }
+
+    pub fn increment_num_attempts(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.num_attempts += 1;
     }
 
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
@@ -88,8 +103,15 @@ impl Message {
         inner.due
     }
 
-    pub fn delay_by(&self, duration: Duration) {
-        let due = Utc::now() + chrono::Duration::milliseconds(duration.as_millis() as _);
+    pub fn delay_with_jitter(&self, limit: i64) {
+        let scale = rand::random::<f32>();
+        let value = (scale * limit as f32) as i64;
+        println!("delaying by {value}");
+        self.delay_by(chrono::Duration::seconds(value));
+    }
+
+    pub fn delay_by(&self, duration: chrono::Duration) {
+        let due = Utc::now() + duration;
         self.set_due(Some(due));
     }
 
@@ -175,7 +197,15 @@ impl Message {
         }
     }
 
-    pub async fn load_meta(&mut self, meta_spool: impl Spool) -> anyhow::Result<()> {
+    pub fn is_meta_loaded(&self) -> bool {
+        self.inner.lock().unwrap().metadata.is_some()
+    }
+
+    pub fn is_data_loaded(&self) -> bool {
+        !self.inner.lock().unwrap().data.is_empty()
+    }
+
+    pub async fn load_meta(&self, meta_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.inner.lock().unwrap();
@@ -184,14 +214,14 @@ impl Message {
         Ok(())
     }
 
-    pub async fn load_data(&mut self, data_spool: impl Spool) -> anyhow::Result<()> {
+    pub async fn load_data(&self, data_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
         let data = data_spool.load(*self.id()).await?;
         let mut inner = self.inner.lock().unwrap();
         inner.data = Arc::new(data.into_boxed_slice());
         Ok(())
     }
 
-    pub fn assign_data(&mut self, data: Vec<u8>) {
+    pub fn assign_data(&self, data: Vec<u8>) {
         let mut inner = self.inner.lock().unwrap();
         inner.data = Arc::new(data.into_boxed_slice());
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
@@ -253,6 +283,27 @@ impl Message {
                 None => Ok(serde_json::Value::Null),
             },
         }
+    }
+
+    pub fn age(&self, now: DateTime<Utc>) -> chrono::Duration {
+        self.id.age(now)
+    }
+
+    pub fn get_queue_name(&self) -> anyhow::Result<String> {
+        Ok(match self.get_meta_string("queue")? {
+            Some(name) => name,
+            None => {
+                let campaign = self.get_meta_string("campaign")?;
+                let tenant = self.get_meta_string("tenant")?;
+                let domain = self.recipient()?.domain().to_string().to_lowercase();
+                match (campaign, tenant) {
+                    (Some(c), Some(t)) => format!("{c}:{t}@{domain}"),
+                    (Some(c), None) => format!("{c}:@{domain}"),
+                    (None, Some(t)) => format!("{t}@{domain}"),
+                    (None, None) => domain,
+                }
+            }
+        })
     }
 }
 

@@ -1,5 +1,10 @@
 use crate::dest_site::SiteManager;
+use crate::lua_config::load_config;
+use crate::spool::SpoolManager;
+use chrono::Utc;
 use message::Message;
+use mlua::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -9,6 +14,188 @@ use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
     pub static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct QueueConfig {
+    /// Base retry interval to use in exponential backoff
+    #[serde(default = "QueueConfig::default_retry_interval")]
+    retry_interval: usize,
+
+    /// Optional cap on the computed retry interval.
+    /// Set to the same number as retry_interval to
+    /// prevent using exponential backoff
+    #[serde(default)]
+    max_retry_interval: Option<usize>,
+
+    /// Limits how long a message can remain in the queue
+    #[serde(default = "QueueConfig::default_max_age")]
+    max_age: usize,
+}
+
+impl LuaUserData for QueueConfig {}
+
+impl Default for QueueConfig {
+    fn default() -> Self {
+        Self {
+            retry_interval: Self::default_retry_interval(),
+            max_retry_interval: None,
+            max_age: Self::default_max_age(),
+        }
+    }
+}
+
+impl QueueConfig {
+    fn default_retry_interval() -> usize {
+        60 * 60 * 20 // 20 minutes
+    }
+
+    fn default_max_age() -> usize {
+        86400 * 7 // 1 week
+    }
+
+    pub fn get_max_age(&self) -> chrono::Duration {
+        chrono::Duration::seconds(self.max_age as i64)
+    }
+
+    pub fn infer_num_attempts(&self, age: chrono::Duration) -> u16 {
+        let age = age.num_seconds() as f64;
+        let interval = self.retry_interval as f64;
+
+        match self.max_retry_interval {
+            None => age.powf(1.0 / interval).floor() as u16,
+            Some(limit) => {
+                let limit = limit as f64;
+                (age / limit).floor() as u16
+            }
+        }
+    }
+
+    pub fn delay_for_attempt(&self, attempt: u16) -> chrono::Duration {
+        let delay = self.retry_interval.saturating_pow(1 + attempt as u32);
+
+        let delay = match self.max_retry_interval {
+            None => delay,
+            Some(limit) => delay.min(limit),
+        };
+
+        chrono::Duration::seconds(delay as i64)
+    }
+
+    pub fn compute_delay_based_on_age(
+        &self,
+        num_attempts: u16,
+        age: chrono::Duration,
+    ) -> Option<chrono::Duration> {
+        let overall_delay: i64 = (1..num_attempts)
+            .into_iter()
+            .map(|i| self.delay_for_attempt(i).num_seconds())
+            .sum();
+        let overall_delay = chrono::Duration::seconds(overall_delay);
+
+        if overall_delay >= self.get_max_age() {
+            None
+        } else if overall_delay <= age {
+            // Ready now
+            Some(chrono::Duration::seconds(0))
+        } else {
+            Some(overall_delay - age)
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// Returns the list of delays up until the max_age would be reached
+    fn compute_schedule(config: &QueueConfig) -> Vec<i64> {
+        let mut schedule = vec![];
+        let mut age = 0;
+        for attempt in 0.. {
+            let delay = config.delay_for_attempt(attempt).num_seconds();
+            age += delay;
+            if age >= config.max_age as i64 {
+                return schedule;
+            }
+            schedule.push(delay);
+        }
+        unreachable!()
+    }
+
+    #[test]
+    fn calc_due() {
+        let config = QueueConfig {
+            retry_interval: 2,
+            max_retry_interval: None,
+            max_age: 1024,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            compute_schedule(&config),
+            vec![2, 4, 8, 16, 32, 64, 128, 256, 512]
+        );
+    }
+
+    #[test]
+    fn calc_due_capped() {
+        let config = QueueConfig {
+            retry_interval: 2,
+            max_retry_interval: Some(8),
+            max_age: 128,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            compute_schedule(&config),
+            vec![2, 4, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+        );
+    }
+
+    #[test]
+    fn spool_in_delay() {
+        let config = QueueConfig {
+            retry_interval: 2,
+            max_retry_interval: None,
+            max_age: 256,
+            ..Default::default()
+        };
+
+        let mut schedule = vec![];
+        let mut age = 2;
+        loop {
+            let age_chrono = chrono::Duration::seconds(age);
+            let num_attempts = config.infer_num_attempts(age_chrono);
+            match config.compute_delay_based_on_age(num_attempts, age_chrono) {
+                Some(delay) => schedule.push((age, num_attempts, delay.num_seconds())),
+                None => break,
+            }
+            age += 4;
+        }
+
+        assert_eq!(
+            schedule,
+            vec![
+                (2, 1, 0),
+                (6, 2, 0),
+                (10, 3, 2),
+                (14, 3, 0),
+                (18, 4, 10),
+                (22, 4, 6),
+                (26, 5, 34),
+                (30, 5, 30),
+                (34, 5, 26),
+                (38, 6, 86),
+                (42, 6, 82),
+                (46, 6, 78),
+                (50, 7, 202),
+                (54, 7, 198),
+                (58, 7, 194),
+                (62, 7, 190)
+            ]
+        );
+    }
 }
 
 #[derive(Clone)]
@@ -25,6 +212,7 @@ pub struct Queue {
     queue: TimeQ<Message>,
     maintainer: Option<JoinHandle<()>>,
     last_change: Instant,
+    queue_config: QueueConfig,
 }
 
 impl Drop for Queue {
@@ -36,12 +224,20 @@ impl Drop for Queue {
 }
 
 impl Queue {
-    pub async fn new(name: String) -> QueueHandle {
+    pub async fn new(name: String) -> anyhow::Result<QueueHandle> {
+        let mut config = load_config().await?;
+
+        // TODO: could perhaps crack the standard queue name `campaign:tenant@domain`
+        // into its components and pass those down here?
+        let queue_config: QueueConfig =
+            config.call_callback("get_queue_config", name.to_string())?;
+
         let handle = QueueHandle(Arc::new(Mutex::new(Queue {
             name: name.clone(),
             queue: TimeQ::new(),
             maintainer: None,
             last_change: Instant::now(),
+            queue_config,
         })));
 
         let queue_clone = handle.clone();
@@ -54,7 +250,38 @@ impl Queue {
             }
         });
         handle.lock().await.maintainer.replace(maintainer);
-        handle
+        Ok(handle)
+    }
+
+    pub async fn requeue_message(
+        &mut self,
+        msg: Message,
+        increment_attempts: bool,
+    ) -> anyhow::Result<()> {
+        let id = *msg.id();
+        if increment_attempts {
+            msg.increment_num_attempts();
+            let delay = self.queue_config.delay_for_attempt(msg.get_num_attempts());
+            let jitter = (rand::random::<f32>() * 60.) - 30.0;
+            let delay = chrono::Duration::seconds(delay.num_seconds() + jitter as i64);
+
+            let now = Utc::now();
+            let max_age = self.queue_config.get_max_age();
+            let age = msg.age(now);
+            if delay + age > max_age {
+                // FIXME: expire
+                tracing::debug!("expiring {id} {age} > {max_age}");
+                SpoolManager::remove_from_spool(id).await?;
+                return Ok(());
+            }
+            msg.delay_by(delay);
+        } else {
+            msg.delay_with_jitter(60);
+        }
+
+        self.insert(msg).await?;
+
+        Ok(())
     }
 
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
@@ -69,7 +296,7 @@ impl Queue {
                         match site.insert(msg) {
                             Ok(_) => {}
                             Err(msg) => {
-                                msg.delay_by(Duration::from_secs(60));
+                                msg.delay_with_jitter(60);
                                 self.queue
                                     .insert(Arc::new(msg))
                                     .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
@@ -78,7 +305,7 @@ impl Queue {
                     }
                     Err(err) => {
                         tracing::error!("Failed to resolve {}: {err:#}", self.name);
-                        msg.delay_by(Duration::from_secs(60));
+                        msg.delay_with_jitter(60);
                         self.queue
                             .insert(Arc::new(msg))
                             .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
@@ -91,6 +318,10 @@ impl Queue {
                 anyhow::bail!("queue.insert returned impossible NotFound error")
             }
         }
+    }
+
+    pub fn get_config(&self) -> &QueueConfig {
+        &self.queue_config
     }
 }
 
@@ -106,22 +337,21 @@ impl QueueManager {
     }
 
     /// Insert message into a queue named `name`.
-    /// Note that the queue names are case-insensitive, and
-    /// internally the lowercased version of `name` is used
-    /// to track the queue.
     pub async fn insert(&mut self, name: &str, msg: Message) -> anyhow::Result<()> {
-        let name = name.to_lowercase();
-        let entry_keeper;
-        let entry = match self.named.get(&name) {
-            Some(e) => e,
-            None => {
-                entry_keeper = Queue::new(name.clone()).await;
-                self.named.insert(name, entry_keeper.clone());
-                &entry_keeper
-            }
-        };
+        let entry = self.resolve(name).await?;
         let mut entry = entry.lock().await;
         entry.insert(msg).await
+    }
+
+    pub async fn resolve(&mut self, name: &str) -> anyhow::Result<QueueHandle> {
+        match self.named.get(name) {
+            Some(e) => Ok((*e).clone()),
+            None => {
+                let entry = Queue::new(name.to_string()).await?;
+                self.named.insert(name.to_string(), entry.clone());
+                Ok(entry)
+            }
+        }
     }
 
     pub async fn get() -> MutexGuard<'static, Self> {
@@ -141,16 +371,64 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 q.name,
                 q.queue.len()
             );
+            let now = Utc::now();
             match q.queue.pop() {
                 PopResult::Items(messages) => match SiteManager::resolve_domain(&q.name).await {
                     Ok(site) => {
                         let mut site = site.lock().await;
+                        let meta_spool = SpoolManager::get_named("meta").await?;
+                        let data_spool = SpoolManager::get_named("data").await?;
+
+                        let max_age = q.queue_config.get_max_age();
 
                         for msg in messages {
+                            let id = *msg.id();
+
+                            let age = msg.age(now);
+                            if age >= max_age {
+                                // TODO: log failure due to expiration
+                                tracing::debug!("expiring {id} {age} > {max_age}");
+
+                                // Best effort to remove
+                                if let Err(err) = data_spool.lock().await.remove(id).await {
+                                    tracing::error!(
+                                        "Failed to remove {id} from data spool: {err:#}"
+                                    );
+                                }
+                                if let Err(err) = meta_spool.lock().await.remove(id).await {
+                                    tracing::error!(
+                                        "Failed to remove {id} from meta spool: {err:#}"
+                                    );
+                                }
+                                continue;
+                            }
+
+                            if !msg.is_meta_loaded() {
+                                if let Err(err) = msg.load_meta(&**meta_spool.lock().await).await {
+                                    tracing::error!("Failed to load {id} metadata: {err:#}");
+                                    msg.delay_with_jitter(60);
+                                    q.queue
+                                        .insert(msg)
+                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                    continue;
+                                }
+                            }
+
+                            if !msg.is_data_loaded() {
+                                if let Err(err) = msg.load_meta(&**meta_spool.lock().await).await {
+                                    tracing::error!("Failed to load {id} data: {err:#}");
+                                    msg.delay_with_jitter(60);
+                                    q.queue
+                                        .insert(msg)
+                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                    continue;
+                                }
+                            }
+
                             match site.insert((*msg).clone()) {
                                 Ok(_) => {}
                                 Err(_) => {
-                                    msg.delay_by(Duration::from_secs(60));
+                                    msg.delay_with_jitter(60);
                                     q.queue
                                         .insert(msg)
                                         .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
@@ -161,7 +439,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     Err(err) => {
                         tracing::error!("Failed to resolve {}: {err:#}", q.name);
                         for msg in messages {
-                            msg.delay_by(Duration::from_secs(60));
+                            msg.delay_with_jitter(60);
                             q.queue
                                 .insert(msg)
                                 .map_err(|_err| anyhow::anyhow!("failed to insert"))?;

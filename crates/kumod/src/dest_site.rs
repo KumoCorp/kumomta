@@ -448,12 +448,12 @@ impl Dispatcher {
         Ok(())
     }
 
-    async fn requeue_message(msg: Message) -> anyhow::Result<()> {
+    async fn requeue_message(msg: Message, increment_attempts: bool) -> anyhow::Result<()> {
         let mut queue_manager = QueueManager::get().await;
-        msg.delay_by(Duration::from_secs(60));
-        let domain = msg.recipient()?.domain().to_string();
-        queue_manager.insert(&domain, msg).await?;
-        Ok(())
+        let queue_name = msg.get_queue_name()?;
+        let queue = queue_manager.resolve(&queue_name).await?;
+        let mut queue = queue.lock().await;
+        queue.requeue_message(msg, increment_attempts).await
     }
 
     async fn deliver_message(&mut self) -> anyhow::Result<()> {
@@ -484,7 +484,7 @@ impl Dispatcher {
             Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
                 // Transient failure
                 if let Some(msg) = self.msg.take() {
-                    Self::requeue_message(msg).await?;
+                    Self::requeue_message(msg, true).await?;
                 }
                 tracing::debug!(
                     "failed to send message to {} {:?}: {response:?}",
@@ -500,7 +500,7 @@ impl Dispatcher {
                 );
                 // FIXME: log permanent failure
                 if let Some(msg) = self.msg.take() {
-                    Self::remove_from_spool(msg).await?;
+                    SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
                 self.msg.take();
             }
@@ -515,26 +515,11 @@ impl Dispatcher {
             Ok(response) => {
                 // FIXME: log success
                 if let Some(msg) = self.msg.take() {
-                    Self::remove_from_spool(msg).await?;
+                    SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
                 tracing::debug!("Delivered OK! {response:?}");
             }
         };
-        Ok(())
-    }
-
-    async fn remove_from_spool(msg: Message) -> anyhow::Result<()> {
-        let id = *msg.id();
-        let data_spool = SpoolManager::get_named("data").await?;
-        let meta_spool = SpoolManager::get_named("meta").await?;
-        let res_data = data_spool.lock().await.remove(id).await;
-        let res_meta = meta_spool.lock().await.remove(id).await;
-        if let Err(err) = res_data {
-            tracing::error!("Error removing data for {id}: {err:#}");
-        }
-        if let Err(err) = res_meta {
-            tracing::error!("Error removing meta for {id}: {err:#}");
-        }
         Ok(())
     }
 }
@@ -544,7 +529,7 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             tokio::spawn(async move {
-                if let Err(err) = Dispatcher::requeue_message(msg).await {
+                if let Err(err) = Dispatcher::requeue_message(msg, false).await {
                     tracing::error!("error requeuing message: {err:#}");
                 }
             });

@@ -71,3 +71,14 @@ kumo.on('get_site_config', function(domain, site_name)
     enable_tls = 'OpportunisticInsecure',
   }
 end)
+
+-- Not the final form of this API, but this is currently how
+-- we retrieve configuration used for managing a queue.
+kumo.on('get_queue_config', function(queue_name)
+  return kumo.make_queue_config {
+    -- Age out messages after being in the queue for 2 minutes
+    max_age = 120,
+    retry_interval = 2,
+    max_retry_interval = 8,
+  }
+end)

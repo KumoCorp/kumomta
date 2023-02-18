@@ -452,20 +452,7 @@ impl SmtpServer {
 
                         ids.push(message.id().to_string());
 
-                        let queue_name = match message.get_meta_string("queue")? {
-                            Some(name) => name.to_string(),
-                            None => {
-                                let campaign = message.get_meta_string("campaign")?;
-                                let tenant = message.get_meta_string("tenant")?;
-                                let domain = message.recipient()?.domain().to_string();
-                                match (campaign, tenant) {
-                                    (Some(c), Some(t)) => format!("{c}:{t}@{domain}"),
-                                    (Some(c), None) => format!("{c}:@{domain}"),
-                                    (None, Some(t)) => format!("{t}@{domain}"),
-                                    (None, None) => domain,
-                                }
-                            }
-                        };
+                        let queue_name = message.get_queue_name()?;
 
                         if queue_name != "null" {
                             message

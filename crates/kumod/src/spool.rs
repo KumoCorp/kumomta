@@ -1,7 +1,8 @@
 use crate::queue::QueueManager;
+use chrono::Utc;
 use message::Message;
 use spool::local_disk::LocalDiskSpool;
-use spool::{Spool as SpoolTrait, SpoolEntry};
+use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -86,6 +87,20 @@ impl SpoolManager {
         self.spooled_in
     }
 
+    pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
+        let data_spool = SpoolManager::get_named("data").await?;
+        let meta_spool = SpoolManager::get_named("meta").await?;
+        let res_data = data_spool.lock().await.remove(id).await;
+        let res_meta = meta_spool.lock().await.remove(id).await;
+        if let Err(err) = res_data {
+            tracing::error!("Error removing data for {id}: {err:#}");
+        }
+        if let Err(err) = res_meta {
+            tracing::error!("Error removing meta for {id}: {err:#}");
+        }
+        Ok(())
+    }
+
     pub async fn start_spool(&mut self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.named.is_empty(), "No spools have been defined");
 
@@ -132,39 +147,64 @@ impl SpoolManager {
 
         tracing::debug!("start_spool: waiting for enumeration");
         while let Some(entry) = rx.recv().await {
+            let now = Utc::now();
             match entry {
-                SpoolEntry::Item { id, data } => {
-                    match Message::new_from_spool(id, data) {
-                        Ok(msg) => {
-                            let mut queue_manager = QueueManager::get().await;
-                            match msg.recipient() {
-                                Ok(recip) => {
-                                    let domain = recip.domain().to_string();
-                                    if let Err(err) = queue_manager.insert(&domain, msg).await {
-                                        tracing::error!(
-                                            "failed to insert Message {id} to queue: {err:#}"
-                                        );
-                                        // TODO: remove it from the spool here?
-                                    }
-                                }
+                SpoolEntry::Item { id, data } => match Message::new_from_spool(id, data) {
+                    Ok(msg) => {
+                        let mut queue_manager = QueueManager::get().await;
+                        match msg.get_queue_name() {
+                            Ok(queue_name) => match queue_manager.resolve(&queue_name).await {
                                 Err(err) => {
                                     tracing::error!(
-                                        "Message {id} is missing a recipient!: {err:#}"
+                                        "failed to resolve queue {queue_name}: {err:#}"
                                     );
-                                    // TODO: remove it from the spool here?
                                 }
+                                Ok(queue) => {
+                                    let mut queue = queue.lock().await;
+
+                                    let queue_config = queue.get_config();
+                                    let max_age = queue_config.get_max_age();
+                                    let age = msg.age(now);
+                                    let num_attempts = queue_config.infer_num_attempts(age);
+                                    msg.set_num_attempts(num_attempts);
+
+                                    match queue_config.compute_delay_based_on_age(num_attempts, age)
+                                    {
+                                        None => {
+                                            tracing::debug!("expiring {id} {age} > {max_age}");
+                                            remove_from_spool(id).await?;
+                                            continue;
+                                        }
+                                        Some(delay) => {
+                                            msg.delay_by(delay);
+                                        }
+                                    }
+
+                                    if let Err(err) = queue.insert(msg).await {
+                                        tracing::error!(
+                                        "failed to insert Message {id} to queue {queue_name}: {err:#}"
+                                    );
+                                        remove_from_spool(id).await?;
+                                    }
+                                }
+                            },
+                            Err(err) => {
+                                tracing::error!(
+                                    "Message {id} failed to compute queue name!: {err:#}"
+                                );
+                                remove_from_spool(id).await?;
                             }
                         }
-                        Err(err) => {
-                            tracing::error!("Failed to parse metadata for {id}: {err:#}");
-                            // TODO: remove it from the spool here?
-                        }
                     }
-                }
+                    Err(err) => {
+                        tracing::error!("Failed to parse metadata for {id}: {err:#}");
+                        remove_from_spool(id).await?;
+                    }
+                },
                 SpoolEntry::Corrupt { id, error } => {
                     tracing::error!("Failed to load {id}: {error}");
                     // TODO: log this better
-                    // TODO: remove it from the spool here?
+                    remove_from_spool(id).await?;
                 }
             }
         }
@@ -172,4 +212,17 @@ impl SpoolManager {
         tracing::debug!("start_spool: enumeration done");
         Ok(())
     }
+}
+
+async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
+    let meta_spool = SpoolManager::get_named("meta").await?;
+    let data_spool = SpoolManager::get_named("data").await?;
+    // Best effort to remove
+    if let Err(err) = data_spool.lock().await.remove(id).await {
+        tracing::error!("Failed to remove {id} from data spool: {err:#}");
+    };
+    if let Err(err) = meta_spool.lock().await.remove(id).await {
+        tracing::error!("Failed to remove {id} from meta spool: {err:#}");
+    };
+    Ok(())
 }

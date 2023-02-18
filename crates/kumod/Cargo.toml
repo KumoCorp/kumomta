@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-channel = "1.8"
+chrono = {version="0.4", features=["serde"]}
 cidr = {version="0.2", features=["serde"]}
 clap = {version="4.1", features=["derive"]}
 gethostname = "0.4"
@@ -15,6 +16,7 @@ lazy_static = "1.4"
 mail-auth = "0.3"
 message = {path="../message"}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+rand = "0.8"
 rcgen = "0.10"
 rfc5321 = {path="../rfc5321"}
 ringbuf = "0.3"

@@ -1,5 +1,6 @@
 use crate::dest_site::DestSiteConfig;
 use crate::lua_config::get_or_create_module;
+use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
 use anyhow::Context;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
@@ -56,6 +57,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "make_site_config",
         lua.create_function(move |lua, params: Value| {
             let config: DestSiteConfig = lua.from_value(params)?;
+            Ok(config)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "make_queue_config",
+        lua.create_function(move |lua, params: Value| {
+            let config: QueueConfig = lua.from_value(params)?;
             Ok(config)
         })?,
     )?;
