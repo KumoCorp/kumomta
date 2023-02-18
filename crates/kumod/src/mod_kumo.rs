@@ -1,8 +1,7 @@
 use crate::dest_site::DestSiteConfig;
 use crate::lua_config::get_or_create_module;
-use crate::smtp_server::RejectError;
+use crate::smtp_server::{EsmtpListenerParams, RejectError};
 use anyhow::Context;
-use cidr::IpCidr;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -64,36 +63,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct EsmtpListenerParams {
-    #[serde(default = "EsmtpListenerParams::default_listen")]
-    listen: String,
-    #[serde(default = "EsmtpListenerParams::default_hostname")]
-    hostname: String,
-    #[serde(default = "EsmtpListenerParams::default_relay_hosts")]
-    relay_hosts: Vec<IpCidr>,
-}
-
-impl EsmtpListenerParams {
-    fn default_relay_hosts() -> Vec<IpCidr> {
-        vec![
-            IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
-            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ]
-    }
-
-    fn default_listen() -> String {
-        "127.0.0.1:2025".to_string()
-    }
-
-    fn default_hostname() -> String {
-        gethostname::gethostname()
-            .to_str()
-            .unwrap_or("localhost")
-            .to_string()
-    }
-}
-
 async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()> {
     use crate::smtp_server::SmtpServer;
     use tokio::net::TcpListener;
@@ -106,12 +75,10 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
 
     loop {
         let (socket, peer_address) = listener.accept().await?;
-        let hostname = params.hostname.to_string();
-        let relay_hosts = params.relay_hosts.clone();
+        let params = params.clone();
         crate::runtime::Runtime::run(move || {
             tokio::task::spawn_local(async move {
-                if let Err(err) = SmtpServer::run(socket, peer_address, relay_hosts, hostname).await
-                {
+                if let Err(err) = SmtpServer::run(socket, peer_address, params).await {
                     tracing::error!("SmtpServer::run: {err:#}");
                 }
             });

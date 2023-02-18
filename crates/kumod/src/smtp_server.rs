@@ -7,6 +7,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
 use rustls::ServerConfig;
+use serde::Deserialize;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,6 +15,42 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct EsmtpListenerParams {
+    #[serde(default = "EsmtpListenerParams::default_listen")]
+    pub listen: String,
+    #[serde(default = "EsmtpListenerParams::default_hostname")]
+    pub hostname: String,
+    #[serde(default = "EsmtpListenerParams::default_relay_hosts")]
+    pub relay_hosts: Vec<IpCidr>,
+    #[serde(default = "EsmtpListenerParams::default_banner")]
+    pub banner: String,
+}
+
+impl EsmtpListenerParams {
+    fn default_relay_hosts() -> Vec<IpCidr> {
+        vec![
+            IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
+            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
+        ]
+    }
+
+    fn default_listen() -> String {
+        "127.0.0.1:2025".to_string()
+    }
+
+    fn default_hostname() -> String {
+        gethostname::gethostname()
+            .to_str()
+            .unwrap_or("localhost")
+            .to_string()
+    }
+
+    fn default_banner() -> String {
+        "KumoMTA".to_string()
+    }
+}
 
 #[derive(Error, Debug, Clone)]
 #[error("{code} {message}")]
@@ -57,11 +94,10 @@ pub struct SmtpServer {
     state: Option<TransactionState>,
     said_hello: Option<String>,
     config: LuaConfig,
-    hostname: String,
     peer_address: SocketAddr,
-    relay_hosts: Vec<IpCidr>,
     tls_active: bool,
     read_buffer: Vec<u8>,
+    params: EsmtpListenerParams,
 }
 
 #[derive(Debug)]
@@ -75,8 +111,7 @@ impl SmtpServer {
     pub async fn run<T>(
         socket: T,
         peer_address: SocketAddr,
-        relay_hosts: Vec<IpCidr>,
-        hostname: String,
+        params: EsmtpListenerParams,
     ) -> anyhow::Result<()>
     where
         T: AsyncReadAndWrite + Debug + Send + 'static,
@@ -88,11 +123,10 @@ impl SmtpServer {
             state: None,
             said_hello: None,
             config,
-            hostname,
             peer_address,
-            relay_hosts,
             tls_active: false,
             read_buffer: Vec::with_capacity(1024),
+            params,
         };
 
         tokio::task::spawn_local(async move {
@@ -180,14 +214,17 @@ impl SmtpServer {
             // else we risk re-injecting messages received during enumeration.
             self.write_response(
                 421,
-                format!("{} 4.3.2 Hold on just a moment!", self.hostname),
+                format!("{} 4.3.2 Hold on just a moment!", self.params.hostname),
             )
             .await?;
             return Ok(());
         }
 
-        self.write_response(220, format!("{} KumoMTA\nW00t!\nYeah!", self.hostname))
-            .await?;
+        self.write_response(
+            220,
+            format!("{} {}", self.params.hostname, self.params.banner),
+        )
+        .await?;
         loop {
             let line = match self.read_line().await? {
                 ReadLine::Line(line) => line,
@@ -217,7 +254,7 @@ impl SmtpServer {
                         continue;
                     }
                     self.write_response(220, "Ready to Start TLS").await?;
-                    let acceptor = build_tls_acceptor(&self.hostname)?;
+                    let acceptor = build_tls_acceptor(&self.params.hostname)?;
                     let socket = acceptor.accept(self.socket.take().unwrap()).await?;
                     let socket: BoxedAsyncReadAndWrite = Box::new(socket);
                     self.socket.replace(socket);
@@ -243,7 +280,7 @@ impl SmtpServer {
                         250,
                         format!(
                             "{} Aloha {domain}\n{}",
-                            self.hostname,
+                            self.params.hostname,
                             extensions.join("\n"),
                         ),
                     )
@@ -277,7 +314,7 @@ impl SmtpServer {
                     }
 
                     let mut relay_allowed = false;
-                    for cidr in &self.relay_hosts {
+                    for cidr in &self.params.relay_hosts {
                         if cidr.contains(&self.peer_address.ip()) {
                             relay_allowed = true;
                             break;

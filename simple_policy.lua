@@ -13,6 +13,11 @@ kumo.on('init', function()
 
     -- override the default set of relay hosts
     relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
+
+    -- Customize the banner.
+    -- The configured hostname will be automatically
+    -- prepended to this text.
+    banner = 'Welcome to KumoMTA!',
   }
 
   -- Define the default "data" spool location; this is where
