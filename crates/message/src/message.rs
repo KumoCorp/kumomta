@@ -227,6 +227,20 @@ impl Message {
         }
     }
 
+    /// Retrieve `key` as a String.
+    pub fn get_meta_string<S: serde_json::value::Index + std::fmt::Display + Copy>(
+        &self,
+        key: S,
+    ) -> anyhow::Result<Option<String>> {
+        match self.get_meta(key) {
+            Ok(serde_json::Value::String(value)) => Ok(Some(value.to_string())),
+            Ok(serde_json::Value::Null) => Ok(None),
+            hmm => {
+                anyhow::bail!("expected '{key}' to be a string value, got {hmm:?}");
+            }
+        }
+    }
+
     pub fn get_meta<S: serde_json::value::Index>(
         &self,
         key: S,
