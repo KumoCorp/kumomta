@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
 
@@ -89,6 +90,31 @@ impl EsmtpListenerParams {
             })?;
 
         Ok(TlsAcceptor::from(config.clone()))
+    }
+
+    pub async fn run(self) -> anyhow::Result<()> {
+        // Pre-create the acceptor so that we can share it across
+        // the various listeners
+        self.build_tls_acceptor()?;
+
+        let listener = TcpListener::bind(&self.listen)
+            .await
+            .with_context(|| format!("failed to bind to {}", self.listen))?;
+
+        println!("Listening on {}", self.listen);
+
+        loop {
+            let (socket, peer_address) = listener.accept().await?;
+            let params = self.clone();
+            crate::runtime::Runtime::run(move || {
+                tokio::task::spawn_local(async move {
+                    if let Err(err) = SmtpServer::run(socket, peer_address, params).await {
+                        tracing::error!("SmtpServer::run: {err:#}");
+                    }
+                });
+            })
+            .await?;
+        }
     }
 }
 

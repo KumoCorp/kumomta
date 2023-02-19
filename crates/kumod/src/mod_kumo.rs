@@ -3,7 +3,6 @@ use crate::http_server::HttpListenerParams;
 use crate::lua_config::get_or_create_module;
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
-use anyhow::Context;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -35,9 +34,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "start_esmtp_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params = lua.from_value(params)?;
+            let params: EsmtpListenerParams = lua.from_value(params)?;
             tokio::spawn(async move {
-                if let Err(err) = start_esmtp_listener(params).await {
+                if let Err(err) = params.run().await {
                     tracing::error!("Error in SmtpServer: {err:#}");
                 }
             });
@@ -83,34 +82,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
-}
-
-async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()> {
-    use crate::smtp_server::SmtpServer;
-    use tokio::net::TcpListener;
-
-    // Pre-create the acceptor so that we can share it across
-    // the various listeners
-    params.build_tls_acceptor()?;
-
-    let listener = TcpListener::bind(&params.listen)
-        .await
-        .with_context(|| format!("failed to bind to {}", params.listen))?;
-
-    println!("Listening on {}", params.listen);
-
-    loop {
-        let (socket, peer_address) = listener.accept().await?;
-        let params = params.clone();
-        crate::runtime::Runtime::run(move || {
-            tokio::task::spawn_local(async move {
-                if let Err(err) = SmtpServer::run(socket, peer_address, params).await {
-                    tracing::error!("SmtpServer::run: {err:#}");
-                }
-            });
-        })
-        .await?;
-    }
 }
 
 #[derive(Deserialize)]
