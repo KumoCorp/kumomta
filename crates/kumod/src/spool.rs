@@ -83,6 +83,13 @@ impl SpoolManager {
             .ok_or_else(|| anyhow::anyhow!("no spool named '{name}' has been defined"))
     }
 
+    pub fn get_named_impl(&mut self, name: &str) -> anyhow::Result<SpoolHandle> {
+        self.named
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no spool named '{name}' has been defined"))
+    }
+
     pub fn spool_started(&self) -> bool {
         self.spooled_in
     }
@@ -90,6 +97,20 @@ impl SpoolManager {
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
         let data_spool = SpoolManager::get_named("data").await?;
         let meta_spool = SpoolManager::get_named("meta").await?;
+        let res_data = data_spool.lock().await.remove(id).await;
+        let res_meta = meta_spool.lock().await.remove(id).await;
+        if let Err(err) = res_data {
+            tracing::error!("Error removing data for {id}: {err:#}");
+        }
+        if let Err(err) = res_meta {
+            tracing::error!("Error removing meta for {id}: {err:#}");
+        }
+        Ok(())
+    }
+
+    pub async fn remove_from_spool_impl(&mut self, id: SpoolId) -> anyhow::Result<()> {
+        let data_spool = self.get_named_impl("data")?;
+        let meta_spool = self.get_named_impl("meta")?;
         let res_data = data_spool.lock().await.remove(id).await;
         let res_meta = meta_spool.lock().await.remove(id).await;
         if let Err(err) = res_data {
@@ -172,7 +193,7 @@ impl SpoolManager {
                                     {
                                         None => {
                                             tracing::debug!("expiring {id} {age} > {max_age}");
-                                            remove_from_spool(id).await?;
+                                            self.remove_from_spool_impl(id).await?;
                                             continue;
                                         }
                                         Some(delay) => {
@@ -184,7 +205,7 @@ impl SpoolManager {
                                         tracing::error!(
                                         "failed to insert Message {id} to queue {queue_name}: {err:#}"
                                     );
-                                        remove_from_spool(id).await?;
+                                        self.remove_from_spool_impl(id).await?;
                                     }
                                 }
                             },
@@ -192,19 +213,19 @@ impl SpoolManager {
                                 tracing::error!(
                                     "Message {id} failed to compute queue name!: {err:#}"
                                 );
-                                remove_from_spool(id).await?;
+                                self.remove_from_spool_impl(id).await?;
                             }
                         }
                     }
                     Err(err) => {
                         tracing::error!("Failed to parse metadata for {id}: {err:#}");
-                        remove_from_spool(id).await?;
+                        self.remove_from_spool_impl(id).await?;
                     }
                 },
                 SpoolEntry::Corrupt { id, error } => {
                     tracing::error!("Failed to load {id}: {error}");
                     // TODO: log this better
-                    remove_from_spool(id).await?;
+                    self.remove_from_spool_impl(id).await?;
                 }
             }
         }
@@ -212,17 +233,4 @@ impl SpoolManager {
         tracing::debug!("start_spool: enumeration done");
         Ok(())
     }
-}
-
-async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
-    let meta_spool = SpoolManager::get_named("meta").await?;
-    let data_spool = SpoolManager::get_named("data").await?;
-    // Best effort to remove
-    if let Err(err) = data_spool.lock().await.remove(id).await {
-        tracing::error!("Failed to remove {id} from data spool: {err:#}");
-    };
-    if let Err(err) = meta_spool.lock().await.remove(id).await {
-        tracing::error!("Failed to remove {id} from meta spool: {err:#}");
-    };
-    Ok(())
 }

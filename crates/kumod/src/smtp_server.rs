@@ -208,6 +208,9 @@ impl SmtpServer {
         };
 
         tokio::task::spawn_local(async move {
+            metrics::increment_gauge!(
+                "connection_count", 1.,
+                "service" => "esmtp_listener");
             if let Err(err) = server.process().await {
                 error!("Error in SmtpServer: {err:#}");
                 server
@@ -215,6 +218,9 @@ impl SmtpServer {
                     .await
                     .ok();
             }
+            metrics::decrement_gauge!(
+                "connection_count", 1.,
+                "service" => "esmtp_listener");
         });
         Ok(())
     }

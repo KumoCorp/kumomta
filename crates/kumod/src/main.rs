@@ -1,9 +1,11 @@
 use clap::Parser;
+use metrics_prometheus::recorder::Layer;
 use std::path::PathBuf;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 mod dest_site;
+mod http_server;
 mod lua_config;
 mod mod_kumo;
 mod queue;
@@ -30,7 +32,13 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_env("KUMOD_LOG"))
+        .with(metrics_tracing_context::MetricsLayer::new())
         .init();
+
+    metrics::set_boxed_recorder(Box::new(
+        metrics_tracing_context::TracingContextLayer::all()
+            .layer(metrics_prometheus::Recorder::builder().build()),
+    ))?;
 
     if let Some(policy) = opts.policy.clone() {
         lua_config::set_policy_path(policy).await?;

@@ -25,6 +25,24 @@ This will launch the server using the policy defined in [simple_policy.lua](simp
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
 ```
 
+## Metrics
+
+If the http listener is enabled, the `/metrics` endpoint will return a set of metrics
+for prometheus to scrape.
+
+You can manually review them with curl:
+
+```
+$ curl 'http://127.0.0.1:8000/metrics'
+# HELP connection_count connection_count
+# TYPE connection_count gauge
+connection_count{service="esmtp_listener"} 1
+connection_count{service="smtp_client:(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com."} 0
+# HELP delayed_count delayed_count
+# TYPE delayed_count gauge
+delayed_count{queue="gmail.com"} 1
+```
+
 ## Contributing
 
 Ensure that the code is formatted before submitting a PR.

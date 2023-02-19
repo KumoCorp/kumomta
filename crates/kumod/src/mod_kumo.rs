@@ -1,4 +1,5 @@
 use crate::dest_site::DestSiteConfig;
+use crate::http_server::HttpListenerParams;
 use crate::lua_config::get_or_create_module;
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
@@ -15,6 +16,18 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, (name, func): (String, Function)| {
             let decorated_name = format!("kumomta-on-{}", name);
             lua.set_named_registry_value(&decorated_name, func)?;
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "start_http_listener",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params: HttpListenerParams = lua.from_value(params)?;
+            params
+                .start()
+                .await
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
             Ok(())
         })?,
     )?;

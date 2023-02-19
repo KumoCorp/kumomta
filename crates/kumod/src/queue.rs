@@ -287,7 +287,12 @@ impl Queue {
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
         self.last_change = Instant::now();
         match self.queue.insert(Arc::new(msg)) {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                metrics::increment_gauge!(
+                    "delayed_count", 1.,
+                    "queue" => self.name.clone());
+                Ok(())
+            }
             Err(TimerError::Expired(msg)) => {
                 let msg = (*msg).clone();
                 match SiteManager::resolve_domain(&self.name).await {
@@ -300,6 +305,9 @@ impl Queue {
                                 self.queue
                                     .insert(Arc::new(msg))
                                     .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                metrics::increment_gauge!(
+                                    "delayed_count", 1.,
+                                    "queue" => self.name.clone());
                             }
                         }
                     }
@@ -309,6 +317,9 @@ impl Queue {
                         self.queue
                             .insert(Arc::new(msg))
                             .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                        metrics::increment_gauge!(
+                            "delayed_count", 1.,
+                            "queue" => self.name.clone());
                     }
                 }
 
@@ -376,10 +387,12 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Items(messages) => match SiteManager::resolve_domain(&q.name).await {
                     Ok(site) => {
                         let mut site = site.lock().await;
-                        let meta_spool = SpoolManager::get_named("meta").await?;
-                        let data_spool = SpoolManager::get_named("data").await?;
 
                         let max_age = q.queue_config.get_max_age();
+
+                        metrics::decrement_gauge!(
+                            "delayed_count", messages.len() as f64,
+                            "queue" => q.name.clone());
 
                         for msg in messages {
                             let id = *msg.id();
@@ -388,22 +401,13 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                             if age >= max_age {
                                 // TODO: log failure due to expiration
                                 tracing::debug!("expiring {id} {age} > {max_age}");
-
-                                // Best effort to remove
-                                if let Err(err) = data_spool.lock().await.remove(id).await {
-                                    tracing::error!(
-                                        "Failed to remove {id} from data spool: {err:#}"
-                                    );
-                                }
-                                if let Err(err) = meta_spool.lock().await.remove(id).await {
-                                    tracing::error!(
-                                        "Failed to remove {id} from meta spool: {err:#}"
-                                    );
-                                }
+                                SpoolManager::remove_from_spool(id).await?;
+                                tracing::debug!("returned from removal");
                                 continue;
                             }
 
                             if !msg.is_meta_loaded() {
+                                let meta_spool = SpoolManager::get_named("meta").await?;
                                 if let Err(err) = msg.load_meta(&**meta_spool.lock().await).await {
                                     tracing::error!("Failed to load {id} metadata: {err:#}");
                                     msg.delay_with_jitter(60);
@@ -411,18 +415,19 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                         .insert(msg)
                                         .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
                                     continue;
-                                }
+                                };
                             }
 
                             if !msg.is_data_loaded() {
-                                if let Err(err) = msg.load_meta(&**meta_spool.lock().await).await {
+                                let data_spool = SpoolManager::get_named("data").await?;
+                                if let Err(err) = msg.load_data(&**data_spool.lock().await).await {
                                     tracing::error!("Failed to load {id} data: {err:#}");
                                     msg.delay_with_jitter(60);
                                     q.queue
                                         .insert(msg)
                                         .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
                                     continue;
-                                }
+                                };
                             }
 
                             match site.insert((*msg).clone()) {

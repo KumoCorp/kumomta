@@ -348,6 +348,10 @@ impl Dispatcher {
                 return Ok(());
             }
             if let Err(err) = dispatcher.attempt_connection().await {
+                metrics::decrement_gauge!(
+                    "connection_count", 1.,
+                    "service" => format!("smtp_client:{}", dispatcher.name),
+                );
                 if dispatcher.addresses.is_empty() {
                     return Err(err);
                 }
@@ -384,6 +388,11 @@ impl Dispatcher {
         if self.client.is_some() {
             return Ok(());
         }
+
+        metrics::increment_gauge!(
+            "connection_count", 1.,
+            "service" => format!("smtp_client:{}", self.name),
+        );
 
         let address = self
             .addresses
@@ -533,6 +542,12 @@ impl Drop for Dispatcher {
                     tracing::error!("error requeuing message: {err:#}");
                 }
             });
+        }
+        if self.client.is_some() {
+            metrics::decrement_gauge!(
+                "connection_count", 1.,
+                "service" => format!("smtp_client:{}", self.name)
+            );
         }
     }
 }

@@ -20,6 +20,10 @@ kumo.on('init', function()
     banner = 'Welcome to KumoMTA!',
   }
 
+  kumo.start_http_listener {
+    listen = '0.0.0.0:8000',
+  }
+
   -- Define the default "data" spool location; this is where
   -- message bodies will be stored
   kumo.define_spool {
