@@ -6,7 +6,7 @@ kumo.on('init', function()
   -- Can be used multiple times with different parameters to
   -- define multiple listeners!
   kumo.start_esmtp_listener {
-    listen = '0:2025',
+    listen = '0.0.0.0:2025',
     -- Override the hostname reported in the banner and other
     -- SMTP responses:
     -- hostname="mail.example.com",

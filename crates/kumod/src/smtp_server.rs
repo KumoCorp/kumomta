@@ -101,7 +101,7 @@ impl EsmtpListenerParams {
             .await
             .with_context(|| format!("failed to bind to {}", self.listen))?;
 
-        println!("Listening on {}", self.listen);
+        tracing::debug!("smtp listener on {}", self.listen);
 
         loop {
             let (socket, peer_address) = listener.accept().await?;
