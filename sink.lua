@@ -6,10 +6,12 @@ kumo.on('init', function()
   -- Define a listener.
   -- Can be used multiple times with different parameters to
   -- define multiple listeners!
-  kumo.start_esmtp_listener {
-    listen = '127.0.0.1:2026',
-    relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-  }
+  for _, port in ipairs{25, 2026} do
+    kumo.start_esmtp_listener {
+      listen = '0:' .. tostring(port),
+      relay_hosts = { '0.0.0.0/0' },
+    }
+  end
 
   -- Define the default "data" spool location.
   -- This is unused by this config, but we are required to

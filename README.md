@@ -42,6 +42,32 @@ Then you can format both the rust and the lua code:
 $ make fmt
 ```
 
+### Docker build
+
+To build a lightweight alpine-based docker image:
+
+```
+$ ./ci/build-docker-image.sh
+...
+$ sudo docker image ls kumomta/smtpd
+REPOSITORY      TAG       IMAGE ID       CREATED         SIZE
+kumomta/smtpd   latest    962d8f453c6b   8 minutes ago   22MB
+```
+
+You can then run that image; this invocation mounts the kumo
+src dir at `/config` and then the `KUMO_POLICY` environment
+variable is used to override the default `/config/policy.lua`
+path to use the SMTP sink policy script [sink.lua](sink.lua),
+which will accept and discard all mail:
+
+```
+$ sudo docker run --rm -p 2025:25 \
+    -v .:/config \
+    --name kumo-sink \
+    --env KUMO_POLICY="/config/sink.lua" \
+    kumomta/smtpd
+```
+
 ### Fuzzing
 
 Some components have fuzzer coverage.  To run it, follow the setup from [the
