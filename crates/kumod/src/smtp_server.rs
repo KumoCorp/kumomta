@@ -1,7 +1,7 @@
 use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
@@ -11,6 +11,7 @@ use rustls::ServerConfig;
 use serde::Deserialize;
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -27,6 +28,11 @@ pub struct EsmtpListenerParams {
     pub relay_hosts: Vec<IpCidr>,
     #[serde(default = "EsmtpListenerParams::default_banner")]
     pub banner: String,
+
+    #[serde(default)]
+    pub tls_certificate: Option<PathBuf>,
+    #[serde(default)]
+    pub tls_private_key: Option<PathBuf>,
 
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
@@ -59,20 +65,69 @@ impl EsmtpListenerParams {
         let config = self
             .tls_config
             .get_or_try_init(|| -> anyhow::Result<Arc<ServerConfig>> {
-                let cert = rcgen::generate_simple_self_signed(vec![self.hostname.to_string()])?;
-                let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
-                let cert = rustls::Certificate(cert.serialize_der()?);
+                let mut certificates = vec![];
+                let private_key = match &self.tls_private_key {
+                    Some(key) => load_private_key(key)?,
+                    None => {
+                        let cert =
+                            rcgen::generate_simple_self_signed(vec![self.hostname.to_string()])?;
+                        certificates.push(rustls::Certificate(cert.serialize_der()?));
+                        rustls::PrivateKey(cert.serialize_private_key_der())
+                    }
+                };
+
+                if let Some(cert_file) = &self.tls_certificate {
+                    certificates = load_certs(cert_file)?;
+                }
 
                 let config = ServerConfig::builder()
                     .with_safe_defaults()
                     .with_no_client_auth()
-                    .with_single_cert(vec![cert], private_key)?;
+                    .with_single_cert(certificates, private_key)?;
 
                 Ok(Arc::new(config))
             })?;
 
         Ok(TlsAcceptor::from(config.clone()))
     }
+}
+
+fn load_certs(filename: &Path) -> anyhow::Result<Vec<rustls::Certificate>> {
+    let certfile = std::fs::File::open(filename)
+        .with_context(|| format!("cannot open certificate file {}", filename.display()))?;
+
+    let mut reader = std::io::BufReader::new(certfile);
+    Ok(rustls_pemfile::certs(&mut reader)
+        .with_context(|| {
+            format!(
+                "reading PEM encoded certificates from {}",
+                filename.display()
+            )
+        })?
+        .iter()
+        .map(|v| rustls::Certificate(v.clone()))
+        .collect())
+}
+
+fn load_private_key(filename: &Path) -> anyhow::Result<rustls::PrivateKey> {
+    let keyfile = std::fs::File::open(filename)
+        .with_context(|| format!("cannot open private key file {}", filename.display()))?;
+    let mut reader = std::io::BufReader::new(keyfile);
+
+    loop {
+        match rustls_pemfile::read_one(&mut reader).expect("cannot parse private key .pem file") {
+            Some(rustls_pemfile::Item::RSAKey(key)) => return Ok(rustls::PrivateKey(key)),
+            Some(rustls_pemfile::Item::PKCS8Key(key)) => return Ok(rustls::PrivateKey(key)),
+            Some(rustls_pemfile::Item::ECKey(key)) => return Ok(rustls::PrivateKey(key)),
+            None => break,
+            _ => {}
+        }
+    }
+
+    anyhow::bail!(
+        "no keys found in {} (encrypted keys not supported)",
+        filename.display()
+    );
 }
 
 #[derive(Error, Debug, Clone)]

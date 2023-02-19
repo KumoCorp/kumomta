@@ -874,6 +874,7 @@ dependencies = [
  "rfc5321",
  "ringbuf",
  "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "spool",
