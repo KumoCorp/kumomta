@@ -5,6 +5,7 @@ use anyhow::Context;
 use mail_auth::{IpLookupStrategy, Resolver};
 use message::Message;
 use mlua::prelude::*;
+use prometheus::IntGauge;
 use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
 use ringbuf::{HeapRb, Rb};
 use serde::{Deserialize, Serialize};
@@ -162,8 +163,11 @@ impl SiteManager {
                             Some(site) => {
                                 let mut site = site.lock().await;
                                 if site.reapable() {
-                                    tracing::debug!("idle out {name}");
+                                    tracing::debug!("idle out site {name}");
                                     mgr.sites.remove(&name);
+                                    crate::metrics_helper::remove_metrics_for_service(&format!(
+                                        "smtp_client:{name}"
+                                    ));
                                     break;
                                 }
                             }
@@ -172,6 +176,8 @@ impl SiteManager {
                 }
             });
 
+            let connection_gauge =
+                crate::metrics_helper::connection_gauge_for_service(&format!("smtp_client:{name}"));
             let ready = Arc::new(StdMutex::new(HeapRb::new(site_config.max_ready)));
             let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
@@ -182,6 +188,7 @@ impl SiteManager {
                 connections: vec![],
                 last_change: Instant::now(),
                 site_config,
+                connection_gauge,
             })))
         });
         Ok(handle.clone())
@@ -205,6 +212,7 @@ pub struct DestinationSite {
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
     site_config: DestSiteConfig,
+    connection_gauge: IntGauge,
 }
 
 impl DestinationSite {
@@ -244,8 +252,11 @@ impl DestinationSite {
             let ready = Arc::clone(&self.ready);
             let notify = self.notify.clone();
             let site_config = self.site_config.clone();
+            let connection_gauge = self.connection_gauge.clone();
             self.connections.push(tokio::spawn(async move {
-                if let Err(err) = Dispatcher::run(&name, mx, ready, notify, site_config).await {
+                if let Err(err) =
+                    Dispatcher::run(&name, mx, ready, notify, site_config, connection_gauge).await
+                {
                     tracing::error!("Error in dispatch_queue for {name}: {err:#}");
                 }
             }));
@@ -305,6 +316,7 @@ struct Dispatcher {
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
     site_config: DestSiteConfig,
+    connection_gauge: IntGauge,
 }
 
 impl Dispatcher {
@@ -314,6 +326,7 @@ impl Dispatcher {
         ready: Arc<StdMutex<HeapRb<Message>>>,
         notify: Arc<Notify>,
         site_config: DestSiteConfig,
+        connection_gauge: IntGauge,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -331,6 +344,7 @@ impl Dispatcher {
             addresses,
             ehlo_name,
             site_config,
+            connection_gauge,
         };
 
         dispatcher.obtain_message();
@@ -348,10 +362,7 @@ impl Dispatcher {
                 return Ok(());
             }
             if let Err(err) = dispatcher.attempt_connection().await {
-                metrics::decrement_gauge!(
-                    "connection_count", 1.,
-                    "service" => format!("smtp_client:{}", dispatcher.name),
-                );
+                dispatcher.connection_gauge.dec();
                 if dispatcher.addresses.is_empty() {
                     return Err(err);
                 }
@@ -389,10 +400,7 @@ impl Dispatcher {
             return Ok(());
         }
 
-        metrics::increment_gauge!(
-            "connection_count", 1.,
-            "service" => format!("smtp_client:{}", self.name),
-        );
+        self.connection_gauge.inc();
 
         let address = self
             .addresses
@@ -544,10 +552,7 @@ impl Drop for Dispatcher {
             });
         }
         if self.client.is_some() {
-            metrics::decrement_gauge!(
-                "connection_count", 1.,
-                "service" => format!("smtp_client:{}", self.name)
-            );
+            self.connection_gauge.dec();
         }
     }
 }

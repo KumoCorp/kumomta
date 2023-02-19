@@ -6,6 +6,7 @@ use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;
+use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
 use rustls::ServerConfig;
 use serde::Deserialize;
@@ -37,6 +38,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
+
+    #[serde(skip)]
+    connection_gauge: OnceCell<IntGauge>,
 }
 
 impl EsmtpListenerParams {
@@ -92,10 +96,16 @@ impl EsmtpListenerParams {
         Ok(TlsAcceptor::from(config.clone()))
     }
 
+    pub fn connection_gauge(&self) -> &IntGauge {
+        self.connection_gauge
+            .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
+    }
+
     pub async fn run(self) -> anyhow::Result<()> {
         // Pre-create the acceptor so that we can share it across
         // the various listeners
         self.build_tls_acceptor()?;
+        self.connection_gauge();
 
         let listener = TcpListener::bind(&self.listen)
             .await
@@ -234,9 +244,7 @@ impl SmtpServer {
         };
 
         tokio::task::spawn_local(async move {
-            metrics::increment_gauge!(
-                "connection_count", 1.,
-                "service" => "esmtp_listener");
+            server.params.connection_gauge().inc();
             if let Err(err) = server.process().await {
                 error!("Error in SmtpServer: {err:#}");
                 server
@@ -244,9 +252,7 @@ impl SmtpServer {
                     .await
                     .ok();
             }
-            metrics::decrement_gauge!(
-                "connection_count", 1.,
-                "service" => "esmtp_listener");
+            server.params.connection_gauge().dec();
         });
         Ok(())
     }

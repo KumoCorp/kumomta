@@ -4,6 +4,7 @@ use crate::spool::SpoolManager;
 use chrono::Utc;
 use message::Message;
 use mlua::prelude::*;
+use prometheus::{IntGauge, IntGaugeVec};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +15,9 @@ use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
     pub static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
+    static ref DELAY_GAUGE: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!("delayed_count", "number of messages in the delayed queue", &["queue"]).unwrap()
+    };
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -213,6 +217,7 @@ pub struct Queue {
     maintainer: Option<JoinHandle<()>>,
     last_change: Instant,
     queue_config: QueueConfig,
+    delayed_gauge: IntGauge,
 }
 
 impl Drop for Queue {
@@ -232,12 +237,15 @@ impl Queue {
         let queue_config: QueueConfig =
             config.call_callback("get_queue_config", name.to_string())?;
 
+        let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
+
         let handle = QueueHandle(Arc::new(Mutex::new(Queue {
             name: name.clone(),
             queue: TimeQ::new(),
             maintainer: None,
             last_change: Instant::now(),
             queue_config,
+            delayed_gauge,
         })));
 
         let queue_clone = handle.clone();
@@ -288,9 +296,7 @@ impl Queue {
         self.last_change = Instant::now();
         match self.queue.insert(Arc::new(msg)) {
             Ok(_) => {
-                metrics::increment_gauge!(
-                    "delayed_count", 1.,
-                    "queue" => self.name.clone());
+                self.delayed_gauge.inc();
                 Ok(())
             }
             Err(TimerError::Expired(msg)) => {
@@ -305,9 +311,7 @@ impl Queue {
                                 self.queue
                                     .insert(Arc::new(msg))
                                     .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
-                                metrics::increment_gauge!(
-                                    "delayed_count", 1.,
-                                    "queue" => self.name.clone());
+                                self.delayed_gauge.inc();
                             }
                         }
                     }
@@ -317,9 +321,7 @@ impl Queue {
                         self.queue
                             .insert(Arc::new(msg))
                             .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
-                        metrics::increment_gauge!(
-                            "delayed_count", 1.,
-                            "queue" => self.name.clone());
+                        self.delayed_gauge.inc();
                     }
                 }
 
@@ -390,9 +392,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
 
                         let max_age = q.queue_config.get_max_age();
 
-                        metrics::decrement_gauge!(
-                            "delayed_count", messages.len() as f64,
-                            "queue" => q.name.clone());
+                        q.delayed_gauge.dec();
 
                         for msg in messages {
                             let id = *msg.id();
@@ -465,6 +465,10 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     if q.last_change.elapsed() > Duration::from_secs(60 * 10) {
                         mgr.named.remove(&q.name);
                         tracing::debug!("idling out queue {}", q.name);
+                        // Remove any metrics that go with it, so that we don't
+                        // end up using a lot of memory remembering stats from
+                        // what might be a long tail of tiny domains forever.
+                        DELAY_GAUGE.remove_label_values(&[&q.name]).ok();
                         return Ok(());
                     }
                 }

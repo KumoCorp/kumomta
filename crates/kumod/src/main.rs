@@ -7,6 +7,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 mod dest_site;
 mod http_server;
 mod lua_config;
+mod metrics_helper;
 mod mod_kumo;
 mod queue;
 mod runtime;
