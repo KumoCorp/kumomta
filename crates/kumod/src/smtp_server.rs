@@ -50,6 +50,19 @@ impl EsmtpListenerParams {
     fn default_banner() -> String {
         "KumoMTA".to_string()
     }
+
+    pub fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
+        let cert = rcgen::generate_simple_self_signed(vec![self.hostname.to_string()])?;
+        let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
+        let cert = rustls::Certificate(cert.serialize_der()?);
+
+        let config = ServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], private_key)?;
+
+        Ok(TlsAcceptor::from(Arc::new(config)))
+    }
 }
 
 #[derive(Error, Debug, Clone)]
@@ -254,7 +267,7 @@ impl SmtpServer {
                         continue;
                     }
                     self.write_response(220, "Ready to Start TLS").await?;
-                    let acceptor = build_tls_acceptor(&self.params.hostname)?;
+                    let acceptor = self.params.build_tls_acceptor()?;
                     let socket = acceptor.accept(self.socket.take().unwrap()).await?;
                     let socket: BoxedAsyncReadAndWrite = Box::new(socket);
                     self.socket.replace(socket);
@@ -491,17 +504,4 @@ const MAX_LINE_LEN: usize = 998;
 enum ReadLine {
     Line(String),
     TooLong,
-}
-
-pub fn build_tls_acceptor(hostname: &str) -> anyhow::Result<TlsAcceptor> {
-    let cert = rcgen::generate_simple_self_signed(vec![hostname.to_string()])?;
-    let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
-    let cert = rustls::Certificate(cert.serialize_der()?);
-
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(vec![cert], private_key)?;
-
-    Ok(TlsAcceptor::from(Arc::new(config)))
 }
