@@ -190,6 +190,12 @@ impl SiteManager {
                 global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
                     "smtp_client",
                 ),
+                msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(&service),
+                global_msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(
+                    "smtp_client",
+                ),
+                msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
+                global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service("smtp_client"),
             };
             let ready = Arc::new(StdMutex::new(HeapRb::new(site_config.max_ready)));
             let notify = Arc::new(Notify::new());
@@ -223,8 +229,15 @@ struct DeliveryMetrics {
     global_connection_gauge: IntGauge,
     connection_total: IntCounter,
     global_connection_total: IntCounter,
+
     msgs_delivered: IntCounter,
     global_msgs_delivered: IntCounter,
+
+    msgs_transfail: IntCounter,
+    global_msgs_transfail: IntCounter,
+
+    msgs_fail: IntCounter,
+    global_msgs_fail: IntCounter,
 }
 
 pub struct DestinationSite {
@@ -541,6 +554,9 @@ impl Dispatcher {
                 if let Some(msg) = self.msg.take() {
                     Self::requeue_message(msg, true).await?;
                 }
+                // FIXME: log transfail
+                self.metrics.msgs_transfail.inc();
+                self.metrics.global_msgs_transfail.inc();
                 tracing::debug!(
                     "failed to send message to {} {:?}: {response:?}",
                     self.name,
@@ -548,6 +564,8 @@ impl Dispatcher {
                 );
             }
             Err(ClientError::Rejected(response)) => {
+                self.metrics.msgs_fail.inc();
+                self.metrics.global_msgs_fail.inc();
                 tracing::error!(
                     "failed to send message to {} {:?}: {response:?}",
                     self.name,

@@ -16,7 +16,19 @@ lazy_static::lazy_static! {
     pub static ref TOTAL_MSGS_DELIVERED: IntCounterVec = {
         prometheus::register_int_counter_vec!(
             "total_messages_delivered",
-            "total number messages ever delivered",
+            "total number of messages ever delivered",
+            &["service"]).unwrap()
+    };
+    pub static ref TOTAL_MSGS_TRANSFAIL: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_messages_transfail",
+            "total number of message delivery attempts that transiently failed",
+            &["service"]).unwrap()
+    };
+    pub static ref TOTAL_MSGS_FAIL: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_messages_fail",
+            "total number of message delivery attempts that permanently failed",
             &["service"]).unwrap()
     };
 }
@@ -31,6 +43,18 @@ pub fn connection_total_for_service(service: &str) -> IntCounter {
 
 pub fn total_msgs_delivered_for_service(service: &str) -> IntCounter {
     TOTAL_MSGS_DELIVERED
+        .get_metric_with_label_values(&[service])
+        .unwrap()
+}
+
+pub fn total_msgs_transfail_for_service(service: &str) -> IntCounter {
+    TOTAL_MSGS_TRANSFAIL
+        .get_metric_with_label_values(&[service])
+        .unwrap()
+}
+
+pub fn total_msgs_fail_for_service(service: &str) -> IntCounter {
+    TOTAL_MSGS_FAIL
         .get_metric_with_label_values(&[service])
         .unwrap()
 }
@@ -53,4 +77,6 @@ pub fn remove_metrics_for_service(service: &str) {
     CONN_GAUGE.remove_label_values(&[service]).ok();
     TOTAL_CONN.remove_label_values(&[service]).ok();
     TOTAL_MSGS_DELIVERED.remove_label_values(&[service]).ok();
+    TOTAL_MSGS_TRANSFAIL.remove_label_values(&[service]).ok();
+    TOTAL_MSGS_FAIL.remove_label_values(&[service]).ok();
 }
