@@ -70,13 +70,13 @@ impl Message {
     /// Create a new message with the supplied data.
     /// The message meta and data are marked as dirty
     pub fn new_dirty(
+        id: SpoolId,
         sender: EnvelopeAddress,
         recipient: EnvelopeAddress,
         meta: serde_json::Value,
         data: Arc<Box<[u8]>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(meta.is_object(), "metadata must be a json object");
-        let id = SpoolId::new();
         MESSAGE_COUNT.inc();
         DATA_COUNT.inc();
         META_COUNT.inc();

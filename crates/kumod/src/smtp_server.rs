@@ -2,6 +2,7 @@ use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
+use chrono::Utc;
 use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
@@ -10,6 +11,7 @@ use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
 use rustls::ServerConfig;
 use serde::Deserialize;
+use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -115,10 +117,13 @@ impl EsmtpListenerParams {
 
         loop {
             let (socket, peer_address) = listener.accept().await?;
+            let my_address = socket.local_addr()?;
             let params = self.clone();
             crate::runtime::Runtime::run(move || {
                 tokio::task::spawn_local(async move {
-                    if let Err(err) = SmtpServer::run(socket, peer_address, params).await {
+                    if let Err(err) =
+                        SmtpServer::run(socket, my_address, peer_address, params).await
+                    {
                         tracing::error!("SmtpServer::run: {err:#}");
                     }
                 });
@@ -209,6 +214,7 @@ pub struct SmtpServer {
     said_hello: Option<String>,
     config: LuaConfig,
     peer_address: SocketAddr,
+    my_address: SocketAddr,
     tls_active: bool,
     read_buffer: Vec<u8>,
     params: EsmtpListenerParams,
@@ -224,6 +230,7 @@ struct TransactionState {
 impl SmtpServer {
     pub async fn run<T>(
         socket: T,
+        my_address: SocketAddr,
         peer_address: SocketAddr,
         params: EsmtpListenerParams,
     ) -> anyhow::Result<()>
@@ -238,6 +245,7 @@ impl SmtpServer {
             said_hello: None,
             config,
             peer_address,
+            my_address,
             tls_active: false,
             read_buffer: Vec::with_capacity(1024),
             params,
@@ -526,6 +534,7 @@ impl SmtpServer {
                         };
 
                         data.extend_from_slice(line.as_bytes());
+                        data.extend_from_slice(b"\r\n");
                     }
 
                     if too_long {
@@ -540,8 +549,6 @@ impl SmtpServer {
 
                     tracing::trace!(?state);
 
-                    let data = Arc::new(data.into_boxed_slice());
-
                     let mut ids = vec![];
                     let mut messages = vec![];
 
@@ -549,13 +556,35 @@ impl SmtpServer {
                     // a metadata key for that purpose
                     let data_spool = SpoolManager::get_named("data").await?;
                     let meta_spool = SpoolManager::get_named("meta").await?;
+                    let datestamp = Utc::now().to_rfc2822();
 
                     for recip in state.recipients {
+                        let id = SpoolId::new();
+                        let received = {
+                            let from_domain = self.said_hello.as_deref().unwrap_or("unspecified");
+                            let peer_address = self.peer_address.ip();
+                            let my_address = self.my_address.ip();
+                            let hostname = &self.params.hostname;
+                            let protocol = "ESMTP";
+                            let recip = recip.to_string();
+                            format!(
+                                "Received: from {from_domain} ({peer_address})\r\n  \
+                                   by {hostname} (KumoMTA {my_address}) \r\n  \
+                                   with {protocol} id {id} for <{recip}>;\r\n  \
+                                   {datestamp}\r\n"
+                            )
+                        };
+
+                        let mut body = Vec::with_capacity(data.len() + received.len());
+                        body.extend_from_slice(received.as_bytes());
+                        body.extend_from_slice(&data);
+
                         let message = Message::new_dirty(
+                            id,
                             state.sender.clone(),
                             recip,
                             state.meta.clone(),
-                            Arc::clone(&data),
+                            Arc::new(body.into_boxed_slice()),
                         )?;
 
                         if let Err(rej) = self
