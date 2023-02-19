@@ -5,7 +5,7 @@ use anyhow::Context;
 use mail_auth::{IpLookupStrategy, Resolver};
 use message::Message;
 use mlua::prelude::*;
-use prometheus::IntGauge;
+use prometheus::{IntCounter, IntGauge};
 use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
 use ringbuf::{HeapRb, Rb};
 use serde::{Deserialize, Serialize};
@@ -176,8 +176,21 @@ impl SiteManager {
                 }
             });
 
-            let connection_gauge =
-                crate::metrics_helper::connection_gauge_for_service(&format!("smtp_client:{name}"));
+            let service = format!("smtp_client:{name}");
+            let metrics = DeliveryMetrics {
+                connection_gauge: crate::metrics_helper::connection_gauge_for_service(&service),
+                global_connection_gauge: crate::metrics_helper::connection_gauge_for_service(
+                    "smtp_client",
+                ),
+                connection_total: crate::metrics_helper::connection_total_for_service(&service),
+                global_connection_total: crate::metrics_helper::connection_total_for_service(
+                    "smtp_client",
+                ),
+                msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
+                global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
+                    "smtp_client",
+                ),
+            };
             let ready = Arc::new(StdMutex::new(HeapRb::new(site_config.max_ready)));
             let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
@@ -188,7 +201,7 @@ impl SiteManager {
                 connections: vec![],
                 last_change: Instant::now(),
                 site_config,
-                connection_gauge,
+                metrics,
             })))
         });
         Ok(handle.clone())
@@ -204,6 +217,16 @@ impl SiteHandle {
     }
 }
 
+#[derive(Clone)]
+struct DeliveryMetrics {
+    connection_gauge: IntGauge,
+    global_connection_gauge: IntGauge,
+    connection_total: IntCounter,
+    global_connection_total: IntCounter,
+    msgs_delivered: IntCounter,
+    global_msgs_delivered: IntCounter,
+}
+
 pub struct DestinationSite {
     name: String,
     mx: Arc<Box<[String]>>,
@@ -212,7 +235,7 @@ pub struct DestinationSite {
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
     site_config: DestSiteConfig,
-    connection_gauge: IntGauge,
+    metrics: DeliveryMetrics,
 }
 
 impl DestinationSite {
@@ -252,10 +275,10 @@ impl DestinationSite {
             let ready = Arc::clone(&self.ready);
             let notify = self.notify.clone();
             let site_config = self.site_config.clone();
-            let connection_gauge = self.connection_gauge.clone();
+            let metrics = self.metrics.clone();
             self.connections.push(tokio::spawn(async move {
                 if let Err(err) =
-                    Dispatcher::run(&name, mx, ready, notify, site_config, connection_gauge).await
+                    Dispatcher::run(&name, mx, ready, notify, site_config, metrics).await
                 {
                     tracing::error!("Error in dispatch_queue for {name}: {err:#}");
                 }
@@ -316,7 +339,7 @@ struct Dispatcher {
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
     site_config: DestSiteConfig,
-    connection_gauge: IntGauge,
+    metrics: DeliveryMetrics,
 }
 
 impl Dispatcher {
@@ -326,7 +349,7 @@ impl Dispatcher {
         ready: Arc<StdMutex<HeapRb<Message>>>,
         notify: Arc<Notify>,
         site_config: DestSiteConfig,
-        connection_gauge: IntGauge,
+        metrics: DeliveryMetrics,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -344,7 +367,7 @@ impl Dispatcher {
             addresses,
             ehlo_name,
             site_config,
-            connection_gauge,
+            metrics,
         };
 
         dispatcher.obtain_message();
@@ -362,7 +385,8 @@ impl Dispatcher {
                 return Ok(());
             }
             if let Err(err) = dispatcher.attempt_connection().await {
-                dispatcher.connection_gauge.dec();
+                dispatcher.metrics.connection_gauge.dec();
+                dispatcher.metrics.global_connection_gauge.dec();
                 if dispatcher.addresses.is_empty() {
                     return Err(err);
                 }
@@ -400,7 +424,10 @@ impl Dispatcher {
             return Ok(());
         }
 
-        self.connection_gauge.inc();
+        self.metrics.connection_gauge.inc();
+        self.metrics.global_connection_gauge.inc();
+        self.metrics.connection_total.inc();
+        self.metrics.global_connection_total.inc();
 
         let address = self
             .addresses
@@ -545,6 +572,8 @@ impl Dispatcher {
                 if let Some(msg) = self.msg.take() {
                     SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
+                self.metrics.msgs_delivered.inc();
+                self.metrics.global_msgs_delivered.inc();
                 tracing::debug!("Delivered OK! {response:?}");
             }
         };
@@ -563,7 +592,8 @@ impl Drop for Dispatcher {
             });
         }
         if self.client.is_some() {
-            self.connection_gauge.dec();
+            self.metrics.connection_gauge.dec();
+            self.metrics.global_connection_gauge.dec();
         }
     }
 }

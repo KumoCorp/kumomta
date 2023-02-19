@@ -1,4 +1,4 @@
-use prometheus::{IntGauge, IntGaugeVec};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 
 lazy_static::lazy_static! {
     pub static ref CONN_GAUGE: IntGaugeVec = {
@@ -7,10 +7,32 @@ lazy_static::lazy_static! {
             "number of active connections",
             &["service"]).unwrap()
     };
+    pub static ref TOTAL_CONN: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_connection_count",
+            "total number of active connections ever made",
+            &["service"]).unwrap()
+    };
+    pub static ref TOTAL_MSGS_DELIVERED: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_messages_delivered",
+            "total number messages ever delivered",
+            &["service"]).unwrap()
+    };
 }
 
 pub fn connection_gauge_for_service(service: &str) -> IntGauge {
     CONN_GAUGE.get_metric_with_label_values(&[service]).unwrap()
+}
+
+pub fn connection_total_for_service(service: &str) -> IntCounter {
+    TOTAL_CONN.get_metric_with_label_values(&[service]).unwrap()
+}
+
+pub fn total_msgs_delivered_for_service(service: &str) -> IntCounter {
+    TOTAL_MSGS_DELIVERED
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 /// Remove metrics that are parameterized by a service name of
@@ -29,4 +51,6 @@ pub fn connection_gauge_for_service(service: &str) -> IntGauge {
 /// This function should be called at that time.
 pub fn remove_metrics_for_service(service: &str) {
     CONN_GAUGE.remove_label_values(&[service]).ok();
+    TOTAL_CONN.remove_label_values(&[service]).ok();
+    TOTAL_MSGS_DELIVERED.remove_label_values(&[service]).ok();
 }
