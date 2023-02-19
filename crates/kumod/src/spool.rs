@@ -63,7 +63,7 @@ impl SpoolManager {
     }
 
     pub fn new_local_disk(&mut self, name: &str, path: &Path) -> anyhow::Result<()> {
-        tracing::debug!("Defining local disk spool {name}");
+        tracing::debug!("Defining local disk spool '{name}' on {}", path.display());
         self.named.insert(
             name.to_string(),
             SpoolHandle(Arc::new(Mutex::new(Spool {
