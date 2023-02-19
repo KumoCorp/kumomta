@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use cidr::IpCidr;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
+use once_cell::sync::OnceCell;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
 use rustls::ServerConfig;
 use serde::Deserialize;
@@ -26,6 +27,9 @@ pub struct EsmtpListenerParams {
     pub relay_hosts: Vec<IpCidr>,
     #[serde(default = "EsmtpListenerParams::default_banner")]
     pub banner: String,
+
+    #[serde(skip)]
+    tls_config: OnceCell<Arc<ServerConfig>>,
 }
 
 impl EsmtpListenerParams {
@@ -52,16 +56,22 @@ impl EsmtpListenerParams {
     }
 
     pub fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
-        let cert = rcgen::generate_simple_self_signed(vec![self.hostname.to_string()])?;
-        let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
-        let cert = rustls::Certificate(cert.serialize_der()?);
+        let config = self
+            .tls_config
+            .get_or_try_init(|| -> anyhow::Result<Arc<ServerConfig>> {
+                let cert = rcgen::generate_simple_self_signed(vec![self.hostname.to_string()])?;
+                let private_key = rustls::PrivateKey(cert.serialize_private_key_der());
+                let cert = rustls::Certificate(cert.serialize_der()?);
 
-        let config = ServerConfig::builder()
-            .with_safe_defaults()
-            .with_no_client_auth()
-            .with_single_cert(vec![cert], private_key)?;
+                let config = ServerConfig::builder()
+                    .with_safe_defaults()
+                    .with_no_client_auth()
+                    .with_single_cert(vec![cert], private_key)?;
 
-        Ok(TlsAcceptor::from(Arc::new(config)))
+                Ok(Arc::new(config))
+            })?;
+
+        Ok(TlsAcceptor::from(config.clone()))
     }
 }
 

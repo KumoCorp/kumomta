@@ -76,6 +76,10 @@ async fn start_esmtp_listener(params: EsmtpListenerParams) -> anyhow::Result<()>
     use crate::smtp_server::SmtpServer;
     use tokio::net::TcpListener;
 
+    // Pre-create the acceptor so that we can share it across
+    // the various listeners
+    params.build_tls_acceptor()?;
+
     let listener = TcpListener::bind(&params.listen)
         .await
         .with_context(|| format!("failed to bind to {}", params.listen))?;

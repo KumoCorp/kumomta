@@ -868,6 +868,7 @@ dependencies = [
  "mail-auth",
  "message",
  "mlua",
+ "once_cell",
  "rand",
  "rcgen",
  "rfc5321",
