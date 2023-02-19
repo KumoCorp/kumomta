@@ -9,7 +9,9 @@ edition = "2021"
 anyhow = "1.0"
 bitflags = "1.3"
 chrono = {version="0.4", features=["serde"]}
+lazy_static = "1.4"
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+prometheus = "0.13"
 rand = "0.8"
 rfc5321 = {path="../rfc5321"}
 serde = {version="1.0", features=["derive"]}

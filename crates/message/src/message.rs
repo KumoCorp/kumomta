@@ -1,6 +1,7 @@
 use crate::EnvelopeAddress;
 use chrono::{DateTime, Utc};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
+use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
 use spool::{Spool, SpoolId};
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,21 @@ bitflags::bitflags! {
         /// true if Data needs to be saved
         const DATA_DIRTY = 2;
     }
+}
+
+lazy_static::lazy_static! {
+    static ref MESSAGE_COUNT: IntGauge = prometheus::register_int_gauge!(
+        "message_count",
+        "total number of Message objects"
+    ).unwrap();
+    static ref META_COUNT: IntGauge = prometheus::register_int_gauge!(
+        "message_meta_resident_count",
+        "total number of Message objects with metadata loaded"
+    ).unwrap();
+    static ref DATA_COUNT: IntGauge = prometheus::register_int_gauge!(
+        "message_data_resident_count",
+        "total number of Message objects with body data loaded"
+    ).unwrap();
 }
 
 #[derive(Debug)]
@@ -38,6 +54,18 @@ struct MetaData {
     meta: serde_json::Value,
 }
 
+impl Drop for MessageInner {
+    fn drop(&mut self) {
+        if self.metadata.is_some() {
+            META_COUNT.dec();
+        }
+        if !self.data.is_empty() {
+            DATA_COUNT.dec();
+        }
+        MESSAGE_COUNT.dec();
+    }
+}
+
 impl Message {
     /// Create a new message with the supplied data.
     /// The message meta and data are marked as dirty
@@ -49,6 +77,9 @@ impl Message {
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(meta.is_object(), "metadata must be a json object");
         let id = SpoolId::new();
+        MESSAGE_COUNT.inc();
+        DATA_COUNT.inc();
+        META_COUNT.inc();
         Ok(Self {
             id,
             inner: Arc::new(Mutex::new(MessageInner {
@@ -70,6 +101,8 @@ impl Message {
     /// a message holding the deserialized version of that metadata.
     pub fn new_from_spool(id: SpoolId, metadata: Vec<u8>) -> anyhow::Result<Self> {
         let metadata: MetaData = serde_json::from_slice(&metadata)?;
+        MESSAGE_COUNT.inc();
+        META_COUNT.inc();
 
         Ok(Self {
             id,
@@ -183,7 +216,12 @@ impl Message {
         if inner.flags.contains(MessageFlags::META_DIRTY) {
             anyhow::bail!("Cannot shrink message: META_DIRTY");
         }
-        inner.metadata.take();
+        if inner.metadata.take().is_some() {
+            META_COUNT.dec();
+        }
+        if !inner.data.is_empty() {
+            DATA_COUNT.dec();
+        }
         inner.data = Arc::new(vec![].into_boxed_slice());
         Ok(())
     }
@@ -216,22 +254,34 @@ impl Message {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.inner.lock().unwrap();
+        let was_not_loaded = inner.metadata.is_none();
         let metadata: MetaData = serde_json::from_slice(&data)?;
         inner.metadata.replace(metadata);
+        if was_not_loaded {
+            META_COUNT.inc();
+        }
         Ok(())
     }
 
     pub async fn load_data(&self, data_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
         let data = data_spool.load(*self.id()).await?;
         let mut inner = self.inner.lock().unwrap();
+        let was_empty = inner.data.is_empty();
         inner.data = Arc::new(data.into_boxed_slice());
+        if was_empty {
+            DATA_COUNT.inc();
+        }
         Ok(())
     }
 
     pub fn assign_data(&self, data: Vec<u8>) {
         let mut inner = self.inner.lock().unwrap();
+        let was_empty = inner.data.is_empty();
         inner.data = Arc::new(data.into_boxed_slice());
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
+        if was_empty {
+            DATA_COUNT.inc();
+        }
     }
 
     pub fn get_data(&self) -> Arc<Box<[u8]>> {
