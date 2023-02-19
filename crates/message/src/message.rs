@@ -138,6 +138,13 @@ impl Message {
         }
     }
 
+    pub fn needs_save(&self) -> bool {
+        let inner = self.inner.lock().unwrap();
+        inner
+            .flags
+            .contains(MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY)
+    }
+
     pub async fn save_to(
         &self,
         meta_spool: &(dyn Spool + Send + Sync),

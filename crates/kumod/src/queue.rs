@@ -292,43 +292,59 @@ impl Queue {
         Ok(())
     }
 
-    pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
-        self.last_change = Instant::now();
-        match self.queue.insert(Arc::new(msg)) {
+    async fn insert_delayed(&mut self, msg: Message) -> anyhow::Result<InsertResult> {
+        match self.queue.insert(Arc::new(msg.clone())) {
             Ok(_) => {
                 self.delayed_gauge.inc();
-                Ok(())
-            }
-            Err(TimerError::Expired(msg)) => {
-                let msg = (*msg).clone();
-                match SiteManager::resolve_domain(&self.name).await {
-                    Ok(site) => {
-                        let mut site = site.lock().await;
-                        match site.insert(msg) {
-                            Ok(_) => {}
-                            Err(msg) => {
-                                msg.delay_with_jitter(60);
-                                self.queue
-                                    .insert(Arc::new(msg))
-                                    .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
-                                self.delayed_gauge.inc();
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        tracing::error!("Failed to resolve {}: {err:#}", self.name);
-                        msg.delay_with_jitter(60);
-                        self.queue
-                            .insert(Arc::new(msg))
-                            .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
-                        self.delayed_gauge.inc();
-                    }
+                if let Err(err) = self.did_insert_delayed(msg.clone()).await {
+                    tracing::error!("while shrinking: {}: {err:#}", msg.id());
                 }
-
-                Ok(())
+                Ok(InsertResult::Delayed)
             }
-            Err(TimerError::NotFound) => {
-                anyhow::bail!("queue.insert returned impossible NotFound error")
+            Err(TimerError::Expired(msg)) => Ok(InsertResult::Ready((*msg).clone())),
+            Err(err) => anyhow::bail!("queue insert error: {err:#?}"),
+        }
+    }
+
+    async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
+        loop {
+            msg.delay_with_jitter(60);
+            match self.insert_delayed(msg.clone()).await? {
+                InsertResult::Delayed => return Ok(()),
+                // Maybe delay_with_jitter computed an immediate
+                // time? Let's try again
+                InsertResult::Ready(_) => continue,
+            }
+        }
+    }
+
+    async fn did_insert_delayed(&self, msg: Message) -> anyhow::Result<()> {
+        if msg.needs_save() {
+            let data_spool = SpoolManager::get_named("data").await?;
+            let meta_spool = SpoolManager::get_named("meta").await?;
+            msg.save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
+                .await?;
+        }
+        msg.shrink()?;
+        Ok(())
+    }
+
+    async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
+        let site = SiteManager::resolve_domain(&self.name).await?;
+        let mut site = site.lock().await;
+        site.insert(msg)
+            .map_err(|_| anyhow::anyhow!("no room in ready queue"))
+    }
+
+    pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
+        self.last_change = Instant::now();
+        match self.insert_delayed(msg.clone()).await? {
+            InsertResult::Delayed => Ok(()),
+            InsertResult::Ready(msg) => {
+                if let Err(_err) = self.insert_ready(msg.clone()).await {
+                    self.force_into_delayed(msg).await?;
+                }
+                Ok(())
             }
         }
     }
@@ -336,6 +352,12 @@ impl Queue {
     pub fn get_config(&self) -> &QueueConfig {
         &self.queue_config
     }
+}
+
+#[must_use]
+enum InsertResult {
+    Delayed,
+    Ready(Message),
 }
 
 pub struct QueueManager {
@@ -386,71 +408,49 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
             );
             let now = Utc::now();
             match q.queue.pop() {
-                PopResult::Items(messages) => match SiteManager::resolve_domain(&q.name).await {
-                    Ok(site) => {
-                        let mut site = site.lock().await;
+                PopResult::Items(messages) => {
+                    q.delayed_gauge.sub(messages.len() as i64);
 
-                        let max_age = q.queue_config.get_max_age();
+                    match SiteManager::resolve_domain(&q.name).await {
+                        Ok(site) => {
+                            let mut site = site.lock().await;
 
-                        q.delayed_gauge.dec();
+                            let max_age = q.queue_config.get_max_age();
 
-                        for msg in messages {
-                            let id = *msg.id();
+                            for msg in messages {
+                                let msg = (*msg).clone();
+                                let id = *msg.id();
 
-                            let age = msg.age(now);
-                            if age >= max_age {
-                                // TODO: log failure due to expiration
-                                tracing::debug!("expiring {id} {age} > {max_age}");
-                                SpoolManager::remove_from_spool(id).await?;
-                                tracing::debug!("returned from removal");
-                                continue;
-                            }
-
-                            if !msg.is_meta_loaded() {
-                                let meta_spool = SpoolManager::get_named("meta").await?;
-                                if let Err(err) = msg.load_meta(&**meta_spool.lock().await).await {
-                                    tracing::error!("Failed to load {id} metadata: {err:#}");
-                                    msg.delay_with_jitter(60);
-                                    q.queue
-                                        .insert(msg)
-                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                let age = msg.age(now);
+                                if age >= max_age {
+                                    // TODO: log failure due to expiration
+                                    tracing::debug!("expiring {id} {age} > {max_age}");
+                                    SpoolManager::remove_from_spool(id).await?;
                                     continue;
-                                };
-                            }
+                                }
 
-                            if !msg.is_data_loaded() {
-                                let data_spool = SpoolManager::get_named("data").await?;
-                                if let Err(err) = msg.load_data(&**data_spool.lock().await).await {
-                                    tracing::error!("Failed to load {id} data: {err:#}");
-                                    msg.delay_with_jitter(60);
-                                    q.queue
-                                        .insert(msg)
-                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
-                                    continue;
-                                };
-                            }
-
-                            match site.insert((*msg).clone()) {
-                                Ok(_) => {}
-                                Err(_) => {
-                                    msg.delay_with_jitter(60);
-                                    q.queue
-                                        .insert(msg)
-                                        .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                                match site.insert(msg.clone()) {
+                                    Ok(_) => {}
+                                    Err(_) => loop {
+                                        msg.delay_with_jitter(60);
+                                        if matches!(
+                                            q.insert_delayed(msg.clone()).await?,
+                                            InsertResult::Delayed
+                                        ) {
+                                            break;
+                                        }
+                                    },
                                 }
                             }
                         }
-                    }
-                    Err(err) => {
-                        tracing::error!("Failed to resolve {}: {err:#}", q.name);
-                        for msg in messages {
-                            msg.delay_with_jitter(60);
-                            q.queue
-                                .insert(msg)
-                                .map_err(|_err| anyhow::anyhow!("failed to insert"))?;
+                        Err(err) => {
+                            tracing::error!("Failed to resolve {}: {err:#}", q.name);
+                            for msg in messages {
+                                q.force_into_delayed((*msg).clone()).await?;
+                            }
                         }
                     }
-                },
+                }
                 PopResult::Sleep(duration) => {
                     // We sleep at most 1 minute in case some other actor
                     // re-inserts a message with ~1 minute delay. If we were

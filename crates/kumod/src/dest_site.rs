@@ -480,6 +480,17 @@ impl Dispatcher {
 
         {
             let msg = self.msg.as_ref().unwrap();
+
+            if !msg.is_meta_loaded() {
+                let meta_spool = SpoolManager::get_named("meta").await?;
+                msg.load_meta(&**meta_spool.lock().await).await?;
+            }
+
+            if !msg.is_data_loaded() {
+                let data_spool = SpoolManager::get_named("data").await?;
+                msg.load_data(&**data_spool.lock().await).await?;
+            }
+
             data = msg.get_data();
             sender = msg
                 .sender()?
