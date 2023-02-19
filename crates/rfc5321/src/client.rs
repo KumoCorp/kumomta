@@ -128,6 +128,60 @@ impl SmtpClient {
         self.read_response().await
     }
 
+    /// Issue a series of commands, and return the responses to
+    /// those commands.
+    ///
+    /// If the server advertised the RFC 2920 PIPELINING extension,
+    /// the commands are written one after the other before waiting
+    /// to read any data, resulting in lower overall latency due
+    /// to round-trip-times.
+    ///
+    /// If PIPELINING is not available, each command is written
+    /// and the response read before attempting to write the next
+    /// command.
+    ///
+    /// The number of returned responses may be smaller than the
+    /// number of requested commands if there is an issue with
+    /// the network connection.
+    pub async fn pipeline_commands(
+        &mut self,
+        commands: Vec<Command>,
+    ) -> Vec<Result<Response, ClientError>> {
+        let pipeline = self.capabilities.contains_key("PIPELINING");
+        let mut results: Vec<Result<Response, ClientError>> = vec![];
+
+        for cmd in &commands {
+            let line = cmd.encode();
+            match self.socket.as_mut() {
+                Some(socket) => {
+                    let res = socket.write_all(line.as_bytes()).await;
+                    if let Err(err) = res {
+                        results.push(Err(err.into()));
+                        return results;
+                    }
+                }
+                None => {
+                    results.push(Err(ClientError::NotConnected));
+                    return results;
+                }
+            };
+            if !pipeline {
+                // Immediately request the response if the server
+                // doesn't support pipelining
+                results.push(self.read_response().await);
+            }
+        }
+
+        if pipeline {
+            // Now read the responses effectively in a batch
+            for _ in &commands {
+                results.push(self.read_response().await);
+            }
+        }
+
+        results
+    }
+
     pub async fn ehlo(
         &mut self,
         ehlo_name: &str,
@@ -181,27 +235,37 @@ impl SmtpClient {
         recipient: RECIP,
         data: B,
     ) -> Result<Response, ClientError> {
-        let mail_resp = self
-            .send_command(&Command::MailFrom {
-                address: sender.into(),
-                parameters: vec![],
-            })
-            .await?;
+        let mut responses = self
+            .pipeline_commands(vec![
+                Command::MailFrom {
+                    address: sender.into(),
+                    parameters: vec![],
+                },
+                Command::RcptTo {
+                    address: recipient.into(),
+                    parameters: vec![],
+                },
+                Command::Data,
+            ])
+            .await;
+
+        if responses.is_empty() {
+            // Should be impossible to get here really, but if we do,
+            // assume that we aren't connected
+            return Err(ClientError::NotConnected);
+        }
+
+        let mail_resp = responses.remove(0)?;
         if mail_resp.code != 250 {
             return Err(ClientError::Rejected(mail_resp));
         }
 
-        let rcpt_resp = self
-            .send_command(&Command::RcptTo {
-                address: recipient.into(),
-                parameters: vec![],
-            })
-            .await?;
+        let rcpt_resp = responses.remove(0)?;
         if rcpt_resp.code != 250 {
             return Err(ClientError::Rejected(rcpt_resp));
         }
 
-        let data_resp = self.send_command(&Command::Data).await?;
+        let data_resp = responses.remove(0)?;
         if data_resp.code != 354 {
             return Err(ClientError::Rejected(data_resp));
         }
