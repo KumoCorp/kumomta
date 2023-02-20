@@ -7,9 +7,8 @@ use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntCounter, IntGauge};
 use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
-use ringbuf::{HeapRb, Rb};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -197,7 +196,7 @@ impl SiteManager {
                 msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
                 global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service("smtp_client"),
             };
-            let ready = Arc::new(StdMutex::new(HeapRb::new(site_config.max_ready)));
+            let ready = Arc::new(StdMutex::new(VecDeque::new()));
             let notify = Arc::new(Notify::new());
             SiteHandle(Arc::new(Mutex::new(DestinationSite {
                 name: name.clone(),
@@ -243,7 +242,7 @@ struct DeliveryMetrics {
 pub struct DestinationSite {
     name: String,
     mx: Arc<Box<[String]>>,
-    ready: Arc<StdMutex<HeapRb<Message>>>,
+    ready: Arc<StdMutex<VecDeque<Message>>>,
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
@@ -258,7 +257,8 @@ impl DestinationSite {
     }
 
     pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
-        self.ready.lock().unwrap().push(msg)?;
+        // TODO: shrink if ready size is too large
+        self.ready.lock().unwrap().push_back(msg);
         self.notify.notify_waiters();
         self.maintain();
         self.last_change = Instant::now();
@@ -344,7 +344,7 @@ async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
 
 struct Dispatcher {
     name: String,
-    ready: Arc<StdMutex<HeapRb<Message>>>,
+    ready: Arc<StdMutex<VecDeque<Message>>>,
     notify: Arc<Notify>,
     addresses: Vec<ResolvedAddress>,
     msg: Option<Message>,
@@ -359,7 +359,7 @@ impl Dispatcher {
     async fn run(
         name: &str,
         mx: Arc<Box<[String]>>,
-        ready: Arc<StdMutex<HeapRb<Message>>>,
+        ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
         site_config: DestSiteConfig,
         metrics: DeliveryMetrics,
@@ -415,7 +415,7 @@ impl Dispatcher {
         if self.msg.is_some() {
             return true;
         }
-        self.msg = self.ready.lock().unwrap().pop();
+        self.msg = self.ready.lock().unwrap().pop_front();
         self.msg.is_some()
     }
 
@@ -556,7 +556,7 @@ impl Dispatcher {
             Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
                 // Transient failure
                 if let Some(msg) = self.msg.take() {
-                    Self::requeue_message(msg, true).await?;
+                    tokio::spawn(async move { Self::requeue_message(msg, true).await });
                 }
                 // FIXME: log transfail
                 self.metrics.msgs_transfail.inc();
@@ -577,9 +577,8 @@ impl Dispatcher {
                 );
                 // FIXME: log permanent failure
                 if let Some(msg) = self.msg.take() {
-                    SpoolManager::remove_from_spool(*msg.id()).await?;
+                    tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }
-                self.msg.take();
             }
             Err(err) => {
                 // Transient failure; continue with another host
@@ -592,7 +591,7 @@ impl Dispatcher {
             Ok(response) => {
                 // FIXME: log success
                 if let Some(msg) = self.msg.take() {
-                    SpoolManager::remove_from_spool(*msg.id()).await?;
+                    tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }
                 self.metrics.msgs_delivered.inc();
                 self.metrics.global_msgs_delivered.inc();

@@ -100,10 +100,12 @@ impl SpoolManager {
         let res_data = data_spool.lock().await.remove(id).await;
         let res_meta = meta_spool.lock().await.remove(id).await;
         if let Err(err) = res_data {
-            tracing::error!("Error removing data for {id}: {err:#}");
+            // We don't log at error level for these because that
+            // is undesirable when deferred_spool is enabled.
+            tracing::debug!("Error removing data for {id}: {err:#}");
         }
         if let Err(err) = res_meta {
-            tracing::error!("Error removing meta for {id}: {err:#}");
+            tracing::debug!("Error removing meta for {id}: {err:#}");
         }
         Ok(())
     }
@@ -114,10 +116,10 @@ impl SpoolManager {
         let res_data = data_spool.lock().await.remove(id).await;
         let res_meta = meta_spool.lock().await.remove(id).await;
         if let Err(err) = res_data {
-            tracing::error!("Error removing data for {id}: {err:#}");
+            tracing::debug!("Error removing data for {id}: {err:#}");
         }
         if let Err(err) = res_meta {
-            tracing::error!("Error removing meta for {id}: {err:#}");
+            tracing::debug!("Error removing meta for {id}: {err:#}");
         }
         Ok(())
     }

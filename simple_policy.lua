@@ -18,6 +18,13 @@ kumo.on('init', function()
     -- The configured hostname will be automatically
     -- prepended to this text.
     banner = 'Welcome to KumoMTA!',
+
+    -- Unsafe! When set to true, don't save to spool
+    -- at reception time.
+    -- Saves IO but may cause you to lose messages
+    -- if something happens to this server before
+    -- the message is spooled.
+    deferred_spool = false,
   }
 
   kumo.start_http_listener {
@@ -28,14 +35,14 @@ kumo.on('init', function()
   -- message bodies will be stored
   kumo.define_spool {
     name = 'data',
-    path = '/tmp/kumo-spool/data',
+    path = '/var/tmp/kumo-spool/data',
   }
 
   -- Define the default "meta" spool location; this is where
   -- message envelope and metadata will be stored
   kumo.define_spool {
     name = 'meta',
-    path = '/tmp/kumo-spool/meta',
+    path = '/var/tmp/kumo-spool/meta',
   }
 end)
 

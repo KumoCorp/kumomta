@@ -103,10 +103,12 @@ impl Opt {
         while started.elapsed() <= duration {
             let (sender, recip, body) = self.generate_message();
             timeout(
-                Duration::from_secs(20),
+                Duration::from_secs(300),
                 client.send_mail(sender, recip, body),
             )
-            .await??;
+            .await
+            .context("waiting to send mail")?
+            .context("sending mail")?;
             counter.fetch_add(1, Ordering::Relaxed);
         }
         timeout(Duration::from_secs(1), client.send_command(&Command::Quit)).await??;

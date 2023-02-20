@@ -1,6 +1,6 @@
 use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
-use crate::spool::SpoolManager;
+use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr::IpCidr;
@@ -16,6 +16,7 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -37,6 +38,9 @@ pub struct EsmtpListenerParams {
     pub tls_certificate: Option<PathBuf>,
     #[serde(default)]
     pub tls_private_key: Option<PathBuf>,
+
+    #[serde(default)]
+    pub deferred_spool: bool,
 
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
@@ -207,7 +211,6 @@ impl RejectError {
     }
 }
 
-#[derive(Debug)]
 pub struct SmtpServer {
     socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
@@ -218,6 +221,8 @@ pub struct SmtpServer {
     tls_active: bool,
     read_buffer: Vec<u8>,
     params: EsmtpListenerParams,
+    data_spool: SpoolHandle,
+    meta_spool: SpoolHandle,
 }
 
 #[derive(Debug)]
@@ -239,6 +244,8 @@ impl SmtpServer {
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
+        let data_spool = SpoolManager::get_named("data").await?;
+        let meta_spool = SpoolManager::get_named("meta").await?;
         let mut server = SmtpServer {
             socket: Some(socket),
             state: None,
@@ -249,6 +256,8 @@ impl SmtpServer {
             tls_active: false,
             read_buffer: Vec::with_capacity(1024),
             params,
+            data_spool,
+            meta_spool,
         };
 
         tokio::task::spawn_local(async move {
@@ -555,10 +564,6 @@ impl SmtpServer {
                     let mut ids = vec![];
                     let mut messages = vec![];
 
-                    // TODO: allow selecting a different set of spools by defining
-                    // a metadata key for that purpose
-                    let data_spool = SpoolManager::get_named("data").await?;
-                    let meta_spool = SpoolManager::get_named("meta").await?;
                     let datestamp = Utc::now().to_rfc2822();
 
                     for recip in state.recipients {
@@ -603,16 +608,33 @@ impl SmtpServer {
                         let queue_name = message.get_queue_name()?;
 
                         if queue_name != "null" {
-                            message
-                                .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
-                                .await?;
+                            if !self.params.deferred_spool {
+                                message
+                                    .save_to(
+                                        &**self.meta_spool.lock().await,
+                                        &**self.data_spool.lock().await,
+                                    )
+                                    .await?;
+                            }
                             messages.push((queue_name, message));
                         }
                     }
 
-                    let mut queue_manager = QueueManager::get().await;
-                    for (queue_name, msg) in messages {
-                        queue_manager.insert(&queue_name, msg).await?;
+                    if !messages.is_empty() {
+                        tokio::spawn(async move {
+                            let mut queue_manager = QueueManager::get().await;
+                            for (queue_name, msg) in messages {
+                                let start = Instant::now();
+                                queue_manager.insert(&queue_name, msg).await?;
+                                if start.elapsed() > Duration::from_secs(1) {
+                                    println!(
+                                        "Laggy queue insert for {queue_name} took {:?}",
+                                        start.elapsed()
+                                    );
+                                }
+                            }
+                            Ok::<(), anyhow::Error>(())
+                        });
                     }
 
                     let ids = ids.join(" ");
