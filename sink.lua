@@ -12,6 +12,9 @@ kumo.on('init', function()
       relay_hosts = { '0.0.0.0/0' },
     }
   end
+  kumo.start_http_listener {
+    listen = '0.0.0.0:8001',
+  }
 
   -- Define the default "data" spool location.
   -- This is unused by this config, but we are required to

@@ -139,7 +139,6 @@ impl Message {
     pub fn delay_with_jitter(&self, limit: i64) {
         let scale = rand::random::<f32>();
         let value = (scale * limit as f32) as i64;
-        println!("delaying by {value}");
         self.delay_by(chrono::Duration::seconds(value));
     }
 
