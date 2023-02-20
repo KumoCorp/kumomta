@@ -3,11 +3,11 @@ use chrono::Utc;
 use clap::Parser;
 use num_format::{Locale, ToFormattedString};
 use rfc5321::*;
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 const DOMAINS: &[&str] = &["aol.com", "gmail.com", "hotmail.com", "yahoo.com"];
@@ -95,6 +95,23 @@ impl Opt {
 
         Ok(client)
     }
+
+    async fn run(&self, counter: Arc<AtomicUsize>) -> anyhow::Result<()> {
+        let mut client = self.make_client().await?;
+        let started = Instant::now();
+        let duration = Duration::from_secs(self.duration);
+        while started.elapsed() <= duration {
+            let (sender, recip, body) = self.generate_message();
+            timeout(
+                Duration::from_secs(20),
+                client.send_mail(sender, recip, body),
+            )
+            .await??;
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
+        timeout(Duration::from_secs(1), client.send_command(&Command::Quit)).await??;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -112,41 +129,21 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let mut handles = vec![];
     for _ in 0..concurrency {
         let opts = opts.clone();
         let counter = Arc::clone(&counter);
-        handles.push(tokio::spawn(async move {
-            let mut client = opts.make_client().await?;
-            while started.elapsed() <= duration {
-                let (sender, recip, body) = opts.generate_message();
-                client.send_mail(sender, recip, body).await?;
-                counter.fetch_add(1, Ordering::Relaxed);
+        tokio::spawn(async move {
+            if let Err(err) = opts.run(counter).await {
+                eprintln!("{err:#}");
             }
-            client.send_command(&Command::Quit).await?;
             Ok::<(), anyhow::Error>(())
-        }));
+        });
     }
 
-    let mut errors = HashSet::new();
-
-    for h in handles {
-        match h.await {
-            Ok(Err(err)) => {
-                errors.insert(format!("{err:#}"));
-            }
-            Err(err) => {
-                errors.insert(format!("{err:#}"));
-            }
-            Ok(Ok(())) => {}
-        }
-    }
-    for error in errors {
-        eprintln!("{error}");
-    }
-
-    let elapsed = started.elapsed();
+    tokio::time::sleep(duration).await;
     let total_sent = counter.load(Ordering::Acquire);
+    let elapsed = started.elapsed();
+
     let msgs_per_second = total_sent as f64 / elapsed.as_secs_f64();
 
     let msgs_per_minute = msgs_per_second * 60.;
