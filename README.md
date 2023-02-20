@@ -65,7 +65,7 @@ $ make fmt
 To build a lightweight alpine-based docker image:
 
 ```
-$ ./ci/build-docker-image.sh
+$ ./docker/smtpd/build-docker-image.sh
 ...
 $ sudo docker image ls kumomta/smtpd
 REPOSITORY      TAG       IMAGE ID       CREATED         SIZE

@@ -8,3 +8,4 @@ dhat-heap.json
 .*.sw*
 /perf.data*
 .idea/
+/docker/smtpd/kumod
