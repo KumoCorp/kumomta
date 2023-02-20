@@ -3,6 +3,7 @@ use chrono::Utc;
 use clap::Parser;
 use num_format::{Locale, ToFormattedString};
 use rfc5321::*;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -127,8 +128,21 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
+    let mut errors = HashSet::new();
+
     for h in handles {
-        h.await??;
+        match h.await {
+            Ok(Err(err)) => {
+                errors.insert(format!("{err:#}"));
+            }
+            Err(err) => {
+                errors.insert(format!("{err:#}"));
+            }
+            Ok(Ok(())) => {}
+        }
+    }
+    for error in errors {
+        eprintln!("{error}");
     }
 
     let elapsed = started.elapsed();
