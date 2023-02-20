@@ -310,6 +310,9 @@ impl SmtpServer {
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
             let size = self.socket.as_mut().unwrap().read(&mut data).await?;
+            if size == 0 {
+                anyhow::bail!("client disconnected");
+            }
             self.read_buffer.extend_from_slice(&data[0..size]);
         }
     }
