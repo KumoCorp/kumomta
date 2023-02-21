@@ -38,7 +38,9 @@ kumo.on('init', function()
   -- triggered after each store to the spool.
   -- The increased durability comes at the cost of throughput.
   --
-  -- kind can be 'LocalDisk' (currently the default) or 'Sled'.
+  -- kind can be 'LocalDisk' (currently the default), 'Sled'
+  -- or 'RocksDB'.
+  --
   -- LocalDisk stores one file per message in a filesystem hierarchy.
   -- Sled is a key-value datastore.
   --
@@ -50,11 +52,14 @@ kumo.on('init', function()
   -- so you will need to evaluate which works best for your
   -- requirements.
   -- https://github.com/spacejam/sled#known-issues-warnings
+  --
+  -- RocksDB has >4x the throughput of LocalDisk, and enabling
+  -- flush has a marginal (<10%) impact in early testing.
   kumo.define_spool {
     name = 'data',
     path = '/var/tmp/kumo-spool/data',
     flush = false,
-    kind = 'Sled',
+    kind = 'RocksDB',
   }
 
   -- Define the default "meta" spool location; this is where
@@ -63,7 +68,7 @@ kumo.on('init', function()
     name = 'meta',
     path = '/var/tmp/kumo-spool/meta',
     flush = false,
-    kind = 'Sled',
+    kind = 'RocksDB',
   }
 end)
 

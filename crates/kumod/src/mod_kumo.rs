@@ -88,6 +88,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 pub enum SpoolKind {
     LocalDisk,
     Sled,
+    RocksDB,
 }
 impl Default for SpoolKind {
     fn default() -> Self {
