@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
 pub mod local_disk;
+pub mod sled_spool;
 pub mod spool_id;
 
 pub use spool_id::SpoolId;

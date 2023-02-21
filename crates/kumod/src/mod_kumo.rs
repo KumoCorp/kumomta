@@ -85,13 +85,28 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 }
 
 #[derive(Deserialize)]
-struct DefineSpoolParams {
-    name: String,
-    path: PathBuf,
+pub enum SpoolKind {
+    LocalDisk,
+    Sled,
+}
+impl Default for SpoolKind {
+    fn default() -> Self {
+        Self::LocalDisk
+    }
+}
+
+#[derive(Deserialize)]
+pub struct DefineSpoolParams {
+    pub name: String,
+    pub path: PathBuf,
+    #[serde(default)]
+    pub kind: SpoolKind,
+    #[serde(default)]
+    pub flush: bool,
 }
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
     crate::spool::SpoolManager::get()
         .await
-        .new_local_disk(&params.name, &params.path)
+        .new_local_disk(params)
 }

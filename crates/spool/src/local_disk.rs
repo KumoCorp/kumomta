@@ -10,11 +10,12 @@ use tokio::sync::mpsc::Sender;
 
 pub struct LocalDiskSpool {
     path: PathBuf,
+    flush: bool,
     _pid_file: File,
 }
 
 impl LocalDiskSpool {
-    pub fn new(path: &Path) -> anyhow::Result<Self> {
+    pub fn new(path: &Path, flush: bool) -> anyhow::Result<Self> {
         let pid_file_path = path.join("lock");
         let _pid_file = lock_pid_file(pid_file_path)?;
 
@@ -22,6 +23,7 @@ impl LocalDiskSpool {
 
         Ok(Self {
             path: path.to_path_buf(),
+            flush,
             _pid_file,
         })
     }
@@ -90,12 +92,19 @@ impl Spool for LocalDiskSpool {
         let path = self.compute_path(id);
         let new_dir = self.path.join("new");
         let data = data.to_vec();
+        let flush = self.flush;
         tokio::task::spawn_blocking(move || {
             let mut temp = NamedTempFile::new_in(new_dir)
                 .with_context(|| format!("failed to create a temporary file to store {id}"))?;
 
             temp.write_all(&data)
                 .with_context(|| format!("failed to write data for {id}"))?;
+
+            if flush {
+                temp.as_file_mut()
+                    .sync_data()
+                    .with_context(|| format!("failed to sync data for {id}"))?;
+            }
 
             std::fs::create_dir_all(path.parent().unwrap())
                 .with_context(|| format!("failed to create dir structure for {id} {path:?}"))?;
@@ -206,7 +215,7 @@ mod test {
     #[tokio::test]
     async fn basic_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = LocalDiskSpool::new(&location.path())?;
+        let spool = LocalDiskSpool::new(&location.path(), false)?;
         let data_dir = location.path().join("data");
 
         {

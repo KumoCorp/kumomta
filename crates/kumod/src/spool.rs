@@ -1,10 +1,11 @@
+use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use chrono::Utc;
 use message::Message;
 use spool::local_disk::LocalDiskSpool;
+use spool::sled_spool::SledDiskSpool;
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
@@ -62,13 +63,22 @@ impl SpoolManager {
         MANAGER.lock().await
     }
 
-    pub fn new_local_disk(&mut self, name: &str, path: &Path) -> anyhow::Result<()> {
-        tracing::debug!("Defining local disk spool '{name}' on {}", path.display());
+    pub fn new_local_disk(&mut self, params: DefineSpoolParams) -> anyhow::Result<()> {
+        tracing::debug!(
+            "Defining local disk spool '{}' on {}",
+            params.name,
+            params.path.display()
+        );
         self.named.insert(
-            name.to_string(),
+            params.name.to_string(),
             SpoolHandle(Arc::new(Mutex::new(Spool {
                 maintainer: None,
-                spool: Box::new(LocalDiskSpool::new(path)?),
+                spool: match params.kind {
+                    SpoolKind::LocalDisk => {
+                        Box::new(LocalDiskSpool::new(&params.path, params.flush)?)
+                    }
+                    SpoolKind::Sled => Box::new(SledDiskSpool::new(&params.path, params.flush)?),
+                },
             }))),
         );
         Ok(())

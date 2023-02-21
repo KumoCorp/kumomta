@@ -33,9 +33,28 @@ kumo.on('init', function()
 
   -- Define the default "data" spool location; this is where
   -- message bodies will be stored
+  --
+  -- 'flush' can be set to true to cause fdatasync to be
+  -- triggered after each store to the spool.
+  -- The increased durability comes at the cost of throughput.
+  --
+  -- kind can be 'LocalDisk' (currently the default) or 'Sled'.
+  -- LocalDisk stores one file per message in a filesystem hierarchy.
+  -- Sled is a key-value datastore.
+  --
+  -- Sled has 4x the throughput of LocalDisk when flush=false.
+  -- Sled's throughput when flush=false is 3x its throughput when flush=true,
+  -- making Sled a higher performing choice in both cases.
+  -- Sled is considered beta by its authors, and upgrading to
+  -- a newer version of Sled doesn't have a great story today,
+  -- so you will need to evaluate which works best for your
+  -- requirements.
+  -- https://github.com/spacejam/sled#known-issues-warnings
   kumo.define_spool {
     name = 'data',
     path = '/var/tmp/kumo-spool/data',
+    flush = false,
+    kind = 'Sled',
   }
 
   -- Define the default "meta" spool location; this is where
@@ -43,6 +62,8 @@ kumo.on('init', function()
   kumo.define_spool {
     name = 'meta',
     path = '/var/tmp/kumo-spool/meta',
+    flush = false,
+    kind = 'Sled',
   }
 end)
 

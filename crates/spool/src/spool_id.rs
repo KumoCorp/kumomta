@@ -44,6 +44,16 @@ impl SpoolId {
         in_dir.join(name)
     }
 
+    pub fn from_ascii_bytes(s: &[u8]) -> Option<Self> {
+        let uuid = Uuid::try_parse_ascii(s).ok()?;
+        Some(Self(uuid))
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        let uuid = Uuid::parse_str(s).ok()?;
+        Some(Self(uuid))
+    }
+
     pub fn from_path(mut path: &Path) -> Option<Self> {
         let mut components = vec![];
 
