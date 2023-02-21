@@ -75,15 +75,10 @@ impl SpoolManager {
     }
 
     pub async fn get_named(name: &str) -> anyhow::Result<SpoolHandle> {
-        Self::get()
-            .await
-            .named
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no spool named '{name}' has been defined"))
+        Self::get().await.get_named_impl(name)
     }
 
-    pub fn get_named_impl(&mut self, name: &str) -> anyhow::Result<SpoolHandle> {
+    pub fn get_named_impl(&self, name: &str) -> anyhow::Result<SpoolHandle> {
         self.named
             .get(name)
             .cloned()
@@ -95,8 +90,10 @@ impl SpoolManager {
     }
 
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
-        let data_spool = SpoolManager::get_named("data").await?;
-        let meta_spool = SpoolManager::get_named("meta").await?;
+        let (data_spool, meta_spool) = {
+            let mgr = Self::get().await;
+            (mgr.get_named_impl("data")?, mgr.get_named_impl("meta")?)
+        };
         let res_data = data_spool.lock().await.remove(id).await;
         let res_meta = meta_spool.lock().await.remove(id).await;
         if let Err(err) = res_data {

@@ -16,7 +16,6 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -624,14 +623,7 @@ impl SmtpServer {
                         tokio::spawn(async move {
                             let mut queue_manager = QueueManager::get().await;
                             for (queue_name, msg) in messages {
-                                let start = Instant::now();
                                 queue_manager.insert(&queue_name, msg).await?;
-                                if start.elapsed() > Duration::from_secs(1) {
-                                    println!(
-                                        "Laggy queue insert for {queue_name} took {:?}",
-                                        start.elapsed()
-                                    );
-                                }
                             }
                             Ok::<(), anyhow::Error>(())
                         });

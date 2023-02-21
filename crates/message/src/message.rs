@@ -1,5 +1,6 @@
 use crate::EnvelopeAddress;
 use chrono::{DateTime, Utc};
+use futures::FutureExt;
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -182,18 +183,38 @@ impl Message {
         meta_spool: &(dyn Spool + Send + Sync),
         data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<()> {
-        if let Some(data) = self.get_data_if_dirty() {
+        let data_holder;
+        let data_fut = if let Some(data) = self.get_data_if_dirty() {
             anyhow::ensure!(!data.is_empty(), "message data must not be empty");
-            data_spool.store(self.id, &data).await?;
+            data_holder = data;
+            data_spool
+                .store(self.id, &data_holder)
+                .map(|_| true)
+                .boxed()
+        } else {
+            futures::future::ready(false).boxed()
+        };
+        let meta_holder;
+        let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
+            meta_holder = serde_json::to_vec(&meta)?;
+            meta_spool
+                .store(self.id, &meta_holder)
+                .map(|_| true)
+                .boxed()
+        } else {
+            futures::future::ready(false).boxed()
+        };
+
+        let (data_res, meta_res) = tokio::join!(data_fut, meta_fut);
+
+        if data_res {
             self.inner
                 .lock()
                 .unwrap()
                 .flags
                 .remove(MessageFlags::DATA_DIRTY);
         }
-        if let Some(meta) = self.get_meta_if_dirty() {
-            let data = serde_json::to_vec(&meta)?;
-            meta_spool.store(self.id, &data).await?;
+        if meta_res {
             self.inner
                 .lock()
                 .unwrap()
