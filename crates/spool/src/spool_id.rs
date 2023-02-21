@@ -35,8 +35,11 @@ impl SpoolId {
 
     pub fn compute_path(&self, in_dir: &Path) -> PathBuf {
         let (a, b, c, [d, e, f, g, h, i, j, k]) = self.0.as_fields();
+        // Note that in a v1 UUID, a,b,c holds the timestamp components
+        // from least-significant up to most significant.
+        let [a1, a2, a3, a4] = a.to_be_bytes();
         let name = format!(
-            "{a:08x}/{b:04x}/{c:04x}/{d:02x}{e:02x}/{f:02x}{g:02x}{h:02x}{i:02x}{j:02x}{k:02x}"
+            "{a1:02x}/{a2:02x}/{a3:02x}/{a4:02x}/{b:04x}{c:04x}{d:02x}{e:02x}{f:02x}{g:02x}{h:02x}{i:02x}{j:02x}{k:02x}"
         );
         in_dir.join(name)
     }
