@@ -4,7 +4,6 @@ use chrono::Utc;
 use message::Message;
 use spool::local_disk::LocalDiskSpool;
 use spool::rocks::RocksSpool;
-use spool::sled_spool::SledDiskSpool;
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,7 +77,6 @@ impl SpoolManager {
                     SpoolKind::LocalDisk => {
                         Box::new(LocalDiskSpool::new(&params.path, params.flush)?)
                     }
-                    SpoolKind::Sled => Box::new(SledDiskSpool::new(&params.path, params.flush)?),
                     SpoolKind::RocksDB => Box::new(RocksSpool::new(&params.path, params.flush)?),
                 },
             }))),

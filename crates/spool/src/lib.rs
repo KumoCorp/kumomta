@@ -3,7 +3,6 @@ use tokio::sync::mpsc::Sender;
 
 pub mod local_disk;
 pub mod rocks;
-pub mod sled_spool;
 pub mod spool_id;
 
 pub use spool_id::SpoolId;

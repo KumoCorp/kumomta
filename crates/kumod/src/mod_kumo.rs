@@ -87,7 +87,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 #[derive(Deserialize)]
 pub enum SpoolKind {
     LocalDisk,
-    Sled,
     RocksDB,
 }
 impl Default for SpoolKind {
