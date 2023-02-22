@@ -19,10 +19,6 @@ mod spool;
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
 struct Opt {
-    /// What to listen on
-    #[arg(long, default_value = "127.0.0.1:2025")]
-    listen: String,
-
     /// Policy file to load
     #[arg(long)]
     policy: Option<PathBuf>,
