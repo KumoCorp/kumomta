@@ -62,7 +62,12 @@ impl Parser {
 
     fn parse_rcpt(mut pairs: Pairs<Rule>) -> Result<Command, String> {
         let forward_path = pairs.next().unwrap().into_inner().next().unwrap();
+        let mut no_angles = false;
         let address = match forward_path.as_rule() {
+            Rule::path_no_angles => {
+                no_angles = true;
+                ForwardPath::Path(Self::parse_path(forward_path)?)
+            }
             Rule::path => ForwardPath::Path(Self::parse_path(forward_path)?),
             Rule::postmaster => ForwardPath::Postmaster,
             wat => return Err(format!("unexpected {wat:?}")),
@@ -71,6 +76,11 @@ impl Parser {
         let mut parameters = vec![];
 
         if let Some(params) = pairs.next() {
+            if no_angles {
+                return Err(format!(
+                    "must enclose address in <> if you want to use ESMTP parameters"
+                ));
+            }
             for param in params.into_inner() {
                 let mut iter = param.into_inner();
                 let name = iter.next().unwrap().as_str().to_string();
@@ -87,7 +97,12 @@ impl Parser {
 
     fn parse_mail(mut pairs: Pairs<Rule>) -> Result<Command, String> {
         let reverse_path = pairs.next().unwrap().into_inner().next().unwrap();
+        let mut no_angles = false;
         let address = match reverse_path.as_rule() {
+            Rule::path_no_angles => {
+                no_angles = true;
+                ReversePath::Path(Self::parse_path(reverse_path)?)
+            }
             Rule::path => ReversePath::Path(Self::parse_path(reverse_path)?),
             Rule::null_sender => ReversePath::NullSender,
             wat => return Err(format!("unexpected {wat:?}")),
@@ -96,6 +111,11 @@ impl Parser {
         let mut parameters = vec![];
 
         if let Some(params) = pairs.next() {
+            if no_angles {
+                return Err(format!(
+                    "must enclose address in <> if you want to use ESMTP parameters"
+                ));
+            }
             for param in params.into_inner() {
                 let mut iter = param.into_inner();
                 let name = iter.next().unwrap().as_str().to_string();
@@ -461,6 +481,19 @@ mod test {
                 parameters: vec![],
             }
         );
+        assert_eq!(
+            Parser::parse_command("Rcpt To:user@host").unwrap(),
+            Command::RcptTo {
+                address: ForwardPath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "user".to_string(),
+                        domain: Domain::Name("host".to_string())
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
 
         assert_eq!(
             Parser::parse_command("Rcpt To:<\"asking for trouble\"@host.name>").unwrap(),
@@ -500,6 +533,11 @@ mod test {
                 }],
             }
         );
+
+        assert_eq!(
+            Parser::parse_command("Rcpt To:user@host woot").unwrap_err(),
+            "must enclose address in <> if you want to use ESMTP parameters".to_string()
+        );
     }
 
     #[test]
@@ -516,6 +554,25 @@ mod test {
                 }),
                 parameters: vec![],
             }
+        );
+
+        assert_eq!(
+            Parser::parse_command("Mail FROM:user@host").unwrap(),
+            Command::MailFrom {
+                address: ReversePath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "user".to_string(),
+                        domain: Domain::Name("host".to_string())
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
+
+        assert_eq!(
+            Parser::parse_command("Mail FROM:user@host foo bar=baz").unwrap_err(),
+            "must enclose address in <> if you want to use ESMTP parameters".to_string()
         );
 
         assert_eq!(

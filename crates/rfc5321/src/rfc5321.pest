@@ -38,11 +38,12 @@ dcontent = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' }
 standardized_tag = { ldh_str }
 
 path = { "<" ~ (adl ~ ":" )? ~ mailbox ~ ">" }
+path_no_angles = { (adl ~ ":" )? ~ mailbox }
 adl = { at_domain ~ ( "," ~ at_domain )* }
 at_domain = { "@" ~ domain }
 
-forward_path = { path | postmaster }
-reverse_path = { path | null_sender }
+forward_path = { path | postmaster | path_no_angles }
+reverse_path = { path | null_sender | path_no_angles }
 null_sender = { "<>" }
 
 mail = { ^"MAIL FROM:" ~ reverse_path ~ (" " ~ smtp_parameters )? }
