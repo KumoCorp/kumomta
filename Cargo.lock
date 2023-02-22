@@ -279,6 +279,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "caps"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "190baaad529bcfbde9e1a19022c42781bdb6ff9de25721abdb8fd98c0807730b"
+dependencies = [
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,6 +1139,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "axum",
+ "caps",
  "chrono",
  "cidr",
  "clap",
@@ -1142,6 +1153,7 @@ dependencies = [
  "metrics-prometheus",
  "metrics-tracing-context",
  "mlua",
+ "nix 0.26.2",
  "once_cell",
  "prometheus",
  "rand",
@@ -1313,7 +1325,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b238e3235c8382b7653c6408ed1b08dd379bdb9fdf990fb0bbae3db2cc0ae963"
 dependencies = [
- "nix",
+ "nix 0.23.2",
  "winapi",
 ]
 
@@ -1588,6 +1600,20 @@ dependencies = [
  "cfg-if",
  "libc",
  "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+ "static_assertions",
 ]
 
 [[package]]
@@ -2350,6 +2376,12 @@ dependencies = [
  "tokio",
  "uuid",
 ]
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "strsim"
