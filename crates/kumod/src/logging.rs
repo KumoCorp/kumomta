@@ -26,15 +26,24 @@ pub struct LogFileParams {
     /// the submission will block; helps to avoid runaway issues
     /// spiralling out of control.
     #[serde(default = "LogFileParams::default_back_pressure")]
-    pub back_pressure: u64,
+    pub back_pressure: usize,
+
+    /// The level of compression.
+    /// 0 - use the zstd default level (probably 3).
+    /// 1-21 are the explicitly configurable levels
+    #[serde(default = "LogFileParams::default_compression_level")]
+    pub compression_level: i32,
 }
 
 impl LogFileParams {
     fn default_max_file_size() -> u64 {
         1_000_000_000
     }
-    fn default_back_pressure() -> u64 {
+    fn default_back_pressure() -> usize {
         128_000
+    }
+    fn default_compression_level() -> i32 {
+        0 // use the zstd default
     }
 }
 
@@ -102,7 +111,7 @@ impl Logger {
                     .with_context(|| format!("open log file {name:?}"))?;
 
                 file.replace(OpenedFile {
-                    file: Encoder::new(f, 0)
+                    file: Encoder::new(f, params.compression_level)
                         .context("set up zstd encoder")?
                         .auto_finish(),
                     name,
