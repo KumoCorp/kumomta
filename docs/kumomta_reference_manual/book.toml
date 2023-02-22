@@ -1,0 +1,6 @@
+[book]
+authors = ["Tom Mairs"]
+language = "en"
+multilingual = false
+src = "src"
+title = "KumoMTA Reference Manual"
