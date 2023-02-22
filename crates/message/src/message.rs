@@ -1,6 +1,8 @@
+use crate::dkim::Signer;
 use crate::EnvelopeAddress;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
+use mail_auth::common::headers::HeaderWriter;
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -382,6 +384,54 @@ impl Message {
             }
         })
     }
+
+    pub fn prepend_header(&self, name: Option<&str>, value: &str) {
+        let data = self.get_data();
+        let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
+        emit_header(&mut new_data, name, value);
+        new_data.extend_from_slice(&data);
+        self.assign_data(new_data);
+    }
+
+    pub fn append_header(&self, name: Option<&str>, value: &str) {
+        let data = self.get_data();
+        let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
+        for (idx, window) in data.windows(4).enumerate() {
+            if window == b"\r\n\r\n" {
+                let headers = &data[0..idx + 2];
+                let body = &data[idx + 2..];
+
+                new_data.extend_from_slice(&headers);
+                emit_header(&mut new_data, name, value);
+                new_data.extend_from_slice(&body);
+                self.assign_data(new_data);
+                return;
+            }
+        }
+    }
+
+    pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
+        let data = self.get_data();
+        let signature = signer.sign(&data)?;
+        let header = signature.to_header();
+        self.prepend_header(None, &header);
+        Ok(())
+    }
+}
+
+fn size_header(name: Option<&str>, value: &str) -> usize {
+    name.map(|name| name.len() + 2).unwrap_or(0) + value.len()
+}
+
+fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
+    if let Some(name) = name {
+        dest.extend_from_slice(name.as_bytes());
+        dest.extend_from_slice(b": ");
+    }
+    dest.extend_from_slice(value.as_bytes());
+    if !value.ends_with("\r\n") {
+        dest.extend_from_slice(b"\r\n");
+    }
 }
 
 impl UserData for Message {
@@ -411,6 +461,11 @@ impl UserData for Message {
         methods.add_method("recipient", move |_, this, _: ()| {
             Ok(this
                 .recipient()
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+        });
+        methods.add_method("dkim_sign", move |_, this, signer: Signer| {
+            Ok(this
+                .dkim_sign(&signer)
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
         });
     }

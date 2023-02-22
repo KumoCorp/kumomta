@@ -1,8 +1,8 @@
 use crate::dest_site::DestSiteConfig;
 use crate::http_server::HttpListenerParams;
-use crate::lua_config::get_or_create_module;
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
+use config::get_or_create_module;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::path::PathBuf;

@@ -1,7 +1,7 @@
 use crate::dest_site::SiteManager;
-use crate::lua_config::load_config;
 use crate::spool::SpoolManager;
 use chrono::Utc;
+use config::load_config;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntGauge, IntGaugeVec};

@@ -3,13 +3,16 @@ use mlua::{FromLuaMulti, Lua, Table, ToLuaMulti, Value};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+lazy_static::lazy_static! {
+    static ref POLICY_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static ref FUNCS: Mutex<Vec<RegisterFunc>> = Mutex::new(vec![]);
+}
+
+pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
+
 #[derive(Debug)]
 pub struct LuaConfig {
     lua: Lua,
-}
-
-lazy_static::lazy_static! {
-    static ref POLICY_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 }
 
 pub async fn set_policy_path(path: PathBuf) -> anyhow::Result<()> {
@@ -22,10 +25,16 @@ fn get_policy_path() -> Option<PathBuf> {
     POLICY_FILE.lock().unwrap().clone()
 }
 
+fn get_funcs() -> Vec<RegisterFunc> {
+    FUNCS.lock().unwrap().clone()
+}
+
 pub async fn load_config() -> anyhow::Result<LuaConfig> {
     let lua = Lua::new();
 
-    crate::mod_kumo::register(&lua)?;
+    for func in get_funcs() {
+        (func)(&lua)?;
+    }
 
     if let Some(policy) = get_policy_path() {
         let code = tokio::fs::read_to_string(&policy)
@@ -42,6 +51,9 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
     }
 
     Ok(LuaConfig { lua })
+}
+pub fn register(func: RegisterFunc) {
+    FUNCS.lock().unwrap().push(func);
 }
 
 impl LuaConfig {
@@ -111,7 +123,6 @@ pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<
     }
 }
 
-#[allow(unused)]
 pub fn get_or_create_sub_module<'lua>(
     lua: &'lua Lua,
     name: &str,

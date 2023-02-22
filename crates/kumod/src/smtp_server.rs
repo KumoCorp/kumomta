@@ -1,9 +1,9 @@
-use crate::lua_config::{load_config, LuaConfig};
 use crate::queue::QueueManager;
 use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr::IpCidr;
+use config::{load_config, LuaConfig};
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;

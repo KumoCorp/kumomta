@@ -6,7 +6,6 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 mod dest_site;
 mod http_server;
-mod lua_config;
 mod metrics_helper;
 mod mod_kumo;
 mod queue;
@@ -41,11 +40,15 @@ async fn main() -> anyhow::Result<()> {
             .layer(metrics_prometheus::Recorder::builder().build()),
     ))?;
 
-    if let Some(policy) = opts.policy.clone() {
-        lua_config::set_policy_path(policy).await?;
+    for func in [crate::mod_kumo::register, message::dkim::register] {
+        config::register(func);
     }
 
-    let mut config = lua_config::load_config().await?;
+    if let Some(policy) = opts.policy.clone() {
+        config::set_policy_path(policy).await?;
+    }
+
+    let mut config = config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
     crate::spool::SpoolManager::get()

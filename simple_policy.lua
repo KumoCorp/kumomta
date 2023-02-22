@@ -95,6 +95,14 @@ end)
 kumo.on('smtp_server_message_received', function(msg)
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
 
+  local signer = kumo.dkim.rsa_sha256_signer {
+    domain = msg:sender().domain,
+    selector = 'default',
+    headers = { 'From', 'To', 'Subject' },
+    file_name = 'example-private-dkim-key.pem',
+  }
+  msg:dkim_sign(signer)
+
   -- set/get metadata fields
   -- msg:set_meta('foo', 'bar')
   -- print('meta foo is', msg:get_meta 'foo')

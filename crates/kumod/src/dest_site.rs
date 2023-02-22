@@ -1,7 +1,7 @@
-use crate::lua_config::load_config;
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::Context;
+use config::load_config;
 use mail_auth::{IpLookupStrategy, Resolver};
 use message::Message;
 use mlua::prelude::*;
