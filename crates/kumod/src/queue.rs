@@ -1,10 +1,12 @@
 use crate::dest_site::SiteManager;
+use crate::logging::{log_disposition, RecordType};
 use crate::spool::SpoolManager;
 use chrono::Utc;
 use config::load_config;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntGauge, IntGaugeVec};
+use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -277,8 +279,24 @@ impl Queue {
             let max_age = self.queue_config.get_max_age();
             let age = msg.age(now);
             if delay + age > max_age {
-                // FIXME: expire
                 tracing::debug!("expiring {id} {age} > {max_age}");
+                log_disposition(
+                    RecordType::Expiration,
+                    msg,
+                    "localhost",
+                    None,
+                    Response {
+                        code: 551,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 5,
+                            subject: 4,
+                            detail: 7,
+                        }),
+                        content: format!("Delivery time {age} > {max_age}"),
+                        command: None,
+                    },
+                )
+                .await;
                 SpoolManager::remove_from_spool(id).await?;
                 return Ok(());
             }

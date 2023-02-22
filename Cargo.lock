@@ -2106,6 +2106,7 @@ version = "0.1.0"
 dependencies = [
  "pest",
  "pest_derive",
+ "serde",
  "thiserror",
  "tokio",
  "tokio-rustls",

@@ -1,3 +1,5 @@
+use crate::dest_site::ResolvedAddress;
+use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
 use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::{anyhow, Context};
@@ -8,7 +10,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;
 use prometheus::IntGauge;
-use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command};
+use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::Deserialize;
 use spool::SpoolId;
@@ -615,6 +617,22 @@ impl SmtpServer {
                                     )
                                     .await?;
                             }
+                            log_disposition(
+                                RecordType::Reception,
+                                message.clone(),
+                                "",
+                                Some(&ResolvedAddress {
+                                    name: self.said_hello.as_deref().unwrap_or("").to_string(),
+                                    addr: self.peer_address.ip(),
+                                }),
+                                Response {
+                                    code: 250,
+                                    enhanced_code: None,
+                                    command: None,
+                                    content: "".to_string(),
+                                },
+                            )
+                            .await;
                             messages.push((queue_name, message));
                         }
                     }

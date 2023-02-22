@@ -1,7 +1,9 @@
+use crate::logging::{log_disposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use chrono::Utc;
 use message::Message;
+use rfc5321::{EnhancedStatusCode, Response};
 use spool::local_disk::LocalDiskSpool;
 use spool::rocks::RocksSpool;
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
@@ -202,6 +204,25 @@ impl SpoolManager {
                                     {
                                         None => {
                                             tracing::debug!("expiring {id} {age} > {max_age}");
+                                            log_disposition(
+                                                RecordType::Expiration,
+                                                msg,
+                                                "localhost",
+                                                None,
+                                                Response {
+                                                    code: 551,
+                                                    enhanced_code: Some(EnhancedStatusCode {
+                                                        class: 5,
+                                                        subject: 4,
+                                                        detail: 7,
+                                                    }),
+                                                    content: format!(
+                                                        "Delivery time {age} > {max_age}"
+                                                    ),
+                                                    command: None,
+                                                },
+                                            )
+                                            .await;
                                             self.remove_from_spool_impl(id).await?;
                                             continue;
                                         }
@@ -212,8 +233,9 @@ impl SpoolManager {
 
                                     if let Err(err) = queue.insert(msg).await {
                                         tracing::error!(
-                                        "failed to insert Message {id} to queue {queue_name}: {err:#}"
-                                    );
+                                            "failed to insert Message {id} \
+                                             to queue {queue_name}: {err:#}"
+                                        );
                                         self.remove_from_spool_impl(id).await?;
                                     }
                                 }
@@ -222,6 +244,23 @@ impl SpoolManager {
                                 tracing::error!(
                                     "Message {id} failed to compute queue name!: {err:#}"
                                 );
+                                log_disposition(
+                                    RecordType::Expiration,
+                                    msg,
+                                    "localhost",
+                                    None,
+                                    Response {
+                                        code: 551,
+                                        enhanced_code: Some(EnhancedStatusCode {
+                                            class: 5,
+                                            subject: 1,
+                                            detail: 3,
+                                        }),
+                                        content: format!("Failed to compute queue name: {err:#}"),
+                                        command: None,
+                                    },
+                                )
+                                .await;
                                 self.remove_from_spool_impl(id).await?;
                             }
                         }

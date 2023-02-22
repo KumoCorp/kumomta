@@ -9,6 +9,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 mod dest_site;
 mod http_server;
+mod logging;
 mod metrics_helper;
 mod mod_kumo;
 mod queue;
@@ -120,6 +121,14 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         .await?;
 
     tokio::signal::ctrl_c().await?;
+
+    tracing::info!("Shutting down");
+
+    // TODO: graceful shutdown; tell message receiving listeners
+    // to stop accepting and delivery later to stop delivering
+
+    // after waiting for those to idle out, shut down logging
+    crate::logging::Logger::signal_shutdown().await;
 
     Ok(())
 }

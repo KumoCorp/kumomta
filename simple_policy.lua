@@ -27,6 +27,10 @@ kumo.on('init', function()
     deferred_spool = false,
   }
 
+  kumo.configure_local_logs {
+    log_dir = '/var/tmp/kumo-logs',
+  }
+
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
   }
@@ -91,7 +95,7 @@ kumo.on('smtp_server_message_received', function(msg)
     headers = { 'From', 'To', 'Subject' },
     file_name = 'example-private-dkim-key.pem',
   }
-  msg:dkim_sign(signer)
+  -- msg:dkim_sign(signer)
 
   -- set/get metadata fields
   -- msg:set_meta('foo', 'bar')

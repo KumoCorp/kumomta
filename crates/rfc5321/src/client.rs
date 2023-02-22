@@ -1,4 +1,5 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
@@ -327,7 +328,7 @@ impl SmtpClient {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy)]
 pub struct EnhancedStatusCode {
     pub class: u8,
     pub subject: u16,
@@ -358,7 +359,7 @@ fn parse_enhanced_status_code(line: &str) -> Option<(EnhancedStatusCode, &str)> 
     ))
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub code: u16,
     pub enhanced_code: Option<EnhancedStatusCode>,

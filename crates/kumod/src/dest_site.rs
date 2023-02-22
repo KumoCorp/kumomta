@@ -1,3 +1,4 @@
+use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -308,11 +309,10 @@ impl DestinationSite {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ResolvedAddress {
-    #[allow(dead_code)] // used when logging, but rust warns anyway
-    mx_host: String,
-    addr: IpAddr,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedAddress {
+    pub name: String,
+    pub addr: IpAddr,
 }
 async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
     let mut result = vec![];
@@ -331,7 +331,7 @@ async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
             Ok(addresses) => {
                 for addr in addresses {
                     result.push(ResolvedAddress {
-                        mx_host: mx_host.to_string(),
+                        name: mx_host.to_string(),
                         addr,
                     });
                 }
@@ -449,7 +449,7 @@ impl Dispatcher {
 
         let timeout = Duration::from_secs(60);
         let ehlo_name = self.ehlo_name.to_string();
-        let mx_host = address.mx_host.to_string();
+        let mx_host = address.name.to_string();
         let enable_tls = self.site_config.enable_tls;
 
         let client = tokio::time::timeout(timeout, {
@@ -555,17 +555,24 @@ impl Dispatcher {
         {
             Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
                 // Transient failure
-                if let Some(msg) = self.msg.take() {
-                    tokio::spawn(async move { Self::requeue_message(msg, true).await });
-                }
-                // FIXME: log transfail
-                self.metrics.msgs_transfail.inc();
-                self.metrics.global_msgs_transfail.inc();
                 tracing::debug!(
                     "failed to send message to {} {:?}: {response:?}",
                     self.name,
                     self.client_address
                 );
+                if let Some(msg) = self.msg.take() {
+                    log_disposition(
+                        RecordType::Delivery,
+                        msg.clone(),
+                        &self.name,
+                        self.client_address.as_ref(),
+                        response,
+                    )
+                    .await;
+                    tokio::spawn(async move { Self::requeue_message(msg, true).await });
+                }
+                self.metrics.msgs_transfail.inc();
+                self.metrics.global_msgs_transfail.inc();
             }
             Err(ClientError::Rejected(response)) => {
                 self.metrics.msgs_fail.inc();
@@ -575,8 +582,15 @@ impl Dispatcher {
                     self.name,
                     self.client_address
                 );
-                // FIXME: log permanent failure
                 if let Some(msg) = self.msg.take() {
+                    log_disposition(
+                        RecordType::Delivery,
+                        msg.clone(),
+                        &self.name,
+                        self.client_address.as_ref(),
+                        response,
+                    )
+                    .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }
             }
@@ -589,13 +603,20 @@ impl Dispatcher {
                 );
             }
             Ok(response) => {
-                // FIXME: log success
+                tracing::debug!("Delivered OK! {response:?}");
                 if let Some(msg) = self.msg.take() {
+                    log_disposition(
+                        RecordType::Delivery,
+                        msg.clone(),
+                        &self.name,
+                        self.client_address.as_ref(),
+                        response,
+                    )
+                    .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }
                 self.metrics.msgs_delivered.inc();
                 self.metrics.global_msgs_delivered.inc();
-                tracing::debug!("Delivered OK! {response:?}");
             }
         };
         Ok(())

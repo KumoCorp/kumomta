@@ -69,10 +69,13 @@ impl SpoolId {
     /// Returns time elapsed since the id was created,
     /// given the current timestamp
     pub fn age(&self, now: DateTime<Utc>) -> Duration {
-        let (seconds, nanos) = self.0.get_timestamp().unwrap().to_unix();
-        let created = Utc
-            .timestamp_opt(seconds.try_into().unwrap(), nanos)
-            .unwrap();
+        let created = self.created();
         now - created
+    }
+
+    pub fn created(&self) -> DateTime<Utc> {
+        let (seconds, nanos) = self.0.get_timestamp().unwrap().to_unix();
+        Utc.timestamp_opt(seconds.try_into().unwrap(), nanos)
+            .unwrap()
     }
 }

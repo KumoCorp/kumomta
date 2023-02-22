@@ -1,5 +1,6 @@
 use crate::dest_site::DestSiteConfig;
 use crate::http_server::HttpListenerParams;
+use crate::logging::LogFileParams;
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
 use config::get_or_create_module;
@@ -16,6 +17,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let decorated_name = format!("kumomta-on-{}", name);
             lua.set_named_registry_value(&decorated_name, func)?;
             Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_local_logs",
+        lua.create_function(move |lua, params: Value| {
+            let params: LogFileParams = lua.from_value(params)?;
+            crate::logging::Logger::init(params)
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))
         })?,
     )?;
 
