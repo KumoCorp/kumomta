@@ -83,7 +83,7 @@ impl Opt {
         let mut client = SmtpClient::with_stream(stream, &self.target);
 
         // Read banner
-        let banner = client.read_response().await?;
+        let banner = client.read_response(None).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
 
         // Say EHLO

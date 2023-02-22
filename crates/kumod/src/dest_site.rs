@@ -463,7 +463,7 @@ impl Dispatcher {
                 );
 
                 // Read banner
-                let banner = client.read_response().await?;
+                let banner = client.read_response(None).await?;
                 if banner.code != 220 {
                     return Err(ClientError::Rejected(banner).into());
                 }

@@ -90,7 +90,10 @@ impl SmtpClient {
         }
     }
 
-    pub async fn read_response(&mut self) -> Result<Response, ClientError> {
+    pub async fn read_response(
+        &mut self,
+        command: Option<String>,
+    ) -> Result<Response, ClientError> {
         if let Some(sock) = self.socket.as_mut() {
             sock.flush().await?;
         }
@@ -117,6 +120,7 @@ impl SmtpClient {
             code,
             content: response_string,
             enhanced_code,
+            command,
         })
     }
 
@@ -129,7 +133,7 @@ impl SmtpClient {
             None => return Err(ClientError::NotConnected),
         };
 
-        self.read_response().await
+        self.read_response(Some(line)).await
     }
 
     /// Issue a series of commands, and return the responses to
@@ -153,6 +157,7 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let pipeline = self.capabilities.contains_key("PIPELINING");
         let mut results: Vec<Result<Response, ClientError>> = vec![];
+        let mut encoded_commands: Vec<String> = vec![];
 
         for cmd in &commands {
             let line = cmd.encode();
@@ -169,17 +174,19 @@ impl SmtpClient {
                     return results;
                 }
             };
-            if !pipeline {
+            if pipeline {
+                encoded_commands.push(line);
+            } else {
                 // Immediately request the response if the server
                 // doesn't support pipelining
-                results.push(self.read_response().await);
+                results.push(self.read_response(Some(line)).await);
             }
         }
 
         if pipeline {
             // Now read the responses effectively in a batch
-            for _ in &commands {
-                results.push(self.read_response().await);
+            for line in encoded_commands {
+                results.push(self.read_response(Some(line)).await);
             }
         }
 
@@ -311,7 +318,7 @@ impl SmtpClient {
             None => return Err(ClientError::NotConnected),
         }
 
-        let resp = self.read_response().await?;
+        let resp = self.read_response(Some(".".to_string())).await?;
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
         }
@@ -356,6 +363,7 @@ pub struct Response {
     pub code: u16,
     pub enhanced_code: Option<EnhancedStatusCode>,
     pub content: String,
+    pub command: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
