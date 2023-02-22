@@ -11,6 +11,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
+use zstd::stream::write::{AutoFinishEncoder, Encoder};
 
 static LOGGER: OnceCell<Logger> = OnceCell::new();
 
@@ -18,13 +19,22 @@ static LOGGER: OnceCell<Logger> = OnceCell::new();
 pub struct LogFileParams {
     /// Where to place the log files
     pub log_dir: PathBuf,
+    /// How many uncompressed bytes to allow per file segment
     #[serde(default = "LogFileParams::default_max_file_size")]
     pub max_file_size: u64,
+    /// Maximum number of outstanding items to be logged before
+    /// the submission will block; helps to avoid runaway issues
+    /// spiralling out of control.
+    #[serde(default = "LogFileParams::default_back_pressure")]
+    pub back_pressure: u64,
 }
 
 impl LogFileParams {
     fn default_max_file_size() -> u64 {
-        128_000_000
+        1_000_000_000
+    }
+    fn default_back_pressure() -> u64 {
+        128_000
     }
 }
 
@@ -47,7 +57,7 @@ impl Logger {
         std::fs::create_dir_all(&params.log_dir)
             .with_context(|| format!("creating log directory {}", params.log_dir.display()))?;
 
-        let (sender, receiver) = async_channel::bounded(128000);
+        let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let thread = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_time()
@@ -69,7 +79,7 @@ impl Logger {
 
     async fn logger_thread(params: LogFileParams, receiver: Receiver<LogCommand>) {
         struct OpenedFile {
-            file: File,
+            file: AutoFinishEncoder<'static, File>,
             name: PathBuf,
             written: u64,
         }
@@ -92,7 +102,9 @@ impl Logger {
                     .with_context(|| format!("open log file {name:?}"))?;
 
                 file.replace(OpenedFile {
-                    file: f,
+                    file: Encoder::new(f, 0)
+                        .context("set up zstd encoder")?
+                        .auto_finish(),
                     name,
                     written: 0,
                 });
@@ -188,6 +200,10 @@ pub struct JsonLogRecord {
     /// The time at which the message was initially received and created
     #[serde(with = "chrono::serde::ts_seconds")]
     pub created: DateTime<Utc>,
+    /// The number of delivery attempts that have been made.
+    /// Note that this may be approximate after a restart; use the
+    /// number of logged events to determine the true number
+    pub num_attempts: u16,
 }
 
 pub async fn log_disposition(
@@ -218,6 +234,7 @@ pub async fn log_disposition(
             response,
             timestamp: Utc::now(),
             created: msg.id().created(),
+            num_attempts: msg.get_num_attempts(),
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");

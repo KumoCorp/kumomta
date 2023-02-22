@@ -40,6 +40,7 @@ tokio-rustls = "0.23"
 tracing = "0.1"
 tracing-subscriber = {version="0.3", features=["env-filter"]}
 webpki-roots = "0.22"
+zstd = "0.12"
 
 [dev-dependencies]
 k9 = "0.11"
