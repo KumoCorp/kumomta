@@ -67,9 +67,9 @@ To build a lightweight alpine-based docker image:
 ```
 $ ./docker/kumod/build-docker-image.sh
 ...
-$ sudo docker image ls kumomta/kumod
+$ docker image ls kumomta/kumod
 REPOSITORY      TAG       IMAGE ID       CREATED         SIZE
-kumomta/kumod   latest    962d8f453c6b   8 minutes ago   22MB
+kumomta/kumod   latest    bbced15ff4d1   3 minutes ago   116MB
 ```
 
 You can then run that image; this invocation mounts the kumo
