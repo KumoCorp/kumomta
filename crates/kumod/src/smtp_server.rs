@@ -337,11 +337,18 @@ impl SmtpServer {
                     return Ok(ReadLine::TimedOut);
                 }
                 size = self.socket.as_mut().unwrap().read(&mut data) => {
-                    let size = size?;
-                    if size == 0 {
-                        anyhow::bail!("client disconnected");
+                    match size {
+                        Err(err) => {
+                            tracing::trace!("error reading: {err:#}");
+                            return Ok(ReadLine::Disconnected);
+                        }
+                        Ok(size) if size == 0 => {
+                            return Ok(ReadLine::Disconnected);
+                        }
+                        Ok(size) => {
+                            self.read_buffer.extend_from_slice(&data[0..size]);
+                        }
                     }
-                    self.read_buffer.extend_from_slice(&data[0..size]);
                 }
                 _ = self.shutdown.shutting_down() => {
                     return Ok(ReadLine::ShuttingDown);
@@ -402,6 +409,7 @@ impl SmtpServer {
             }
 
             let line = match self.read_line().await? {
+                ReadLine::Disconnected => return Ok(()),
                 ReadLine::Line(line) => line,
                 ReadLine::TimedOut => {
                     self.write_response(
@@ -585,6 +593,7 @@ impl SmtpServer {
 
                     loop {
                         let line = match self.read_line().await? {
+                            ReadLine::Disconnected => return Ok(()),
                             ReadLine::Line(line) => line,
                             ReadLine::TooLong => {
                                 too_long = true;
@@ -745,4 +754,5 @@ enum ReadLine {
     TooLong,
     ShuttingDown,
     TimedOut,
+    Disconnected,
 }
