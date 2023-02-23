@@ -199,7 +199,17 @@ fn lock_pid_file(pid_file: PathBuf) -> anyhow::Result<std::fs::File> {
     let res = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if res != 0 {
         let err = std::io::Error::last_os_error();
-        anyhow::bail!("unable to lock pid file {}: {}", pid_file.display(), err);
+
+        let owner = match std::fs::read_to_string(&pid_file) {
+            Ok(pid) => format!(". Owned by pid {}.", pid.trim()),
+            Err(_) => "".to_string(),
+        };
+
+        anyhow::bail!(
+            "unable to lock pid file {}: {}{owner}",
+            pid_file.display(),
+            err
+        );
     }
 
     unsafe { libc::ftruncate(file.as_raw_fd(), 0) };

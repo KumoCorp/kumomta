@@ -118,11 +118,9 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     let mut config = config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
-    tokio::spawn(async move {
-        if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
-            tracing::error!("problem starting spool: {err:#}");
-        }
-    });
+    if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
+        tracing::error!("problem starting spool: {err:#}");
+    }
 
     lifetime.wait_for_shutdown().await;
 

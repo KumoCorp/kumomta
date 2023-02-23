@@ -2,6 +2,7 @@ use crate::logging::{log_disposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use crate::shutdown::Activity;
+use anyhow::Context;
 use chrono::Utc;
 use message::Message;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -77,10 +78,14 @@ impl SpoolManager {
             SpoolHandle(Arc::new(Mutex::new(Spool {
                 maintainer: None,
                 spool: match params.kind {
-                    SpoolKind::LocalDisk => {
-                        Box::new(LocalDiskSpool::new(&params.path, params.flush)?)
-                    }
-                    SpoolKind::RocksDB => Box::new(RocksSpool::new(&params.path, params.flush)?),
+                    SpoolKind::LocalDisk => Box::new(
+                        LocalDiskSpool::new(&params.path, params.flush)
+                            .with_context(|| format!("Opening spool {}", params.name))?,
+                    ),
+                    SpoolKind::RocksDB => Box::new(
+                        RocksSpool::new(&params.path, params.flush)
+                            .with_context(|| format!("Opening spool {}", params.name))?,
+                    ),
                 },
             }))),
         );
