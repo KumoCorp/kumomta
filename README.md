@@ -65,11 +65,11 @@ $ make fmt
 To build a lightweight alpine-based docker image:
 
 ```
-$ ./docker/smtpd/build-docker-image.sh
+$ ./docker/kumod/build-docker-image.sh
 ...
-$ sudo docker image ls kumomta/smtpd
+$ sudo docker image ls kumomta/kumod
 REPOSITORY      TAG       IMAGE ID       CREATED         SIZE
-kumomta/smtpd   latest    962d8f453c6b   8 minutes ago   22MB
+kumomta/kumod   latest    962d8f453c6b   8 minutes ago   22MB
 ```
 
 You can then run that image; this invocation mounts the kumo
@@ -83,7 +83,7 @@ $ sudo docker run --rm -p 2025:25 \
     -v .:/config \
     --name kumo-sink \
     --env KUMO_POLICY="/config/sink.lua" \
-    kumomta/smtpd
+    kumomta/kumod
 ```
 
 ### Fuzzing
