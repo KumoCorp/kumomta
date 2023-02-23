@@ -1,8 +1,8 @@
 use crate::dest_site::DestSiteConfig;
 use crate::http_server::HttpListenerParams;
+use crate::lifecycle::LifeCycle;
 use crate::logging::LogFileParams;
 use crate::queue::QueueConfig;
-use crate::shutdown::Lifetime;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
 use config::get_or_create_module;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
@@ -62,7 +62,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             tokio::spawn(async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
-                    Lifetime::request_shutdown().await;
+                    LifeCycle::request_shutdown().await;
                 }
             })
             .await

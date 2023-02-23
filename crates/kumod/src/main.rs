@@ -1,4 +1,4 @@
-use crate::shutdown::Lifetime;
+use crate::lifecycle::LifeCycle;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::Parser;
@@ -10,12 +10,12 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 mod dest_site;
 mod http_server;
+mod lifecycle;
 mod logging;
 mod metrics_helper;
 mod mod_kumo;
 mod queue;
 mod runtime;
-mod shutdown;
 mod smtp_server;
 mod spool;
 
@@ -114,17 +114,17 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         config::set_policy_path(policy).await?;
     }
 
-    let mut lifetime = Lifetime::new();
+    let mut life_cycle = LifeCycle::new();
 
     let mut config = config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
     if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
         tracing::error!("problem starting spool: {err:#}");
-        Lifetime::request_shutdown().await;
+        LifeCycle::request_shutdown().await;
     }
 
-    lifetime.wait_for_shutdown().await;
+    life_cycle.wait_for_shutdown().await;
 
     // after waiting for those to idle out, shut down logging
     crate::logging::Logger::signal_shutdown().await;

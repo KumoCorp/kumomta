@@ -1,6 +1,6 @@
 use crate::dest_site::SiteManager;
+use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
-use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::SpoolManager;
 use chrono::Utc;
 use config::load_config;

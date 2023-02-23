@@ -1,7 +1,7 @@
+use crate::lifecycle::Activity;
 use crate::logging::{log_disposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
-use crate::shutdown::Activity;
 use anyhow::Context;
 use chrono::Utc;
 use message::Message;

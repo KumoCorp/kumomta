@@ -1,4 +1,4 @@
-//! This module helps to manage the lifetime of the process
+//! This module helps to manage the life cycle of the process
 //! and to shut things down gracefully.
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
@@ -14,7 +14,7 @@ static STOPPING: OnceCell<ShutdownState> = OnceCell::new();
 
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any
-/// Activity instances are alive in the program, Lifetime::wait_for_shutdown
+/// Activity instances are alive in the program, LifeCycle::wait_for_shutdown
 /// cannot complete.
 #[derive(Clone)]
 pub struct Activity {
@@ -35,10 +35,14 @@ impl Activity {
         Some(ACTIVE.get()?.lock().unwrap().as_ref()?.clone())
     }
 
+    /// Obtain an Activity instance.
+    /// Returns Err if the process is shutting down and no new
+    /// activity can be initiated
     pub fn get() -> anyhow::Result<Self> {
         Self::get_opt().ok_or_else(|| anyhow::anyhow!("shutting down"))
     }
 
+    /// Returns true if the process is shutting down.
     pub fn is_shutting_down(&self) -> bool {
         SHUTTING_DOWN.load(Ordering::Relaxed)
     }
@@ -72,17 +76,16 @@ impl ShutdownSubcription {
     }
 }
 
-/// The Lifetime struct represents the lifetime of this server process.
+/// The LifeCycle struct represents the life_cycle of this server process.
 /// Creating an instance of it will prepare the global state of the
 /// process and allow other code to work with Activity and ShutdownSubcription.
-///
-pub struct Lifetime {
+pub struct LifeCycle {
     activity_rx: MPSCReceiver<()>,
     request_shutdown_rx: MPSCReceiver<()>,
 }
 
-impl Lifetime {
-    /// Initialize the process lifetime.
+impl LifeCycle {
+    /// Initialize the process life_cycle.
     /// May be called only once; will panic if called multiple times.
     pub fn new() -> Self {
         let (activity_tx, activity_rx) = tokio::sync::mpsc::channel(1);
@@ -111,7 +114,7 @@ impl Lifetime {
 
     /// Request that we shutdown the process.
     /// This will cause the wait_for_shutdown method on the process
-    /// Lifetime instance to wake up and initiate the shutdown
+    /// LifeCycle instance to wake up and initiate the shutdown
     /// procedure.
     pub async fn request_shutdown() {
         if let Some(state) = STOPPING.get() {

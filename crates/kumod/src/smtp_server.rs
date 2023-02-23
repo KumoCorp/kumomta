@@ -1,7 +1,7 @@
 use crate::dest_site::ResolvedAddress;
+use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
-use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::{anyhow, Context};
 use chrono::Utc;

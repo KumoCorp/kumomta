@@ -1,6 +1,6 @@
+use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::{Queue, QueueManager};
-use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
