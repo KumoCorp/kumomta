@@ -1,6 +1,7 @@
 use crate::logging::{log_disposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
+use crate::shutdown::Activity;
 use chrono::Utc;
 use message::Message;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -177,8 +178,12 @@ impl SpoolManager {
         // otherwise we'll deadlock ourselves in the loop below
         drop(tx);
 
+        let activity = Activity::get()?;
         tracing::debug!("start_spool: waiting for enumeration");
         while let Some(entry) = rx.recv().await {
+            if activity.is_shutting_down() {
+                break;
+            }
             let now = Utc::now();
             match entry {
                 SpoolEntry::Item { id, data } => match Message::new_from_spool(id, data) {
