@@ -82,7 +82,10 @@ impl SmtpClient {
 
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; MAX_LINE_LEN];
-            let size = self.socket.as_mut().unwrap().read(&mut data).await?;
+            let size = match self.socket.as_mut() {
+                Some(s) => s.read(&mut data).await?,
+                None => return Err(ClientError::NotConnected),
+            };
             if size == 0 {
                 self.socket.take();
                 return Err(ClientError::NotConnected);
@@ -233,7 +236,10 @@ impl SmtpClient {
         let stream = connector
             .connect(
                 ServerName::try_from(self.hostname.as_str())?,
-                self.socket.take().unwrap(),
+                match self.socket.take() {
+                    Some(s) => s,
+                    None => return Err(ClientError::NotConnected),
+                },
             )
             .await?;
         let stream: BoxedAsyncReadAndWrite = Box::new(stream);

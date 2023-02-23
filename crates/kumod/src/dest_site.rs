@@ -1,5 +1,5 @@
 use crate::logging::{log_disposition, RecordType};
-use crate::queue::QueueManager;
+use crate::queue::{Queue, QueueManager};
 use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -135,6 +135,10 @@ impl SiteManager {
         }
     }
 
+    pub fn number_of_sites(&self) -> usize {
+        self.sites.len()
+    }
+
     pub async fn get() -> MutexGuard<'static, Self> {
         MANAGER.lock().await
     }
@@ -151,12 +155,20 @@ impl SiteManager {
         )?;
 
         let mut manager = Self::get().await;
+        let activity = Activity::get()?;
         let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
             tokio::spawn({
                 let name = name.clone();
                 async move {
+                    let mut shutdown = ShutdownSubcription::get();
+                    let mut interval = Duration::from_secs(60);
                     loop {
-                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        tokio::select! {
+                            _ = tokio::time::sleep(interval) => {},
+                            _ = shutdown.shutting_down() => {
+                                interval = Duration::from_secs(5);
+                            }
+                        };
                         let mut mgr = SiteManager::get().await;
                         let site = { mgr.sites.get(&name).cloned() };
                         match site {
@@ -164,7 +176,7 @@ impl SiteManager {
                             Some(site) => {
                                 let mut site = site.lock().await;
                                 if site.reapable() {
-                                    tracing::debug!("idle out site {name}");
+                                    tracing::debug!("reaping site {name}");
                                     mgr.sites.remove(&name);
                                     crate::metrics_helper::remove_metrics_for_service(&format!(
                                         "smtp_client:{name}"
@@ -209,6 +221,7 @@ impl SiteManager {
                 last_change: Instant::now(),
                 site_config,
                 metrics,
+                activity,
             })))
         });
         Ok(handle.clone())
@@ -250,6 +263,7 @@ pub struct DestinationSite {
     last_change: Instant,
     site_config: DestSiteConfig,
     metrics: DeliveryMetrics,
+    activity: Activity,
 }
 
 impl DestinationSite {
@@ -273,12 +287,33 @@ impl DestinationSite {
     }
 
     pub fn ideal_connection_count(&self) -> usize {
-        ideal_connection_count(self.ready_count(), self.site_config.connection_limit)
+        if self.activity.is_shutting_down() {
+            0
+        } else {
+            ideal_connection_count(self.ready_count(), self.site_config.connection_limit)
+        }
     }
 
     pub fn maintain(&mut self) {
         // Prune completed connection tasks
         self.connections.retain(|handle| !handle.is_finished());
+
+        if self.activity.is_shutting_down() {
+            // We are shutting down; we want all messages to get saved.
+            let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+            if !msgs.is_empty() {
+                let activity = self.activity.clone();
+                tokio::spawn(async move {
+                    for msg in msgs {
+                        Queue::save_if_needed_and_log(&msg).await;
+                        drop(msg);
+                    }
+                    drop(activity);
+                });
+            }
+
+            return;
+        }
 
         // TODO: throttle rate at which connections are opened
         let ideal = self.ideal_connection_count();
@@ -306,7 +341,8 @@ impl DestinationSite {
         let ideal = self.ideal_connection_count();
         ideal == 0
             && self.connections.is_empty()
-            && self.last_change.elapsed() > Duration::from_secs(10 * 60)
+            && (self.last_change.elapsed() > Duration::from_secs(10 * 60))
+                | self.activity.is_shutting_down()
     }
 }
 
@@ -355,6 +391,7 @@ struct Dispatcher {
     site_config: DestSiteConfig,
     metrics: DeliveryMetrics,
     shutting_down: ShutdownSubcription,
+    activity: Activity,
 }
 
 impl Dispatcher {
@@ -371,6 +408,8 @@ impl Dispatcher {
             .unwrap_or("[127.0.0.1]")
             .to_string();
 
+        let activity = Activity::get()?;
+
         let addresses = resolve_addresses(&mx).await;
         let mut dispatcher = Self {
             name: name.to_string(),
@@ -384,6 +423,7 @@ impl Dispatcher {
             site_config,
             metrics,
             shutting_down: ShutdownSubcription::get(),
+            activity,
         };
 
         dispatcher.obtain_message();
@@ -423,6 +463,13 @@ impl Dispatcher {
     }
 
     async fn wait_for_message(&mut self) -> anyhow::Result<bool> {
+        if self.activity.is_shutting_down() {
+            if let Some(msg) = self.msg.take() {
+                Queue::save_if_needed_and_log(&msg).await;
+            }
+            return Ok(false);
+        }
+
         if self.obtain_message() {
             return Ok(true);
         }
@@ -432,7 +479,7 @@ impl Dispatcher {
             _ = tokio::time::sleep(idle_timeout) => {},
             _ = self.notify.notified() => {}
             _ = self.shutting_down.shutting_down() => {
-                anyhow::bail!("shutting down");
+                return Ok(false);
             }
         };
         Ok(self.obtain_message())
@@ -552,10 +599,10 @@ impl Dispatcher {
                 .map_err(|err| anyhow::anyhow!("{err}"))?;
         }
 
-        let activity = match Activity::get() {
+        let activity = match Activity::get_opt() {
             Some(a) => a,
             None => {
-                anyhow::bail!("shutting down");
+                return Ok(());
             }
         };
 
@@ -643,8 +690,11 @@ impl Drop for Dispatcher {
     fn drop(&mut self) {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
+            let activity = self.activity.clone();
             tokio::spawn(async move {
-                if let Err(err) = Dispatcher::requeue_message(msg, false).await {
+                if activity.is_shutting_down() {
+                    Queue::save_if_needed_and_log(&msg).await;
+                } else if let Err(err) = Dispatcher::requeue_message(msg, false).await {
                     tracing::error!("error requeuing message: {err:#}");
                 }
             });

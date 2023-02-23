@@ -3,11 +3,13 @@
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
 use once_cell::sync::OnceCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 
 static ACTIVE: OnceCell<Mutex<Option<Activity>>> = OnceCell::new();
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static STOPPING: OnceCell<ShutdownState> = OnceCell::new();
 
 /// Represents some activity which cannot be ruthlessly interrupted.
@@ -29,8 +31,16 @@ impl Activity {
     /// Obtain an Activity instance.
     /// If None is returned then the process is shutting down
     /// and no new activity can be initiated.
-    pub fn get() -> Option<Self> {
+    pub fn get_opt() -> Option<Self> {
         Some(ACTIVE.get()?.lock().unwrap().as_ref()?.clone())
+    }
+
+    pub fn get() -> anyhow::Result<Self> {
+        Self::get_opt().ok_or_else(|| anyhow::anyhow!("shutting down"))
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        SHUTTING_DOWN.load(Ordering::Relaxed)
     }
 }
 
@@ -93,14 +103,16 @@ impl Lifetime {
     /// before returning to the caller.
     pub async fn wait_for_shutdown(&mut self) {
         // Wait for interrupt
-        println!("Waiting for interrupt");
+        tracing::debug!("Waiting for interrupt");
         tokio::signal::ctrl_c().await.ok();
+        println!("Shutdown requested, please wait while work is saved");
         // Signal that we are stopping
-        println!("Signal tasks that we are stopping");
+        tracing::debug!("Signal tasks that we are stopping");
+        SHUTTING_DOWN.store(true, Ordering::SeqCst);
         ACTIVE.get().map(|a| a.lock().unwrap().take());
         STOPPING.get().map(|s| s.tx.send(()).ok());
         // Wait for all pending activity to finish
-        println!("Waiting for tasks to wrap up");
+        tracing::debug!("Waiting for tasks to wrap up");
         self.activity_rx.recv().await;
     }
 }

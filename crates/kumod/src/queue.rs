@@ -1,5 +1,6 @@
 use crate::dest_site::SiteManager;
 use crate::logging::{log_disposition, RecordType};
+use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::SpoolManager;
 use chrono::Utc;
 use config::load_config;
@@ -220,6 +221,7 @@ pub struct Queue {
     last_change: Instant,
     queue_config: QueueConfig,
     delayed_gauge: IntGauge,
+    activity: Activity,
 }
 
 impl Drop for Queue {
@@ -241,6 +243,8 @@ impl Queue {
 
         let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
 
+        let activity = Activity::get()?;
+
         let handle = QueueHandle(Arc::new(Mutex::new(Queue {
             name: name.clone(),
             queue: TimeQ::new(),
@@ -248,6 +252,7 @@ impl Queue {
             last_change: Instant::now(),
             queue_config,
             delayed_gauge,
+            activity,
         })));
 
         let queue_clone = handle.clone();
@@ -336,7 +341,7 @@ impl Queue {
         }
     }
 
-    async fn did_insert_delayed(&self, msg: Message) -> anyhow::Result<()> {
+    pub async fn save_if_needed(msg: &Message) -> anyhow::Result<()> {
         if msg.needs_save() {
             let data_spool = SpoolManager::get_named("data").await?;
             let meta_spool = SpoolManager::get_named("meta").await?;
@@ -345,6 +350,17 @@ impl Queue {
         }
         msg.shrink()?;
         Ok(())
+    }
+
+    pub async fn save_if_needed_and_log(msg: &Message) {
+        if let Err(err) = Self::save_if_needed(msg).await {
+            let id = msg.id();
+            tracing::error!("error saving {id}: {err:#}");
+        }
+    }
+
+    async fn did_insert_delayed(&self, msg: Message) -> anyhow::Result<()> {
+        Self::save_if_needed(&msg).await
     }
 
     async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
@@ -356,6 +372,13 @@ impl Queue {
 
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
         self.last_change = Instant::now();
+
+        if self.activity.is_shutting_down() {
+            Self::save_if_needed_and_log(&msg).await;
+            drop(msg);
+            return Ok(());
+        }
+
         match self.insert_delayed(msg.clone()).await? {
             InsertResult::Delayed => Ok(()),
             InsertResult::Ready(msg) => {
@@ -414,9 +437,14 @@ impl QueueManager {
 
 async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
     let mut sleep_duration = Duration::from_secs(60);
+    let mut shutdown = ShutdownSubcription::get();
 
     loop {
-        tokio::time::sleep(sleep_duration).await;
+        tokio::select! {
+            _ = tokio::time::sleep(sleep_duration) => {}
+            _ = shutdown.shutting_down() => {}
+        };
+
         {
             let mut q = queue.lock().await;
             tracing::debug!(
@@ -424,6 +452,27 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 q.name,
                 q.queue.len()
             );
+
+            if q.activity.is_shutting_down() {
+                sleep_duration = Duration::from_secs(5);
+                for msg in q.queue.drain() {
+                    Queue::save_if_needed_and_log(&msg).await;
+                    drop(msg);
+                }
+
+                let site_mgr = SiteManager::get().await;
+                if site_mgr.number_of_sites() == 0 {
+                    tracing::debug!(
+                        "{}: there are no more sites and the delayed queue is empty, reaping",
+                        q.name
+                    );
+                    let mut mgr = QueueManager::get().await;
+                    mgr.named.remove(&q.name);
+                    return Ok(());
+                }
+                continue;
+            }
+
             let now = Utc::now();
             match q.queue.pop() {
                 PopResult::Items(messages) => {

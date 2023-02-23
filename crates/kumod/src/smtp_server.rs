@@ -298,7 +298,7 @@ impl SmtpServer {
 
     fn check_shutdown(&self) -> bool {
         if self.read_buffer.is_empty() {
-            Activity::get().is_none()
+            Activity::get_opt().is_none()
         } else {
             false
         }
@@ -369,6 +369,15 @@ impl SmtpServer {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
+        let _activity = match Activity::get_opt() {
+            None => {
+                // Can't accept any messages while we're shutting down
+                self.write_response(421, format!("4.3.2 {} shutting down", self.params.hostname))
+                    .await?;
+                return Ok(());
+            }
+            Some(a) => a,
+        };
         if !SpoolManager::get().await.spool_started() {
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.
@@ -571,18 +580,6 @@ impl SmtpServer {
                     let mut data = vec![];
                     let mut too_long = false;
 
-                    let activity = match Activity::get() {
-                        Some(a) => a,
-                        None => {
-                            self.write_response(
-                                421,
-                                format!("4.3.2 {} shutting down", self.params.hostname),
-                            )
-                            .await?;
-                            return Ok(());
-                        }
-                    };
-
                     self.write_response(354, "Send body; end with CRLF.CRLF")
                         .await?;
 
@@ -724,7 +721,6 @@ impl SmtpServer {
 
                     let ids = ids.join(" ");
                     self.write_response(250, format!("OK ids={ids}")).await?;
-                    drop(activity);
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
