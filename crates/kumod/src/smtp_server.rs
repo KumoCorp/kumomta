@@ -49,9 +49,22 @@ pub struct EsmtpListenerParams {
 
     #[serde(skip)]
     connection_gauge: OnceCell<IntGauge>,
+
+    #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
+    max_messages_per_connection: usize,
+    #[serde(default = "EsmtpListenerParams::default_max_recipients_per_message")]
+    max_recipients_per_message: usize,
 }
 
 impl EsmtpListenerParams {
+    fn default_max_messages_per_connection() -> usize {
+        10_000
+    }
+
+    fn default_max_recipients_per_message() -> usize {
+        1024
+    }
+
     fn default_relay_hosts() -> Vec<IpCidr> {
         vec![
             IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
@@ -226,6 +239,7 @@ pub struct SmtpServer {
     data_spool: SpoolHandle,
     meta_spool: SpoolHandle,
     shutdown: ShutdownSubcription,
+    rcpt_count: usize,
 }
 
 #[derive(Debug)]
@@ -262,6 +276,7 @@ impl SmtpServer {
             data_spool,
             meta_spool,
             shutdown: ShutdownSubcription::get(),
+            rcpt_count: 0,
         };
 
         tokio::task::spawn_local(async move {
@@ -269,7 +284,10 @@ impl SmtpServer {
             if let Err(err) = server.process().await {
                 error!("Error in SmtpServer: {err:#}");
                 server
-                    .write_response(421, "4.3.0 technical difficulties")
+                    .write_response(
+                        421,
+                        format!("4.3.0 {} technical difficulties", server.params.hostname),
+                    )
                     .await
                     .ok();
             }
@@ -548,11 +566,36 @@ impl SmtpServer {
                     address,
                     parameters: _,
                 }) => {
-                    if self.state.is_none() {
+                    if let Some(state) = &self.state {
+                        if state.recipients.len() == self.params.max_recipients_per_message {
+                            self.write_response(451, "4.5.3 too many recipients")
+                                .await?;
+                            continue;
+                        }
+
+                        if self.rcpt_count == self.params.max_messages_per_connection {
+                            if state.recipients.is_empty() {
+                                self.write_response(
+                                    451,
+                                    format!(
+                                        "4.5.3 {} too many recipients on this connection",
+                                        self.params.hostname
+                                    ),
+                                )
+                                .await?;
+                                return Ok(());
+                            } else {
+                                self.write_response(451, "4.5.3 too many on this conn")
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    } else {
                         self.write_response(503, "5.5.0 MAIL FROM must be issued first")
                             .await?;
                         continue;
                     }
+                    self.rcpt_count += 1;
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_mail_rcpt_to", address.clone())

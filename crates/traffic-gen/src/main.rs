@@ -97,21 +97,42 @@ impl Opt {
     }
 
     async fn run(&self, counter: Arc<AtomicUsize>) -> anyhow::Result<()> {
-        let mut client = self.make_client().await?;
         let started = Instant::now();
         let duration = Duration::from_secs(self.duration);
-        while started.elapsed() <= duration {
-            let (sender, recip, body) = self.generate_message();
-            timeout(
-                Duration::from_secs(300),
-                client.send_mail(sender, recip, body),
-            )
-            .await
-            .context("waiting to send mail")?
-            .context("sending mail")?;
-            counter.fetch_add(1, Ordering::Relaxed);
+        'reconnect: while started.elapsed() <= duration {
+            let mut client = self.make_client().await?;
+            while started.elapsed() <= duration {
+                let (sender, recip, body) = self.generate_message();
+                match timeout(
+                    Duration::from_secs(300),
+                    client.send_mail(sender, recip, body),
+                )
+                .await
+                .context("waiting to send mail")?
+                {
+                    Ok(_) => {
+                        counter.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(ClientError::Io(_)) |
+                    Err(ClientError::Rejected(Response { code: 421, .. }))
+                    | Err(ClientError::Rejected(Response {
+                        code: 451,
+                        enhanced_code:
+                            // Too many recipients
+                            Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 5,
+                                detail: 3,
+                            }),
+                        ..
+                    })) => {
+                        continue 'reconnect;
+                    }
+                    Err(err) => return Err(err).context("sending mail"),
+                };
+            }
+            timeout(Duration::from_secs(1), client.send_command(&Command::Quit)).await??;
         }
-        timeout(Duration::from_secs(1), client.send_command(&Command::Quit)).await??;
         Ok(())
     }
 }
@@ -131,18 +152,23 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let mut clients = vec![];
     for _ in 0..concurrency {
         let opts = opts.clone();
         let counter = Arc::clone(&counter);
-        tokio::spawn(async move {
+        clients.push(tokio::spawn(async move {
             if let Err(err) = opts.run(counter).await {
                 eprintln!("{err:#}");
             }
             Ok::<(), anyhow::Error>(())
-        });
+        }));
     }
 
-    tokio::time::sleep(duration).await;
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => {},
+        _ = futures::future::join_all(clients) => {}
+    };
+
     let total_sent = counter.load(Ordering::Acquire);
     let elapsed = started.elapsed();
 

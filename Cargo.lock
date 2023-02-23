@@ -2684,6 +2684,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "futures",
  "num-format",
  "rand",
  "rfc5321",

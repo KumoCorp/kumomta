@@ -25,6 +25,9 @@ kumo.on('init', function()
     -- if something happens to this server before
     -- the message is spooled.
     deferred_spool = false,
+
+    -- max_recipients_per_message = 1024
+    -- max_messages_per_connection = 10000,
   }
 
   kumo.configure_local_logs {
