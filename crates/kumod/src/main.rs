@@ -14,6 +14,7 @@ mod metrics_helper;
 mod mod_kumo;
 mod queue;
 mod runtime;
+mod shutdown;
 mod smtp_server;
 mod spool;
 
@@ -112,20 +113,18 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         config::set_policy_path(policy).await?;
     }
 
+    let mut lifetime = crate::shutdown::Lifetime::new();
+
     let mut config = config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
-    crate::spool::SpoolManager::get()
-        .await
-        .start_spool()
-        .await?;
+    tokio::spawn(async move {
+        if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
+            tracing::error!("problem starting spool: {err:#}");
+        }
+    });
 
-    tokio::signal::ctrl_c().await?;
-
-    tracing::info!("Shutting down");
-
-    // TODO: graceful shutdown; tell message receiving listeners
-    // to stop accepting and delivery later to stop delivering
+    lifetime.wait_for_shutdown().await;
 
     // after waiting for those to idle out, shut down logging
     crate::logging::Logger::signal_shutdown().await;

@@ -1,6 +1,7 @@
 use crate::dest_site::ResolvedAddress;
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
+use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::{anyhow, Context};
 use chrono::Utc;
@@ -224,6 +225,7 @@ pub struct SmtpServer {
     params: EsmtpListenerParams,
     data_spool: SpoolHandle,
     meta_spool: SpoolHandle,
+    shutdown: ShutdownSubcription,
 }
 
 #[derive(Debug)]
@@ -259,6 +261,7 @@ impl SmtpServer {
             params,
             data_spool,
             meta_spool,
+            shutdown: ShutdownSubcription::get(),
         };
 
         tokio::task::spawn_local(async move {
@@ -293,6 +296,14 @@ impl SmtpServer {
         Ok(())
     }
 
+    fn check_shutdown(&self) -> bool {
+        if self.read_buffer.is_empty() {
+            Activity::get().is_none()
+        } else {
+            false
+        }
+    }
+
     async fn read_line(&mut self) -> anyhow::Result<ReadLine> {
         let mut too_long = false;
         loop {
@@ -317,13 +328,25 @@ impl SmtpServer {
                 too_long = true;
             }
 
+            let duration = std::time::Duration::from_secs(60);
+
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
-            let size = self.socket.as_mut().unwrap().read(&mut data).await?;
-            if size == 0 {
-                anyhow::bail!("client disconnected");
-            }
-            self.read_buffer.extend_from_slice(&data[0..size]);
+            tokio::select! {
+                _ = tokio::time::sleep(duration) => {
+                    return Ok(ReadLine::TimedOut);
+                }
+                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                    let size = size?;
+                    if size == 0 {
+                        anyhow::bail!("client disconnected");
+                    }
+                    self.read_buffer.extend_from_slice(&data[0..size]);
+                }
+                _ = self.shutdown.shutting_down() => {
+                    return Ok(ReadLine::ShuttingDown);
+                }
+            };
         }
     }
 
@@ -363,8 +386,30 @@ impl SmtpServer {
         )
         .await?;
         loop {
+            if self.check_shutdown() {
+                self.write_response(421, format!("4.3.2 {} shutting down", self.params.hostname))
+                    .await?;
+                return Ok(());
+            }
+
             let line = match self.read_line().await? {
                 ReadLine::Line(line) => line,
+                ReadLine::TimedOut => {
+                    self.write_response(
+                        421,
+                        format!("4.3.2 {} idle too long", self.params.hostname),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                ReadLine::ShuttingDown => {
+                    self.write_response(
+                        421,
+                        format!("4.3.2 {} shutting down", self.params.hostname),
+                    )
+                    .await?;
+                    return Ok(());
+                }
                 ReadLine::TooLong => {
                     self.write_response(500, "5.2.3 line too long").await?;
                     continue;
@@ -474,6 +519,7 @@ impl SmtpServer {
                         self.write_response(rej.code, rej.message).await?;
                         continue;
                     }
+
                     self.state.replace(TransactionState {
                         sender: address.clone(),
                         recipients: vec![],
@@ -521,11 +567,24 @@ impl SmtpServer {
                             .await?;
                         continue;
                     }
-                    self.write_response(354, "Send body; end with CRLF.CRLF")
-                        .await?;
 
                     let mut data = vec![];
                     let mut too_long = false;
+
+                    let activity = match Activity::get() {
+                        Some(a) => a,
+                        None => {
+                            self.write_response(
+                                421,
+                                format!("4.3.2 {} shutting down", self.params.hostname),
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                    };
+
+                    self.write_response(354, "Send body; end with CRLF.CRLF")
+                        .await?;
 
                     loop {
                         let line = match self.read_line().await? {
@@ -534,6 +593,22 @@ impl SmtpServer {
                                 too_long = true;
                                 data.clear();
                                 continue;
+                            }
+                            ReadLine::TimedOut => {
+                                self.write_response(
+                                    421,
+                                    format!("4.3.2 {} idle too long", self.params.hostname),
+                                )
+                                .await?;
+                                return Ok(());
+                            }
+                            ReadLine::ShuttingDown => {
+                                self.write_response(
+                                    421,
+                                    format!("4.3.2 {} shutting down", self.params.hostname),
+                                )
+                                .await?;
+                                return Ok(());
                             }
                         };
                         if line == "." {
@@ -649,6 +724,7 @@ impl SmtpServer {
 
                     let ids = ids.join(" ");
                     self.write_response(250, format!("OK ids={ids}")).await?;
+                    drop(activity);
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
@@ -671,4 +747,6 @@ const MAX_LINE_LEN: usize = 998;
 enum ReadLine {
     Line(String),
     TooLong,
+    ShuttingDown,
+    TimedOut,
 }

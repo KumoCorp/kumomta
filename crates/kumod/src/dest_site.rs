@@ -1,5 +1,6 @@
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
+use crate::shutdown::{Activity, ShutdownSubcription};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
@@ -353,6 +354,7 @@ struct Dispatcher {
     ehlo_name: String,
     site_config: DestSiteConfig,
     metrics: DeliveryMetrics,
+    shutting_down: ShutdownSubcription,
 }
 
 impl Dispatcher {
@@ -381,6 +383,7 @@ impl Dispatcher {
             ehlo_name,
             site_config,
             metrics,
+            shutting_down: ShutdownSubcription::get(),
         };
 
         dispatcher.obtain_message();
@@ -425,10 +428,13 @@ impl Dispatcher {
         }
 
         let idle_timeout = Duration::from_secs(self.site_config.idle_timeout);
-        match tokio::time::timeout(idle_timeout, self.notify.notified()).await {
-            Ok(()) => {}
-            Err(_) => {}
-        }
+        tokio::select! {
+            _ = tokio::time::sleep(idle_timeout) => {},
+            _ = self.notify.notified() => {}
+            _ = self.shutting_down.shutting_down() => {
+                anyhow::bail!("shutting down");
+            }
+        };
         Ok(self.obtain_message())
     }
 
@@ -546,6 +552,13 @@ impl Dispatcher {
                 .map_err(|err| anyhow::anyhow!("{err}"))?;
         }
 
+        let activity = match Activity::get() {
+            Some(a) => a,
+            None => {
+                anyhow::bail!("shutting down");
+            }
+        };
+
         match self
             .client
             .as_mut()
@@ -619,6 +632,9 @@ impl Dispatcher {
                 self.metrics.global_msgs_delivered.inc();
             }
         };
+
+        drop(activity);
+
         Ok(())
     }
 }
