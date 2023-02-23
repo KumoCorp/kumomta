@@ -1,3 +1,4 @@
+use crate::shutdown::Lifetime;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::Parser;
@@ -113,13 +114,14 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         config::set_policy_path(policy).await?;
     }
 
-    let mut lifetime = crate::shutdown::Lifetime::new();
+    let mut lifetime = Lifetime::new();
 
     let mut config = config::load_config().await?;
     config.async_call_callback("init", ()).await?;
 
     if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
         tracing::error!("problem starting spool: {err:#}");
+        Lifetime::request_shutdown().await;
     }
 
     lifetime.wait_for_shutdown().await;

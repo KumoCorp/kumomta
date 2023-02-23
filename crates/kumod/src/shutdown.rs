@@ -47,6 +47,7 @@ impl Activity {
 struct ShutdownState {
     tx: WatchSender<()>,
     rx: WatchReceiver<()>,
+    request_shutdown_tx: MPSCSender<()>,
 }
 
 /// ShutdownSubcription can be used by code that is idling.
@@ -77,6 +78,7 @@ impl ShutdownSubcription {
 ///
 pub struct Lifetime {
     activity_rx: MPSCReceiver<()>,
+    request_shutdown_rx: MPSCReceiver<()>,
 }
 
 impl Lifetime {
@@ -89,13 +91,32 @@ impl Lifetime {
             .map_err(|_| ())
             .unwrap();
 
+        let (request_shutdown_tx, request_shutdown_rx) = tokio::sync::mpsc::channel(1);
+
         let (tx, rx) = tokio::sync::watch::channel(());
         STOPPING
-            .set(ShutdownState { tx, rx })
+            .set(ShutdownState {
+                tx,
+                rx,
+                request_shutdown_tx,
+            })
             .map_err(|_| ())
             .unwrap();
 
-        Self { activity_rx }
+        Self {
+            activity_rx,
+            request_shutdown_rx,
+        }
+    }
+
+    /// Request that we shutdown the process.
+    /// This will cause the wait_for_shutdown method on the process
+    /// Lifetime instance to wake up and initiate the shutdown
+    /// procedure.
+    pub async fn request_shutdown() {
+        if let Some(state) = STOPPING.get() {
+            state.request_shutdown_tx.send(()).await.ok();
+        }
     }
 
     /// Wait for a shutdown request, then propagate that state
@@ -104,7 +125,10 @@ impl Lifetime {
     pub async fn wait_for_shutdown(&mut self) {
         // Wait for interrupt
         tracing::debug!("Waiting for interrupt");
-        tokio::signal::ctrl_c().await.ok();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = self.request_shutdown_rx.recv() => {}
+        };
         println!("Shutdown requested, please wait while work is saved");
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");
