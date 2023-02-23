@@ -25,17 +25,17 @@ impl Spool for RocksSpool {
     async fn load(&self, id: SpoolId) -> anyhow::Result<Vec<u8>> {
         Ok(self
             .db
-            .get(id.to_string())?
+            .get(id.as_bytes())?
             .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
     }
 
     async fn store(&self, id: SpoolId, data: &[u8]) -> anyhow::Result<()> {
-        self.db.put(id.to_string(), data)?;
+        self.db.put(id.as_bytes(), data)?;
         Ok(())
     }
 
     async fn remove(&self, id: SpoolId) -> anyhow::Result<()> {
-        self.db.delete(id.to_string())?;
+        self.db.delete(id.as_bytes())?;
         Ok(())
     }
 

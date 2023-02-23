@@ -44,6 +44,10 @@ impl SpoolId {
         in_dir.join(name)
     }
 
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        self.0.as_bytes()
+    }
+
     pub fn from_ascii_bytes(s: &[u8]) -> Option<Self> {
         let uuid = Uuid::try_parse_ascii(s).ok()?;
         Some(Self(uuid))
