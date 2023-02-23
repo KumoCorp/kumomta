@@ -8,7 +8,7 @@ WORKDIR /app
 
 
 FROM chef as planner
-COPY --from=src . .
+COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef as builder
@@ -16,7 +16,7 @@ COPY --from=planner /app/recipe.json recipe.json
 # Build the dependencies and cache them in a layer
 RUN cargo chef cook --release --recipe-path recipe.json
 # and now build our first-party stuff
-COPY --from=src . .
+COPY . .
 RUN cargo build --release
 
 # Using Ubuntu rather than alpine because rocksdb, a C++ library,
@@ -32,7 +32,7 @@ RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 100
 WORKDIR /app
 COPY --from=builder /app/target/release/kumod .
 COPY --from=builder /app/target/release/traffic-gen .
-COPY docker-runner.sh .
+COPY docker/kumod/docker-runner.sh .
 EXPOSE 25/tcp
 EXPOSE 587/tcp
 EXPOSE 465/tcp
