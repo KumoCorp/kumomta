@@ -137,9 +137,9 @@ end)
 -- used with the http endpoint
 kumo.on('http_server_validate_auth_basic', function(user, password)
   local password_database = {
-    ["scott"] = "tiger"
+    ['scott'] = 'tiger',
   }
-  if password == "" then
+  if password == '' then
     return false
   end
   return password_database[user] == password
