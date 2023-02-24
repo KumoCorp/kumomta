@@ -559,13 +559,12 @@ impl Dispatcher {
     }
 
     async fn requeue_message(msg: Message, increment_attempts: bool) -> anyhow::Result<()> {
-        let mut queue_manager = QueueManager::get().await;
         if !msg.is_meta_loaded() {
             let meta_spool = SpoolManager::get_named("meta").await?;
             msg.load_meta(&**meta_spool.lock().await).await?;
         }
         let queue_name = msg.get_queue_name()?;
-        let queue = queue_manager.resolve(&queue_name).await?;
+        let queue = QueueManager::resolve(&queue_name).await?;
         let mut queue = queue.lock().await;
         queue.requeue_message(msg, increment_attempts).await
     }

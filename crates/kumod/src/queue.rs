@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
-    pub static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
+    static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("delayed_count", "number of messages in the delayed queue", &["queue"]).unwrap()
     };
@@ -413,24 +413,25 @@ impl QueueManager {
     }
 
     /// Insert message into a queue named `name`.
-    pub async fn insert(&mut self, name: &str, msg: Message) -> anyhow::Result<()> {
-        let entry = self.resolve(name).await?;
+    pub async fn insert(name: &str, msg: Message) -> anyhow::Result<()> {
+        let entry = Self::resolve(name).await?;
         let mut entry = entry.lock().await;
         entry.insert(msg).await
     }
 
-    pub async fn resolve(&mut self, name: &str) -> anyhow::Result<QueueHandle> {
-        match self.named.get(name) {
+    pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
+        let mut mgr = MANAGER.lock().await;
+        match mgr.named.get(name) {
             Some(e) => Ok((*e).clone()),
             None => {
                 let entry = Queue::new(name.to_string()).await?;
-                self.named.insert(name.to_string(), entry.clone());
+                mgr.named.insert(name.to_string(), entry.clone());
                 Ok(entry)
             }
         }
     }
 
-    pub async fn get() -> MutexGuard<'static, Self> {
+    async fn get() -> MutexGuard<'static, Self> {
         MANAGER.lock().await
     }
 }
@@ -442,7 +443,8 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             _ = tokio::time::sleep(sleep_duration) => {}
-            _ = shutdown.shutting_down() => {}
+            _ = shutdown.shutting_down() => {
+            }
         };
 
         {
@@ -531,6 +533,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     let mut mgr = QueueManager::get().await;
                     if q.last_change.elapsed() > Duration::from_secs(60 * 10) {
                         mgr.named.remove(&q.name);
+                        drop(mgr);
                         tracing::debug!("idling out queue {}", q.name);
                         // Remove any metrics that go with it, so that we don't
                         // end up using a lot of memory remembering stats from

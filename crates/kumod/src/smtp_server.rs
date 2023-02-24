@@ -133,21 +133,30 @@ impl EsmtpListenerParams {
             .with_context(|| format!("failed to bind to {}", self.listen))?;
 
         tracing::debug!("smtp listener on {}", self.listen);
+        let mut shutting_down = ShutdownSubcription::get();
 
         loop {
-            let (socket, peer_address) = listener.accept().await?;
-            let my_address = socket.local_addr()?;
-            let params = self.clone();
-            crate::runtime::Runtime::run(move || {
-                tokio::task::spawn_local(async move {
-                    if let Err(err) =
-                        SmtpServer::run(socket, my_address, peer_address, params).await
-                    {
-                        tracing::error!("SmtpServer::run: {err:#}");
-                    }
-                });
-            })
-            .await?;
+            tokio::select! {
+                _ = shutting_down.shutting_down() => {
+                    println!("smtp listener on {} -> stopping", self.listen);
+                    return Ok(());
+                }
+                result = listener.accept() => {
+                    let (socket, peer_address) = result?;
+                    let my_address = socket.local_addr()?;
+                    let params = self.clone();
+                    crate::runtime::Runtime::run(move || {
+                        tokio::task::spawn_local(async move {
+                            if let Err(err) =
+                                SmtpServer::run(socket, my_address, peer_address, params).await
+                            {
+                                tracing::error!("SmtpServer::run: {err:#}");
+                            }
+                        });
+                    })
+                    .await?;
+                }
+            };
         }
     }
 }
@@ -763,9 +772,8 @@ impl SmtpServer {
 
                     if !messages.is_empty() {
                         tokio::spawn(async move {
-                            let mut queue_manager = QueueManager::get().await;
                             for (queue_name, msg) in messages {
-                                queue_manager.insert(&queue_name, msg).await?;
+                                QueueManager::insert(&queue_name, msg).await?;
                             }
                             Ok::<(), anyhow::Error>(())
                         });
