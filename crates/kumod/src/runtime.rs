@@ -57,6 +57,9 @@ impl Runtime {
         Ok(Self { jobs: tx })
     }
 
+    /// Schedule a future on the pool.
+    /// Will return once the future is scheduled.
+    /// Does not wait for the future to complete.
     pub async fn run<F: FnOnce() + Send + 'static>(func: F) -> anyhow::Result<()> {
         RUNTIME
             .jobs

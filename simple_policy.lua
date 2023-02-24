@@ -36,6 +36,14 @@ kumo.on('init', function()
 
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
+    -- allowed to access any http endpoint without additional auth
+    trusted_hosts = { '127.0.0.1', '::1' },
+  }
+  kumo.start_http_listener {
+    use_tls = true,
+    listen = '0.0.0.0:8001',
+    -- allowed to access any http endpoint without additional auth
+    trusted_hosts = { '127.0.0.1', '::1' },
   }
 
   -- Define the default "data" spool location; this is where
@@ -123,4 +131,16 @@ kumo.on('get_queue_config', function(queue_name)
     retry_interval = 2,
     max_retry_interval = 8,
   }
+end)
+
+-- Use this to lookup and confirm a user/password credential
+-- used with the http endpoint
+kumo.on('http_server_validate_auth_basic', function(user, password)
+  local password_database = {
+    ["scott"] = "tiger"
+  }
+  if password == "" then
+    return false
+  end
+  return password_database[user] == password
 end)

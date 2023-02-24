@@ -58,22 +58,24 @@ pub fn register(func: RegisterFunc) {
 
 impl LuaConfig {
     /// Call a callback registered via `on`.
-    pub async fn async_call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+    pub async fn async_call_callback<
+        'lua,
+        S: AsRef<str>,
+        A: ToLuaMulti<'lua> + Clone,
+        R: FromLuaMulti<'lua> + Default,
+    >(
         &'lua mut self,
         name: S,
         args: A,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<R> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
         match self
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
-            Ok(func) => {
-                func.call_async(args.clone()).await?;
-                Ok(())
-            }
-            _ => Ok(()),
+            Ok(func) => Ok(func.call_async(args.clone()).await?),
+            _ => Ok(R::default()),
         }
     }
 

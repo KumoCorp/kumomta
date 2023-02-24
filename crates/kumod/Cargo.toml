@@ -9,6 +9,8 @@ edition = "2021"
 anyhow = "1.0"
 async-channel = "1.8"
 axum = "0.6"
+axum-server = {version="0.4", features=["tls-rustls"]}
+base64 = "0.13"
 caps = "0.5"
 chrono = {version="0.4", features=["serde"]}
 cidr = {version="0.2", features=["serde"]}

@@ -18,6 +18,7 @@ mod queue;
 mod runtime;
 mod smtp_server;
 mod spool;
+mod tls_helpers;
 
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
