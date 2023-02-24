@@ -22,6 +22,16 @@ impl HttpListenerParams {
         let socket = TcpListener::bind(&self.listen)?;
         tracing::debug!("http listener on {addr:?}");
         let server = Server::from_tcp(socket)?;
+        // Note: it is possible to call
+        // server.with_graceful_shutdown(ShutdownSubscription::get().shutting_down)
+        // to have it listen for a shutdown request, but we're avoiding it:
+        // the request is the start of a shutdown and we need to allow a grace
+        // period for in-flight operations to complete.
+        // Some of those may require call backs to the HTTP endpoint
+        // if we're doing some kind of web hook like thing.
+        // So, for now at least, we'll have to manually verify if
+        // a request should proceed based on the results from the lifecycle
+        // module.
         tokio::spawn(async move { server.serve(app.into_make_service()).await });
         Ok(())
     }
