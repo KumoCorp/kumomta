@@ -11,6 +11,17 @@ So far this is tested on Rocky 8, ...
 Note that in order for KumoMTA to bind to port 25 for outbound mail, it must be run as a privileged user.
 The commands below will install as a local user.
 
+At a minimum, you will need to install some dev tools and other glue before starting.
+
+```sudo dnf -y group install "Development Tools"```
+
+And you should make sure you have all the latest patches first too.
+
+```
+dnf clean all
+dnf update -y
+```
+
 Install Rust
 
 ```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y```
@@ -21,7 +32,7 @@ Install git
 
 Get the repo
 
-```git clone https://github.com/wez/kumomta.git```
+```git clone https://github.com/kumomta/kumomta.git```
 
 Build it
 
