@@ -24,7 +24,12 @@ sudo dnf update -y
 
 Install Rust
 
-```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y```
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source ~/.profile
+source ~/.cargo/env
+rustc -V
+```
 
 Install git
 
