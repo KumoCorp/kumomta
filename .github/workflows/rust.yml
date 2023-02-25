@@ -3,7 +3,7 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
+    paths-ignore: &IGNORE
       - "docs/*"
       - ".github/workflows/pages.yml"
       - ".github/workflows/verify-pages.yml"
@@ -13,13 +13,7 @@ on:
 
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
+    paths-ignore: *IGNORE
 
 env:
   CARGO_TERM_COLOR: always
