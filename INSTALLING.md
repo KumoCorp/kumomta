@@ -18,13 +18,13 @@ At a minimum, you will need to install some dev tools and other glue before star
 And you should make sure you have all the latest patches first too.
 
 ```
-dnf clean all
-dnf update -y
+sudo dnf clean all
+sudo dnf update -y
 ```
 
 Install Rust
 
-```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -- -y```
+```curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y```
 
 Install git
 
