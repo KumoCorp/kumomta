@@ -24,6 +24,9 @@ fi
 if ! hash mdbook-mermaid 2>/dev/null ; then
   cargo install mdbook-mermaid --locked
 fi
+if ! hash mdbook-admonish 2>/dev/null ; then
+  cargo install mdbook-admonish --locked
+fi
 
 mdbook-mermaid install docs
 mdbook build docs
