@@ -65,9 +65,19 @@ class Gen(object):
 
 TOC = [
     Page(
-        "KumoMTA",
+        "KumoMTA Reference Manual",
         "index.md",
         children=[
+            Page(
+                "Preface", "preface/index.md"
+            ),
+            Page(
+                "General Information",
+                "general/index.md",
+                children=[
+                    Page("About This Manual","general/about.md"),
+                ]
+                 ),
             Page(
                 "Install",
                 "installation.md",
