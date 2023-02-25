@@ -50,8 +50,9 @@ kumo> type a mysql statement here
 
 Commands are issued in your command interpreter. On Unix, this is typically a program such as sh, csh, or bash.
 
-> **Note**
-> When you enter a command or statement shown in an example, do not type the prompt shown in the example.
+```admonish
+When you enter a command or statement shown in an example, do not type the prompt shown in the example.
+```
 
 In syntax descriptions, square brackets (“\[” and “\]”) indicate optional words or clauses. For example, in the following statement, --user is optional:
 
