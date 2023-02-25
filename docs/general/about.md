@@ -30,7 +30,7 @@ Character sequences are written like this: “To specify a wildcard, use the `�
 
 When commands or statements are prefixed by a prompt, we use these:
 
-```text
+```plaintext
 $> type a command here
 #> type a command as root here
 kumo> type a mysql statement here
@@ -44,7 +44,3 @@ Commands are issued in your command interpreter. On Unix, this is typically a pr
 In syntax descriptions, square brackets (“\[” and “\]”) indicate optional words or clauses. For example, in the following statement, --user is optional:
 
 **`kumod`**_`--policy simple-policy.lua [--user] someuser`_
-
-Commands for setting shell variables are shown using Bourne shell syntax. For example, the sequence to set the CC environment variable and run the configure command looks like this in Bourne shell syntax:
-
-\$> CC=gcc ./configure
