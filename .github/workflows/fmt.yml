@@ -3,7 +3,7 @@ name: Check code formatting
 on:
   push:
     branches: [ "main" ]
-    paths-ignore: &IGNORE
+    paths-ignore:
       - "docs/*"
       - ".github/workflows/pages.yml"
       - ".github/workflows/verify-pages.yml"
@@ -12,7 +12,13 @@ on:
       - "**/*.markdown"
   pull_request:
     branches: [ "main" ]
-    paths-ignore: *IGNORE
+    paths-ignore:
+      - "docs/*"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/verify-pages.yml"
+      - ".github/ISSUE_TEMPLATE/*"
+      - "**/*.md"
+      - "**/*.markdown"
 
 env:
   CARGO_TERM_COLOR: always
