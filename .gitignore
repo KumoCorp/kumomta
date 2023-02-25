@@ -1,6 +1,9 @@
 .DS_Store
 dhat-heap.json
 /docs/_site
+/docs/SUMMARY.md
+/docs/**/index.markdown
+/docs/mermaid.min.js
 /pkg
 /target/
 /gh_pages/
@@ -8,4 +11,3 @@ dhat-heap.json
 .*.sw*
 /perf.data*
 .idea/
-/docker/smtpd/kumod
