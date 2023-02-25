@@ -15,9 +15,7 @@ At a minimum, you will need to install some dev tools and other glue before star
 
 ```
 sudo dnf group install -y "Development Tools"
-sudo dnf install -y libxml2 libxml2-devel
-sudo dnf install -y clang
-
+sudo dnf install -y libxml2 libxml2-devel clang telnet
 ```
 
 And you should make sure you have all the latest patches first too.
