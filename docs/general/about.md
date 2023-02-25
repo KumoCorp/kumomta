@@ -12,6 +12,18 @@ If you have questions about using KumoMTA, join the KumoMTA Community Discord.
 
 This manual uses certain typographical conventions:
 
+```admonish
+This is a noteworthy section
+```
+
+```admonish warning
+This indicates a warning
+```
+
+```admonish danger
+This indicates something that can have dangerous consequences
+```
+
 `Text in this style` indicates input that you type in examples.
 
 **`Text in this style`** indicates the names of executable programs and scripts, examples being **`kumod`** (the KumoMTA server executable).
@@ -38,9 +50,14 @@ kumo> type a mysql statement here
 
 Commands are issued in your command interpreter. On Unix, this is typically a program such as sh, csh, or bash.
 
-> **Note**
-> When you enter a command or statement shown in an example, do not type the prompt shown in the example.
+```admonish
+When you enter a command or statement shown in an example, do not type the prompt shown in the example.
+```
 
 In syntax descriptions, square brackets (“\[” and “\]”) indicate optional words or clauses. For example, in the following statement, --user is optional:
 
 **`kumod`**_`--policy simple-policy.lua [--user] someuser`_
+
+Commands for setting shell variables are shown using Bourne shell syntax. For example, the sequence to set the CC environment variable and run the configure command looks like this in Bourne shell syntax:
+
+\$> CC=gcc ./configure

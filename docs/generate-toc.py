@@ -36,7 +36,7 @@ class Gen(object):
         children = []
         for filename in names:
             title = os.path.basename(filename).rsplit(".", 1)[0]
-            if title == "index":
+            if title == "index" or title == "_index":
                 continue
 
             if self.extract_title:
@@ -45,7 +45,7 @@ class Gen(object):
 
             children.append(Page(title, filename))
 
-        index_filename = f"{self.dirname}/index.markdown"
+        index_filename = f"{self.dirname}/index.md"
         index_page = Page(self.title, index_filename, children=children)
         index_page.render(output, depth)
         with open(index_filename, "w") as idx:
@@ -54,7 +54,7 @@ class Gen(object):
                 idx.write("\n\n")
             else:
                 try:
-                    with open(f"{self.dirname}/index.md", "r") as f:
+                    with open(f"{self.dirname}/_index.md", "r") as f:
                         idx.write(f.read())
                         idx.write("\n\n")
                 except FileNotFoundError:
@@ -90,6 +90,14 @@ TOC = [
                     Gen(
                         "module: kumo",
                         "reference/kumo",
+                    ),
+                    Gen(
+                        "module: kumo.dkim",
+                        "reference/kumo.dkim",
+                    ),
+                    Gen(
+                        "events",
+                        "reference/events",
                     ),
                 ],
             ),
