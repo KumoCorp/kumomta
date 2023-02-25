@@ -57,7 +57,3 @@ When you enter a command or statement shown in an example, do not type the promp
 In syntax descriptions, square brackets (“\[” and “\]”) indicate optional words or clauses. For example, in the following statement, --user is optional:
 
 **`kumod`**_`--policy simple-policy.lua [--user] someuser`_
-
-Commands for setting shell variables are shown using Bourne shell syntax. For example, the sequence to set the CC environment variable and run the configure command looks like this in Bourne shell syntax:
-
-\$> CC=gcc ./configure
