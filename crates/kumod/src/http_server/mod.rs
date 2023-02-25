@@ -1,7 +1,7 @@
 use anyhow::Context;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use cidr::IpCidr;
@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod auth;
+pub mod inject_v1;
 
 use auth::*;
 
@@ -82,6 +83,7 @@ impl HttpListenerParams {
     pub async fn start(self) -> anyhow::Result<()> {
         let app = Router::new()
             .route("/metrics", get(report_metrics))
+            .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/wat", get(test_wat))
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header
@@ -126,7 +128,7 @@ impl HttpListenerParams {
     }
 }
 
-struct AppError(anyhow::Error);
+pub struct AppError(anyhow::Error);
 
 // Tell axum how to convert `AppError` into a response.
 impl IntoResponse for AppError {

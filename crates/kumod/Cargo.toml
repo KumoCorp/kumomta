@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 async-channel = "1.8"
 axum = "0.6"
+axum-client-ip = "0.4"
 axum-server = {version="0.4", features=["tls-rustls"]}
 base64 = "0.13"
 caps = "0.5"
@@ -19,13 +20,16 @@ config = {path="../config"}
 gethostname = "0.4"
 lazy_static = "1.4"
 mail-auth = "0.3"
+mail-builder = "0.2"
 message = {path="../message"}
 metrics = "0.20"
 metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
+minijinja = {version="0.30",features=["source"]}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 nix = "0.26"
 once_cell = "1.17"
+ouroboros = "0.15"
 prometheus = "0.13"
 rand = "0.8"
 rcgen = "0.10"
@@ -46,3 +50,5 @@ zstd = "0.12"
 
 [dev-dependencies]
 k9 = "0.11"
+mail-parser = "0.8"
+maplit = "1.0"
