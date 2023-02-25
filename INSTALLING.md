@@ -5,7 +5,9 @@ Skip the instructions below and just download a Docker container as described in
 
 
 ## Installing for active development
-Deploy a suitable server (instance).  
+Deploy a suitable server (instance).  This should have at least 4Gb RAM and 2 cores and 20Gb Storage. In AWS, a t2.medium is adequate for a minimal install.
+For performance install, more is better.  
+
 So far this is tested on Rocky 8, ...
 
 Note that in order for KumoMTA to bind to port 25 for outbound mail, it must be run as a privileged user.
