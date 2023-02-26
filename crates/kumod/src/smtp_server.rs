@@ -553,7 +553,7 @@ impl SmtpServer {
                     self.rcpt_count += 1;
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
-                        .call_callback("smtp_server_mail_rcpt_to", address.clone())
+                        .call_callback("smtp_server_rcpt_to", address.clone())
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;

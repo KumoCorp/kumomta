@@ -54,7 +54,7 @@ impl Default for QueueConfig {
 
 impl QueueConfig {
     fn default_retry_interval() -> usize {
-        60 * 60 * 20 // 20 minutes
+        60 * 20 // 20 minutes
     }
 
     fn default_max_age() -> usize {

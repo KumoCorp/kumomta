@@ -96,6 +96,14 @@ TOC = [
                         "reference/kumo.dkim",
                     ),
                     Gen(
+                        "object: address",
+                        "reference/address",
+                    ),
+                    Gen(
+                        "object: message",
+                        "reference/message",
+                    ),
+                    Gen(
                         "events",
                         "reference/events",
                     ),

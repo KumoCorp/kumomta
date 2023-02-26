@@ -91,7 +91,7 @@ kumo.on('smtp_server_mail_from', function(sender)
 end)
 
 -- Called to validate a recipient
-kumo.on('smtp_server_mail_rcpt_to', function(rcpt)
+kumo.on('smtp_server_rcpt_to', function(rcpt)
   -- print('rcpt', tostring(rcpt))
 end)
 
