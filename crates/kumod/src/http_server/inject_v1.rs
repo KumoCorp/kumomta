@@ -18,8 +18,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spool::SpoolId;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FromHeader {
+    pub email: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Recipient {
@@ -59,7 +66,13 @@ pub enum Content {
         #[serde(default)]
         attachments: Vec<Attachment>,
         #[serde(default)]
-        headers: Vec<Header>,
+        headers: BTreeMap<String, String>,
+        #[serde(default)]
+        from: Option<FromHeader>,
+        #[serde(default)]
+        subject: Option<String>,
+        #[serde(default)]
+        reply_to: Option<String>,
     },
 }
 
@@ -125,7 +138,7 @@ impl<'a> Compiled<'a> {
                 text_body,
                 html_body,
                 headers,
-                attachments: _,
+                ..
             } => {
                 let mut builder = mail_builder::MessageBuilder::new();
 
@@ -146,23 +159,13 @@ impl<'a> Compiled<'a> {
                     id += 1;
                 }
 
-                for hdr in headers {
+                for (name, _value) in headers {
                     let expanded = self.borrow_templates()[id].render(&subst)?;
                     id += 1;
-                    match hdr {
-                        Header::Full(_) => {
-                            let (name, value) = expanded
-                                .split_once(':')
-                                .ok_or_else(|| anyhow::anyhow!("invalid header: {expanded}"))?;
-                            builder = builder.header(
-                                name.to_string(),
-                                HeaderType::Text(Text::new(value.to_string())),
-                            );
-                        }
-                        Header::NameValue(name, _) => {
-                            builder = builder.header(name, HeaderType::Text(Text::new(expanded)));
-                        }
-                    }
+                    builder = builder.header(
+                        name.to_string(),
+                        HeaderType::Text(Text::new(expanded.to_string())),
+                    );
                 }
 
                 let attached = self.borrow_attached();
@@ -205,6 +208,43 @@ impl<'a> Compiled<'a> {
 }
 
 impl InjectV1Request {
+    /// Apply the from/subject/reply_to header shortcuts to the more
+    /// general headers map to make the compile/expand phases
+    fn normalize(&mut self) {
+        match &mut self.content {
+            Content::Builder {
+                text_body: _,
+                html_body: _,
+                attachments: _,
+                headers,
+                from,
+                subject,
+                reply_to,
+            } => {
+                match from {
+                    Some(FromHeader { email, name: None }) => {
+                        headers.insert("From".to_string(), format!("<{email}>"));
+                    }
+                    Some(FromHeader {
+                        email,
+                        name: Some(name),
+                    }) => {
+                        headers.insert("From".to_string(), format!("\"{name}\" <{email}>"));
+                    }
+                    None => {}
+                }
+
+                if let Some(v) = subject {
+                    headers.insert("Subject".to_string(), v.to_string());
+                }
+                if let Some(v) = reply_to {
+                    headers.insert("Reply-To".to_string(), v.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn compile(&self) -> anyhow::Result<Compiled> {
         let mut env = Environment::new();
         let mut source = minijinja::Source::new();
@@ -238,14 +278,10 @@ impl InjectV1Request {
                     id += 1;
                     source.add_template(&name, hb)?;
                 }
-                for hdr in headers {
+                for value in headers.values() {
                     let name = id.to_string();
                     id += 1;
-                    match hdr {
-                        Header::Full(value) | Header::NameValue(_, value) => {
-                            source.add_template(&name, value)?;
-                        }
-                    }
+                    source.add_template(&name, value)?;
                 }
             }
         }
@@ -337,9 +373,10 @@ pub async fn inject_v1(
     auth: AuthKind,
     InsecureClientIp(peer_address): InsecureClientIp,
     // Note: Json<> must be last in the param list
-    Json(request): Json<InjectV1Request>,
+    Json(mut request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
+    request.normalize();
     let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;

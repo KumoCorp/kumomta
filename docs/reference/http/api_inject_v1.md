@@ -76,12 +76,19 @@ exposition in these docs, but comments are not valid in the actual request.
                 "file_name": "pixel.gif",
             }
         ],
-        "headers": [
-            // You can use separate name/value...
-            ["Subject", "This is the subject"],
-            // ... or a string with the entire header name and value
-            "From: \"Someone\" <someone@example.com>"
-        ]
+        // Controls the From: header
+        "from": {
+            "email": "someone@example.com",
+            "name": "Someone",
+        },
+        // Controls the Subject: header
+        "subject": "This is the subject",
+        // Controls the Reply-To: header
+        "reply_to": "help@example.com",
+        // Specify arbitrary additional headers
+        "headers": {
+            "X-Something": "Something!",
+        }
     },
     "recipients": [
         {
