@@ -70,10 +70,10 @@ exposition in these docs, but comments are not valid in the actual request.
                 // be added as an inline attachment and a multipart/related
                 // MIME container will be generated in the message to hold
                 // it and the textual content.
-                content_id: "my-image",
+                "content_id": "my-image",
                 // optional file name. If specified, will be added to the
                 // MIME headers for the attachment.
-                file_name: "pixel.gif",
+                "file_name": "pixel.gif",
             }
         ],
         "headers": [
@@ -85,7 +85,7 @@ exposition in these docs, but comments are not valid in the actual request.
     },
     "recipients": [
         {
-            "email": recipient@example.com",
+            "email": "recipient@example.com",
         }
     ]
 }
@@ -112,7 +112,7 @@ Each recipient is a JSON object:
     "recipients": [
         {
             // The recipient's email address. Required.
-            "email": recipient@example.com",
+            "email": "recipient@example.com",
             // Optional recipient name. Will be used to populate
             // template substitutions.
             "name": "Mr. Recipient"
