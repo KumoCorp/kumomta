@@ -14,7 +14,7 @@ example:
     "content": "Subject: hello\n\nHello there",
     "recipients": [
         {
-            "email": recipient@example.com",
+            "email": "recipient@example.com",
         }
     ]
 }
