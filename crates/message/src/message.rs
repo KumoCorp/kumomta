@@ -3,6 +3,7 @@ use crate::EnvelopeAddress;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
 use mail_auth::common::headers::HeaderWriter;
+use mailparse::{MailHeader, MailHeaderMap};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -350,6 +351,14 @@ impl Message {
         }
     }
 
+    pub fn get_meta_obj(&self) -> anyhow::Result<serde_json::Value> {
+        let inner = self.inner.lock().unwrap();
+        match &inner.metadata {
+            None => anyhow::bail!("metadata must be loaded first"),
+            Some(meta) => Ok(meta.meta.clone()),
+        }
+    }
+
     pub fn get_meta<S: serde_json::value::Index>(
         &self,
         key: S,
@@ -410,6 +419,106 @@ impl Message {
         }
     }
 
+    pub fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
+        let data = self.get_data();
+        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+
+        match headers.get_first_header(name) {
+            Some(hdr) => Ok(Some(hdr.get_value_utf8()?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
+        let data = self.get_data();
+        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+
+        let mut values = vec![];
+        for hdr in headers.get_all_headers(name) {
+            values.push(hdr.get_value_utf8()?);
+        }
+        Ok(values)
+    }
+
+    pub fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
+        let data = self.get_data();
+        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+
+        let mut values = vec![];
+        for hdr in headers {
+            values.push((hdr.get_key(), hdr.get_value_utf8()?));
+        }
+        Ok(values)
+    }
+
+    pub fn retain_headers<F: FnMut(&MailHeader) -> bool>(&self, mut func: F) -> anyhow::Result<()> {
+        let data = self.get_data();
+        let mut new_data = Vec::with_capacity(data.len());
+        let (headers, body_offset) = mailparse::parse_headers(&data)?;
+        for hdr in headers {
+            let retain = (func)(&hdr);
+            if !retain {
+                continue;
+            }
+            new_data.extend_from_slice(hdr.get_key_raw());
+            new_data.push(b':');
+            new_data.push(b' ');
+            new_data.extend_from_slice(hdr.get_value_raw());
+            new_data.push(b'\r');
+            new_data.push(b'\n');
+        }
+        new_data.push(b'\r');
+        new_data.push(b'\n');
+        new_data.extend_from_slice(&data[body_offset..]);
+        self.assign_data(new_data);
+        Ok(())
+    }
+
+    pub fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
+        let mut removed = false;
+        self.retain_headers(|hdr| {
+            if hdr.get_key_ref().eq_ignore_ascii_case(name) && !removed {
+                removed = true;
+                false
+            } else {
+                true
+            }
+        })
+    }
+
+    pub fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+        let data = self.get_data();
+        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+
+        for hdr in headers {
+            let do_import = if names.is_empty() {
+                is_x_header(&hdr)
+            } else {
+                is_header_in_names_list(&hdr, &names)
+            };
+            if do_import {
+                let name = imported_header_name(&hdr);
+                self.set_meta(name, hdr.get_value_utf8()?)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
+        self.retain_headers(|hdr| {
+            if names.is_empty() {
+                !is_x_header(hdr)
+            } else {
+                !is_header_in_names_list(&hdr, &names)
+            }
+        })
+    }
+
+    pub fn remove_all_named_header(&self, name: &str) -> anyhow::Result<()> {
+        self.retain_headers(|hdr| !hdr.get_key_ref().eq_ignore_ascii_case(name))
+    }
+
     pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
         let data = self.get_data();
         let signature = signer.sign(&data)?;
@@ -417,6 +526,31 @@ impl Message {
         self.prepend_header(None, &header);
         Ok(())
     }
+}
+
+fn is_header_in_names_list(hdr: &MailHeader, names: &[String]) -> bool {
+    let hdr_name = hdr.get_key_ref();
+    for name in names {
+        if hdr_name.eq_ignore_ascii_case(name) {
+            return true;
+        }
+    }
+    false
+}
+
+fn imported_header_name(hdr: &MailHeader) -> String {
+    hdr.get_key_ref()
+        .chars()
+        .map(|c| match c.to_ascii_lowercase() {
+            '-' => '_',
+            c => c,
+        })
+        .collect()
+}
+
+fn is_x_header(hdr: &MailHeader) -> bool {
+    let name = hdr.get_key_ref();
+    name.starts_with("X-") || name.starts_with("x-")
 }
 
 fn size_header(name: Option<&str>, value: &str) -> usize {
@@ -468,6 +602,67 @@ impl UserData for Message {
                 .dkim_sign(&signer)
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
         });
+        methods.add_method(
+            "prepend_header",
+            move |_, this, (name, value): (String, String)| {
+                Ok(this.prepend_header(Some(&name), &value))
+            },
+        );
+        methods.add_method(
+            "append_header",
+            move |_, this, (name, value): (String, String)| {
+                Ok(this.append_header(Some(&name), &value))
+            },
+        );
+        methods.add_method(
+            "get_first_named_header_value",
+            move |_, this, name: String| {
+                Ok(this
+                    .get_first_named_header_value(&name)
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            },
+        );
+        methods.add_method(
+            "get_all_named_header_values",
+            move |_, this, name: String| {
+                Ok(this
+                    .get_all_named_header_values(&name)
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            },
+        );
+        methods.add_method("get_all_headers", move |_, this, _: ()| {
+            Ok(this
+                .get_all_headers()
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?
+                .into_iter()
+                .map(|(name, value)| vec![name, value])
+                .collect::<Vec<Vec<String>>>())
+        });
+        methods.add_method("get_all_headers", move |_, this, _: ()| {
+            Ok(this
+                .get_all_headers()
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?
+                .into_iter()
+                .map(|(name, value)| vec![name, value])
+                .collect::<Vec<Vec<String>>>())
+        });
+        methods.add_method(
+            "import_x_headers",
+            move |_, this, names: Option<Vec<String>>| {
+                Ok(this
+                    .import_x_headers(names.unwrap_or_else(|| vec![]))
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            },
+        );
+
+        methods.add_method(
+            "remove_x_headers",
+            move |_, this, names: Option<Vec<String>>| {
+                Ok(this
+                    .remove_x_headers(names.unwrap_or_else(|| vec![]))
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            },
+        );
     }
 }
 
@@ -493,5 +688,154 @@ impl TimerEntryWithDelay for Message {
             }
             None => Duration::from_millis(0),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use serde_json::json;
+
+    fn new_msg_body<S: AsRef<str>>(s: S) -> Message {
+        Message::new_dirty(
+            SpoolId::new(),
+            EnvelopeAddress::parse("sender@example.com").unwrap(),
+            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            serde_json::json!({}),
+            Arc::new(s.as_ref().as_bytes().to_vec().into_boxed_slice()),
+        )
+        .unwrap()
+    }
+
+    fn data_as_string(msg: &Message) -> String {
+        String::from_utf8(msg.get_data().to_vec()).unwrap()
+    }
+
+    const X_HDR_CONTENT: &str =
+        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody";
+
+    #[test]
+    fn import_all_x_headers() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.import_x_headers(vec![]).unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().unwrap(),
+            json!({
+                "x_hello": "there",
+                "x_header": "value",
+            })
+        );
+    }
+
+    #[test]
+    fn import_some_x_headers() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.import_x_headers(vec!["x-hello".to_string()]).unwrap();
+        k9::assert_equal!(
+            msg.get_meta_obj().unwrap(),
+            json!({
+                "x_hello": "there",
+            })
+        );
+    }
+
+    #[test]
+    fn remove_all_x_headers() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.remove_x_headers(vec![]).unwrap();
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "Subject: Hello\r\nFrom : Someone\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn prepend_header_2_params() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.prepend_header(Some("Date"), "Today");
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn prepend_header_1_params() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.prepend_header(None, "Date: Today");
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "Date: Today\r\nX-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn append_header_2_params() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.append_header(Some("Date"), "Today");
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn append_header_1_params() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+
+        msg.append_header(None, "Date: Today");
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nFrom :Someone\r\nDate: Today\r\n\r\nBody"
+        );
+    }
+
+    const MULTI_HEADER_CONTENT: &str =
+        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody";
+
+    #[test]
+    fn get_first_header() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        k9::assert_equal!(
+            msg.get_first_named_header_value("X-header")
+                .unwrap()
+                .unwrap(),
+            "value"
+        );
+    }
+
+    #[test]
+    fn get_all_header() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        k9::assert_equal!(
+            msg.get_all_named_header_values("X-header").unwrap(),
+            vec!["value".to_string(), "another value".to_string()]
+        );
+    }
+
+    #[test]
+    fn remove_first() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.remove_first_named_header("X-header").unwrap();
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom : Someone\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn remove_all() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.remove_all_named_header("X-header").unwrap();
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "X-Hello: there\r\nSubject: Hello\r\nFrom : Someone\r\n\r\nBody"
+        );
     }
 }
