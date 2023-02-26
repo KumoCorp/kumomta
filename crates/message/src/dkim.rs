@@ -1,7 +1,7 @@
 use config::get_or_create_sub_module;
 use lruttl::LruCacheWithTtl;
-use mail_auth::common::crypto::{HashAlgorithm, RsaKey, Sha256};
-use mail_auth::dkim::{Canonicalization, DkimSigner, Done, Signature};
+use mail_auth::common::crypto::{HashAlgorithm, RsaKey, Sha256, SigningKey};
+use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain, Signature};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
@@ -80,6 +80,34 @@ impl SignerConfig {
     fn default_ttl() -> u64 {
         300
     }
+
+    fn configure_signer<T: SigningKey>(
+        &self,
+        signer: DkimSigner<T, NeedDomain>,
+    ) -> DkimSigner<T, Done> {
+        let mut signer = signer
+            .domain(self.domain.clone())
+            .selector(self.selector.clone())
+            .headers(self.headers.clone());
+        if let Some(atps) = &self.atps {
+            signer = signer.atps(atps.clone());
+        }
+        if let Some(atpsh) = self.atpsh {
+            signer = signer.atpsh(atpsh.into());
+        }
+        if let Some(agent_user_identifier) = &self.agent_user_identifier {
+            signer = signer.agent_user_identifier(agent_user_identifier);
+        }
+        if let Some(expiration) = self.expiration {
+            signer = signer.expiration(expiration);
+        }
+        signer = signer.body_length(self.body_length);
+        signer = signer.reporting(self.reporting);
+        signer = signer.header_canonicalization(self.header_canonicalization.into());
+        signer = signer.body_canonicalization(self.body_canonicalization.into());
+
+        signer
+    }
 }
 
 pub enum SignerInner {
@@ -124,26 +152,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .or_else(|_| RsaKey::<Sha256>::from_pkcs8_pem(&data))
                 .map_err(|err| mlua::Error::external(format!("{}: {err:#}", params.file_name)))?;
 
-            let mut signer = DkimSigner::from_key(key)
-                .domain(params.domain.clone())
-                .selector(params.selector.clone())
-                .headers(params.headers.clone());
-            if let Some(atps) = &params.atps {
-                signer = signer.atps(atps.clone());
-            }
-            if let Some(atpsh) = params.atpsh {
-                signer = signer.atpsh(atpsh.into());
-            }
-            if let Some(agent_user_identifier) = &params.agent_user_identifier {
-                signer = signer.agent_user_identifier(agent_user_identifier);
-            }
-            if let Some(expiration) = params.expiration {
-                signer = signer.expiration(expiration);
-            }
-            signer = signer.body_length(params.body_length);
-            signer = signer.reporting(params.reporting);
-            signer = signer.header_canonicalization(params.header_canonicalization.into());
-            signer = signer.body_canonicalization(params.body_canonicalization.into());
+            let signer = params.configure_signer(DkimSigner::from_key(key));
 
             let inner = Arc::new(SignerInner::RsaSha256(signer));
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
