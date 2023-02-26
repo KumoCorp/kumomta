@@ -1,4 +1,4 @@
-# `kumo.on('http_message_injected', function(message))`
+# `kumo.on('http_message_generated', function(message))`
 
 Called by the HTTP injection API endpoint after generating a message, but prior
 to injecting it into the queue.
@@ -21,7 +21,7 @@ You may use [kumo.reject](../kumo/reject.md) to raise an error to prevent this
 message from being queued for delivery.
 
 ```lua
-kumo.on('http_message_injected', function(msg)
+kumo.on('http_message_generated', function(msg)
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:sender().domain,
     selector = 'default',

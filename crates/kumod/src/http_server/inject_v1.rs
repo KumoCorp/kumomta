@@ -406,7 +406,7 @@ async fn process_recipient<'a>(
 
     // call callback to assign to queue
     config
-        .async_call_callback("http_message_injected", message.clone())
+        .async_call_callback("http_message_generated", message.clone())
         .await?;
 
     // spool and insert to queue
