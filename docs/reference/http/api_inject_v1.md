@@ -122,7 +122,7 @@ Each recipient is a JSON object:
             "email": "recipient@example.com",
             // Optional recipient name. Will be used to populate
             // template substitutions.
-            "name": "Mr. Recipient"
+            "name": "Mr. Recipient",
             // Optional additional template substitutions
             "substitutions": {
                 "key": "value",
