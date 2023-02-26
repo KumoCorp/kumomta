@@ -83,6 +83,7 @@ TOC = [
                 "installation.md",
             ),
             Page("Change Log", "changelog.md"),
+            Gen("HTTP API", "reference/http", extract_title=True),
             Page(
                 "Lua Reference",
                 "reference/index.md",

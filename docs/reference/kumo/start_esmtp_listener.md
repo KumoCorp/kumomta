@@ -59,7 +59,7 @@ kumo.start_esmtp_listener {
 
 ## hostname
 
-Specified the hostname to report in the banner and other SMTP responses.
+Specifies the hostname to report in the banner and other SMTP responses.
 The default, if unspecified, is to use the hostname of the local machine.
 
 ```lua
@@ -110,6 +110,7 @@ kumo.start_esmtp_listener {
 ## relay_hosts
 
 Specify the hosts which are allowed to relay email via this ESMTP service.
+Each item can be an IP literal or a CIDR mask.
 
 The defaults are to allow relaying only from the local host:
 

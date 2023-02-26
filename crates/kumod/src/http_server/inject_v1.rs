@@ -233,7 +233,8 @@ impl InjectV1Request {
                     source.add_template(&name, tb)?;
                 }
                 if let Some(hb) = html_body {
-                    let name = id.to_string();
+                    // The filename extension is needed to enable auto-escaping
+                    let name = format!("{id}.html");
                     id += 1;
                     source.add_template(&name, hb)?;
                 }
@@ -276,7 +277,8 @@ impl InjectV1Request {
                         templates.push(env.get_template(&name)?);
                     }
                     if html_body.is_some() {
-                        let name = id.to_string();
+                        // The filename extension is needed to enable auto-escaping
+                        let name = format!("{id}.html");
                         id += 1;
                         templates.push(env.get_template(&name)?);
                     }
