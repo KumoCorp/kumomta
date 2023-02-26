@@ -72,7 +72,7 @@ pub enum Content {
         #[serde(default)]
         subject: Option<String>,
         #[serde(default)]
-        reply_to: Option<String>,
+        reply_to: Option<FromHeader>,
     },
 }
 
@@ -138,6 +138,8 @@ impl<'a> Compiled<'a> {
                 text_body,
                 html_body,
                 headers,
+                from,
+                reply_to,
                 ..
             } => {
                 let mut builder = mail_builder::MessageBuilder::new();
@@ -157,6 +159,26 @@ impl<'a> Compiled<'a> {
                         self.borrow_templates()[id].render(&subst)?,
                     ));
                     id += 1;
+                }
+
+                builder = builder.to(mail_builder::headers::address::Address::new_address(
+                    recip.name.as_ref(),
+                    &recip.email,
+                ));
+
+                if let Some(from) = from {
+                    builder = builder.to(mail_builder::headers::address::Address::new_address(
+                        from.name.as_ref(),
+                        &from.email,
+                    ));
+                }
+
+                if let Some(reply_to) = reply_to {
+                    builder =
+                        builder.reply_to(mail_builder::headers::address::Address::new_address(
+                            reply_to.name.as_ref(),
+                            &reply_to.email,
+                        ));
                 }
 
                 for (name, _value) in headers {
@@ -217,28 +239,12 @@ impl InjectV1Request {
                 html_body: _,
                 attachments: _,
                 headers,
-                from,
+                from: _,
                 subject,
-                reply_to,
+                reply_to: _,
             } => {
-                match from {
-                    Some(FromHeader { email, name: None }) => {
-                        headers.insert("From".to_string(), format!("<{email}>"));
-                    }
-                    Some(FromHeader {
-                        email,
-                        name: Some(name),
-                    }) => {
-                        headers.insert("From".to_string(), format!("\"{name}\" <{email}>"));
-                    }
-                    None => {}
-                }
-
                 if let Some(v) = subject {
                     headers.insert("Subject".to_string(), v.to_string());
-                }
-                if let Some(v) = reply_to {
-                    headers.insert("Reply-To".to_string(), v.to_string());
                 }
             }
             _ => {}

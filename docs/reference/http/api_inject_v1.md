@@ -84,7 +84,10 @@ exposition in these docs, but comments are not valid in the actual request.
         // Controls the Subject: header
         "subject": "This is the subject",
         // Controls the Reply-To: header
-        "reply_to": "help@example.com",
+        "reply_to": {
+            "email": "help@example.com",
+            "name": "Help",
+        },
         // Specify arbitrary additional headers
         "headers": {
             "X-Something": "Something!",
