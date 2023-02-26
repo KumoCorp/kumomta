@@ -68,6 +68,14 @@ impl AuthKind {
         .await?;
         rx.await?
     }
+
+    pub fn summarize(&self) -> String {
+        match self {
+            Self::TrustedIp(addr) => addr.to_string(),
+            Self::Basic { user, .. } => user.to_string(),
+            Self::Bearer { .. } => "Bearer".to_string(),
+        }
+    }
 }
 
 pub async fn auth_middleware<B>(

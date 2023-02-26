@@ -3,10 +3,11 @@ use crate::http_server::auth::AuthKind;
 use crate::http_server::AppError;
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::QueueManager;
-use crate::spool::SpoolManager;
+use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
+use config::{load_config, LuaConfig};
 use mail_builder::headers::text::Text;
 use mail_builder::headers::HeaderType;
 use mail_builder::mime::MimePart;
@@ -19,6 +20,7 @@ use serde_json::Value;
 use spool::SpoolId;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
+use std::net::IpAddr;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -375,68 +377,99 @@ impl InjectV1Request {
     }
 }
 
-pub async fn inject_v1(
+async fn process_recipient<'a>(
+    config: &mut LuaConfig,
+    sender: &EnvelopeAddress,
+    peer_address: IpAddr,
+    recip: &Recipient,
+    request: &'a InjectV1Request,
+    compiled: &Compiled<'a>,
+    data_spool: &SpoolHandle,
+    meta_spool: &SpoolHandle,
+    auth: &AuthKind,
+) -> anyhow::Result<()> {
+    let recip_addr = EnvelopeAddress::parse(&recip.email)
+        .with_context(|| format!("recipient email {}", recip.email))?;
+
+    let generated = compiled.expand_for_recip(recip, &request.substitutions, &request.content)?;
+    // build into a Message
+    let id = SpoolId::new();
+    let message = message::Message::new_dirty(
+        id,
+        sender.clone(),
+        recip_addr,
+        serde_json::json!({}),
+        Arc::new(generated.into_bytes().into_boxed_slice()),
+    )?;
+
+    message.set_meta("http_auth", auth.summarize())?;
+
+    // call callback to assign to queue
+    config
+        .async_call_callback("http_message_injected", message.clone())
+        .await?;
+
+    // spool and insert to queue
+    let queue_name = message.get_queue_name()?;
+
+    if queue_name != "null" {
+        let deferred_spool = false; // TODO: configurable somehow
+        if !deferred_spool {
+            message
+                .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
+                .await?;
+        }
+        log_disposition(
+            RecordType::Reception,
+            message.clone(),
+            "",
+            Some(&ResolvedAddress {
+                name: "".to_string(),
+                addr: peer_address,
+            }),
+            Response {
+                code: 250,
+                enhanced_code: None,
+                command: None,
+                content: "".to_string(),
+            },
+        )
+        .await;
+        tokio::spawn(async move { QueueManager::insert(&queue_name, message).await });
+    }
+
+    Ok(())
+}
+
+async fn inject_v1_impl(
     auth: AuthKind,
-    InsecureClientIp(peer_address): InsecureClientIp,
-    // Note: Json<> must be last in the param list
-    Json(mut request): Json<InjectV1Request>,
+    sender: EnvelopeAddress,
+    peer_address: IpAddr,
+    request: InjectV1Request,
 ) -> Result<Json<InjectV1Response>, AppError> {
-    let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
-    request.normalize();
     let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;
     let mut errors = vec![];
     let mut failed_recipients = vec![];
-    let deferred_spool = false; // TODO: configurable somehow
     let data_spool = SpoolManager::get_named("data").await?;
     let meta_spool = SpoolManager::get_named("meta").await?;
+    let mut config = load_config().await?;
     for recip in &request.recipients {
-        let recip_addr = EnvelopeAddress::parse(&recip.email)
-            .with_context(|| format!("recipient email {}", recip.email))?;
-
-        match compiled.expand_for_recip(recip, &request.substitutions, &request.content) {
-            Ok(generated) => {
-                // build into a Message
-                let id = SpoolId::new();
-                let message = message::Message::new_dirty(
-                    id,
-                    sender.clone(),
-                    recip_addr,
-                    serde_json::json!({}),
-                    Arc::new(generated.into_bytes().into_boxed_slice()),
-                )?;
-
-                // TODO: call callback to assign to queue
-
-                // spool and insert to queue
-                let queue_name = message.get_queue_name()?;
-
-                if queue_name != "null" {
-                    if !deferred_spool {
-                        message
-                            .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
-                            .await?;
-                    }
-                    log_disposition(
-                        RecordType::Reception,
-                        message.clone(),
-                        "",
-                        Some(&ResolvedAddress {
-                            name: "".to_string(),
-                            addr: peer_address,
-                        }),
-                        Response {
-                            code: 250,
-                            enhanced_code: None,
-                            command: None,
-                            content: "".to_string(),
-                        },
-                    )
-                    .await;
-                    tokio::spawn(async move { QueueManager::insert(&queue_name, message).await });
-                }
-
+        match process_recipient(
+            &mut config,
+            &sender,
+            peer_address,
+            recip,
+            &request,
+            &compiled,
+            &data_spool,
+            &meta_spool,
+            &auth,
+        )
+        .await
+        {
+            Ok(()) => {
                 success_count += 1;
             }
             Err(err) => {
@@ -452,6 +485,26 @@ pub async fn inject_v1(
         failed_recipients,
         errors,
     }))
+}
+
+pub async fn inject_v1(
+    auth: AuthKind,
+    InsecureClientIp(peer_address): InsecureClientIp,
+    // Note: Json<> must be last in the param list
+    Json(mut request): Json<InjectV1Request>,
+) -> Result<Json<InjectV1Response>, AppError> {
+    let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
+    request.normalize();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    // Bounce to the thread pool where we can run async lua
+    crate::runtime::Runtime::run(move || {
+        tokio::task::spawn_local(async move {
+            tx.send(inject_v1_impl(auth, sender, peer_address, request).await)
+        });
+    })
+    .await?;
+    rx.await?
 }
 
 #[cfg(test)]
@@ -520,10 +573,10 @@ This is a test message to James Smythe
                     content_id: Some("my-image".to_string()),
                     file_name: None,
                 }],
-                headers: vec![
-                    Header::Full("Subject: hello {{ name }}".to_string()),
-                    Header::NameValue("To".to_string(), "\"{{ name }}\" <{{ email }}>".to_string()),
-                ],
+                subject: Some("hello {{ name }}".to_string()),
+                from: None,
+                reply_to: None,
+                headers: Default::default(),
             },
         };
 
