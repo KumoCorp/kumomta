@@ -7,6 +7,8 @@ each one will result in a separate message being created, and this event
 will be triggered for each of them.
 
 The event handler will be passed a [Message](../message/index.md) object.
+The Message will always have a `Received` header prepended that captures trace
+information about the sender.
 
 This event is the best place to carry out a number of important policy decisions:
 
