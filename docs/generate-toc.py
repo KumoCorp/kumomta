@@ -65,7 +65,7 @@ class Gen(object):
 
 TOC = [
     Page(
-        "KumoMTA Reference Manual",
+        "KumoMTA Documentation",
         "index.md",
         children=[
             Page(
@@ -79,13 +79,11 @@ TOC = [
                 ]
                  ),
             Page(
-                "Install",
-                "installation.md",
+                "User Guide",
+                "guide/index.md",
             ),
-            Page("Change Log", "changelog.md"),
-            Gen("HTTP API", "reference/http", extract_title=True),
             Page(
-                "Lua Reference",
+                "Referance Manual",
                 "reference/index.md",
                 children=[
                     Gen(
@@ -108,8 +106,10 @@ TOC = [
                         "events",
                         "reference/events",
                     ),
+                    Gen("HTTP API", "reference/http", extract_title=True),
                 ],
             ),
+            Page("Change Log", "changelog.md"),
         ],
     )
 ]
