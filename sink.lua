@@ -13,7 +13,7 @@ kumo.on('init', function()
     }
   end
   kumo.start_http_listener {
-    listen = '0.0.0.0:8001',
+    listen = '0.0.0.0:8002',
   }
 
   -- Define the default "data" spool location.

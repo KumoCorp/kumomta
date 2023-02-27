@@ -4,6 +4,7 @@ use crate::logging::{log_disposition, RecordType};
 use crate::spool::SpoolManager;
 use chrono::Utc;
 use config::load_config;
+use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntGauge, IntGaugeVec};
@@ -236,10 +237,11 @@ impl Queue {
     pub async fn new(name: String) -> anyhow::Result<QueueHandle> {
         let mut config = load_config().await?;
 
-        // TODO: could perhaps crack the standard queue name `campaign:tenant@domain`
-        // into its components and pass those down here?
-        let queue_config: QueueConfig =
-            config.call_callback("get_queue_config", name.to_string())?;
+        let components = QueueNameComponents::parse(&name);
+        let queue_config: QueueConfig = config.call_callback(
+            "get_queue_config",
+            (components.domain, components.tenant, components.campaign),
+        )?;
 
         let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
 
@@ -364,7 +366,7 @@ impl Queue {
     }
 
     async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
-        let site = SiteManager::resolve_domain(&self.name).await?;
+        let site = SiteManager::resolve_by_queue_name(&self.name).await?;
         let mut site = site.lock().await;
         site.insert(msg)
             .map_err(|_| anyhow::anyhow!("no room in ready queue"))
@@ -480,7 +482,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
 
-                    match SiteManager::resolve_domain(&q.name).await {
+                    match SiteManager::resolve_by_queue_name(&q.name).await {
                         Ok(site) => {
                             let mut site = site.lock().await;
 

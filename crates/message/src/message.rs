@@ -381,15 +381,12 @@ impl Message {
         Ok(match self.get_meta_string("queue")? {
             Some(name) => name,
             None => {
-                let campaign = self.get_meta_string("campaign")?;
-                let tenant = self.get_meta_string("tenant")?;
-                let domain = self.recipient()?.domain().to_string().to_lowercase();
-                match (campaign, tenant) {
-                    (Some(c), Some(t)) => format!("{c}:{t}@{domain}"),
-                    (Some(c), None) => format!("{c}:@{domain}"),
-                    (None, Some(t)) => format!("{t}@{domain}"),
-                    (None, None) => domain,
-                }
+                let name = QueueNameComponents::format(
+                    self.get_meta_string("campaign")?,
+                    self.get_meta_string("tenant")?,
+                    self.recipient()?.domain().to_string().to_lowercase(),
+                );
+                name.to_string()
             }
         })
     }
@@ -691,6 +688,55 @@ impl TimerEntryWithDelay for Message {
     }
 }
 
+pub struct QueueNameComponents<'a> {
+    pub campaign: Option<&'a str>,
+    pub tenant: Option<&'a str>,
+    pub domain: &'a str,
+}
+
+impl<'a> QueueNameComponents<'a> {
+    pub fn parse(name: &'a str) -> Self {
+        match name.split_once('@') {
+            Some((prefix, domain)) => match prefix.split_once(':') {
+                Some((campaign, tenant)) => Self {
+                    campaign: Some(campaign),
+                    tenant: Some(tenant),
+                    domain,
+                },
+                None => Self {
+                    campaign: None,
+                    tenant: Some(prefix),
+                    domain,
+                },
+            },
+            None => Self {
+                campaign: None,
+                tenant: None,
+                domain: name,
+            },
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        Self::format(self.campaign.clone(), self.tenant.clone(), &self.domain)
+    }
+
+    pub fn format<C: AsRef<str>, T: AsRef<str>, D: AsRef<str>>(
+        campaign: Option<C>,
+        tenant: Option<T>,
+        domain: D,
+    ) -> String {
+        let campaign: Option<&str> = campaign.as_ref().map(|c| c.as_ref());
+        let tenant: Option<&str> = tenant.as_ref().map(|c| c.as_ref());
+        let domain: &str = domain.as_ref();
+        match (campaign, tenant) {
+            (Some(c), Some(t)) => format!("{c}:{t}@{domain}"),
+            (Some(c), None) => format!("{c}:@{domain}"),
+            (None, Some(t)) => format!("{t}@{domain}"),
+            (None, None) => domain.to_string(),
+        }
+    }
+}
 #[cfg(test)]
 mod test {
     use super::*;

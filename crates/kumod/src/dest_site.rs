@@ -5,6 +5,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
 use mail_auth::{IpLookupStrategy, Resolver};
+use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntCounter, IntGauge};
@@ -143,15 +144,26 @@ impl SiteManager {
         MANAGER.lock().await
     }
 
-    pub async fn resolve_domain(domain_name: &str) -> anyhow::Result<SiteHandle> {
-        let mx = Arc::new(resolve_mx(domain_name).await?.into_boxed_slice());
+    pub async fn resolve_by_queue_name(queue_name: &str) -> anyhow::Result<SiteHandle> {
+        let components = QueueNameComponents::parse(queue_name);
+        let mx = Arc::new(resolve_mx(components.domain).await?.into_boxed_slice());
         let name = factor_names(&mx);
+
+        let name = match components.tenant {
+            Some(t) => format!("{t}@{name}"),
+            None => name,
+        };
 
         let mut config = load_config().await?;
 
         let site_config: DestSiteConfig = config.call_callback(
             "get_site_config",
-            (domain_name.to_string(), name.to_string()),
+            (
+                components.domain,
+                components.tenant,
+                components.campaign,
+                name.to_string(),
+            ),
         )?;
 
         let mut manager = Self::get().await;
