@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 once_cell = "1.17"
 redis-cell = { git = "https://github.com/brandur/redis-cell.git" }
+serde = {version="1.0", features=["derive"]}
 time = "0.1" # for embedding redis-cell
 thiserror = "1.0"

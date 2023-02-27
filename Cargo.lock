@@ -2662,6 +2662,7 @@ version = "0.1.0"
 dependencies = [
  "once_cell",
  "redis-cell",
+ "serde",
  "thiserror",
  "time 0.1.45",
 ]

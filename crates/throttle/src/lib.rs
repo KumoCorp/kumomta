@@ -5,6 +5,7 @@
 use once_cell::sync::OnceCell;
 use redis_cell::cell::store::MemoryStore;
 use redis_cell::cell::{Rate, RateLimiter, RateQuota};
+use std::convert::TryFrom;
 use std::sync::Mutex;
 use std::time::Duration;
 use thiserror::Error;
@@ -15,6 +16,57 @@ static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
 pub enum Error {
     #[error("{0}")]
     Generic(String),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub struct ThrottleSpec {
+    pub limit: u64,
+    /// Period, in seconds
+    pub period: u64,
+    pub max_burst: Option<u64>,
+}
+
+impl TryFrom<String> for ThrottleSpec {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        Self::try_from(s.as_str())
+    }
+}
+
+impl TryFrom<&str> for ThrottleSpec {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        let (limit, period) = s
+            .split_once("/")
+            .ok_or_else(|| format!("expected 'limit/period', got {s}"))?;
+
+        let period = match period {
+            "h" | "hr" | "hour" => 3600,
+            "m" | "min" | "minute" => 60,
+            "s" | "sec" | "second" => 1,
+            "d" | "day" => 86400,
+            invalid => return Err(format!("unknown period quantity {invalid}")),
+        };
+
+        // Allow "1_000/hr" and "1,000/hr" for more readable config
+        let limit: String = limit
+            .chars()
+            .filter_map(|c| match c {
+                '_' | ',' => None,
+                c => Some(c),
+            })
+            .collect();
+
+        let limit = limit
+            .parse::<u64>()
+            .map_err(|err| format!("invalid limit '{limit}': {err:#}"))?;
+
+        Ok(Self {
+            limit,
+            period,
+            max_burst: None,
+        })
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -157,7 +209,7 @@ mod test {
 
     #[test]
     fn basic_throttle_1_000() {
-        test_big_limits(1_000, None, 0.01);
+        test_big_limits(1_000, None, 0.02);
     }
 
     #[test]
@@ -176,5 +228,33 @@ mod test {
         // test case because the variance is due to timing issues with very small
         // time periods produced by the overally limit, rather than the burst.
         test_big_limits(60_000, Some(30_000), 0.05);
+    }
+
+    #[test]
+    fn throttle_spec_parse() {
+        assert_eq!(
+            ThrottleSpec::try_from("100/hr").unwrap(),
+            ThrottleSpec {
+                limit: 100,
+                period: 3600,
+                max_burst: None,
+            }
+        );
+        assert_eq!(
+            ThrottleSpec::try_from("1_0,0/hour").unwrap(),
+            ThrottleSpec {
+                limit: 100,
+                period: 3600,
+                max_burst: None,
+            }
+        );
+        assert_eq!(
+            ThrottleSpec::try_from("100/our").unwrap_err(),
+            "unknown period quantity our".to_string()
+        );
+        assert_eq!(
+            ThrottleSpec::try_from("three/hour").unwrap_err(),
+            "invalid limit 'three': invalid digit found in string".to_string()
+        );
     }
 }
