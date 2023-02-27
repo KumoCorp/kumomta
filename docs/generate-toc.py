@@ -81,9 +81,12 @@ TOC = [
             Page(
                 "User Guide",
                 "guide/index.md",
+                children=[
+                    Page("Getting Started","guide/getting_started.md"),
+                ]
             ),
             Page(
-                "Referance Manual",
+                "Reference Manual",
                 "reference/index.md",
                 children=[
                     Gen(
