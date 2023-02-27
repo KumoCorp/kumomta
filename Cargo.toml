@@ -4,6 +4,7 @@ members = [
   "crates/rfc5321",
   "crates/spool",
   "crates/timeq",
+  "crates/throttle",
   "crates/traffic-gen",
 ]
 resolver = "2"

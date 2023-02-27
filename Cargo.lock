@@ -1256,6 +1256,7 @@ dependencies = [
  "serde_json",
  "spool",
  "thiserror",
+ "throttle",
  "timeq",
  "tokio",
  "tokio-rustls",
@@ -2210,6 +2211,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "redis-cell"
+version = "0.3.0"
+source = "git+https://github.com/brandur/redis-cell.git#bada85d5df0908a8372b4081845ef464a5702125"
+dependencies = [
+ "bitflags",
+ "cc",
+ "libc",
+ "time 0.1.45",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2642,6 +2654,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5516c27b78311c50bf42c071425c560ac799b11c30b31f87e3081965fe5e0180"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "throttle"
+version = "0.1.0"
+dependencies = [
+ "once_cell",
+ "redis-cell",
+ "thiserror",
+ "time 0.1.45",
 ]
 
 [[package]]
