@@ -132,7 +132,10 @@ impl SmtpClient {
         let line = command.encode();
         match self.socket.as_mut() {
             Some(socket) => {
-                socket.write_all(line.as_bytes()).await?;
+                socket
+                    .write_all(line.as_bytes())
+                    .await
+                    .map_err(|_| ClientError::NotConnected)?;
             }
             None => return Err(ClientError::NotConnected),
         };
@@ -167,7 +170,10 @@ impl SmtpClient {
             let line = cmd.encode();
             match self.socket.as_mut() {
                 Some(socket) => {
-                    let res = socket.write_all(line.as_bytes()).await;
+                    let res = socket
+                        .write_all(line.as_bytes())
+                        .await
+                        .map_err(|_| ClientError::NotConnected);
                     if let Err(err) = res {
                         results.push(Err(err.into()));
                         return results;
@@ -307,12 +313,18 @@ impl SmtpClient {
                 stuffed.extend_from_slice(line);
             }
             match self.socket.as_mut() {
-                Some(sock) => sock.write_all(&stuffed).await?,
+                Some(sock) => sock
+                    .write_all(&stuffed)
+                    .await
+                    .map_err(|_| ClientError::NotConnected)?,
                 None => return Err(ClientError::NotConnected),
             }
         } else {
             match self.socket.as_mut() {
-                Some(sock) => sock.write_all(data).await?,
+                Some(sock) => sock
+                    .write_all(data)
+                    .await
+                    .map_err(|_| ClientError::NotConnected)?,
                 None => return Err(ClientError::NotConnected),
             }
         }
@@ -321,7 +333,10 @@ impl SmtpClient {
         let marker = if needs_newline { "\r\n.\r\n" } else { ".\r\n" };
 
         match self.socket.as_mut() {
-            Some(sock) => sock.write_all(marker.as_bytes()).await?,
+            Some(sock) => sock
+                .write_all(marker.as_bytes())
+                .await
+                .map_err(|_| ClientError::NotConnected)?,
             None => return Err(ClientError::NotConnected),
         }
 

@@ -9,10 +9,11 @@ use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntCounter, IntGauge};
-use rfc5321::{ClientError, ForwardPath, ReversePath, SmtpClient};
+use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
@@ -72,6 +73,9 @@ pub struct DestSiteConfig {
 
     #[serde(default = "DestSiteConfig::default_max_ready")]
     max_ready: usize,
+
+    #[serde(default = "DestSiteConfig::default_consecutive_connection_failures_before_delay")]
+    consecutive_connection_failures_before_delay: usize,
 }
 
 impl LuaUserData for DestSiteConfig {}
@@ -83,6 +87,7 @@ impl Default for DestSiteConfig {
             enable_tls: Tls::default(),
             idle_timeout: Self::default_idle_timeout(),
             max_ready: Self::default_max_ready(),
+            consecutive_connection_failures_before_delay: Self::default_consecutive_connection_failures_before_delay(),
         }
     }
 }
@@ -98,6 +103,10 @@ impl DestSiteConfig {
 
     fn default_max_ready() -> usize {
         1024
+    }
+
+    fn default_consecutive_connection_failures_before_delay() -> usize {
+        100
     }
 }
 
@@ -234,6 +243,7 @@ impl SiteManager {
                 site_config,
                 metrics,
                 activity,
+                consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
             })))
         });
         Ok(handle.clone())
@@ -276,6 +286,7 @@ pub struct DestinationSite {
     site_config: DestSiteConfig,
     metrics: DeliveryMetrics,
     activity: Activity,
+    consecutive_connection_failures: Arc<AtomicUsize>,
 }
 
 impl DestinationSite {
@@ -338,11 +349,22 @@ impl DestinationSite {
             let notify = self.notify.clone();
             let site_config = self.site_config.clone();
             let metrics = self.metrics.clone();
+            let consecutive_connection_failures = self.consecutive_connection_failures.clone();
             self.connections.push(tokio::spawn(async move {
-                if let Err(err) =
-                    Dispatcher::run(&name, mx, ready, notify, site_config, metrics).await
+                if let Err(err) = Dispatcher::run(
+                    &name,
+                    mx,
+                    ready,
+                    notify,
+                    site_config,
+                    metrics,
+                    consecutive_connection_failures.clone(),
+                )
+                .await
                 {
-                    tracing::error!("Error in dispatch_queue for {name}: {err:#}");
+                    tracing::debug!(
+                        "Error in dispatch_queue for {name}: {err:#} \
+                         (consecutive_connection_failures={consecutive_connection_failures:?})");
                 }
             }));
         }
@@ -414,6 +436,7 @@ impl Dispatcher {
         notify: Arc<Notify>,
         site_config: DestSiteConfig,
         metrics: DeliveryMetrics,
+        consecutive_connection_failures: Arc<AtomicUsize>,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -456,13 +479,60 @@ impl Dispatcher {
                 dispatcher.metrics.connection_gauge.dec();
                 dispatcher.metrics.global_connection_gauge.dec();
                 if dispatcher.addresses.is_empty() {
+                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst) > dispatcher.site_config.consecutive_connection_failures_before_delay {
+                        dispatcher.delay_ready_queue();
+                    }
                     return Err(err);
                 }
-                tracing::error!("{err:#}");
+                tracing::debug!("{err:#}");
                 // Try the next candidate MX address
                 continue;
             }
+            consecutive_connection_failures.store(0, Ordering::SeqCst);
             dispatcher.deliver_message().await?;
+        }
+    }
+
+    fn delay_ready_queue(&mut self) {
+        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        if let Some(msg) = self.msg.take() {
+            msgs.push(msg);
+        }
+        if !msgs.is_empty() {
+            tracing::debug!(
+                "too many connection failures, delaying ready queue {} - {} messages",
+                self.name,
+                msgs.len()
+            );
+            let activity = self.activity.clone();
+            let name = self.name.clone();
+            tokio::spawn(async move {
+                let increment_attempts = true;
+                for msg in msgs {
+                    log_disposition(
+                        RecordType::Delivery,
+                        msg.clone(),
+                        &name,
+                        None,
+                        Response {
+                            code: 451,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 1,
+                            }),
+                            content: "No answer from any hosts listed in MX".to_string(),
+                            command: None,
+                        },
+                    )
+                    .await;
+
+                    if let Err(err) = Self::requeue_message(msg, increment_attempts).await {
+                        tracing::error!("error requeuing message: {err:#}");
+                    }
+                }
+                drop(activity);
+            });
         }
     }
 
@@ -648,7 +718,7 @@ impl Dispatcher {
             Err(ClientError::Rejected(response)) => {
                 self.metrics.msgs_fail.inc();
                 self.metrics.global_msgs_fail.inc();
-                tracing::error!(
+                tracing::debug!(
                     "failed to send message to {} {:?}: {response:?}",
                     self.name,
                     self.client_address
@@ -667,11 +737,12 @@ impl Dispatcher {
             }
             Err(err) => {
                 // Transient failure; continue with another host
-                tracing::error!(
+                tracing::debug!(
                     "failed to send message to {} {:?}: {err:#}",
                     self.name,
                     self.client_address
                 );
+                return Err(err.into());
             }
             Ok(response) => {
                 tracing::debug!("Delivered OK! {response:?}");

@@ -307,6 +307,7 @@ impl Queue {
                 SpoolManager::remove_from_spool(id).await?;
                 return Ok(());
             }
+            tracing::error!("delaying by {delay:?}");
             msg.delay_by(delay);
         } else {
             msg.delay_with_jitter(60);
