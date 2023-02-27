@@ -14,7 +14,7 @@ Specifies the maximum number of concurrent connections that will be made from
 the current MTA machine to the destination site.
 
 ```lua
-kumo.on('get_site_config', function(domain, site_name)
+kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
   return kumo.make_site_config {
     connection_limit = 32,
   }
@@ -55,7 +55,7 @@ Possible values are:
 The default value is `"Opportunistic"`.
 
 ```lua
-kumo.on('get_site_config', function(domain, site_name)
+kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
   return kumo.make_site_config {
     enable_tls = 'Opportunistic',
   }
@@ -70,7 +70,7 @@ reused for another delivery attempt, before being closed.
 The value is specified in seconds.
 
 ```lua
-kumo.on('get_site_config', function(domain, site_name)
+kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
   return kumo.make_site_config {
     idle_timeout = 60,
   }
@@ -86,4 +86,21 @@ If a message is promoted from its delayed queue to the ready queue and it would
 take the size of the ready queue above *max_ready*, the message will be delayed
 by a randomized interval of up to 60 seconds before being considered again.
 
+## smtp_port
 
+Specified the port to connect to when making an SMTP connection to a destination
+MX host.
+
+The default is port 25.
+
+```lua
+kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
+  local port = nil
+  if tenant == 'tenant-id-1' then
+    port = 9001
+  end
+  return kumo.make_site_config {
+    smtp_port = port,
+  }
+end)
+```

@@ -76,6 +76,9 @@ pub struct DestSiteConfig {
 
     #[serde(default = "DestSiteConfig::default_consecutive_connection_failures_before_delay")]
     consecutive_connection_failures_before_delay: usize,
+
+    #[serde(default = "DestSiteConfig::default_smtp_port")]
+    smtp_port: u16,
 }
 
 impl LuaUserData for DestSiteConfig {}
@@ -87,7 +90,9 @@ impl Default for DestSiteConfig {
             enable_tls: Tls::default(),
             idle_timeout: Self::default_idle_timeout(),
             max_ready: Self::default_max_ready(),
-            consecutive_connection_failures_before_delay: Self::default_consecutive_connection_failures_before_delay(),
+            consecutive_connection_failures_before_delay:
+                Self::default_consecutive_connection_failures_before_delay(),
+            smtp_port: Self::default_smtp_port(),
         }
     }
 }
@@ -107,6 +112,10 @@ impl DestSiteConfig {
 
     fn default_consecutive_connection_failures_before_delay() -> usize {
         100
+    }
+
+    fn default_smtp_port() -> u16 {
+        25
     }
 }
 
@@ -364,7 +373,8 @@ impl DestinationSite {
                 {
                     tracing::debug!(
                         "Error in dispatch_queue for {name}: {err:#} \
-                         (consecutive_connection_failures={consecutive_connection_failures:?})");
+                         (consecutive_connection_failures={consecutive_connection_failures:?})"
+                    );
                 }
             }));
         }
@@ -479,7 +489,11 @@ impl Dispatcher {
                 dispatcher.metrics.connection_gauge.dec();
                 dispatcher.metrics.global_connection_gauge.dec();
                 if dispatcher.addresses.is_empty() {
-                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst) > dispatcher.site_config.consecutive_connection_failures_before_delay {
+                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
+                        > dispatcher
+                            .site_config
+                            .consecutive_connection_failures_before_delay
+                    {
                         dispatcher.delay_ready_queue();
                     }
                     return Err(err);
@@ -586,14 +600,15 @@ impl Dispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
         let enable_tls = self.site_config.enable_tls;
+        let port = self.site_config.smtp_port;
 
         let client = tokio::time::timeout(timeout, {
             let address = address.clone();
             async move {
                 let mut client = SmtpClient::with_stream(
-                    TcpStream::connect((address.addr, 25))
+                    TcpStream::connect((address.addr, port))
                         .await
-                        .with_context(|| format!("connect to {address:?} port 25"))?,
+                        .with_context(|| format!("connect to {address:?} port {port}"))?,
                     &mx_host,
                 );
 
