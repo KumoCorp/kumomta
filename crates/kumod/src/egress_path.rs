@@ -86,6 +86,9 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     max_connection_rate: Option<ThrottleSpec>,
+
+    #[serde(default)]
+    max_deliveries_per_connection: Option<usize>,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -102,6 +105,7 @@ impl Default for EgressPathConfig {
             smtp_port: Self::default_smtp_port(),
             max_message_rate: None,
             max_connection_rate: None,
+            max_deliveries_per_connection: None,
         }
     }
 }
@@ -399,6 +403,7 @@ struct Dispatcher {
     activity: Activity,
     egress_source: EgressSource,
     egress_pool: String,
+    delivered_this_connection: usize,
 }
 
 impl Dispatcher {
@@ -436,6 +441,7 @@ impl Dispatcher {
             activity,
             egress_source,
             egress_pool,
+            delivered_this_connection: 0,
         };
 
         dispatcher.obtain_message();
@@ -564,6 +570,21 @@ impl Dispatcher {
                 Queue::save_if_needed_and_log(&msg).await;
             }
             return Ok(false);
+        }
+
+        if let Some(limit) = self.path_config.max_deliveries_per_connection {
+            if self.delivered_this_connection >= limit {
+                if let Some(mut client) = self.client.take() {
+                    tracing::trace!(
+                        "Sent {} and limit is {limit}, close and make a new connection",
+                        self.delivered_this_connection
+                    );
+                    client.send_command(&rfc5321::Command::Quit).await.ok();
+                    // Close out this dispatcher and let the maintainer spawn
+                    // a new connection
+                    return Ok(false);
+                }
+            }
         }
 
         if self.obtain_message() {
@@ -702,6 +723,7 @@ impl Dispatcher {
 
         self.client.replace(client);
         self.client_address.replace(address);
+        self.delivered_this_connection = 0;
         Ok(())
     }
 
@@ -781,6 +803,7 @@ impl Dispatcher {
             }
         }
 
+        self.delivered_this_connection += 1;
         match self
             .client
             .as_mut()

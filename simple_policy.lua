@@ -135,6 +135,7 @@ kumo.on('get_egress_path_config', function(domain, site_name)
     enable_tls = 'OpportunisticInsecure',
     -- max_message_rate = '5/min',
     idle_timeout = 5,
+    max_deliveries_per_connection = 5,
   }
 end)
 

@@ -121,6 +121,15 @@ If the throttle is exceeded and the delay before a connection be established
 is longer than the `idle_timeout`, then the messages in the ready queue
 will be delayed until the throttle would permit them to be delievered again.
 
+## max_deliveries_per_connection
+
+Optional number.
+
+If set, no more than this number of messages will be attempted on any
+given connection.
+
+If unset, there is no limit.
+
 ## max_message_rate
 
 Optional string.
