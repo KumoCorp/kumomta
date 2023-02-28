@@ -1,7 +1,7 @@
-use crate::dest_site::ResolvedAddress;
 use crate::http_server::auth::AuthKind;
 use crate::http_server::AppError;
 use crate::logging::{log_disposition, RecordType};
+use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
 use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::Context;

@@ -1240,6 +1240,7 @@ dependencies = [
  "gethostname",
  "k9",
  "lazy_static",
+ "lruttl",
  "mail-auth",
  "mail-builder",
  "mail-parser",
@@ -1269,6 +1270,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "trust-dns-resolver",
  "webpki-roots",
  "zstd 0.12.3+zstd.1.5.2",
 ]

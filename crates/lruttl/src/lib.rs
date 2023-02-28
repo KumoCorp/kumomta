@@ -32,6 +32,21 @@ impl<K: Hash + Eq, V: Clone> LruCacheWithTtl<K, V> {
         }
     }
 
+    pub fn get_with_expiry<Q: ?Sized>(&self, name: &Q) -> Option<(V, Instant)>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq,
+    {
+        let mut cache = self.cache.lock();
+        let entry = cache.get_mut(name)?;
+        if Instant::now() < entry.expiration {
+            Some((entry.item.clone(), entry.expiration))
+        } else {
+            cache.remove(name);
+            None
+        }
+    }
+
     pub fn get<Q: ?Sized>(&self, name: &Q) -> Option<V>
     where
         K: Borrow<Q>,

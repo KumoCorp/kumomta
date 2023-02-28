@@ -15,6 +15,7 @@ mod lifecycle;
 mod logging;
 mod metrics_helper;
 mod mod_kumo;
+mod mx;
 mod queue;
 mod runtime;
 mod smtp_server;

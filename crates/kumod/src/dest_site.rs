@@ -1,11 +1,11 @@
 use crate::egress_source::EgressSource;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
+use crate::mx::{MailExchanger, ResolvedAddress};
 use crate::queue::{Queue, QueueManager};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
-use mail_auth::{IpLookupStrategy, Resolver};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
@@ -13,7 +13,6 @@ use prometheus::{IntCounter, IntGauge};
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -23,7 +22,6 @@ use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<SiteManager> = Mutex::new(SiteManager::new());
-    static ref RESOLVER: Mutex<Resolver> = Mutex::new(Resolver::new_system_conf().unwrap());
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -124,30 +122,6 @@ pub struct SiteManager {
     sites: HashMap<String, SiteHandle>,
 }
 
-async fn resolve_mx(domain_name: &str) -> anyhow::Result<Vec<String>> {
-    let resolver = RESOLVER.lock().await;
-    match resolver.mx_lookup(domain_name).await {
-        Ok(mxs) if mxs.is_empty() => Ok(vec![domain_name.to_string()]),
-        Ok(mxs) => {
-            let mut hosts = vec![];
-            for mx in mxs.iter() {
-                let mut hosts_this_pref: Vec<String> =
-                    mx.exchanges.iter().map(|s| s.to_string()).collect();
-                hosts_this_pref.sort();
-                hosts.append(&mut hosts_this_pref);
-            }
-            Ok(hosts)
-        }
-        err @ Err(mail_auth::Error::DnsRecordNotFound(_)) => {
-            match resolver.exists(domain_name).await {
-                Ok(true) => Ok(vec![domain_name.to_string()]),
-                _ => anyhow::bail!("{:#}", err.unwrap_err()),
-            }
-        }
-        Err(err) => anyhow::bail!("MX lookup for {domain_name} failed: {err:#}"),
-    }
-}
-
 impl SiteManager {
     pub fn new() -> Self {
         Self {
@@ -168,8 +142,8 @@ impl SiteManager {
         egress_source: &str,
     ) -> anyhow::Result<SiteHandle> {
         let components = QueueNameComponents::parse(queue_name);
-        let mx = Arc::new(resolve_mx(components.domain).await?.into_boxed_slice());
-        let name = factor_names(&mx);
+        let mx = MailExchanger::resolve(components.domain).await?;
+        let name = &mx.site_name;
 
         let name = format!("{egress_source}->{name}");
         let egress_source = EgressSource::resolve(egress_source)?;
@@ -289,7 +263,7 @@ struct DeliveryMetrics {
 
 pub struct DestinationSite {
     name: String,
-    mx: Arc<Box<[String]>>,
+    mx: Arc<MailExchanger>,
     ready: Arc<StdMutex<VecDeque<Message>>>,
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
@@ -395,39 +369,6 @@ impl DestinationSite {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolvedAddress {
-    pub name: String,
-    pub addr: IpAddr,
-}
-async fn resolve_addresses(mx: &Arc<Box<[String]>>) -> Vec<ResolvedAddress> {
-    let mut result = vec![];
-
-    for mx_host in mx.iter() {
-        match RESOLVER
-            .lock()
-            .await
-            .ip_lookup(mx_host, IpLookupStrategy::default(), 32)
-            .await
-        {
-            Err(err) => {
-                tracing::error!("failed to resolve {mx_host}: {err:#}");
-                continue;
-            }
-            Ok(addresses) => {
-                for addr in addresses {
-                    result.push(ResolvedAddress {
-                        name: mx_host.to_string(),
-                        addr,
-                    });
-                }
-            }
-        }
-    }
-    result.reverse();
-    result
-}
-
 struct Dispatcher {
     name: String,
     ready: Arc<StdMutex<VecDeque<Message>>>,
@@ -447,7 +388,7 @@ struct Dispatcher {
 impl Dispatcher {
     async fn run(
         name: &str,
-        mx: Arc<Box<[String]>>,
+        mx: Arc<MailExchanger>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
         site_config: DestSiteConfig,
@@ -462,7 +403,7 @@ impl Dispatcher {
 
         let activity = Activity::get()?;
 
-        let addresses = resolve_addresses(&mx).await;
+        let addresses = mx.resolve_addresses().await;
         let mut dispatcher = Self {
             name: name.to_string(),
             ready,
@@ -824,103 +765,9 @@ fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     goal.ceil() as usize
 }
 
-/// Given a list of host names, produce a pseudo-regex style alternation list
-/// of the different elements of the hostnames.
-/// The goal is to produce a more compact representation of the name list
-/// with the common components factored out.
-fn factor_names<S: AsRef<str>>(names: &[S]) -> String {
-    let mut max_element_count = 0;
-
-    let mut elements: Vec<Vec<&str>> = vec![];
-
-    let mut split_names = vec![];
-    for name in names {
-        let name = name.as_ref();
-        let mut fields: Vec<_> = name.split('.').map(|s| s.to_lowercase()).collect();
-        fields.reverse();
-        max_element_count = max_element_count.max(fields.len());
-        split_names.push(fields);
-    }
-
-    fn add_element<'a>(elements: &mut Vec<Vec<&'a str>>, field: &'a str, i: usize) {
-        match elements.get_mut(i) {
-            Some(ele) => {
-                if !ele.contains(&field) {
-                    ele.push(field);
-                }
-            }
-            None => {
-                elements.push(vec![field]);
-            }
-        }
-    }
-
-    for fields in &split_names {
-        for (i, field) in fields.iter().enumerate() {
-            add_element(&mut elements, field, i);
-        }
-        for i in fields.len()..max_element_count {
-            add_element(&mut elements, "?", i);
-        }
-    }
-
-    let mut result = vec![];
-    for mut ele in elements {
-        let has_q = ele.contains(&"?");
-        ele.retain(|&e| e != "?");
-        let mut item_text = if ele.len() == 1 {
-            ele[0].to_string()
-        } else {
-            format!("({})", ele.join("|"))
-        };
-        if has_q {
-            item_text.push('?');
-        }
-        result.push(item_text);
-    }
-    result.reverse();
-
-    result.join(".")
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn name_factoring() {
-        assert_eq!(
-            factor_names(&[
-                "mta5.am0.yahoodns.net",
-                "mta6.am0.yahoodns.net",
-                "mta7.am0.yahoodns.net"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.net".to_string()
-        );
-
-        // Verify that the case is normalized to lowercase
-        assert_eq!(
-            factor_names(&[
-                "mta5.AM0.yahoodns.net",
-                "mta6.am0.yAHOodns.net",
-                "mta7.am0.yahoodns.net"
-            ]),
-            "(mta5|mta6|mta7).am0.yahoodns.net".to_string()
-        );
-
-        // When the names have mismatched lengths, do we produce
-        // something reasonable?
-        assert_eq!(
-            factor_names(&[
-                "gmail-smtp-in.l.google.com",
-                "alt1.gmail-smtp-in.l.google.com",
-                "alt2.gmail-smtp-in.l.google.com",
-                "alt3.gmail-smtp-in.l.google.com",
-                "alt4.gmail-smtp-in.l.google.com",
-            ]),
-            "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com".to_string()
-        );
-    }
 
     #[test]
     fn connection_limit() {

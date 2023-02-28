@@ -20,6 +20,7 @@ config = {path="../config"}
 gcd = "2.3"
 gethostname = "0.4"
 lazy_static = "1.4"
+lruttl = {path="../lruttl"}
 mail-auth = "0.3"
 mail-builder = "0.2"
 message = {path="../message"}
@@ -47,6 +48,7 @@ tokio = {version="1.25", features=["full"]}
 tokio-rustls = "0.23"
 tracing = "0.1"
 tracing-subscriber = {version="0.3", features=["env-filter"]}
+trust-dns-resolver = "0.22"
 webpki-roots = "0.22"
 zstd = "0.12"
 

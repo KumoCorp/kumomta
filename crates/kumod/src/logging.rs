@@ -1,4 +1,4 @@
-use crate::dest_site::ResolvedAddress;
+use crate::mx::ResolvedAddress;
 use anyhow::Context;
 use async_channel::{Receiver, Sender};
 use chrono::{DateTime, Utc};
