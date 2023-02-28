@@ -22,7 +22,7 @@ use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<SiteManager> = Mutex::new(SiteManager::new());
+    static ref MANAGER: Mutex<EgressPathManager> = Mutex::new(EgressPathManager::new());
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -61,29 +61,29 @@ impl Default for Tls {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct DestSiteConfig {
-    #[serde(default = "DestSiteConfig::default_connection_limit")]
+pub struct EgressPathConfig {
+    #[serde(default = "EgressPathConfig::default_connection_limit")]
     connection_limit: usize,
 
     #[serde(default)]
     enable_tls: Tls,
 
-    #[serde(default = "DestSiteConfig::default_idle_timeout")]
+    #[serde(default = "EgressPathConfig::default_idle_timeout")]
     idle_timeout: u64,
 
-    #[serde(default = "DestSiteConfig::default_max_ready")]
+    #[serde(default = "EgressPathConfig::default_max_ready")]
     max_ready: usize,
 
-    #[serde(default = "DestSiteConfig::default_consecutive_connection_failures_before_delay")]
+    #[serde(default = "EgressPathConfig::default_consecutive_connection_failures_before_delay")]
     consecutive_connection_failures_before_delay: usize,
 
-    #[serde(default = "DestSiteConfig::default_smtp_port")]
+    #[serde(default = "EgressPathConfig::default_smtp_port")]
     smtp_port: u16,
 }
 
-impl LuaUserData for DestSiteConfig {}
+impl LuaUserData for EgressPathConfig {}
 
-impl Default for DestSiteConfig {
+impl Default for EgressPathConfig {
     fn default() -> Self {
         Self {
             connection_limit: Self::default_connection_limit(),
@@ -97,7 +97,7 @@ impl Default for DestSiteConfig {
     }
 }
 
-impl DestSiteConfig {
+impl EgressPathConfig {
     fn default_connection_limit() -> usize {
         32
     }
@@ -119,19 +119,19 @@ impl DestSiteConfig {
     }
 }
 
-pub struct SiteManager {
-    sites: HashMap<String, SiteHandle>,
+pub struct EgressPathManager {
+    paths: HashMap<String, EgressPathHandle>,
 }
 
-impl SiteManager {
+impl EgressPathManager {
     pub fn new() -> Self {
         Self {
-            sites: HashMap::new(),
+            paths: HashMap::new(),
         }
     }
 
     pub fn number_of_sites(&self) -> usize {
-        self.sites.len()
+        self.paths.len()
     }
 
     pub async fn get() -> MutexGuard<'static, Self> {
@@ -141,7 +141,7 @@ impl SiteManager {
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         egress_source: &str,
-    ) -> anyhow::Result<SiteHandle> {
+    ) -> anyhow::Result<EgressPathHandle> {
         let components = QueueNameComponents::parse(queue_name);
         let mx = MailExchanger::resolve(components.domain).await?;
         let name = &mx.site_name;
@@ -151,8 +151,8 @@ impl SiteManager {
 
         let mut config = load_config().await?;
 
-        let site_config: DestSiteConfig = config.call_callback(
-            "get_site_config",
+        let site_config: EgressPathConfig = config.call_callback(
+            "get_egress_path_config",
             (
                 components.domain,
                 egress_source.name.to_string(),
@@ -162,7 +162,7 @@ impl SiteManager {
 
         let mut manager = Self::get().await;
         let activity = Activity::get()?;
-        let handle = manager.sites.entry(name.clone()).or_insert_with(|| {
+        let handle = manager.paths.entry(name.clone()).or_insert_with(|| {
             tokio::spawn({
                 let name = name.clone();
                 async move {
@@ -175,15 +175,15 @@ impl SiteManager {
                                 interval = Duration::from_secs(5);
                             }
                         };
-                        let mut mgr = SiteManager::get().await;
-                        let site = { mgr.sites.get(&name).cloned() };
-                        match site {
+                        let mut mgr = EgressPathManager::get().await;
+                        let path = { mgr.paths.get(&name).cloned() };
+                        match path {
                             None => break,
-                            Some(site) => {
-                                let mut site = site.lock().await;
-                                if site.reapable() {
+                            Some(path) => {
+                                let mut path = path.lock().await;
+                                if path.reapable() {
                                     tracing::debug!("reaping site {name}");
-                                    mgr.sites.remove(&name);
+                                    mgr.paths.remove(&name);
                                     crate::metrics_helper::remove_metrics_for_service(&format!(
                                         "smtp_client:{name}"
                                     ));
@@ -218,7 +218,7 @@ impl SiteManager {
             };
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
             let notify = Arc::new(Notify::new());
-            SiteHandle(Arc::new(Mutex::new(DestinationSite {
+            EgressPathHandle(Arc::new(Mutex::new(EgressPath {
                 name: name.clone(),
                 ready,
                 mx,
@@ -237,10 +237,10 @@ impl SiteManager {
 }
 
 #[derive(Clone)]
-pub struct SiteHandle(Arc<Mutex<DestinationSite>>);
+pub struct EgressPathHandle(Arc<Mutex<EgressPath>>);
 
-impl SiteHandle {
-    pub async fn lock(&self) -> MutexGuard<DestinationSite> {
+impl EgressPathHandle {
+    pub async fn lock(&self) -> MutexGuard<EgressPath> {
         self.0.lock().await
     }
 }
@@ -262,21 +262,21 @@ struct DeliveryMetrics {
     global_msgs_fail: IntCounter,
 }
 
-pub struct DestinationSite {
+pub struct EgressPath {
     name: String,
     mx: Arc<MailExchanger>,
     ready: Arc<StdMutex<VecDeque<Message>>>,
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
-    site_config: DestSiteConfig,
+    site_config: EgressPathConfig,
     egress_source: EgressSource,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
 }
 
-impl DestinationSite {
+impl EgressPath {
     #[allow(unused)]
     pub fn name(&self) -> &str {
         &self.name
@@ -379,7 +379,7 @@ struct Dispatcher {
     client: Option<SmtpClient>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
-    site_config: DestSiteConfig,
+    site_config: EgressPathConfig,
     metrics: DeliveryMetrics,
     shutting_down: ShutdownSubcription,
     activity: Activity,
@@ -392,7 +392,7 @@ impl Dispatcher {
         mx: Arc<MailExchanger>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
-        site_config: DestSiteConfig,
+        site_config: EgressPathConfig,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
         egress_source: EgressSource,

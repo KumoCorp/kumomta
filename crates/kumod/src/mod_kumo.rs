@@ -1,4 +1,4 @@
-use crate::dest_site::DestSiteConfig;
+use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::http_server::HttpListenerParams;
 use crate::lifecycle::LifeCycle;
@@ -79,9 +79,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
-        "make_site_config",
+        "make_egress_path",
         lua.create_function(move |lua, params: Value| {
-            let config: DestSiteConfig = lua.from_value(params)?;
+            let config: EgressPathConfig = lua.from_value(params)?;
             Ok(config)
         })?,
     )?;

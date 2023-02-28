@@ -131,8 +131,8 @@ end)
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used when making outbound
 -- connections
-kumo.on('get_site_config', function(domain, site_name)
-  return kumo.make_site_config {
+kumo.on('get_egress_path_config', function(domain, site_name)
+  return kumo.make_egress_path {
     enable_tls = 'OpportunisticInsecure',
   }
 end)

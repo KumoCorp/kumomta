@@ -1,4 +1,4 @@
-use crate::dest_site::SiteManager;
+use crate::egress_path::EgressPathManager;
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
@@ -384,7 +384,7 @@ impl Queue {
             .rr
             .next()
             .ok_or_else(|| anyhow!("no sources in pool"))?;
-        let site = SiteManager::resolve_by_queue_name(&self.name, &egress_source).await?;
+        let site = EgressPathManager::resolve_by_queue_name(&self.name, &egress_source).await?;
         let mut site = site.lock().await;
         site.insert(msg)
             .map_err(|_| anyhow!("no room in ready queue"))
@@ -482,8 +482,8 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     drop(msg);
                 }
 
-                let site_mgr = SiteManager::get().await;
-                if site_mgr.number_of_sites() == 0 {
+                let path_mgr = EgressPathManager::get().await;
+                if path_mgr.number_of_sites() == 0 {
                     tracing::debug!(
                         "{}: there are no more sites and the delayed queue is empty, reaping",
                         q.name
@@ -505,7 +505,9 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                         let egress_source =
                             q.rr.next().ok_or_else(|| anyhow!("no sources in pool"))?;
 
-                        match SiteManager::resolve_by_queue_name(&q.name, &egress_source).await {
+                        match EgressPathManager::resolve_by_queue_name(&q.name, &egress_source)
+                            .await
+                        {
                             Ok(site) => {
                                 let mut site = site.lock().await;
 

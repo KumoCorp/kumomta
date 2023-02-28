@@ -1,9 +1,9 @@
-# `kumo.make_site_config { PARAMS }`
+# `kumo.make_egress_path { PARAMS }`
 
 Constructs a configuration object that specifies how a *site* will behave.
 
 This function should be called from the
-[get_site_config](../events/get_site_config.md) event handler to provide the
+[get_egress_path_config](../events/get_egress_path_config.md) event handler to provide the
 configuration for the requested site.
 
 The following keys are possible:
@@ -14,11 +14,14 @@ Specifies the maximum number of concurrent connections that will be made from
 the current MTA machine to the destination site.
 
 ```lua
-kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
-  return kumo.make_site_config {
-    connection_limit = 32,
-  }
-end)
+kumo.on(
+  'get_egress_path_config',
+  function(domain, tenant, campaign, site_name)
+    return kumo.make_egress_path {
+      connection_limit = 32,
+    }
+  end
+)
 ```
 
 ## consecutive_connection_failures_before_delay
@@ -55,11 +58,14 @@ Possible values are:
 The default value is `"Opportunistic"`.
 
 ```lua
-kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
-  return kumo.make_site_config {
-    enable_tls = 'Opportunistic',
-  }
-end)
+kumo.on(
+  'get_egress_path_config',
+  function(domain, tenant, campaign, site_name)
+    return kumo.make_egress_path {
+      enable_tls = 'Opportunistic',
+    }
+  end
+)
 ```
 
 ## idle_timeout
@@ -70,11 +76,14 @@ reused for another delivery attempt, before being closed.
 The value is specified in seconds.
 
 ```lua
-kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
-  return kumo.make_site_config {
-    idle_timeout = 60,
-  }
-end)
+kumo.on(
+  'get_egress_path_config',
+  function(domain, tenant, campaign, site_name)
+    return kumo.make_egress_path {
+      idle_timeout = 60,
+    }
+  end
+)
 ```
 
 ## max_ready
@@ -94,13 +103,16 @@ MX host.
 The default is port 25.
 
 ```lua
-kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
-  local port = nil
-  if tenant == 'tenant-id-1' then
-    port = 9001
+kumo.on(
+  'get_egress_path_config',
+  function(domain, tenant, campaign, site_name)
+    local port = nil
+    if tenant == 'tenant-id-1' then
+      port = 9001
+    end
+    return kumo.make_egress_path {
+      smtp_port = port,
+    }
   end
-  return kumo.make_site_config {
-    smtp_port = port,
-  }
-end)
+)
 ```
