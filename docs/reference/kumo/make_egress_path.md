@@ -15,14 +15,11 @@ Specifies the maximum number of concurrent connections that will be made from
 the current MTA machine to the destination site.
 
 ```lua
-kumo.on(
-  'get_egress_path_config',
-  function(domain, tenant, campaign, site_name)
-    return kumo.make_egress_path {
-      connection_limit = 32,
-    }
-  end
-)
+kumo.on('get_egress_path_config', function(domain, source_name, site_name)
+  return kumo.make_egress_path {
+    connection_limit = 32,
+  }
+end)
 ```
 
 ## consecutive_connection_failures_before_delay
@@ -59,14 +56,11 @@ Possible values are:
 The default value is `"Opportunistic"`.
 
 ```lua
-kumo.on(
-  'get_egress_path_config',
-  function(domain, tenant, campaign, site_name)
-    return kumo.make_egress_path {
-      enable_tls = 'Opportunistic',
-    }
-  end
-)
+kumo.on('get_egress_path_config', function(domain, source_name, site_name)
+  return kumo.make_egress_path {
+    enable_tls = 'Opportunistic',
+  }
+end)
 ```
 
 ## idle_timeout
@@ -77,14 +71,11 @@ reused for another delivery attempt, before being closed.
 The value is specified in seconds.
 
 ```lua
-kumo.on(
-  'get_egress_path_config',
-  function(domain, tenant, campaign, site_name)
-    return kumo.make_egress_path {
-      idle_timeout = 60,
-    }
-  end
-)
+kumo.on('get_egress_path_config', function(domain, source_name, site_name)
+  return kumo.make_egress_path {
+    idle_timeout = 60,
+  }
+end)
 ```
 
 ## max_ready
@@ -102,20 +93,5 @@ Specified the port to connect to when making an SMTP connection to a destination
 MX host.
 
 The default is port 25.
-
-```lua
-kumo.on(
-  'get_egress_path_config',
-  function(domain, tenant, campaign, site_name)
-    local port = nil
-    if tenant == 'tenant-id-1' then
-      port = 9001
-    end
-    return kumo.make_egress_path {
-      smtp_port = port,
-    }
-  end
-)
-```
 
 See also [kumo.define_egress_source().remote_port](define_egress_source.md#remote_port)
