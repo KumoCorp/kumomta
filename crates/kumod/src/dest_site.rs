@@ -13,10 +13,11 @@ use prometheus::{IntCounter, IntGauge};
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
-use tokio::net::TcpStream;
+use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
 
@@ -549,20 +550,39 @@ impl Dispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
         let enable_tls = self.site_config.enable_tls;
+        let egress_source_name = self.egress_source.name.to_string();
         let port = self
             .egress_source
             .remote_port
             .unwrap_or(self.site_config.smtp_port);
+        let source_address = self.egress_source.source_address.clone();
 
         let client = tokio::time::timeout(timeout, {
             let address = address.clone();
             async move {
-                let mut client = SmtpClient::with_stream(
-                    TcpStream::connect((address.addr, port))
-                        .await
-                        .with_context(|| format!("connect to {address:?} port {port}"))?,
-                    &mx_host,
-                );
+                let socket = match address.addr {
+                    IpAddr::V4(_) => TcpSocket::new_v4(),
+                    IpAddr::V6(_) => TcpSocket::new_v6(),
+                }
+                .with_context(|| format!("make socket to connect to {address:?} port {port}"))?;
+                if let Some(source) = source_address {
+                    if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
+                        // Always log failure to bind: it indicates a critical
+                        // misconfiguration issue
+                        let error = format!(
+                            "bind {source:?} for source:{egress_source_name} failed: {err:#} \
+                             while attempting to connect to {address:?} port {port}"
+                        );
+                        tracing::error!("{error}");
+                        anyhow::bail!("{error}");
+                    }
+                }
+                let stream = socket
+                    .connect(SocketAddr::new(address.addr, port))
+                    .await
+                    .with_context(|| format!("connect to {address:?} port {port}"))?;
+
+                let mut client = SmtpClient::with_stream(stream, &mx_host);
 
                 // Read banner
                 let banner = client.read_response(None).await?;

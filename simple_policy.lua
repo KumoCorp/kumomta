@@ -82,6 +82,7 @@ kumo.on('init', function()
     local source_name = 'source' .. tostring(i)
     kumo.define_egress_source {
       name = source_name,
+      source_address = '192.168.1.94',
     }
     table.insert(entries, { name = source_name, weight = i * 10 })
   end
