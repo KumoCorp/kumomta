@@ -12,7 +12,6 @@ connections
 kumo.on('get_egress_path_config', function(domain, egress_source, site_name)
   return kumo.make_egress_path {
     enable_tls = 'OpportunisticInsecure',
-    egress_pool = 'BestReputation',
   }
 end)
 ```

@@ -1,6 +1,7 @@
 # `kumo.make_egress_path { PARAMS }`
 
-Constructs a configuration object that specifies how a *site* will behave.
+Constructs a configuration object that specifies how traffic travelling the
+path from a *source* to a *site* will behave.
 
 This function should be called from the
 [get_egress_path_config](../events/get_egress_path_config.md) event handler to provide the
@@ -116,3 +117,5 @@ kumo.on(
   end
 )
 ```
+
+See also [kumo.define_egress_source().remote_port](define_egress_source.md#remote_port)

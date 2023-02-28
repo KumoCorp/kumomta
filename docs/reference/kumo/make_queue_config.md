@@ -8,6 +8,13 @@ configuration for the requested queue.
 
 The following keys are possible:
 
+## egress_pool
+
+The name of the egress pool which should be used as the source of
+this traffic.
+
+See [kumo.define_egress_pool()](define_egress_pool.md).
+
 ## max_age
 
 Limits how long a message can remain in the queue.

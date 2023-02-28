@@ -66,7 +66,14 @@ pub struct EgressPoolEntry {
     /// as the other one.
     ///
     /// A weight of 0 prevents this entry from being used.
+    #[serde(default = "EgressPoolEntry::default_weight")]
     pub weight: u32,
+}
+
+impl EgressPoolEntry {
+    fn default_weight() -> u32 {
+        1
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
