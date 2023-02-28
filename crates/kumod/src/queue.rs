@@ -1,7 +1,9 @@
 use crate::dest_site::SiteManager;
+use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::spool::SpoolManager;
+use anyhow::anyhow;
 use chrono::Utc;
 use config::load_config;
 use message::message::QueueNameComponents;
@@ -39,6 +41,11 @@ pub struct QueueConfig {
     /// Limits how long a message can remain in the queue
     #[serde(default = "QueueConfig::default_max_age")]
     max_age: usize,
+
+    /// Specifies which egress pool should be used when
+    /// delivering these messages
+    #[serde(default)]
+    egress_pool: Option<String>,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -49,6 +56,7 @@ impl Default for QueueConfig {
             retry_interval: Self::default_retry_interval(),
             max_retry_interval: None,
             max_age: Self::default_max_age(),
+            egress_pool: None,
         }
     }
 }
@@ -223,6 +231,7 @@ pub struct Queue {
     queue_config: QueueConfig,
     delayed_gauge: IntGauge,
     activity: Activity,
+    rr: EgressPoolRoundRobin,
 }
 
 impl Drop for Queue {
@@ -243,6 +252,9 @@ impl Queue {
             (components.domain, components.tenant, components.campaign),
         )?;
 
+        let pool = EgressPool::resolve(queue_config.egress_pool.as_deref())?;
+        let rr = EgressPoolRoundRobin::new(&pool);
+
         let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
 
         let activity = Activity::get()?;
@@ -255,6 +267,7 @@ impl Queue {
             queue_config,
             delayed_gauge,
             activity,
+            rr,
         })));
 
         let queue_clone = handle.clone();
@@ -366,11 +379,15 @@ impl Queue {
         Self::save_if_needed(&msg).await
     }
 
-    async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
-        let site = SiteManager::resolve_by_queue_name(&self.name).await?;
+    async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+        let egress_source = self
+            .rr
+            .next()
+            .ok_or_else(|| anyhow!("no sources in pool"))?;
+        let site = SiteManager::resolve_by_queue_name(&self.name, &egress_source).await?;
         let mut site = site.lock().await;
         site.insert(msg)
-            .map_err(|_| anyhow::anyhow!("no room in ready queue"))
+            .map_err(|_| anyhow!("no room in ready queue"))
     }
 
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
@@ -482,14 +499,16 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
             match q.queue.pop() {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
+                    let max_age = q.queue_config.get_max_age();
 
-                    match SiteManager::resolve_by_queue_name(&q.name).await {
-                        Ok(site) => {
-                            let mut site = site.lock().await;
+                    for msg in messages {
+                        let egress_source =
+                            q.rr.next().ok_or_else(|| anyhow!("no sources in pool"))?;
 
-                            let max_age = q.queue_config.get_max_age();
+                        match SiteManager::resolve_by_queue_name(&q.name, &egress_source).await {
+                            Ok(site) => {
+                                let mut site = site.lock().await;
 
-                            for msg in messages {
                                 let msg = (*msg).clone();
                                 let id = *msg.id();
 
@@ -514,10 +533,8 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                     },
                                 }
                             }
-                        }
-                        Err(err) => {
-                            tracing::error!("Failed to resolve {}: {err:#}", q.name);
-                            for msg in messages {
+                            Err(err) => {
+                                tracing::error!("Failed to resolve {}: {err:#}", q.name);
                                 q.force_into_delayed((*msg).clone()).await?;
                             }
                         }

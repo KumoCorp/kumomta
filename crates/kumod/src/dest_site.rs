@@ -1,3 +1,4 @@
+use crate::egress_source::EgressSource;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::queue::{Queue, QueueManager};
@@ -162,15 +163,16 @@ impl SiteManager {
         MANAGER.lock().await
     }
 
-    pub async fn resolve_by_queue_name(queue_name: &str) -> anyhow::Result<SiteHandle> {
+    pub async fn resolve_by_queue_name(
+        queue_name: &str,
+        egress_source: &str,
+    ) -> anyhow::Result<SiteHandle> {
         let components = QueueNameComponents::parse(queue_name);
         let mx = Arc::new(resolve_mx(components.domain).await?.into_boxed_slice());
         let name = factor_names(&mx);
 
-        let name = match components.tenant {
-            Some(t) => format!("{t}@{name}"),
-            None => name,
-        };
+        let name = format!("{egress_source}->{name}");
+        let egress_source = EgressSource::resolve(egress_source)?;
 
         let mut config = load_config().await?;
 
@@ -178,8 +180,7 @@ impl SiteManager {
             "get_site_config",
             (
                 components.domain,
-                components.tenant,
-                components.campaign,
+                egress_source.name.to_string(),
                 name.to_string(),
             ),
         )?;
@@ -250,6 +251,7 @@ impl SiteManager {
                 connections: vec![],
                 last_change: Instant::now(),
                 site_config,
+                egress_source,
                 metrics,
                 activity,
                 consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
@@ -293,6 +295,7 @@ pub struct DestinationSite {
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
     site_config: DestSiteConfig,
+    egress_source: EgressSource,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
@@ -358,6 +361,7 @@ impl DestinationSite {
             let notify = self.notify.clone();
             let site_config = self.site_config.clone();
             let metrics = self.metrics.clone();
+            let egress_source = self.egress_source.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
             self.connections.push(tokio::spawn(async move {
                 if let Err(err) = Dispatcher::run(
@@ -368,6 +372,7 @@ impl DestinationSite {
                     site_config,
                     metrics,
                     consecutive_connection_failures.clone(),
+                    egress_source,
                 )
                 .await
                 {
@@ -436,6 +441,7 @@ struct Dispatcher {
     metrics: DeliveryMetrics,
     shutting_down: ShutdownSubcription,
     activity: Activity,
+    egress_source: EgressSource,
 }
 
 impl Dispatcher {
@@ -447,6 +453,7 @@ impl Dispatcher {
         site_config: DestSiteConfig,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
+        egress_source: EgressSource,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -469,6 +476,7 @@ impl Dispatcher {
             metrics,
             shutting_down: ShutdownSubcription::get(),
             activity,
+            egress_source,
         };
 
         dispatcher.obtain_message();
@@ -600,7 +608,10 @@ impl Dispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
         let enable_tls = self.site_config.enable_tls;
-        let port = self.site_config.smtp_port;
+        let port = self
+            .egress_source
+            .remote_port
+            .unwrap_or(self.site_config.smtp_port);
 
         let client = tokio::time::timeout(timeout, {
             let address = address.clone();

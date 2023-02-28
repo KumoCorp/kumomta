@@ -1,4 +1,4 @@
-# `kumo.on('get_site_config', function(domain, tenant, campaign, site_name))`
+# `kumo.on('get_site_config', function(domain, egress_source, site_name))`
 
 ```admonish
 This event handler is in flux and may change significantly
@@ -9,7 +9,7 @@ we retrieve configuration used when making outbound
 connections
 
 ```lua
-kumo.on('get_site_config', function(domain, tenant, campaign, site_name)
+kumo.on('get_site_config', function(domain, egress_source, site_name)
   return kumo.make_site_config {
     enable_tls = 'OpportunisticInsecure',
   }

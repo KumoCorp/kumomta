@@ -1,4 +1,5 @@
 use crate::dest_site::DestSiteConfig;
+use crate::egress_source::{EgressPool, EgressSource};
 use crate::http_server::HttpListenerParams;
 use crate::lifecycle::LifeCycle;
 use crate::logging::LogFileParams;
@@ -90,6 +91,23 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, params: Value| {
             let config: QueueConfig = lua.from_value(params)?;
             Ok(config)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "define_egress_source",
+        lua.create_function(move |lua, params: Value| {
+            let source: EgressSource = lua.from_value(params)?;
+            source.register();
+            Ok(())
+        })?,
+    )?;
+    kumo_mod.set(
+        "define_egress_pool",
+        lua.create_function(move |lua, params: Value| {
+            let pool: EgressPool = lua.from_value(params)?;
+            pool.register()
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))
         })?,
     )?;
 

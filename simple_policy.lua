@@ -75,6 +75,20 @@ kumo.on('init', function()
     flush = false,
     kind = 'RocksDB',
   }
+
+  -- Create some example sources
+  local entries = {}
+  for i = 1, 10 do
+    local source_name = 'source' .. tostring(i)
+    kumo.define_egress_source {
+      name = source_name,
+    }
+    table.insert(entries, { name = source_name, weight = i * 10 })
+  end
+  kumo.define_egress_pool {
+    name = 'pool0',
+    entries = entries,
+  }
 end)
 
 -- Called to validate the helo and/or ehlo domain
@@ -130,6 +144,7 @@ kumo.on('get_queue_config', function(queue_name)
     -- max_age = 120,
     -- retry_interval = 2,
     -- max_retry_interval = 8,
+    egress_pool = 'pool0',
   }
 end)
 

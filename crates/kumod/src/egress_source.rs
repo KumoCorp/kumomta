@@ -1,6 +1,14 @@
+use anyhow::Context;
 use gcd::Gcd;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::sync::Mutex;
+
+lazy_static::lazy_static! {
+    static ref SOURCES: Mutex<HashMap<String, EgressSource>> = Mutex::new(EgressSource::init_sources());
+    static ref POOLS: Mutex<HashMap<String, EgressPool>> = Mutex::new(EgressPool::init_pools());
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct EgressSource {
@@ -15,6 +23,35 @@ pub struct EgressSource {
     /// for deployments that use port mapping
     pub remote_port: Option<u16>,
     // TODO: ha proxy cluster protocol options to go here
+}
+
+impl EgressSource {
+    pub fn register(&self) {
+        SOURCES
+            .lock()
+            .unwrap()
+            .insert(self.name.to_string(), self.clone());
+    }
+
+    fn init_sources() -> HashMap<String, Self> {
+        let mut map = HashMap::new();
+        let unspec = Self {
+            name: "unspecified".to_string(),
+            source_address: None,
+            remote_port: None,
+        };
+
+        map.insert(unspec.name.to_string(), unspec);
+        map
+    }
+    pub fn resolve(name: &str) -> anyhow::Result<Self> {
+        SOURCES
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no such source {name}"))
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -32,12 +69,51 @@ pub struct EgressPoolEntry {
     pub weight: u32,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct EgressPool {
     /// Name of the pool
     pub name: String,
 
     /// and the sources the constitute this pool
     pub entries: Vec<EgressPoolEntry>,
+}
+
+impl EgressPool {
+    pub fn register(&self) -> anyhow::Result<()> {
+        for entry in &self.entries {
+            EgressSource::resolve(&entry.name)
+                .with_context(|| format!("defining egress pool {}", self.name))?;
+        }
+        POOLS
+            .lock()
+            .unwrap()
+            .insert(self.name.to_string(), self.clone());
+        Ok(())
+    }
+
+    pub fn resolve(name: Option<&str>) -> anyhow::Result<Self> {
+        let name = name.unwrap_or("unspecified");
+        POOLS
+            .lock()
+            .unwrap()
+            .get(name)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no such pool {name}"))
+    }
+
+    fn init_pools() -> HashMap<String, Self> {
+        let mut map = HashMap::new();
+        let unspec = Self {
+            name: "unspecified".to_string(),
+            entries: vec![EgressPoolEntry {
+                name: "unspecified".to_string(),
+                weight: 1,
+            }],
+        };
+
+        map.insert(unspec.name.to_string(), unspec);
+        map
+    }
 }
 
 /// Maintains the state to manage Weighted Round Robin
@@ -75,12 +151,12 @@ impl EgressPoolRoundRobin {
         }
     }
 
-    pub fn next(&mut self) -> Option<&EgressPoolEntry> {
+    pub fn next(&mut self) -> Option<String> {
         if self.entries.is_empty() || self.max_weight == 0 {
             return None;
         }
         if self.entries.len() == 1 {
-            return self.entries.get(0);
+            return self.entries.get(0).map(|entry| entry.name.to_string());
         }
         loop {
             self.current_index = (self.current_index + 1) % self.entries.len();
@@ -93,7 +169,7 @@ impl EgressPoolRoundRobin {
 
             if let Some(entry) = self.entries.get(self.current_index) {
                 if entry.weight >= self.current_weight {
-                    return Some(entry);
+                    return Some(entry.name.to_string());
                 }
             }
         }
@@ -129,7 +205,7 @@ mod test {
         let mut counts = HashMap::new();
 
         for _ in 0..100 {
-            let name = rr.next().unwrap().name.to_string();
+            let name = rr.next().unwrap();
             *counts.entry(name).or_insert(0) += 1;
         }
 
