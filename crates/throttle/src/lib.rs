@@ -5,6 +5,7 @@
 use once_cell::sync::OnceCell;
 use redis_cell::cell::store::MemoryStore;
 use redis_cell::cell::{Rate, RateLimiter, RateQuota};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -18,12 +19,24 @@ pub enum Error {
     Generic(String),
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "String")]
 pub struct ThrottleSpec {
     pub limit: u64,
     /// Period, in seconds
     pub period: u64,
     pub max_burst: Option<u64>,
+}
+
+impl ThrottleSpec {
+    pub async fn throttle<S: AsRef<str>>(&self, key: S) -> Result<ThrottleResult, Error> {
+        let key = key.as_ref();
+        let limit = self.limit;
+        let period = self.period;
+        let max_burst = self.max_burst.unwrap_or(limit);
+        let key = format!("{key}:{limit}:{max_burst}:{period}");
+        throttle(&key, limit, Duration::from_secs(period), max_burst, Some(1)).await
+    }
 }
 
 impl TryFrom<String> for ThrottleSpec {

@@ -17,6 +17,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
+use throttle::ThrottleSpec;
 use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
@@ -79,6 +80,12 @@ pub struct EgressPathConfig {
 
     #[serde(default = "EgressPathConfig::default_smtp_port")]
     smtp_port: u16,
+
+    #[serde(default)]
+    max_message_rate: Option<ThrottleSpec>,
+
+    #[serde(default)]
+    max_connection_rate: Option<ThrottleSpec>,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -93,6 +100,8 @@ impl Default for EgressPathConfig {
             consecutive_connection_failures_before_delay:
                 Self::default_consecutive_connection_failures_before_delay(),
             smtp_port: Self::default_smtp_port(),
+            max_message_rate: None,
+            max_connection_rate: None,
         }
     }
 }
@@ -152,7 +161,7 @@ impl EgressPathManager {
 
         let mut config = load_config().await?;
 
-        let site_config: EgressPathConfig = config.call_callback(
+        let path_config: EgressPathConfig = config.call_callback(
             "get_egress_path_config",
             (
                 components.domain,
@@ -226,7 +235,7 @@ impl EgressPathManager {
                 notify,
                 connections: vec![],
                 last_change: Instant::now(),
-                site_config,
+                path_config,
                 egress_source,
                 metrics,
                 activity,
@@ -271,7 +280,7 @@ pub struct EgressPath {
     notify: Arc<Notify>,
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
-    site_config: EgressPathConfig,
+    path_config: EgressPathConfig,
     egress_pool: String,
     egress_source: EgressSource,
     metrics: DeliveryMetrics,
@@ -303,7 +312,7 @@ impl EgressPath {
         if self.activity.is_shutting_down() {
             0
         } else {
-            ideal_connection_count(self.ready_count(), self.site_config.connection_limit)
+            ideal_connection_count(self.ready_count(), self.path_config.connection_limit)
         }
     }
 
@@ -337,7 +346,7 @@ impl EgressPath {
             let mx = self.mx.clone();
             let ready = Arc::clone(&self.ready);
             let notify = self.notify.clone();
-            let site_config = self.site_config.clone();
+            let path_config = self.path_config.clone();
             let metrics = self.metrics.clone();
             let egress_source = self.egress_source.clone();
             let egress_pool = self.egress_pool.clone();
@@ -348,7 +357,7 @@ impl EgressPath {
                     mx,
                     ready,
                     notify,
-                    site_config,
+                    path_config,
                     metrics,
                     consecutive_connection_failures.clone(),
                     egress_source,
@@ -384,7 +393,7 @@ struct Dispatcher {
     client: Option<SmtpClient>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
-    site_config: EgressPathConfig,
+    path_config: EgressPathConfig,
     metrics: DeliveryMetrics,
     shutting_down: ShutdownSubcription,
     activity: Activity,
@@ -398,7 +407,7 @@ impl Dispatcher {
         mx: Arc<MailExchanger>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
-        site_config: EgressPathConfig,
+        path_config: EgressPathConfig,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
         egress_source: EgressSource,
@@ -421,7 +430,7 @@ impl Dispatcher {
             client_address: None,
             addresses,
             ehlo_name,
-            site_config,
+            path_config,
             metrics,
             shutting_down: ShutdownSubcription::get(),
             activity,
@@ -449,7 +458,7 @@ impl Dispatcher {
                 if dispatcher.addresses.is_empty() {
                     if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
                         > dispatcher
-                            .site_config
+                            .path_config
                             .consecutive_connection_failures_before_delay
                     {
                         dispatcher.delay_ready_queue();
@@ -462,6 +471,35 @@ impl Dispatcher {
             }
             consecutive_connection_failures.store(0, Ordering::SeqCst);
             dispatcher.deliver_message().await?;
+        }
+    }
+
+    fn throttle_ready_queue(&mut self, delay: Duration) {
+        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        if let Some(msg) = self.msg.take() {
+            msgs.push(msg);
+        }
+        if !msgs.is_empty() {
+            tracing::debug!(
+                "throttled: delaying ready queue {} - {} messages",
+                self.name,
+                msgs.len()
+            );
+            let activity = self.activity.clone();
+            let delay = chrono::Duration::from_std(delay).unwrap_or_else(|err| {
+                tracing::error!(
+                    "error creating duration from {delay:?}: {err:#}. Using 1 minute instead"
+                );
+                chrono::Duration::seconds(60)
+            });
+            tokio::spawn(async move {
+                for msg in msgs {
+                    if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
+                        tracing::error!("error requeuing message: {err:#}");
+                    }
+                }
+                drop(activity);
+            });
         }
     }
 
@@ -503,7 +541,7 @@ impl Dispatcher {
                     )
                     .await;
 
-                    if let Err(err) = Self::requeue_message(msg, increment_attempts).await {
+                    if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await {
                         tracing::error!("error requeuing message: {err:#}");
                     }
                 }
@@ -532,7 +570,7 @@ impl Dispatcher {
             return Ok(true);
         }
 
-        let idle_timeout = Duration::from_secs(self.site_config.idle_timeout);
+        let idle_timeout = Duration::from_secs(self.path_config.idle_timeout);
         tokio::select! {
             _ = tokio::time::sleep(idle_timeout) => {},
             _ = self.notify.notified() => {}
@@ -548,6 +586,34 @@ impl Dispatcher {
             return Ok(());
         }
 
+        if let Some(throttle) = &self.path_config.max_connection_rate {
+            loop {
+                let result = throttle
+                    .throttle(format!("{}-connection-rate", self.name))
+                    .await?;
+
+                if let Some(delay) = result.retry_after {
+                    if delay >= Duration::from_secs(self.path_config.idle_timeout) {
+                        self.throttle_ready_queue(delay);
+                        anyhow::bail!("connection rate throttled for {delay:?}");
+                    }
+                    tracing::trace!(
+                        "{} throttled connection rate, sleep for {delay:?}",
+                        self.name
+                    );
+                    let mut shutdown = ShutdownSubcription::get();
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {},
+                        _ = shutdown.shutting_down() => {
+                            anyhow::bail!("shutting down");
+                        }
+                    };
+                } else {
+                    break;
+                }
+            }
+        }
+
         self.metrics.connection_gauge.inc();
         self.metrics.global_connection_gauge.inc();
         self.metrics.connection_total.inc();
@@ -561,12 +627,12 @@ impl Dispatcher {
         let timeout = Duration::from_secs(60);
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let enable_tls = self.site_config.enable_tls;
+        let enable_tls = self.path_config.enable_tls;
         let egress_source_name = self.egress_source.name.to_string();
         let port = self
             .egress_source
             .remote_port
-            .unwrap_or(self.site_config.smtp_port);
+            .unwrap_or(self.path_config.smtp_port);
         let source_address = self.egress_source.source_address.clone();
 
         let client = tokio::time::timeout(timeout, {
@@ -639,7 +705,11 @@ impl Dispatcher {
         Ok(())
     }
 
-    async fn requeue_message(msg: Message, increment_attempts: bool) -> anyhow::Result<()> {
+    async fn requeue_message(
+        msg: Message,
+        increment_attempts: bool,
+        delay: Option<chrono::Duration>,
+    ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             let meta_spool = SpoolManager::get_named("meta").await?;
             msg.load_meta(&**meta_spool.lock().await).await?;
@@ -647,7 +717,7 @@ impl Dispatcher {
         let queue_name = msg.get_queue_name()?;
         let queue = QueueManager::resolve(&queue_name).await?;
         let mut queue = queue.lock().await;
-        queue.requeue_message(msg, increment_attempts).await
+        queue.requeue_message(msg, increment_attempts, delay).await
     }
 
     async fn deliver_message(&mut self) -> anyhow::Result<()> {
@@ -686,6 +756,31 @@ impl Dispatcher {
             }
         };
 
+        if let Some(throttle) = &self.path_config.max_message_rate {
+            loop {
+                let result = throttle
+                    .throttle(format!("{}-message-rate", self.name))
+                    .await?;
+
+                if let Some(delay) = result.retry_after {
+                    if delay >= Duration::from_secs(self.path_config.idle_timeout) {
+                        self.throttle_ready_queue(delay);
+                        return Ok(());
+                    }
+                    tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
+                    let mut shutdown = ShutdownSubcription::get();
+                    tokio::select! {
+                        _ = tokio::time::sleep(delay) => {},
+                        _ = shutdown.shutting_down() => {
+                            anyhow::bail!("shutting down");
+                        }
+                    };
+                } else {
+                    break;
+                }
+            }
+        }
+
         match self
             .client
             .as_mut()
@@ -711,7 +806,7 @@ impl Dispatcher {
                         Some(&self.egress_source.name),
                     )
                     .await;
-                    tokio::spawn(async move { Self::requeue_message(msg, true).await });
+                    tokio::spawn(async move { Self::requeue_message(msg, true, None).await });
                 }
                 self.metrics.msgs_transfail.inc();
                 self.metrics.global_msgs_transfail.inc();
@@ -781,7 +876,7 @@ impl Drop for Dispatcher {
             tokio::spawn(async move {
                 if activity.is_shutting_down() {
                     Queue::save_if_needed_and_log(&msg).await;
-                } else if let Err(err) = Dispatcher::requeue_message(msg, false).await {
+                } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
                     tracing::error!("error requeuing message: {err:#}");
                 }
             });

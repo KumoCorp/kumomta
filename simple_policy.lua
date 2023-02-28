@@ -82,7 +82,6 @@ kumo.on('init', function()
     local source_name = 'source' .. tostring(i)
     kumo.define_egress_source {
       name = source_name,
-      source_address = '192.168.1.94',
     }
     table.insert(entries, { name = source_name, weight = i * 10 })
   end
@@ -134,6 +133,8 @@ end)
 kumo.on('get_egress_path_config', function(domain, site_name)
   return kumo.make_egress_path {
     enable_tls = 'OpportunisticInsecure',
+    -- max_message_rate = '5/min',
+    idle_timeout = 5,
   }
 end)
 

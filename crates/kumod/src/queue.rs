@@ -287,6 +287,7 @@ impl Queue {
         &mut self,
         msg: Message,
         increment_attempts: bool,
+        delay: Option<chrono::Duration>,
     ) -> anyhow::Result<()> {
         let id = *msg.id();
         if increment_attempts {
@@ -323,6 +324,8 @@ impl Queue {
                 return Ok(());
             }
             tracing::error!("delaying by {delay:?}");
+            msg.delay_by(delay);
+        } else if let Some(delay) = delay {
             msg.delay_by(delay);
         } else {
             msg.delay_with_jitter(60);
