@@ -17,6 +17,33 @@ some metadata associated with the message:
 These three pieces of information are combined to produce the name of the queue
 in the form `campaign:tenant@domain`.
 
+```mermaid
+graph TD
+   DQ["Queue: campaign:tenant@domain.com"]
+   SMTPL["ESMTP Listener"]
+   HTTPI["Injection API"]
+   RQ1["Ready Queue: 10.0.0.1->MX(domain.com)"]
+   RQ2["Ready Queue: 10.0.0.2->MX(domain.com)"]
+   POOL["egress pool"]
+   IP1["Source: 10.0.0.1"]
+   IP2["Source: 10.0.0.2"]
+   MAINT["Queue Maintainer"]
+   DESTSITE["domain.com"]
+   
+   SMTPL --> DQ 
+   HTTPI --> DQ
+   DQ --> MAINT
+   IP1 --> POOL
+   IP2 --> POOL
+   POOL -- per tenant:domain config --> MAINT
+   MAINT -- throttle per tenant:domain config --> RQ1
+   MAINT -- throttle per tenant:domain config --> RQ2
+   RQ1 -- throttle per source:domain config\nconnect via 10.0.0.1 --> DESTSITE
+   RQ2 -- throttle per source:domain config\nconnect via 10.0.0.2 --> DESTSITE
+   
+```
+
+
 ## Debugging/Tracing
 
 This will launch the server using the policy defined in [simple_policy.lua](simple_policy.lua):
