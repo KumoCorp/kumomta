@@ -315,6 +315,8 @@ impl Queue {
                         content: format!("Delivery time {age} > {max_age}"),
                         command: None,
                     },
+                    self.queue_config.egress_pool.as_deref(),
+                    None,
                 )
                 .await;
                 SpoolManager::remove_from_spool(id).await?;
@@ -384,7 +386,9 @@ impl Queue {
             .rr
             .next()
             .ok_or_else(|| anyhow!("no sources in pool"))?;
-        let site = EgressPathManager::resolve_by_queue_name(&self.name, &egress_source).await?;
+        let site =
+            EgressPathManager::resolve_by_queue_name(&self.name, &egress_source, &self.rr.name)
+                .await?;
         let mut site = site.lock().await;
         site.insert(msg)
             .map_err(|_| anyhow!("no room in ready queue"))
@@ -505,8 +509,12 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                         let egress_source =
                             q.rr.next().ok_or_else(|| anyhow!("no sources in pool"))?;
 
-                        match EgressPathManager::resolve_by_queue_name(&q.name, &egress_source)
-                            .await
+                        match EgressPathManager::resolve_by_queue_name(
+                            &q.name,
+                            &egress_source,
+                            &q.rr.name,
+                        )
+                        .await
                         {
                             Ok(site) => {
                                 let mut site = site.lock().await;

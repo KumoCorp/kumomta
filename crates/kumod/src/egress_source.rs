@@ -126,6 +126,7 @@ impl EgressPool {
 /// Maintains the state to manage Weighted Round Robin
 /// <http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling>
 pub struct EgressPoolRoundRobin {
+    pub name: String,
     entries: Vec<EgressPoolEntry>,
     max_weight: u32,
     gcd: u32,
@@ -150,6 +151,7 @@ impl EgressPoolRoundRobin {
         }
 
         Self {
+            name: pool.name.to_string(),
             entries,
             max_weight,
             gcd,

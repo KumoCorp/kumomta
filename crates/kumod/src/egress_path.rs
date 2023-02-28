@@ -141,6 +141,7 @@ impl EgressPathManager {
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         egress_source: &str,
+        egress_pool: &str,
     ) -> anyhow::Result<EgressPathHandle> {
         let components = QueueNameComponents::parse(queue_name);
         let mx = MailExchanger::resolve(components.domain).await?;
@@ -230,6 +231,7 @@ impl EgressPathManager {
                 metrics,
                 activity,
                 consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
+                egress_pool: egress_pool.to_string(),
             })))
         });
         Ok(handle.clone())
@@ -270,6 +272,7 @@ pub struct EgressPath {
     connections: Vec<JoinHandle<()>>,
     last_change: Instant,
     site_config: EgressPathConfig,
+    egress_pool: String,
     egress_source: EgressSource,
     metrics: DeliveryMetrics,
     activity: Activity,
@@ -337,6 +340,7 @@ impl EgressPath {
             let site_config = self.site_config.clone();
             let metrics = self.metrics.clone();
             let egress_source = self.egress_source.clone();
+            let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
             self.connections.push(tokio::spawn(async move {
                 if let Err(err) = Dispatcher::run(
@@ -348,6 +352,7 @@ impl EgressPath {
                     metrics,
                     consecutive_connection_failures.clone(),
                     egress_source,
+                    egress_pool,
                 )
                 .await
                 {
@@ -384,6 +389,7 @@ struct Dispatcher {
     shutting_down: ShutdownSubcription,
     activity: Activity,
     egress_source: EgressSource,
+    egress_pool: String,
 }
 
 impl Dispatcher {
@@ -396,6 +402,7 @@ impl Dispatcher {
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
         egress_source: EgressSource,
+        egress_pool: String,
     ) -> anyhow::Result<()> {
         let ehlo_name = gethostname::gethostname()
             .to_str()
@@ -419,6 +426,7 @@ impl Dispatcher {
             shutting_down: ShutdownSubcription::get(),
             activity,
             egress_source,
+            egress_pool,
         };
 
         dispatcher.obtain_message();
@@ -470,6 +478,8 @@ impl Dispatcher {
             );
             let activity = self.activity.clone();
             let name = self.name.clone();
+            let egress_pool = self.egress_pool.clone();
+            let egress_source = self.egress_source.name.clone();
             tokio::spawn(async move {
                 let increment_attempts = true;
                 for msg in msgs {
@@ -488,6 +498,8 @@ impl Dispatcher {
                             content: "No answer from any hosts listed in MX".to_string(),
                             command: None,
                         },
+                        Some(&egress_pool),
+                        Some(&egress_source),
                     )
                     .await;
 
@@ -695,6 +707,8 @@ impl Dispatcher {
                         &self.name,
                         self.client_address.as_ref(),
                         response,
+                        Some(&self.egress_pool),
+                        Some(&self.egress_source.name),
                     )
                     .await;
                     tokio::spawn(async move { Self::requeue_message(msg, true).await });
@@ -717,6 +731,8 @@ impl Dispatcher {
                         &self.name,
                         self.client_address.as_ref(),
                         response,
+                        Some(&self.egress_pool),
+                        Some(&self.egress_source.name),
                     )
                     .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
@@ -740,6 +756,8 @@ impl Dispatcher {
                         &self.name,
                         self.client_address.as_ref(),
                         response,
+                        Some(&self.egress_pool),
+                        Some(&self.egress_source.name),
                     )
                     .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });

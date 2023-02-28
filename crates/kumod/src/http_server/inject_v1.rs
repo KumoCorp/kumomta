@@ -433,6 +433,8 @@ async fn process_recipient<'a>(
                 command: None,
                 content: "".to_string(),
             },
+            None,
+            None,
         )
         .await;
         tokio::spawn(async move { QueueManager::insert(&queue_name, message).await });

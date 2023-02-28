@@ -184,6 +184,8 @@ impl SpoolManager {
         drop(tx);
 
         let activity = Activity::get()?;
+        let egress_source = None;
+        let egress_pool = None;
         tracing::debug!("start_spool: waiting for enumeration");
         while let Some(entry) = rx.recv().await {
             if activity.is_shutting_down() {
@@ -224,6 +226,8 @@ impl SpoolManager {
                                                 content: format!("Delivery time {age} > {max_age}"),
                                                 command: None,
                                             },
+                                            egress_pool,
+                                            egress_source,
                                         )
                                         .await;
                                         self.remove_from_spool_impl(id).await?;
@@ -260,6 +264,8 @@ impl SpoolManager {
                                     content: format!("Failed to compute queue name: {err:#}"),
                                     command: None,
                                 },
+                                egress_pool,
+                                egress_source,
                             )
                             .await;
                             self.remove_from_spool_impl(id).await?;

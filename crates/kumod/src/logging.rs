@@ -213,6 +213,9 @@ pub struct JsonLogRecord {
     /// Note that this may be approximate after a restart; use the
     /// number of logged events to determine the true number
     pub num_attempts: u16,
+
+    pub egress_pool: Option<String>,
+    pub egress_source: Option<String>,
 }
 
 pub async fn log_disposition(
@@ -221,6 +224,8 @@ pub async fn log_disposition(
     site: &str,
     peer_address: Option<&ResolvedAddress>,
     response: Response,
+    egress_pool: Option<&str>,
+    egress_source: Option<&str>,
 ) {
     if let Some(logger) = Logger::get() {
         let record = JsonLogRecord {
@@ -244,6 +249,8 @@ pub async fn log_disposition(
             timestamp: Utc::now(),
             created: msg.id().created(),
             num_attempts: msg.get_num_attempts(),
+            egress_pool: egress_pool.map(|s| s.to_string()),
+            egress_source: egress_source.map(|s| s.to_string()),
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");

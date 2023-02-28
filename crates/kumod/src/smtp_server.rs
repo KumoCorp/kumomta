@@ -710,6 +710,8 @@ impl SmtpServer {
                                     command: None,
                                     content: "".to_string(),
                                 },
+                                None,
+                                None,
                             )
                             .await;
                             messages.push((queue_name, message));
