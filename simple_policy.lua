@@ -30,15 +30,15 @@ kumo.on('init', function()
     -- max_messages_per_connection = 10000,
   }
 
---[*******************************************]--
---[Added by Tom to create a sink server]--
+  --[*******************************************]--
+  --[Added by Tom to create a sink server]--
   kumo.start_esmtp_listener {
     listen = '0.0.0.0:25',
     -- Override the hostname reported in the banner and other
     -- SMTP responses:
-    hostname="sink.aasland.com",
+    hostname = 'sink.aasland.com',
 
-    -- override the default set of relay hosts	
+    -- override the default set of relay hosts
     relay_hosts = { '127.0.0.1', '192.168.1.0/24', '0.0.0.0' },
 
     -- Customize the banner.
@@ -56,8 +56,7 @@ kumo.on('init', function()
     -- max_recipients_per_message = 1024
     -- max_messages_per_connection = 10000,
   }
---[*******************************************]--
-
+  --[*******************************************]--
 
   kumo.configure_local_logs {
     log_dir = '/var/tmp/kumo-logs',
@@ -122,7 +121,7 @@ end)
 
 -- Called to validate the helo and/or ehlo domain
 kumo.on('smtp_server_ehlo', function(domain)
-   print('ehlo domain is', domain)
+  print('ehlo domain is', domain)
   -- Use kumo.reject to return an error to the EHLO command
   -- kumo.reject(420, 'wooooo!')
 end)
@@ -153,10 +152,10 @@ kumo.on('smtp_server_message_received', function(msg)
     headers = { 'From', 'To', 'Subject' },
     file_name = 'example-private-dkim-key.pem',
   }
-   msg:dkim_sign(signer)
+  msg:dkim_sign(signer)
 
   -- set/get metadata fields
-   msg:set_meta('X-TestMSG', 'true')
+  msg:set_meta('X-TestMSG', 'true')
   print('meta X-TestMSG is', msg:get_meta 'X-TestMSG')
 end)
 

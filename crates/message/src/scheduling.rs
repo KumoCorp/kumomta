@@ -324,7 +324,10 @@ mod test {
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
-        k9::snapshot!(&serialized, r#"{"first_attempt":"1996-12-19T16:39:57-08:00"}"#);
+        k9::snapshot!(
+            &serialized,
+            r#"{"first_attempt":"1996-12-19T16:39:57-08:00"}"#
+        );
 
         let round_trip: Scheduling = serde_json::from_str(&serialized).unwrap();
         k9::assert_equal!(sched, round_trip);
