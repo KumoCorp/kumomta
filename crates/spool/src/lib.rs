@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 pub mod local_disk;
@@ -13,7 +15,7 @@ pub enum SpoolEntry {
 }
 
 #[async_trait]
-pub trait Spool {
+pub trait Spool: Send + Sync {
     /// Load the data corresponding to the provided Id
     async fn load(&self, id: SpoolId) -> anyhow::Result<Vec<u8>>;
 
@@ -34,4 +36,27 @@ pub trait Spool {
 
     /// Perform some periodic cleanup/maintenance
     async fn cleanup(&self) -> anyhow::Result<()>;
+}
+
+static DATA: OnceCell<Arc<dyn Spool + Send + Sync>> = OnceCell::new();
+static META: OnceCell<Arc<dyn Spool + Send + Sync>> = OnceCell::new();
+
+pub fn get_meta_spool() -> &'static Arc<dyn Spool + Send + Sync> {
+    META.get().expect("set_meta_spool has not been called")
+}
+
+pub fn get_data_spool() -> &'static Arc<dyn Spool + Send + Sync> {
+    DATA.get().expect("set_data_spool has not been called")
+}
+
+pub fn set_meta_spool(meta: Arc<dyn Spool + Send + Sync>) {
+    META.set(meta)
+        .map_err(|_| "set_meta_spool has already been called")
+        .unwrap();
+}
+
+pub fn set_data_spool(data: Arc<dyn Spool + Send + Sync>) {
+    DATA.set(data)
+        .map_err(|_| "set_data_spool has already been called")
+        .unwrap();
 }

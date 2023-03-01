@@ -324,11 +324,11 @@ impl Queue {
                 return Ok(());
             }
             tracing::error!("delaying by {delay:?}");
-            msg.delay_by(delay);
+            msg.delay_by(delay).await?;
         } else if let Some(delay) = delay {
-            msg.delay_by(delay);
+            msg.delay_by(delay).await?;
         } else {
-            msg.delay_with_jitter(60);
+            msg.delay_with_jitter(60).await?;
         }
 
         self.insert(msg).await?;
@@ -352,7 +352,7 @@ impl Queue {
 
     async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
         loop {
-            msg.delay_with_jitter(60);
+            msg.delay_with_jitter(60).await?;
             match self.insert_delayed(msg.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 // Maybe delay_with_jitter computed an immediate
@@ -364,10 +364,7 @@ impl Queue {
 
     pub async fn save_if_needed(msg: &Message) -> anyhow::Result<()> {
         if msg.needs_save() {
-            let data_spool = SpoolManager::get_named("data").await?;
-            let meta_spool = SpoolManager::get_named("meta").await?;
-            msg.save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
-                .await?;
+            msg.save().await?;
         }
         msg.shrink()?;
         Ok(())
@@ -536,7 +533,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                 match site.insert(msg.clone()) {
                                     Ok(_) => {}
                                     Err(_) => loop {
-                                        msg.delay_with_jitter(60);
+                                        msg.delay_with_jitter(60).await?;
                                         if matches!(
                                             q.insert_delayed(msg.clone()).await?,
                                             InsertResult::Delayed

@@ -2,7 +2,7 @@ use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
-use crate::spool::{SpoolHandle, SpoolManager};
+use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr::IpCidr;
@@ -191,8 +191,6 @@ pub struct SmtpServer {
     tls_active: bool,
     read_buffer: Vec<u8>,
     params: EsmtpListenerParams,
-    data_spool: SpoolHandle,
-    meta_spool: SpoolHandle,
     shutdown: ShutdownSubcription,
     rcpt_count: usize,
 }
@@ -216,8 +214,6 @@ impl SmtpServer {
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
-        let data_spool = SpoolManager::get_named("data").await?;
-        let meta_spool = SpoolManager::get_named("meta").await?;
         let mut server = SmtpServer {
             socket: Some(socket),
             state: None,
@@ -228,8 +224,6 @@ impl SmtpServer {
             tls_active: false,
             read_buffer: Vec::with_capacity(1024),
             params,
-            data_spool,
-            meta_spool,
             shutdown: ShutdownSubcription::get(),
             rcpt_count: 0,
         };
@@ -689,12 +683,7 @@ impl SmtpServer {
 
                         if queue_name != "null" {
                             if !self.params.deferred_spool {
-                                message
-                                    .save_to(
-                                        &**self.meta_spool.lock().await,
-                                        &**self.data_spool.lock().await,
-                                    )
-                                    .await?;
+                                message.save().await?;
                             }
                             log_disposition(
                                 RecordType::Reception,

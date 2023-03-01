@@ -10,7 +10,7 @@ use spool::local_disk::LocalDiskSpool;
 use spool::rocks::RocksSpool;
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 use tokio::task::JoinHandle;
@@ -20,17 +20,18 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Clone)]
-pub struct SpoolHandle(Arc<Mutex<Spool>>);
+pub struct SpoolHandle(Arc<Spool>);
 
-impl SpoolHandle {
-    pub async fn lock(&self) -> MutexGuard<Spool> {
-        self.0.lock().await
+impl std::ops::Deref for SpoolHandle {
+    type Target = dyn SpoolTrait + Send + Sync;
+    fn deref(&self) -> &Self::Target {
+        &*self.0.spool
     }
 }
 
 pub struct Spool {
-    maintainer: Option<JoinHandle<()>>,
-    spool: Box<dyn SpoolTrait + Send + Sync>,
+    maintainer: StdMutex<Option<JoinHandle<()>>>,
+    spool: Arc<dyn SpoolTrait + Send + Sync>,
 }
 
 impl std::ops::Deref for Spool {
@@ -42,7 +43,7 @@ impl std::ops::Deref for Spool {
 
 impl Drop for Spool {
     fn drop(&mut self) {
-        if let Some(handle) = self.maintainer.take() {
+        if let Some(handle) = self.maintainer.lock().unwrap().take() {
             handle.abort();
         }
     }
@@ -75,23 +76,24 @@ impl SpoolManager {
         );
         self.named.insert(
             params.name.to_string(),
-            SpoolHandle(Arc::new(Mutex::new(Spool {
-                maintainer: None,
+            SpoolHandle(Arc::new(Spool {
+                maintainer: StdMutex::new(None),
                 spool: match params.kind {
-                    SpoolKind::LocalDisk => Box::new(
+                    SpoolKind::LocalDisk => Arc::new(
                         LocalDiskSpool::new(&params.path, params.flush)
                             .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
-                    SpoolKind::RocksDB => Box::new(
+                    SpoolKind::RocksDB => Arc::new(
                         RocksSpool::new(&params.path, params.flush)
                             .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
                 },
-            }))),
+            })),
         );
         Ok(())
     }
 
+    #[allow(unused)]
     pub async fn get_named(name: &str) -> anyhow::Result<SpoolHandle> {
         Self::get().await.get_named_impl(name)
     }
@@ -112,8 +114,8 @@ impl SpoolManager {
             let mgr = Self::get().await;
             (mgr.get_named_impl("data")?, mgr.get_named_impl("meta")?)
         };
-        let res_data = data_spool.lock().await.remove(id).await;
-        let res_meta = meta_spool.lock().await.remove(id).await;
+        let res_data = data_spool.remove(id).await;
+        let res_meta = meta_spool.remove(id).await;
         if let Err(err) = res_data {
             // We don't log at error level for these because that
             // is undesirable when deferred_spool is enabled.
@@ -128,8 +130,8 @@ impl SpoolManager {
     pub async fn remove_from_spool_impl(&mut self, id: SpoolId) -> anyhow::Result<()> {
         let data_spool = self.get_named_impl("data")?;
         let meta_spool = self.get_named_impl("meta")?;
-        let res_data = data_spool.lock().await.remove(id).await;
-        let res_meta = meta_spool.lock().await.remove(id).await;
+        let res_data = data_spool.remove(id).await;
+        let res_meta = meta_spool.remove(id).await;
         if let Err(err) = res_data {
             tracing::debug!("Error removing data for {id}: {err:#}");
         }
@@ -147,6 +149,12 @@ impl SpoolManager {
         for (name, spool) in self.named.iter_mut() {
             let is_meta = name == "meta";
 
+            match name.as_str() {
+                "meta" => spool::set_meta_spool(spool.0.spool.clone()),
+                "data" => spool::set_data_spool(spool.0.spool.clone()),
+                _ => {}
+            }
+
             tracing::debug!("starting maintainer for spool {name} is_meta={is_meta}");
 
             let maintainer = tokio::spawn({
@@ -157,8 +165,7 @@ impl SpoolManager {
                     async move {
                         // start enumeration
                         if let Some(tx) = tx {
-                            let spool = spool.lock().await;
-                            if let Err(err) = spool.spool.enumerate(tx) {
+                            if let Err(err) = spool.enumerate(tx) {
                                 tracing::error!(
                                     "error during spool enumeration for {name}: {err:#}"
                                 );
@@ -168,15 +175,14 @@ impl SpoolManager {
                         // And maintain it every 10 minutes
                         loop {
                             tokio::time::sleep(Duration::from_secs(10 * 60)).await;
-                            let spool = spool.lock().await;
-                            if let Err(err) = spool.spool.cleanup().await {
+                            if let Err(err) = spool.cleanup().await {
                                 tracing::error!("error doing spool cleanup for {name}: {err:#}");
                             }
                         }
                     }
                 }
             });
-            spool.lock().await.maintainer.replace(maintainer);
+            spool.0.maintainer.lock().unwrap().replace(maintainer);
         }
 
         // Ensure that there are no more senders outstanding,
@@ -234,7 +240,7 @@ impl SpoolManager {
                                         continue;
                                     }
                                     Some(delay) => {
-                                        msg.delay_by(delay);
+                                        msg.delay_by(delay).await?;
                                     }
                                 }
 

@@ -80,12 +80,12 @@ pub struct Scheduling {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ScheduleRestriction>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub not_before: Option<DateTime<FixedOffset>>,
+    pub first_attempt: Option<DateTime<FixedOffset>>,
 }
 
 impl Scheduling {
     pub fn adjust_for_schedule(&self, mut dt: DateTime<Utc>) -> DateTime<Utc> {
-        if let Some(start) = &self.not_before {
+        if let Some(start) = &self.first_attempt {
             if dt < *start {
                 dt = (*start).into();
             }
@@ -142,7 +142,7 @@ impl Scheduling {
     }
 
     pub fn is_within_schedule(&self, dt: DateTime<Utc>) -> bool {
-        if let Some(start) = &self.not_before {
+        if let Some(start) = &self.first_attempt {
             if dt < *start {
                 return false;
             }
@@ -281,7 +281,7 @@ mod test {
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
-            not_before: None,
+            first_attempt: None,
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
@@ -303,13 +303,13 @@ mod test {
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
-            not_before: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
+            first_attempt: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
         k9::snapshot!(
             &serialized,
-            r#"{"dow":"Mon,Wed","tz":"America/Phoenix","start":"09:00:00","end":"17:00:00","not_before":"1996-12-19T16:39:57-08:00"}"#
+            r#"{"dow":"Mon,Wed","tz":"America/Phoenix","start":"09:00:00","end":"17:00:00","first_attempt":"1996-12-19T16:39:57-08:00"}"#
         );
 
         let round_trip: Scheduling = serde_json::from_str(&serialized).unwrap();
@@ -320,11 +320,11 @@ mod test {
     fn schedule_parse_no_restriction_and_start() {
         let sched = Scheduling {
             restriction: None,
-            not_before: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
+            first_attempt: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
-        k9::snapshot!(&serialized, r#"{"not_before":"1996-12-19T16:39:57-08:00"}"#);
+        k9::snapshot!(&serialized, r#"{"first_attempt":"1996-12-19T16:39:57-08:00"}"#);
 
         let round_trip: Scheduling = serde_json::from_str(&serialized).unwrap();
         k9::assert_equal!(sched, round_trip);
@@ -334,13 +334,13 @@ mod test {
     fn schedule_adjust_start() {
         let sched = Scheduling {
             restriction: None,
-            not_before: DateTime::parse_from_rfc3339("2023-03-20T16:39:57-08:00").ok(),
+            first_attempt: DateTime::parse_from_rfc3339("2023-03-20T16:39:57-08:00").ok(),
         };
 
         let now: DateTime<Utc> = DateTime::parse_from_rfc3339("2023-03-20T08:00:00-08:00")
             .unwrap()
             .into();
-        k9::assert_equal!(sched.adjust_for_schedule(now), sched.not_before.unwrap());
+        k9::assert_equal!(sched.adjust_for_schedule(now), sched.first_attempt.unwrap());
     }
 
     #[test]
@@ -353,7 +353,7 @@ mod test {
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
-            not_before: None,
+            first_attempt: None,
         };
 
         // This is a Tuesday
@@ -376,7 +376,7 @@ mod test {
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
-            not_before: None,
+            first_attempt: None,
         };
 
         // This is a Monday, but after hours

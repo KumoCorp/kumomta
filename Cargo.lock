@@ -2639,6 +2639,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mac_address",
+ "once_cell",
  "rocksdb",
  "tempfile",
  "tokio",

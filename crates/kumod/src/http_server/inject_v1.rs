@@ -3,7 +3,6 @@ use crate::http_server::AppError;
 use crate::logging::{log_disposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
-use crate::spool::{SpoolHandle, SpoolManager};
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
@@ -384,8 +383,6 @@ async fn process_recipient<'a>(
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
-    data_spool: &SpoolHandle,
-    meta_spool: &SpoolHandle,
     auth: &AuthKind,
 ) -> anyhow::Result<()> {
     let recip_addr = EnvelopeAddress::parse(&recip.email)
@@ -415,9 +412,7 @@ async fn process_recipient<'a>(
     if queue_name != "null" {
         let deferred_spool = false; // TODO: configurable somehow
         if !deferred_spool {
-            message
-                .save_to(&**meta_spool.lock().await, &**data_spool.lock().await)
-                .await?;
+            message.save().await?;
         }
         log_disposition(
             RecordType::Reception,
@@ -454,8 +449,6 @@ async fn inject_v1_impl(
     let mut fail_count = 0;
     let mut errors = vec![];
     let mut failed_recipients = vec![];
-    let data_spool = SpoolManager::get_named("data").await?;
-    let meta_spool = SpoolManager::get_named("meta").await?;
     let mut config = load_config().await?;
     for recip in &request.recipients {
         match process_recipient(
@@ -465,8 +458,6 @@ async fn inject_v1_impl(
             recip,
             &request,
             &compiled,
-            &data_spool,
-            &meta_spool,
             &auth,
         )
         .await

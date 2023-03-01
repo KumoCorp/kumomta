@@ -733,8 +733,7 @@ impl Dispatcher {
         delay: Option<chrono::Duration>,
     ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
-            let meta_spool = SpoolManager::get_named("meta").await?;
-            msg.load_meta(&**meta_spool.lock().await).await?;
+            msg.load_meta().await?;
         }
         let queue_name = msg.get_queue_name()?;
         let queue = QueueManager::resolve(&queue_name).await?;
@@ -750,15 +749,8 @@ impl Dispatcher {
         {
             let msg = self.msg.as_ref().unwrap();
 
-            if !msg.is_meta_loaded() {
-                let meta_spool = SpoolManager::get_named("meta").await?;
-                msg.load_meta(&**meta_spool.lock().await).await?;
-            }
-
-            if !msg.is_data_loaded() {
-                let data_spool = SpoolManager::get_named("data").await?;
-                msg.load_data(&**data_spool.lock().await).await?;
-            }
+            msg.load_meta_if_needed().await?;
+            msg.load_data_if_needed().await?;
 
             data = msg.get_data();
             sender = msg

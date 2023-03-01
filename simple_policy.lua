@@ -143,6 +143,10 @@ end)
 kumo.on('smtp_server_message_received', function(msg)
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
 
+  -- Import scheduling information from X-Schedule and
+  -- then remove that header from the message
+  msg:import_scheduling_header('X-Schedule', true)
+
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:sender().domain,
     selector = 'default',

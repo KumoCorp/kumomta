@@ -1,6 +1,7 @@
 use crate::dkim::Signer;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
 use mail_auth::common::headers::HeaderWriter;
@@ -8,7 +9,7 @@ use mailparse::{MailHeader, MailHeaderMap};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
-use spool::{Spool, SpoolId};
+use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
@@ -166,20 +167,57 @@ impl Message {
         inner.due
     }
 
-    pub fn delay_with_jitter(&self, limit: i64) {
+    pub async fn delay_with_jitter(&self, limit: i64) -> anyhow::Result<()> {
         let scale = rand::random::<f32>();
         let value = (scale * limit as f32) as i64;
-        self.delay_by(chrono::Duration::seconds(value));
+        self.delay_by(chrono::Duration::seconds(value)).await
     }
 
-    pub fn delay_by(&self, duration: chrono::Duration) {
+    pub async fn delay_by(&self, duration: chrono::Duration) -> anyhow::Result<()> {
         let due = Utc::now() + duration;
-        self.set_due(Some(due));
+        self.set_due(Some(due)).await
     }
 
-    pub fn set_due(&self, due: Option<DateTime<Utc>>) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.due = due;
+    pub async fn set_due(&self, due: Option<DateTime<Utc>>) -> anyhow::Result<()> {
+        let due = {
+            let mut inner = self.inner.lock().unwrap();
+
+            if !inner.flags.contains(MessageFlags::SCHEDULED) {
+                // This is the simple, fast-path, common case
+                inner.due = due;
+                return Ok(());
+            }
+
+            let due = due.unwrap_or_else(|| Utc::now());
+
+            if let Some(meta) = &inner.metadata {
+                inner.due = match &meta.schedule {
+                    Some(sched) => Some(sched.adjust_for_schedule(due)),
+                    None => Some(due),
+                };
+                return Ok(());
+            }
+
+            // We'll need to load the metadata to correctly
+            // update the schedule for this message
+            due
+        };
+
+        self.load_meta().await?;
+
+        {
+            let mut inner = self.inner.lock().unwrap();
+            match &inner.metadata {
+                Some(meta) => {
+                    inner.due = match &meta.schedule {
+                        Some(sched) => Some(sched.adjust_for_schedule(due)),
+                        None => Some(due),
+                    };
+                    Ok(())
+                }
+                None => anyhow::bail!("loaded metadata, but metadata is not set!?"),
+            }
+        }
     }
 
     fn get_data_if_dirty(&self) -> Option<Arc<Box<[u8]>>> {
@@ -205,6 +243,10 @@ impl Message {
         inner
             .flags
             .contains(MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY)
+    }
+
+    pub async fn save(&self) -> anyhow::Result<()> {
+        self.save_to(&**get_meta_spool(), &**get_data_spool()).await
     }
 
     pub async fn save_to(
@@ -299,7 +341,28 @@ impl Message {
         !self.inner.lock().unwrap().data.is_empty()
     }
 
-    pub async fn load_meta(&self, meta_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
+    pub async fn load_meta_if_needed(&self) -> anyhow::Result<()> {
+        if self.is_meta_loaded() {
+            return Ok(());
+        }
+        self.load_meta().await
+    }
+
+    pub async fn load_data_if_needed(&self) -> anyhow::Result<()> {
+        if self.is_data_loaded() {
+            return Ok(());
+        }
+        self.load_data().await
+    }
+
+    pub async fn load_meta(&self) -> anyhow::Result<()> {
+        self.load_meta_from(&**get_meta_spool()).await
+    }
+
+    pub async fn load_meta_from(
+        &self,
+        meta_spool: &(dyn Spool + Send + Sync),
+    ) -> anyhow::Result<()> {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
         let mut inner = self.inner.lock().unwrap();
@@ -312,7 +375,14 @@ impl Message {
         Ok(())
     }
 
-    pub async fn load_data(&self, data_spool: &(dyn Spool + Send + Sync)) -> anyhow::Result<()> {
+    pub async fn load_data(&self) -> anyhow::Result<()> {
+        self.load_data_from(&**get_data_spool()).await
+    }
+
+    pub async fn load_data_from(
+        &self,
+        data_spool: &(dyn Spool + Send + Sync),
+    ) -> anyhow::Result<()> {
         let data = data_spool.load(*self.id()).await?;
         let mut inner = self.inner.lock().unwrap();
         let was_empty = inner.data.is_empty();
@@ -549,6 +619,21 @@ impl Message {
         self.prepend_header(None, &header);
         Ok(())
     }
+
+    pub fn import_scheduling_header(&self, header_name: &str, remove: bool) -> anyhow::Result<()> {
+        if let Some(value) = self.get_first_named_header_value(header_name)? {
+            let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
+                format!("{value} from header {header_name} is not a valid Scheduling header")
+            })?;
+            self.set_scheduling(Some(sched))?;
+
+            if remove {
+                self.remove_all_named_header(header_name)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn is_header_in_names_list(hdr: &MailHeader, names: &[String]) -> bool {
@@ -686,6 +771,22 @@ impl UserData for Message {
                     .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
             },
         );
+
+        methods.add_method(
+            "import_scheduling_header",
+            move |_, this, (header_name, remove): (String, bool)| {
+                Ok(this
+                    .import_scheduling_header(&header_name, remove)
+                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            },
+        );
+
+        methods.add_method("set_scheduling", move |lua, this, params: mlua::Value| {
+            let sched: Option<Scheduling> = lua.from_value(params)?;
+            Ok(this
+                .set_scheduling(sched)
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+        });
     }
 }
 
