@@ -1,5 +1,6 @@
 use crate::egress_path::EgressPathManager;
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
+use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::spool::SpoolManager;
@@ -283,6 +284,27 @@ impl Queue {
         Ok(handle)
     }
 
+    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) -> usize {
+        let msgs = self.queue.drain();
+        let mut count = msgs.len();
+        self.delayed_gauge.sub(count as i64);
+        for msg in msgs {
+            let msg = (*msg).clone();
+            let id = *msg.id();
+            bounce.log(msg).await;
+            SpoolManager::remove_from_spool(id).await.ok();
+        }
+
+        let sources = self.rr.all_sources();
+        for source in &sources {
+            if let Some(site) = EgressPathManager::get_opt(&self.name, source).await {
+                count += site.lock().await.bounce_all(bounce).await;
+            }
+        }
+
+        count
+    }
+
     pub async fn requeue_message(
         &mut self,
         msg: Message,
@@ -397,6 +419,13 @@ impl Queue {
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
         self.last_change = Instant::now();
 
+        if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
+            let id = *msg.id();
+            b.log(msg).await;
+            SpoolManager::remove_from_spool(id).await?;
+            return Ok(());
+        }
+
         if self.activity.is_shutting_down() {
             Self::save_if_needed_and_log(&msg).await;
             drop(msg);
@@ -455,6 +484,16 @@ impl QueueManager {
         }
     }
 
+    pub async fn get_opt(name: &str) -> Option<QueueHandle> {
+        let mgr = MANAGER.lock().await;
+        mgr.named.get(name).cloned()
+    }
+
+    pub async fn all_queue_names() -> Vec<String> {
+        let mgr = Self::get().await;
+        mgr.named.keys().map(|s| s.to_string()).collect()
+    }
+
     async fn get() -> MutexGuard<'static, Self> {
         MANAGER.lock().await
     }
@@ -478,6 +517,10 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 q.name,
                 q.queue.len()
             );
+
+            if let Some(b) = AdminBounceEntry::get_for_queue_name(&q.name) {
+                q.bounce_all(&b).await;
+            }
 
             if q.activity.is_shutting_down() {
                 sleep_duration = Duration::from_secs(5);

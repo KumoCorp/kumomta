@@ -1,4 +1,5 @@
 use crate::egress_source::EgressSource;
+use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, RecordType};
 use crate::mx::{MailExchanger, ResolvedAddress};
@@ -151,6 +152,15 @@ impl EgressPathManager {
         MANAGER.lock().await
     }
 
+    pub async fn get_opt(queue_name: &str, egress_source: &str) -> Option<EgressPathHandle> {
+        let components = QueueNameComponents::parse(queue_name);
+        let mx = MailExchanger::resolve(components.domain).await.ok()?;
+        let name = &mx.site_name;
+        let name = format!("{egress_source}->{name}");
+        let manager = Self::get().await;
+        manager.paths.get(&name).cloned()
+    }
+
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         egress_source: &str,
@@ -296,6 +306,17 @@ impl EgressPath {
     #[allow(unused)]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) -> usize {
+        let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        let count = msgs.len();
+        for msg in msgs {
+            let id = *msg.id();
+            bounce.log(msg).await;
+            SpoolManager::remove_from_spool(id).await.ok();
+        }
+        count
     }
 
     pub fn insert(&mut self, msg: Message) -> Result<(), Message> {

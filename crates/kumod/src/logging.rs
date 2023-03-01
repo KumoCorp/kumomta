@@ -179,6 +179,8 @@ pub enum RecordType {
     Delivery,
     /// Recorded when a message is expiring from the queue
     Expiration,
+    /// Administratively failed
+    AdminBounce,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod auth;
+
+pub mod admin_bounce_v1;
 pub mod inject_v1;
 
 use auth::*;
@@ -84,6 +86,7 @@ impl HttpListenerParams {
         let app = Router::new()
             .route("/metrics", get(report_metrics))
             .route("/api/inject/v1", post(inject_v1::inject_v1))
+            .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
             .route("/wat", get(test_wat))
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header

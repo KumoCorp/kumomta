@@ -1,0 +1,186 @@
+use crate::http_server::auth::TrustedIpRequired;
+use crate::http_server::AppError;
+use crate::logging::{log_disposition, RecordType};
+use crate::queue::QueueManager;
+use axum::extract::Json;
+use message::message::QueueNameComponents;
+use message::Message;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+lazy_static::lazy_static! {
+    static ref ENTRIES: Mutex<Vec<AdminBounceEntry>> = Mutex::new(vec![]);
+}
+
+#[derive(Clone, Debug)]
+pub struct AdminBounceEntry {
+    pub campaign: Option<String>,
+    pub tenant: Option<String>,
+    pub domain: Option<String>,
+    pub reason: String,
+    pub expires: Instant,
+}
+
+fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bool {
+    match (current_thing, wanted_thing) {
+        (Some(a), Some(b)) => a == b,
+        (None, Some(_)) => {
+            // Needs to match a specific thing and there is none
+            false
+        }
+        (_, None) => {
+            // No specific campaign required
+            true
+        }
+    }
+}
+
+impl AdminBounceEntry {
+    pub fn get_all() -> Vec<Self> {
+        let mut entries = ENTRIES.lock().unwrap();
+        let now = Instant::now();
+        entries.retain(|ent| ent.expires > now);
+        entries.clone()
+    }
+
+    pub fn add(entry: Self) {
+        let mut entries = ENTRIES.lock().unwrap();
+        let now = Instant::now();
+        // Age out expired entries, and replace any entries with the
+        // same criteria; this allows updating the reason with a newer
+        // version of the bounce info.
+        entries.retain(|ent| {
+            ent.expires > now
+                && !(ent.campaign == entry.campaign
+                    && ent.tenant == entry.tenant
+                    && ent.domain == entry.domain)
+        });
+
+        entries.push(entry);
+    }
+
+    pub fn matches(
+        &self,
+        campaign: Option<&str>,
+        tenant: Option<&str>,
+        domain: Option<&str>,
+    ) -> bool {
+        if !match_criteria(campaign, self.campaign.as_deref()) {
+            return false;
+        }
+        if !match_criteria(tenant, self.tenant.as_deref()) {
+            return false;
+        }
+        if !match_criteria(domain, self.domain.as_deref()) {
+            return false;
+        }
+        true
+    }
+
+    pub fn get_matching(
+        campaign: Option<&str>,
+        tenant: Option<&str>,
+        domain: Option<&str>,
+    ) -> Vec<Self> {
+        let mut entries = Self::get_all();
+        entries.retain(|ent| ent.matches(campaign, tenant, domain));
+        entries
+    }
+
+    pub fn get_for_queue_name(queue_name: &str) -> Option<Self> {
+        let components = QueueNameComponents::parse(queue_name);
+        let mut entries = Self::get_matching(
+            components.campaign,
+            components.tenant,
+            Some(components.domain),
+        );
+        entries.pop()
+    }
+
+    pub async fn list_matching_queues(&self) -> Vec<String> {
+        let mut names = QueueManager::all_queue_names().await;
+        names.retain(|queue_name| {
+            let components = QueueNameComponents::parse(queue_name);
+            self.matches(
+                components.campaign,
+                components.tenant,
+                Some(components.domain),
+            )
+        });
+        names
+    }
+
+    pub async fn log(&self, msg: Message) {
+        log_disposition(
+            RecordType::AdminBounce,
+            msg,
+            "localhost",
+            None,
+            rfc5321::Response {
+                code: 551,
+                enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                    class: 5,
+                    subject: 7,
+                    detail: 1,
+                }),
+                content: format!("Administrator bounced with reason: {}", self.reason),
+                command: None,
+            },
+            None,
+            None,
+        )
+        .await;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BounceV1Request {
+    #[serde(default)]
+    pub campaign: Option<String>,
+    #[serde(default)]
+    pub tenant: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+
+    pub reason: String,
+    #[serde(default = "default_duration", with = "humantime_serde")]
+    pub duration: Duration,
+}
+
+fn default_duration() -> Duration {
+    Duration::from_secs(300)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BounceV1Response {
+    pub bounced: HashMap<String, usize>,
+}
+
+pub async fn bounce_v1(
+    _: TrustedIpRequired,
+    // Note: Json<> must be last in the param list
+    Json(request): Json<BounceV1Request>,
+) -> Result<Json<BounceV1Response>, AppError> {
+    let entry = AdminBounceEntry {
+        campaign: request.campaign,
+        tenant: request.tenant,
+        domain: request.domain,
+        reason: request.reason,
+        expires: Instant::now() + request.duration,
+    };
+
+    AdminBounceEntry::add(entry.clone());
+
+    let queue_names = entry.list_matching_queues().await;
+    let mut bounced = HashMap::new();
+
+    for name in &queue_names {
+        if let Some(q) = QueueManager::get_opt(name).await {
+            bounced.insert(name.to_string(), q.lock().await.bounce_all(&entry).await);
+        }
+    }
+
+    Ok(Json(BounceV1Response { bounced }))
+}
