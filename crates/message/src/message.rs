@@ -1,4 +1,5 @@
 use crate::dkim::Signer;
+use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
@@ -18,6 +19,8 @@ bitflags::bitflags! {
         const META_DIRTY = 1;
         /// true if Data needs to be saved
         const DATA_DIRTY = 2;
+        /// true if scheduling restrictions are present in the metadata
+        const SCHEDULED = 4;
     }
 }
 
@@ -56,6 +59,8 @@ struct MetaData {
     sender: EnvelopeAddress,
     recipient: EnvelopeAddress,
     meta: serde_json::Value,
+    #[serde(default)]
+    schedule: Option<Scheduling>,
 }
 
 impl Drop for MessageInner {
@@ -91,6 +96,7 @@ impl Message {
                     sender,
                     recipient,
                     meta,
+                    schedule: None,
                 }),
                 data,
                 flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
@@ -108,12 +114,18 @@ impl Message {
         MESSAGE_COUNT.inc();
         META_COUNT.inc();
 
+        let flags = if metadata.schedule.is_some() {
+            MessageFlags::SCHEDULED
+        } else {
+            MessageFlags::empty()
+        };
+
         Ok(Self {
             id,
             inner: Arc::new(Mutex::new(MessageInner {
                 metadata: Some(metadata),
                 data: Arc::new(vec![].into_boxed_slice()),
-                flags: MessageFlags::empty(),
+                flags,
                 num_attempts: 0,
                 due: None,
             })),
@@ -133,6 +145,20 @@ impl Message {
     pub fn increment_num_attempts(&self) {
         let mut inner = self.inner.lock().unwrap();
         inner.num_attempts += 1;
+    }
+
+    pub fn set_scheduling(&self, scheduling: Option<Scheduling>) -> anyhow::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        match &mut inner.metadata {
+            None => anyhow::bail!("metadata must be loaded first"),
+            Some(meta) => {
+                meta.schedule = scheduling;
+                inner
+                    .flags
+                    .set(MessageFlags::SCHEDULED, scheduling.is_some());
+                Ok(())
+            }
+        }
     }
 
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
@@ -737,6 +763,7 @@ impl<'a> QueueNameComponents<'a> {
         }
     }
 }
+
 #[cfg(test)]
 mod test {
     use super::*;
