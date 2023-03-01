@@ -11,13 +11,13 @@ _"Verifiers wishing to communicate the results of verification to other
    field to the message before passing it on.  Any such header field
    SHOULD be inserted before any existing DKIM-Signature or preexisting
    authentication status header fields in the header field block.  The
-   Authentication-Results: header field ([RFC5451]) MAY be used for this
+   Authentication-Results: header field (RFC5451) MAY be used for this
    purpose."_
 
 
 This diagram gives a graphical view of how DKIM works.
 
-![Diagram showing DNS being used to store and validate DKIM keys](docs/images/How_DNS_Works.png)
+![Diagram showing DNS being used to store and validate DKIM keys](https://user-images.githubusercontent.com/13574506/222079787-83431e17-5737-42dc-9cbf-9679477718c9.png)
 
 
 

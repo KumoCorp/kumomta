@@ -82,12 +82,27 @@ TOC = [
                 "User Guide",
                 "guide/index.md",
                 children=[
-                    Page("Getting Started","guide/getting_started.md"),
+                    Page("Getting Started","guide/getting_started.md",
+                        children=[
+                            Page("Environmental Considerations","guide/subs/environment_consideration.md"),
+                        ]
+                    ),
                     Page("Installing for Development","guide/subs/install_for_development.md"),
                     Page("Installing for Production","guide/subs/install_for_production_use.md"),
-                    Page("Beyon Basics","guide/beyond_basics.md"),
-                    Page("Securing It","guide/securing_it.md"),
-                    Page("Advanced Configurations","guide/advanced_config.md"),
+                    Page("Beyond Basics","guide/beyond_basics.md"),
+                    Page("Securing It","guide/securing_it.md",
+                        children=[
+                            Page("Configuring DKIM","guide/subs/dkim.md"),
+                            Page("Configuring TLS","guide/subs/tls.md"),
+                        ]
+                    ),
+                    
+                    Page("Advanced Configurations","guide/advanced_config.md",
+                        children=[
+                            Page("Lua Resources","guide/subs/lua_resources.md"),
+                            Page("Lua Functions","guide/subs/lua_functions.md"),
+                        ]
+                    ),
                     Page("Contributing to Docs","guide/contributing_to_docs.md"),
                 ]
             ),
