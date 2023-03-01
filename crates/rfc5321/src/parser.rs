@@ -1,6 +1,8 @@
+use crate::client::SmtpClientTimeouts;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser as _;
 use pest_derive::*;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[grammar = "rfc5321.pest"]
@@ -391,6 +393,20 @@ impl Command {
             Self::Help(None) => format!("HELP\r\n"),
             Self::Noop(Some(param)) => format!("NOOP {param}\r\n"),
             Self::Noop(None) => format!("NOOP\r\n"),
+        }
+    }
+
+    pub fn client_timeout(&self, timeouts: &SmtpClientTimeouts) -> Duration {
+        match self {
+            Self::Helo(_) | Self::Ehlo(_) => timeouts.ehlo_timeout,
+            Self::MailFrom { .. } => timeouts.mail_from_timeout,
+            Self::RcptTo { .. } => timeouts.rcpt_to_timeout,
+            Self::Data { .. } => timeouts.data_timeout,
+            Self::Rset => timeouts.rset_timeout,
+            Self::StartTls => timeouts.starttls_timeout,
+            Self::Quit | Self::Vrfy(_) | Self::Expn(_) | Self::Help(_) | Self::Noop(_) => {
+                timeouts.idle_timeout
+            }
         }
     }
 }

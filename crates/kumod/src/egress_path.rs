@@ -10,7 +10,10 @@ use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntCounter, IntGauge};
-use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
+use rfc5321::{
+    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient,
+    SmtpClientTimeouts,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
@@ -21,6 +24,7 @@ use throttle::ThrottleSpec;
 use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<EgressPathManager> = Mutex::new(EgressPathManager::new());
@@ -69,8 +73,8 @@ pub struct EgressPathConfig {
     #[serde(default)]
     enable_tls: Tls,
 
-    #[serde(default = "EgressPathConfig::default_idle_timeout")]
-    idle_timeout: u64,
+    #[serde(flatten)]
+    client_timeouts: SmtpClientTimeouts,
 
     #[serde(default = "EgressPathConfig::default_max_ready")]
     max_ready: usize,
@@ -98,7 +102,6 @@ impl Default for EgressPathConfig {
         Self {
             connection_limit: Self::default_connection_limit(),
             enable_tls: Tls::default(),
-            idle_timeout: Self::default_idle_timeout(),
             max_ready: Self::default_max_ready(),
             consecutive_connection_failures_before_delay:
                 Self::default_consecutive_connection_failures_before_delay(),
@@ -106,6 +109,7 @@ impl Default for EgressPathConfig {
             max_message_rate: None,
             max_connection_rate: None,
             max_deliveries_per_connection: None,
+            client_timeouts: SmtpClientTimeouts::default(),
         }
     }
 }
@@ -113,10 +117,6 @@ impl Default for EgressPathConfig {
 impl EgressPathConfig {
     fn default_connection_limit() -> usize {
         32
-    }
-
-    fn default_idle_timeout() -> u64 {
-        60
     }
 
     fn default_max_ready() -> usize {
@@ -591,7 +591,7 @@ impl Dispatcher {
             return Ok(true);
         }
 
-        let idle_timeout = Duration::from_secs(self.path_config.idle_timeout);
+        let idle_timeout = self.path_config.client_timeouts.idle_timeout;
         tokio::select! {
             _ = tokio::time::sleep(idle_timeout) => {},
             _ = self.notify.notified() => {}
@@ -614,7 +614,7 @@ impl Dispatcher {
                     .await?;
 
                 if let Some(delay) = result.retry_after {
-                    if delay >= Duration::from_secs(self.path_config.idle_timeout) {
+                    if delay >= self.path_config.client_timeouts.idle_timeout {
                         self.throttle_ready_queue(delay);
                         anyhow::bail!("connection rate throttled for {delay:?}");
                     }
@@ -645,7 +645,6 @@ impl Dispatcher {
             .pop()
             .ok_or_else(|| anyhow::anyhow!("no more addresses to try!"))?;
 
-        let timeout = Duration::from_secs(60);
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
         let enable_tls = self.path_config.enable_tls;
@@ -656,8 +655,9 @@ impl Dispatcher {
             .unwrap_or(self.path_config.smtp_port);
         let source_address = self.egress_source.source_address.clone();
 
-        let client = tokio::time::timeout(timeout, {
+        let mut client = timeout(self.path_config.client_timeouts.connect_timeout, {
             let address = address.clone();
+            let timeouts = self.path_config.client_timeouts.clone();
             async move {
                 let socket = match address.addr {
                     IpAddr::V4(_) => TcpSocket::new_v4(),
@@ -676,12 +676,9 @@ impl Dispatcher {
                         anyhow::bail!("{error}");
                     }
                 }
-                let stream = socket
-                    .connect(SocketAddr::new(address.addr, port))
-                    .await
-                    .with_context(|| format!("connect to {address:?} port {port}"))?;
+                let stream = socket.connect(SocketAddr::new(address.addr, port)).await?;
 
-                let mut client = SmtpClient::with_stream(stream, &mx_host);
+                let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
 
                 // Read banner
                 let banner = client.read_response(None).await?;
@@ -689,37 +686,34 @@ impl Dispatcher {
                     return Err(ClientError::Rejected(banner).into());
                 }
 
-                // Say EHLO
-                let caps = client.ehlo(&ehlo_name).await?;
-
-                // Use STARTTLS if available.
-
-                let has_tls = caps.contains_key("STARTTLS");
-                match (enable_tls, has_tls) {
-                    (Tls::Required | Tls::RequiredInsecure, false) => {
-                        anyhow::bail!(
-                            "tls policy is {enable_tls:?} but STARTTLS is not advertised",
-                        );
-                    }
-                    (Tls::Disabled, _)
-                    | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
-                        // Do not use TLS
-                    }
-                    (
-                        Tls::Opportunistic
-                        | Tls::OpportunisticInsecure
-                        | Tls::Required
-                        | Tls::RequiredInsecure,
-                        true,
-                    ) => {
-                        client.starttls(enable_tls.allow_insecure()).await?;
-                    }
-                }
-
-                Ok::<SmtpClient, anyhow::Error>(client)
+                Ok(client)
             }
         })
-        .await??;
+        .await
+        .with_context(|| format!("connect to {address:?} port {port} and read initial banner"))??;
+
+        // Say EHLO
+        let caps = client.ehlo(&ehlo_name).await?;
+
+        // Use STARTTLS if available.
+        let has_tls = caps.contains_key("STARTTLS");
+        match (enable_tls, has_tls) {
+            (Tls::Required | Tls::RequiredInsecure, false) => {
+                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised",);
+            }
+            (Tls::Disabled, _) | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
+                // Do not use TLS
+            }
+            (
+                Tls::Opportunistic
+                | Tls::OpportunisticInsecure
+                | Tls::Required
+                | Tls::RequiredInsecure,
+                true,
+            ) => {
+                client.starttls(enable_tls.allow_insecure()).await?;
+            }
+        };
 
         self.client.replace(client);
         self.client_address.replace(address);
@@ -777,7 +771,7 @@ impl Dispatcher {
                     .await?;
 
                 if let Some(delay) = result.retry_after {
-                    if delay >= Duration::from_secs(self.path_config.idle_timeout) {
+                    if delay >= self.path_config.client_timeouts.idle_timeout {
                         self.throttle_ready_queue(delay);
                         return Ok(());
                     }

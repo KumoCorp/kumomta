@@ -80,7 +80,8 @@ impl Opt {
         let stream = TcpStream::connect(&self.target)
             .await
             .with_context(|| format!("connect to {}", self.target))?;
-        let mut client = SmtpClient::with_stream(stream, &self.target);
+        let mut client =
+            SmtpClient::with_stream(stream, &self.target, SmtpClientTimeouts::default());
 
         // Read banner
         let banner = client.read_response(None).await?;

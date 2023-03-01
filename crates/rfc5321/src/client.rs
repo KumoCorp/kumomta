@@ -2,8 +2,10 @@ use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardP
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::timeout;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
 use tokio_rustls::rustls::{
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
@@ -28,6 +30,8 @@ pub enum ClientError {
     Rejected(Response),
     #[error("invalid DNS name: {0}")]
     InvalidDnsName(#[from] tokio_rustls::rustls::client::InvalidDnsNameError),
+    #[error("Timed Out waiting for response")]
+    TimeOut,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,23 +40,127 @@ pub struct EsmtpCapability {
     pub param: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct SmtpClientTimeouts {
+    #[serde(
+        default = "SmtpClientTimeouts::default_connect_timeout",
+        with = "humantime_serde"
+    )]
+    pub connect_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_ehlo_timeout",
+        with = "humantime_serde"
+    )]
+    pub ehlo_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_mail_from_timeout",
+        with = "humantime_serde"
+    )]
+    pub mail_from_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_rcpt_to_timeout",
+        with = "humantime_serde"
+    )]
+    pub rcpt_to_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_data_timeout",
+        with = "humantime_serde"
+    )]
+    pub data_timeout: Duration,
+    #[serde(
+        default = "SmtpClientTimeouts::default_data_dot_timeout",
+        with = "humantime_serde"
+    )]
+    pub data_dot_timeout: Duration,
+    #[serde(
+        default = "SmtpClientTimeouts::default_rset_timeout",
+        with = "humantime_serde"
+    )]
+    pub rset_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_idle_timeout",
+        with = "humantime_serde"
+    )]
+    pub idle_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_starttls_timeout",
+        with = "humantime_serde"
+    )]
+    pub starttls_timeout: Duration,
+}
+
+impl Default for SmtpClientTimeouts {
+    fn default() -> Self {
+        Self {
+            connect_timeout: Self::default_connect_timeout(),
+            ehlo_timeout: Self::default_ehlo_timeout(),
+            mail_from_timeout: Self::default_mail_from_timeout(),
+            rcpt_to_timeout: Self::default_rcpt_to_timeout(),
+            data_timeout: Self::default_data_timeout(),
+            data_dot_timeout: Self::default_data_dot_timeout(),
+            rset_timeout: Self::default_rset_timeout(),
+            idle_timeout: Self::default_idle_timeout(),
+            starttls_timeout: Self::default_starttls_timeout(),
+        }
+    }
+}
+
+impl SmtpClientTimeouts {
+    fn default_connect_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
+    fn default_ehlo_timeout() -> Duration {
+        Duration::from_secs(300)
+    }
+    fn default_mail_from_timeout() -> Duration {
+        Duration::from_secs(300)
+    }
+    fn default_rcpt_to_timeout() -> Duration {
+        Duration::from_secs(300)
+    }
+    fn default_data_timeout() -> Duration {
+        Duration::from_secs(300)
+    }
+    fn default_data_dot_timeout() -> Duration {
+        Duration::from_secs(300)
+    }
+    fn default_rset_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+    fn default_idle_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+    fn default_starttls_timeout() -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
 pub struct SmtpClient {
     socket: Option<BoxedAsyncReadAndWrite>,
     hostname: String,
     capabilities: HashMap<String, EsmtpCapability>,
     read_buffer: Vec<u8>,
+    timeouts: SmtpClientTimeouts,
 }
 
 impl SmtpClient {
     pub fn with_stream<S: AsyncReadAndWrite + 'static, H: AsRef<str>>(
         stream: S,
         peer_hostname: H,
+        timeouts: SmtpClientTimeouts,
     ) -> Self {
         Self {
             socket: Some(Box::new(stream)),
             hostname: peer_hostname.as_ref().to_string(),
             capabilities: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
+            timeouts,
         }
     }
 
@@ -140,7 +248,15 @@ impl SmtpClient {
             None => return Err(ClientError::NotConnected),
         };
 
-        self.read_response(Some(line)).await
+        match timeout(
+            command.client_timeout(&self.timeouts),
+            self.read_response(Some(line)),
+        )
+        .await
+        {
+            Ok(res) => res,
+            Err(_) => Err(ClientError::TimeOut),
+        }
     }
 
     /// Issue a series of commands, and return the responses to

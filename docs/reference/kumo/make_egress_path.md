@@ -63,12 +63,27 @@ kumo.on('get_egress_path_config', function(domain, source_name, site_name)
 end)
 ```
 
-## idle_timeout
+## connect_timeout
+## starttls_timeout
+## ehlo_timeout
+## mail_from_timeout
+## rcpt_to_timeout
+## data_timeout
+## data_dot_timeout
+## rset_timeout
 
-Controls how long a connection will remain open and idle, waiting to be
+Controls the timeouts waiting for responses to various SMTP commands.
+
+The value is specified as a integer in seconds, or as a string using syntax
+like `"2min"` for a two minute duration.
+
+## idle_timeout
+how long a connection will remain open and idle, waiting to be
 reused for another delivery attempt, before being closed.
 
-The value is specified in seconds.
+The value is specified as a integer in seconds, or as a string using syntax
+like `"2min"` for a two minute duration.
+
 
 ```lua
 kumo.on('get_egress_path_config', function(domain, source_name, site_name)
