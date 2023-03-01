@@ -19,7 +19,7 @@ GCP: https://cloud.google.com/compute/docs/tutorials/sending-mail
 ## Step by Step
 
 The commands below will install as a local user.
-You can either just execute the [installer script](/kumoinstall.sh), or follow the steps below manually (same thing).
+You can either just execute the installer script (kumoinstall.sh), or follow the steps below manually (same thing).
 
 At a minimum, you will need to install some dev tools and other glue before starting.
 
