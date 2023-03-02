@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/bounce-classify",
   "crates/kumod",
   "crates/rfc5321",
   "crates/spool",

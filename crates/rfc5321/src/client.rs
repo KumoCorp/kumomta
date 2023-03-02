@@ -504,6 +504,26 @@ pub struct Response {
     pub command: Option<String>,
 }
 
+impl Response {
+    pub fn to_single_line(&self) -> String {
+        let mut line = format!("{} ", self.code);
+
+        if let Some(enh) = &self.enhanced_code {
+            line.push_str(&format!("{}.{}.{} ", enh.class, enh.subject, enh.detail));
+        }
+
+        for c in self.content.chars() {
+            match c {
+                '\r' => line.push_str("\\r"),
+                '\n' => line.push_str("\\n"),
+                c => line.push(c),
+            }
+        }
+
+        line
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ResponseLine<'a> {
     pub code: u16,

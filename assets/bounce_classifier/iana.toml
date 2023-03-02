@@ -1,0 +1,60 @@
+# This file contains rules that match SMTP ENHANCEDSTATUSCODES
+# codes as defined in the IANA registry:
+# https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml
+# to bounce classifications.
+[rules]
+InvalidRecipient = [
+  "^(451|550) [45]\\.1\\.[1234] ",
+  "^45[02] [45]\\.2\\.4 ", # Mailing list expansion
+  "^5\\d{2} [45]\\.7\\.17 ", # RRVS: Mailbox owner has changed
+]
+BadDomain = [
+  "^(451|550) [45]\\.1\\.10 ", # NULL MX
+  "^5\\d{2} [45]\\.7\\.18 ", # RRVS: domain owner has changed
+]
+InactiveMailbox = [
+  "^(451|550) [45]\\.1\\.[6] ",
+  "^[45]\\d{2} [45]\\.2\\.1 ",
+  "^525 [45]\\.7\\.13 ", # User account disabled
+]
+InvalidSender = [
+  "^(451|550) [45]\\.1\\.[78] ",
+  "^\\d{3} [45]\\.7\\.27 ", # Send address has NULL MX
+]
+QuotaIssues = [
+  "^552 [45]\\.2\\.2 ",
+  "^552 [45]\\.2\\.3 ",
+  "^452 [45]\\.3\\.1 ", # Mail System Full
+  "^55[24] [45]\\.3\\.4 ", # Message too large for system
+]
+NoAnswerFromHost = [
+  "^451 [45]\\.4\\.1 ",
+]
+BadConnection = [
+  "^421 [45]\\.4\\.2 ",
+]
+DNSFailure = [
+  "^(451|550) [45]\\.4\\.3 ", # directory server failure
+]
+RoutingErrors = [
+  "^\\d{3} [45]\\.4\\.4 ", # unable to route
+  "^\\d{3} [45]\\.4\\.6 ", # routing loop detected
+]
+TransientFailure = [
+  "^451 [45]\\.4\\.5 ", # Congestion
+]
+MessageExpired = [
+  "^\\d{3} [45]\\.4\\.7 ", # delivery time expired
+]
+ProtocolErrors = [
+  "^\\d{3} [45]\\.5\\.\\d+ ", # misc protocol error
+  "^\\d{3} [45]\\.6\\.\\d+ ", # content negotiation protocol error
+]
+AuthenticationFailed = [
+  # Note that a couple of x.7.x codes map to BadDomain and InvalidRecipient
+  # so take care to avoid an ambiguous match here
+  "^5\\d{2} [45]\\.7\\.(0|1|2|3|4|5|6|7|8|9|10|11|12|14|15|19|20|21|22|23|24|25|26|29|30) ",
+]
+PolicyRelated = [
+  "^\\d{3} [45]\\.7\\.38 ", # mail flood detected
+]
