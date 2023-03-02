@@ -308,15 +308,13 @@ impl EgressPath {
         &self.name
     }
 
-    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) -> usize {
+    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
         let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        let count = msgs.len();
         for msg in msgs {
             let id = *msg.id();
-            bounce.log(msg).await;
+            bounce.log(msg, None).await;
             SpoolManager::remove_from_spool(id).await.ok();
         }
-        count
     }
 
     pub fn insert(&mut self, msg: Message) -> Result<(), Message> {

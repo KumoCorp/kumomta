@@ -7,7 +7,7 @@ use message::message::QueueNameComponents;
 use message::Message;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
@@ -21,6 +21,7 @@ pub struct AdminBounceEntry {
     pub domain: Option<String>,
     pub reason: String,
     pub expires: Instant,
+    pub bounced: Arc<Mutex<HashMap<String, usize>>>,
 }
 
 fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bool {
@@ -112,7 +113,16 @@ impl AdminBounceEntry {
         names
     }
 
-    pub async fn log(&self, msg: Message) {
+    pub async fn log(&self, msg: Message, queue_name: Option<&str>) {
+        let local_name;
+        let queue_name = match queue_name {
+            Some(n) => n,
+            None => {
+                local_name = msg.get_queue_name().unwrap_or_else(|_| "?".to_string());
+                &local_name
+            }
+        };
+
         log_disposition(
             RecordType::AdminBounce,
             msg,
@@ -132,6 +142,13 @@ impl AdminBounceEntry {
             None,
         )
         .await;
+
+        let mut bounced = self.bounced.lock().unwrap();
+        if let Some(entry) = bounced.get_mut(queue_name) {
+            *entry += 1;
+        } else {
+            bounced.insert(queue_name.to_string(), 1);
+        }
     }
 }
 
@@ -156,6 +173,7 @@ fn default_duration() -> Duration {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BounceV1Response {
     pub bounced: HashMap<String, usize>,
+    pub total_bounced: usize,
 }
 
 pub async fn bounce_v1(
@@ -169,18 +187,24 @@ pub async fn bounce_v1(
         domain: request.domain,
         reason: request.reason,
         expires: Instant::now() + request.duration,
+        bounced: Arc::new(Mutex::new(HashMap::new())),
     };
 
     AdminBounceEntry::add(entry.clone());
 
     let queue_names = entry.list_matching_queues().await;
-    let mut bounced = HashMap::new();
 
     for name in &queue_names {
         if let Some(q) = QueueManager::get_opt(name).await {
-            bounced.insert(name.to_string(), q.lock().await.bounce_all(&entry).await);
+            q.lock().await.bounce_all(&entry).await;
         }
     }
 
-    Ok(Json(BounceV1Response { bounced }))
+    let bounced = entry.bounced.lock().unwrap().clone();
+    let total_bounced = bounced.values().sum();
+
+    Ok(Json(BounceV1Response {
+        bounced,
+        total_bounced,
+    }))
 }

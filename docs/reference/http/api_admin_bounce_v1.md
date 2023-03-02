@@ -22,7 +22,7 @@ each matching queue name and the count of matching messages that
 were bounced:
 
 ```json
-{"bounced":{"gmail.com":42}}
+{"bounced":{"gmail.com":42}, "total_bounced":42}
 ```
 
 The following fields are possible in the request:

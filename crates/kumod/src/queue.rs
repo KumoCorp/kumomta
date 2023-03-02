@@ -284,25 +284,23 @@ impl Queue {
         Ok(handle)
     }
 
-    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) -> usize {
+    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
         let msgs = self.queue.drain();
-        let mut count = msgs.len();
+        let count = msgs.len();
         self.delayed_gauge.sub(count as i64);
         for msg in msgs {
             let msg = (*msg).clone();
             let id = *msg.id();
-            bounce.log(msg).await;
+            bounce.log(msg, Some(&self.name)).await;
             SpoolManager::remove_from_spool(id).await.ok();
         }
 
         let sources = self.rr.all_sources();
         for source in &sources {
             if let Some(site) = EgressPathManager::get_opt(&self.name, source).await {
-                count += site.lock().await.bounce_all(bounce).await;
+                site.lock().await.bounce_all(bounce).await;
             }
         }
-
-        count
     }
 
     pub async fn requeue_message(
@@ -421,7 +419,7 @@ impl Queue {
 
         if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
             let id = *msg.id();
-            b.log(msg).await;
+            b.log(msg, Some(&self.name)).await;
             SpoolManager::remove_from_spool(id).await?;
             return Ok(());
         }
