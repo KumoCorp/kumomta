@@ -1,6 +1,7 @@
 use crate::mx::ResolvedAddress;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
+use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::{DateTime, Utc};
 use message::Message;
 use once_cell::sync::OnceCell;
@@ -14,6 +15,39 @@ use std::thread::JoinHandle;
 use zstd::stream::write::{AutoFinishEncoder, Encoder};
 
 static LOGGER: OnceCell<Logger> = OnceCell::new();
+static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ClassifierParams {
+    pub files: Vec<String>,
+}
+
+impl ClassifierParams {
+    pub fn register(&self) -> anyhow::Result<()> {
+        let mut builder = BounceClassifierBuilder::new();
+        for file_name in &self.files {
+            if file_name.ends_with(".json") {
+                builder
+                    .merge_json_file(file_name)
+                    .map_err(|err| anyhow!("{err}"))?;
+            } else if file_name.ends_with(".toml") {
+                builder
+                    .merge_toml_file(file_name)
+                    .map_err(|err| anyhow!("{err}"))?;
+            } else {
+                anyhow::bail!("{file_name}: classifier files must have either .toml or .json filename extension");
+            }
+        }
+
+        let classifier = builder.build().map_err(|err| anyhow!("{err}"))?;
+
+        CLASSIFY
+            .set(classifier)
+            .map_err(|_| anyhow::anyhow!("classifieer already initialized"))?;
+
+        Ok(())
+    }
+}
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct LogFileParams {
@@ -98,8 +132,11 @@ impl Logger {
         fn do_record(
             params: &LogFileParams,
             file: &mut Option<OpenedFile>,
-            record: JsonLogRecord,
+            mut record: JsonLogRecord,
         ) -> anyhow::Result<()> {
+            if let Some(classifier) = CLASSIFY.get() {
+                record.bounce_classification = classifier.classify_response(&record.response);
+            }
             if file.is_none() {
                 let now = Utc::now();
                 let name = params.log_dir.join(now.format("%Y%m%d-%H%M%S").to_string());
@@ -216,6 +253,8 @@ pub struct JsonLogRecord {
     /// number of logged events to determine the true number
     pub num_attempts: u16,
 
+    pub bounce_classification: BounceClass,
+
     pub egress_pool: Option<String>,
     pub egress_source: Option<String>,
 }
@@ -253,6 +292,7 @@ pub async fn log_disposition(
             num_attempts: msg.get_num_attempts(),
             egress_pool: egress_pool.map(|s| s.to_string()),
             egress_source: egress_source.map(|s| s.to_string()),
+            bounce_classification: BounceClass::Uncategorized,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");

@@ -173,9 +173,18 @@ mod test {
             ("552 4.2.2 mailbox is stuffed", BounceClass::QuotaIssues),
             ("552 4.2.2 mailbox is stuffed", BounceClass::QuotaIssues),
             ("352 5.2.2 mailbox is stuffed", BounceClass::Uncategorized),
-            ("525 4.7.13 user account is disabled", BounceClass::InactiveMailbox),
-            ("551 4.7.17 mailbox owner has changed", BounceClass::InvalidRecipient),
-            ("551 4.7.18 domain owner has changed", BounceClass::BadDomain),
+            (
+                "525 4.7.13 user account is disabled",
+                BounceClass::InactiveMailbox,
+            ),
+            (
+                "551 4.7.17 mailbox owner has changed",
+                BounceClass::InvalidRecipient,
+            ),
+            (
+                "551 4.7.18 domain owner has changed",
+                BounceClass::BadDomain,
+            ),
         ];
 
         for &(input, output) in corpus {
