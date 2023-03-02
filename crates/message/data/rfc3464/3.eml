@@ -1,0 +1,29 @@
+Disclose-recipients: prohibited
+Date: Fri, 08 Jul 1994 09:21:25 -0400 (EDT)
+From: Message Router Submission Agent <AMMGR@corp.timeplex.com>
+Subject: Status of: Re: Battery current sense
+To: owner-ups-mib@CS.UTK.EDU
+Message-id: <01HEGJ0WNBY28Y95LN@mr.timeplex.com>
+MIME-version: 1.0
+content-type: multipart/report;
+    report-type=delivery-status;
+    boundary="84229080704991.122306.SYS30"
+
+--84229080704991.122306.SYS30
+content-type: text/plain
+
+Invalid address - nair_s
+%DIR-E-NODIRMTCH, No matching Directory Entry
+Entry found
+
+--84229080704991.122306.SYS30
+content-type: message/delivery-status
+
+Reporting-MTA: mailbus; SYS30
+
+Final-Recipient: unknown; nair_s
+Status: 5.0.0 (unknown permanent failure)
+Action: failed
+
+--84229080704991.122306.SYS30--
+

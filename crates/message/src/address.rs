@@ -2,7 +2,7 @@ use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(transparent)]
 pub struct EnvelopeAddress(String);
 

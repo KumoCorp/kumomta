@@ -1,0 +1,47 @@
+MIME-Version: 1.0
+From: <postmaster@nsfnet-relay.ac.uk>
+Message-Id: <199407092338.TAA23293@CS.UTK.EDU>
+Received: from nsfnet-relay.ac.uk by sun2.nsfnet-relay.ac.uk
+        id <g.12954-0@sun2.nsfnet-relay.ac.uk>;
+        Sun, 10 Jul 1994 00:36:51 +0100
+To: owner-info-mime@cs.utk.edu
+Date: Sun, 10 Jul 1994 00:36:51 +0100
+Subject: WARNING: message delayed at "nsfnet-relay.ac.uk"
+content-type: multipart/report; report-type=delivery-status;
+      boundary=foobar
+
+--foobar
+content-type: text/plain
+
+The following message:
+
+UA-ID: Reliable PC (...
+Q-ID: sun2.nsf:77/msg.11820-0
+
+has not been delivered to the intended recipient:
+
+    thomas@de-montfort.ac.uk
+
+despite repeated delivery attempts over the past 24 hours.
+
+The usual cause of this problem is that the remote system is
+temporarily unavailable.
+
+Delivery will continue to be attempted up to a total elapsed time of
+168 hours, i.e., 7 days.
+
+You will be informed if delivery proves to be impossible within this
+time.
+
+Please quote the Q-ID in any queries regarding this mail.
+
+--foobar
+content-type: message/delivery-status
+
+Reporting-MTA: dns; sun2.nsfnet-relay.ac.uk
+
+Final-Recipient: rfc822;thomas@de-montfort.ac.uk
+Status: 4.0.0 (unknown temporary failure)
+Action: delayed
+
+--foobar--
