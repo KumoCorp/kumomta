@@ -96,7 +96,7 @@ local file_signer = kumo.dkim.rsa_sha256_signer {
   headers = { 'From', 'To', 'Subject' },
   key = {
     mount = 'secret',
-    path = 'dkim' .. msg:sender().domain,
+    path = 'dkim/' .. msg:sender().domain,
 
     -- Specify how to reach the vault; if you omit these,
     -- values will be read from $VAULT_ADDR and $VAULT_TOKEN
