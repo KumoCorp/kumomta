@@ -4,6 +4,7 @@ use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::{DateTime, Utc};
 use message::rfc3464::ReportAction;
+use message::rfc5965::ARFReport;
 use message::Message;
 use once_cell::sync::OnceCell;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -216,12 +217,16 @@ pub enum RecordType {
     /// Recorded by the delivery side, most likely as a
     /// result of attempting a delivery to a remote host
     Delivery,
+    Bounce,
+    TransientFailure,
     /// Recorded when a message is expiring from the queue
     Expiration,
     /// Administratively failed
     AdminBounce,
     /// Contains information about an OOB bounce
     OOB,
+    /// Contains a feedback report
+    Feedback,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -261,10 +266,12 @@ pub struct JsonLogRecord {
 
     pub egress_pool: Option<String>,
     pub egress_source: Option<String>,
+
+    pub feedback_report: Option<ARFReport>,
 }
 
 pub async fn log_disposition(
-    kind: RecordType,
+    mut kind: RecordType,
     msg: Message,
     site: &str,
     peer_address: Option<&ResolvedAddress>,
@@ -273,6 +280,14 @@ pub async fn log_disposition(
     egress_source: Option<&str>,
 ) {
     if let Some(logger) = Logger::get() {
+        let mut feedback_report = None;
+        if kind == RecordType::Reception {
+            if let Ok(Some(report)) = msg.parse_rfc5965() {
+                feedback_report.replace(report);
+                kind = RecordType::Feedback;
+            }
+        }
+
         let record = JsonLogRecord {
             kind,
             id: msg.id().to_string(),
@@ -297,6 +312,7 @@ pub async fn log_disposition(
             egress_pool: egress_pool.map(|s| s.to_string()),
             egress_source: egress_source.map(|s| s.to_string()),
             bounce_classification: BounceClass::Uncategorized,
+            feedback_report,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -371,6 +387,7 @@ pub async fn log_disposition(
                         egress_pool: None,
                         egress_source: None,
                         bounce_classification: BounceClass::Uncategorized,
+                        feedback_report: None,
                     };
 
                     if let Err(err) = logger.log(record).await {

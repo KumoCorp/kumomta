@@ -547,7 +547,7 @@ impl Dispatcher {
                 let increment_attempts = true;
                 for msg in msgs {
                     log_disposition(
-                        RecordType::Delivery,
+                        RecordType::TransientFailure,
                         msg.clone(),
                         &name,
                         None,
@@ -825,7 +825,7 @@ impl Dispatcher {
                 );
                 if let Some(msg) = self.msg.take() {
                     log_disposition(
-                        RecordType::Delivery,
+                        RecordType::TransientFailure,
                         msg.clone(),
                         &self.name,
                         self.client_address.as_ref(),
@@ -849,7 +849,7 @@ impl Dispatcher {
                 );
                 if let Some(msg) = self.msg.take() {
                     log_disposition(
-                        RecordType::Delivery,
+                        RecordType::Bounce,
                         msg.clone(),
                         &self.name,
                         self.client_address.as_ref(),
