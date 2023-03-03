@@ -76,15 +76,16 @@ impl QueueConfig {
     }
 
     pub fn infer_num_attempts(&self, age: chrono::Duration) -> u16 {
-        let age = age.num_seconds() as f64;
-        let interval = self.retry_interval as f64;
+        let mut elapsed = chrono::Duration::seconds(0);
+        let mut num_attempts = 0;
 
-        match self.max_retry_interval {
-            None => age.powf(1.0 / interval).floor() as u16,
-            Some(limit) => {
-                let limit = limit as f64;
-                (age / limit).floor() as u16
+        loop {
+            let delay = self.delay_for_attempt(num_attempts);
+            if elapsed + delay > age {
+                return num_attempts;
             }
+            elapsed = elapsed + delay;
+            num_attempts += 1;
         }
     }
 
@@ -104,13 +105,18 @@ impl QueueConfig {
         num_attempts: u16,
         age: chrono::Duration,
     ) -> Option<chrono::Duration> {
+        let max_age = self.get_max_age();
+        if age >= max_age {
+            return None;
+        }
+
         let overall_delay: i64 = (1..num_attempts)
             .into_iter()
             .map(|i| self.delay_for_attempt(i).num_seconds())
             .sum();
         let overall_delay = chrono::Duration::seconds(overall_delay);
 
-        if overall_delay >= self.get_max_age() {
+        if overall_delay >= max_age {
             None
         } else if overall_delay <= age {
             // Ready now
@@ -196,20 +202,104 @@ mod test {
             vec![
                 (2, 1, 0),
                 (6, 2, 0),
-                (10, 3, 2),
+                (10, 2, 0),
                 (14, 3, 0),
-                (18, 4, 10),
-                (22, 4, 6),
-                (26, 5, 34),
-                (30, 5, 30),
-                (34, 5, 26),
-                (38, 6, 86),
-                (42, 6, 82),
-                (46, 6, 78),
-                (50, 7, 202),
-                (54, 7, 198),
-                (58, 7, 194),
-                (62, 7, 190)
+                (18, 3, 0),
+                (22, 3, 0),
+                (26, 3, 0),
+                (30, 4, 0),
+                (34, 4, 0),
+                (38, 4, 0),
+                (42, 4, 0),
+                (46, 4, 0),
+                (50, 4, 0),
+                (54, 4, 0),
+                (58, 4, 0),
+                (62, 5, 0),
+                (66, 5, 0),
+                (70, 5, 0),
+                (74, 5, 0),
+                (78, 5, 0),
+                (82, 5, 0),
+                (86, 5, 0),
+                (90, 5, 0),
+                (94, 5, 0),
+                (98, 5, 0),
+                (102, 5, 0),
+                (106, 5, 0),
+                (110, 5, 0),
+                (114, 5, 0),
+                (118, 5, 0),
+                (122, 5, 0),
+                (126, 6, 0),
+                (130, 6, 0),
+                (134, 6, 0),
+                (138, 6, 0),
+                (142, 6, 0),
+                (146, 6, 0),
+                (150, 6, 0),
+                (154, 6, 0),
+                (158, 6, 0),
+                (162, 6, 0),
+                (166, 6, 0),
+                (170, 6, 0),
+                (174, 6, 0),
+                (178, 6, 0),
+                (182, 6, 0),
+                (186, 6, 0),
+                (190, 6, 0),
+                (194, 6, 0),
+                (198, 6, 0),
+                (202, 6, 0),
+                (206, 6, 0),
+                (210, 6, 0),
+                (214, 6, 0),
+                (218, 6, 0),
+                (222, 6, 0),
+                (226, 6, 0),
+                (230, 6, 0),
+                (234, 6, 0),
+                (238, 6, 0),
+                (242, 6, 0),
+                (246, 6, 0),
+                (250, 6, 0),
+                (254, 7, 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn bigger_delay() {
+        let config = QueueConfig {
+            retry_interval: 1200,
+            max_retry_interval: None,
+            max_age: 3 * 3600,
+            ..Default::default()
+        };
+
+        let mut schedule = vec![];
+        let mut age = 1200;
+        loop {
+            let age_chrono = chrono::Duration::seconds(age);
+            let num_attempts = config.infer_num_attempts(age_chrono);
+            match config.compute_delay_based_on_age(num_attempts, age_chrono) {
+                Some(delay) => schedule.push((age, num_attempts, delay.num_seconds())),
+                None => break,
+            }
+            age += 1200;
+        }
+
+        assert_eq!(
+            schedule,
+            vec![
+                (1200, 1, 0),
+                (2400, 1, 0),
+                (3600, 2, 0),
+                (4800, 2, 0),
+                (6000, 2, 0),
+                (7200, 2, 0),
+                (8400, 3, 0),
+                (9600, 3, 0)
             ]
         );
     }
