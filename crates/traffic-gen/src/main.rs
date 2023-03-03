@@ -2,7 +2,9 @@ use anyhow::Context;
 use chrono::Utc;
 use clap::Parser;
 use num_format::{Locale, ToFormattedString};
+use once_cell::sync::OnceCell;
 use rfc5321::*;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -35,6 +37,13 @@ struct Opt {
     /// Whether to use STARTTLS for submission
     #[arg(long)]
     starttls: bool,
+
+    /// Take the message contents from the specified file
+    #[arg(long)]
+    body_file: Option<PathBuf>,
+
+    #[arg(skip)]
+    body_file_content: OnceCell<String>,
 }
 
 impl Opt {
@@ -48,7 +57,22 @@ impl Opt {
         format!("user-{number}@{domain}.{}", self.domain)
     }
 
+    fn load_body_file(&self) -> anyhow::Result<()> {
+        if let Some(path) = &self.body_file {
+            let data =
+                std::fs::read_to_string(&path).with_context(|| format!("{}", path.display()))?;
+            // Canonicalize the line endings
+            let data = data.replace("\r\n", "\n").replace("\n", "\r\n");
+            self.body_file_content.set(data).unwrap();
+        }
+        Ok(())
+    }
+
     fn generate_body(&self, sender: &str, recip: &str) -> String {
+        if let Some(content) = self.body_file_content.get() {
+            return content.to_string();
+        }
+
         let now = Utc::now();
         let datestamp = now.to_rfc2822();
         let id = Uuid::new_v4().simple().to_string();
@@ -141,6 +165,7 @@ impl Opt {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
+    opts.load_body_file()?;
 
     let counter = Arc::new(AtomicUsize::new(0));
     let started = Instant::now();

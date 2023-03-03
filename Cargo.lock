@@ -3060,6 +3060,7 @@ dependencies = [
  "clap",
  "futures",
  "num-format",
+ "once_cell",
  "rand",
  "rfc5321",
  "tokio",
