@@ -1,3 +1,5 @@
+use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
+use anyhow::anyhow;
 use config::get_or_create_sub_module;
 use lruttl::LruCacheWithTtl;
 use mail_auth::common::crypto::{HashAlgorithm, RsaKey, Sha256, SigningKey};
@@ -48,6 +50,65 @@ impl Into<HashAlgorithm> for HashAlgo {
     }
 }
 
+#[derive(Deserialize, Hash, PartialEq, Eq, Debug)]
+#[serde(untagged)]
+pub enum KeySource {
+    File(String),
+    Vault {
+        address: Option<String>,
+        token: Option<String>,
+        mount: String,
+        path: String,
+    },
+}
+
+impl KeySource {
+    pub async fn get(&self) -> anyhow::Result<String> {
+        match self {
+            Self::File(path) => Ok(tokio::fs::read_to_string(path).await?),
+            Self::Vault {
+                address,
+                token,
+                mount,
+                path,
+            } => {
+                let address = match address {
+                    Some(a) => a.to_string(),
+                    None => std::env::var("VAULT_ADDR").map_err(|err| {
+                        anyhow!(
+                            "address was not specified and $VAULT_ADDR is not set/usable: {err:#}"
+                        )
+                    })?,
+                };
+                let token = match token {
+                    Some(a) => a.to_string(),
+                    None => std::env::var("VAULT_TOKEN").map_err(|err| {
+                        anyhow!(
+                            "address was not specified and $VAULT_TOKEN is not set/usable: {err:#}"
+                        )
+                    })?,
+                };
+
+                let client = VaultClient::new(
+                    VaultClientSettingsBuilder::default()
+                        .address(address)
+                        .token(token)
+                        .build()?,
+                )?;
+
+                #[derive(Deserialize, Debug)]
+                struct Entry {
+                    key: String,
+                }
+
+                let entry: Entry = vaultrs::kv2::read(&client, mount, path).await?;
+
+                Ok(entry.key)
+            }
+        }
+    }
+}
+
 #[derive(Deserialize, Hash, PartialEq, Eq)]
 pub struct SignerConfig {
     domain: String,
@@ -70,7 +131,7 @@ pub struct SignerConfig {
     #[serde(default)]
     body_canonicalization: Canon,
 
-    file_name: String,
+    key: KeySource,
 
     #[serde(default = "SignerConfig::default_ttl")]
     ttl: u64,
@@ -145,12 +206,14 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 return Ok(Signer(inner));
             }
 
-            let data = tokio::fs::read_to_string(&params.file_name)
+            let data = params
+                .key
+                .get()
                 .await
-                .map_err(|err| mlua::Error::external(format!("{}: {err:#}", params.file_name)))?;
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
             let key = RsaKey::<Sha256>::from_rsa_pem(&data)
                 .or_else(|_| RsaKey::<Sha256>::from_pkcs8_pem(&data))
-                .map_err(|err| mlua::Error::external(format!("{}: {err:#}", params.file_name)))?;
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
 
             let signer = params.configure_signer(DkimSigner::from_key(key));
 

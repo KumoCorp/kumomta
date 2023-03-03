@@ -122,7 +122,15 @@ kumo.on('smtp_server_message_received', function(msg)
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
-    file_name = 'example-private-dkim-key.pem',
+    -- Using a file:
+    key = 'example-private-dkim-key.pem',
+    -- Using HashiCorp Vault:
+    --[[
+    key = {
+      mount = "secret",
+      path = "dkim/" .. msg:sender().domain
+    }
+    ]]
   }
   msg:dkim_sign(signer)
 
