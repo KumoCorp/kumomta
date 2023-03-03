@@ -99,7 +99,7 @@ Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.  
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
-    file_name = 'example-private-dkim-key.pem',
+    key = 'example-private-dkim-key.pem',
   }
 
 Where you want to enable dkim signing, simple call that signer in policy.

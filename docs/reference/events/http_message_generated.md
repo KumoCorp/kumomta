@@ -26,7 +26,7 @@ kumo.on('http_message_generated', function(msg)
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
-    file_name = 'example-private-dkim-key.pem',
+    key = 'example-private-dkim-key.pem',
   }
   msg:dkim_sign(signer)
 end)

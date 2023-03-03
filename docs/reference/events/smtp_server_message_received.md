@@ -23,7 +23,7 @@ kumo.on('smtp_server_message_received', function(msg)
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
-    file_name = 'example-private-dkim-key.pem',
+    key = 'example-private-dkim-key.pem',
   }
   msg:dkim_sign(signer)
 end)

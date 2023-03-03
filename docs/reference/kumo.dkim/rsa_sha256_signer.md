@@ -10,7 +10,7 @@ kumo.on('smtp_server_message_received', function(msg)
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
-    file_name = 'example-private-dkim-key.pem',
+    key = 'example-private-dkim-key.pem',
   }
   msg:dkim_sign(signer)
 end)
@@ -76,7 +76,7 @@ Required. Specify the signing key. Currently accepts two different forms:
 * *string* - path to the file from which the signing key will be loaded.
 * *object* - load the key from a key management store
 
-The contents of the loaded must be either an RSA PEM or a PKCS8 PEM file.
+The key must be either RSA PEM or a PKCS8 PEM encoded.
 
 ```lua
 local file_signer = kumo.dkim.rsa_sha256_signer {
