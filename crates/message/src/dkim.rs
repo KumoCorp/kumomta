@@ -1,4 +1,3 @@
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 use anyhow::anyhow;
 use config::get_or_create_sub_module;
 use lruttl::LruCacheWithTtl;
@@ -9,6 +8,7 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 lazy_static::lazy_static! {
     static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<SignerInner>> = LruCacheWithTtl::new(1024);
