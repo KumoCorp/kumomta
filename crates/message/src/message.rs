@@ -492,6 +492,11 @@ impl Message {
         crate::rfc3464::Report::parse(&data)
     }
 
+    pub fn parse_rfc5965(&self) -> anyhow::Result<Option<crate::rfc5965::ARFReport>> {
+        let data = self.get_data();
+        crate::rfc5965::ARFReport::parse(&data)
+    }
+
     pub fn prepend_header(&self, name: Option<&str>, value: &str) {
         let data = self.get_data();
         let mut new_data = Vec::with_capacity(size_header(name, value) + 2 + data.len());
@@ -796,6 +801,16 @@ impl UserData for Message {
         methods.add_method("parse_rfc3464", move |lua, this, _: ()| {
             let report = this
                 .parse_rfc3464()
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+            match report {
+                Some(report) => lua.to_value(&report),
+                None => Ok(mlua::Value::Nil),
+            }
+        });
+
+        methods.add_method("parse_rfc5965", move |lua, this, _: ()| {
+            let report = this
+                .parse_rfc5965()
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
             match report {
                 Some(report) => lua.to_value(&report),
