@@ -251,14 +251,16 @@ impl SmtpServer {
         tokio::task::spawn_local(async move {
             server.params.connection_gauge().inc();
             if let Err(err) = server.process().await {
-                error!("Error in SmtpServer: {err:#}");
-                server
-                    .write_response(
-                        421,
-                        format!("4.3.0 {} technical difficulties", server.params.hostname),
-                    )
-                    .await
-                    .ok();
+                if err.downcast_ref::<WriteError>().is_none() {
+                    error!("Error in SmtpServer: {err:#}");
+                    server
+                        .write_response(
+                            421,
+                            format!("4.3.0 {} technical difficulties", server.params.hostname),
+                        )
+                        .await
+                        .ok();
+                }
             }
             server.params.connection_gauge().dec();
         });
@@ -269,16 +271,19 @@ impl SmtpServer {
         &mut self,
         status: u16,
         message: S,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), WriteError> {
         if let Some(socket) = self.socket.as_mut() {
             let mut lines = message.as_ref().lines().peekable();
             while let Some(line) = lines.next() {
                 let is_last = lines.peek().is_none();
                 let sep = if is_last { ' ' } else { '-' };
                 let text = format!("{status}{sep}{line}\r\n");
-                socket.write(text.as_bytes()).await?;
+                socket
+                    .write(text.as_bytes())
+                    .await
+                    .map_err(|_| WriteError {})?;
             }
-            socket.flush().await?;
+            socket.flush().await.map_err(|_| WriteError {})?;
         }
         Ok(())
     }
@@ -785,6 +790,10 @@ impl SmtpServer {
         }
     }
 }
+
+#[derive(Error, Debug)]
+#[error("Error writing to client")]
+struct WriteError;
 
 const MAX_LINE_LEN: usize = 998;
 #[derive(PartialEq)]
