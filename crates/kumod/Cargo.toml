@@ -18,6 +18,7 @@ chrono = {version="0.4", features=["serde"]}
 cidr = {version="0.2", features=["serde"]}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
+domain-map = {path="../domain-map"}
 gcd = "2.3"
 gethostname = "0.4"
 lazy_static = "1.4"

@@ -7,11 +7,12 @@ use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr::IpCidr;
 use config::{load_config, LuaConfig};
+use domain_map::DomainMap;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;
 use prometheus::IntGauge;
-use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
+use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, ForwardPath, Response};
 use rustls::ServerConfig;
 use serde::Deserialize;
 use spool::SpoolId;
@@ -24,6 +25,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
+
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct EsmtpDomain {
+    #[serde(default)]
+    pub oob: bool,
+    #[serde(default)]
+    pub fbl: bool,
+    #[serde(default)]
+    pub relay: bool,
+}
+
+impl EsmtpDomain {
+    pub fn accepts_rcptto(&self) -> bool {
+        self.oob || self.fbl || self.relay
+    }
+}
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct EsmtpListenerParams {
@@ -43,6 +60,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default)]
     pub deferred_spool: bool,
+
+    #[serde(default)]
+    pub domains: DomainMap<EsmtpDomain>,
 
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
@@ -479,22 +499,6 @@ impl SmtpServer {
                         continue;
                     }
 
-                    let mut relay_allowed = false;
-                    for cidr in &self.params.relay_hosts {
-                        if cidr.contains(&self.peer_address.ip()) {
-                            relay_allowed = true;
-                            break;
-                        }
-                    }
-                    if !relay_allowed {
-                        self.write_response(
-                            550,
-                            format!("5.7.1 relaying not permitted for {}", self.peer_address),
-                        )
-                        .await?;
-                        continue;
-                    }
-
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_mail_from", address.clone())
@@ -515,6 +519,39 @@ impl SmtpServer {
                     address,
                     parameters: _,
                 }) => {
+                    let mut relay_allowed = false;
+                    for cidr in &self.params.relay_hosts {
+                        if cidr.contains(&self.peer_address.ip()) {
+                            relay_allowed = true;
+                            break;
+                        }
+                    }
+
+                    match &address {
+                        ForwardPath::Postmaster => {
+                            // We must always accept <postmaster>
+                            relay_allowed = true;
+                        }
+                        ForwardPath::Path(p) => {
+                            if let Some(dom) =
+                                self.params.domains.get(&p.mailbox.domain.to_string())
+                            {
+                                // Note that this can allow or deny depending
+                                // on the config!
+                                relay_allowed = dom.accepts_rcptto();
+                            }
+                        }
+                    }
+
+                    if !relay_allowed {
+                        self.write_response(
+                            550,
+                            format!("5.7.1 relaying not permitted for {}", self.peer_address),
+                        )
+                        .await?;
+                        continue;
+                    }
+
                     if let Some(state) = &self.state {
                         if state.recipients.len() == self.params.max_recipients_per_message {
                             self.write_response(451, "4.5.3 too many recipients")
@@ -681,8 +718,19 @@ impl SmtpServer {
 
                         let queue_name = message.get_queue_name()?;
 
+                        // Check destination domain prior to spooling;
+                        // we may be set to process only OOB/FBL and
+                        // not actually relay it
+                        let recip = message.recipient()?;
+                        let mut feedback_only = false;
+                        if let Some(dom) = self.params.domains.get(recip.domain()) {
+                            if !dom.relay {
+                                feedback_only = true;
+                            }
+                        }
+
                         if queue_name != "null" {
-                            if !self.params.deferred_spool {
+                            if !feedback_only && !self.params.deferred_spool {
                                 message.save().await?;
                             }
                             log_disposition(
@@ -703,7 +751,10 @@ impl SmtpServer {
                                 None,
                             )
                             .await;
-                            messages.push((queue_name, message));
+
+                            if !feedback_only {
+                                messages.push((queue_name, message));
+                            }
                         }
                     }
 

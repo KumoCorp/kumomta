@@ -57,6 +57,63 @@ kumo.start_esmtp_listener {
 }
 ```
 
+## domains
+
+By default, unless the client is connecting from one of the `relay_hosts`,
+relaying is denied.
+
+You can specify relaying options on a per-domain basis via the `domains`
+configuration:
+
+```lua
+kumo.start_esmtp_listener {
+  -- ...
+  domains = {
+    ['example.com'] = {
+      relay = true,
+    },
+    ['bounce.example.com'] = {
+      oob = true,
+    },
+    ['fbl.example.com'] = {
+      fbl = true,
+    },
+    -- wildcards are permitted. This will match
+    -- <anything>.example.com that doesn't have
+    -- another non-wildcard entry explicitly
+    -- listed in this set of domains.
+    -- Note that "example.com" won't match
+    -- "*.example.com".
+    ['*.example.com'] = {
+      -- You can specify multiple options if you wish
+      oob = true,
+      fbl = true,
+      relay = true,
+    },
+    -- and you can explicitly set options to false to
+    -- essentially exclude an entry from a wildcard
+    ['www.example.com'] = {
+      relay = false,
+      fbl = false,
+      oob = false,
+    },
+  },
+}
+```
+
+When the SMTP `RCPT TO` command is issued by the client, the destination
+domain is resolved from this domain configuration.
+
+If none of `relay`, `oob` or `fbl` are set to true, the `RCPT TO` command
+is rejected.
+
+Once the `DATA` stage has transmitted the message content, and after the
+[smtp_server_message_received](../events/smtp_server_message_received.md) event
+has been processed, and the reception logged (which is where OOB and FBL data
+is parsed and logged), the recipient domain is resolved from the domain list
+again; if `relay` is `false` then the message will not be spooled and that will
+be the end of its processing.
+
 ## hostname
 
 Specifies the hostname to report in the banner and other SMTP responses.

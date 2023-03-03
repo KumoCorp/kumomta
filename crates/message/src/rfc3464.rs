@@ -31,7 +31,7 @@ impl ReportAction {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct ReportStatus {
-    pub class: u16,
+    pub class: u8,
     pub subject: u16,
     pub detail: u16,
     pub comment: Option<String>,

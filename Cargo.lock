@@ -696,6 +696,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "domain-map"
+version = "0.1.0"
+dependencies = [
+ "k9",
+ "serde",
+]
+
+[[package]]
 name = "either"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1287,6 +1295,7 @@ dependencies = [
  "cidr",
  "clap",
  "config",
+ "domain-map",
  "gcd",
  "gethostname",
  "humantime-serde",
