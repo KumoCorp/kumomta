@@ -321,7 +321,7 @@ impl Queue {
             let age = msg.age(now);
             let delayed_age = age + delay;
             if delayed_age > max_age {
-                tracing::debug!("expiring {id} {age} > {max_age}");
+                tracing::debug!("expiring {id} {delayed_age} > {max_age}");
                 log_disposition(
                     RecordType::Expiration,
                     msg,
