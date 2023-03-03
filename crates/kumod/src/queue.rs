@@ -89,7 +89,7 @@ impl QueueConfig {
     }
 
     pub fn delay_for_attempt(&self, attempt: u16) -> chrono::Duration {
-        let delay = self.retry_interval.saturating_pow(1 + attempt as u32);
+        let delay = self.retry_interval * 2usize.saturating_pow(attempt as u32);
 
         let delay = match self.max_retry_interval {
             None => delay,
@@ -319,7 +319,8 @@ impl Queue {
             let now = Utc::now();
             let max_age = self.queue_config.get_max_age();
             let age = msg.age(now);
-            if delay + age > max_age {
+            let delayed_age = age + delay;
+            if delayed_age > max_age {
                 tracing::debug!("expiring {id} {age} > {max_age}");
                 log_disposition(
                     RecordType::Expiration,
@@ -333,7 +334,7 @@ impl Queue {
                             subject: 4,
                             detail: 7,
                         }),
-                        content: format!("Delivery time {age} > {max_age}"),
+                        content: format!("Next delivery time {delayed_age} > {max_age}"),
                         command: None,
                     },
                     self.queue_config.egress_pool.as_deref(),
@@ -343,7 +344,6 @@ impl Queue {
                 SpoolManager::remove_from_spool(id).await?;
                 return Ok(());
             }
-            tracing::error!("delaying by {delay:?}");
             msg.delay_by(delay).await?;
         } else if let Some(delay) = delay {
             msg.delay_by(delay).await?;
