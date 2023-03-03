@@ -76,7 +76,7 @@ kumo.start_esmtp_listener {
       oob = true,
     },
     ['fbl.example.com'] = {
-      fbl = true,
+      arf = true,
     },
     -- wildcards are permitted. This will match
     -- <anything>.example.com that doesn't have
@@ -87,14 +87,14 @@ kumo.start_esmtp_listener {
     ['*.example.com'] = {
       -- You can specify multiple options if you wish
       oob = true,
-      fbl = true,
+      arf = true,
       relay = true,
     },
     -- and you can explicitly set options to false to
     -- essentially exclude an entry from a wildcard
     ['www.example.com'] = {
       relay = false,
-      fbl = false,
+      arf = false,
       oob = false,
     },
   },
@@ -104,7 +104,7 @@ kumo.start_esmtp_listener {
 When the SMTP `RCPT TO` command is issued by the client, the destination
 domain is resolved from this domain configuration.
 
-If none of `relay`, `oob` or `fbl` are set to true, the `RCPT TO` command
+If none of `relay`, `oob` or `arf` are set to true, the `RCPT TO` command
 is rejected.
 
 Once the `DATA` stage has transmitted the message content, and after the

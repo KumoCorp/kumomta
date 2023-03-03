@@ -31,14 +31,14 @@ pub struct EsmtpDomain {
     #[serde(default)]
     pub oob: bool,
     #[serde(default)]
-    pub fbl: bool,
+    pub arf: bool,
     #[serde(default)]
     pub relay: bool,
 }
 
 impl EsmtpDomain {
     pub fn accepts_rcptto(&self) -> bool {
-        self.oob || self.fbl || self.relay
+        self.oob || self.arf || self.relay
     }
 }
 
