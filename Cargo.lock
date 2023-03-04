@@ -1704,6 +1704,7 @@ name = "message"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.13.1",
  "bitflags",
  "chrono",
  "chrono-tz",

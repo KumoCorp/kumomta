@@ -38,6 +38,7 @@ pub struct ARFReport {
     pub extensions: HashMap<String, Vec<String>>,
 
     pub original_message: Option<String>,
+    pub supplemental_trace: Option<serde_json::Value>,
 }
 
 impl ARFReport {
@@ -52,27 +53,66 @@ impl ARFReport {
         }
 
         let mut original_message = None;
+        let mut supplemental_trace = None;
 
         for part in &mail.subparts {
             if part.ctype.mimetype == "message/rfc822"
                 || part.ctype.mimetype == "text/rfc822-headers"
             {
                 let (_headers, offset) = parse_headers(part.raw_bytes)?;
-                original_message =
-                    Some(String::from_utf8_lossy(&part.raw_bytes[offset..]).replace("\r\n", "\n"));
+                let bytes = &part.raw_bytes[offset..];
+
+                if let Ok((headers, _)) = parse_headers(bytes) {
+                    // Look for x-headers that might be our supplemental trace headers
+                    for hdr in headers {
+                        if !(hdr.get_key_ref().starts_with("X-")
+                            || hdr.get_key_ref().starts_with("x-"))
+                        {
+                            continue;
+                        }
+                        if let Ok(decoded) = base64::decode(hdr.get_value_raw()) {
+                            #[derive(Deserialize)]
+                            struct Wrap {
+                                #[serde(rename = "_@_")]
+                                marker: String,
+                                #[serde(flatten)]
+                                payload: serde_json::Value,
+                            }
+                            if let Ok(obj) = serde_json::from_slice::<Wrap>(&decoded) {
+                                // Sanity check that it is our encoded data, rather than
+                                // some other random header that may have been inserted
+                                // somewhere along the way
+                                if obj.marker == "\\_/" {
+                                    supplemental_trace.replace(obj.payload);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                original_message = Some(String::from_utf8_lossy(bytes).replace("\r\n", "\n"));
             }
         }
 
         for part in &mail.subparts {
             if part.ctype.mimetype == "message/feedback-report" {
-                return Ok(Some(Self::parse_inner(part, original_message)?));
+                return Ok(Some(Self::parse_inner(
+                    part,
+                    original_message,
+                    supplemental_trace,
+                )?));
             }
         }
 
         anyhow::bail!("feedback-report part missing");
     }
 
-    fn parse_inner(part: &ParsedMail, original_message: Option<String>) -> anyhow::Result<Self> {
+    fn parse_inner(
+        part: &ParsedMail,
+        original_message: Option<String>,
+        supplemental_trace: Option<serde_json::Value>,
+    ) -> anyhow::Result<Self> {
         let body = part.get_body()?;
         let mut extensions = extract_headers(body.as_bytes())?;
 
@@ -107,6 +147,7 @@ impl ARFReport {
             reported_uri,
             extensions,
             original_message,
+            supplemental_trace,
         })
     }
 }
@@ -255,6 +296,7 @@ Spam Spam Spam
 Spam Spam Spam
 ",
         ),
+        supplemental_trace: None,
     },
 )
 "#
@@ -312,7 +354,7 @@ Some(
 Received: from mailserver.example.net (mailserver.example.net
     [192.0.2.1]) by example.com with ESMTP id M63d4137594e46;
     Tue, 08 Mar 2005 14:00:00 -0400
-
+X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoidGVzdEBleGFtcGxlLmNvbSJ9
 To: <Undisclosed Recipients>
 Subject: Earn money
 MIME-Version: 1.0
@@ -325,6 +367,11 @@ Spam Spam Spam
 Spam Spam Spam
 Spam Spam Spam
 ",
+        ),
+        supplemental_trace: Some(
+            Object {
+                "recipient": String("test@example.com"),
+            },
         ),
     },
 )

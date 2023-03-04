@@ -15,6 +15,7 @@ use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::Deserialize;
+use serde_json::json;
 use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
@@ -39,6 +40,52 @@ pub struct EsmtpDomain {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct TraceHeaders {
+    /// Whether to add a Received: header
+    #[serde(default = "default_true")]
+    pub received_header: bool,
+
+    /// Whether to add a supplemental trace header to encode
+    /// additional metadata
+    #[serde(default = "default_true")]
+    pub supplemental_header: bool,
+
+    /// The name of the supplemental trace header
+    #[serde(default = "TraceHeaders::default_header_name")]
+    pub header_name: String,
+
+    /// List of meta keys that should be included in the
+    /// supplemental header
+    #[serde(default = "TraceHeaders::default_meta")]
+    pub include_meta_names: Vec<String>,
+}
+
+impl Default for TraceHeaders {
+    fn default() -> Self {
+        Self {
+            received_header: true,
+            supplemental_header: true,
+            header_name: Self::default_header_name(),
+            include_meta_names: vec![],
+        }
+    }
+}
+
+impl TraceHeaders {
+    fn default_header_name() -> String {
+        "X-KumoRef".to_string()
+    }
+
+    fn default_meta() -> Vec<String> {
+        vec!["tenant".to_string(), "campaign".to_string()]
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct EsmtpListenerParams {
     #[serde(default = "EsmtpListenerParams::default_listen")]
     pub listen: String,
@@ -59,6 +106,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default)]
     pub domains: DomainMap<EsmtpDomain>,
+
+    #[serde(default)]
+    pub trace_headers: TraceHeaders,
 
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
@@ -721,23 +771,31 @@ impl SmtpServer {
 
                     for recip in state.recipients {
                         let id = SpoolId::new();
-                        let received = {
-                            let from_domain = self.said_hello.as_deref().unwrap_or("unspecified");
-                            let peer_address = self.peer_address.ip();
-                            let my_address = self.my_address.ip();
-                            let hostname = &self.params.hostname;
-                            let protocol = "ESMTP";
-                            let recip = recip.to_string();
-                            format!(
-                                "Received: from {from_domain} ({peer_address})\r\n  \
-                                   by {hostname} (KumoMTA {my_address}) \r\n  \
-                                   with {protocol} id {id} for <{recip}>;\r\n  \
-                                   {datestamp}\r\n"
-                            )
+
+                        let mut body = if self.params.trace_headers.received_header {
+                            let received = {
+                                let from_domain =
+                                    self.said_hello.as_deref().unwrap_or("unspecified");
+                                let peer_address = self.peer_address.ip();
+                                let my_address = self.my_address.ip();
+                                let hostname = &self.params.hostname;
+                                let protocol = "ESMTP";
+                                let recip = recip.to_string();
+                                format!(
+                                    "Received: from {from_domain} ({peer_address})\r\n  \
+                                       by {hostname} (KumoMTA {my_address}) \r\n  \
+                                       with {protocol} id {id} for <{recip}>;\r\n  \
+                                       {datestamp}\r\n"
+                                )
+                            };
+
+                            let mut body = Vec::with_capacity(data.len() + received.len());
+                            body.extend_from_slice(received.as_bytes());
+                            body
+                        } else {
+                            Vec::with_capacity(data.len())
                         };
 
-                        let mut body = Vec::with_capacity(data.len() + received.len());
-                        body.extend_from_slice(received.as_bytes());
                         body.extend_from_slice(&data);
 
                         let message = Message::new_dirty(
@@ -754,6 +812,29 @@ impl SmtpServer {
                         {
                             self.write_response(rej.code, rej.message).await?;
                             continue;
+                        }
+
+                        if self.params.trace_headers.supplemental_header {
+                            let mut object = json!({
+                                // Marker to identify encoded supplemental header
+                                "_@_": "\\_/",
+                                "recipient": message.recipient()?,
+                            });
+
+                            for name in &self.params.trace_headers.include_meta_names {
+                                if let Ok(value) = message.get_meta(name) {
+                                    object
+                                        .as_object_mut()
+                                        .unwrap()
+                                        .insert(name.to_string(), value);
+                                }
+                            }
+
+                            let value = base64::encode(serde_json::to_string(&object)?);
+                            message.prepend_header(
+                                Some(&self.params.trace_headers.header_name),
+                                &value,
+                            );
                         }
 
                         ids.push(message.id().to_string());
