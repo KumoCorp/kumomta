@@ -257,18 +257,20 @@ kumo.start_esmtp_listener {
     -- this is the default: the name of the supplemental header
     header_name = 'X-KumoRef',
 
-    -- this is the default: names of additional meta data fields
+    -- names of additional meta data fields
     -- to include in the header. TAKE CARE! The header will be
     -- base64 encoded to prevent casual introspection, but the
     -- header is NOT encrypted and the values of the meta data
-    -- fields included here should be considered to be public
-    include_meta_names = { 'tenant', 'campaign' },
+    -- fields included here should be considered to be public.
+    -- The default is not to add any meta data fields, but you
+    -- might consider setting something like:
+    -- include_meta_names = { 'tenant', 'campaign' },
+    include_meta_names = {},
   },
 }
 ```
 
-Here's an example of a supplemental header from a message that
-did not set either `tenant` or `campaign`:
+Here's an example of a supplemental header from a message:
 
 ```
 X-KumoRef: eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoidGVzdEBleGFtcGxlLmNvbSJ9
@@ -281,7 +283,7 @@ original message:
 {"_@_":"\\_/","recipient":"test@example.com"}
 ```
 
-Any meta data fields that were listed in n`include_meta_names`, if the corresponding
+Any meta data fields that were listed in `include_meta_names`, if the corresponding
 meta data was set in the message, would also be captured in the decoded payload.
 
 KumoMTA will automatically extract this supplemental trace header information

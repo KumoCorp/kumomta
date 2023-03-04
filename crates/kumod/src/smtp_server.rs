@@ -78,7 +78,7 @@ impl TraceHeaders {
     }
 
     fn default_meta() -> Vec<String> {
-        vec!["tenant".to_string(), "campaign".to_string()]
+        vec![]
     }
 }
 
