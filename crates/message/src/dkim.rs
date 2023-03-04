@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use config::get_or_create_sub_module;
+use data_loader::KeySource;
 use lruttl::LruCacheWithTtl;
 use mail_auth::common::crypto::{HashAlgorithm, RsaKey, Sha256, SigningKey};
 use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain, Signature};
@@ -8,7 +8,6 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 lazy_static::lazy_static! {
     static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<SignerInner>> = LruCacheWithTtl::new(1024);
@@ -46,65 +45,6 @@ impl Into<HashAlgorithm> for HashAlgo {
         match self {
             Self::Sha1 => HashAlgorithm::Sha1,
             Self::Sha256 => HashAlgorithm::Sha256,
-        }
-    }
-}
-
-#[derive(Deserialize, Hash, PartialEq, Eq, Debug)]
-#[serde(untagged)]
-pub enum KeySource {
-    File(String),
-    Vault {
-        vault_address: Option<String>,
-        vault_token: Option<String>,
-        vault_mount: String,
-        vault_path: String,
-    },
-}
-
-impl KeySource {
-    pub async fn get(&self) -> anyhow::Result<String> {
-        match self {
-            Self::File(path) => Ok(tokio::fs::read_to_string(path).await?),
-            Self::Vault {
-                vault_address,
-                vault_token,
-                vault_mount,
-                vault_path,
-            } => {
-                let address = match vault_address {
-                    Some(a) => a.to_string(),
-                    None => std::env::var("VAULT_ADDR").map_err(|err| {
-                        anyhow!(
-                            "address was not specified and $VAULT_ADDR is not set/usable: {err:#}"
-                        )
-                    })?,
-                };
-                let token = match vault_token {
-                    Some(a) => a.to_string(),
-                    None => std::env::var("VAULT_TOKEN").map_err(|err| {
-                        anyhow!(
-                            "address was not specified and $VAULT_TOKEN is not set/usable: {err:#}"
-                        )
-                    })?,
-                };
-
-                let client = VaultClient::new(
-                    VaultClientSettingsBuilder::default()
-                        .address(address)
-                        .token(token)
-                        .build()?,
-                )?;
-
-                #[derive(Deserialize, Debug)]
-                struct Entry {
-                    key: String,
-                }
-
-                let entry: Entry = vaultrs::kv2::read(&client, vault_mount, vault_path).await?;
-
-                Ok(entry.key)
-            }
         }
     }
 }
@@ -211,6 +151,9 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .get()
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
+
+            let data = String::from_utf8_lossy(&data);
+
             let key = RsaKey::<Sha256>::from_rsa_pem(&data)
                 .or_else(|_| RsaKey::<Sha256>::from_pkcs8_pem(&data))
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;

@@ -5,9 +5,9 @@ use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use cidr::IpCidr;
+use data_loader::KeySource;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 pub mod auth;
@@ -29,9 +29,9 @@ pub struct HttpListenerParams {
     pub use_tls: bool,
 
     #[serde(default)]
-    pub tls_certificate: Option<PathBuf>,
+    pub tls_certificate: Option<KeySource>,
     #[serde(default)]
-    pub tls_private_key: Option<PathBuf>,
+    pub tls_private_key: Option<KeySource>,
 
     #[serde(default = "HttpListenerParams::default_trusted_hosts")]
     pub trusted_hosts: Vec<IpCidr>,
@@ -101,7 +101,7 @@ impl HttpListenerParams {
             .with_context(|| format!("listen on {}", self.listen))?;
 
         if self.use_tls {
-            let config = self.tls_config()?;
+            let config = self.tls_config().await?;
             tracing::debug!("https listener on {addr:?}");
             let server = axum_server::from_tcp_rustls(socket, config);
             tokio::spawn(async move {
@@ -121,12 +121,13 @@ impl HttpListenerParams {
         Ok(())
     }
 
-    fn tls_config(&self) -> anyhow::Result<RustlsConfig> {
+    async fn tls_config(&self) -> anyhow::Result<RustlsConfig> {
         let config = crate::tls_helpers::make_server_config(
             &self.hostname,
             &self.tls_private_key,
             &self.tls_certificate,
-        )?;
+        )
+        .await?;
         Ok(RustlsConfig::from_config(config))
     }
 }

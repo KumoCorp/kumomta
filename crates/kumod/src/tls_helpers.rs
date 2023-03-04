@@ -1,16 +1,19 @@
 use anyhow::Context;
+use data_loader::KeySource;
 use rustls::ServerConfig;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub fn make_server_config(
+pub async fn make_server_config(
     hostname: &str,
-    tls_private_key: &Option<PathBuf>,
-    tls_certificate: &Option<PathBuf>,
+    tls_private_key: &Option<KeySource>,
+    tls_certificate: &Option<KeySource>,
 ) -> anyhow::Result<Arc<ServerConfig>> {
     let mut certificates = vec![];
     let private_key = match tls_private_key {
-        Some(key) => load_private_key(key)?,
+        Some(key) => {
+            let data = key.get().await?;
+            load_private_key(&data).with_context(|| format!("loading private key from {key:?}"))?
+        }
         None => {
             let cert = rcgen::generate_simple_self_signed(vec![hostname.to_string()])?;
             certificates.push(rustls::Certificate(cert.serialize_der()?));
@@ -19,7 +22,9 @@ pub fn make_server_config(
     };
 
     if let Some(cert_file) = tls_certificate {
-        certificates = load_certs(cert_file)?;
+        let data = cert_file.get().await?;
+        certificates = load_certs(&data)
+            .with_context(|| format!("loading certificates from {cert_file:?}"))?;
     }
 
     let config = ServerConfig::builder()
@@ -30,27 +35,17 @@ pub fn make_server_config(
     Ok(Arc::new(config))
 }
 
-fn load_certs(filename: &Path) -> anyhow::Result<Vec<rustls::Certificate>> {
-    let certfile = std::fs::File::open(filename)
-        .with_context(|| format!("cannot open certificate file {}", filename.display()))?;
-
-    let mut reader = std::io::BufReader::new(certfile);
+fn load_certs(data: &[u8]) -> anyhow::Result<Vec<rustls::Certificate>> {
+    let mut reader = std::io::BufReader::new(data);
     Ok(rustls_pemfile::certs(&mut reader)
-        .with_context(|| {
-            format!(
-                "reading PEM encoded certificates from {}",
-                filename.display()
-            )
-        })?
+        .with_context(|| format!("reading PEM encoded certificates",))?
         .iter()
         .map(|v| rustls::Certificate(v.clone()))
         .collect())
 }
 
-fn load_private_key(filename: &Path) -> anyhow::Result<rustls::PrivateKey> {
-    let keyfile = std::fs::File::open(filename)
-        .with_context(|| format!("cannot open private key file {}", filename.display()))?;
-    let mut reader = std::io::BufReader::new(keyfile);
+fn load_private_key(data: &[u8]) -> anyhow::Result<rustls::PrivateKey> {
+    let mut reader = std::io::BufReader::new(data);
 
     loop {
         match rustls_pemfile::read_one(&mut reader).expect("cannot parse private key .pem file") {
@@ -62,8 +57,5 @@ fn load_private_key(filename: &Path) -> anyhow::Result<rustls::PrivateKey> {
         }
     }
 
-    anyhow::bail!(
-        "no keys found in {} (encrypted keys not supported)",
-        filename.display()
-    );
+    anyhow::bail!("no keys found in key data (encrypted keys not supported)",);
 }

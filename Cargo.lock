@@ -714,6 +714,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23d8666cb01533c39dde32bcbab8e227b4ed6679b2c925eba05feabea39508fb"
 
 [[package]]
+name = "data-loader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "tokio",
+ "vaultrs",
+]
+
+[[package]]
 name = "derive_builder"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1380,6 +1390,7 @@ dependencies = [
  "cidr",
  "clap",
  "config",
+ "data-loader",
  "domain-map",
  "gcd",
  "gethostname",
@@ -1709,6 +1720,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "config",
+ "data-loader",
  "futures",
  "k9",
  "lazy_static",
@@ -1724,7 +1736,6 @@ dependencies = [
  "spool",
  "timeq",
  "tokio",
- "vaultrs",
 ]
 
 [[package]]

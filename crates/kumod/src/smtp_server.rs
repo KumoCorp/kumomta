@@ -7,6 +7,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use config::{load_config, LuaConfig};
+use data_loader::KeySource;
 use domain_map::DomainMap;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
@@ -19,7 +20,6 @@ use serde_json::json;
 use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -98,9 +98,9 @@ pub struct EsmtpListenerParams {
     pub banner: String,
 
     #[serde(default)]
-    pub tls_certificate: Option<PathBuf>,
+    pub tls_certificate: Option<KeySource>,
     #[serde(default)]
-    pub tls_private_key: Option<PathBuf>,
+    pub tls_private_key: Option<KeySource>,
 
     #[serde(default)]
     pub deferred_spool: bool,
@@ -164,18 +164,22 @@ impl EsmtpListenerParams {
         "KumoMTA".to_string()
     }
 
-    pub fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
-        let config = self
-            .tls_config
-            .get_or_try_init(|| -> anyhow::Result<Arc<ServerConfig>> {
-                crate::tls_helpers::make_server_config(
-                    &self.hostname,
-                    &self.tls_private_key,
-                    &self.tls_certificate,
-                )
-            })?;
+    pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
+        if let Some(config) = self.tls_config.get() {
+            return Ok(TlsAcceptor::from(config.clone()));
+        }
 
-        Ok(TlsAcceptor::from(config.clone()))
+        let config = crate::tls_helpers::make_server_config(
+            &self.hostname,
+            &self.tls_private_key,
+            &self.tls_certificate,
+        )
+        .await?;
+
+        // If we race to create, take the winner's version
+        match self.tls_config.try_insert(config) {
+            Ok(config) | Err((config, _)) => Ok(TlsAcceptor::from(config.clone())),
+        }
     }
 
     pub fn connection_gauge(&self) -> &IntGauge {
@@ -186,7 +190,7 @@ impl EsmtpListenerParams {
     pub async fn run(self) -> anyhow::Result<()> {
         // Pre-create the acceptor so that we can share it across
         // the various listeners
-        self.build_tls_acceptor()?;
+        self.build_tls_acceptor().await?;
         self.connection_gauge();
 
         let listener = TcpListener::bind(&self.listen)
@@ -557,7 +561,7 @@ impl SmtpServer {
                         continue;
                     }
                     self.write_response(220, "Ready to Start TLS").await?;
-                    let acceptor = self.params.build_tls_acceptor()?;
+                    let acceptor = self.params.build_tls_acceptor().await?;
                     let socket = acceptor.accept(self.socket.take().unwrap()).await?;
                     let socket: BoxedAsyncReadAndWrite = Box::new(socket);
                     self.socket.replace(socket);
