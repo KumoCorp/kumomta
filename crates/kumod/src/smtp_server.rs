@@ -21,6 +21,7 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -110,6 +111,12 @@ pub struct EsmtpListenerParams {
     #[serde(default)]
     pub trace_headers: TraceHeaders,
 
+    #[serde(
+        default = "EsmtpListenerParams::default_client_timeout",
+        with = "humantime_serde"
+    )]
+    pub client_timeout: Duration,
+
     #[serde(skip)]
     tls_config: OnceCell<Arc<ServerConfig>>,
 
@@ -129,6 +136,10 @@ impl EsmtpListenerParams {
 
     fn default_max_recipients_per_message() -> usize {
         1024
+    }
+
+    fn default_client_timeout() -> Duration {
+        Duration::from_secs(60)
     }
 
     fn default_relay_hosts() -> Vec<IpCidr> {
@@ -428,12 +439,10 @@ impl SmtpServer {
                 too_long = true;
             }
 
-            let duration = std::time::Duration::from_secs(60);
-
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; 1024];
             tokio::select! {
-                _ = tokio::time::sleep(duration) => {
+                _ = tokio::time::sleep(self.params.client_timeout) => {
                     return Ok(ReadLine::TimedOut);
                 }
                 size = self.socket.as_mut().unwrap().read(&mut data) => {
