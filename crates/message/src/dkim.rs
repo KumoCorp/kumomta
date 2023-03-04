@@ -55,10 +55,10 @@ impl Into<HashAlgorithm> for HashAlgo {
 pub enum KeySource {
     File(String),
     Vault {
-        address: Option<String>,
-        token: Option<String>,
-        mount: String,
-        path: String,
+        vault_address: Option<String>,
+        vault_token: Option<String>,
+        vault_mount: String,
+        vault_path: String,
     },
 }
 
@@ -67,12 +67,12 @@ impl KeySource {
         match self {
             Self::File(path) => Ok(tokio::fs::read_to_string(path).await?),
             Self::Vault {
-                address,
-                token,
-                mount,
-                path,
+                vault_address,
+                vault_token,
+                vault_mount,
+                vault_path,
             } => {
-                let address = match address {
+                let address = match vault_address {
                     Some(a) => a.to_string(),
                     None => std::env::var("VAULT_ADDR").map_err(|err| {
                         anyhow!(
@@ -80,7 +80,7 @@ impl KeySource {
                         )
                     })?,
                 };
-                let token = match token {
+                let token = match vault_token {
                     Some(a) => a.to_string(),
                     None => std::env::var("VAULT_TOKEN").map_err(|err| {
                         anyhow!(
@@ -101,7 +101,7 @@ impl KeySource {
                     key: String,
                 }
 
-                let entry: Entry = vaultrs::kv2::read(&client, mount, path).await?;
+                let entry: Entry = vaultrs::kv2::read(&client, vault_mount, vault_path).await?;
 
                 Ok(entry.key)
             }
