@@ -167,6 +167,25 @@ If a message is promoted from its delayed queue to the ready queue and it would
 take the size of the ready queue above *max_ready*, the message will be delayed
 by a randomized interval of up to 60 seconds before being considered again.
 
+## prohibited_hosts
+
+A CIDR list of hosts that should be considered "poisonous", for example, because
+they might cause a mail loop.
+
+When resolving the hosts for the destination MX, if any of the hosts are
+present in the `prohibited_hosts` list then the ready queue will be immediately
+failed with a `550 5.4.4` status.
+
+## skip_hosts
+
+A CIDR list of hosts that should be removed from the list of hosts returned
+when resolving the MX for the destination domain.
+
+This can be used for example to skip a host that is experiencing issues.
+
+If all of the hosts returned for an MX are filtered out by `skip_hosts` then
+the ready queue will be immediately failed with a `550 5.4.4` status.
+
 ## smtp_port
 
 Specified the port to connect to when making an SMTP connection to a destination

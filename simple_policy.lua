@@ -149,6 +149,14 @@ kumo.on('get_egress_path_config', function(domain, site_name)
     idle_timeout = '5s',
     max_connections = 1024,
     -- max_deliveries_per_connection = 5,
+
+    -- hosts that we should consider to be poison because
+    -- they are a mail loop. The default for this is
+    -- { "127.0.0.0/8", "::1" }, but it is emptied out
+    -- in this config because we're using this to test
+    -- with fake domains that explicitly return loopback
+    -- addresses!
+    prohibited_hosts = {},
   }
 end)
 

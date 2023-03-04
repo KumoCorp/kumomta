@@ -64,6 +64,10 @@ impl MailExchanger {
         let mut result = vec![];
 
         for mx_host in &self.hosts {
+            // '.' is a null mx; skip trying to resolve it
+            if mx_host == "." {
+                continue;
+            }
             match ip_lookup(mx_host).await {
                 Err(err) => {
                     tracing::error!("failed to resolve {mx_host}: {err:#}");

@@ -522,6 +522,14 @@ impl Response {
 
         line
     }
+
+    pub fn is_transient(&self) -> bool {
+        self.code >= 400 && self.code < 500
+    }
+
+    pub fn is_permanent(&self) -> bool {
+        self.code >= 500 && self.code < 600
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -1,3 +1,4 @@
+use crate::cidrset::{CidrSet, IpCidr};
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::ResolvedAddress;
@@ -5,7 +6,6 @@ use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
-use cidr::IpCidr;
 use config::{load_config, LuaConfig};
 use domain_map::DomainMap;
 use message::{EnvelopeAddress, Message};
@@ -37,7 +37,7 @@ pub struct EsmtpDomain {
     #[serde(default)]
     pub relay_to: bool,
     #[serde(default)]
-    pub relay_from: Vec<IpCidr>,
+    pub relay_from: CidrSet,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -93,7 +93,7 @@ pub struct EsmtpListenerParams {
     #[serde(default = "EsmtpListenerParams::default_hostname")]
     pub hostname: String,
     #[serde(default = "EsmtpListenerParams::default_relay_hosts")]
-    pub relay_hosts: Vec<IpCidr>,
+    pub relay_hosts: CidrSet,
     #[serde(default = "EsmtpListenerParams::default_banner")]
     pub banner: String,
 
@@ -142,11 +142,11 @@ impl EsmtpListenerParams {
         Duration::from_secs(60)
     }
 
-    fn default_relay_hosts() -> Vec<IpCidr> {
-        vec![
+    fn default_relay_hosts() -> CidrSet {
+        CidrSet::new(vec![
             IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
             IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ]
+        ])
     }
 
     fn default_listen() -> String {
@@ -338,13 +338,8 @@ impl SmtpServer {
         Ok(())
     }
 
-    fn peer_in_cidr_list(&self, cidr: &[IpCidr]) -> bool {
-        for entry in cidr {
-            if entry.contains(&self.peer_address.ip()) {
-                return true;
-            }
-        }
-        false
+    fn peer_in_cidr_list(&self, cidr: &CidrSet) -> bool {
+        cidr.contains(self.peer_address.ip())
     }
 
     fn check_relaying(

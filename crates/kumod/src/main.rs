@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
+mod cidrset;
 mod egress_path;
 mod egress_source;
 mod http_server;

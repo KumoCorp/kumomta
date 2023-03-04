@@ -1,3 +1,4 @@
+use crate::cidrset::{CidrSet, IpCidr};
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
@@ -94,6 +95,12 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     max_deliveries_per_connection: Option<usize>,
+
+    #[serde(default = "EgressPathConfig::default_prohibited_hosts")]
+    prohibited_hosts: CidrSet,
+
+    #[serde(default)]
+    skip_hosts: CidrSet,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -111,6 +118,8 @@ impl Default for EgressPathConfig {
             max_connection_rate: None,
             max_deliveries_per_connection: None,
             client_timeouts: SmtpClientTimeouts::default(),
+            prohibited_hosts: Self::default_prohibited_hosts(),
+            skip_hosts: CidrSet::default(),
         }
     }
 }
@@ -130,6 +139,13 @@ impl EgressPathConfig {
 
     fn default_smtp_port() -> u16 {
         25
+    }
+
+    fn default_prohibited_hosts() -> CidrSet {
+        CidrSet::new(vec![
+            IpCidr::new("127.0.0.0".parse().unwrap(), 8).unwrap(),
+            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
+        ])
     }
 }
 
@@ -445,6 +461,7 @@ impl Dispatcher {
         let activity = Activity::get()?;
 
         let addresses = mx.resolve_addresses().await;
+
         let mut dispatcher = Self {
             name: name.to_string(),
             ready,
@@ -462,6 +479,57 @@ impl Dispatcher {
             egress_pool,
             delivered_this_connection: 0,
         };
+
+        if dispatcher.addresses.is_empty() {
+            dispatcher.bulk_ready_queue_operation(Response {
+                code: 556,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 5,
+                    subject: 1,
+                    detail: 10,
+                }),
+                content: "Recipient address has a null MX".to_string(),
+                command: None,
+            });
+            return Ok(());
+        }
+
+        for addr in &dispatcher.addresses {
+            if dispatcher.path_config.prohibited_hosts.contains(addr.addr) {
+                dispatcher.bulk_ready_queue_operation(Response {
+                    code: 550,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 4,
+                        detail: 4,
+                    }),
+                    content: format!(
+                        "{addr:?} is on the list of prohibited_hosts {:?}",
+                        dispatcher.path_config.prohibited_hosts
+                    ),
+                    command: None,
+                });
+                return Ok(());
+            }
+        }
+
+        dispatcher
+            .addresses
+            .retain(|addr| !dispatcher.path_config.skip_hosts.contains(addr.addr));
+
+        if dispatcher.addresses.is_empty() {
+            dispatcher.bulk_ready_queue_operation(Response {
+                code: 550,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 5,
+                    subject: 4,
+                    detail: 4,
+                }),
+                content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                command: None,
+            });
+            return Ok(());
+        }
 
         dispatcher.obtain_message();
         if dispatcher.msg.is_none() {
@@ -528,17 +596,12 @@ impl Dispatcher {
         }
     }
 
-    fn delay_ready_queue(&mut self) {
+    fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
         if !msgs.is_empty() {
-            tracing::debug!(
-                "too many connection failures, delaying ready queue {} - {} messages",
-                self.name,
-                msgs.len()
-            );
             let activity = self.activity.clone();
             let name = self.name.clone();
             let egress_pool = self.egress_pool.clone();
@@ -547,33 +610,52 @@ impl Dispatcher {
                 let increment_attempts = true;
                 for msg in msgs {
                     log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
+                        kind: if response.is_transient() {
+                            RecordType::TransientFailure
+                        } else {
+                            RecordType::Bounce
+                        },
                         msg: msg.clone(),
                         site: &name,
                         peer_address: None,
-                        response: Response {
-                            code: 451,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 4,
-                                detail: 1,
-                            }),
-                            content: "No answer from any hosts listed in MX".to_string(),
-                            command: None,
-                        },
+                        response: response.clone(),
                         egress_pool: Some(&egress_pool),
                         egress_source: Some(&egress_source),
                         relay_disposition: None,
                     })
                     .await;
 
-                    if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await {
-                        tracing::error!("error requeuing message: {err:#}");
+                    if response.is_transient() {
+                        if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await
+                        {
+                            tracing::error!("error requeuing message: {err:#}");
+                        }
+                    } else if response.is_permanent() {
+                        tokio::spawn(
+                            async move { SpoolManager::remove_from_spool(*msg.id()).await },
+                        );
                     }
                 }
                 drop(activity);
             });
         }
+    }
+
+    fn delay_ready_queue(&mut self) {
+        tracing::debug!(
+            "too many connection failures, delaying ready queue {}",
+            self.name,
+        );
+        self.bulk_ready_queue_operation(Response {
+            code: 451,
+            enhanced_code: Some(EnhancedStatusCode {
+                class: 4,
+                subject: 4,
+                detail: 1,
+            }),
+            content: "No answer from any hosts listed in MX".to_string(),
+            command: None,
+        });
     }
 
     fn obtain_message(&mut self) -> bool {
