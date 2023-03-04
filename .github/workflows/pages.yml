@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  pages-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,12 +73,12 @@ jobs:
         with:
           path: gh_pages/html
 
-  deploy:
+  pages-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: pages-build
     steps:
       - name: Deploy
         id: deployment

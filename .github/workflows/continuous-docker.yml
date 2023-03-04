@@ -1,21 +1,24 @@
 name: Docker CD
 
 on:
-  push:
-    branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
+  #push:
+  #  branches: [ "main" ]
+  #  paths-ignore:
+  #    - "docs/*"
+  #    - ".github/workflows/pages.yml"
+  #    - ".github/workflows/verify-pages.yml"
+  #    - ".github/ISSUE_TEMPLATE/*"
+  #    - "**/*.md"
+  #    - "**/*.markdown"
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  docker-build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
