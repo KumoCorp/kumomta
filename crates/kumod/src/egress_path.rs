@@ -1,7 +1,7 @@
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::{MailExchanger, ResolvedAddress};
 use crate::queue::{Queue, QueueManager};
 use crate::spool::SpoolManager;
@@ -546,12 +546,12 @@ impl Dispatcher {
             tokio::spawn(async move {
                 let increment_attempts = true;
                 for msg in msgs {
-                    log_disposition(
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        &name,
-                        None,
-                        Response {
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: &name,
+                        peer_address: None,
+                        response: Response {
                             code: 451,
                             enhanced_code: Some(EnhancedStatusCode {
                                 class: 4,
@@ -561,9 +561,10 @@ impl Dispatcher {
                             content: "No answer from any hosts listed in MX".to_string(),
                             command: None,
                         },
-                        Some(&egress_pool),
-                        Some(&egress_source),
-                    )
+                        egress_pool: Some(&egress_pool),
+                        egress_source: Some(&egress_source),
+                        relay_disposition: None,
+                    })
                     .await;
 
                     if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await {
@@ -824,15 +825,16 @@ impl Dispatcher {
                     self.client_address
                 );
                 if let Some(msg) = self.msg.take() {
-                    log_disposition(
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        &self.name,
-                        self.client_address.as_ref(),
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: &self.name,
+                        peer_address: self.client_address.as_ref(),
                         response,
-                        Some(&self.egress_pool),
-                        Some(&self.egress_source.name),
-                    )
+                        egress_pool: Some(&self.egress_pool),
+                        egress_source: Some(&self.egress_source.name),
+                        relay_disposition: None,
+                    })
                     .await;
                     tokio::spawn(async move { Self::requeue_message(msg, true, None).await });
                 }
@@ -848,15 +850,16 @@ impl Dispatcher {
                     self.client_address
                 );
                 if let Some(msg) = self.msg.take() {
-                    log_disposition(
-                        RecordType::Bounce,
-                        msg.clone(),
-                        &self.name,
-                        self.client_address.as_ref(),
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Bounce,
+                        msg: msg.clone(),
+                        site: &self.name,
+                        peer_address: self.client_address.as_ref(),
                         response,
-                        Some(&self.egress_pool),
-                        Some(&self.egress_source.name),
-                    )
+                        egress_pool: Some(&self.egress_pool),
+                        egress_source: Some(&self.egress_source.name),
+                        relay_disposition: None,
+                    })
                     .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }
@@ -873,15 +876,16 @@ impl Dispatcher {
             Ok(response) => {
                 tracing::debug!("Delivered OK! {response:?}");
                 if let Some(msg) = self.msg.take() {
-                    log_disposition(
-                        RecordType::Delivery,
-                        msg.clone(),
-                        &self.name,
-                        self.client_address.as_ref(),
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Delivery,
+                        msg: msg.clone(),
+                        site: &self.name,
+                        peer_address: self.client_address.as_ref(),
                         response,
-                        Some(&self.egress_pool),
-                        Some(&self.egress_source.name),
-                    )
+                        egress_pool: Some(&self.egress_pool),
+                        egress_source: Some(&self.egress_source.name),
+                        relay_disposition: None,
+                    })
                     .await;
                     tokio::spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await });
                 }

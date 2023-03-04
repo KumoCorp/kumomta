@@ -70,13 +70,22 @@ kumo.start_esmtp_listener {
   -- ...
   domains = {
     ['example.com'] = {
-      relay = true,
+      -- allow relaying mail from anyone, so long as it is
+      -- addressed to example.com
+      relay_to = true,
     },
     ['bounce.example.com'] = {
-      oob = true,
+      -- accept and log OOB bounce reports sent to bounce.example.com
+      log_oob = true,
     },
     ['fbl.example.com'] = {
-      arf = true,
+      -- accept and log ARF feedback reports sent to fbl.example.com
+      log_arf = true,
+    },
+    ['send.example.com'] = {
+      -- relay to anywhere, so long as the sender domain is send.example.com
+      -- and the connected peer matches one of the listed CIDR blocks
+      relay_from = { '10.0.0.0/24' },
     },
     -- wildcards are permitted. This will match
     -- <anything>.example.com that doesn't have
@@ -86,16 +95,16 @@ kumo.start_esmtp_listener {
     -- "*.example.com".
     ['*.example.com'] = {
       -- You can specify multiple options if you wish
-      oob = true,
-      arf = true,
-      relay = true,
+      log_oob = true,
+      log_arf = true,
+      relay_to = true,
     },
     -- and you can explicitly set options to false to
     -- essentially exclude an entry from a wildcard
     ['www.example.com'] = {
-      relay = false,
-      arf = false,
-      oob = false,
+      relay_to = false,
+      log_arf = false,
+      log_oob = false,
     },
   },
 }

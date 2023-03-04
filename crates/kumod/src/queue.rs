@@ -2,7 +2,7 @@ use crate::egress_path::EgressPathManager;
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::spool::SpoolManager;
 use anyhow::anyhow;
 use chrono::Utc;
@@ -412,12 +412,12 @@ impl Queue {
             let delayed_age = age + delay;
             if delayed_age > max_age {
                 tracing::debug!("expiring {id} {delayed_age} > {max_age}");
-                log_disposition(
-                    RecordType::Expiration,
+                log_disposition(LogDisposition {
+                    kind: RecordType::Expiration,
                     msg,
-                    "localhost",
-                    None,
-                    Response {
+                    site: "localhost",
+                    peer_address: None,
+                    response: Response {
                         code: 551,
                         enhanced_code: Some(EnhancedStatusCode {
                             class: 5,
@@ -427,9 +427,10 @@ impl Queue {
                         content: format!("Next delivery time {delayed_age} > {max_age}"),
                         command: None,
                     },
-                    self.queue_config.egress_pool.as_deref(),
-                    None,
-                )
+                    egress_pool: self.queue_config.egress_pool.as_deref(),
+                    egress_source: None,
+                    relay_disposition: None,
+                })
                 .await;
                 SpoolManager::remove_from_spool(id).await?;
                 return Ok(());

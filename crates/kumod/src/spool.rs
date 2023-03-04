@@ -1,5 +1,5 @@
 use crate::lifecycle::Activity;
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use anyhow::Context;
@@ -217,12 +217,12 @@ impl SpoolManager {
                                 match queue_config.compute_delay_based_on_age(num_attempts, age) {
                                     None => {
                                         tracing::debug!("expiring {id} {age} > {max_age}");
-                                        log_disposition(
-                                            RecordType::Expiration,
+                                        log_disposition(LogDisposition {
+                                            kind: RecordType::Expiration,
                                             msg,
-                                            "localhost",
-                                            None,
-                                            Response {
+                                            site: "localhost",
+                                            peer_address: None,
+                                            response: Response {
                                                 code: 551,
                                                 enhanced_code: Some(EnhancedStatusCode {
                                                     class: 5,
@@ -234,7 +234,8 @@ impl SpoolManager {
                                             },
                                             egress_pool,
                                             egress_source,
-                                        )
+                                            relay_disposition: None,
+                                        })
                                         .await;
                                         self.remove_from_spool_impl(id).await?;
                                         continue;
@@ -255,12 +256,12 @@ impl SpoolManager {
                         },
                         Err(err) => {
                             tracing::error!("Message {id} failed to compute queue name!: {err:#}");
-                            log_disposition(
-                                RecordType::Expiration,
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Expiration,
                                 msg,
-                                "localhost",
-                                None,
-                                Response {
+                                site: "localhost",
+                                peer_address: None,
+                                response: Response {
                                     code: 551,
                                     enhanced_code: Some(EnhancedStatusCode {
                                         class: 5,
@@ -272,7 +273,8 @@ impl SpoolManager {
                                 },
                                 egress_pool,
                                 egress_source,
-                            )
+                                relay_disposition: None,
+                            })
                             .await;
                             self.remove_from_spool_impl(id).await?;
                         }

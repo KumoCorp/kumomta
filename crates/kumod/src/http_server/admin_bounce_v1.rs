@@ -1,6 +1,6 @@
 use crate::http_server::auth::TrustedIpRequired;
 use crate::http_server::AppError;
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use axum::extract::Json;
 use message::message::QueueNameComponents;
@@ -123,12 +123,12 @@ impl AdminBounceEntry {
             }
         };
 
-        log_disposition(
-            RecordType::AdminBounce,
+        log_disposition(LogDisposition {
+            kind: RecordType::AdminBounce,
             msg,
-            "localhost",
-            None,
-            rfc5321::Response {
+            site: "localhost",
+            peer_address: None,
+            response: rfc5321::Response {
                 code: 551,
                 enhanced_code: Some(rfc5321::EnhancedStatusCode {
                     class: 5,
@@ -138,9 +138,10 @@ impl AdminBounceEntry {
                 content: format!("Administrator bounced with reason: {}", self.reason),
                 command: None,
             },
-            None,
-            None,
-        )
+            egress_source: None,
+            egress_pool: None,
+            relay_disposition: None,
+        })
         .await;
 
         let mut bounced = self.bounced.lock().unwrap();

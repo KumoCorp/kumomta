@@ -1,4 +1,5 @@
 use crate::mx::ResolvedAddress;
+use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
@@ -270,21 +271,38 @@ pub struct JsonLogRecord {
     pub feedback_report: Option<ARFReport>,
 }
 
-pub async fn log_disposition(
-    mut kind: RecordType,
-    msg: Message,
-    site: &str,
-    peer_address: Option<&ResolvedAddress>,
-    response: Response,
-    egress_pool: Option<&str>,
-    egress_source: Option<&str>,
-) {
+pub struct LogDisposition<'a> {
+    pub kind: RecordType,
+    pub msg: Message,
+    pub site: &'a str,
+    pub peer_address: Option<&'a ResolvedAddress>,
+    pub response: Response,
+    pub egress_pool: Option<&'a str>,
+    pub egress_source: Option<&'a str>,
+    pub relay_disposition: Option<RelayDisposition>,
+}
+
+pub async fn log_disposition(args: LogDisposition<'_>) {
+    let LogDisposition {
+        mut kind,
+        msg,
+        site,
+        peer_address,
+        response,
+        egress_pool,
+        egress_source,
+        relay_disposition,
+    } = args;
+
     if let Some(logger) = Logger::get() {
         let mut feedback_report = None;
+
         if kind == RecordType::Reception {
-            if let Ok(Some(report)) = msg.parse_rfc5965() {
-                feedback_report.replace(report);
-                kind = RecordType::Feedback;
+            if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
+                if let Ok(Some(report)) = msg.parse_rfc5965() {
+                    feedback_report.replace(report);
+                    kind = RecordType::Feedback;
+                }
             }
         }
 
@@ -319,79 +337,81 @@ pub async fn log_disposition(
         }
 
         if kind == RecordType::Reception {
-            if let Ok(Some(report)) = msg.parse_rfc3464() {
-                // This incoming bounce report is addressed to
-                // the envelope from of the original message
-                let sender = msg
-                    .recipient()
-                    .map(|addr| addr.to_string())
-                    .unwrap_or_else(|err| format!("{err:#}"));
-                let queue = msg
-                    .get_queue_name()
-                    .unwrap_or_else(|err| format!("{err:#}"));
+            if let Some(RelayDisposition { log_oob: true, .. }) = relay_disposition {
+                if let Ok(Some(report)) = msg.parse_rfc3464() {
+                    // This incoming bounce report is addressed to
+                    // the envelope from of the original message
+                    let sender = msg
+                        .recipient()
+                        .map(|addr| addr.to_string())
+                        .unwrap_or_else(|err| format!("{err:#}"));
+                    let queue = msg
+                        .get_queue_name()
+                        .unwrap_or_else(|err| format!("{err:#}"));
 
-                for recip in &report.per_recipient {
-                    if recip.action != ReportAction::Failed {
-                        continue;
-                    }
+                    for recip in &report.per_recipient {
+                        if recip.action != ReportAction::Failed {
+                            continue;
+                        }
 
-                    let enhanced_code = EnhancedStatusCode {
-                        class: recip.status.class,
-                        subject: recip.status.subject,
-                        detail: recip.status.detail,
-                    };
+                        let enhanced_code = EnhancedStatusCode {
+                            class: recip.status.class,
+                            subject: recip.status.subject,
+                            detail: recip.status.detail,
+                        };
 
-                    let (code, content) = match &recip.diagnostic_code {
-                        Some(diag) if diag.diagnostic_type == "smtp" => {
-                            if let Some((code, content)) = diag.diagnostic.split_once(' ') {
-                                if let Ok(code) = code.parse() {
-                                    (code, content.to_string())
+                        let (code, content) = match &recip.diagnostic_code {
+                            Some(diag) if diag.diagnostic_type == "smtp" => {
+                                if let Some((code, content)) = diag.diagnostic.split_once(' ') {
+                                    if let Ok(code) = code.parse() {
+                                        (code, content.to_string())
+                                    } else {
+                                        (550, diag.diagnostic.to_string())
+                                    }
                                 } else {
                                     (550, diag.diagnostic.to_string())
                                 }
-                            } else {
-                                (550, diag.diagnostic.to_string())
                             }
+                            _ => (550, "".to_string()),
+                        };
+
+                        let record = JsonLogRecord {
+                            kind: RecordType::OOB,
+                            id: msg.id().to_string(),
+                            size: 0,
+                            sender: sender.clone(),
+                            recipient: recip
+                                .original_recipient
+                                .as_ref()
+                                .unwrap_or(&recip.final_recipient)
+                                .recipient
+                                .to_string(),
+                            queue: queue.to_string(),
+                            site: site.to_string(),
+                            peer_address: Some(ResolvedAddress {
+                                name: report.per_message.reporting_mta.name.to_string(),
+                                addr: peer_address
+                                    .map(|a| a.addr)
+                                    .unwrap_or_else(|| Ipv4Addr::UNSPECIFIED.into()),
+                            }),
+                            response: Response {
+                                code,
+                                enhanced_code: Some(enhanced_code),
+                                content,
+                                command: None,
+                            },
+                            timestamp: recip.last_attempt_date.unwrap_or_else(|| Utc::now()),
+                            created: msg.id().created(),
+                            num_attempts: 0,
+                            egress_pool: None,
+                            egress_source: None,
+                            bounce_classification: BounceClass::Uncategorized,
+                            feedback_report: None,
+                        };
+
+                        if let Err(err) = logger.log(record).await {
+                            tracing::error!("failed to log: {err:#}");
                         }
-                        _ => (550, "".to_string()),
-                    };
-
-                    let record = JsonLogRecord {
-                        kind: RecordType::OOB,
-                        id: msg.id().to_string(),
-                        size: 0,
-                        sender: sender.clone(),
-                        recipient: recip
-                            .original_recipient
-                            .as_ref()
-                            .unwrap_or(&recip.final_recipient)
-                            .recipient
-                            .to_string(),
-                        queue: queue.to_string(),
-                        site: site.to_string(),
-                        peer_address: Some(ResolvedAddress {
-                            name: report.per_message.reporting_mta.name.to_string(),
-                            addr: peer_address
-                                .map(|a| a.addr)
-                                .unwrap_or_else(|| Ipv4Addr::UNSPECIFIED.into()),
-                        }),
-                        response: Response {
-                            code,
-                            enhanced_code: Some(enhanced_code),
-                            content,
-                            command: None,
-                        },
-                        timestamp: recip.last_attempt_date.unwrap_or_else(|| Utc::now()),
-                        created: msg.id().created(),
-                        num_attempts: 0,
-                        egress_pool: None,
-                        egress_source: None,
-                        bounce_classification: BounceClass::Uncategorized,
-                        feedback_report: None,
-                    };
-
-                    if let Err(err) = logger.log(record).await {
-                        tracing::error!("failed to log: {err:#}");
                     }
                 }
             }

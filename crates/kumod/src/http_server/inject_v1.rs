@@ -1,6 +1,6 @@
 use crate::http_server::auth::AuthKind;
 use crate::http_server::AppError;
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
 use anyhow::Context;
@@ -414,23 +414,24 @@ async fn process_recipient<'a>(
         if !deferred_spool {
             message.save().await?;
         }
-        log_disposition(
-            RecordType::Reception,
-            message.clone(),
-            "",
-            Some(&ResolvedAddress {
+        log_disposition(LogDisposition {
+            kind: RecordType::Reception,
+            msg: message.clone(),
+            site: "",
+            peer_address: Some(&ResolvedAddress {
                 name: "".to_string(),
                 addr: peer_address,
             }),
-            Response {
+            response: Response {
                 code: 250,
                 enhanced_code: None,
                 command: None,
                 content: "".to_string(),
             },
-            None,
-            None,
-        )
+            egress_source: None,
+            egress_pool: None,
+            relay_disposition: None,
+        })
         .await;
         tokio::spawn(async move { QueueManager::insert(&queue_name, message).await });
     }

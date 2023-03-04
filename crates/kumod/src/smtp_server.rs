@@ -1,5 +1,5 @@
 use crate::lifecycle::{Activity, ShutdownSubcription};
-use crate::logging::{log_disposition, RecordType};
+use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
@@ -12,7 +12,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;
 use prometheus::IntGauge;
-use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, ForwardPath, Response};
+use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::Deserialize;
 use spool::SpoolId;
@@ -29,17 +29,13 @@ use tracing::{error, instrument};
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct EsmtpDomain {
     #[serde(default)]
-    pub oob: bool,
+    pub log_oob: bool,
     #[serde(default)]
-    pub arf: bool,
+    pub log_arf: bool,
     #[serde(default)]
-    pub relay: bool,
-}
-
-impl EsmtpDomain {
-    pub fn accepts_rcptto(&self) -> bool {
-        self.oob || self.arf || self.relay
-    }
+    pub relay_to: bool,
+    #[serde(default)]
+    pub relay_from: Vec<IpCidr>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -222,6 +218,20 @@ struct TransactionState {
     meta: serde_json::Value,
 }
 
+pub struct RelayDisposition {
+    /// Should queue for onward delivery
+    pub relay: bool,
+    /// Should accept to process ARF reports
+    pub log_arf: bool,
+    pub log_oob: bool,
+}
+
+impl RelayDisposition {
+    pub fn accept_rcpt_to(&self) -> bool {
+        self.relay || self.log_arf || self.log_oob
+    }
+}
+
 impl SmtpServer {
     pub async fn run<T>(
         socket: T,
@@ -265,6 +275,54 @@ impl SmtpServer {
             server.params.connection_gauge().dec();
         });
         Ok(())
+    }
+
+    fn peer_in_cidr_list(&self, cidr: &[IpCidr]) -> bool {
+        for entry in cidr {
+            if entry.contains(&self.peer_address.ip()) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn check_relaying(
+        &self,
+        sender: &EnvelopeAddress,
+        recipient: &EnvelopeAddress,
+    ) -> RelayDisposition {
+        let relay_hosts_allowed = self.peer_in_cidr_list(&self.params.relay_hosts);
+
+        let sender_domain = sender.domain();
+        let mut relay_from_allowed = false;
+        if let Some(dom) = self.params.domains.get(sender_domain) {
+            relay_from_allowed = self.peer_in_cidr_list(&dom.relay_from);
+        }
+
+        let recipient_domain = recipient.domain();
+        let mut relay_to_allowed = None;
+        let mut log_arf = false;
+        let mut log_oob = false;
+        if let Some(dom) = self.params.domains.get(recipient_domain) {
+            relay_to_allowed.replace(dom.relay_to);
+            log_arf = dom.log_arf;
+            log_oob = dom.log_oob;
+        }
+
+        let relay = if relay_to_allowed == Some(false) {
+            // Explicitly denied from relaying
+            false
+        } else if relay_hosts_allowed || relay_from_allowed || relay_to_allowed == Some(true) {
+            true
+        } else {
+            false
+        };
+
+        RelayDisposition {
+            relay,
+            log_arf,
+            log_oob,
+        }
     }
 
     async fn write_response<S: AsRef<str>>(
@@ -524,31 +582,11 @@ impl SmtpServer {
                     address,
                     parameters: _,
                 }) => {
-                    let mut relay_allowed = false;
-                    for cidr in &self.params.relay_hosts {
-                        if cidr.contains(&self.peer_address.ip()) {
-                            relay_allowed = true;
-                            break;
-                        }
-                    }
+                    let address = EnvelopeAddress::parse(&address.to_string())?;
+                    let relay_disposition =
+                        self.check_relaying(&self.state.as_ref().unwrap().sender, &address);
 
-                    match &address {
-                        ForwardPath::Postmaster => {
-                            // We must always accept <postmaster>
-                            relay_allowed = true;
-                        }
-                        ForwardPath::Path(p) => {
-                            if let Some(dom) =
-                                self.params.domains.get(&p.mailbox.domain.to_string())
-                            {
-                                // Note that this can allow or deny depending
-                                // on the config!
-                                relay_allowed = dom.accepts_rcptto();
-                            }
-                        }
-                    }
-
-                    if !relay_allowed {
+                    if !relay_disposition.accept_rcpt_to() {
                         self.write_response(
                             550,
                             format!("5.7.1 relaying not permitted for {}", self.peer_address),
@@ -587,7 +625,6 @@ impl SmtpServer {
                         continue;
                     }
                     self.rcpt_count += 1;
-                    let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback("smtp_server_rcpt_to", address.clone())
                         .await?
@@ -723,41 +760,34 @@ impl SmtpServer {
 
                         let queue_name = message.get_queue_name()?;
 
-                        // Check destination domain prior to spooling;
-                        // we may be set to process only OOB/FBL and
-                        // not actually relay it
-                        let recip = message.recipient()?;
-                        let mut feedback_only = false;
-                        if let Some(dom) = self.params.domains.get(recip.domain()) {
-                            if !dom.relay {
-                                feedback_only = true;
-                            }
-                        }
+                        let relay_disposition =
+                            self.check_relaying(&message.sender()?, &message.recipient()?);
 
                         if queue_name != "null" {
-                            if !feedback_only && !self.params.deferred_spool {
+                            if relay_disposition.relay && !self.params.deferred_spool {
                                 message.save().await?;
                             }
-                            log_disposition(
-                                RecordType::Reception,
-                                message.clone(),
-                                "",
-                                Some(&ResolvedAddress {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Reception,
+                                msg: message.clone(),
+                                site: "",
+                                peer_address: Some(&ResolvedAddress {
                                     name: self.said_hello.as_deref().unwrap_or("").to_string(),
                                     addr: self.peer_address.ip(),
                                 }),
-                                Response {
+                                response: Response {
                                     code: 250,
                                     enhanced_code: None,
                                     command: None,
                                     content: "".to_string(),
                                 },
-                                None,
-                                None,
-                            )
+                                egress_pool: None,
+                                egress_source: None,
+                                relay_disposition: None,
+                            })
                             .await;
 
-                            if !feedback_only {
+                            if relay_disposition.relay {
                                 messages.push((queue_name, message));
                             }
                         }
