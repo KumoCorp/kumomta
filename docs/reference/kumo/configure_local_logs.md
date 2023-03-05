@@ -50,6 +50,18 @@ kumo.configure_local_logs {
 }
 ```
 
+## headers
+
+Specify a list of message headers to include in the logs. The default is
+empty.
+
+```lua
+kumo.configure_local_logs {
+  -- ..
+  headers = { 'Subject' },
+}
+```
+
 ## log_dir
 
 Specifies the directory into which log file segments will be written.
@@ -92,6 +104,19 @@ cause a new file segment to be created.
 ```lua
 kumo.configure_local_logs {
   -- ..
-  max_segment_duration = "5 minutes",
+  max_segment_duration = '5 minutes',
 }
 ```
+
+## meta
+
+Specify a list of message meta fields to include in the logs. The default is
+empty.
+
+```lua
+kumo.configure_local_logs {
+  -- ..
+  meta = { 'my-meta-1' },
+}
+```
+

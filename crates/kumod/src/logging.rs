@@ -1,4 +1,6 @@
 use crate::mx::ResolvedAddress;
+use std::collections::HashMap;
+use serde_json::Value;
 use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
@@ -75,6 +77,14 @@ pub struct LogFileParams {
 
     #[serde(default, with = "humantime_serde")]
     pub max_segment_duration: Option<Duration>,
+
+    /// List of meta fields to capture in the log
+    #[serde(default)]
+    pub meta: Vec<String>,
+
+    /// List of message headers to capture in the log
+    #[serde(default)]
+    pub headers: Vec<String>,
 }
 
 impl LogFileParams {
@@ -97,6 +107,8 @@ enum LogCommand {
 pub struct Logger {
     sender: Sender<LogCommand>,
     thread: Mutex<Option<JoinHandle<()>>>,
+    meta: Vec<String>,
+    headers: Vec<String>,
 }
 
 impl Logger {
@@ -108,6 +120,8 @@ impl Logger {
         std::fs::create_dir_all(&params.log_dir)
             .with_context(|| format!("creating log directory {}", params.log_dir.display()))?;
 
+        let headers =params.headers.clone();
+        let meta = params.meta.clone();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let thread = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -120,6 +134,8 @@ impl Logger {
         let logger = Self {
             sender,
             thread: Mutex::new(Some(thread)),
+            meta,
+            headers,
         };
 
         LOGGER
@@ -233,6 +249,38 @@ impl Logger {
                 .map(|thread| thread.join());
         }
     }
+
+    pub fn extract_fields(&self, msg: &Message) -> (HashMap<String, Value>, HashMap<String, Value>) {
+        let mut headers = HashMap::new();
+        let mut meta = HashMap::new();
+
+        if !self.headers.is_empty() {
+            let mut all_headers :HashMap<String, Vec<Value>> = HashMap::new();
+            for (name, value) in msg.get_all_headers().unwrap_or_else(|_|vec![]) {
+                all_headers.entry(name.to_ascii_lowercase()).or_default().push(value.into());
+            }
+
+            for name in &self.headers {
+                match all_headers.remove(&name.to_ascii_lowercase()) {
+                    Some(mut values) if values.len() == 1 => {
+                        headers.insert(name.to_string(), values.remove(0));
+                    }
+                    Some(values) => {
+                        headers.insert(name.to_string(), Value::Array(values));
+                    }
+                    None => {}
+                }
+            }
+        }
+
+        for name in &self.meta {
+            if let Ok(value) = msg.get_meta(name) {
+                meta.insert(name.to_string(), value);
+            }
+        }
+
+        (headers, meta)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
@@ -293,6 +341,9 @@ pub struct JsonLogRecord {
     pub egress_source: Option<String>,
 
     pub feedback_report: Option<ARFReport>,
+
+    pub meta: HashMap<String, Value>,
+    pub headers: HashMap<String, Value>,
 }
 
 pub struct LogDisposition<'a> {
@@ -330,6 +381,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             }
         }
 
+        let (headers, meta) = logger.extract_fields(&msg);
+
         let record = JsonLogRecord {
             kind,
             id: msg.id().to_string(),
@@ -355,6 +408,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             egress_source: egress_source.map(|s| s.to_string()),
             bounce_classification: BounceClass::Uncategorized,
             feedback_report,
+            headers,
+            meta,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -431,6 +486,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             egress_source: None,
                             bounce_classification: BounceClass::Uncategorized,
                             feedback_report: None,
+                            headers: HashMap::new(),
+                            meta: HashMap::new(),
                         };
 
                         if let Err(err) = logger.log(record).await {
