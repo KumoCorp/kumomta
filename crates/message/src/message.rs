@@ -3,6 +3,7 @@ use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use config::any_err;
 use futures::FutureExt;
 use mail_auth::common::headers::HeaderWriter;
 use mailparse::{MailHeader, MailHeaderMap};
@@ -691,34 +692,24 @@ impl UserData for Message {
         methods.add_method(
             "set_meta",
             move |_, this, (name, value): (String, mlua::Value)| {
-                let value = serde_json::value::to_value(value)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
-                this.set_meta(name, value)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+                let value = serde_json::value::to_value(value).map_err(any_err)?;
+                this.set_meta(name, value).map_err(any_err)?;
                 Ok(())
             },
         );
         methods.add_method("get_meta", move |lua, this, name: String| {
-            let value = this
-                .get_meta(name)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+            let value = this.get_meta(name).map_err(any_err)?;
             Ok(Some(lua.to_value(&value)?))
         });
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
         methods.add_method("sender", move |_, this, _: ()| {
-            Ok(this
-                .sender()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            Ok(this.sender().map_err(any_err)?)
         });
         methods.add_method("recipient", move |_, this, _: ()| {
-            Ok(this
-                .recipient()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            Ok(this.recipient().map_err(any_err)?)
         });
         methods.add_method("dkim_sign", move |_, this, signer: Signer| {
-            Ok(this
-                .dkim_sign(&signer)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            Ok(this.dkim_sign(&signer).map_err(any_err)?)
         });
         methods.add_method(
             "prepend_header",
@@ -735,23 +726,19 @@ impl UserData for Message {
         methods.add_method(
             "get_first_named_header_value",
             move |_, this, name: String| {
-                Ok(this
-                    .get_first_named_header_value(&name)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+                Ok(this.get_first_named_header_value(&name).map_err(any_err)?)
             },
         );
         methods.add_method(
             "get_all_named_header_values",
             move |_, this, name: String| {
-                Ok(this
-                    .get_all_named_header_values(&name)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+                Ok(this.get_all_named_header_values(&name).map_err(any_err)?)
             },
         );
         methods.add_method("get_all_headers", move |_, this, _: ()| {
             Ok(this
                 .get_all_headers()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?
+                .map_err(any_err)?
                 .into_iter()
                 .map(|(name, value)| vec![name, value])
                 .collect::<Vec<Vec<String>>>())
@@ -759,7 +746,7 @@ impl UserData for Message {
         methods.add_method("get_all_headers", move |_, this, _: ()| {
             Ok(this
                 .get_all_headers()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?
+                .map_err(any_err)?
                 .into_iter()
                 .map(|(name, value)| vec![name, value])
                 .collect::<Vec<Vec<String>>>())
@@ -769,7 +756,7 @@ impl UserData for Message {
             move |_, this, names: Option<Vec<String>>| {
                 Ok(this
                     .import_x_headers(names.unwrap_or_else(|| vec![]))
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+                    .map_err(any_err)?)
             },
         );
 
@@ -778,7 +765,7 @@ impl UserData for Message {
             move |_, this, names: Option<Vec<String>>| {
                 Ok(this
                     .remove_x_headers(names.unwrap_or_else(|| vec![]))
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+                    .map_err(any_err)?)
             },
         );
 
@@ -787,21 +774,17 @@ impl UserData for Message {
             move |_, this, (header_name, remove): (String, bool)| {
                 Ok(this
                     .import_scheduling_header(&header_name, remove)
-                    .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+                    .map_err(any_err)?)
             },
         );
 
         methods.add_method("set_scheduling", move |lua, this, params: mlua::Value| {
             let sched: Option<Scheduling> = lua.from_value(params)?;
-            Ok(this
-                .set_scheduling(sched)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?)
+            Ok(this.set_scheduling(sched).map_err(any_err)?)
         });
 
         methods.add_method("parse_rfc3464", move |lua, this, _: ()| {
-            let report = this
-                .parse_rfc3464()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+            let report = this.parse_rfc3464().map_err(any_err)?;
             match report {
                 Some(report) => lua.to_value(&report),
                 None => Ok(mlua::Value::Nil),
@@ -809,9 +792,7 @@ impl UserData for Message {
         });
 
         methods.add_method("parse_rfc5965", move |lua, this, _: ()| {
-            let report = this
-                .parse_rfc5965()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+            let report = this.parse_rfc5965().map_err(any_err)?;
             match report {
                 Some(report) => lua.to_value(&report),
                 None => Ok(mlua::Value::Nil),

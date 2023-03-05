@@ -27,9 +27,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "configure_bounce_classifier",
         lua.create_function(move |lua, params: Value| {
             let params: ClassifierParams = lua.from_value(params)?;
-            params
-                .register()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))
+            params.register().map_err(any_err)
         })?,
     )?;
 
@@ -37,8 +35,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "configure_local_logs",
         lua.create_function(move |lua, params: Value| {
             let params: LogFileParams = lua.from_value(params)?;
-            crate::logging::Logger::init(params)
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))
+            crate::logging::Logger::init(params).map_err(any_err)
         })?,
     )?;
 
@@ -46,10 +43,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = lua.from_value(params)?;
-            params
-                .start()
-                .await
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
+            params.start().await.map_err(any_err)?;
             Ok(())
         })?,
     )?;
@@ -78,7 +72,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 }
             })
             .await
-            .map_err(|err| mlua::Error::external(format!("{err:#}")))
+            .map_err(any_err)
         })?,
     )?;
 
@@ -126,8 +120,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "define_egress_pool",
         lua.create_function(move |lua, params: Value| {
             let pool: EgressPool = lua.from_value(params)?;
-            pool.register()
-                .map_err(|err| mlua::Error::external(format!("{err:#}")))
+            pool.register().map_err(any_err)
         })?,
     )?;
 
