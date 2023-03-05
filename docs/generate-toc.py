@@ -122,6 +122,10 @@ TOC = [
                         "reference/sqlite",
                     ),
                     Gen(
+                        "module: redis",
+                        "reference/redis",
+                    ),
+                    Gen(
                         "object: address",
                         "reference/address",
                     ),

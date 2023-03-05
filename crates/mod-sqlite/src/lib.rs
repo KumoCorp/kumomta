@@ -1,14 +1,9 @@
 use anyhow::Context;
-use config::get_or_create_module;
+use config::{any_err, get_or_create_module};
 use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
 use serde_json::{Map, Value as JsonValue};
 use sqlite::{Connection, ConnectionWithFullMutex, ParameterIndex, State, Statement, Type};
-use std::fmt::Display;
 use std::sync::Arc;
-
-fn any_err<E: Display>(err: E) -> mlua::Error {
-    mlua::Error::external(format!("{err:#}"))
-}
 
 fn bind_param<I: ParameterIndex>(
     stmt: &mut Statement,

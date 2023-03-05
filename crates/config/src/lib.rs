@@ -144,3 +144,8 @@ pub fn get_or_create_sub_module<'lua>(
         ),
     }
 }
+
+/// Helper for mapping back to lua errors
+pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
+    mlua::Error::external(format!("{err:#}"))
+}

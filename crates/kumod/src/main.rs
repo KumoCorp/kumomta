@@ -121,6 +121,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         crate::mod_kumo::register,
         message::dkim::register,
         mod_sqlite::register,
+        mod_redis::register,
     ] {
         config::register(func);
     }
