@@ -4,10 +4,8 @@ use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
 use once_cell::sync::Lazy;
 use r2d2::{ManageConnection, Pool, PooledConnection};
 use redis::cluster::{ClusterClient, ClusterConnection};
-use redis::{
-    Client, Cmd, Connection, ConnectionLike, RedisError, RedisWrite, ToRedisArgs,
-    Value as RedisValue,
-};
+use redis::{Client, Connection, ConnectionLike, RedisWrite, ToRedisArgs};
+pub use redis::{Cmd, FromRedisValue, RedisError, Value as RedisValue};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;

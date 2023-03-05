@@ -2,6 +2,7 @@
 //! The implementation uses an in-memory store, but can be adjusted in the future
 //! to support using a redis-cell equipped redis server to share the throttles
 //! among multiple machines.
+use mod_redis::{Cmd, FromRedisValue, RedisConnection, RedisError};
 use once_cell::sync::OnceCell;
 use redis_cell::cell::store::MemoryStore;
 use redis_cell::cell::{Rate, RateLimiter, RateQuota};
@@ -12,11 +13,16 @@ use std::time::Duration;
 use thiserror::Error;
 
 static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
+static REDIS: OnceCell<RedisConnection> = OnceCell::new();
 
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("{0}")]
     Generic(String),
+    #[error("{0}")]
+    AnyHow(#[from] anyhow::Error),
+    #[error("{0}")]
+    Redis(#[from] RedisError),
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
@@ -151,6 +157,36 @@ fn local_throttle(
     })
 }
 
+async fn redis_throttle(
+    conn: RedisConnection,
+    key: &str,
+    limit: u64,
+    period: Duration,
+    max_burst: u64,
+    quantity: Option<u64>,
+) -> Result<ThrottleResult, Error> {
+    let mut cmd = Cmd::new();
+    cmd.arg("CL.THROTTLE")
+        .arg(key)
+        .arg(max_burst)
+        .arg(limit)
+        .arg(period.as_secs())
+        .arg(quantity.unwrap_or(1));
+    let result = conn.query(cmd).await?;
+    let result = <Vec<i64> as FromRedisValue>::from_redis_value(&result)?;
+
+    Ok(ThrottleResult {
+        throttled: result[0] != 0,
+        limit: result[1] as u64,
+        remaining: result[2] as u64,
+        reset_after: Duration::from_secs(result[3].max(0) as u64),
+        retry_after: match result[4] {
+            n if n < 0 => None,
+            n => Some(Duration::from_secs(n as u64)),
+        },
+    })
+}
+
 /// It is very important for `key` to be used with the same `limit`,
 /// `period` and `max_burst` values in order to produce meaningful
 /// results.
@@ -175,7 +211,18 @@ pub async fn throttle(
     max_burst: u64,
     quantity: Option<u64>,
 ) -> Result<ThrottleResult, Error> {
-    local_throttle(key, limit, period, max_burst, quantity)
+    if let Some(redis) = REDIS.get().cloned() {
+        redis_throttle(redis, key, limit, period, max_burst, quantity).await
+    } else {
+        local_throttle(key, limit, period, max_burst, quantity)
+    }
+}
+
+pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
+    REDIS
+        .set(conn)
+        .map_err(|_| Error::Generic("redis already configured for throttles".to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]

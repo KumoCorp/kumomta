@@ -5,8 +5,9 @@ use crate::lifecycle::LifeCycle;
 use crate::logging::{ClassifierParams, LogFileParams};
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
-use config::get_or_create_module;
+use config::{any_err, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
+use mod_redis::RedisConnKey;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -78,6 +79,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             })
             .await
             .map_err(|err| mlua::Error::external(format!("{err:#}")))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_redis_throttles",
+        lua.create_async_function(|lua, params: Value| async move {
+            let key: RedisConnKey = lua.from_value(params)?;
+            let conn = key.open().await.map_err(any_err)?;
+            throttle::use_redis(conn).map_err(any_err)
         })?,
     )?;
 

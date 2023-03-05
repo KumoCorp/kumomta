@@ -76,6 +76,9 @@ kumo.on('init', function()
     kind = 'RocksDB',
   }
 
+  -- Use shared throttles rather than in-process throttles
+  -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
+
   -- Create some example sources
   local entries = {}
   for i = 1, 10 do
