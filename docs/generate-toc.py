@@ -96,7 +96,6 @@ TOC = [
                             Page("Configuring TLS","guide/subs/tls.md"),
                         ]
                     ),
-                    
                     Page("Advanced Configurations","guide/advanced_config.md",
                         children=[
                             Page("Lua Resources","guide/subs/lua_resources.md"),
@@ -117,6 +116,10 @@ TOC = [
                     Gen(
                         "module: kumo.dkim",
                         "reference/kumo.dkim",
+                    ),
+                    Gen(
+                        "module: sqlite",
+                        "reference/sqlite",
                     ),
                     Gen(
                         "object: address",

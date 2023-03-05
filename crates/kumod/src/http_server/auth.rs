@@ -64,8 +64,7 @@ impl AuthKind {
         let (tx, rx) = tokio::sync::oneshot::channel();
         crate::runtime::Runtime::run(move || {
             tokio::task::spawn_local(async move { tx.send(kind.validate_impl().await) });
-        })
-        .await?;
+        })?;
         rx.await?
     }
 

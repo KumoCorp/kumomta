@@ -585,14 +585,17 @@ impl Dispatcher {
                 );
                 chrono::Duration::seconds(60)
             });
-            tokio::spawn(async move {
-                for msg in msgs {
-                    if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                        tracing::error!("error requeuing message: {err:#}");
+            crate::runtime::Runtime::run(move || {
+                tokio::task::spawn_local(async move {
+                    for msg in msgs {
+                        if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
+                            tracing::error!("error requeuing message: {err:#}");
+                        }
                     }
-                }
-                drop(activity);
-            });
+                    drop(activity);
+                });
+            })
+            .ok();
         }
     }
 
@@ -606,38 +609,42 @@ impl Dispatcher {
             let name = self.name.clone();
             let egress_pool = self.egress_pool.clone();
             let egress_source = self.egress_source.name.clone();
-            tokio::spawn(async move {
-                let increment_attempts = true;
-                for msg in msgs {
-                    log_disposition(LogDisposition {
-                        kind: if response.is_transient() {
-                            RecordType::TransientFailure
-                        } else {
-                            RecordType::Bounce
-                        },
-                        msg: msg.clone(),
-                        site: &name,
-                        peer_address: None,
-                        response: response.clone(),
-                        egress_pool: Some(&egress_pool),
-                        egress_source: Some(&egress_source),
-                        relay_disposition: None,
-                    })
-                    .await;
+            crate::runtime::Runtime::run(move || {
+                tokio::task::spawn_local(async move {
+                    let increment_attempts = true;
+                    for msg in msgs {
+                        log_disposition(LogDisposition {
+                            kind: if response.is_transient() {
+                                RecordType::TransientFailure
+                            } else {
+                                RecordType::Bounce
+                            },
+                            msg: msg.clone(),
+                            site: &name,
+                            peer_address: None,
+                            response: response.clone(),
+                            egress_pool: Some(&egress_pool),
+                            egress_source: Some(&egress_source),
+                            relay_disposition: None,
+                        })
+                        .await;
 
-                    if response.is_transient() {
-                        if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await
-                        {
-                            tracing::error!("error requeuing message: {err:#}");
+                        if response.is_transient() {
+                            if let Err(err) =
+                                Self::requeue_message(msg, increment_attempts, None).await
+                            {
+                                tracing::error!("error requeuing message: {err:#}");
+                            }
+                        } else if response.is_permanent() {
+                            tokio::spawn(async move {
+                                SpoolManager::remove_from_spool(*msg.id()).await
+                            });
                         }
-                    } else if response.is_permanent() {
-                        tokio::spawn(
-                            async move { SpoolManager::remove_from_spool(*msg.id()).await },
-                        );
                     }
-                }
-                drop(activity);
-            });
+                    drop(activity);
+                });
+            })
+            .ok();
         }
     }
 
@@ -918,7 +925,11 @@ impl Dispatcher {
                         relay_disposition: None,
                     })
                     .await;
-                    tokio::spawn(async move { Self::requeue_message(msg, true, None).await });
+                    crate::runtime::Runtime::run(move || {
+                        tokio::task::spawn_local(async move {
+                            Self::requeue_message(msg, true, None).await
+                        });
+                    })?;
                 }
                 self.metrics.msgs_transfail.inc();
                 self.metrics.global_msgs_transfail.inc();
@@ -987,13 +998,16 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
-            tokio::spawn(async move {
-                if activity.is_shutting_down() {
-                    Queue::save_if_needed_and_log(&msg).await;
-                } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
-                    tracing::error!("error requeuing message: {err:#}");
-                }
-            });
+            crate::runtime::Runtime::run(move || {
+                tokio::task::spawn_local(async move {
+                    if activity.is_shutting_down() {
+                        Queue::save_if_needed_and_log(&msg).await;
+                    } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
+                        tracing::error!("error requeuing message: {err:#}");
+                    }
+                });
+            })
+            .ok();
         }
         if self.client.is_some() {
             self.metrics.connection_gauge.dec();

@@ -433,7 +433,7 @@ async fn process_recipient<'a>(
             relay_disposition: None,
         })
         .await;
-        tokio::spawn(async move { QueueManager::insert(&queue_name, message).await });
+        tokio::task::spawn_local(async move { QueueManager::insert(&queue_name, message).await });
     }
 
     Ok(())
@@ -496,8 +496,7 @@ pub async fn inject_v1(
         tokio::task::spawn_local(async move {
             tx.send(inject_v1_impl(auth, sender, peer_address, request).await)
         });
-    })
-    .await?;
+    })?;
     rx.await?
 }
 

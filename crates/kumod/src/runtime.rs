@@ -60,11 +60,10 @@ impl Runtime {
     /// Schedule a future on the pool.
     /// Will return once the future is scheduled.
     /// Does not wait for the future to complete.
-    pub async fn run<F: FnOnce() + Send + 'static>(func: F) -> anyhow::Result<()> {
+    pub fn run<F: FnOnce() + Send + 'static>(func: F) -> anyhow::Result<()> {
         RUNTIME
             .jobs
-            .send(Command::Run(Box::new(func)))
-            .await
+            .send_blocking(Command::Run(Box::new(func)))
             .map_err(|err| anyhow::anyhow!("failed to send func to runtime thread: {err:#}"))?;
         Ok(())
     }

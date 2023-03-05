@@ -47,7 +47,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
             chunk.into_function()?
         };
 
-        func.call(())?;
+        func.call_async(()).await?;
     }
 
     Ok(LuaConfig { lua })

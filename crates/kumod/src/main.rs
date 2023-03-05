@@ -98,6 +98,13 @@ fn main() -> anyhow::Result<()> {
         .block_on(async move { run(opts).await })
 }
 
+async fn perform_init() -> anyhow::Result<()> {
+    let mut config = config::load_config().await?;
+    config.async_call_callback("init", ()).await?;
+
+    crate::spool::SpoolManager::get().await.start_spool().await
+}
+
 async fn run(opts: Opt) -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(fmt::layer())
@@ -110,7 +117,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             .layer(metrics_prometheus::Recorder::builder().build()),
     ))?;
 
-    for func in [crate::mod_kumo::register, message::dkim::register] {
+    for func in [
+        crate::mod_kumo::register,
+        message::dkim::register,
+        mod_sqlite::register,
+    ] {
         config::register(func);
     }
 
@@ -120,13 +131,15 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
 
     let mut life_cycle = LifeCycle::new();
 
-    let mut config = config::load_config().await?;
-    config.async_call_callback("init", ()).await?;
-
-    if let Err(err) = crate::spool::SpoolManager::get().await.start_spool().await {
-        tracing::error!("problem starting spool: {err:#}");
-        LifeCycle::request_shutdown().await;
-    }
+    crate::runtime::Runtime::run(move || {
+        tokio::task::spawn_local(async move {
+            if let Err(err) = perform_init().await {
+                tracing::error!("problem initializing: {err:#}");
+                LifeCycle::request_shutdown().await;
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+    })?;
 
     life_cycle.wait_for_shutdown().await;
 

@@ -218,8 +218,7 @@ impl EsmtpListenerParams {
                                 tracing::error!("SmtpServer::run: {err:#}");
                             }
                         });
-                    })
-                    .await?;
+                    })?;
                 }
             };
         }
@@ -883,7 +882,7 @@ impl SmtpServer {
                     }
 
                     if !messages.is_empty() {
-                        tokio::spawn(async move {
+                        tokio::task::spawn_local(async move {
                             for (queue_name, msg) in messages {
                                 QueueManager::insert(&queue_name, msg).await?;
                             }
