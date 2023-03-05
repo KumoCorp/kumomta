@@ -16,6 +16,7 @@ deal of use in a real worl usage inside KumoMTA.
 ```
 
 ```lua
+local sqlite = require 'sqlite'
 local db = sqlite.open ':memory:'
 
 -- For the sake of this example, populate with some simple data
