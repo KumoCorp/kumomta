@@ -18,7 +18,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
-use tokio::task::JoinHandle;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
@@ -317,20 +316,11 @@ impl QueueHandle {
 pub struct Queue {
     name: String,
     queue: TimeQ<Message>,
-    maintainer: Option<JoinHandle<()>>,
     last_change: Instant,
     queue_config: QueueConfig,
     delayed_gauge: IntGauge,
     activity: Activity,
     rr: EgressPoolRoundRobin,
-}
-
-impl Drop for Queue {
-    fn drop(&mut self) {
-        if let Some(handle) = self.maintainer.take() {
-            handle.abort();
-        }
-    }
 }
 
 impl Queue {
@@ -353,7 +343,6 @@ impl Queue {
         let handle = QueueHandle(Arc::new(Mutex::new(Queue {
             name: name.clone(),
             queue: TimeQ::new(),
-            maintainer: None,
             last_change: Instant::now(),
             queue_config,
             delayed_gauge,
@@ -363,8 +352,7 @@ impl Queue {
 
         let queue_clone = handle.clone();
         crate::runtime::Runtime::run(move || {
-            let queue = queue_clone.clone();
-            let maintainer = tokio::task::spawn_local(async move {
+            tokio::task::spawn_local(async move {
                 if let Err(err) = maintain_named_queue(&queue_clone).await {
                     tracing::error!(
                         "maintain_named_queue {}: {err:#}",
@@ -372,7 +360,6 @@ impl Queue {
                     );
                 }
             });
-            queue.0.blocking_lock().maintainer.replace(maintainer);
         })?;
 
         Ok(handle)
