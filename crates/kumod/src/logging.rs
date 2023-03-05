@@ -16,6 +16,7 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use zstd::stream::write::{AutoFinishEncoder, Encoder};
 
 static LOGGER: OnceCell<Logger> = OnceCell::new();
@@ -71,6 +72,9 @@ pub struct LogFileParams {
     /// 1-21 are the explicitly configurable levels
     #[serde(default = "LogFileParams::default_compression_level")]
     pub compression_level: i32,
+
+    #[serde(default, with = "humantime_serde")]
+    pub max_segment_duration: Option<Duration>,
 }
 
 impl LogFileParams {
@@ -129,6 +133,7 @@ impl Logger {
             file: AutoFinishEncoder<'static, File>,
             name: PathBuf,
             written: u64,
+            opened: Instant,
         }
 
         let mut file: Option<OpenedFile> = None;
@@ -157,6 +162,7 @@ impl Logger {
                         .auto_finish(),
                     name,
                     written: 0,
+                    opened: Instant::now(),
                 });
             }
 
@@ -180,7 +186,25 @@ impl Logger {
             Ok(())
         }
 
-        while let Ok(cmd) = receiver.recv().await {
+        loop {
+            let cmd = if let Some(deadline) = params
+                .max_segment_duration
+                .and_then(|duration| file.as_ref().and_then(|of| Some(of.opened + duration)))
+            {
+                tokio::select! {
+                    cmd = receiver.recv() => cmd,
+                    _ = tokio::time::sleep_until(deadline.into()) => {
+                        file.take();
+                        continue;
+                    }
+                }
+            } else {
+                receiver.recv().await
+            };
+            let cmd = match cmd {
+                Ok(cmd) => cmd,
+                _ => return,
+            };
             match cmd {
                 LogCommand::Terminate => {
                     break;
