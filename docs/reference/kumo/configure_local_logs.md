@@ -294,7 +294,7 @@ The following record types are defined:
 
 ARF feedback reports are parsed into a JSON object that has the following
 structure.  The fields of the `feedback_report` correspond to those defined
-by RFC 5965.
+by [RFC 5965](https://www.rfc-editor.org/rfc/rfc5965).
 
 See also [trace_headers](start_esmtp_listener.md#trace_headers) for information
 about the `supplemental_trace` field.
@@ -328,6 +328,10 @@ about the `supplemental_trace` field.
             "http://example.net/earn_money.html",
             "mailto:user@example.com",
         ],
+
+        // any fields found in the report that do not correspond to
+        // those defined by RFC 5965 are collected into this
+        // extensions field
         "extensions": {
             "removal-recipient": [
                 "user@example.com",
@@ -358,7 +362,7 @@ Spam Spam Spam
         // header was decoded from it, then this holds the decoded
         // trace information
         "supplemental_trace": {
-                "recipient": "test@example.com",
+            "recipient": "test@example.com",
         },
     }
 }
