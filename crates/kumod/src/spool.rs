@@ -157,35 +157,31 @@ impl SpoolManager {
 
             tracing::debug!("starting maintainer for spool {name} is_meta={is_meta}");
 
-            let maintainer = tokio::task::Builder::new()
-                .name(&format!("maintain spool {name}"))
-                .spawn({
-                    let name = name.clone();
-                    let spool = spool.clone();
-                    let tx = if is_meta { Some(tx.clone()) } else { None };
-                    {
-                        async move {
-                            // start enumeration
-                            if let Some(tx) = tx {
-                                if let Err(err) = spool.enumerate(tx) {
-                                    tracing::error!(
-                                        "error during spool enumeration for {name}: {err:#}"
-                                    );
-                                }
+            let maintainer = crate::runtime::spawn(format!("maintain spool {name}"), {
+                let name = name.clone();
+                let spool = spool.clone();
+                let tx = if is_meta { Some(tx.clone()) } else { None };
+                {
+                    async move {
+                        // start enumeration
+                        if let Some(tx) = tx {
+                            if let Err(err) = spool.enumerate(tx) {
+                                tracing::error!(
+                                    "error during spool enumeration for {name}: {err:#}"
+                                );
                             }
+                        }
 
-                            // And maintain it every 10 minutes
-                            loop {
-                                tokio::time::sleep(Duration::from_secs(10 * 60)).await;
-                                if let Err(err) = spool.cleanup().await {
-                                    tracing::error!(
-                                        "error doing spool cleanup for {name}: {err:#}"
-                                    );
-                                }
+                        // And maintain it every 10 minutes
+                        loop {
+                            tokio::time::sleep(Duration::from_secs(10 * 60)).await;
+                            if let Err(err) = spool.cleanup().await {
+                                tracing::error!("error doing spool cleanup for {name}: {err:#}");
                             }
                         }
                     }
-                })?;
+                }
+            })?;
             spool.0.maintainer.lock().unwrap().replace(maintainer);
         }
 

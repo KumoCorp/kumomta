@@ -5,6 +5,7 @@ use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::{MailExchanger, ResolvedAddress};
 use crate::queue::{Queue, QueueManager};
+use crate::runtime::{rt_spawn, spawn};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
@@ -203,11 +204,10 @@ impl EgressPathManager {
         let mut manager = Self::get().await;
         let activity = Activity::get()?;
         let handle = manager.paths.entry(name.clone()).or_insert_with(|| {
-            tokio::task::Builder::new()
-                .name(&format!("maintain {name}"))
-                .spawn({
-                    let name = name.clone();
-                    async move {
+            rt_spawn(format!("maintain {name}"), {
+                let name = name.clone();
+                move || {
+                    Ok(async move {
                         let mut shutdown = ShutdownSubcription::get();
                         let mut interval = Duration::from_secs(60);
                         loop {
@@ -234,9 +234,10 @@ impl EgressPathManager {
                                 }
                             }
                         }
-                    }
-                })
-                .expect("failed to spawn maintainer");
+                    })
+                }
+            })
+            .expect("failed to spawn maintainer");
 
             let service = format!("smtp_client:{name}");
             let metrics = DeliveryMetrics {
@@ -367,16 +368,14 @@ impl EgressPath {
             let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
-                tokio::task::Builder::new()
-                    .name(&format!("saving messages for {}", self.name))
-                    .spawn(async move {
-                        for msg in msgs {
-                            Queue::save_if_needed_and_log(&msg).await;
-                            drop(msg);
-                        }
-                        drop(activity);
-                    })
-                    .expect("failed to spawn save_if_needed_and_log");
+                spawn(format!("saving messages for {}", self.name), async move {
+                    for msg in msgs {
+                        Queue::save_if_needed_and_log(&msg).await;
+                        drop(msg);
+                    }
+                    drop(activity);
+                })
+                .expect("failed to spawn save_if_needed_and_log");
             }
 
             return;
@@ -396,31 +395,28 @@ impl EgressPath {
             let egress_source = self.egress_source.clone();
             let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
-            self.connections.push(
-                tokio::task::Builder::new()
-                    .name(&format!("smtp client {name}"))
-                    .spawn(async move {
-                        if let Err(err) = Dispatcher::run(
-                            &name,
-                            mx,
-                            ready,
-                            notify,
-                            path_config,
-                            metrics,
-                            consecutive_connection_failures.clone(),
-                            egress_source,
-                            egress_pool,
-                        )
-                        .await
-                        {
-                            tracing::debug!(
-                                "Error in dispatch_queue for {name}: {err:#} \
+            if let Ok(handle) = spawn(format!("smtp client {name}"), async move {
+                if let Err(err) = Dispatcher::run(
+                    &name,
+                    mx,
+                    ready,
+                    notify,
+                    path_config,
+                    metrics,
+                    consecutive_connection_failures.clone(),
+                    egress_source,
+                    egress_pool,
+                )
+                .await
+                {
+                    tracing::debug!(
+                        "Error in dispatch_queue for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
-                            );
-                        }
-                    })
-                    .expect("failed to spawn connection"),
-            );
+                    );
+                }
+            }) {
+                self.connections.push(handle);
+            }
         }
     }
 
@@ -596,20 +592,17 @@ impl Dispatcher {
                 );
                 chrono::Duration::seconds(60)
             });
-            crate::runtime::Runtime::run(move || {
-                tokio::task::Builder::new()
-                    .name("requeue for throttle")
-                    .spawn_local(async move {
-                        for msg in msgs {
-                            if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                                tracing::error!("error requeuing message: {err:#}");
-                            }
+            rt_spawn("requeue for throttle".to_string(), move || {
+                Ok(async move {
+                    for msg in msgs {
+                        if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
+                            tracing::error!("error requeuing message: {err:#}");
                         }
-                        drop(activity);
-                    })
-                    .expect("failed to requeue for throttle");
+                    }
+                    drop(activity);
+                })
             })
-            .ok();
+            .expect("failed to spawn requeue");
         }
     }
 
@@ -623,13 +616,10 @@ impl Dispatcher {
             let name = self.name.clone();
             let egress_pool = self.egress_pool.clone();
             let egress_source = self.egress_source.name.clone();
-            crate::runtime::Runtime::run(move || {
-                tokio::task::Builder::new()
-                    .name(&format!(
-                        "bulk queue op for {} msgs {name} {response:?}",
-                        msgs.len(),
-                    ))
-                    .spawn_local(async move {
+            rt_spawn(
+                format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),
+                move || {
+                    Ok(async move {
                         let increment_attempts = true;
                         for msg in msgs {
                             log_disposition(LogDisposition {
@@ -655,19 +645,17 @@ impl Dispatcher {
                                     tracing::error!("error requeuing message: {err:#}");
                                 }
                             } else if response.is_permanent() {
-                                tokio::task::Builder::new()
-                                    .name("remove msg from spool")
-                                    .spawn(async move {
-                                        SpoolManager::remove_from_spool(*msg.id()).await
-                                    })
-                                    .ok();
+                                spawn("remove msg from spool", async move {
+                                    SpoolManager::remove_from_spool(*msg.id()).await
+                                })
+                                .ok();
                             }
                         }
                         drop(activity);
                     })
-                    .expect("bulk queue spawned");
-            })
-            .ok();
+                },
+            )
+            .expect("bulk queue spawned");
         }
     }
 
@@ -948,13 +936,8 @@ impl Dispatcher {
                         relay_disposition: None,
                     })
                     .await;
-                    crate::runtime::Runtime::run(move || {
-                        tokio::task::Builder::new()
-                            .name("requeue message")
-                            .spawn_local(
-                                async move { Self::requeue_message(msg, true, None).await },
-                            )
-                            .expect("failed to requeue message");
+                    rt_spawn("requeue message".to_string(), move || {
+                        Ok(async move { Self::requeue_message(msg, true, None).await })
                     })?;
                 }
                 self.metrics.msgs_transfail.inc();
@@ -980,9 +963,9 @@ impl Dispatcher {
                         relay_disposition: None,
                     })
                     .await;
-                    tokio::task::Builder::new()
-                        .name("remove from spool")
-                        .spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await })?;
+                    spawn("remove from spool", async move {
+                        SpoolManager::remove_from_spool(*msg.id()).await
+                    })?;
                 }
             }
             Err(err) => {
@@ -1008,9 +991,9 @@ impl Dispatcher {
                         relay_disposition: None,
                     })
                     .await;
-                    tokio::task::Builder::new()
-                        .name("remove from spool")
-                        .spawn(async move { SpoolManager::remove_from_spool(*msg.id()).await })?;
+                    spawn("remove from spool", async move {
+                        SpoolManager::remove_from_spool(*msg.id()).await
+                    })?;
                 }
                 self.metrics.msgs_delivered.inc();
                 self.metrics.global_msgs_delivered.inc();
@@ -1028,18 +1011,14 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
-            crate::runtime::Runtime::run(move || {
-                tokio::task::Builder::new()
-                    .name("Dispatcher::drop")
-                    .spawn_local(async move {
-                        if activity.is_shutting_down() {
-                            Queue::save_if_needed_and_log(&msg).await;
-                        } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await
-                        {
-                            tracing::error!("error requeuing message: {err:#}");
-                        }
-                    })
-                    .expect("failed to make messages safe in Dispatcher::drop");
+            rt_spawn("Dispatcher::drop".to_string(), move || {
+                Ok(async move {
+                    if activity.is_shutting_down() {
+                        Queue::save_if_needed_and_log(&msg).await;
+                    } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
+                        tracing::error!("error requeuing message: {err:#}");
+                    }
+                })
             })
             .ok();
         }

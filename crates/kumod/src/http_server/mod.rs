@@ -1,3 +1,4 @@
+use crate::runtime::spawn;
 use anyhow::Context;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -104,23 +105,19 @@ impl HttpListenerParams {
             let config = self.tls_config().await?;
             tracing::debug!("https listener on {addr:?}");
             let server = axum_server::from_tcp_rustls(socket, config);
-            tokio::task::Builder::new()
-                .name(&format!("https {addr:?}"))
-                .spawn(async move {
-                    server
-                        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                        .await
-                })?;
+            spawn(format!("https {addr:?}"), async move {
+                server
+                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
+            })?;
         } else {
             tracing::debug!("http listener on {addr:?}");
             let server = axum_server::from_tcp(socket);
-            tokio::task::Builder::new()
-                .name(&format!("http {addr:?}"))
-                .spawn(async move {
-                    server
-                        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                        .await
-                })?;
+            spawn(format!("http {addr:?}"), async move {
+                server
+                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+                    .await
+            })?;
         }
         Ok(())
     }

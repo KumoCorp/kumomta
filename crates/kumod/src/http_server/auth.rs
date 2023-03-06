@@ -1,4 +1,5 @@
 use crate::http_server::AppState;
+use crate::runtime::rt_spawn;
 use axum::async_trait;
 use axum::extract::{FromRequestParts, State};
 use axum::http::{Request, StatusCode};
@@ -62,11 +63,8 @@ impl AuthKind {
     pub async fn validate(&self) -> anyhow::Result<bool> {
         let kind = self.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
-        crate::runtime::Runtime::run(move || {
-            tokio::task::Builder::new()
-                .name(&format!("http auth validate {kind:?}"))
-                .spawn_local(async move { tx.send(kind.validate_impl().await) })
-                .expect("spawned auth validator");
+        rt_spawn(format!("http auth validate {kind:?}"), move || {
+            Ok(async move { tx.send(kind.validate_impl().await) })
         })?;
         rx.await?
     }

@@ -3,6 +3,7 @@ use crate::http_server::AppError;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
+use crate::runtime::rt_spawn;
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
@@ -433,9 +434,9 @@ async fn process_recipient<'a>(
             relay_disposition: None,
         })
         .await;
-        tokio::task::Builder::new()
-            .name(&format!("http inject for {peer_address:?}"))
-            .spawn_local(async move { QueueManager::insert(&queue_name, message).await })?;
+        rt_spawn(format!("http inject for {peer_address:?}"), move || {
+            Ok(async move { QueueManager::insert(&queue_name, message).await })
+        })?;
     }
 
     Ok(())
@@ -494,13 +495,8 @@ pub async fn inject_v1(
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Bounce to the thread pool where we can run async lua
-    crate::runtime::Runtime::run(move || {
-        tokio::task::Builder::new()
-            .name(&format!("http inject_v1 for {peer_address:?}"))
-            .spawn_local(async move {
-                tx.send(inject_v1_impl(auth, sender, peer_address, request).await)
-            })
-            .expect("spawned injection task");
+    rt_spawn(format!("http inject_v1 for {peer_address:?}"), move || {
+        Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
     })?;
     rx.await?
 }

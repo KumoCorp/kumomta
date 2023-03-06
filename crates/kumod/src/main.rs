@@ -1,4 +1,5 @@
 use crate::lifecycle::LifeCycle;
+use crate::runtime::rt_spawn;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::{Parser, ValueEnum};
@@ -170,17 +171,14 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
 
     let mut life_cycle = LifeCycle::new();
 
-    crate::runtime::Runtime::run(move || {
-        tokio::task::Builder::new()
-            .name("initialize")
-            .spawn_local(async move {
-                if let Err(err) = perform_init().await {
-                    tracing::error!("problem initializing: {err:#}");
-                    LifeCycle::request_shutdown().await;
-                }
-                Ok::<(), anyhow::Error>(())
-            })
-            .expect("initialize spawned");
+    rt_spawn("initialize".to_string(), move || {
+        Ok(async move {
+            if let Err(err) = perform_init().await {
+                tracing::error!("problem initializing: {err:#}");
+                LifeCycle::request_shutdown().await;
+            }
+            Ok::<(), anyhow::Error>(())
+        })
     })?;
 
     life_cycle.wait_for_shutdown().await;

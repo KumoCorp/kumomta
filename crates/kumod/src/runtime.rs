@@ -11,8 +11,9 @@
 //! is to use tokio::task::spawn_local to spawn the local future.
 //! For example, when accepting new connections, we use this to
 //! spawn the server processing future.
-use async_channel::{unbounded, Sender};
-use tokio::task::LocalSet;
+use async_channel::{bounded, unbounded, Sender};
+use std::future::Future;
+use tokio::task::{JoinHandle, LocalSet};
 
 lazy_static::lazy_static! {
     static ref RUNTIME: Runtime = Runtime::new().unwrap();
@@ -56,15 +57,67 @@ impl Runtime {
 
         Ok(Self { jobs: tx })
     }
+}
 
-    /// Schedule a future on the pool.
-    /// Will return once the future is scheduled.
-    /// Does not wait for the future to complete.
-    pub fn run<F: FnOnce() + Send + 'static>(func: F) -> anyhow::Result<()> {
-        RUNTIME
-            .jobs
-            .send_blocking(Command::Run(Box::new(func)))
-            .map_err(|err| anyhow::anyhow!("failed to send func to runtime thread: {err:#}"))?;
-        Ok(())
-    }
+/// Schedule func to run in the runtime pool.
+/// func must return a future; that future will be spawned into the thread-local
+/// executor.
+/// This function will return the result of the spawn attempt, but will not
+/// wait for the future it spawns to complete.
+///
+/// This function is useful for getting into a localset environment where
+/// !Send futures can be scheduled when you are not already in such an environment.
+///
+/// If you are already in a !Send future, then using spawn_local below has
+/// less overhead.
+pub fn rt_spawn<F: (FnOnce() -> anyhow::Result<FUT>) + Send + 'static, FUT>(
+    name: String,
+    func: F,
+) -> anyhow::Result<JoinHandle<FUT::Output>>
+where
+    FUT: Future + 'static,
+    FUT::Output: Send,
+{
+    let (tx, rx) = bounded::<anyhow::Result<JoinHandle<FUT::Output>>>(1);
+    RUNTIME
+        .jobs
+        .send_blocking(Command::Run(Box::new(move || match (func)() {
+            Ok(future) => {
+                tx.send_blocking(
+                    tokio::task::Builder::new()
+                        .name(&name)
+                        .spawn_local(future)
+                        .map_err(|e| e.into()),
+                )
+                .ok();
+            }
+            Err(err) => {
+                tx.send_blocking(Err(err)).ok();
+            }
+        })))
+        .map_err(|err| anyhow::anyhow!("failed to send func to runtime thread: {err:#}"))?;
+    rx.recv_blocking()?
+}
+
+/// Spawn a future as a task with a name.
+pub fn spawn<FUT, N: AsRef<str>>(name: N, fut: FUT) -> std::io::Result<JoinHandle<FUT::Output>>
+where
+    FUT: Future + Send + 'static,
+    FUT::Output: Send,
+{
+    tokio::task::Builder::new().name(name.as_ref()).spawn(fut)
+}
+
+/// Spawn a local future as a task with a name.
+pub fn spawn_local<FUT, N: AsRef<str>>(
+    name: N,
+    fut: FUT,
+) -> std::io::Result<JoinHandle<FUT::Output>>
+where
+    FUT: Future + 'static,
+    FUT::Output: Send,
+{
+    tokio::task::Builder::new()
+        .name(name.as_ref())
+        .spawn_local(fut)
 }

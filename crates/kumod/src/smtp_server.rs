@@ -3,6 +3,7 @@ use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
+use crate::runtime::{rt_spawn, spawn_local};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
@@ -211,17 +212,15 @@ impl EsmtpListenerParams {
                     let (socket, peer_address) = result?;
                     let my_address = socket.local_addr()?;
                     let params = self.clone();
-                    crate::runtime::Runtime::run(move || {
-                        tokio::task::Builder::new()
-                            .name(&format!("SmtpServer {peer_address:?}"))
-                            .spawn_local(async move {
-                                if let Err(err) =
-                                    SmtpServer::run(socket, my_address, peer_address, params).await
+                    rt_spawn(
+                        format!("SmtpServer {peer_address:?}"),
+                        move || Ok(async move {
+                            if let Err(err) =
+                                SmtpServer::run(socket, my_address, peer_address, params).await
                                 {
                                     tracing::error!("SmtpServer::run: {err:#}");
-                                }
-                            }).ok();
-                    })?;
+                            }
+                    }))?;
                 }
             };
         }
@@ -884,18 +883,19 @@ impl SmtpServer {
                     }
 
                     if !messages.is_empty() {
-                        tokio::task::Builder::new()
-                            .name(&format!(
+                        spawn_local(
+                            format!(
                                 "SmtpServer: insert {} msgs for {:?}",
                                 messages.len(),
                                 self.peer_address
-                            ))
-                            .spawn_local(async move {
+                            ),
+                            async move {
                                 for (queue_name, msg) in messages {
                                     QueueManager::insert(&queue_name, msg).await?;
                                 }
                                 Ok::<(), anyhow::Error>(())
-                            })?;
+                            },
+                        )?;
                     }
 
                     let ids = ids.join(" ");
