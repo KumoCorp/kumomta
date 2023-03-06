@@ -1,10 +1,11 @@
 use crate::lifecycle::LifeCycle;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use metrics_prometheus::recorder::Layer;
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
+use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -23,12 +24,31 @@ mod smtp_server;
 mod spool;
 mod tls_helpers;
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "kebab_case")]
+enum DiagnosticFormat {
+    Pretty,
+    Full,
+    Compact,
+    Json,
+}
+
 #[derive(Debug, Parser)]
 #[command(about = "kumo mta daemon")]
 struct Opt {
     /// Policy file to load
     #[arg(long)]
     policy: Option<PathBuf>,
+
+    /// Directory where diagnostic log files will be placed.
+    /// If omitted, diagnostics will be printed to stderr.
+    #[arg(long)]
+    diag_log_dir: Option<PathBuf>,
+
+    /// How diagnostic logs render. full, compact and pretty are intended
+    /// for human consumption. json outputs machine readable records.
+    #[arg(long, default_value = "full")]
+    diag_format: DiagnosticFormat,
 
     /// If started as root, which user to run as.
     #[arg(long)]
@@ -106,8 +126,25 @@ async fn perform_init() -> anyhow::Result<()> {
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
+    let (non_blocking, _non_blocking_flusher);
+    let log_writer = if let Some(log_dir) = opts.diag_log_dir {
+        let file_appender = tracing_appender::rolling::hourly(log_dir, "log");
+        (non_blocking, _non_blocking_flusher) = tracing_appender::non_blocking(file_appender);
+        BoxMakeWriter::new(non_blocking)
+    } else {
+        BoxMakeWriter::new(std::io::stderr)
+    };
+
+    let layer = fmt::layer().with_thread_names(true).with_writer(log_writer);
+    let layer = match opts.diag_format {
+        DiagnosticFormat::Pretty => layer.pretty().boxed(),
+        DiagnosticFormat::Full => layer.boxed(),
+        DiagnosticFormat::Compact => layer.compact().boxed(),
+        DiagnosticFormat::Json => layer.json().boxed(),
+    };
+
     tracing_subscriber::registry()
-        .with(fmt::layer())
+        .with(layer)
         .with(EnvFilter::from_env("KUMOD_LOG"))
         .with(metrics_tracing_context::MetricsLayer::new())
         .init();
