@@ -144,6 +144,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     };
 
     tracing_subscriber::registry()
+        .with(console_subscriber::spawn())
         .with(layer)
         .with(EnvFilter::from_env("KUMOD_LOG"))
         .with(metrics_tracing_context::MetricsLayer::new())

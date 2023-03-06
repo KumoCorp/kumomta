@@ -18,6 +18,7 @@ chrono = {version="0.4", features=["serde"]}
 cidr = {version="0.2", features=["serde"]}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
+console-subscriber = "0.1"
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
 gcd = "2.3"
@@ -50,7 +51,7 @@ spool = {path="../spool"}
 thiserror = "1.0"
 throttle = {path="../throttle"}
 timeq = {path="../timeq"}
-tokio = {version="1.25", features=["full"]}
+tokio = {version="1.25", features=["full", "tracing"]}
 tokio-rustls = "0.23"
 tracing = "0.1"
 tracing-appender = "0.2"
