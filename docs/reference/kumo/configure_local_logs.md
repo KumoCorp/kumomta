@@ -122,7 +122,7 @@ kumo.configure_local_logs {
 
 ## per_record
 
-Allows configuring per-record type logging
+Allows configuring per-record type logging.
 
 ```lua
 kumo.configure_local_logs {
@@ -156,6 +156,10 @@ kumo.configure_local_logs {
   },
 }
 ```
+
+The keys of the `per_record` table must correspond to one of the
+record types listed below, or the special `Any` key which can be used
+to match any record type that was not explicitly listed.
 
 The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
 is used to evalute logging templates.  The full supported syntax is [documented
@@ -283,7 +287,7 @@ The following record types are defined:
   delivery status report, the parsed report is used to synthesize an OOB
   record for each recipient in the report.
 * `"Feedback"` - when receiving an ARF feedback report, instead of logging
-  a `"Reception"`, a `"Feedback" record is logged instead with the report
+  a `"Reception"`, a `"Feedback"` record is logged instead with the report
   contents parsed out and made available in the `feedback_report` field.
 
 ## Feedback Report
