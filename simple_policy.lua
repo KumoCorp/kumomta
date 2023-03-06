@@ -175,9 +175,8 @@ kumo.on('get_queue_config', function(queue_name)
   }
 end)
 
--- Use this to lookup and confirm a user/password credential
--- used with the http endpoint
-kumo.on('http_server_validate_auth_basic', function(user, password)
+-- A really simple inline auth "database" for very basic HTTP authentication
+function simple_auth_check(user, password)
   local password_database = {
     ['scott'] = 'tiger',
   }
@@ -185,4 +184,26 @@ kumo.on('http_server_validate_auth_basic', function(user, password)
     return false
   end
   return password_database[user] == password
+end
+
+-- Consult a hypothetical sqlite database that has an auth table
+-- with user and pass fields
+function sqlite_auth_check(user, password)
+  local sqlite = require 'sqlite'
+  local db = sqlite.open '/path/to/auth.db'
+  local result = db:execute(
+    'select user from auth where user=? and pass=?',
+    user,
+    password
+  )
+  return #result == 1
+end
+
+-- Use this to lookup and confirm a user/password credential
+-- used with the http endpoint
+kumo.on('http_server_validate_auth_basic', function(user, password)
+  return simple_auth_check(user, password)
+
+  -- or use sqlite
+  -- return sqlite_auth_check(user, password)
 end)
