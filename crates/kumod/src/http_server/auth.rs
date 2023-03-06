@@ -63,7 +63,10 @@ impl AuthKind {
         let kind = self.clone();
         let (tx, rx) = tokio::sync::oneshot::channel();
         crate::runtime::Runtime::run(move || {
-            tokio::task::spawn_local(async move { tx.send(kind.validate_impl().await) });
+            tokio::task::Builder::new()
+                .name(&format!("http auth validate {kind:?}"))
+                .spawn_local(async move { tx.send(kind.validate_impl().await) })
+                .expect("spawned auth validator");
         })?;
         rx.await?
     }

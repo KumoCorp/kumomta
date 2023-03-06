@@ -187,6 +187,7 @@ impl EsmtpListenerParams {
             .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
     }
 
+    #[instrument]
     pub async fn run(self) -> anyhow::Result<()> {
         // Pre-create the acceptor so that we can share it across
         // the various listeners
@@ -211,13 +212,15 @@ impl EsmtpListenerParams {
                     let my_address = socket.local_addr()?;
                     let params = self.clone();
                     crate::runtime::Runtime::run(move || {
-                        tokio::task::spawn_local(async move {
-                            if let Err(err) =
-                                SmtpServer::run(socket, my_address, peer_address, params).await
-                            {
-                                tracing::error!("SmtpServer::run: {err:#}");
-                            }
-                        });
+                        tokio::task::Builder::new()
+                            .name(&format!("SmtpServer {peer_address:?}"))
+                            .spawn_local(async move {
+                                if let Err(err) =
+                                    SmtpServer::run(socket, my_address, peer_address, params).await
+                                {
+                                    tracing::error!("SmtpServer::run: {err:#}");
+                                }
+                            }).ok();
                     })?;
                 }
             };
@@ -297,6 +300,7 @@ impl RelayDisposition {
 }
 
 impl SmtpServer {
+    #[instrument]
     pub async fn run<T>(
         socket: T,
         my_address: SocketAddr,
@@ -322,22 +326,20 @@ impl SmtpServer {
             rcpt_count: 0,
         };
 
-        tokio::task::spawn_local(async move {
-            server.params.connection_gauge().inc();
-            if let Err(err) = server.process().await {
-                if err.downcast_ref::<WriteError>().is_none() {
-                    error!("Error in SmtpServer: {err:#}");
-                    server
-                        .write_response(
-                            421,
-                            format!("4.3.0 {} technical difficulties", server.params.hostname),
-                        )
-                        .await
-                        .ok();
-                }
+        server.params.connection_gauge().inc();
+        if let Err(err) = server.process().await {
+            if err.downcast_ref::<WriteError>().is_none() {
+                error!("Error in SmtpServer: {err:#}");
+                server
+                    .write_response(
+                        421,
+                        format!("4.3.0 {} technical difficulties", server.params.hostname),
+                    )
+                    .await
+                    .ok();
             }
-            server.params.connection_gauge().dec();
-        });
+        }
+        server.params.connection_gauge().dec();
         Ok(())
     }
 
@@ -882,12 +884,18 @@ impl SmtpServer {
                     }
 
                     if !messages.is_empty() {
-                        tokio::task::spawn_local(async move {
-                            for (queue_name, msg) in messages {
-                                QueueManager::insert(&queue_name, msg).await?;
-                            }
-                            Ok::<(), anyhow::Error>(())
-                        });
+                        tokio::task::Builder::new()
+                            .name(&format!(
+                                "SmtpServer: insert {} msgs for {:?}",
+                                messages.len(),
+                                self.peer_address
+                            ))
+                            .spawn_local(async move {
+                                for (queue_name, msg) in messages {
+                                    QueueManager::insert(&queue_name, msg).await?;
+                                }
+                                Ok::<(), anyhow::Error>(())
+                            })?;
                     }
 
                     let ids = ids.join(" ");

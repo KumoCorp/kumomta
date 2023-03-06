@@ -25,7 +25,10 @@ impl RedisConnection {
 
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
         let me = self.clone();
-        tokio::task::spawn_blocking(move || me.query_blocking(&cmd)).await?
+        tokio::task::Builder::new()
+            .name("redis query")
+            .spawn_blocking(move || me.query_blocking(&cmd))?
+            .await?
     }
 }
 
@@ -281,7 +284,10 @@ impl RedisConnKey {
 
     pub async fn open(&self) -> anyhow::Result<RedisConnection> {
         let me = self.clone();
-        tokio::task::spawn_blocking(move || me.open_blocking()).await?
+        tokio::task::Builder::new()
+            .name("open redis")
+            .spawn_blocking(move || me.open_blocking())?
+            .await?
     }
 }
 

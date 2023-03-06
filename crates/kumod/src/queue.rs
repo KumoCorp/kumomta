@@ -352,14 +352,17 @@ impl Queue {
 
         let queue_clone = handle.clone();
         crate::runtime::Runtime::run(move || {
-            tokio::task::spawn_local(async move {
-                if let Err(err) = maintain_named_queue(&queue_clone).await {
-                    tracing::error!(
-                        "maintain_named_queue {}: {err:#}",
-                        queue_clone.lock().await.name
-                    );
-                }
-            });
+            tokio::task::Builder::new()
+                .name(&format!("maintain {name}"))
+                .spawn_local(async move {
+                    if let Err(err) = maintain_named_queue(&queue_clone).await {
+                        tracing::error!(
+                            "maintain_named_queue {}: {err:#}",
+                            queue_clone.lock().await.name
+                        );
+                    }
+                })
+                .expect("failed to spawn queue maintainer");
         })?;
 
         Ok(handle)

@@ -52,11 +52,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_esmtp_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: EsmtpListenerParams = lua.from_value(params)?;
-            tokio::spawn(async move {
-                if let Err(err) = params.run().await {
-                    tracing::error!("Error in SmtpServer: {err:#}");
-                }
-            });
+            tokio::task::Builder::new()
+                .name("start_esmtp_listener")
+                .spawn(async move {
+                    if let Err(err) = params.run().await {
+                        tracing::error!("Error in SmtpServer: {err:#}");
+                    }
+                })
+                .map_err(any_err)?;
             Ok(())
         })?,
     )?;
@@ -65,14 +68,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "define_spool",
         lua.create_async_function(|lua, params: Value| async move {
             let params = lua.from_value(params)?;
-            tokio::spawn(async move {
-                if let Err(err) = define_spool(params).await {
-                    tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
-                }
-            })
-            .await
-            .map_err(any_err)
+            tokio::task::Builder::new()
+                .name("define_spool")
+                .spawn(async move {
+                    if let Err(err) = define_spool(params).await {
+                        tracing::error!("Error in spool: {err:#}");
+                        LifeCycle::request_shutdown().await;
+                    }
+                })
+                .map_err(any_err)?
+                .await
+                .map_err(any_err)
         })?,
     )?;
 

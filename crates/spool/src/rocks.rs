@@ -45,23 +45,25 @@ impl Spool for RocksSpool {
 
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
         let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || {
-            let iter = db.iterator(IteratorMode::Start);
-            for entry in iter {
-                let (key, value) = entry?;
-                let id = SpoolId::from_ascii_bytes(&key)
-                    .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
-                sender
-                    .blocking_send(SpoolEntry::Item {
-                        id,
-                        data: value.to_vec(),
-                    })
-                    .map_err(|err| {
-                        anyhow::anyhow!("failed to send SpoolEntry for {id}: {err:#}")
-                    })?;
-            }
-            Ok::<(), anyhow::Error>(())
-        });
+        tokio::task::Builder::new()
+            .name("rocksdb enumerate")
+            .spawn_blocking(move || {
+                let iter = db.iterator(IteratorMode::Start);
+                for entry in iter {
+                    let (key, value) = entry?;
+                    let id = SpoolId::from_ascii_bytes(&key)
+                        .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
+                    sender
+                        .blocking_send(SpoolEntry::Item {
+                            id,
+                            data: value.to_vec(),
+                        })
+                        .map_err(|err| {
+                            anyhow::anyhow!("failed to send SpoolEntry for {id}: {err:#}")
+                        })?;
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
         Ok(())
     }
 }

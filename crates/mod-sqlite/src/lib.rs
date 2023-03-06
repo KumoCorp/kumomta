@@ -149,10 +149,12 @@ impl UserData for Conn {
             "execute",
             |lua, this, (sql, params): (String, MultiValue)| async move {
                 let json_params = params_to_json(lua, params)?;
-                let result: JsonValue =
-                    tokio::task::spawn_blocking(move || -> anyhow::Result<JsonValue> {
+                let result: JsonValue = tokio::task::Builder::new()
+                    .name(&format!("sqlite {sql}"))
+                    .spawn_blocking(move || -> anyhow::Result<JsonValue> {
                         this.execute(sql, json_params)
                     })
+                    .map_err(any_err)?
                     .await
                     .map_err(any_err)?
                     .map_err(any_err)?;

@@ -171,13 +171,16 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     let mut life_cycle = LifeCycle::new();
 
     crate::runtime::Runtime::run(move || {
-        tokio::task::spawn_local(async move {
-            if let Err(err) = perform_init().await {
-                tracing::error!("problem initializing: {err:#}");
-                LifeCycle::request_shutdown().await;
-            }
-            Ok::<(), anyhow::Error>(())
-        });
+        tokio::task::Builder::new()
+            .name("initialize")
+            .spawn_local(async move {
+                if let Err(err) = perform_init().await {
+                    tracing::error!("problem initializing: {err:#}");
+                    LifeCycle::request_shutdown().await;
+                }
+                Ok::<(), anyhow::Error>(())
+            })
+            .expect("initialize spawned");
     })?;
 
     life_cycle.wait_for_shutdown().await;

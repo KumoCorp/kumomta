@@ -93,70 +93,78 @@ impl Spool for LocalDiskSpool {
         let new_dir = self.path.join("new");
         let data = data.to_vec();
         let flush = self.flush;
-        tokio::task::spawn_blocking(move || {
-            let mut temp = NamedTempFile::new_in(new_dir)
-                .with_context(|| format!("failed to create a temporary file to store {id}"))?;
+        tokio::task::Builder::new()
+            .name("LocalDiskSpool store")
+            .spawn_blocking(move || {
+                let mut temp = NamedTempFile::new_in(new_dir)
+                    .with_context(|| format!("failed to create a temporary file to store {id}"))?;
 
-            temp.write_all(&data)
-                .with_context(|| format!("failed to write data for {id}"))?;
+                temp.write_all(&data)
+                    .with_context(|| format!("failed to write data for {id}"))?;
 
-            if flush {
-                temp.as_file_mut()
-                    .sync_data()
-                    .with_context(|| format!("failed to sync data for {id}"))?;
-            }
+                if flush {
+                    temp.as_file_mut()
+                        .sync_data()
+                        .with_context(|| format!("failed to sync data for {id}"))?;
+                }
 
-            std::fs::create_dir_all(path.parent().unwrap())
-                .with_context(|| format!("failed to create dir structure for {id} {path:?}"))?;
+                std::fs::create_dir_all(path.parent().unwrap())
+                    .with_context(|| format!("failed to create dir structure for {id} {path:?}"))?;
 
-            temp.persist(&path)
-                .with_context(|| format!("failed to move temp file for {id} to {path:?}"))?;
-            Ok(())
-        })
-        .await?
+                temp.persist(&path)
+                    .with_context(|| format!("failed to move temp file for {id} to {path:?}"))?;
+                Ok(())
+            })?
+            .await?
     }
 
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
         let path = self.path.clone();
-        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            Self::cleanup_dirs(&path);
+        tokio::task::Builder::new()
+            .name("LocalDiskSpool enumerate")
+            .spawn_blocking(move || -> anyhow::Result<()> {
+                Self::cleanup_dirs(&path);
 
-            for entry in jwalk::WalkDir::new(path.join("data")) {
-                if let Ok(entry) = entry {
-                    if !entry.file_type().is_file() {
-                        continue;
-                    }
-                    let path = entry.path();
-                    if let Some(id) = SpoolId::from_path(&path) {
-                        match std::fs::read(&path) {
-                            Ok(data) => sender
-                                .blocking_send(SpoolEntry::Item { id, data })
-                                .map_err(|err| {
-                                    anyhow::anyhow!("failed to send data for {id}: {err:#}")
-                                })?,
-                            Err(err) => sender
-                                .blocking_send(SpoolEntry::Corrupt {
-                                    id,
-                                    error: format!("{err:#}"),
-                                })
-                                .map_err(|err| {
-                                    anyhow::anyhow!("failed to send SpoolEntry for {id}: {err:#}")
-                                })?,
-                        };
+                for entry in jwalk::WalkDir::new(path.join("data")) {
+                    if let Ok(entry) = entry {
+                        if !entry.file_type().is_file() {
+                            continue;
+                        }
+                        let path = entry.path();
+                        if let Some(id) = SpoolId::from_path(&path) {
+                            match std::fs::read(&path) {
+                                Ok(data) => sender
+                                    .blocking_send(SpoolEntry::Item { id, data })
+                                    .map_err(|err| {
+                                        anyhow::anyhow!("failed to send data for {id}: {err:#}")
+                                    })?,
+                                Err(err) => sender
+                                    .blocking_send(SpoolEntry::Corrupt {
+                                        id,
+                                        error: format!("{err:#}"),
+                                    })
+                                    .map_err(|err| {
+                                        anyhow::anyhow!(
+                                            "failed to send SpoolEntry for {id}: {err:#}"
+                                        )
+                                    })?,
+                            };
+                        }
                     }
                 }
-            }
-            anyhow::Result::Ok(())
-        });
+                anyhow::Result::Ok(())
+            })?;
         Ok(())
     }
 
     async fn cleanup(&self) -> anyhow::Result<()> {
         let data_dir = self.path.join("data");
-        Ok(tokio::task::spawn_blocking(move || {
-            Self::cleanup_data(&data_dir);
-        })
-        .await?)
+        Ok(tokio::task::Builder::new()
+            .name("LocalDiskSpool cleanup")
+            .spawn_blocking(move || {
+                Self::cleanup_data(&data_dir);
+            })?
+            .await?)
     }
 }
 
