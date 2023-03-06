@@ -1,6 +1,4 @@
 use crate::mx::ResolvedAddress;
-use std::collections::HashMap;
-use serde_json::Value;
 use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
@@ -9,9 +7,12 @@ use chrono::{DateTime, Utc};
 use message::rfc3464::ReportAction;
 use message::rfc5965::ARFReport;
 use message::Message;
+use minijinja::{Environment, Source, Template};
 use once_cell::sync::OnceCell;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -57,6 +58,28 @@ impl ClassifierParams {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct LogRecordParams {
+    #[serde(default)]
+    pub suffix: Option<String>,
+
+    /// Where to place the log files; overrides the global setting
+    #[serde(default)]
+    pub log_dir: Option<PathBuf>,
+
+    #[serde(default = "default_true")]
+    pub enable: bool,
+
+    /// Instead of logging the json object, format it with this
+    /// minijinja template
+    #[serde(default)]
+    pub template: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct LogFileParams {
     /// Where to place the log files
     pub log_dir: PathBuf,
@@ -85,6 +108,9 @@ pub struct LogFileParams {
     /// List of message headers to capture in the log
     #[serde(default)]
     pub headers: Vec<String>,
+
+    #[serde(default)]
+    pub per_record: HashMap<RecordType, LogRecordParams>,
 }
 
 impl LogFileParams {
@@ -109,6 +135,7 @@ pub struct Logger {
     thread: Mutex<Option<JoinHandle<()>>>,
     meta: Vec<String>,
     headers: Vec<String>,
+    enabled: HashMap<RecordType, bool>,
 }
 
 impl Logger {
@@ -117,10 +144,32 @@ impl Logger {
     }
 
     pub fn init(params: LogFileParams) -> anyhow::Result<()> {
+        let mut source = Source::new();
+
+        for (kind, per_rec) in &params.per_record {
+            if let Some(template_source) = &per_rec.template {
+                source
+                    .add_template(format!("{kind:?}"), template_source)
+                    .with_context(|| {
+                        format!(
+                            "compiling template:\n{template_source}\nfor log record type {kind:?}"
+                        )
+                    })?;
+            }
+        }
+
+        let mut template_engine = Environment::new();
+        template_engine.set_source(source);
+
         std::fs::create_dir_all(&params.log_dir)
             .with_context(|| format!("creating log directory {}", params.log_dir.display()))?;
 
-        let headers =params.headers.clone();
+        let mut enabled = HashMap::new();
+        for (kind, cfg) in &params.per_record {
+            enabled.insert(*kind, cfg.enable);
+        }
+
+        let headers = params.headers.clone();
         let meta = params.meta.clone();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let thread = std::thread::spawn(move || {
@@ -128,7 +177,15 @@ impl Logger {
                 .enable_time()
                 .build()
                 .expect("create logger runtime");
-            runtime.block_on(Self::logger_thread(params, receiver));
+            runtime.block_on(async move {
+                let mut state = LogThreadState {
+                    params,
+                    receiver,
+                    template_engine,
+                    file_map: HashMap::new(),
+                };
+                state.logger_thread().await
+            });
         });
 
         let logger = Self {
@@ -136,6 +193,7 @@ impl Logger {
             thread: Mutex::new(Some(thread)),
             meta,
             headers,
+            enabled,
         };
 
         LOGGER
@@ -144,94 +202,14 @@ impl Logger {
         Ok(())
     }
 
-    async fn logger_thread(params: LogFileParams, receiver: Receiver<LogCommand>) {
-        struct OpenedFile {
-            file: AutoFinishEncoder<'static, File>,
-            name: PathBuf,
-            written: u64,
-            opened: Instant,
+    pub fn record_is_enabled(&self, kind: RecordType) -> bool {
+        if let Some(enabled) = self.enabled.get(&kind) {
+            return *enabled;
         }
-
-        let mut file: Option<OpenedFile> = None;
-
-        fn do_record(
-            params: &LogFileParams,
-            file: &mut Option<OpenedFile>,
-            mut record: JsonLogRecord,
-        ) -> anyhow::Result<()> {
-            if let Some(classifier) = CLASSIFY.get() {
-                record.bounce_classification = classifier.classify_response(&record.response);
-            }
-            if file.is_none() {
-                let now = Utc::now();
-                let name = params.log_dir.join(now.format("%Y%m%d-%H%M%S").to_string());
-
-                let f = std::fs::OpenOptions::new()
-                    .append(true)
-                    .create(true)
-                    .open(&name)
-                    .with_context(|| format!("open log file {name:?}"))?;
-
-                file.replace(OpenedFile {
-                    file: Encoder::new(f, params.compression_level)
-                        .context("set up zstd encoder")?
-                        .auto_finish(),
-                    name,
-                    written: 0,
-                    opened: Instant::now(),
-                });
-            }
-
-            let mut need_rotate = false;
-
-            if let Some(file) = file.as_mut() {
-                let mut json = serde_json::to_string(&record).context("serializing record")?;
-                json.push_str("\n");
-                file.file
-                    .write_all(json.as_bytes())
-                    .with_context(|| format!("writing record to {}", file.name.display()))?;
-                file.written += json.len() as u64;
-
-                need_rotate = file.written >= params.max_file_size;
-            }
-
-            if need_rotate {
-                file.take();
-            }
-
-            Ok(())
+        if let Some(enabled) = self.enabled.get(&RecordType::Any) {
+            return *enabled;
         }
-
-        loop {
-            let cmd = if let Some(deadline) = params
-                .max_segment_duration
-                .and_then(|duration| file.as_ref().and_then(|of| Some(of.opened + duration)))
-            {
-                tokio::select! {
-                    cmd = receiver.recv() => cmd,
-                    _ = tokio::time::sleep_until(deadline.into()) => {
-                        file.take();
-                        continue;
-                    }
-                }
-            } else {
-                receiver.recv().await
-            };
-            let cmd = match cmd {
-                Ok(cmd) => cmd,
-                _ => return,
-            };
-            match cmd {
-                LogCommand::Terminate => {
-                    break;
-                }
-                LogCommand::Record(record) => {
-                    if let Err(err) = do_record(&params, &mut file, record) {
-                        tracing::error!("failed to log: {err:#}");
-                    }
-                }
-            }
-        }
+        true
     }
 
     pub async fn log(&self, record: JsonLogRecord) -> anyhow::Result<()> {
@@ -250,14 +228,20 @@ impl Logger {
         }
     }
 
-    pub fn extract_fields(&self, msg: &Message) -> (HashMap<String, Value>, HashMap<String, Value>) {
+    pub fn extract_fields(
+        &self,
+        msg: &Message,
+    ) -> (HashMap<String, Value>, HashMap<String, Value>) {
         let mut headers = HashMap::new();
         let mut meta = HashMap::new();
 
         if !self.headers.is_empty() {
-            let mut all_headers :HashMap<String, Vec<Value>> = HashMap::new();
-            for (name, value) in msg.get_all_headers().unwrap_or_else(|_|vec![]) {
-                all_headers.entry(name.to_ascii_lowercase()).or_default().push(value.into());
+            let mut all_headers: HashMap<String, Vec<Value>> = HashMap::new();
+            for (name, value) in msg.get_all_headers().unwrap_or_else(|_| vec![]) {
+                all_headers
+                    .entry(name.to_ascii_lowercase())
+                    .or_default()
+                    .push(value.into());
             }
 
             for name in &self.headers {
@@ -283,7 +267,7 @@ impl Logger {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RecordType {
     /// Recorded by a receiving listener
     Reception,
@@ -300,6 +284,9 @@ pub enum RecordType {
     OOB,
     /// Contains a feedback report
     Feedback,
+
+    /// Special for matching anything in the logging config
+    Any,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -379,6 +366,10 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     kind = RecordType::Feedback;
                 }
             }
+        }
+
+        if !logger.record_is_enabled(kind) {
+            return;
         }
 
         let (headers, meta) = logger.extract_fields(&msg);
@@ -497,5 +488,185 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FileNameKey {
+    log_dir: PathBuf,
+    suffix: Option<String>,
+}
+
+struct OpenedFile {
+    file: AutoFinishEncoder<'static, File>,
+    name: PathBuf,
+    written: u64,
+    expires: Option<Instant>,
+}
+
+struct LogThreadState {
+    params: LogFileParams,
+    receiver: Receiver<LogCommand>,
+    template_engine: Environment<'static>,
+    file_map: HashMap<FileNameKey, OpenedFile>,
+}
+
+impl LogThreadState {
+    async fn logger_thread(&mut self) {
+        loop {
+            let deadline = self.get_deadline();
+
+            let cmd = if let Some(deadline) = deadline {
+                tokio::select! {
+                    cmd = self.receiver.recv() => cmd,
+                    _ = tokio::time::sleep_until(deadline.into()) => {
+                        self.expire();
+                        continue;
+                    }
+                }
+            } else {
+                self.receiver.recv().await
+            };
+            let cmd = match cmd {
+                Ok(cmd) => cmd,
+                _ => return,
+            };
+            match cmd {
+                LogCommand::Terminate => {
+                    break;
+                }
+                LogCommand::Record(record) => {
+                    if let Err(err) = self.do_record(record) {
+                        tracing::error!("failed to log: {err:#}");
+                    };
+                }
+            }
+        }
+    }
+
+    fn expire(&mut self) {
+        let now = Instant::now();
+        self.file_map.retain(|_, of| match of.expires {
+            Some(exp) => exp > now,
+            None => true,
+        });
+    }
+
+    fn get_deadline(&self) -> Option<Instant> {
+        self.file_map
+            .values()
+            .filter_map(|of| of.expires.clone())
+            .min()
+    }
+
+    fn per_record(&self, kind: RecordType) -> Option<&LogRecordParams> {
+        self.params
+            .per_record
+            .get(&kind)
+            .or_else(|| self.params.per_record.get(&RecordType::Any))
+    }
+
+    fn resolve_template<'a>(
+        params: &LogFileParams,
+        template_engine: &'a Environment,
+        kind: RecordType,
+    ) -> Option<Template<'a>> {
+        if let Some(pr) = params.per_record.get(&kind) {
+            if pr.template.is_some() {
+                let label = format!("{kind:?}");
+                return template_engine.get_template(&label).ok();
+            }
+            return None;
+        }
+        if let Some(pr) = params.per_record.get(&RecordType::Any) {
+            if pr.template.is_some() {
+                return template_engine.get_template("Any").ok();
+            }
+        }
+        None
+    }
+
+    fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+        let file_key = if let Some(per_rec) = self.per_record(record.kind) {
+            FileNameKey {
+                log_dir: per_rec
+                    .log_dir
+                    .as_deref()
+                    .unwrap_or(&self.params.log_dir)
+                    .to_path_buf(),
+                suffix: per_rec.suffix.clone(),
+            }
+        } else {
+            // Just use the global settings
+            FileNameKey {
+                log_dir: self.params.log_dir.clone(),
+                suffix: None,
+            }
+        };
+
+        if let Some(classifier) = CLASSIFY.get() {
+            record.bounce_classification = classifier.classify_response(&record.response);
+        }
+
+        if !self.file_map.contains_key(&file_key) {
+            let now = Utc::now();
+
+            let mut base_name = now.format("%Y%m%d-%H%M%S").to_string();
+            if let Some(suffix) = &file_key.suffix {
+                base_name.push_str(suffix);
+            }
+
+            let name = file_key.log_dir.join(base_name);
+
+            let f = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&name)
+                .with_context(|| format!("open log file {name:?}"))?;
+
+            self.file_map.insert(
+                file_key.clone(),
+                OpenedFile {
+                    file: Encoder::new(f, self.params.compression_level)
+                        .context("set up zstd encoder")?
+                        .auto_finish(),
+                    name,
+                    written: 0,
+                    expires: self
+                        .params
+                        .max_segment_duration
+                        .map(|duration| Instant::now() + duration),
+                },
+            );
+        }
+
+        let mut need_rotate = false;
+
+        if let Some(file) = self.file_map.get_mut(&file_key) {
+            let mut record_text = Vec::new();
+
+            if let Some(template) =
+                Self::resolve_template(&self.params, &self.template_engine, record.kind)
+            {
+                template.render_to_write(&record, &mut record_text)?;
+            } else {
+                serde_json::to_writer(&mut record_text, &record).context("serializing record")?;
+            }
+            if record_text.last() != Some(&b'\n') {
+                record_text.push(b'\n');
+            }
+            file.file
+                .write_all(&record_text)
+                .with_context(|| format!("writing record to {}", file.name.display()))?;
+            file.written += record_text.len() as u64;
+
+            need_rotate = file.written >= self.params.max_file_size;
+        }
+
+        if need_rotate {
+            self.file_map.remove(&file_key);
+        }
+
+        Ok(())
     }
 }
