@@ -32,7 +32,12 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
+    - name: Install cargo-nextest
+      uses: baptiste0928/cargo-install@v1
+      with:
+        crate: cargo-nextest
+        locked: true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo nextest run
