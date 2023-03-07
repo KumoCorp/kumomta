@@ -17,7 +17,23 @@ _"Verifiers wishing to communicate the results of verification to other
 
 This diagram gives a graphical view of how DKIM works.
 
-![Diagram showing DNS being used to store and validate DKIM keys](https://user-images.githubusercontent.com/13574506/222079787-83431e17-5737-42dc-9cbf-9679477718c9.png)
+---
+title: DKIM Process flow
+---
+graph TD
+    SMTA["Sending MTA"]
+    RMTA["Receiving MTA"]
+    MBOX["User Mailbox"]
+    DNS
+    SMTA -- 2. Send to recipient MTA --> RMTA
+    RMTA -- 4. Deliver to mailbox --> MBOX
+    SMTA -- 1. Publish Public Key --> DNS
+    RMTA -- 3. Get Sender's Public Key --> DNS
+
+   style SMTA fill:orange,color:black
+   style RMTA fill:skyblue,color:black
+   style DNS fill:#A2E4B8,color:black
+   style MBOX fill:#E8DD8E,color:black
 
 
 
