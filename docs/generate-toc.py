@@ -79,6 +79,7 @@ TOC = [
                 ]
                  ),
             Page(
+            
                 "User Guide",
                 "guide/index.md",
                 children=[
@@ -89,6 +90,7 @@ TOC = [
                     ),
                     Page("Installing for Development","guide/subs/install_for_development.md"),
                     Page("Installing for Production","guide/subs/install_for_production_use.md"),
+                    Page("Your First Email","guide/subs/your_first_email.md"),
                     Page("Beyond Basics","guide/beyond_basics.md"),
                     Page("Securing It","guide/securing_it.md",
                         children=[
@@ -96,6 +98,7 @@ TOC = [
                             Page("Configuring TLS","guide/subs/tls.md"),
                         ]
                     ),
+
                     Page("Advanced Configurations","guide/advanced_config.md",
                         children=[
                             Page("Lua Resources","guide/subs/lua_resources.md"),

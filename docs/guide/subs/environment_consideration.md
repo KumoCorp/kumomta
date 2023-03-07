@@ -4,13 +4,22 @@
 
 KumoMTA is a performance MTA that will leverage every bit of power you provide. It may be kind of obvious, but 'more is better' so if you plan to send many millions of messages per hour, deploy the largest server you can. If you are installing for  development, you will need a minimum of 4Gb RAM, 2 cores and 20Gb Storage. In AWS, a t2.medium is adequate for a minimal install.  If you are installing a Docker Image, the same guide applies. See the chart below for sample performance reports.
 
+
 ## Operating Systems
 
-So far this is tested on Rocky 8, ...
+So far this is tested on Rocky (8), Alma (8), OpenSuse Leap (15.4), Ubuntu (22), ...
+
 
 ## RAM and Storage 
+At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes heavy use of both resources so more is better, but response time is also going to be a factor.  For high performance systems you will want to select storage with the fastest IOPS and lowest latency, so local disk is going to be much better than NAS or SAN. Likewise, you can benefit from faster RAM if it is available.
+
 
 ## Network Interfaces
+KumoMTA is capable of processing many millions of message per hour, or more relevant to this conversation, many thousands of bytes per second.  Your network interface could be your biggest bottleneck.  Below is a quick calculation:
+Assuming the average message is 50kB and you plan to send 1 Million of those per hour, your bandwidth requirement will be:
+50 * 8000 * 1,000,000 / 3600s =~ 111Mbps
+
+You can see that a 10Mbps Network interface would fail you quickly.  Any performance system should use at least a 10Gb NIC.
 
 ## Ports and Security
 Note that in order for KumoMTA to bind to port 25 for outbound mail, it must be run as a privileged user.
