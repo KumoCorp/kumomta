@@ -18,9 +18,6 @@ _"Verifiers wishing to communicate the results of verification to other
 This diagram gives a graphical view of how DKIM works.
 
 ```mermaid
----
-title: DKIM Process flow
----
 graph TD
     SMTA["Sending MTA"]
     RMTA["Receiving MTA"]
@@ -35,7 +32,6 @@ graph TD
    style RMTA fill:skyblue,color:black
    style DNS fill:#A2E4B8,color:black
    style MBOX fill:#E8DD8E,color:black
-
 ```
 
 ## For Sending Servers
@@ -112,16 +108,17 @@ n= Notes. If specified, the value of this tag is quoted-printable text used as a
 
 Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.  This is done with Lua in policy.  The simple_policy.lua policy provided with KumoMTA declairs a basic working DKIM signer that you can copy and modify as needed.  Tis signs a message with RSA256 using a selector "default" on headers 'From', 'To', and 'Subject' using the DKIM key located at example-private-dkim-key.pem. 
 
+```lua
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:sender().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
     file_name = 'example-private-dkim-key.pem',
   }
+```
 
 Where you want to enable dkim signing, simple call that signer in policy.
-IE:  msg:dkim_sign(signer)
-
+IE:  `msg:dkim_sign(signer)`
 
 
 ### EOF
