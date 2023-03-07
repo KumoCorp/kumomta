@@ -29,45 +29,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: "Install Rust"
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: "minimal"
-          toolchain: "stable"
-          default: true
-          override: true
-          components: "rustfmt"
-        env:
-          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-mdbook-${{ hashFiles('.github/workflows/pages.yml') }}
       - name: Install mdBook
-        run: |
-          (test -x ~/.cargo/bin/mdbook || (cd && cargo install mdbook --no-default-features --features search --vers "^0.4" --locked))
-      - name: Install mdBook linkcheck
-        run: |
-         (test -x ~/.cargo/bin/mdbook-linkcheck || (cd && cargo install mdbook-linkcheck --locked))
-      - name: Install mdBook mermaid
-        run: |
-          (test -x ~/.cargo/bin/mdbook-mermaid || (cd && cargo install mdbook-mermaid --locked))
-      - name: Install mdBook admonish
-        run: |
-          (test -x ~/.cargo/bin/mdbook-admonish || (cd && cargo install mdbook-admonish --locked))
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: mdbook
+          features: search
+      - name: Install mdBook-linkcheck
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: mdbook-linkcheck
+      - name: Install mdBook-mermaid
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: mdbook-mermaid
+      - name: Install mdBook-admonish
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: mdbook-admonish
       - name: Install gelatyx
-        run: |
-          (test -x ~/.cargo/bin/gelatyx || (cd && cargo install gelatyx --version "^0.2" --locked))
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: gelatyx
       - name: Build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source $HOME/.cargo/env
-          ./docs/build.sh
+        run: ./docs/build.sh
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:

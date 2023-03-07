@@ -33,28 +33,14 @@ jobs:
       with:
         profile: "minimal"
         toolchain: "nightly"
-        default: true
         override: true
         components: "rustfmt"
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
-    - uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-        key: ${{ runner.os }}-cargo-mdbook-${{ hashFiles('.github/workflows/fmt.yml') }}
     - name: Rust formatting
-      run: |
-        source $HOME/.cargo/env
-        cargo +nightly fmt --all -- --check
+      run: cargo +nightly fmt --all -- --check
     - name: Install stylua
-      run: |
-        source $HOME/.cargo/env
-        (test -x ~/.cargo/bin/stylua || (cd && cargo install stylua --features lua54 --vers "^0.16" --locked))
+      uses: baptiste0928/cargo-install@v1
+      with:
+        crate: stylua
+        features: lua54
     - name: Lua formatting
-      run: |
-        source $HOME/.cargo/env
-        stylua --check --config-path stylua.toml .
+      run: stylua --check --config-path stylua.toml .
