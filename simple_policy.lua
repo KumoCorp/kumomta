@@ -165,7 +165,17 @@ end)
 
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used for managing a queue.
-kumo.on('get_queue_config', function(queue_name)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  if domain == 'maildir.example.com' then
+    -- Store this domain into a maildir, rather than attempting
+    -- to deliver via SMTP
+    return kumo.make_queue_config {
+      protocol = {
+        maildir_path = '/var/tmp/kumo-maildir',
+      },
+    }
+  end
+
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
     -- max_age = 120,

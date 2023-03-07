@@ -26,7 +26,7 @@ Limits how long a message can remain in the queue.
 The value is expressed in seconds.  The default value is 7 days.
 
 ```lua
-kumo.on('get_queue_config', function(queue_name)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 20 minutes
     max_age = 20 * 60,
@@ -45,13 +45,44 @@ The default is that there is no upper limit.
 The value is expressed in seconds.
 
 ```lua
-kumo.on('get_queue_config', function(queue_name)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Retry at most every hour
     max_retry_interval = 60 * 60,
   }
 end)
 ```
+
+## protocol
+
+Configure the delivery protocol. The default is to use SMTP to the
+domain associated with the queue, but you can also configure delivering
+to a local [maildir](http://www.courier-mta.org/maildir.html):
+
+```lua
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  if domain == 'maildir.example.com' then
+    -- Store this domain into a maildir, rather than attempting
+    -- to deliver via SMTP
+    return kumo.make_queue_config {
+      protocol = {
+        maildir_path = '/var/tmp/kumo-maildir',
+      },
+    }
+  end
+  -- Otherwise, just use the defaults
+  return kumo.make_queue_config {}
+end)
+```
+
+```admonish
+Maildir support is present primarily for functional validation
+rather than being present as a first class delivery mechanism.
+```
+
+Failures to write to the maildir will cause the message to be delayed and
+retried approximately 1 minute later.  The normal message retry schedule does
+not apply.
 
 ## retry_interval
 
@@ -66,7 +97,7 @@ The default is 20 minutes.
 The value is expressed in seconds.
 
 ```lua
-kumo.on('get_queue_config', function(queue_name)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- 20 minutes
     retry_interval = 20 * 60,

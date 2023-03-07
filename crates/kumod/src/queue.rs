@@ -3,8 +3,9 @@ use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::runtime::{rt_spawn, spawn, spawn_blocking};
 use crate::spool::SpoolManager;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use chrono::Utc;
 use config::load_config;
 use message::message::QueueNameComponents;
@@ -27,6 +28,19 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum DeliveryProto {
+    Smtp,
+    Maildir { maildir_path: std::path::PathBuf },
+}
+
+impl Default for DeliveryProto {
+    fn default() -> Self {
+        Self::Smtp
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct QueueConfig {
     /// Base retry interval to use in exponential backoff
     #[serde(default = "QueueConfig::default_retry_interval")]
@@ -46,6 +60,9 @@ pub struct QueueConfig {
     /// delivering these messages
     #[serde(default)]
     egress_pool: Option<String>,
+
+    #[serde(default)]
+    protocol: DeliveryProto,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -57,6 +74,7 @@ impl Default for QueueConfig {
             max_retry_interval: None,
             max_age: Self::default_max_age(),
             egress_pool: None,
+            protocol: DeliveryProto::default(),
         }
     }
 }
@@ -351,7 +369,7 @@ impl Queue {
         })));
 
         let queue_clone = handle.clone();
-        crate::runtime::rt_spawn(format!("maintain {name}"), move || {
+        rt_spawn(format!("maintain {name}"), move || {
             Ok(async move {
                 if let Err(err) = maintain_named_queue(&queue_clone).await {
                     tracing::error!(
@@ -484,16 +502,87 @@ impl Queue {
     }
 
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
-        let egress_source = self
-            .rr
-            .next()
-            .ok_or_else(|| anyhow!("no sources in pool"))?;
-        let site =
-            EgressPathManager::resolve_by_queue_name(&self.name, &egress_source, &self.rr.name)
+        match &self.queue_config.protocol {
+            DeliveryProto::Smtp => {
+                let egress_source = self
+                    .rr
+                    .next()
+                    .ok_or_else(|| anyhow!("no sources in pool"))?;
+                let site = EgressPathManager::resolve_by_queue_name(
+                    &self.name,
+                    &egress_source,
+                    &self.rr.name,
+                )
                 .await?;
-        let mut site = site.lock().await;
-        site.insert(msg)
-            .map_err(|_| anyhow!("no room in ready queue"))
+                let mut site = site.lock().await;
+                site.insert(msg)
+                    .map_err(|_| anyhow!("no room in ready queue"))
+            }
+            DeliveryProto::Maildir { maildir_path } => {
+                let maildir_path = maildir_path.to_path_buf();
+
+                msg.load_data_if_needed().await?;
+                let name = self.name.to_string();
+                let result: anyhow::Result<String> = spawn_blocking("write to maildir", {
+                    let msg = msg.clone();
+                    move || {
+                        let md = maildir::Maildir::from(maildir_path.clone());
+                        md.create_dirs().with_context(|| {
+                            format!(
+                                "creating dirs for maildir {maildir_path:?} in queue {}",
+                                name
+                            )
+                        })?;
+                        Ok(md.store_new(&msg.get_data())?)
+                    }
+                })?
+                .await?;
+
+                match result {
+                    Ok(id) => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Delivery,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 200,
+                                enhanced_code: None,
+                                content: format!("wrote to maildir with id={id}"),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                        })
+                        .await;
+                        spawn("remove from spool", async move {
+                            SpoolManager::remove_from_spool(*msg.id()).await
+                        })?;
+                        Ok(())
+                    }
+                    Err(err) => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 400,
+                                enhanced_code: None,
+                                content: format!("failed to write to maildir: {err:#}"),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                        })
+                        .await;
+                        anyhow::bail!("failed maildir store: {err:#}");
+                    }
+                }
+            }
+        }
     }
 
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {

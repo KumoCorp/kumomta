@@ -121,3 +121,14 @@ where
         .name(name.as_ref())
         .spawn_local(fut)
 }
+
+pub fn spawn_blocking<F, N, R>(name: N, func: F) -> std::io::Result<JoinHandle<R>>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+    N: AsRef<str>,
+{
+    tokio::task::Builder::new()
+        .name(name.as_ref())
+        .spawn_blocking(func)
+}

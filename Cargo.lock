@@ -1073,6 +1073,16 @@ dependencies = [
 
 [[package]]
 name = "gethostname"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ebd34e35c46e00bb73e81363248d627782724609fe1b6396f553f68fe3862e"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
+name = "gethostname"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a329e22866dd78b35d2c639a4a23d7b950aeae300dfd79f4fb19f74055c2404"
@@ -1502,7 +1512,7 @@ dependencies = [
  "data-loader",
  "domain-map",
  "gcd",
- "gethostname",
+ "gethostname 0.4.1",
  "humantime-serde",
  "k9",
  "lazy_static",
@@ -1510,6 +1520,7 @@ dependencies = [
  "mail-auth",
  "mail-builder",
  "mail-parser",
+ "maildir",
  "maplit",
  "message",
  "metrics",
@@ -1736,7 +1747,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8390bb0f68168cabc59999706c2199c9b556d7dfd94e65a26e8840fa1d58b238"
 dependencies = [
- "gethostname",
+ "gethostname 0.4.1",
 ]
 
 [[package]]
@@ -1746,6 +1757,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a2e03aa1d18528b45d0e79e46790f38cfeece6cce3af17a85912677272f36cd"
 dependencies = [
  "encoding_rs",
+]
+
+[[package]]
+name = "maildir"
+version = "0.6.3"
+source = "git+https://github.com/wez/maildir.git?rev=88cbd8178863d51e226f13f8565bc81ae2398bff#88cbd8178863d51e226f13f8565bc81ae2398bff"
+dependencies = [
+ "gethostname 0.2.3",
+ "mailparse",
 ]
 
 [[package]]
