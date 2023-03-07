@@ -17,6 +17,7 @@ _"Verifiers wishing to communicate the results of verification to other
 
 This diagram gives a graphical view of how DKIM works.
 
+```mermaid
 ---
 title: DKIM Process flow
 ---
@@ -35,7 +36,7 @@ graph TD
    style DNS fill:#A2E4B8,color:black
    style MBOX fill:#E8DD8E,color:black
 
-
+```
 
 ## For Sending Servers
 *Set up*
