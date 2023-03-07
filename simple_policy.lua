@@ -130,8 +130,8 @@ kumo.on('smtp_server_message_received', function(msg)
     -- Using HashiCorp Vault:
     --[[
     key = {
-      mount = "secret",
-      path = "dkim/" .. msg:sender().domain
+      vault_mount = "secret",
+      vault_path = "dkim/" .. msg:sender().domain
     }
     ]]
   }
