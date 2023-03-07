@@ -188,7 +188,6 @@ impl EsmtpListenerParams {
             .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
     }
 
-    #[instrument]
     pub async fn run(self) -> anyhow::Result<()> {
         // Pre-create the acceptor so that we can share it across
         // the various listeners
@@ -199,7 +198,8 @@ impl EsmtpListenerParams {
             .await
             .with_context(|| format!("failed to bind to {}", self.listen))?;
 
-        tracing::debug!("smtp listener on {}", self.listen);
+        let addr = listener.local_addr()?;
+        tracing::info!("smtp listener on {addr:?}");
         let mut shutting_down = ShutdownSubcription::get();
 
         loop {

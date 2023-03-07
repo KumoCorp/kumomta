@@ -177,6 +177,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
                 tracing::error!("problem initializing: {err:#}");
                 LifeCycle::request_shutdown().await;
             }
+            // This log line is depended upon by the integration
+            // test harness. Do not change or remove it without
+            // making appropriate adjustments over there!
+            tracing::info!("initialization complete");
             Ok::<(), anyhow::Error>(())
         })
     })?;

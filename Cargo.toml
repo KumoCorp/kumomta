@@ -2,6 +2,7 @@
 members = [
   "crates/bounce-classify",
   "crates/domain-map",
+  "crates/integration-tests",
   "crates/kumod",
   "crates/rfc5321",
   "crates/spool",

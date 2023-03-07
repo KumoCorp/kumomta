@@ -97,13 +97,13 @@ impl HttpListenerParams {
                 },
                 auth_middleware,
             ));
-        let addr: SocketAddr = self.listen.parse()?;
         let socket = TcpListener::bind(&self.listen)
             .with_context(|| format!("listen on {}", self.listen))?;
+        let addr = socket.local_addr()?;
 
         if self.use_tls {
             let config = self.tls_config().await?;
-            tracing::debug!("https listener on {addr:?}");
+            tracing::info!("https listener on {addr:?}");
             let server = axum_server::from_tcp_rustls(socket, config);
             spawn(format!("https {addr:?}"), async move {
                 server
@@ -111,7 +111,7 @@ impl HttpListenerParams {
                     .await
             })?;
         } else {
-            tracing::debug!("http listener on {addr:?}");
+            tracing::info!("http listener on {addr:?}");
             let server = axum_server::from_tcp(socket);
             spawn(format!("http {addr:?}"), async move {
                 server
