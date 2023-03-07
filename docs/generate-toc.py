@@ -7,8 +7,10 @@ import re
 import subprocess
 import sys
 
+
 class Page(object):
-    """ A page in the TOC, and its optional children """
+    """A page in the TOC, and its optional children"""
+
     def __init__(self, title, filename, children=None):
         self.title = title
         self.filename = filename
@@ -23,7 +25,8 @@ class Page(object):
 
 
 class Gen(object):
-    """ autogenerate an index page from the contents of a directory """
+    """autogenerate an index page from the contents of a directory"""
+
     def __init__(self, title, dirname, index=None, extract_title=False):
         self.title = title
         self.dirname = dirname
@@ -41,7 +44,7 @@ class Gen(object):
 
             if self.extract_title:
                 with open(filename, "r") as f:
-                    title = f.readline().strip('#').strip()
+                    title = f.readline().strip("#").strip()
 
             children.append(Page(title, filename))
 
@@ -68,44 +71,55 @@ TOC = [
         "KumoMTA Documentation",
         "index.md",
         children=[
-            Page(
-                "Preface", "preface/index.md"
-            ),
+            Page("Preface", "preface/index.md"),
             Page(
                 "General Information",
                 "general/index.md",
                 children=[
-                    Page("About This Manual","general/about.md"),
-                ]
-                 ),
+                    Page("About This Manual", "general/about.md"),
+                ],
+            ),
             Page(
-            
                 "User Guide",
                 "guide/index.md",
                 children=[
-                    Page("Getting Started","guide/getting_started.md",
+                    Page(
+                        "Getting Started",
+                        "guide/getting_started.md",
                         children=[
-                            Page("Environmental Considerations","guide/subs/environment_consideration.md"),
-                        ]
+                            Page(
+                                "Environmental Considerations",
+                                "guide/subs/environment_consideration.md",
+                            ),
+                        ],
                     ),
-                    Page("Installing for Development","guide/subs/install_for_development.md"),
-                    Page("Installing for Production","guide/subs/install_for_production_use.md"),
-                    Page("Your First Email","guide/subs/your_first_email.md"),
-                    Page("Beyond Basics","guide/beyond_basics.md"),
-                    Page("Securing It","guide/securing_it.md",
+                    Page(
+                        "Installing for Development",
+                        "guide/subs/install_for_development.md",
+                    ),
+                    Page(
+                        "Installing for Production",
+                        "guide/subs/install_for_production_use.md",
+                    ),
+                    Page("Your First Email", "guide/subs/your_first_email.md"),
+                    Page("Beyond Basics", "guide/beyond_basics.md"),
+                    Page(
+                        "Securing It",
+                        "guide/securing_it.md",
                         children=[
-                            Page("Configuring DKIM","guide/subs/dkim.md"),
-                            Page("Configuring TLS","guide/subs/tls.md"),
-                        ]
+                            Page("Configuring DKIM", "guide/subs/dkim.md"),
+                            Page("Configuring TLS", "guide/subs/tls.md"),
+                        ],
                     ),
-
-                    Page("Advanced Configurations","guide/advanced_config.md",
+                    Page(
+                        "Advanced Configurations",
+                        "guide/advanced_config.md",
                         children=[
-                            Page("Lua Resources","guide/subs/lua_resources.md"),
-                            Page("Lua Functions","guide/subs/lua_functions.md"),
-                        ]
+                            Page("Lua Resources", "guide/subs/lua_resources.md"),
+                            Page("Lua Functions", "guide/subs/lua_functions.md"),
+                        ],
                     ),
-                ]
+                ],
             ),
             Page(
                 "Reference Manual",
