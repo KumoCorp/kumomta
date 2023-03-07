@@ -1762,7 +1762,7 @@ dependencies = [
 [[package]]
 name = "maildir"
 version = "0.6.3"
-source = "git+https://github.com/wez/maildir.git?rev=88cbd8178863d51e226f13f8565bc81ae2398bff#88cbd8178863d51e226f13f8565bc81ae2398bff"
+source = "git+https://github.com/wez/maildir.git?rev=898d604fec05bfcb5af52f3960c4b07028faad39#898d604fec05bfcb5af52f3960c4b07028faad39"
 dependencies = [
  "gethostname 0.2.3",
  "mailparse",
@@ -2648,7 +2648,7 @@ dependencies = [
 [[package]]
 name = "redis-cell-impl"
 version = "0.1.0"
-source = "git+https://github.com/wez/redis-cell.git#ec4c4510f01128d34ffa9733ff6fc5fbea116bf4"
+source = "git+https://github.com/wez/redis-cell.git?rev=ec4c4510f01128d34ffa9733ff6fc5fbea116bf4#ec4c4510f01128d34ffa9733ff6fc5fbea116bf4"
 dependencies = [
  "bitflags",
  "time 0.1.45",

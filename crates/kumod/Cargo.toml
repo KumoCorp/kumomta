@@ -27,7 +27,7 @@ lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 mail-auth = "0.3"
 mail-builder = "0.2"
-maildir = {git="https://github.com/wez/maildir.git", rev="88cbd8178863d51e226f13f8565bc81ae2398bff"}
+maildir = {git="https://github.com/wez/maildir.git", rev="898d604fec05bfcb5af52f3960c4b07028faad39"}
 message = {path="../message"}
 metrics = "0.20"
 metrics-prometheus = "0.3"
