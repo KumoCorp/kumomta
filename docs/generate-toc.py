@@ -105,7 +105,6 @@ TOC = [
                             Page("Lua Functions","guide/subs/lua_functions.md"),
                         ]
                     ),
-                    Page("Contributing to Docs","guide/contributing_to_docs.md"),
                 ]
             ),
             Page(

@@ -1,7 +1,7 @@
 # Installing KumoMTA for Development
 
 ## Prepare your environment
-Read the [Environmental considerations](./docs/guide/subs/environment_consideration.md) before proceeding.  You will need a suitably sized server with all of the prerequisites in order to be successful.
+Read the [Environmental considerations](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/environment_consideration.md) before proceeding.  You will need a suitably sized server with all of the prerequisites in order to be successful.
 
 
 ## Step by Step
@@ -79,7 +79,7 @@ kumomta/kumod   latest    bbced15ff4d1   3 minutes ago   116MB
 You can then run that image; this invocation mounts the kumo
 src dir at `/config` and then the `KUMO_POLICY` environment
 variable is used to override the default `/config/policy.lua`
-path to use the SMTP sink policy script [sink.lua](sink.lua),
+path to use the SMTP sink policy script [sink.lua](https://github.com/kumomta/kumomta/blob/main/sink.lua),
 which will accept and discard all mail:
 
 ```
