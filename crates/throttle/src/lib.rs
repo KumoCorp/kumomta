@@ -4,8 +4,7 @@
 //! among multiple machines.
 use mod_redis::{Cmd, FromRedisValue, RedisConnection, RedisError};
 use once_cell::sync::OnceCell;
-use redis_cell::cell::store::MemoryStore;
-use redis_cell::cell::{Rate, RateLimiter, RateQuota};
+use redis_cell_impl::{MemoryStore, Rate, RateLimiter, RateQuota};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::sync::Mutex;

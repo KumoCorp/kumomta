@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 mod-redis = {path="../mod-redis"}
 once_cell = "1.17"
-redis-cell = { git = "https://github.com/brandur/redis-cell.git" }
+redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="ec4c4510f01128d34ffa9733ff6fc5fbea116bf4" }
 serde = {version="1.0", features=["derive"]}
 time = "0.1" # for embedding redis-cell
 thiserror = "1.0"

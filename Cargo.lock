@@ -2646,13 +2646,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "redis-cell"
-version = "0.3.0"
-source = "git+https://github.com/brandur/redis-cell.git#bada85d5df0908a8372b4081845ef464a5702125"
+name = "redis-cell-impl"
+version = "0.1.0"
+source = "git+https://github.com/wez/redis-cell.git#ec4c4510f01128d34ffa9733ff6fc5fbea116bf4"
 dependencies = [
  "bitflags",
- "cc",
- "libc",
  "time 0.1.45",
 ]
 
@@ -3245,7 +3243,7 @@ dependencies = [
  "anyhow",
  "mod-redis",
  "once_cell",
- "redis-cell",
+ "redis-cell-impl",
  "serde",
  "thiserror",
  "time 0.1.45",
