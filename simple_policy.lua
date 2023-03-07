@@ -178,9 +178,9 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
 
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
-    -- max_age = 120,
-    -- retry_interval = 2,
-    -- max_retry_interval = 8,
+    -- max_age = "2 minutes"
+    -- retry_interval = "2 seconds",
+    -- max_retry_interval = "8 seconds",
     egress_pool = 'pool0',
   }
 end)

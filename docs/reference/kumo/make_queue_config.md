@@ -23,13 +23,13 @@ See [kumo.define_egress_pool()](define_egress_pool.md).
 ## max_age
 
 Limits how long a message can remain in the queue.
-The value is expressed in seconds.  The default value is 7 days.
+The default value is `"7 days"`.
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 20 minutes
-    max_age = 20 * 60,
+    max_age = '20 minutes',
   }
 end)
 ```
@@ -48,7 +48,7 @@ The value is expressed in seconds.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Retry at most every hour
-    max_retry_interval = 60 * 60,
+    max_retry_interval = '1 hour',
   }
 end)
 ```
@@ -92,15 +92,12 @@ transient failure, then a (jittered) delay of *retry_interval* seconds will be
 applied before trying again. If it transiently fails a second time,
 *retry_interval* will be doubled and so on, doubling on each attempt.
 
-The default is 20 minutes.
-
-The value is expressed in seconds.
+The default is `"20 minutes"`.
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
-    -- 20 minutes
-    retry_interval = 20 * 60,
+    retry_interval = '20 minutes',
   }
 end)
 ```

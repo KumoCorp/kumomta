@@ -43,18 +43,21 @@ impl Default for DeliveryProto {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct QueueConfig {
     /// Base retry interval to use in exponential backoff
-    #[serde(default = "QueueConfig::default_retry_interval")]
-    retry_interval: usize,
+    #[serde(
+        default = "QueueConfig::default_retry_interval",
+        with = "humantime_serde"
+    )]
+    retry_interval: Duration,
 
     /// Optional cap on the computed retry interval.
     /// Set to the same number as retry_interval to
     /// prevent using exponential backoff
-    #[serde(default)]
-    max_retry_interval: Option<usize>,
+    #[serde(default, with = "humantime_serde")]
+    max_retry_interval: Option<Duration>,
 
     /// Limits how long a message can remain in the queue
-    #[serde(default = "QueueConfig::default_max_age")]
-    max_age: usize,
+    #[serde(default = "QueueConfig::default_max_age", with = "humantime_serde")]
+    max_age: Duration,
 
     /// Specifies which egress pool should be used when
     /// delivering these messages
@@ -80,16 +83,16 @@ impl Default for QueueConfig {
 }
 
 impl QueueConfig {
-    fn default_retry_interval() -> usize {
-        60 * 20 // 20 minutes
+    fn default_retry_interval() -> Duration {
+        Duration::from_secs(60 * 20) // 20 minutes
     }
 
-    fn default_max_age() -> usize {
-        86400 * 7 // 1 week
+    fn default_max_age() -> Duration {
+        Duration::from_secs(86400 * 7) // 1 week
     }
 
     pub fn get_max_age(&self) -> chrono::Duration {
-        chrono::Duration::seconds(self.max_age as i64)
+        chrono::Duration::from_std(self.max_age).unwrap()
     }
 
     pub fn infer_num_attempts(&self, age: chrono::Duration) -> u16 {
@@ -107,9 +110,9 @@ impl QueueConfig {
     }
 
     pub fn delay_for_attempt(&self, attempt: u16) -> chrono::Duration {
-        let delay = self.retry_interval * 2usize.saturating_pow(attempt as u32);
+        let delay = self.retry_interval.as_secs() * 2u64.saturating_pow(attempt as u32);
 
-        let delay = match self.max_retry_interval {
+        let delay = match self.max_retry_interval.map(|d| d.as_secs()) {
             None => delay,
             Some(limit) => delay.min(limit),
         };
@@ -155,7 +158,7 @@ mod test {
         for attempt in 0.. {
             let delay = config.delay_for_attempt(attempt).num_seconds();
             age += delay;
-            if age >= config.max_age as i64 {
+            if age >= config.max_age.as_secs() as i64 {
                 return schedule;
             }
             schedule.push(delay);
@@ -166,9 +169,9 @@ mod test {
     #[test]
     fn calc_due() {
         let config = QueueConfig {
-            retry_interval: 2,
+            retry_interval: Duration::from_secs(2),
             max_retry_interval: None,
-            max_age: 1024,
+            max_age: Duration::from_secs(1024),
             ..Default::default()
         };
 
@@ -181,9 +184,9 @@ mod test {
     #[test]
     fn calc_due_capped() {
         let config = QueueConfig {
-            retry_interval: 2,
-            max_retry_interval: Some(8),
-            max_age: 128,
+            retry_interval: Duration::from_secs(2),
+            max_retry_interval: Some(Duration::from_secs(8)),
+            max_age: Duration::from_secs(128),
             ..Default::default()
         };
 
@@ -196,9 +199,9 @@ mod test {
     #[test]
     fn spool_in_delay() {
         let config = QueueConfig {
-            retry_interval: 2,
+            retry_interval: Duration::from_secs(2),
             max_retry_interval: None,
-            max_age: 256,
+            max_age: Duration::from_secs(256),
             ..Default::default()
         };
 
@@ -288,9 +291,9 @@ mod test {
     #[test]
     fn bigger_delay() {
         let config = QueueConfig {
-            retry_interval: 1200,
+            retry_interval: Duration::from_secs(1200),
             max_retry_interval: None,
-            max_age: 3 * 3600,
+            max_age: Duration::from_secs(3 * 3600),
             ..Default::default()
         };
 
