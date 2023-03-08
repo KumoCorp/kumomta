@@ -109,8 +109,14 @@ impl KumoDaemon {
         let id = self.child.id().ok_or_else(|| anyhow::anyhow!("no pid!?"))?;
         let pid = nix::unistd::Pid::from_raw(id as _);
         nix::sys::signal::kill(pid, nix::sys::signal::SIGINT)?;
-        self.child.wait().await?;
-        Ok(())
+        tokio::select! {
+            _ = self.child.wait() => Ok(()),
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                eprintln!("daemon didn't stop within 10 seconds");
+                self.child.start_kill()?;
+                Ok(())
+            }
+        }
     }
 
     pub fn listener(&self, service: &str) -> SocketAddr {
