@@ -77,7 +77,7 @@ TOC = [
                 "general/index.md",
                 children=[
                     Page("About This Manual", "general/about.md"),
-                    Page("How to Report Bugs or Problems", "general/report.md"),
+                    Page("How to Report Bugs or Get Help", "general/report.md"),
                     Page("Credits", "general/credits.md"),
                 ],
             ),
