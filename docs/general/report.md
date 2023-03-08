@@ -12,9 +12,13 @@ Before submitting a bug report, please try and verify that what you're encounter
 
 If you think you have found a previously unreported bug, open a new issue in the KumoMTA issue tracker at [https://github.com/kumomta/kumomta/issues](https://github.com/kumomta/kumomta/issues).
 
+```admonish
+The Issue tracker is not a support channel.
+```
+
 If you submit an issue, please keep the following in mind:
 
-1) **NOTE: The Issue tracker is not a support channel.** Any issues submitted that are questions and not bug reports will be summarily closed. See below for information on getting help.
+1) Any issues submitted that are questions and not bug reports will be summarily closed. See below for information on getting help.
 2) Be sure to include the following information:
     * The Operating System of your KumoMTA installation, including Linux distribution name and version.
     * The version of your KumoMTA installation.
@@ -29,7 +33,7 @@ If you submit an issue, please keep the following in mind:
 
 ## Getting Help
 
-Community support for KumoMTA is available both in the forums and in the community Discord server. Paid support customers should consult their support SLA document for information on how to contact KumoMTA support and their relevant guaranteed response and resolution times.
+Community support for KumoMTA is available both in the forum and in the community Discord server. Paid support customers should consult their support SLA document for information on how to contact KumoMTA support and their relevant guaranteed response and resolution times.
 
 ### Discord
 
