@@ -50,7 +50,7 @@ impl KumoDaemon {
 
         let mut child = Command::new(&path)
             .args(["--policy", &args.policy_file])
-            .env("KUMOD_LOG", "kumod=info")
+            .env("KUMOD_LOG", "kumod=trace")
             .env("KUMOD_TEST_DIR", dir.path())
             .env("TOKIO_CONSOLE_BIND", "127.0.0.1:0")
             .envs(args.env.iter().cloned())
