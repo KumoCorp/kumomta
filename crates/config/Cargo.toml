@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 lazy_static= "1.4"
+metrics = "0.20"
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 tokio = {version="1.25", features=["fs"]}

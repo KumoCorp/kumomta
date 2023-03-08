@@ -1,18 +1,118 @@
 use anyhow::Context;
 use mlua::{FromLuaMulti, Lua, Table, ToLuaMulti, Value};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
     static ref POLICY_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
     static ref FUNCS: Mutex<Vec<RegisterFunc>> = Mutex::new(vec![]);
+    static ref POOL: Mutex<Pool> = Mutex::new(Pool::new());
+    static ref LUA_LOAD_COUNT: metrics::Counter = {
+        metrics::describe_counter!(
+            "lua_load_count",
+            "how many times the policy lua script has been \
+             loaded into a new context");
+        metrics::register_counter!("lua_load_count")
+    };
+    static ref LUA_COUNT: metrics::Gauge = {
+        metrics::describe_gauge!(
+            "lua_count", "the number of lua contexts currently alive");
+        metrics::register_gauge!("lua_count")
+    };
+    static ref LUA_SPARE_COUNT: metrics::Gauge = {
+        metrics::describe_gauge!(
+            "lua_spare_count",
+            "the number of lua contexts available for reuse in the pool");
+        metrics::register_gauge!("lua_spare_count")
+    };
 }
+
+/// Maximum age of a lua context before we release it
+const MAX_AGE: Duration = Duration::from_secs(300);
+/// Maximum number of uses of a given lua context before we release it
+const MAX_USE: usize = 1024;
+/// Maximum number of spare lua contexts to maintain in the pool
+const MAX_SPARE: usize = 128;
 
 pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
 
+#[derive(Default)]
+struct Pool {
+    pool: VecDeque<LuaConfigInner>,
+}
+
+impl Pool {
+    pub fn new() -> Self {
+        std::thread::Builder::new()
+            .name("config idler".to_string())
+            .spawn(|| loop {
+                std::thread::sleep(Duration::from_secs(30));
+                POOL.lock().unwrap().expire();
+            })
+            .expect("create config idler thread");
+        Self::default()
+    }
+
+    pub fn expire(&mut self) {
+        let len_before = self.pool.len();
+        self.pool.retain(|inner| inner.created.elapsed() < MAX_AGE);
+        let len_after = self.pool.len();
+        let diff = len_before - len_after;
+        if diff > 0 {
+            LUA_SPARE_COUNT.decrement(diff as f64);
+        }
+    }
+
+    pub fn get(&mut self) -> Option<LuaConfigInner> {
+        loop {
+            let mut item = self.pool.pop_front()?;
+            LUA_SPARE_COUNT.decrement(1.);
+            if item.created.elapsed() > MAX_AGE {
+                continue;
+            }
+            item.use_count += 1;
+            return Some(item);
+        }
+    }
+
+    pub fn put(&mut self, config: LuaConfigInner) {
+        if self.pool.len() + 1 > MAX_SPARE {
+            return;
+        }
+        if config.created.elapsed() > MAX_AGE || config.use_count + 1 > MAX_USE {
+            return;
+        }
+        self.pool.push_back(config);
+        LUA_SPARE_COUNT.increment(1.);
+    }
+}
+
+#[derive(Debug)]
+struct LuaConfigInner {
+    lua: Lua,
+    created: Instant,
+    use_count: usize,
+}
+
+impl Drop for LuaConfigInner {
+    fn drop(&mut self) {
+        LUA_COUNT.decrement(1.);
+    }
+}
+
 #[derive(Debug)]
 pub struct LuaConfig {
-    lua: Lua,
+    inner: Option<LuaConfigInner>,
+}
+
+impl Drop for LuaConfig {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            POOL.lock().unwrap().put(inner);
+        }
+    }
 }
 
 pub async fn set_policy_path(path: PathBuf) -> anyhow::Result<()> {
@@ -30,7 +130,13 @@ fn get_funcs() -> Vec<RegisterFunc> {
 }
 
 pub async fn load_config() -> anyhow::Result<LuaConfig> {
+    if let Some(inner) = POOL.lock().unwrap().get() {
+        return Ok(LuaConfig { inner: Some(inner) });
+    }
+
+    LUA_LOAD_COUNT.increment(1);
     let lua = Lua::new();
+    let created = Instant::now();
 
     for func in get_funcs() {
         (func)(&lua)?;
@@ -49,9 +155,17 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 
         func.call_async(()).await?;
     }
+    LUA_COUNT.increment(1.);
 
-    Ok(LuaConfig { lua })
+    Ok(LuaConfig {
+        inner: Some(LuaConfigInner {
+            lua,
+            created,
+            use_count: 1,
+        }),
+    })
 }
+
 pub fn register(func: RegisterFunc) {
     FUNCS.lock().unwrap().push(func);
 }
@@ -71,6 +185,9 @@ impl LuaConfig {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
         match self
+            .inner
+            .as_mut()
+            .unwrap()
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
@@ -94,6 +211,9 @@ impl LuaConfig {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
         match self
+            .inner
+            .as_mut()
+            .unwrap()
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
