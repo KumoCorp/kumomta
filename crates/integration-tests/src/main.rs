@@ -42,7 +42,8 @@ mod test {
         let md = sink.maildir();
         eprintln!("waiting for maildir to populate");
 
-        sink.wait_for_maildir_count(1, Duration::from_secs(10)).await;
+        sink.wait_for_maildir_count(1, Duration::from_secs(10))
+            .await;
 
         let (res_1, res_2) = tokio::join!(source.stop(), sink.stop());
         res_1?;

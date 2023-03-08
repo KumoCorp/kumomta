@@ -1,10 +1,10 @@
-use std::time::Duration;
 use anyhow::Context;
 use maildir::Maildir;
 use rfc5321::{SmtpClient, SmtpClientTimeouts};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
