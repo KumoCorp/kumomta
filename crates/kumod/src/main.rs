@@ -4,6 +4,7 @@ use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::{Parser, ValueEnum};
 use metrics_prometheus::recorder::Layer;
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
@@ -115,6 +116,9 @@ fn main() -> anyhow::Result<()> {
     // which is why we manually set up the tokio
     // runtime after we've called it.
     opts.drop_privs()?;
+
+    let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
+    setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
