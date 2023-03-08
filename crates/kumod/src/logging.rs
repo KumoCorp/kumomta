@@ -1,16 +1,15 @@
-use crate::mx::ResolvedAddress;
 use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+pub use kumo_log_types::*;
 use message::rfc3464::ReportAction;
-use message::rfc5965::ARFReport;
 use message::Message;
 use minijinja::{Environment, Source, Template};
 use once_cell::sync::OnceCell;
 use rfc5321::{EnhancedStatusCode, Response};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::File;
@@ -265,72 +264,6 @@ impl Logger {
 
         (headers, meta)
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum RecordType {
-    /// Recorded by a receiving listener
-    Reception,
-    /// Recorded by the delivery side, most likely as a
-    /// result of attempting a delivery to a remote host
-    Delivery,
-    Bounce,
-    TransientFailure,
-    /// Recorded when a message is expiring from the queue
-    Expiration,
-    /// Administratively failed
-    AdminBounce,
-    /// Contains information about an OOB bounce
-    OOB,
-    /// Contains a feedback report
-    Feedback,
-
-    /// Special for matching anything in the logging config
-    Any,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct JsonLogRecord {
-    /// What kind of record this is
-    #[serde(rename = "type")]
-    pub kind: RecordType,
-    /// The message id
-    pub id: String,
-    /// The envelope sender
-    pub sender: String,
-    /// The envelope recipient
-    pub recipient: String,
-    /// Which named queue the message was associated with
-    pub queue: String,
-    /// Which MX site the message was being delivered to
-    pub site: String,
-    /// The size of the message, in bytes
-    pub size: u64,
-    /// The response from/to the peer
-    pub response: Response,
-    /// The address of the peer, and our sense of its
-    /// hostname or EHLO domain
-    pub peer_address: Option<ResolvedAddress>,
-    /// The time at which we are logging this event
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub timestamp: DateTime<Utc>,
-    /// The time at which the message was initially received and created
-    #[serde(with = "chrono::serde::ts_seconds")]
-    pub created: DateTime<Utc>,
-    /// The number of delivery attempts that have been made.
-    /// Note that this may be approximate after a restart; use the
-    /// number of logged events to determine the true number
-    pub num_attempts: u16,
-
-    pub bounce_classification: BounceClass,
-
-    pub egress_pool: Option<String>,
-    pub egress_source: Option<String>,
-
-    pub feedback_report: Option<ARFReport>,
-
-    pub meta: HashMap<String, Value>,
-    pub headers: HashMap<String, Value>,
 }
 
 pub struct LogDisposition<'a> {

@@ -1,5 +1,5 @@
+use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
-use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
@@ -19,12 +19,6 @@ pub struct MailExchanger {
     pub domain_name: String,
     pub hosts: Vec<String>,
     pub site_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolvedAddress {
-    pub name: String,
-    pub addr: IpAddr,
 }
 
 impl MailExchanger {

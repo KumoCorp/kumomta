@@ -1,7 +1,6 @@
 use crate::cidrset::{CidrSet, IpCidr};
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
-use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
 use crate::runtime::{rt_spawn, spawn_local};
 use crate::spool::SpoolManager;
@@ -10,6 +9,7 @@ use chrono::Utc;
 use config::{load_config, LuaConfig};
 use data_loader::KeySource;
 use domain_map::DomainMap;
+use kumo_log_types::ResolvedAddress;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
 use once_cell::sync::OnceCell;
@@ -434,9 +434,11 @@ impl SmtpServer {
 
                     let line = String::from_utf8(self.read_buffer[0..i].to_vec());
                     self.read_buffer.drain(0..i + 2);
+                    tracing::trace!("{line:?}");
                     return Ok(ReadLine::Line(line?));
                 }
             }
+            tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > MAX_LINE_LEN {
                 self.read_buffer.clear();
                 too_long = true;

@@ -1,13 +1,13 @@
 use crate::http_server::auth::AuthKind;
 use crate::http_server::AppError;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
-use crate::mx::ResolvedAddress;
 use crate::queue::QueueManager;
 use crate::runtime::rt_spawn;
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
 use config::{load_config, LuaConfig};
+use kumo_log_types::ResolvedAddress;
 use mail_builder::headers::text::Text;
 use mail_builder::headers::HeaderType;
 use mail_builder::mime::MimePart;

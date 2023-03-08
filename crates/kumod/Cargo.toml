@@ -23,6 +23,7 @@ data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
 gcd = "2.3"
 gethostname = "0.4"
+kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 mail-auth = "0.3"

@@ -140,6 +140,21 @@ impl SmtpClientTimeouts {
     fn default_starttls_timeout() -> Duration {
         Duration::from_secs(5)
     }
+
+    pub fn short_timeouts() -> Self {
+        let short = Duration::from_secs(5);
+        Self {
+            connect_timeout: short,
+            ehlo_timeout: short,
+            mail_from_timeout: short,
+            rcpt_to_timeout: short,
+            data_timeout: short,
+            data_dot_timeout: short,
+            rset_timeout: short,
+            idle_timeout: short,
+            starttls_timeout: short,
+        }
+    }
 }
 
 pub struct SmtpClient {
