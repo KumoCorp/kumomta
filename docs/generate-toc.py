@@ -71,12 +71,21 @@ TOC = [
         "KumoMTA Documentation",
         "index.md",
         children=[
-            Page("Preface", "preface/index.md"),
+            Page("Preface and Legal Notices", "preface/index.md"),
             Page(
                 "General Information",
                 "general/index.md",
                 children=[
                     Page("About This Manual", "general/about.md"),
+                    Page("How to Report Bugs or Problems", "general/report.md"),
+                    Page("Credits", "general/credits.md"),
+                ],
+            ),
+            Page(
+                "Overview of KumoMTA", "overview/index.md",
+                children = [
+                    Page("KumoMTA History", "overview/history.md"),
+                    Page("KumoMTA Architecture", "overview/architecture.md")
                 ],
             ),
             Page(
