@@ -117,6 +117,7 @@ impl LifeCycle {
     /// LifeCycle instance to wake up and initiate the shutdown
     /// procedure.
     pub async fn request_shutdown() {
+        tracing::debug!("shutdown has been requested");
         if let Some(state) = STOPPING.get() {
             state.request_shutdown_tx.send(()).await.ok();
         }
@@ -132,6 +133,7 @@ impl LifeCycle {
             _ = tokio::signal::ctrl_c() => {}
             _ = self.request_shutdown_rx.recv() => {}
         };
+        tracing::debug!("wait_for_shutdown: shutdown requested!");
         println!("Shutdown requested, please wait while work is saved");
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");

@@ -70,7 +70,7 @@ impl Runtime {
 ///
 /// If you are already in a !Send future, then using spawn_local below has
 /// less overhead.
-pub fn rt_spawn<F: (FnOnce() -> anyhow::Result<FUT>) + Send + 'static, FUT>(
+pub async fn rt_spawn<F: (FnOnce() -> anyhow::Result<FUT>) + Send + 'static, FUT>(
     name: String,
     func: F,
 ) -> anyhow::Result<JoinHandle<FUT::Output>>
@@ -81,9 +81,9 @@ where
     let (tx, rx) = bounded::<anyhow::Result<JoinHandle<FUT::Output>>>(1);
     RUNTIME
         .jobs
-        .send_blocking(Command::Run(Box::new(move || match (func)() {
+        .try_send(Command::Run(Box::new(move || match (func)() {
             Ok(future) => {
-                tx.send_blocking(
+                tx.try_send(
                     tokio::task::Builder::new()
                         .name(&name)
                         .spawn_local(future)
@@ -92,11 +92,33 @@ where
                 .ok();
             }
             Err(err) => {
-                tx.send_blocking(Err(err)).ok();
+                tx.try_send(Err(err)).ok();
             }
         })))
         .map_err(|err| anyhow::anyhow!("failed to send func to runtime thread: {err:#}"))?;
-    rx.recv_blocking()?
+    rx.recv().await?
+}
+
+pub fn rt_spawn_non_blocking<F: (FnOnce() -> anyhow::Result<FUT>) + Send + 'static, FUT>(
+    name: String,
+    func: F,
+) -> anyhow::Result<()>
+where
+    FUT: Future + 'static,
+{
+    RUNTIME
+        .jobs
+        .try_send(Command::Run(Box::new(move || match (func)() {
+            Ok(future) => {
+                if let Err(err) = tokio::task::Builder::new().name(&name).spawn_local(future) {
+                    tracing::error!("rt_spawn_non_blocking: error: {err:#}");
+                }
+            }
+            Err(err) => {
+                tracing::error!("rt_spawn_non_blocking: error: {err:#}");
+            }
+        })))
+        .map_err(|err| anyhow::anyhow!("failed to send func to runtime thread: {err:#}"))
 }
 
 /// Spawn a future as a task with a name.

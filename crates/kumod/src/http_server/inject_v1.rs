@@ -436,7 +436,8 @@ async fn process_recipient<'a>(
         .await;
         rt_spawn(format!("http inject for {peer_address:?}"), move || {
             Ok(async move { QueueManager::insert(&queue_name, message).await })
-        })?;
+        })
+        .await?;
     }
 
     Ok(())
@@ -497,7 +498,8 @@ pub async fn inject_v1(
     // Bounce to the thread pool where we can run async lua
     rt_spawn(format!("http inject_v1 for {peer_address:?}"), move || {
         Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
-    })?;
+    })
+    .await?;
     rx.await?
 }
 

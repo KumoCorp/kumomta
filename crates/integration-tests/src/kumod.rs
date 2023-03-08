@@ -51,9 +51,8 @@ impl KumoDaemon {
 
         let mut child = Command::new(&path)
             .args(["--policy", &args.policy_file])
-            .env("KUMOD_LOG", "trace")
+            .env("KUMOD_LOG", "kumod=trace")
             .env("KUMOD_TEST_DIR", dir.path())
-            .env("TOKIO_CONSOLE_BIND", "127.0.0.1:0")
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -129,6 +128,7 @@ impl KumoDaemon {
 
         let banner = client.read_response(None).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
+        client.ehlo("localhost").await?;
         Ok(client)
     }
 

@@ -51,6 +51,10 @@ struct Opt {
     #[arg(long, default_value = "full")]
     diag_format: DiagnosticFormat,
 
+    /// Whether to enable the diagnostic tokio console
+    #[arg(long)]
+    tokio_console: bool,
+
     /// If started as root, which user to run as.
     #[arg(long)]
     user: Option<String>,
@@ -145,7 +149,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     };
 
     tracing_subscriber::registry()
-        .with(console_subscriber::spawn())
+        .with(if opts.tokio_console {
+            Some(console_subscriber::spawn())
+        } else {
+            None
+        })
         .with(layer)
         .with(EnvFilter::from_env("KUMOD_LOG"))
         .with(metrics_tracing_context::MetricsLayer::new())
@@ -183,7 +191,8 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             tracing::info!("initialization complete");
             Ok::<(), anyhow::Error>(())
         })
-    })?;
+    })
+    .await?;
 
     life_cycle.wait_for_shutdown().await;
 

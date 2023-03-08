@@ -27,7 +27,6 @@ mod test {
         eprintln!("sending message");
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut client = source.smtp_client().await?;
-            client.ehlo("localhost").await?;
             const BODY: &str = "From: <me@localhost>\r\n\
                                 To: <you@localhost>\r\n\
                                 Subject: a test message\r\n\

@@ -5,7 +5,7 @@ use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mx::{MailExchanger, ResolvedAddress};
 use crate::queue::{Queue, QueueManager};
-use crate::runtime::{rt_spawn, spawn};
+use crate::runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use config::load_config;
@@ -206,7 +206,7 @@ impl EgressPathManager {
         let mut manager = Self::get().await;
         let activity = Activity::get()?;
         let handle = manager.paths.entry(name.clone()).or_insert_with(|| {
-            rt_spawn(format!("maintain {name}"), {
+            rt_spawn_non_blocking(format!("maintain {name}"), {
                 let name = name.clone();
                 move || {
                     Ok(async move {
@@ -216,7 +216,7 @@ impl EgressPathManager {
                             tokio::select! {
                                 _ = tokio::time::sleep(interval) => {},
                                 _ = shutdown.shutting_down() => {
-                                    interval = Duration::from_secs(5);
+                                    interval = Duration::from_secs(1);
                                 }
                             };
                             let mut mgr = EgressPathManager::get().await;
@@ -494,34 +494,38 @@ impl Dispatcher {
         };
 
         if dispatcher.addresses.is_empty() {
-            dispatcher.bulk_ready_queue_operation(Response {
-                code: 556,
-                enhanced_code: Some(EnhancedStatusCode {
-                    class: 5,
-                    subject: 1,
-                    detail: 10,
-                }),
-                content: "Recipient address has a null MX".to_string(),
-                command: None,
-            });
+            dispatcher
+                .bulk_ready_queue_operation(Response {
+                    code: 556,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 1,
+                        detail: 10,
+                    }),
+                    content: "Recipient address has a null MX".to_string(),
+                    command: None,
+                })
+                .await;
             return Ok(());
         }
 
         for addr in &dispatcher.addresses {
             if dispatcher.path_config.prohibited_hosts.contains(addr.addr) {
-                dispatcher.bulk_ready_queue_operation(Response {
-                    code: 550,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 4,
-                        detail: 4,
-                    }),
-                    content: format!(
-                        "{addr:?} is on the list of prohibited_hosts {:?}",
-                        dispatcher.path_config.prohibited_hosts
-                    ),
-                    command: None,
-                });
+                dispatcher
+                    .bulk_ready_queue_operation(Response {
+                        code: 550,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 5,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: format!(
+                            "{addr:?} is on the list of prohibited_hosts {:?}",
+                            dispatcher.path_config.prohibited_hosts
+                        ),
+                        command: None,
+                    })
+                    .await;
                 return Ok(());
             }
         }
@@ -531,16 +535,18 @@ impl Dispatcher {
             .retain(|addr| !dispatcher.path_config.skip_hosts.contains(addr.addr));
 
         if dispatcher.addresses.is_empty() {
-            dispatcher.bulk_ready_queue_operation(Response {
-                code: 550,
-                enhanced_code: Some(EnhancedStatusCode {
-                    class: 5,
-                    subject: 4,
-                    detail: 4,
-                }),
-                content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
-                command: None,
-            });
+            dispatcher
+                .bulk_ready_queue_operation(Response {
+                    code: 550,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 4,
+                        detail: 4,
+                    }),
+                    content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                    command: None,
+                })
+                .await;
             return Ok(());
         }
 
@@ -567,7 +573,7 @@ impl Dispatcher {
                             .path_config
                             .consecutive_connection_failures_before_delay
                     {
-                        dispatcher.delay_ready_queue();
+                        dispatcher.delay_ready_queue().await;
                     }
                     return Err(err);
                 }
@@ -583,7 +589,7 @@ impl Dispatcher {
         }
     }
 
-    fn throttle_ready_queue(&mut self, delay: Duration) {
+    async fn throttle_ready_queue(&mut self, delay: Duration) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
@@ -611,12 +617,13 @@ impl Dispatcher {
                     drop(activity);
                 })
             })
+            .await
             .expect("failed to spawn requeue");
         }
     }
 
     #[instrument(skip(self))]
-    fn bulk_ready_queue_operation(&mut self, response: Response) {
+    async fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
@@ -665,12 +672,13 @@ impl Dispatcher {
                     })
                 },
             )
+            .await
             .expect("bulk queue spawned");
         }
     }
 
     #[instrument(skip(self))]
-    fn delay_ready_queue(&mut self) {
+    async fn delay_ready_queue(&mut self) {
         tracing::debug!(
             "too many connection failures, delaying ready queue {}",
             self.name,
@@ -684,7 +692,8 @@ impl Dispatcher {
             }),
             content: "No answer from any hosts listed in MX".to_string(),
             command: None,
-        });
+        })
+        .await;
     }
 
     #[instrument(skip(self))]
@@ -749,7 +758,7 @@ impl Dispatcher {
 
                 if let Some(delay) = result.retry_after {
                     if delay >= self.path_config.client_timeouts.idle_timeout {
-                        self.throttle_ready_queue(delay);
+                        self.throttle_ready_queue(delay).await;
                         anyhow::bail!("connection rate throttled for {delay:?}");
                     }
                     tracing::trace!(
@@ -913,7 +922,7 @@ impl Dispatcher {
 
                 if let Some(delay) = result.retry_after {
                     if delay >= self.path_config.client_timeouts.idle_timeout {
-                        self.throttle_ready_queue(delay);
+                        self.throttle_ready_queue(delay).await;
                         return Ok(());
                     }
                     tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
@@ -959,7 +968,8 @@ impl Dispatcher {
                     .await;
                     rt_spawn("requeue message".to_string(), move || {
                         Ok(async move { Self::requeue_message(msg, true, None).await })
-                    })?;
+                    })
+                    .await?;
                 }
                 self.metrics.msgs_transfail.inc();
                 self.metrics.global_msgs_transfail.inc();
@@ -1032,7 +1042,7 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
-            rt_spawn("Dispatcher::drop".to_string(), move || {
+            rt_spawn_non_blocking("Dispatcher::drop".to_string(), move || {
                 Ok(async move {
                     if activity.is_shutting_down() {
                         Queue::save_if_needed_and_log(&msg).await;

@@ -220,7 +220,7 @@ impl EsmtpListenerParams {
                                 {
                                     tracing::error!("SmtpServer::run: {err:#}");
                             }
-                    }))?;
+                    })).await?;
                 }
             };
         }
@@ -299,7 +299,7 @@ impl RelayDisposition {
 }
 
 impl SmtpServer {
-    #[instrument]
+    #[instrument(skip(params, my_address, peer_address))]
     pub async fn run<T>(
         socket: T,
         my_address: SocketAddr,
@@ -385,7 +385,8 @@ impl SmtpServer {
         }
     }
 
-    async fn write_response<S: AsRef<str>>(
+    #[instrument(skip(self))]
+    async fn write_response<S: AsRef<str> + Debug>(
         &mut self,
         status: u16,
         message: S,
@@ -396,6 +397,7 @@ impl SmtpServer {
                 let is_last = lines.peek().is_none();
                 let sep = if is_last { ' ' } else { '-' };
                 let text = format!("{status}{sep}{line}\r\n");
+                tracing::trace!("writing response line: {text}");
                 socket
                     .write(text.as_bytes())
                     .await
@@ -414,8 +416,10 @@ impl SmtpServer {
         }
     }
 
+    #[instrument(skip(self))]
     async fn read_line(&mut self) -> anyhow::Result<ReadLine> {
         let mut too_long = false;
+        tracing::trace!("reading line");
         loop {
             let mut iter = self.read_buffer.iter().enumerate();
             while let Some((i, &b)) = iter.next() {

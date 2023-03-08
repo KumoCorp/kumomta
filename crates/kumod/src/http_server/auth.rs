@@ -65,7 +65,8 @@ impl AuthKind {
         let (tx, rx) = tokio::sync::oneshot::channel();
         rt_spawn(format!("http auth validate {kind:?}"), move || {
             Ok(async move { tx.send(kind.validate_impl().await) })
-        })?;
+        })
+        .await?;
         rx.await?
     }
 

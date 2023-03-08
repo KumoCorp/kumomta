@@ -382,7 +382,8 @@ impl Queue {
                     );
                 }
             })
-        })?;
+        })
+        .await?;
 
         Ok(handle)
     }
@@ -464,6 +465,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_delayed(&mut self, msg: Message) -> anyhow::Result<InsertResult> {
+        tracing::trace!("insert_delayed {}", msg.id());
         match self.queue.insert(Arc::new(msg.clone())) {
             Ok(_) => {
                 self.delayed_gauge.inc();
@@ -479,6 +481,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
+        tracing::trace!("force_into_delayed {}", msg.id());
         loop {
             msg.delay_with_jitter(60).await?;
             match self.insert_delayed(msg.clone()).await? {
@@ -492,6 +495,7 @@ impl Queue {
 
     #[instrument(skip(msg))]
     pub async fn save_if_needed(msg: &Message) -> anyhow::Result<()> {
+        tracing::trace!("save_if_needed {}", msg.id());
         if msg.needs_save() {
             msg.save().await?;
         }
@@ -499,7 +503,6 @@ impl Queue {
         Ok(())
     }
 
-    #[instrument(skip(msg))]
     pub async fn save_if_needed_and_log(msg: &Message) {
         if let Err(err) = Self::save_if_needed(msg).await {
             let id = msg.id();
@@ -513,6 +516,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+        tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
             DeliveryProto::Smtp => {
                 let egress_source = self
@@ -557,6 +561,11 @@ impl Queue {
                 }
             }
             DeliveryProto::Maildir { maildir_path } => {
+                tracing::trace!(
+                    "Deliver msg {} to maildir at {}",
+                    msg.id(),
+                    maildir_path.display()
+                );
                 let maildir_path = maildir_path.to_path_buf();
 
                 msg.load_data_if_needed().await?;
@@ -623,10 +632,11 @@ impl Queue {
         }
     }
 
-    #[instrument(skip(self, msg))]
+    #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
         self.last_change = Instant::now();
 
+        tracing::trace!("insert msg {}", msg.id());
         if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
             let id = *msg.id();
             b.log(msg, Some(&self.name)).await;
@@ -675,12 +685,15 @@ impl QueueManager {
     }
 
     /// Insert message into a queue named `name`.
+    #[instrument(skip(msg))]
     pub async fn insert(name: &str, msg: Message) -> anyhow::Result<()> {
+        tracing::trace!("QueueManager::insert");
         let entry = Self::resolve(name).await?;
         let mut entry = entry.lock().await;
         entry.insert(msg).await
     }
 
+    #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
         let mut mgr = MANAGER.lock().await;
         match mgr.named.get(name) {
@@ -733,7 +746,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
             }
 
             if q.activity.is_shutting_down() {
-                sleep_duration = Duration::from_secs(5);
+                sleep_duration = Duration::from_secs(1);
                 for msg in q.queue.drain() {
                     Queue::save_if_needed_and_log(&msg).await;
                     drop(msg);
@@ -757,6 +770,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
                     let max_age = q.queue_config.get_max_age();
+                    tracing::trace!("{} msgs are now ready", messages.len());
 
                     for msg in messages {
                         let egress_source =
