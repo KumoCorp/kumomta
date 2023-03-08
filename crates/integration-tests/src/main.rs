@@ -25,21 +25,26 @@ mod test {
         .await?;
 
         eprintln!("sending message");
-        let mut client = source.smtp_client().await?;
-        client.ehlo("localhost").await?;
-        const BODY: &str =
-        "From: <me@localhost>\r\nTo: <you@localhost>\r\nSubject: a test message\r\n\r\nAll done";
-        let response = client
-            .send_mail(
-                ReversePath::try_from("sender@example.com").unwrap(),
-                ForwardPath::try_from("recipient@example.com").unwrap(),
-                BODY,
-            )
-            .await?;
-        eprintln!("{response:?}");
-        drop(client);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let mut client = source.smtp_client().await?;
+            client.ehlo("localhost").await?;
+            const BODY: &str = "From: <me@localhost>\r\n\
+                                To: <you@localhost>\r\n\
+                                Subject: a test message\r\n\
+                                \r\n\
+                                All done";
+            let response = client
+                .send_mail(
+                    ReversePath::try_from("sender@example.com").unwrap(),
+                    ForwardPath::try_from("recipient@example.com").unwrap(),
+                    BODY,
+                )
+                .await?;
+            eprintln!("{response:?}");
+            Ok::<(), anyhow::Error>(())
+        })
+        .await??;
 
-        let md = sink.maildir();
         eprintln!("waiting for maildir to populate");
 
         sink.wait_for_maildir_count(1, Duration::from_secs(10))
@@ -56,6 +61,7 @@ mod test {
         sink.dump_logs()?;
 
         let mut messages = vec![];
+        let md = sink.maildir();
         for entry in md.list_new() {
             messages.push(entry?);
         }

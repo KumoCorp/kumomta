@@ -5,7 +5,7 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 
 kumo.on('init', function()
   kumo.start_esmtp_listener {
-    listen = '0:0',
+    listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
   }
 

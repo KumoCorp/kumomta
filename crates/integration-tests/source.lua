@@ -6,7 +6,7 @@ local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 
 kumo.on('init', function()
   kumo.start_esmtp_listener {
-    listen = '0:0',
+    listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
   }
 
