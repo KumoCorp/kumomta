@@ -25,19 +25,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  rust-build:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
+    - name: Build
+      run: cargo build --verbose
+
+  rust-test:
+    runs-on: ubuntu-latest
+    needs: rust-build
+    steps:
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v1
       with:
         crate: cargo-nextest
         locked: true
-    - name: Build
-      run: cargo build --verbose
     - name: Run tests
       run: cargo nextest run --nocapture
