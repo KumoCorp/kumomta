@@ -1,3 +1,4 @@
+use std::time::Duration;
 use anyhow::Context;
 use maildir::Maildir;
 use rfc5321::{SmtpClient, SmtpClientTimeouts};
@@ -127,5 +128,32 @@ impl KumoDaemon {
 
     pub fn maildir(&self) -> Maildir {
         Maildir::from(self.dir.path().join("maildir"))
+    }
+
+    pub fn dump_logs(&self) -> anyhow::Result<()> {
+        let dir = self.dir.path().join("logs");
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = dbg!(entry)?;
+            if entry.file_type()?.is_file() {
+                let f = std::fs::File::open(entry.path())?;
+                let data = zstd::stream::decode_all(f)?;
+                let text = String::from_utf8(data)?;
+                eprintln!("{text}");
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn wait_for_maildir_count(&self, count: usize, timeout: Duration) -> bool {
+        let md = self.maildir();
+
+        tokio::select! {
+            _ = async {
+                    while md.count_new() != count {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
     }
 }

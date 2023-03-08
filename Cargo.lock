@@ -1403,6 +1403,7 @@ dependencies = [
  "rfc5321",
  "tempfile",
  "tokio",
+ "zstd 0.12.3+zstd.1.5.2",
 ]
 
 [[package]]

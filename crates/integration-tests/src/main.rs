@@ -41,12 +41,18 @@ mod test {
 
         let md = sink.maildir();
         eprintln!("waiting for maildir to populate");
-        while md.count_new() < 1 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
 
-        let stop_1 = source.stop();
-        let stop_2 = sink.stop();
+        sink.wait_for_maildir_count(1, Duration::from_secs(10)).await;
+
+        let (res_1, res_2) = tokio::join!(source.stop(), sink.stop());
+        res_1?;
+        res_2?;
+        println!("Stopped!");
+
+        eprintln!("source logs:");
+        source.dump_logs()?;
+        eprintln!("sink logs:");
+        sink.dump_logs()?;
 
         let mut messages = vec![];
         for entry in md.list_new() {
@@ -72,11 +78,6 @@ mod test {
             "a test message"
         );
         assert_eq!(parsed.get_body()?, "All done\r\n");
-
-        let (res_1, res_2) = tokio::join!(stop_1, stop_2);
-        res_1?;
-        res_2?;
-        println!("Stopped!");
 
         Ok(())
     }

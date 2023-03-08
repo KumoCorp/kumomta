@@ -13,3 +13,4 @@ nix = {version="0.26", features=["signal"]}
 rfc5321 = {path="../rfc5321"}
 tempfile = "3.4"
 tokio = {version="1.25", features=["full"]}
+zstd = "0.12"
