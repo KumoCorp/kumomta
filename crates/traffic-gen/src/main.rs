@@ -1,6 +1,7 @@
 use anyhow::Context;
 use chrono::Utc;
 use clap::Parser;
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use once_cell::sync::OnceCell;
 use rfc5321::*;
@@ -9,7 +10,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
-use tokio::time::timeout;
 use uuid::Uuid;
 
 const DOMAINS: &[&str] = &["aol.com", "gmail.com", "hotmail.com", "yahoo.com"];
@@ -34,6 +34,12 @@ struct Opt {
     #[arg(long, default_value = "60")]
     duration: u64,
 
+    /// Rather than generate as many messages as we can
+    /// within the specified duration, generate exactly
+    /// this many messages
+    #[arg(long)]
+    message_count: Option<usize>,
+
     /// Whether to use STARTTLS for submission
     #[arg(long)]
     starttls: bool,
@@ -44,6 +50,14 @@ struct Opt {
 
     #[arg(skip)]
     body_file_content: OnceCell<String>,
+
+    /// When generating the body, use at least this
+    /// many bytes of nonsense words
+    #[arg(long, default_value = "1024")]
+    body_size: humanize_rs::bytes::Bytes,
+
+    #[arg(skip)]
+    body_size_content: OnceCell<String>,
 }
 
 impl Opt {
@@ -64,8 +78,41 @@ impl Opt {
             // Canonicalize the line endings
             let data = data.replace("\r\n", "\n").replace("\n", "\r\n");
             self.body_file_content.set(data).unwrap();
+        } else {
+            self.body_size_content
+                .set(self.generate_message_text())
+                .unwrap();
         }
+
         Ok(())
+    }
+
+    /// Generate text suitable for use as a message body of at
+    /// least n_bytes, wrapped to wrap columns using CRLF as
+    /// the line endings
+    fn generate_message_text(&self) -> String {
+        let mut chain = lipsum::MarkovChain::new();
+        chain.learn(lipsum::LIBER_PRIMUS);
+        let mut result = String::new();
+        for word in chain.iter() {
+            if !result.is_empty() {
+                result.push(' ');
+            }
+            result.push_str(word);
+            if result.len() >= self.body_size.size() {
+                eprintln!(
+                    "Generated body of size {}",
+                    humansize::format_size(result.len(), humansize::DECIMAL)
+                );
+                let mut result = textwrap::fill(
+                    &result,
+                    textwrap::Options::new(78).line_ending(textwrap::LineEnding::CRLF),
+                );
+                result.push_str("\r\n");
+                return result;
+            }
+        }
+        unreachable!();
     }
 
     fn generate_body(&self, sender: &str, recip: &str) -> String {
@@ -77,6 +124,8 @@ impl Opt {
         let datestamp = now.to_rfc2822();
         let id = Uuid::new_v4().simple().to_string();
 
+        let body = self.body_size_content.get().unwrap();
+
         format!(
             "From: <{sender}>\r\n\
              To: <{recip}>\r\n\
@@ -84,8 +133,7 @@ impl Opt {
              Message-Id: {id}\r\n\
              X-Mailer: KumoMta traffic-gen\r\n\
              \r\n\
-             This is a test message.\r\n\
-             Enjoy!\r\n"
+             {body}"
         )
     }
 
@@ -121,22 +169,41 @@ impl Opt {
         Ok(client)
     }
 
+    fn done(&self, start: Instant, counter: &Arc<AtomicUsize>) -> bool {
+        if let Some(limit) = self.message_count {
+            return counter.load(Ordering::SeqCst) >= limit;
+        }
+        start.elapsed() >= Duration::from_secs(self.duration)
+    }
+
+    fn claim_one(&self, counter: &Arc<AtomicUsize>) -> bool {
+        let mine = counter.fetch_add(1, Ordering::SeqCst);
+        if let Some(limit) = self.message_count {
+            if mine >= limit {
+                counter.fetch_sub(1, Ordering::SeqCst);
+                return false;
+            }
+        }
+        true
+    }
+
+    fn release_one(&self, counter: &Arc<AtomicUsize>) {
+        counter.fetch_sub(1, Ordering::SeqCst);
+    }
+
     async fn run(&self, counter: Arc<AtomicUsize>) -> anyhow::Result<()> {
-        let started = Instant::now();
-        let duration = Duration::from_secs(self.duration);
-        'reconnect: while started.elapsed() <= duration {
+        let start = Instant::now();
+        'reconnect: while !self.done(start, &counter) {
             let mut client = self.make_client().await?;
-            while started.elapsed() <= duration {
+            while !self.done(start, &counter) {
+                if !self.claim_one(&counter) {
+                    client.send_command(&Command::Quit).await?;
+                    return Ok(());
+                }
                 let (sender, recip, body) = self.generate_message();
-                match timeout(
-                    Duration::from_secs(300),
-                    client.send_mail(sender, recip, body),
-                )
-                .await
-                .context("waiting to send mail")?
+                match client.send_mail(sender, recip, body).await
                 {
                     Ok(_) => {
-                        counter.fetch_add(1, Ordering::Relaxed);
                     }
                     Err(ClientError::Io(_)) |
                     Err(ClientError::Rejected(Response { code: 421, .. }))
@@ -151,12 +218,16 @@ impl Opt {
                             }),
                         ..
                     })) => {
+                        self.release_one(&counter);
                         continue 'reconnect;
                     }
-                    Err(err) => return Err(err).context("sending mail"),
+                    Err(err) => {
+                        self.release_one(&counter);
+                        return Err(err).context("sending mail");
+                    }
                 };
             }
-            timeout(Duration::from_secs(1), client.send_command(&Command::Quit)).await??;
+            client.send_command(&Command::Quit).await?;
         }
         Ok(())
     }
@@ -166,6 +237,9 @@ impl Opt {
 async fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
     opts.load_body_file()?;
+
+    let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
+    setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;
 
     let counter = Arc::new(AtomicUsize::new(0));
     let started = Instant::now();
