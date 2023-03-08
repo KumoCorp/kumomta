@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+maildir = {git="https://github.com/wez/maildir.git", rev="898d604fec05bfcb5af52f3960c4b07028faad39"}
+mailparse = "0.14"
 nix = {version="0.26", features=["signal"]}
+rfc5321 = {path="../rfc5321"}
 tempfile = "3.4"
 tokio = {version="1.25", features=["full"]}

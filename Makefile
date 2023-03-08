@@ -1,6 +1,10 @@
 check:
 	cargo check
 
+test:
+	cargo build
+	cargo nextest run
+
 fmt:
 	cargo +nightly fmt
 	stylua --config-path stylua.toml .

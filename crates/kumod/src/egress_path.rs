@@ -28,6 +28,7 @@ use tokio::net::TcpSocket;
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+use tracing::instrument;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<EgressPathManager> = Mutex::new(EgressPathManager::new());
@@ -178,6 +179,7 @@ impl EgressPathManager {
         manager.paths.get(&name).cloned()
     }
 
+    #[instrument]
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         egress_source: &str,
@@ -290,7 +292,7 @@ impl EgressPathHandle {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct DeliveryMetrics {
     connection_gauge: IntGauge,
     global_connection_gauge: IntGauge,
@@ -395,6 +397,8 @@ impl EgressPath {
             let egress_source = self.egress_source.clone();
             let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
+
+            tracing::trace!("spawning client for {name}");
             if let Ok(handle) = spawn(format!("smtp client {name}"), async move {
                 if let Err(err) = Dispatcher::run(
                     &name,
@@ -410,7 +414,7 @@ impl EgressPath {
                 .await
                 {
                     tracing::debug!(
-                        "Error in dispatch_queue for {name}: {err:#} \
+                        "Error in Dispatcher::run for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
                     );
                 }
@@ -449,6 +453,7 @@ struct Dispatcher {
 }
 
 impl Dispatcher {
+    #[instrument(skip(ready, metrics, notify))]
     async fn run(
         name: &str,
         mx: Arc<MailExchanger>,
@@ -468,6 +473,7 @@ impl Dispatcher {
         let activity = Activity::get()?;
 
         let addresses = mx.resolve_addresses().await;
+        tracing::trace!("mx resolved to {addresses:?}");
 
         let mut dispatcher = Self {
             name: name.to_string(),
@@ -570,7 +576,10 @@ impl Dispatcher {
                 continue;
             }
             consecutive_connection_failures.store(0, Ordering::SeqCst);
-            dispatcher.deliver_message().await?;
+            dispatcher
+                .deliver_message()
+                .await
+                .context("deliver_message")?;
         }
     }
 
@@ -606,6 +615,7 @@ impl Dispatcher {
         }
     }
 
+    #[instrument(skip(self))]
     fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
         if let Some(msg) = self.msg.take() {
@@ -659,6 +669,7 @@ impl Dispatcher {
         }
     }
 
+    #[instrument(skip(self))]
     fn delay_ready_queue(&mut self) {
         tracing::debug!(
             "too many connection failures, delaying ready queue {}",
@@ -676,6 +687,7 @@ impl Dispatcher {
         });
     }
 
+    #[instrument(skip(self))]
     fn obtain_message(&mut self) -> bool {
         if self.msg.is_some() {
             return true;
@@ -684,6 +696,7 @@ impl Dispatcher {
         self.msg.is_some()
     }
 
+    #[instrument(skip(self))]
     async fn wait_for_message(&mut self) -> anyhow::Result<bool> {
         if self.activity.is_shutting_down() {
             if let Some(msg) = self.msg.take() {
@@ -722,6 +735,7 @@ impl Dispatcher {
         Ok(self.obtain_message())
     }
 
+    #[instrument(skip(self))]
     async fn attempt_connection(&mut self) -> anyhow::Result<()> {
         if self.client.is_some() {
             return Ok(());
@@ -774,6 +788,7 @@ impl Dispatcher {
             .remote_port
             .unwrap_or(self.path_config.smtp_port);
         let source_address = self.egress_source.source_address.clone();
+        let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
         let mut client = timeout(self.path_config.client_timeouts.connect_timeout, {
             let address = address.clone();
@@ -796,12 +811,15 @@ impl Dispatcher {
                         anyhow::bail!("{error}");
                     }
                 }
-                let stream = socket.connect(SocketAddr::new(address.addr, port)).await?;
+                let stream = socket
+                    .connect(SocketAddr::new(address.addr, port))
+                    .await
+                    .with_context(|| format!("connect to {address:?} port {port}"))?;
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
 
                 // Read banner
-                let banner = client.read_response(None).await?;
+                let banner = client.read_response(None).await.context("reading banner")?;
                 if banner.code != 220 {
                     return Err(ClientError::Rejected(banner).into());
                 }
@@ -810,10 +828,11 @@ impl Dispatcher {
             }
         })
         .await
-        .with_context(|| format!("connect to {address:?} port {port} and read initial banner"))??;
+        .with_context(|| connect_context.clone())?
+        .with_context(|| connect_context.clone())?;
 
         // Say EHLO
-        let caps = client.ehlo(&ehlo_name).await?;
+        let caps = client.ehlo(&ehlo_name).await.context("EHLO")?;
 
         // Use STARTTLS if available.
         let has_tls = caps.contains_key("STARTTLS");
@@ -841,6 +860,7 @@ impl Dispatcher {
         Ok(())
     }
 
+    #[instrument(skip(msg))]
     async fn requeue_message(
         msg: Message,
         increment_attempts: bool,
@@ -855,6 +875,7 @@ impl Dispatcher {
         queue.requeue_message(msg, increment_attempts, delay).await
     }
 
+    #[instrument(skip(self))]
     async fn deliver_message(&mut self) -> anyhow::Result<()> {
         let data;
         let sender: ReversePath;

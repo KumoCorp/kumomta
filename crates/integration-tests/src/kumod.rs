@@ -1,5 +1,8 @@
 use anyhow::Context;
+use maildir::Maildir;
+use rfc5321::{SmtpClient, SmtpClientTimeouts};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::process::Stdio;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -8,7 +11,7 @@ use tokio::process::{Child, Command};
 #[derive(Debug)]
 pub struct KumoDaemon {
     pub dir: TempDir,
-    pub listeners: HashMap<String, String>,
+    pub listeners: HashMap<String, SocketAddr>,
     child: Child,
 }
 
@@ -19,6 +22,22 @@ pub struct KumoArgs {
 }
 
 impl KumoDaemon {
+    pub async fn spawn_maildir() -> anyhow::Result<Self> {
+        KumoDaemon::spawn(KumoArgs {
+            policy_file: "maildir-sink.lua".to_string(),
+            env: vec![],
+        })
+        .await
+    }
+
+    pub async fn spawn_sink() -> anyhow::Result<Self> {
+        KumoDaemon::spawn(KumoArgs {
+            policy_file: "sink.lua".to_string(),
+            env: vec![],
+        })
+        .await
+    }
+
     pub async fn spawn(args: KumoArgs) -> anyhow::Result<Self> {
         let path = if cfg!(debug_assertions) {
             "../../target/debug/kumod"
@@ -33,7 +52,9 @@ impl KumoDaemon {
             .args(["--policy", &args.policy_file])
             .env("KUMOD_LOG", "kumod=info")
             .env("KUMOD_TEST_DIR", dir.path())
-            .stdout(Stdio::inherit())
+            .env("TOKIO_CONSOLE_BIND", "127.0.0.1:0")
+            .envs(args.env.iter().cloned())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
             .kill_on_drop(true)
@@ -41,6 +62,11 @@ impl KumoDaemon {
             .with_context(|| format!("spawning {}", path.display()))?;
 
         let mut stderr = BufReader::new(child.stderr.take().unwrap());
+
+        // Send stdout to stderr
+        let mut stdout = child.stdout.take().unwrap();
+        tokio::spawn(async move { tokio::io::copy(&mut stdout, &mut tokio::io::stderr()).await });
+
         // Wait until the server initializes, collect the information
         // about the various listeners that it starts
         let mut listeners = HashMap::new();
@@ -63,7 +89,8 @@ impl KumoDaemon {
                 }
                 let proto = fields[0];
                 let addr = fields[3];
-                listeners.insert(proto.to_string(), addr.to_string());
+                let addr: SocketAddr = addr.parse()?;
+                listeners.insert(proto.to_string(), addr);
             }
         }
 
@@ -83,5 +110,22 @@ impl KumoDaemon {
         nix::sys::signal::kill(pid, nix::sys::signal::SIGINT)?;
         self.child.wait().await?;
         Ok(())
+    }
+
+    pub fn listener(&self, service: &str) -> SocketAddr {
+        self.listeners.get(service).copied().unwrap()
+    }
+
+    pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
+        let mut client =
+            SmtpClient::new(self.listener("smtp"), SmtpClientTimeouts::default()).await?;
+
+        let banner = client.read_response(None).await?;
+        anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
+        Ok(client)
+    }
+
+    pub fn maildir(&self) -> Maildir {
+        Maildir::from(self.dir.path().join("maildir"))
     }
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::time::timeout;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
 use tokio_rustls::rustls::{
@@ -150,6 +151,14 @@ pub struct SmtpClient {
 }
 
 impl SmtpClient {
+    pub async fn new<A: ToSocketAddrs + ToString + Clone>(
+        addr: A,
+        timeouts: SmtpClientTimeouts,
+    ) -> std::io::Result<Self> {
+        let stream = TcpStream::connect(addr.clone()).await?;
+        Ok(Self::with_stream(stream, addr.to_string(), timeouts))
+    }
+
     pub fn with_stream<S: AsyncReadAndWrite + 'static, H: AsRef<str>>(
         stream: S,
         peer_hostname: H,

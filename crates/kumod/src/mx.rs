@@ -14,7 +14,7 @@ lazy_static::lazy_static! {
     static ref IP_CACHE: StdMutex<LruCacheWithTtl<String, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MailExchanger {
     pub domain_name: String,
     pub hosts: Vec<String>,

@@ -19,6 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
+use tracing::instrument;
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
@@ -386,6 +387,7 @@ impl Queue {
         Ok(handle)
     }
 
+    #[instrument(skip(self))]
     pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
         let msgs = self.queue.drain();
         let count = msgs.len();
@@ -405,6 +407,7 @@ impl Queue {
         }
     }
 
+    #[instrument(skip(self, msg))]
     pub async fn requeue_message(
         &mut self,
         msg: Message,
@@ -459,6 +462,7 @@ impl Queue {
         Ok(())
     }
 
+    #[instrument(skip(self, msg))]
     async fn insert_delayed(&mut self, msg: Message) -> anyhow::Result<InsertResult> {
         match self.queue.insert(Arc::new(msg.clone())) {
             Ok(_) => {
@@ -473,6 +477,7 @@ impl Queue {
         }
     }
 
+    #[instrument(skip(self, msg))]
     async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
         loop {
             msg.delay_with_jitter(60).await?;
@@ -485,6 +490,7 @@ impl Queue {
         }
     }
 
+    #[instrument(skip(msg))]
     pub async fn save_if_needed(msg: &Message) -> anyhow::Result<()> {
         if msg.needs_save() {
             msg.save().await?;
@@ -493,6 +499,7 @@ impl Queue {
         Ok(())
     }
 
+    #[instrument(skip(msg))]
     pub async fn save_if_needed_and_log(msg: &Message) {
         if let Err(err) = Self::save_if_needed(msg).await {
             let id = msg.id();
@@ -504,6 +511,7 @@ impl Queue {
         Self::save_if_needed(&msg).await
     }
 
+    #[instrument(skip(self, msg))]
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
         match &self.queue_config.protocol {
             DeliveryProto::Smtp => {
@@ -588,6 +596,7 @@ impl Queue {
         }
     }
 
+    #[instrument(skip(self, msg))]
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
         self.last_change = Instant::now();
 
@@ -671,6 +680,7 @@ impl QueueManager {
     }
 }
 
+#[instrument(skip(queue))]
 async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
     let mut sleep_duration = Duration::from_secs(60);
     let mut shutdown = ShutdownSubcription::get();

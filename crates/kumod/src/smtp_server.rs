@@ -205,7 +205,7 @@ impl EsmtpListenerParams {
         loop {
             tokio::select! {
                 _ = shutting_down.shutting_down() => {
-                    println!("smtp listener on {} -> stopping", self.listen);
+                    println!("smtp listener on {addr:?} -> stopping");
                     return Ok(());
                 }
                 result = listener.accept() => {

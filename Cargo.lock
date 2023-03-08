@@ -1397,7 +1397,10 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "maildir",
+ "mailparse",
  "nix 0.26.2",
+ "rfc5321",
  "tempfile",
  "tokio",
 ]
