@@ -519,15 +519,42 @@ impl Queue {
                     .rr
                     .next()
                     .ok_or_else(|| anyhow!("no sources in pool"))?;
-                let site = EgressPathManager::resolve_by_queue_name(
+                match EgressPathManager::resolve_by_queue_name(
                     &self.name,
                     &egress_source,
                     &self.rr.name,
                 )
-                .await?;
-                let mut site = site.lock().await;
-                site.insert(msg)
-                    .map_err(|_| anyhow!("no room in ready queue"))
+                .await
+                {
+                    Ok(site) => {
+                        let mut site = site.lock().await;
+                        site.insert(msg)
+                            .map_err(|_| anyhow!("no room in ready queue"))
+                    }
+                    Err(err) => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 451,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!("failed to resolve {}: {err:#}", self.name),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                        })
+                        .await;
+                        anyhow::bail!("failed to resolve {}: {err:#}", self.name);
+                    }
+                }
             }
             DeliveryProto::Maildir { maildir_path } => {
                 let maildir_path = maildir_path.to_path_buf();
@@ -616,7 +643,8 @@ impl Queue {
         match self.insert_delayed(msg.clone()).await? {
             InsertResult::Delayed => Ok(()),
             InsertResult::Ready(msg) => {
-                if let Err(_err) = self.insert_ready(msg.clone()).await {
+                if let Err(err) = self.insert_ready(msg.clone()).await {
+                    tracing::debug!("insert_ready: {err:#}");
                     self.force_into_delayed(msg).await?;
                 }
                 Ok(())
@@ -770,6 +798,26 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                             }
                             Err(err) => {
                                 tracing::error!("Failed to resolve {}: {err:#}", q.name);
+                                log_disposition(LogDisposition {
+                                    kind: RecordType::TransientFailure,
+                                    msg: (*msg).clone(),
+                                    site: "",
+                                    peer_address: None,
+                                    response: Response {
+                                        code: 451,
+                                        enhanced_code: Some(EnhancedStatusCode {
+                                            class: 4,
+                                            subject: 4,
+                                            detail: 4,
+                                        }),
+                                        content: format!("failed to resolve {}: {err:#}", q.name),
+                                        command: None,
+                                    },
+                                    egress_pool: None,
+                                    egress_source: None,
+                                    relay_disposition: None,
+                                })
+                                .await;
                                 q.force_into_delayed((*msg).clone()).await?;
                             }
                         }
