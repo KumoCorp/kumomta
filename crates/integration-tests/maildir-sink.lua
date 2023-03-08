@@ -25,6 +25,15 @@ kumo.on('init', function()
   }
 end)
 
+kumo.on('smtp_server_rcpt_to', function(recipient)
+  if string.find(recipient.user, 'tempfail') then
+    kumo.reject(400, 'tempfail requested')
+  end
+  if string.find(recipient.user, 'permfail') then
+    kumo.reject(500, 'permfail requested')
+  end
+end)
+
 kumo.on('smtp_server_message_received', function(msg)
   msg:set_meta('queue', 'maildir')
 end)

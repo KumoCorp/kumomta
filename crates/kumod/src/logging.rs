@@ -124,6 +124,7 @@ impl LogFileParams {
     }
 }
 
+#[derive(Debug)]
 enum LogCommand {
     Record(JsonLogRecord),
     Terminate,
@@ -171,21 +172,25 @@ impl Logger {
         let headers = params.headers.clone();
         let meta = params.meta.clone();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
-        let thread = std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_time()
-                .build()
-                .expect("create logger runtime");
-            runtime.block_on(async move {
-                let mut state = LogThreadState {
-                    params,
-                    receiver,
-                    template_engine,
-                    file_map: HashMap::new(),
-                };
-                state.logger_thread().await
-            });
-        });
+        let thread = std::thread::Builder::new()
+            .name("logger".to_string())
+            .spawn(move || {
+                tracing::info!("started logger thread");
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .expect("create logger runtime");
+                runtime.block_on(async move {
+                    tracing::info!("calling state.logger_thread()");
+                    let mut state = LogThreadState {
+                        params,
+                        receiver,
+                        template_engine,
+                        file_map: HashMap::new(),
+                    };
+                    state.logger_thread().await
+                });
+            })?;
 
         let logger = Self {
             sender,
@@ -446,13 +451,16 @@ struct LogThreadState {
 
 impl LogThreadState {
     async fn logger_thread(&mut self) {
+        tracing::debug!("LogFileParams: {:#?}", self.params);
         loop {
             let deadline = self.get_deadline();
+            tracing::debug!("waiting until {deadline:?} for log");
 
             let cmd = if let Some(deadline) = deadline {
                 tokio::select! {
                     cmd = self.receiver.recv() => cmd,
                     _ = tokio::time::sleep_until(deadline.into()) => {
+                        tracing::debug!("deadline reached, running expiration");
                         self.expire();
                         continue;
                     }
@@ -462,10 +470,14 @@ impl LogThreadState {
             };
             let cmd = match cmd {
                 Ok(cmd) => cmd,
-                _ => return,
+                other => {
+                    tracing::debug!("logging channel closed {other:?}");
+                    return;
+                }
             };
             match cmd {
                 LogCommand::Terminate => {
+                    tracing::debug!("LogCommand::Terminate received. Stopping writing logs");
                     break;
                 }
                 LogCommand::Record(record) => {
@@ -480,7 +492,10 @@ impl LogThreadState {
     fn expire(&mut self) {
         let now = Instant::now();
         self.file_map.retain(|_, of| match of.expires {
-            Some(exp) => exp > now,
+            Some(exp) => {
+                tracing::trace!("check {exp:?} vs {now:?} -> {}", exp > now);
+                exp > now
+            }
             None => true,
         });
     }
@@ -520,6 +535,7 @@ impl LogThreadState {
     }
 
     fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+        tracing::trace!("do_record {record:?}");
         let file_key = if let Some(per_rec) = self.per_record(record.kind) {
             FileNameKey {
                 log_dir: per_rec

@@ -86,7 +86,6 @@ impl MailGenParams<'_> {
         };
         let sender = self.sender.unwrap_or("sender@example.com");
         let recip = self.recip.unwrap_or("recip@example.com");
-        eprintln!("using {body}");
         let message = mail_builder::MessageBuilder::new()
             .from(sender)
             .to(recip)
@@ -136,6 +135,28 @@ impl DaemonWithMaildir {
 
     pub async fn wait_for_maildir_count(&self, count: usize, timeout: Duration) -> bool {
         self.sink.wait_for_maildir_count(count, timeout).await
+    }
+
+    pub async fn wait_for_source_summary<F>(&self, mut func: F, timeout: Duration) -> bool
+    where
+        F: FnMut(&BTreeMap<RecordType, usize>) -> bool,
+    {
+        tokio::select! {
+            _ = async {
+                loop {
+                    if let Ok(summary) = self.source.dump_logs() {
+                        let done = (func)(&summary);
+                        if done {
+                            return true;
+                        }
+                    }
+
+
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
     }
 
     pub async fn stop_both(&mut self) -> anyhow::Result<()> {
@@ -290,7 +311,7 @@ impl KumoDaemon {
         let mut counts = BTreeMap::new();
 
         for entry in std::fs::read_dir(&dir)? {
-            let entry = dbg!(entry)?;
+            let entry = entry?;
             if entry.file_type()?.is_file() {
                 let f = std::fs::File::open(entry.path())?;
                 let data = zstd::stream::decode_all(f)?;

@@ -9,9 +9,86 @@ fn main() {
 mod test {
     use super::kumod::*;
     use k9::assert_equal;
+    use kumo_log_types::RecordType::{Bounce, TransientFailure};
     use mailparse::MailHeaderMap;
     use rfc5321::*;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn temp_fail() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let response = MailGenParams {
+            recip: Some("tempfail@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn perm_fail() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let response = MailGenParams {
+            recip: Some("permfail@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Bounce).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Bounce: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
 
     /// test maximum line length
     #[tokio::test]

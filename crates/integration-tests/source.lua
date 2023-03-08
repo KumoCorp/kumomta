@@ -12,7 +12,7 @@ kumo.on('init', function()
 
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
-    max_segement_duration = '1s',
+    max_segment_duration = '1s',
   }
 
   kumo.define_spool {
