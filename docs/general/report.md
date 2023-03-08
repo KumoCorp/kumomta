@@ -40,4 +40,4 @@ The KumoMTA Discord server is intended for realtime communication about KumoMTA 
 
 ## Forum
 
-The KumoMTA forum is best suited to longer-form help requests that benefit from higher visibility in the community (as the help request won't get lost in the chat scroll or otherwise missed), and which would be of benefit to other users thanks to the more permanent nature of forum interactions. The forum can be accessed at [https://forum.kumomta.com].
+The KumoMTA forum is best suited to longer-form help requests that benefit from higher visibility in the community (as the help request won't get lost in the chat scroll or otherwise missed), and which would be of benefit to other users thanks to the more permanent nature of forum interactions. The forum can be accessed at [https://forum.kumomta.com](https://forum.kumomta.com).
