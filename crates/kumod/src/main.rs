@@ -5,7 +5,8 @@ use caps::{CapSet, Capability, CapsHashSet};
 use clap::{Parser, ValueEnum};
 use metrics_prometheus::recorder::Layer;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
-use nix::unistd::{Uid, User};
+use nix::sys::signal::{kill, SIGQUIT};
+use nix::unistd::{Pid, Uid, User};
 use std::path::PathBuf;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
@@ -120,6 +121,8 @@ fn main() -> anyhow::Result<()> {
     let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;
 
+    register_panic_hook();
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -183,17 +186,19 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
 
     let mut life_cycle = LifeCycle::new();
 
-    rt_spawn("initialize".to_string(), move || {
+    let init_handle = rt_spawn("initialize".to_string(), move || {
         Ok(async move {
+            let mut ok = true;
             if let Err(err) = perform_init().await {
                 tracing::error!("problem initializing: {err:#}");
                 LifeCycle::request_shutdown().await;
+                ok = false;
             }
             // This log line is depended upon by the integration
             // test harness. Do not change or remove it without
             // making appropriate adjustments over there!
             tracing::info!("initialization complete");
-            Ok::<(), anyhow::Error>(())
+            ok
         })
     })
     .await?;
@@ -204,5 +209,35 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     crate::logging::Logger::signal_shutdown().await;
 
     println!("Shutdown completed OK!");
+
+    if !init_handle.await? {
+        anyhow::bail!("Initialization raised an error");
+    }
     Ok(())
+}
+
+fn register_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let payload = payload.downcast_ref::<&str>().unwrap_or(&"!?");
+        let bt = backtrace::Backtrace::new();
+        if let Some(loc) = info.location() {
+            tracing::error!(
+                "panic at {}:{}:{} - {}\n{:?}",
+                loc.file(),
+                loc.line(),
+                loc.column(),
+                payload,
+                bt
+            );
+        } else {
+            tracing::error!("panic - {}\n{:?}", payload, bt);
+        }
+
+        default_hook(info);
+
+        // Request a core dump
+        kill(Pid::this(), SIGQUIT).ok();
+    }));
 }
