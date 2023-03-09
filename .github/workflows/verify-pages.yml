@@ -17,27 +17,27 @@ jobs:
         with:
           crate: mdbook
           features: search
-          locked: true
+          args: --locked
       - name: Install mdBook-linkcheck
         uses: baptiste0928/cargo-install@v1
         with:
           crate: mdbook-linkcheck
-          locked: true
+          args: --locked
       - name: Install mdBook-mermaid
         uses: baptiste0928/cargo-install@v1
         with:
           crate: mdbook-mermaid
-          locked: true
+          args: --locked
       - name: Install mdBook-admonish
         uses: baptiste0928/cargo-install@v1
         with:
           crate: mdbook-admonish
-          locked: true
+          args: --locked
       - name: Install gelatyx
         uses: baptiste0928/cargo-install@v1
         with:
           crate: gelatyx
-          locked: true
+          args: --locked
       - name: Build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
