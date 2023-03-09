@@ -58,7 +58,7 @@ sudo wget https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348
 sudo wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
 sudo wget https://github.com/kumomta/kumomta/blob/main/sink.lua
 sudo unzip centos7.zip
-rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64
+rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64.rpm
 /usr/bin/kumod --policy sink.lua
 
 ```
