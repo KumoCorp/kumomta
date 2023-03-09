@@ -36,7 +36,7 @@ enum DiagnosticFormat {
 }
 
 #[derive(Debug, Parser)]
-#[command(about = "kumo mta daemon")]
+#[command(about = "kumo mta daemon", version=config::kumo_version())]
 struct Opt {
     /// Policy file to load
     #[arg(long)]
