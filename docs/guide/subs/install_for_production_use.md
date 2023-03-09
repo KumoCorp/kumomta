@@ -44,6 +44,7 @@ sudo snap install docker
   ```/usr/bin/kumod --policy simple_policy.lua ```
   
   **OR**
+  
   Follow this to do it from the command line:
 ```
 # Prepare the system first
@@ -59,7 +60,7 @@ sudo wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
 sudo wget https://github.com/kumomta/kumomta/blob/main/sink.lua
 sudo unzip centos7.zip
 rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64.rpm
-/usr/bin/kumod --policy sink.lua
+sudo /usr/bin/kumod --policy sink.lua --user $USER
 
 ```
 
