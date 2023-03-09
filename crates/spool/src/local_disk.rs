@@ -149,6 +149,8 @@ impl Spool for LocalDiskSpool {
                                         )
                                     })?,
                             };
+                        } else {
+                            eprintln!("{} is not a spool id", path.display());
                         }
                     }
                 }

@@ -67,7 +67,7 @@ impl SpoolId {
         }
 
         components.reverse();
-        Some(Self(Uuid::try_parse(&components.join("-")).ok()?))
+        Some(Self(Uuid::parse_str(&components.join("")).ok()?))
     }
 
     /// Returns time elapsed since the id was created,
@@ -81,5 +81,19 @@ impl SpoolId {
         let (seconds, nanos) = self.0.get_timestamp().unwrap().to_unix();
         Utc.timestamp_opt(seconds.try_into().unwrap(), nanos)
             .unwrap()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn roundtrip_path() {
+        let id = SpoolId::new();
+        eprintln!("{id}");
+        let path = id.compute_path(Path::new("."));
+        let id2 = SpoolId::from_path(&path).unwrap();
+        assert_eq!(id, id2);
     }
 }

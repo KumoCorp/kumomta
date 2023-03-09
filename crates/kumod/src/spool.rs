@@ -165,6 +165,7 @@ impl SpoolManager {
                     async move {
                         // start enumeration
                         if let Some(tx) = tx {
+                            tracing::info!("starting enumeration for {name}");
                             if let Err(err) = spool.enumerate(tx) {
                                 tracing::error!(
                                     "error during spool enumeration for {name}: {err:#}"
@@ -192,6 +193,7 @@ impl SpoolManager {
         let activity = Activity::get()?;
         let egress_source = None;
         let egress_pool = None;
+        let mut spooled_in = 0;
         tracing::debug!("start_spool: waiting for enumeration");
         while let Some(entry) = rx.recv().await {
             if activity.is_shutting_down() {
@@ -200,85 +202,95 @@ impl SpoolManager {
             let now = Utc::now();
             match entry {
                 SpoolEntry::Item { id, data } => match Message::new_from_spool(id, data) {
-                    Ok(msg) => match msg.get_queue_name() {
-                        Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
-                            Err(err) => {
-                                tracing::error!("failed to resolve queue {queue_name}: {err:#}");
-                            }
-                            Ok(queue) => {
-                                let mut queue = queue.lock().await;
-
-                                let queue_config = queue.get_config();
-                                let max_age = queue_config.get_max_age();
-                                let age = msg.age(now);
-                                let num_attempts = queue_config.infer_num_attempts(age);
-                                msg.set_num_attempts(num_attempts);
-
-                                match queue_config.compute_delay_based_on_age(num_attempts, age) {
-                                    None => {
-                                        tracing::debug!("expiring {id} {age} > {max_age}");
-                                        log_disposition(LogDisposition {
-                                            kind: RecordType::Expiration,
-                                            msg,
-                                            site: "localhost",
-                                            peer_address: None,
-                                            response: Response {
-                                                code: 551,
-                                                enhanced_code: Some(EnhancedStatusCode {
-                                                    class: 5,
-                                                    subject: 4,
-                                                    detail: 7,
-                                                }),
-                                                content: format!("Delivery time {age} > {max_age}"),
-                                                command: None,
-                                            },
-                                            egress_pool,
-                                            egress_source,
-                                            relay_disposition: None,
-                                        })
-                                        .await;
-                                        self.remove_from_spool_impl(id).await?;
-                                        continue;
-                                    }
-                                    Some(delay) => {
-                                        msg.delay_by(delay).await?;
-                                    }
-                                }
-
-                                if let Err(err) = queue.insert(msg).await {
+                    Ok(msg) => {
+                        spooled_in += 1;
+                        match msg.get_queue_name() {
+                            Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
+                                Err(err) => {
                                     tracing::error!(
-                                        "failed to insert Message {id} \
-                                             to queue {queue_name}: {err:#}"
+                                        "failed to resolve queue {queue_name}: {err:#}"
                                     );
-                                    self.remove_from_spool_impl(id).await?;
                                 }
+                                Ok(queue) => {
+                                    let mut queue = queue.lock().await;
+
+                                    let queue_config = queue.get_config();
+                                    let max_age = queue_config.get_max_age();
+                                    let age = msg.age(now);
+                                    let num_attempts = queue_config.infer_num_attempts(age);
+                                    msg.set_num_attempts(num_attempts);
+
+                                    match queue_config.compute_delay_based_on_age(num_attempts, age)
+                                    {
+                                        None => {
+                                            tracing::debug!("expiring {id} {age} > {max_age}");
+                                            log_disposition(LogDisposition {
+                                                kind: RecordType::Expiration,
+                                                msg,
+                                                site: "localhost",
+                                                peer_address: None,
+                                                response: Response {
+                                                    code: 551,
+                                                    enhanced_code: Some(EnhancedStatusCode {
+                                                        class: 5,
+                                                        subject: 4,
+                                                        detail: 7,
+                                                    }),
+                                                    content: format!(
+                                                        "Delivery time {age} > {max_age}"
+                                                    ),
+                                                    command: None,
+                                                },
+                                                egress_pool,
+                                                egress_source,
+                                                relay_disposition: None,
+                                            })
+                                            .await;
+                                            self.remove_from_spool_impl(id).await?;
+                                            continue;
+                                        }
+                                        Some(delay) => {
+                                            msg.delay_by(delay).await?;
+                                        }
+                                    }
+
+                                    if let Err(err) = queue.insert(msg).await {
+                                        tracing::error!(
+                                            "failed to insert Message {id} \
+                                             to queue {queue_name}: {err:#}"
+                                        );
+                                        self.remove_from_spool_impl(id).await?;
+                                    }
+                                }
+                            },
+                            Err(err) => {
+                                tracing::error!(
+                                    "Message {id} failed to compute queue name!: {err:#}"
+                                );
+                                log_disposition(LogDisposition {
+                                    kind: RecordType::Expiration,
+                                    msg,
+                                    site: "localhost",
+                                    peer_address: None,
+                                    response: Response {
+                                        code: 551,
+                                        enhanced_code: Some(EnhancedStatusCode {
+                                            class: 5,
+                                            subject: 1,
+                                            detail: 3,
+                                        }),
+                                        content: format!("Failed to compute queue name: {err:#}"),
+                                        command: None,
+                                    },
+                                    egress_pool,
+                                    egress_source,
+                                    relay_disposition: None,
+                                })
+                                .await;
+                                self.remove_from_spool_impl(id).await?;
                             }
-                        },
-                        Err(err) => {
-                            tracing::error!("Message {id} failed to compute queue name!: {err:#}");
-                            log_disposition(LogDisposition {
-                                kind: RecordType::Expiration,
-                                msg,
-                                site: "localhost",
-                                peer_address: None,
-                                response: Response {
-                                    code: 551,
-                                    enhanced_code: Some(EnhancedStatusCode {
-                                        class: 5,
-                                        subject: 1,
-                                        detail: 3,
-                                    }),
-                                    content: format!("Failed to compute queue name: {err:#}"),
-                                    command: None,
-                                },
-                                egress_pool,
-                                egress_source,
-                                relay_disposition: None,
-                            })
-                            .await;
-                            self.remove_from_spool_impl(id).await?;
                         }
-                    },
+                    }
                     Err(err) => {
                         tracing::error!("Failed to parse metadata for {id}: {err:#}");
                         self.remove_from_spool_impl(id).await?;
@@ -292,7 +304,7 @@ impl SpoolManager {
             }
         }
         self.spooled_in = true;
-        tracing::debug!("start_spool: enumeration done");
+        tracing::debug!("start_spool: enumeration done, spooled in {spooled_in} msgs");
         Ok(())
     }
 }
