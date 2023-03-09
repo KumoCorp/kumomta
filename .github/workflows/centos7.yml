@@ -1,0 +1,80 @@
+name: CentOS7
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - "docs/*"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/verify-pages.yml"
+      - ".github/ISSUE_TEMPLATE/*"
+      - "**/*.md"
+      - "**/*.markdown"
+
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - "docs/*"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/verify-pages.yml"
+      - ".github/ISSUE_TEMPLATE/*"
+      - "**/*.md"
+      - "**/*.markdown"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: "quay.io/centos/centos:centos7"
+
+    steps:
+    - name: "Install SCL"
+      run: "yum install -y centos-release-scl-rh"
+    - name: "Update compiler"
+      run: "yum install -y llvm-toolset-7 devtoolset-9-gcc devtoolset-9-gcc-c++"
+    - name: "More deps"
+      run: "yum install -y wget curl-devel expat-devel gettext-devel openssl-devel zlib-devel gcc perl-ExtUtils-MakeMaker make curl snappy snappy-devel zlib zlib-devel bzip2 bzip2-devel lz4-devel gflags"
+    - name: "Cache Git installation"
+      uses: actions/cache@v3
+      with:
+        path: "/usr/local/git"
+        key: "centos7-git-2.26.2"
+    - name: "Install Git from source"
+      shell: bash
+      run: |
+        if test ! -x /usr/local/git/bin/git ; then
+            cd /tmp
+            wget https://github.com/git/git/archive/v2.26.2.tar.gz
+            tar xzf v2.26.2.tar.gz
+            cd git-2.26.2
+            make prefix=/usr/local/git install
+        fi
+        ln -s /usr/local/git/bin/git /usr/local/bin/git
+    - name: "Install Rust"
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: "minimal"
+        toolchain: "stable"
+        override: true
+      env:
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Install cargo-nextest
+      uses: baptiste0928/cargo-install@v1
+      with:
+        crate: cargo-nextest
+        locked: true
+    - name: Build
+      run: |
+        source /opt/rh/devtoolset-9/enable
+        cargo build --verbose
+    - name: Run tests
+      run: |
+        source /opt/rh/devtoolset-9/enable
+        cargo nextest run
+
