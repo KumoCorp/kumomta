@@ -27,9 +27,6 @@ A high performance, modern MTA.
 %build
 echo "Doing the build bit here"
 
-%changelog
-See product changelog
-
 %install
 set -x
 cd ${HERE}
