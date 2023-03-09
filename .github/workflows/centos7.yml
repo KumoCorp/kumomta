@@ -74,12 +74,12 @@ jobs:
       run: |
         source /opt/rh/devtoolset-9/enable
         source /opt/rh/llvm-toolset-7/enable
-        cargo build --verbose
+        cargo build --release
     - name: Run tests
       run: |
         source /opt/rh/devtoolset-9/enable
         source /opt/rh/llvm-toolset-7/enable
-        cargo nextest run
+        cargo nextest run --release
     - name: "Build RPM"
       run: "./assets/build-rpm.sh"
     - name: "Move RPM"
