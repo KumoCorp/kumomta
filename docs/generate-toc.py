@@ -82,10 +82,11 @@ TOC = [
                 ],
             ),
             Page(
-                "Overview of KumoMTA", "overview/index.md",
-                children = [
+                "Overview of KumoMTA",
+                "overview/index.md",
+                children=[
                     Page("KumoMTA History", "overview/history.md"),
-                    Page("KumoMTA Architecture", "overview/architecture.md")
+                    Page("KumoMTA Architecture", "overview/architecture.md"),
                 ],
             ),
             Page(
