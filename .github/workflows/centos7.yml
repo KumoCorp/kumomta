@@ -35,7 +35,7 @@ jobs:
     - name: "Update compiler"
       run: "yum install -y llvm-toolset-7 devtoolset-9-gcc devtoolset-9-gcc-c++"
     - name: "More deps"
-      run: "yum install -y wget curl-devel expat-devel gettext-devel openssl-devel zlib-devel gcc perl-ExtUtils-MakeMaker make curl snappy snappy-devel zlib zlib-devel bzip2 bzip2-devel lz4-devel gflags"
+      run: "yum install -y wget curl-devel expat-devel gettext-devel openssl-devel zlib-devel gcc perl-ExtUtils-MakeMaker make curl snappy snappy-devel zlib zlib-devel bzip2 bzip2-devel lz4-devel gflags rpm-build"
     - name: "Cache Git installation"
       uses: actions/cache@v3
       with:
@@ -61,14 +61,15 @@ jobs:
       env:
         ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v2
-      with:
-        cache-on-failure: true
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v1
       with:
         crate: cargo-nextest
         args: --locked
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+        env-vars: "CARGO RUST"
     - name: Build
       run: |
         source /opt/rh/devtoolset-9/enable
