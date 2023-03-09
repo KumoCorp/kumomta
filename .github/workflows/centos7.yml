@@ -79,4 +79,13 @@ jobs:
         source /opt/rh/devtoolset-9/enable
         source /opt/rh/llvm-toolset-7/enable
         cargo nextest run
+    - name: "Build RPM"
+      run: "./assets/build-rpm.sh"
+    - name: "Move RPM"
+      run: "mv ~/rpmbuild/RPMS/*/*.rpm ."
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v3
+      with:
+        name: "centos7"
+        path: "kumomta-*.rpm"
 
