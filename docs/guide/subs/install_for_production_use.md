@@ -6,7 +6,7 @@ To build a lightweight alpine-based docker image:
  - Prepare your system with the needed essentials
  - Ensure docker is actually installed in your server instance.
 
-
+## APT based systems
  - In Ubuntu, Debian, and other Debial APT package management systems:
  ```
 sudo apt update
@@ -15,6 +15,7 @@ sudo snap install docker
   
  ```
 
+## DNF based systems
  - In Rocky, Alma, and any other DNF package manager system
  ``` 
  sudo dnf config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
@@ -24,6 +25,22 @@ sudo snap install docker
  ```
  If you get an error that "/etc/rc.d/rc.local is not marked executable" then make it executable with ```sudo chmod +x /etc/rc.d/rc.local```
  
+ ## Special Case for CentOS7
+  - To run KumoMTA in Centos7, download the prebuilt RPM and policy.
+  RPM: https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846
+  Simple policy: https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
+  Sink policy: https://github.com/kumomta/kumomta/blob/main/sink.lua
+  
+  You should ```unzip centos7.zip``` 
+  
+  Then install with ```rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64```
+  
+  This will install a working copy of KumoMTA at ```/usr/bin/kumod```
+  You can pull a copy of the simple_policy.lua or sink.lua and then run it like:
+  ```/usr/bin/kumod --policy simple_policy.lua ```
+  
+  CentOS7 users can ignore the rest of this page.
+  
 ### Start Docker with the command below.
 
 ```sudo systemctl start docker```
@@ -58,7 +75,10 @@ git clone https://github.com/kumomta/kumomta.git
 ```
 Then
 ```
-cd kumomta
+cd kumomta/docker/redis/
+sudo docker build -t redis-cell .
+docker run --name redis -p 6379:6379 -d redis-cell
+cd ../..
 sudo ./docker/kumod/build-docker-image.sh
 ```
 This should result in something roughly like this:

@@ -16,8 +16,11 @@ At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes h
 
 ## Network Interfaces
 KumoMTA is capable of processing many millions of message per hour, or more relevant to this conversation, many thousands of bytes per second.  Your network interface could be your biggest bottleneck.  Below is a quick calculation:
+
 Assuming the average message is 50kB and you plan to send 1 Million of those per hour, your bandwidth requirement will be:
+```
 50 * 8000 * 1,000,000 / 3600s =~ 111Mbps
+```
 
 You can see that a 10Mbps Network interface would fail you quickly.  Any performance system should use at least a 10Gb NIC.
 

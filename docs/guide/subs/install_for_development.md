@@ -12,34 +12,55 @@ You can either just execute the installer script (kumoinstall.sh), or follow the
 At a minimum, you will need to install some dev tools and other glue before starting. 
 And you should make sure you have all the latest patches first too.
 
+
 ### In Rocky, CentOS, Alma, and (likely) any other dnf supporting OS
 ```
 sudo dnf clean all
 sudo dnf update -y
 sudo dnf group install -y "Development Tools"
 sudo dnf install -y libxml2 libxml2-devel clang telnet git
+
 ```
+
+### Special case for CentOS7
+
+Note that Red Hat full support for RHEL 7 [ended in August 2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates) and CentOS 7 full support [ended in August 2020](https://wiki.centos.org/About/Product)
+
+This is long and complicated and only relevent if you plan to use Cento7 AND need the full build for development.  
+
+If that describes you, then you can follow this to prepage your system, then come back to install Rust and the KumoMTA repo.
+
+[Special Instructions for Centos7](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/special_for_centos7)
+
+If you just want to run it in CentOS7, we built and RPM for you [on this page](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/install_for_production_use.md).
+
+
 ### In Ubuntu
 ```
 sudo apt-get -y update
 sudo apt-get -y upgrade
 sudo apt-get install -y build-essential
 sudo apt-get install -y cmake make gcc clang llvm telnet git apt-utils
+
 ```
 ### In OpenSuse (Note that SLES does not appear to have an available clang package)
 ```
 sudo zypper refresh
 sudo zypper update -y
 sudo zypper install -y cmake make gcc clang llvm telnet git gcc-c++
+
 ```
 
 ## Install Rust
 
+If you are using a priviledged user, drop back to your non-priviledged user first.
 ```
+cd 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source ~/.profile
 source ~/.cargo/env
 rustc -V
+
 ```
 
 
@@ -52,6 +73,7 @@ Enter your credentials and wait...
 ```
 cd kumomta
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
+
 ```
 
 In the above you are telling Cargo to run the Rust compiler to build an optimized release version and package it as kumod, then execute kumod using the policy file called simple_policy.lua.
@@ -88,6 +110,7 @@ $ sudo docker run --rm -p 2025:25 \
     --name kumo-sink \
     --env KUMO_POLICY="/config/sink.lua" \
     kumomta/kumod
+    
 ```
 
 If you are planning to just "use" KumoMTA and not develop against it, then you are better off using a prebuilt Docker Image.  See the next section for more on that. 

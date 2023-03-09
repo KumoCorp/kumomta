@@ -65,6 +65,7 @@ $ cargo install stylua --features lua54
 Then you can format both the rust and the lua code:
 
 ```bash
+$ rustup toolchain install nightly
 $ make fmt
 ```
 
