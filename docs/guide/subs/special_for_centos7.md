@@ -1,7 +1,6 @@
 # Installing KumoMTA in CentOS7
 
-
-### Special case for development work in CentOS7
+## Special case for development work in CentOS7
 
 Note that Red Hat full support for RHEL 7 [ended in August 2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates) and CentOS 7 full support [ended in August 2020](https://wiki.centos.org/About/Product)
 
@@ -10,7 +9,8 @@ Also note that in testing, this process took several hours.
 This first starts by adding dnf so all the rest of the install is consistent.
 
 Next, You will need to install a few things in order to get this current.
-```
+
+```bash
 
 # Get dnf installed first
 sudo yum install -y dnf
@@ -77,5 +77,4 @@ cd $PREFIX
 git clone --depth=1 https://github.com/llvm/llvm-project.git
 cd llvm-project
 cmake -S llvm -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-
 ```
