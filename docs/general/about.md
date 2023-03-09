@@ -6,7 +6,7 @@ Because this manual serves as a reference, it does not provide general instructi
 
 The KumoMTA Software is under constant development, and this Manual is updated frequently as well.
 
-If you have questions about using KumoMTA, community support is available in the [Forum](https://forums.kumomta.com) and the [Community Discord](https://kumomta.com/discord).
+If you have questions about using KumoMTA, community support is available in the [Forum](https://forum.kumomta.com) and the [Community Discord](https://kumomta.com/discord).
 
 ## Typographical and Syntax Conventions
 
