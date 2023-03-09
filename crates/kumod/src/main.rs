@@ -41,7 +41,7 @@ enum DiagnosticFormat {
 struct Opt {
     /// Policy file to load
     #[arg(long)]
-    policy: Option<PathBuf>,
+    policy: PathBuf,
 
     /// Directory where diagnostic log files will be placed.
     /// If omitted, diagnostics will be printed to stderr.
@@ -180,9 +180,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         config::register(func);
     }
 
-    if let Some(policy) = opts.policy.clone() {
-        config::set_policy_path(policy).await?;
-    }
+    config::set_policy_path(opts.policy.clone()).await?;
 
     let mut life_cycle = LifeCycle::new();
 
