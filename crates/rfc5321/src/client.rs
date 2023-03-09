@@ -142,7 +142,7 @@ impl SmtpClientTimeouts {
     }
 
     pub fn short_timeouts() -> Self {
-        let short = Duration::from_secs(5);
+        let short = Duration::from_secs(20);
         Self {
             connect_timeout: short,
             ehlo_timeout: short,
