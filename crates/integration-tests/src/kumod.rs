@@ -1,6 +1,7 @@
 use anyhow::Context;
 use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
+use nix::unistd::{Uid, User};
 use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -219,8 +220,11 @@ impl KumoDaemon {
 
         let dir = tempfile::tempdir().context("make temp dir")?;
 
+        let user = User::from_uid(Uid::current())?
+            .ok_or_else(|| anyhow::anyhow!("couldn't resolve myself"))?;
+
         let mut child = Command::new(&path)
-            .args(["--policy", &args.policy_file])
+            .args(["--policy", &args.policy_file, "--user", &user.name])
             .env("KUMOD_LOG", "kumod=trace")
             .env("KUMOD_TEST_DIR", dir.path())
             .envs(args.env.iter().cloned())
