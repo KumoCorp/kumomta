@@ -100,7 +100,7 @@ TOC = [
                     ),
                     Page("Installing for Development","guide/subs/install_for_development.md"),
                     Page("Installing for Production","guide/subs/install_for_production_use.md"),
-                    Page("Special instructions for CentOS7 users","guide/subs/special_for_centos7"),
+                    Page("Special instructions for CentOS7 users","guide/subs/special_for_centos7.md"),
                     Page("Your First Email","guide/subs/your_first_email.md"),
                     Page("Beyond Basics","guide/beyond_basics.md"),
                     Page("Securing It","guide/securing_it.md",
