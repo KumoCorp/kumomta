@@ -4,9 +4,9 @@ This is the Reference Manual for the KumoMTA SMTP server, version 1.0, through r
 
 Because this manual serves as a reference, it does not provide general instruction on SMTP or email infrastructure concepts. It also does not teach you how to use your operating system or command-line interpreter.
 
-The KumoMTA Software is under constant development, and the Reference Manual is updated frequently as well.
+The KumoMTA Software is under constant development, and this Manual is updated frequently as well.
 
-If you have questions about using KumoMTA, join the KumoMTA Community Discord.
+If you have questions about using KumoMTA, community support is available in the [Forum](https://forums.kumomta.com) and the [Community Discord](https://kumomta.com/discord).
 
 ## Typographical and Syntax Conventions
 
