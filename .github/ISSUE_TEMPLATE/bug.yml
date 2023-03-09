@@ -1,0 +1,69 @@
+name: Bug Report Form
+description: Create a report to help us improve
+labels: bug
+assignees: []
+body:
+  - type: textarea
+    id: os
+    attributes:
+      label: What Operating System are you seeing this problem on?
+      description: |
+        Please include the kernel version as well as the name and version
+        of your distribution
+      placeholder: "ex: Linux, CentOS 8, kernel 6.1"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KumoMTA version
+      description: "Please run `kumod -V` and include its output here"
+      placeholder: "ex: 2023.03.01"
+    validations:
+      required: true
+  - type: dropdown
+    id: triedlatest
+    attributes:
+      label: Did you try the latest release to see if the issue is better (or worse!) than your current version?
+      options:
+        - Yes, and I updated the version box above to show the version that I tried
+        - No, and I'll explain why below
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is
+      placeholder: Tell us what happened
+    validations:
+      required: true
+  - type: textarea
+    id: to_repro
+    attributes:
+      label: To Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        Please include as much information as possible that can help to reproduce and
+        understand the issue.
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: |
+        Please include the relevant section(s) of your policy file.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen
+  - type: textarea
+    id: other
+    attributes:
+      label: Anything else?
+      description: |
+        Add any other context about the problem here.  You can attach screenshots by clicking
+        this area to highlight it and then drag the files in, or just paste the image from
+        the clipboard to upload it.
