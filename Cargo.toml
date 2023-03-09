@@ -14,5 +14,5 @@ resolver = "2"
 
 [profile.release]
 opt-level = 3
-# debug = 2
+debug = 1 # include line tables for more meaningful backtraces
 
