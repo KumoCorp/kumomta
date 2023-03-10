@@ -94,16 +94,13 @@ TOC = [
                 "guide/index.md",
                 children=[
                     Page("Getting Started","guide/getting_started.md",
-                        children=[
-                            Page("Environmental Considerations","guide/subs/environment_consideration.md"),
-                        ]
-                    ),
+                    Page("Environmental Considerations","guide/subs/environment_consideration.md"),
+                    Page("System Preparation","guide/subs/system_preparation.md"),
                     Page("Installing for Development","guide/subs/install_for_development.md"),
                     Page("Installing for Production","guide/subs/install_for_production_use.md"),
                     Page("Special instructions for CentOS7 users","guide/subs/special_for_centos7.md"),
                     Page("Your First Email","guide/subs/your_first_email.md"),
                     Page("Beyond Basics","guide/beyond_basics.md"),
-                    Page("Securing It","guide/securing_it.md",
                         children=[
                             Page("Configuring DKIM","guide/subs/dkim.md"),
                             Page("Configuring TLS","guide/subs/tls.md"),
