@@ -99,7 +99,7 @@ net.ipv4.ip_local_port_range = 5000 63000
 net.ipv4.tcp_tw_reuse = 1
 kernel.shmmax = 68719476736
 net.core.somaxconn = 1024
-vm.nr_hugepages = 102400
+vm.nr_hugepages = 20
 kernel.shmmni = 4096
 " >> /etc/sysctl.conf
 
