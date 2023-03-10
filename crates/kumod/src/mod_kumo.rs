@@ -10,6 +10,7 @@ use config::{any_err, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 use serde::Deserialize;
+use spool::rocks::RocksSpoolParams;
 use std::path::PathBuf;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -149,6 +150,8 @@ pub struct DefineSpoolParams {
     pub kind: SpoolKind,
     #[serde(default)]
     pub flush: bool,
+    #[serde(default)]
+    pub rocks_params: Option<RocksSpoolParams>,
 }
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {

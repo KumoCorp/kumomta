@@ -3257,6 +3257,7 @@ dependencies = [
  "mac_address",
  "once_cell",
  "rocksdb",
+ "serde",
  "tempfile",
  "tokio",
  "uuid",

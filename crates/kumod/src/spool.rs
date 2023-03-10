@@ -84,7 +84,7 @@ impl SpoolManager {
                             .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
                     SpoolKind::RocksDB => Arc::new(
-                        RocksSpool::new(&params.path, params.flush)
+                        RocksSpool::new(&params.path, params.flush, params.rocks_params)
                             .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
                 },

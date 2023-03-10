@@ -1,19 +1,137 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
-use rocksdb::{IteratorMode, Options, DB};
+use rocksdb::{DBCompressionType, IteratorMode, LogLevel, Options, DB};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RocksSpoolParams {
+    pub increase_parallelism: Option<i32>,
+
+    pub optimize_level_style_compaction: Option<usize>,
+    pub optimize_universal_style_compaction: Option<usize>,
+    #[serde(default)]
+    pub paranoid_checks: bool,
+    #[serde(default)]
+    pub compression_type: DBCompressionTypeDef,
+
+    /// If non-zero, we perform bigger reads when doing compaction. If you’re running RocksDB on
+    /// spinning disks, you should set this to at least 2MB. That way RocksDB’s compaction is doing
+    /// sequential instead of random reads
+    pub compaction_readahead_size: Option<usize>,
+
+    #[serde(default)]
+    pub level_compaction_dynamic_level_bytes: bool,
+
+    #[serde(default)]
+    pub max_open_files: Option<usize>,
+
+    #[serde(default)]
+    pub log_level: LogLevelDef,
+
+    /// See:
+    /// <https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_memtable_huge_page_size>
+    #[serde(default)]
+    pub memtable_huge_page_size: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum DBCompressionTypeDef {
+    None,
+    Snappy,
+    Zlib,
+    Bz2,
+    Lz4,
+    Lz4hc,
+    Zstd,
+}
+
+impl Into<DBCompressionType> for DBCompressionTypeDef {
+    fn into(self) -> DBCompressionType {
+        match self {
+            Self::None => DBCompressionType::None,
+            Self::Snappy => DBCompressionType::Snappy,
+            Self::Zlib => DBCompressionType::Zlib,
+            Self::Bz2 => DBCompressionType::Bz2,
+            Self::Lz4 => DBCompressionType::Lz4,
+            Self::Lz4hc => DBCompressionType::Lz4hc,
+            Self::Zstd => DBCompressionType::Zstd,
+        }
+    }
+}
+
+impl Default for DBCompressionTypeDef {
+    fn default() -> Self {
+        Self::Snappy
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum LogLevelDef {
+    Debug,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+    Header,
+}
+
+impl Default for LogLevelDef {
+    fn default() -> Self {
+        Self::Info
+    }
+}
+
+impl Into<LogLevel> for LogLevelDef {
+    fn into(self) -> LogLevel {
+        match self {
+            Self::Debug => LogLevel::Debug,
+            Self::Info => LogLevel::Info,
+            Self::Warn => LogLevel::Warn,
+            Self::Error => LogLevel::Error,
+            Self::Fatal => LogLevel::Fatal,
+            Self::Header => LogLevel::Header,
+        }
+    }
+}
 
 pub struct RocksSpool {
     db: Arc<DB>,
 }
 
 impl RocksSpool {
-    pub fn new(path: &Path, flush: bool) -> anyhow::Result<Self> {
+    pub fn new(path: &Path, flush: bool, params: Option<RocksSpoolParams>) -> anyhow::Result<Self> {
         let mut opts = Options::default();
         opts.set_use_fsync(flush);
         opts.create_if_missing(true);
+
+        if let Some(p) = params {
+            if let Some(i) = p.increase_parallelism {
+                opts.increase_parallelism(i);
+            }
+            if let Some(i) = p.optimize_level_style_compaction {
+                opts.optimize_level_style_compaction(i);
+            }
+            if let Some(i) = p.optimize_universal_style_compaction {
+                opts.optimize_universal_style_compaction(i);
+            }
+            if let Some(i) = p.compaction_readahead_size {
+                opts.set_compaction_readahead_size(i);
+            }
+            if let Some(i) = p.max_open_files {
+                opts.set_max_open_files(i as _);
+            }
+            if let Some(i) = p.memtable_huge_page_size {
+                opts.set_memtable_huge_page_size(i);
+            }
+            opts.set_paranoid_checks(p.paranoid_checks);
+            opts.set_level_compaction_dynamic_level_bytes(p.level_compaction_dynamic_level_bytes);
+            opts.set_compression_type(p.compression_type.into());
+            opts.set_log_level(p.log_level.into());
+        }
+
         let db = Arc::new(DB::open(&opts, path)?);
 
         Ok(Self { db })
@@ -75,7 +193,7 @@ mod test {
     #[tokio::test]
     async fn rocks_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = RocksSpool::new(&location.path(), false)?;
+        let spool = RocksSpool::new(&location.path(), false, None)?;
 
         {
             let id1 = SpoolId::new();
