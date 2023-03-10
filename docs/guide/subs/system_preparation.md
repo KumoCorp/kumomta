@@ -1,7 +1,7 @@
 # System Preparation
 
 ## Picking the right server size
-Whether you install on bare metal or in a cloud, you will need a minimum of 4Gb RAM, 2 cores and 20Gb Storage.  While it may be possible to use a smaller container for the binary only, You will run into issues with the spool after only a few messages.  You can read more detail on this sizing in the page covering [KumoMTA Environmental Considerations] (https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/environment_consideration.md#kumomta-environmental-considerations)
+Whether you install on bare metal or in a cloud, you will need a minimum of 4Gb RAM, 2 cores and 20Gb Storage.  While it may be possible to use a smaller container for the binary only, You will run into issues with the spool after only a few messages.  You can read more detail on this sizing in the page covering [KumoMTA Environmental Considerations](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/environment_consideration.md#kumomta-environmental-considerations)
 
 A good sized instance for testing features would be 4 cores, 16Gb RAM, 100Gb Storage.  This is the build used for most of the testing shown in this document outside of the performance chart.  In AWS this is an m3.xlarge. In Azure, this is a B4ms.  In GCP, this is an e2-standard-4.
 
