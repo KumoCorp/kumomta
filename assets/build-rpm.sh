@@ -4,6 +4,12 @@ set -e
 TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=format:%Y.%m.%d")}
 HERE=$(pwd)
 
+# If not specified, build the rpm as `kumomta-dev`.
+# When we're building from a tag we'll set 'RPM_NAME=kumomta'
+RPM_NAME=${RPM_NAME:-kumomta-dev}
+CONFLICTS=kumomta
+[[ ${RPM_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
+
 KUMO_RPM_VERSION=$(echo ${TAG_NAME} | tr - _)
 distroid=$(sh -c "source /etc/os-release && echo \$ID" | tr - _)
 distver=$(sh -c "source /etc/os-release && echo \$VERSION_ID" | tr - _)
@@ -13,7 +19,8 @@ spec=$(mktemp)
 trap "rm ${spec}" "EXIT"
 
 cat > $spec <<EOF
-Name: kumomta
+Name: ${RPM_NAME}
+Conflicts: ${CONFLICTS}
 Version: ${KUMO_RPM_VERSION}
 Release: 1.${distroid}${distver}
 Packager: Wez Furlong <wez@wezfurlong.org>
