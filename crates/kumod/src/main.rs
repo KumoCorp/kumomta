@@ -8,9 +8,13 @@ use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::sys::signal::{kill, SIGQUIT};
 use nix::unistd::{Pid, Uid, User};
 use std::path::PathBuf;
+use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 mod cidrset;
 mod egress_path;
@@ -18,6 +22,7 @@ mod egress_source;
 mod http_server;
 mod lifecycle;
 mod logging;
+mod memory;
 mod metrics_helper;
 mod mod_kumo;
 mod mx;
@@ -125,6 +130,7 @@ fn main() -> anyhow::Result<()> {
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .on_thread_park(|| crate::memory::purge_thread_cache())
         .build()
         .unwrap()
         .block_on(async move { run(opts).await })
@@ -170,6 +176,8 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         metrics_tracing_context::TracingContextLayer::all()
             .layer(metrics_prometheus::Recorder::builder().build()),
     ))?;
+
+    crate::memory::setup_memory_limit()?;
 
     for func in [
         crate::mod_kumo::register,

@@ -40,6 +40,7 @@ impl Runtime {
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_io()
                         .enable_time()
+                        .on_thread_park(|| crate::memory::purge_thread_cache())
                         .build()
                         .unwrap();
                     let local_set = LocalSet::new();

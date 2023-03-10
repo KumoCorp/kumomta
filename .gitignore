@@ -12,4 +12,5 @@ dhat-heap.json
 **/*.rs.bk
 .*.sw*
 /perf.data*
+/jeprof*
 .idea/

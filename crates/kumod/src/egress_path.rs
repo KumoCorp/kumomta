@@ -213,12 +213,14 @@ impl EgressPathManager {
                     Ok(async move {
                         let mut shutdown = ShutdownSubcription::get();
                         let mut interval = Duration::from_secs(60);
+                        let mut memory = crate::memory::subscribe_to_memory_status_changes();
                         loop {
                             tokio::select! {
                                 _ = tokio::time::sleep(interval) => {},
                                 _ = shutdown.shutting_down() => {
                                     interval = Duration::from_secs(1);
-                                }
+                                },
+                                _ = memory.changed() => {},
                             };
                             let mut mgr = EgressPathManager::get().await;
                             let path = { mgr.paths.get(&name).cloned() };
@@ -233,6 +235,8 @@ impl EgressPathManager {
                                             &format!("smtp_client:{name}"),
                                         );
                                         break;
+                                    } else if crate::memory::get_headroom() == 0 {
+                                        path.shrink_ready_queue_due_to_low_mem().await;
                                     }
                                 }
                             }
@@ -341,7 +345,9 @@ impl EgressPath {
     }
 
     pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
-        // TODO: shrink if ready size is too large
+        if crate::memory::low_memory() {
+            msg.shrink().ok();
+        }
         self.ready.lock().unwrap().push_back(msg);
         self.notify.notify_waiters();
         self.maintain();
@@ -358,8 +364,37 @@ impl EgressPath {
         if self.activity.is_shutting_down() {
             0
         } else {
-            ideal_connection_count(self.ready_count(), self.path_config.connection_limit)
+            let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
+            if n > 0 && crate::memory::get_headroom() == 0 {
+                n.min(2)
+            } else {
+                n
+            }
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn shrink_ready_queue_due_to_low_mem(&mut self) {
+        let mut ready = self.ready.lock().unwrap();
+        ready.shrink_to_fit();
+        if ready.is_empty() {
+            return;
+        }
+
+        let mut count = 0;
+
+        for msg in ready.iter() {
+            if let Ok(true) = msg.shrink() {
+                count += 1;
+            }
+        }
+
+        tracing::error!(
+            "did shrink {} of out {} msgs in ready queue {} due to memory shortage",
+            count,
+            ready.len(),
+            self.name
+        );
     }
 
     pub fn maintain(&mut self) {

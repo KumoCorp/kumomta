@@ -491,6 +491,10 @@ pub async fn inject_v1(
     // Note: Json<> must be last in the param list
     Json(mut request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
+    if crate::memory::get_headroom() == 0 {
+        // Using too much memory
+        return Err(anyhow::anyhow!("load shedding").into());
+    }
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
     request.normalize();
     let (tx, rx) = tokio::sync::oneshot::channel();

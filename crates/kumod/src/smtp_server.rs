@@ -499,6 +499,16 @@ impl SmtpServer {
             }
             Some(a) => a,
         };
+        if crate::memory::get_headroom() == 0 {
+            // Using too much memory
+            self.write_response(
+                421,
+                format!("{} 4.3.2 load shedding. Try later", self.params.hostname),
+            )
+            .await?;
+            return Ok(());
+        }
+
         if !SpoolManager::get().await.spool_started() {
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.

@@ -39,6 +39,9 @@ lazy_static::lazy_static! {
         "message_data_resident_count",
         "total number of Message objects with body data loaded"
     ).unwrap();
+    /// A shared placeholder representing no data, to avoid having
+    /// two tiny heap allocations for each data payload
+    static ref NO_DATA: Arc<Box<[u8]>> = Arc::new(vec![].into_boxed_slice());
 }
 
 #[derive(Debug)]
@@ -126,7 +129,7 @@ impl Message {
             id,
             inner: Arc::new(Mutex::new(MessageInner {
                 metadata: Some(metadata),
-                data: Arc::new(vec![].into_boxed_slice()),
+                data: NO_DATA.clone(),
                 flags,
                 num_attempts: 0,
                 due: None,
@@ -300,8 +303,9 @@ impl Message {
         &self.id
     }
 
-    pub fn shrink(&self) -> anyhow::Result<()> {
+    pub fn shrink(&self) -> anyhow::Result<bool> {
         let mut inner = self.inner.lock().unwrap();
+        let mut did_shrink = false;
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             anyhow::bail!("Cannot shrink message: DATA_DIRTY");
         }
@@ -310,12 +314,17 @@ impl Message {
         }
         if inner.metadata.take().is_some() {
             META_COUNT.dec();
+            did_shrink = true;
         }
         if !inner.data.is_empty() {
             DATA_COUNT.dec();
+            did_shrink = true;
         }
-        inner.data = Arc::new(vec![].into_boxed_slice());
-        Ok(())
+        if !inner.data.is_empty() {
+            inner.data = NO_DATA.clone();
+            did_shrink = true;
+        }
+        Ok(did_shrink)
     }
 
     pub fn sender(&self) -> anyhow::Result<EnvelopeAddress> {

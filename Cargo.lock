@@ -413,6 +413,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cgroups-rs"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d5761f3a351b92e0e02a31ca418190bb323edb0d4fce0109b6dba673dc3fdc1"
+dependencies = [
+ "libc",
+ "log",
+ "nix 0.25.1",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
 name = "charset"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1597,6 +1610,7 @@ dependencies = [
  "base64 0.13.1",
  "bounce-classify",
  "caps",
+ "cgroups-rs",
  "chrono",
  "cidr",
  "clap",
@@ -1606,6 +1620,7 @@ dependencies = [
  "domain-map",
  "gcd",
  "gethostname 0.4.1",
+ "humansize",
  "humantime-serde",
  "k9",
  "kumo-log-types",
@@ -1638,6 +1653,8 @@ dependencies = [
  "spool",
  "thiserror",
  "throttle",
+ "tikv-jemalloc-sys",
+ "tikv-jemallocator",
  "timeq",
  "tokio",
  "tokio-rustls",
@@ -1708,6 +1725,7 @@ dependencies = [
  "libc",
  "libz-sys",
  "lz4-sys",
+ "tikv-jemalloc-sys",
  "zstd-sys",
 ]
 
@@ -2180,6 +2198,18 @@ dependencies = [
  "cfg-if",
  "libc",
  "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f346ff70e7dbfd675fe90590b92d59ef2de15a8779ae305ebcbfd3f0caf59be4"
+dependencies = [
+ "autocfg",
+ "bitflags",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -3392,6 +3422,26 @@ dependencies = [
  "serde",
  "thiserror",
  "time 0.1.45",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.5.3+5.3.0-patched"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a678df20055b43e57ef8cddde41cdfda9a3c1a060b67f4c5836dfb1d78543ba8"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20612db8a13a6c06d57ec83953694185a367e16945f66565e8028d2c0bd76979"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
