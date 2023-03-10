@@ -51,7 +51,7 @@ impl Spool for RocksSpool {
                 let iter = db.iterator(IteratorMode::Start);
                 for entry in iter {
                     let (key, value) = entry?;
-                    let id = SpoolId::from_ascii_bytes(&key)
+                    let id = SpoolId::from_slice(&key)
                         .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
                     sender
                         .blocking_send(SpoolEntry::Item {

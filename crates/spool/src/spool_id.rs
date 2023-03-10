@@ -48,6 +48,11 @@ impl SpoolId {
         self.0.as_bytes()
     }
 
+    pub fn from_slice(s: &[u8]) -> Option<Self> {
+        let uuid = Uuid::from_slice(s).ok()?;
+        Some(Self(uuid))
+    }
+
     pub fn from_ascii_bytes(s: &[u8]) -> Option<Self> {
         let uuid = Uuid::try_parse_ascii(s).ok()?;
         Some(Self(uuid))
@@ -94,6 +99,15 @@ mod test {
         eprintln!("{id}");
         let path = id.compute_path(Path::new("."));
         let id2 = SpoolId::from_path(&path).unwrap();
+        assert_eq!(id, id2);
+    }
+
+    #[test]
+    fn roundtrip_bytes() {
+        let id = SpoolId::new();
+        eprintln!("{id}");
+        let bytes = id.as_bytes();
+        let id2 = SpoolId::from_slice(bytes.as_slice()).unwrap();
         assert_eq!(id, id2);
     }
 }
