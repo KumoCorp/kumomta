@@ -271,6 +271,7 @@ mod test {
             // Verify that we can enumerate them
             let (tx, mut rx) = tokio::sync::mpsc::channel(32);
             spool.enumerate(tx)?;
+            let mut count = 0;
 
             while let Some(item) = rx.recv().await {
                 match item {
@@ -293,12 +294,15 @@ mod test {
                                 No such file or directory (os error 2)"
                             )
                         );
+                        count += 1;
                     }
                     SpoolEntry::Corrupt { id, error } => {
                         anyhow::bail!("Corrupt: {id}: {error}");
                     }
                 }
             }
+
+            assert_eq!(count, 100);
         }
 
         // Now that we've removed the files, try enumerating again.

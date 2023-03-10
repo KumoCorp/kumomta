@@ -67,3 +67,97 @@ impl Spool for RocksSpool {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn rocks_spool() -> anyhow::Result<()> {
+        let location = tempfile::tempdir()?;
+        let spool = RocksSpool::new(&location.path(), false)?;
+
+        {
+            let id1 = SpoolId::new();
+
+            // Can't load an entry that doesn't exist
+            assert_eq!(
+                format!("{:#}", spool.load(id1).await.unwrap_err()),
+                format!("no such key {id1}")
+            );
+        }
+
+        // Insert some entries
+        let mut ids = vec![];
+        for i in 0..100 {
+            let id = SpoolId::new();
+            spool.store(id, format!("I am {i}").as_bytes()).await?;
+            ids.push(id);
+        }
+
+        // Verify that we can load those entries
+        for (i, &id) in ids.iter().enumerate() {
+            let data = spool.load(id).await?;
+            let text = String::from_utf8(data)?;
+            assert_eq!(text, format!("I am {i}"));
+        }
+
+        {
+            // Verify that we can enumerate them
+            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            spool.enumerate(tx)?;
+            let mut count = 0;
+
+            while let Some(item) = rx.recv().await {
+                match item {
+                    SpoolEntry::Item { id, data } => {
+                        let i = ids
+                            .iter()
+                            .position(|&item| item == id)
+                            .ok_or_else(|| anyhow::anyhow!("{id} not found in ids!"))?;
+
+                        let text = String::from_utf8(data)?;
+                        assert_eq!(text, format!("I am {i}"));
+
+                        spool.remove(id).await?;
+                        // Can't load an entry that we just removed
+                        assert_eq!(
+                            format!("{:#}", spool.load(id).await.unwrap_err()),
+                            format!("no such key {id}")
+                        );
+                        count += 1;
+                    }
+                    SpoolEntry::Corrupt { id, error } => {
+                        anyhow::bail!("Corrupt: {id}: {error}");
+                    }
+                }
+            }
+
+            assert_eq!(count, 100);
+        }
+
+        // Now that we've removed the files, try enumerating again.
+        // We expect to receive no entries.
+        // Do it a couple of times to verify that none of the cleanup
+        // stuff that happens in enumerate breaks the directory
+        // structure
+        for _ in 0..2 {
+            // Verify that we can enumerate them
+            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            spool.enumerate(tx)?;
+            let mut unexpected = vec![];
+
+            while let Some(item) = rx.recv().await {
+                match item {
+                    SpoolEntry::Item { id, .. } | SpoolEntry::Corrupt { id, .. } => {
+                        unexpected.push(id)
+                    }
+                }
+            }
+
+            assert_eq!(unexpected.len(), 0);
+        }
+
+        Ok(())
+    }
+}
