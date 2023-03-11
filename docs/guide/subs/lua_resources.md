@@ -20,7 +20,7 @@ Here is a very (very) simplified primer to help you read the KumoMTA script/conf
 ```
 
 ```admonish danger
-Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  Global variables are dangerous.
+Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  [Global variables are dangerous](http://wiki.c2.com/?GlobalVariablesAreBad).
 ```
 
 ```lua
