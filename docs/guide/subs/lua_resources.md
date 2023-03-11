@@ -19,7 +19,7 @@ Here is a very (very) simplified primer to help you read KumoMTA script/configs.
 --
 ```
 
-```admonish warning
+```admonish danger
 Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  Global variables are dangerous.
 ```
 
