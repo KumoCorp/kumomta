@@ -14,3 +14,4 @@ dhat-heap.json
 /perf.data*
 /jeprof*
 .idea/
+.vscode/
