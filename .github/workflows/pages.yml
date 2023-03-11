@@ -63,6 +63,20 @@ jobs:
         uses: actions/upload-pages-artifact@v1
         with:
           path: gh_pages/html
+      - name: Check for modified files
+        id: git-check
+        run: |
+          echo "modified=$(if git diff-index --quiet HEAD --; then echo 'false'; else echo 'true'; fi)" >> $GITHUB_OUTPUT
+      - name: Push changes
+        if: steps.git-check.outputs.modified == 'true'
+        run: |
+          AUTHOR=$(git show -s --format='%aN')
+          EMAIL=$(git show -s --format='%aE')
+          git config --global user.name "${AUTHOR}"
+          git config --global user.email "${EMAIL}"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git commit -am "Automated doc formatting fix"
+          git push
 
   pages-deploy:
     environment:
