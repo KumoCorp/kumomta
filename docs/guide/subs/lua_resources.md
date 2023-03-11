@@ -6,10 +6,11 @@ Understanding Lua is not absolutely required to deploy and use KumoMTA, but it w
 
 You can find many resources at the [official Lua site](https://www.lua.org/home.html) including on-line documentation and physical reference books.
 
-Here is a very (very) simplified priber to help you read KumoMTA script/configs.
+Here is a very (very) simplified primer to help you read KumoMTA script/configs.
 
 ## Simplified Lua Cheat Sheet
-```
+
+```lua
  -- A single line comment in Lua is 2 dashes (--)
  
 --[[ A multi line comment in Lua 
@@ -18,18 +19,21 @@ Here is a very (very) simplified priber to help you read KumoMTA script/configs.
 ```
 
 Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  Global variables are dangerous.
-```
+
+```lua
 local myvar
 local myvar =  32
 ```
 
 Global variables are implied by excluding the word "local".
-``` 
+
+```lua
 myvar = 32 -- this is a GLOBAL variable
 ```
 
 Lua supports the following relational operators:
-```
+
+```lua
 ==: equality
 ~=: inequality
 <: less than
@@ -39,14 +43,15 @@ Lua supports the following relational operators:
 ```
 
 You can concat strings with two dots surrounded by spaces.  
-``` print("This" .. " is " .. "true.")```
+
+`print("This" .. " is " .. "true.")`
 
 Functions, conditionals and loops alwyas end with "end"
-``` if x==2 then y=6 end```
-```
+
+```lua
+if x==2 then y=6 end
+
 function dostuff (things)
    print(things)
 end
 ```
-
-
