@@ -55,7 +55,7 @@ Functions, conditionals and loops alwyas end with "end"
 
 ```lua
 if x == 2 then 
-   y = 6 
+  y = 6 
 end
 
 function dostuff(things)
