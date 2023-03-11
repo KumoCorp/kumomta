@@ -69,9 +69,7 @@ rustc -V
 
 ```git clone https://github.com/kumomta/kumomta.git```
 
-Enter your credentials and wait...
-
-```bash
+```
 cd kumomta
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
 
