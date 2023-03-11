@@ -36,8 +36,8 @@ myvar = 32 -- this is a GLOBAL variable
 
 Lua supports the following relational operators:
 
+| Symbol | Meaning |
 | == | equality                 |
-| -- | ------------------------ |
 | ~= | inequality               |
 | <  | less than                |
 | >  | greater than             |
