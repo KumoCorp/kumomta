@@ -68,6 +68,7 @@ kernel.shmmni = 4096
 
 ```exit```
 
+### Ubuntu Linux Example
 
 The instructions below are shown for an Ubuntu 22 system but with slight modification, should work for any APT package management system.
 
