@@ -41,20 +41,26 @@ enum DiagnosticFormat {
     Json,
 }
 
+/// KumoMTA Daemon.
+///
+/// Full docs available at: <https://docs.kumomta.com>
 #[derive(Debug, Parser)]
-#[command(about = "kumo mta daemon", version=config::kumo_version())]
+#[command(about, version=config::kumo_version())]
 struct Opt {
-    /// Policy file to load
+    /// Lua policy file to load.
     #[arg(long)]
     policy: PathBuf,
 
     /// Directory where diagnostic log files will be placed.
+    ///
     /// If omitted, diagnostics will be printed to stderr.
     #[arg(long)]
     diag_log_dir: Option<PathBuf>,
 
     /// How diagnostic logs render. full, compact and pretty are intended
-    /// for human consumption. json outputs machine readable records.
+    /// for human consumption.
+    ///
+    /// json outputs machine readable records.
     #[arg(long, default_value = "full")]
     diag_format: DiagnosticFormat,
 
@@ -62,7 +68,11 @@ struct Opt {
     #[arg(long)]
     tokio_console: bool,
 
-    /// If started as root, which user to run as.
+    /// Required if started as root; specifies which user to run as once
+    /// privileges have been dropped.
+    ///
+    /// If you truly wish to run as root,
+    /// start as root and set `--user root` to make it explicit.
     #[arg(long)]
     user: Option<String>,
 }
