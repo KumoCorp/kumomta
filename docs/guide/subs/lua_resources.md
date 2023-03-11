@@ -11,18 +11,19 @@ Here is a very (very) simplified primer to help you read KumoMTA script/configs.
 ## Simplified Lua Cheat Sheet
 
 ```lua
- -- A single line comment in Lua is 2 dashes (--)
- 
+-- A single line comment in Lua is 2 dashes (--)
+
 --[[ A multi line comment in Lua 
      is framed in 2 dashes and 2 square brackets
-     ]]--
+   ]]
+--
 ```
 
 Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  Global variables are dangerous.
 
 ```lua
 local myvar
-local myvar =  32
+local myvar = 32
 ```
 
 Global variables are implied by excluding the word "local".
@@ -45,15 +46,17 @@ Lua supports the following relational operators:
 You can concat strings with two dots surrounded by spaces.  
 
 ```lua
-print("This" .. " is " .. "true.")
+print('This' .. ' is ' .. 'true.')
 ```
 
 Functions, conditionals and loops alwyas end with "end"
 
 ```lua
-if x==2 then y=6 end
+if x == 2 then 
+   y = 6 
+end
 
-function dostuff (things)
+function dostuff(things)
    print(things)
 end
 ```
