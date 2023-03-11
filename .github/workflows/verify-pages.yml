@@ -5,6 +5,12 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/verify-pages.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - ".github/workflows/verify-pages.yml"
 
 jobs:
   verify-pages:
@@ -41,4 +47,4 @@ jobs:
       - name: Build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./docs/build.sh
+        run: CHECK_ONLY=1 ./docs/build.sh
