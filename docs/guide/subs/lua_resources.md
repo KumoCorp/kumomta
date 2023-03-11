@@ -1,19 +1,19 @@
 # Lua Resources
 
-Lua is portugese for moon.  It is also the name of the scripting language we use in KumoMTA.  Because it is a name, Lua is always capitalised.
+Lua is portugese for moon.  It is also the name of the scripting language we use in KumoMTA.  Because it is a name, Lua is always capitalized.
 
-Understanding Lua is not absolutely required to deploy and use KumoMTA, but it will help you leverage the full power of this incredibly flexible system. Lua is fairly easy to learn, is easy to read, and is easy to implement.
+Understanding Lua is not required to deploy and use KumoMTA, but it will help you leverage the full power of this incredibly flexible system. Lua is easy to learn, easy to read, and easy to implement.
 
-You can find many resources at the [official Lua site](https://www.lua.org/home.html) including on-line documentation and physical reference books.
+You can find many resources at the [official Lua [site](https://www.lua.org/home.html) including online documentation and physical reference books.
 
-Here is a very (very) simplified primer to help you read KumoMTA script/configs.
+Here is a very (very) simplified primer to help you read the KumoMTA script/configs.
 
 ## Simplified Lua Cheat Sheet
 
 ```lua
 -- A single line comment in Lua is 2 dashes (--)
 
---[[ A multi line comment in Lua 
+--[[ A multi line comment in Lua
      is framed in 2 dashes and 2 square brackets
    ]]
 --
@@ -45,13 +45,13 @@ Lua supports the following relational operators:
 **>=** greater or equal
 ```
 
-You can concat strings with two dots surrounded by spaces.  
+You can concatenate strings with two dots surrounded by spaces.
 
 ```lua
 print('This' .. ' is ' .. 'true.')
 ```
 
-Functions, conditionals and loops alwyas end with "end"
+Functions, conditionals, and loops always end with "end"
 
 ```lua
 if x == 2 then
