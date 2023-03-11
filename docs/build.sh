@@ -3,7 +3,7 @@ set -e
 
 tracked_markdown=$(mktemp)
 trap "rm ${tracked_markdown}" "EXIT"
-git ls-tree -r HEAD --name-only docs | egrep '\.(markdown|md)$' > $tracked_markdown
+find docs -type f | egrep '\.(markdown|md)$' > $tracked_markdown
 
 for doc_dep in gelatyx mdbook mdbook-linkcheck mdbook-mermaid mdbook-admonish ; do
   if ! hash $doc_dep 2>/dev/null ; then
@@ -12,7 +12,7 @@ for doc_dep in gelatyx mdbook mdbook-linkcheck mdbook-mermaid mdbook-admonish ; 
 done
 
 if test -z "${CHECK_ONLY}" ; then
-  gelatyx --language lua --file-list $tracked_markdown --language-config stylua.toml 
+  gelatyx --language lua --file-list $tracked_markdown --language-config stylua.toml
 fi
 if ! gelatyx --language lua --color always --file-list $tracked_markdown --language-config stylua.toml --check ; then
   echo
