@@ -36,14 +36,13 @@ myvar = 32 -- this is a GLOBAL variable
 
 Lua supports the following relational operators:
 
-```txt
-**==** equality
-**~=** inequality
-**<** less than
-**>** greater than
-**<=** less or equal
-**>=** greater or equal
-```
+| == | equality                 |
+| -- | ------------------------ |
+| ~= | inequality               |
+| <  | less than                |
+| >  | greater than             |
+| <= | less than or equal to    |
+| >= | greater than or equal to |
 
 You can concatenate strings with two dots surrounded by spaces.
 
