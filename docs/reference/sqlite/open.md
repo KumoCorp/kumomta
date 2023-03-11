@@ -64,4 +64,3 @@ sqlite queries are executed via a thread pool so that the query won't
 block important IO scheduling.
 
 Queries and query results are not implicitly cached.
-
