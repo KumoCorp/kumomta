@@ -229,12 +229,12 @@ mod tests {
         let item2 = Arc::new(Entry {
             id: 2,
             value: "bar",
-            delay: Duration::from_millis(10),
+            delay: Duration::from_secs(1),
         });
         let item3 = Arc::new(Entry {
             id: 3,
             value: "baz",
-            delay: Duration::from_millis(5),
+            delay: Duration::from_millis(100),
         });
 
         queue.insert(Arc::clone(&item1)).unwrap();
@@ -263,7 +263,7 @@ mod tests {
 
         // The PopResult::Sleep is approximate and often doesn't
         // quite get us there, so sleep slightly longer
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(Duration::from_millis(100));
 
         match queue.pop() {
             PopResult::Items(items) => assert_eq!(items, vec![item3]),
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(queue.len(), 1);
         assert_eq!(queue.is_empty(), false);
 
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_secs(1));
         match queue.pop() {
             PopResult::Items(items) => assert_eq!(items, vec![item2]),
             _ => unreachable!(),
