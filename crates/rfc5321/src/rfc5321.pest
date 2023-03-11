@@ -58,6 +58,14 @@ esmtp_value = { ( '\u{21}' .. '\u{3c}' | '\u{3e}'..'\u{7e}' )+ }
 
 complete_domain = _{ SOI ~ domain ~ EOI }
 
+hexchar = { "+" ~ hexdig{2} }
+xchar = { '\u{21}'..'\u{2a}' | '\u{2c}'..'\u{3c}' | '\u{3e}'..'\u{7e}' }
+xtext = { ( xchar | hexchar )* }
+mech_char = { 'A'..'Z' | '0'..'9' | "-" | "_" }
+sasl_mech = { mech_char{1,20} }
+initial_response = { base64+ }
+base64 = { 'A'..'Z' | 'a'..'z' | '0'..'9' | "+" | "/" | "=" }
+
 ehlo = { ^"EHLO " ~ ( domain | address_literal ) }
 helo = { ^"HELO " ~ domain }
 data = { ^"DATA" }
@@ -68,5 +76,6 @@ expn = { ^"EXPN " ~ string }
 help = { ^"HELP" ~ (" " ~ string)? }
 noop = { ^"NOOP" ~ (" " ~ string)? }
 starttls = { ^"STARTTLS" }
+auth = { ^"AUTH " ~ sasl_mech ~ (" " ~ initial_response)? }
 
-command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit | starttls ~ EOI }
+command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit | starttls | auth ~ EOI }

@@ -28,6 +28,7 @@ impl Parser {
             Rule::expn => Self::parse_expn(result.into_inner()),
             Rule::help => Self::parse_help(result.into_inner()),
             Rule::noop => Self::parse_noop(result.into_inner()),
+            Rule::auth => Self::parse_auth(result.into_inner()),
             _ => Err(format!("unexpected {result:?}")),
         }
     }
@@ -60,6 +61,16 @@ impl Parser {
     fn parse_noop(mut pairs: Pairs<Rule>) -> Result<Command, String> {
         let param = pairs.next().map(|s| s.as_str().to_string());
         Ok(Command::Noop(param))
+    }
+
+    fn parse_auth(mut pairs: Pairs<Rule>) -> Result<Command, String> {
+        let sasl_mech = pairs.next().map(|s| s.as_str().to_string()).unwrap();
+        let initial_response = pairs.next().map(|s| s.as_str().to_string());
+
+        Ok(Command::Auth {
+            sasl_mech,
+            initial_response,
+        })
     }
 
     fn parse_rcpt(mut pairs: Pairs<Rule>) -> Result<Command, String> {
@@ -348,6 +359,10 @@ pub enum Command {
     Help(Option<String>),
     Noop(Option<String>),
     StartTls,
+    Auth {
+        sasl_mech: String,
+        initial_response: Option<String>,
+    },
 }
 
 impl Command {
@@ -393,6 +408,14 @@ impl Command {
             Self::Help(None) => format!("HELP\r\n"),
             Self::Noop(Some(param)) => format!("NOOP {param}\r\n"),
             Self::Noop(None) => format!("NOOP\r\n"),
+            Self::Auth {
+                sasl_mech,
+                initial_response: None,
+            } => format!("AUTH {sasl_mech}\r\n"),
+            Self::Auth {
+                sasl_mech,
+                initial_response: Some(resp),
+            } => format!("AUTH {sasl_mech} {resp}\r\n"),
         }
     }
 
@@ -407,6 +430,7 @@ impl Command {
             Self::Quit | Self::Vrfy(_) | Self::Expn(_) | Self::Help(_) | Self::Noop(_) => {
                 timeouts.idle_timeout
             }
+            Self::Auth { .. } => timeouts.auth_timeout,
         }
     }
 }
@@ -480,6 +504,24 @@ mod test {
         );
         // Cannot use address literals with HELO
         assert!(Parser::parse_command("HELO [127.0.0.1]").is_err(),);
+    }
+
+    #[test]
+    fn parse_auth() {
+        assert_eq!(
+            Parser::parse_command("AUTH PLAIN dGVzdAB0ZXN0ADEyMzQ=").unwrap(),
+            Command::Auth {
+                sasl_mech: "PLAIN".to_string(),
+                initial_response: Some("dGVzdAB0ZXN0ADEyMzQ=".to_string()),
+            }
+        );
+        assert_eq!(
+            Parser::parse_command("AUTH PLAIN").unwrap(),
+            Command::Auth {
+                sasl_mech: "PLAIN".to_string(),
+                initial_response: None,
+            }
+        );
     }
 
     #[test]

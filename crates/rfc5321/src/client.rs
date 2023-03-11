@@ -94,6 +94,12 @@ pub struct SmtpClientTimeouts {
         with = "humantime_serde"
     )]
     pub starttls_timeout: Duration,
+
+    #[serde(
+        default = "SmtpClientTimeouts::default_auth_timeout",
+        with = "humantime_serde"
+    )]
+    pub auth_timeout: Duration,
 }
 
 impl Default for SmtpClientTimeouts {
@@ -108,12 +114,16 @@ impl Default for SmtpClientTimeouts {
             rset_timeout: Self::default_rset_timeout(),
             idle_timeout: Self::default_idle_timeout(),
             starttls_timeout: Self::default_starttls_timeout(),
+            auth_timeout: Self::default_auth_timeout(),
         }
     }
 }
 
 impl SmtpClientTimeouts {
     fn default_connect_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
+    fn default_auth_timeout() -> Duration {
         Duration::from_secs(60)
     }
     fn default_ehlo_timeout() -> Duration {
@@ -153,6 +163,7 @@ impl SmtpClientTimeouts {
             rset_timeout: short,
             idle_timeout: short,
             starttls_timeout: short,
+            auth_timeout: short,
         }
     }
 }

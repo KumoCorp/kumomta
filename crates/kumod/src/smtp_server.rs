@@ -275,6 +275,8 @@ pub struct SmtpServer {
     params: EsmtpListenerParams,
     shutdown: ShutdownSubcription,
     rcpt_count: usize,
+    authorization_id: Option<String>,
+    authentication_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -323,6 +325,8 @@ impl SmtpServer {
             params,
             shutdown: ShutdownSubcription::get(),
             rcpt_count: 0,
+            authorization_id: None,
+            authentication_id: None,
         };
 
         server.params.connection_gauge().inc();
@@ -417,7 +421,7 @@ impl SmtpServer {
     }
 
     #[instrument(skip(self))]
-    async fn read_line(&mut self) -> anyhow::Result<ReadLine> {
+    async fn read_line(&mut self, override_limit: Option<usize>) -> anyhow::Result<ReadLine> {
         let mut too_long = false;
         tracing::trace!("reading line");
         loop {
@@ -439,7 +443,7 @@ impl SmtpServer {
                 }
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
-            if self.read_buffer.len() > MAX_LINE_LEN {
+            if self.read_buffer.len() > override_limit.unwrap_or(MAX_LINE_LEN) {
                 self.read_buffer.clear();
                 too_long = true;
             }
@@ -471,13 +475,16 @@ impl SmtpServer {
         }
     }
 
-    pub async fn call_callback<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+    pub async fn call_callback<'lua, R, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
         name: S,
         args: A,
-    ) -> anyhow::Result<Result<(), RejectError>> {
+    ) -> anyhow::Result<Result<R, RejectError>>
+    where
+        R: mlua::FromLuaMulti<'lua> + Default,
+    {
         match self.config.async_call_callback(name, args).await {
-            Ok(()) => Ok(Ok(())),
+            Ok(r) => Ok(Ok(r)),
             Err(err) => {
                 if let Some(rej) = RejectError::from_anyhow(&err) {
                     Ok(Err(rej))
@@ -532,7 +539,7 @@ impl SmtpServer {
                 return Ok(());
             }
 
-            let line = match self.read_line().await? {
+            let line = match self.read_line(None).await? {
                 ReadLine::Disconnected => return Ok(()),
                 ReadLine::Line(line) => line,
                 ReadLine::TimedOut => {
@@ -583,11 +590,140 @@ impl SmtpServer {
                     self.socket.replace(socket);
                     self.tls_active = true;
                 }
+                Ok(Command::Auth {
+                    sasl_mech,
+                    initial_response,
+                }) => {
+                    if self.authentication_id.is_some() {
+                        self.write_response(503, "5.5.1 AUTH me once, can't get authed again!")
+                            .await?;
+                        continue;
+                    }
+                    if self.state.is_some() {
+                        self.write_response(503, "5.5.1 AUTH not permitted inside a transaction")
+                            .await?;
+                        continue;
+                    }
+                    if sasl_mech != "PLAIN" {
+                        self.write_response(504, "5.5.4 AUTH {sasl_mech} not supported")
+                            .await?;
+                        continue;
+                    }
+                    if !self.tls_active {
+                        self.write_response(
+                            524,
+                            "5.7.11 AUTH {sasl_mech} requires an encrypted channel",
+                        )
+                        .await?;
+                        continue;
+                    }
+
+                    let response = if let Some(r) = initial_response {
+                        r
+                    } else {
+                        match self.read_line(Some(16384)).await? {
+                            ReadLine::Disconnected => return Ok(()),
+                            ReadLine::Line(line) => line,
+                            ReadLine::TimedOut => {
+                                self.write_response(
+                                    421,
+                                    format!("4.3.2 {} idle too long", self.params.hostname),
+                                )
+                                .await?;
+                                return Ok(());
+                            }
+                            ReadLine::ShuttingDown => {
+                                self.write_response(
+                                    421,
+                                    format!("4.3.2 {} shutting down", self.params.hostname),
+                                )
+                                .await?;
+                                return Ok(());
+                            }
+                            ReadLine::TooLong => {
+                                self.write_response(
+                                    500,
+                                    "5.5.6 authentication exchange line too long",
+                                )
+                                .await?;
+                                continue;
+                            }
+                        }
+                    };
+
+                    if response == "*" {
+                        self.write_response(501, "5.5.0 AUTH cancelled by client")
+                            .await?;
+                        continue;
+                    }
+
+                    match base64::decode(&response) {
+                        Ok(payload) => {
+                            // RFC 4616 says that the message is:
+                            // [authzid] NUL authcid NUL passwd
+                            let fields: Vec<_> = payload.split(|&b| b == 0).collect();
+                            let (authz, authc, pass) = match fields.len() {
+                                3 => (
+                                    std::str::from_utf8(&fields[0]),
+                                    std::str::from_utf8(&fields[1]),
+                                    std::str::from_utf8(&fields[2]),
+                                ),
+                                _ => {
+                                    self.write_response(
+                                        501,
+                                        "5.5.2 Invalid decoded PLAIN response",
+                                    )
+                                    .await?;
+                                    continue;
+                                }
+                            };
+
+                            let (authz, authc, pass) = match (authz, authc, pass) {
+                                (Ok(a), Ok(b), Ok(c)) => (a, b, c),
+                                _ => {
+                                    self.write_response(
+                                        501,
+                                        "5.5.2 Invalid UTF8 in decoded PLAIN response",
+                                    )
+                                    .await?;
+                                    continue;
+                                }
+                            };
+
+                            // If no authorization id was set, assume the same as
+                            // the authenticated id
+                            let authz = if authz.is_empty() { authc } else { authz };
+
+                            match self
+                                .call_callback("smtp_server_auth_plain", (authz, authc, pass))
+                                .await?
+                            {
+                                Err(rej) => {
+                                    self.write_response(rej.code, rej.message).await?;
+                                    continue;
+                                }
+                                Ok(false) => {
+                                    self.write_response(535, "5.7.8 AUTH invalid").await?;
+                                }
+                                Ok(true) => {
+                                    self.authorization_id.replace(authz.to_string());
+                                    self.authentication_id.replace(authc.to_string());
+                                    self.write_response(235, "2.7.0 AUTH OK!").await?;
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            self.write_response(501, "5.5.2 Invalid base64 response")
+                                .await?;
+                            continue;
+                        }
+                    }
+                }
                 Ok(Command::Ehlo(domain)) => {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
-                        .call_callback("smtp_server_ehlo", domain.clone())
+                        .call_callback::<(), _, _>("smtp_server_ehlo", domain.clone())
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -597,6 +733,8 @@ impl SmtpServer {
                     let mut extensions = vec!["PIPELINING", "ENHANCEDSTATUSCODES"];
                     if !self.tls_active {
                         extensions.push("STARTTLS");
+                    } else {
+                        extensions.push("AUTH PLAIN");
                     }
 
                     self.write_response(
@@ -614,7 +752,7 @@ impl SmtpServer {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
-                        .call_callback("smtp_server_ehlo", domain.clone())
+                        .call_callback::<(), _, _>("smtp_server_ehlo", domain.clone())
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -638,7 +776,7 @@ impl SmtpServer {
 
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
-                        .call_callback("smtp_server_mail_from", address.clone())
+                        .call_callback::<(), _, _>("smtp_server_mail_from", address.clone())
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -700,7 +838,7 @@ impl SmtpServer {
                     }
                     self.rcpt_count += 1;
                     if let Err(rej) = self
-                        .call_callback("smtp_server_rcpt_to", address.clone())
+                        .call_callback::<(), _, _>("smtp_server_rcpt_to", address.clone())
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -737,7 +875,7 @@ impl SmtpServer {
                         .await?;
 
                     loop {
-                        let line = match self.read_line().await? {
+                        let line = match self.read_line(None).await? {
                             ReadLine::Disconnected => return Ok(()),
                             ReadLine::Line(line) => line,
                             ReadLine::TooLong => {
@@ -830,8 +968,18 @@ impl SmtpServer {
                             Arc::new(body.into_boxed_slice()),
                         )?;
 
+                        if let Some(authz) = &self.authorization_id {
+                            message.set_meta("authz_id", json!(authz))?;
+                        }
+                        if let Some(authn) = &self.authentication_id {
+                            message.set_meta("authn_id", json!(authn))?;
+                        }
+
                         if let Err(rej) = self
-                            .call_callback("smtp_server_message_received", message.clone())
+                            .call_callback::<(), _, _>(
+                                "smtp_server_message_received",
+                                message.clone(),
+                            )
                             .await?
                         {
                             self.write_response(rej.code, rej.message).await?;

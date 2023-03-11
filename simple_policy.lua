@@ -116,6 +116,7 @@ end)
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
+  -- print(msg:get_meta 'authn_id')
 
   -- Import scheduling information from X-Schedule and
   -- then remove that header from the message
@@ -216,4 +217,12 @@ kumo.on('http_server_validate_auth_basic', function(user, password)
 
   -- or use sqlite
   -- return sqlite_auth_check(user, password)
+end)
+
+-- Use this to lookup and confirm a user/password credential
+-- when the client attempts SMTP AUTH PLAIN
+kumo.on('smtp_server_auth_plain', function(authz, authc, password)
+  return simple_auth_check(authc, password)
+  -- or use sqlite
+  -- return sqlite_auth_check(authc, password)
 end)
