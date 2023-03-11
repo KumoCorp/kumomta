@@ -100,7 +100,7 @@ jobs:
         rpmsign --define '_signature gpg' --define '_gpg_name KumoMTA Signing Key' --addsign *.rpm
         printenv TOKEN > $t
         for rpm in *.rpm ; do
-          curl -X POST https://openrepo.kumomta.com/api/kumomta-rpms/upload/ \
+          curl -X POST https://openrepo.kumomta.com/api/kumomta-centos7-dev/upload/ \
               -H "Authorization: Token $(< $t)" \
               -F "package_file=@$rpm" -i
         done
