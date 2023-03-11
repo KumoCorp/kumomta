@@ -54,11 +54,11 @@ print('This' .. ' is ' .. 'true.')
 Functions, conditionals and loops alwyas end with "end"
 
 ```lua
-if x == 2 then 
-   y = 6 
+if x == 2 then
+  y = 6
 end
 
 function dostuff(things)
-   print(things)
+  print(things)
 end
 ```
