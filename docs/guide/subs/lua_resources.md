@@ -33,9 +33,9 @@ myvar = 32 -- this is a GLOBAL variable
 
 Lua supports the following relational operators:
 
-```lua
-==\: equality
-~=\: inequality
+```txt
+==: equality
+~=: inequality
 <: less than
 >: greater than
 <=: less or equal
@@ -44,7 +44,9 @@ Lua supports the following relational operators:
 
 You can concat strings with two dots surrounded by spaces.  
 
-`print("This" .. " is " .. "true.")`
+```lua
+print("This" .. " is " .. "true.")
+```
 
 Functions, conditionals and loops alwyas end with "end"
 
