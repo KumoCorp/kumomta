@@ -1,0 +1,13 @@
+[kumomta-centos7-dev]
+name=kumomta-centos7-dev
+baseurl=https://openrepo.kumomta.com/kumomta-centos7-dev
+enabled=1
+repo_gpgcheck=1
+gpgkey=https://openrepo.kumomta.com/kumomta-centos7-dev/public.gpg
+
+[kumomta-centos7-stable]
+name=kumomta-centos7-stable
+baseurl=https://openrepo.kumomta.com/kumomta-centos7-stable
+enabled=1
+repo_gpgcheck=1
+gpgkey=https://openrepo.kumomta.com/kumomta-centos7-stable/public.gpg
