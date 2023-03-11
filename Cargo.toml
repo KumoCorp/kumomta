@@ -9,6 +9,7 @@ members = [
   "crates/timeq",
   "crates/throttle",
   "crates/traffic-gen",
+  "crates/version-info",
 ]
 resolver = "2"
 

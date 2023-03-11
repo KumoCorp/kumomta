@@ -269,13 +269,3 @@ pub fn get_or_create_sub_module<'lua>(
 pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
     mlua::Error::external(format!("{err:#}"))
 }
-
-pub fn kumo_version() -> &'static str {
-    // See build.rs
-    env!("KUMO_CI_TAG")
-}
-
-pub fn kumo_target_triple() -> &'static str {
-    // See build.rs
-    env!("KUMO_TARGET_TRIPLE")
-}

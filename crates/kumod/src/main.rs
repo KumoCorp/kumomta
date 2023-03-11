@@ -45,7 +45,7 @@ enum DiagnosticFormat {
 ///
 /// Full docs available at: <https://docs.kumomta.com>
 #[derive(Debug, Parser)]
-#[command(about, version=config::kumo_version())]
+#[command(about, version=version_info::kumo_version())]
 struct Opt {
     /// Lua policy file to load.
     #[arg(long)]

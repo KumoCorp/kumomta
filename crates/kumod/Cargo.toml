@@ -64,6 +64,7 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
 trust-dns-resolver = "0.22"
+version-info = {path="../version-info"}
 webpki-roots = "0.22"
 zstd = "0.12"
 
