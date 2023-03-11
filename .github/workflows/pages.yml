@@ -77,7 +77,7 @@ jobs:
           git config --global user.email "${EMAIL}"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git commit -am "Automated doc formatting fix"
-          echo "hash=$(git rev-parse HEAD)"
+          echo "hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           git push
       - name: Create commit comment
         if: steps.git-check.outputs.modified == 'true'
