@@ -68,6 +68,7 @@ jobs:
         run: |
           echo "modified=$(if git diff-index --quiet HEAD --; then echo 'false'; else echo 'true'; fi)" >> $GITHUB_OUTPUT
       - name: Push changes
+        id: git-push
         if: steps.git-check.outputs.modified == 'true'
         run: |
           AUTHOR=$(git show -s --format='%aN')
@@ -76,7 +77,16 @@ jobs:
           git config --global user.email "${EMAIL}"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git commit -am "Automated doc formatting fix"
+          echo "hash=$(git rev-parse HEAD)"
           git push
+      - name: Create commit comment
+        if: steps.git-check.outputs.modified == 'true'
+        uses: peter-evans/commit-comment@v2
+        with:
+          body: |
+            This commit had uncommitted doc formatting changes.
+
+            These have been automatically applied in ${{ steps.git-push.outputs.hash }}
 
   pages-deploy:
     environment:
