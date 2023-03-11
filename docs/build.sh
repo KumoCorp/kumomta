@@ -14,7 +14,7 @@ done
 if test -z "${CHECK_ONLY}" ; then
   gelatyx --language lua --file-list $tracked_markdown --language-config stylua.toml 
 fi
-if ! gelatyx --language lua --file-list $tracked_markdown --language-config stylua.toml --check ; then
+if ! gelatyx --language lua --color always --file-list $tracked_markdown --language-config stylua.toml --check ; then
   echo
   echo "Be sure to run ./docs/build.sh to apply formatting before you push changes."
   echo
