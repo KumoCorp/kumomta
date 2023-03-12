@@ -86,9 +86,8 @@ sudo systemctl enable chrony
 sudo apt-get install -y make gcc firewalld sysstat
 ```
 
-```admonish
-The following commands must be executed as the root user
-```
+!!! note
+    The following commands must be executed as the root user
 
 ```bash
 # RUN AS ROOT

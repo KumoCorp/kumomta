@@ -19,9 +19,13 @@ Here is a very (very) simplified primer to help you read the KumoMTA script/conf
 --
 ```
 
-```admonish danger
-Variables should always be declared as "local" unless you fully understand the affects of setting a global variable.  [Global variables are dangerous](http://wiki.c2.com/?GlobalVariablesAreBad).
-```
+!!! danger
+    In KumoMTA, variables should always be declared as "local" unless you intend
+    for the value to be constant for the life of the program.
+    The concurrency model used by KumoMTA means that global variables
+    can be shared in unpredictable ways. If you need to share values that
+    change across the life of the program, you should use a data store
+    such as [sqlite](../../../reference/sqlite) or [redis](../../../reference/redis).
 
 ```lua
 local myvar

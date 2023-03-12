@@ -47,10 +47,9 @@ expansion.
 Alternatively the content can be specified as a JSON object as
 demonstrated below.
 
-```admonish
-Comments are used inline in the JSON objects on this page for the purposes of
-exposition in these docs, but comments are not valid in the actual request.
-```
+!!! note
+    Comments are used inline in the JSON objects on this page for the purposes of
+    exposition in these docs, but comments are not valid in the actual request.
 
 ```json
 {
@@ -165,10 +164,9 @@ For each recipient, the set of variables pre-defined in the template are:
 * The recipient `name` and `email` fields are assigned to the `"name"` and
   `"email"` variables respectively.
 
-```admonish
-Both sets of *substitutions* can use any JSON value for the values of
-the variables; they don't have to be strings.
-```
+!!! note
+    Both sets of *substitutions* can use any JSON value for the values of
+    the variables; they don't have to be strings.
 
 A very basic example of using templating:
 

@@ -12,9 +12,10 @@ Before submitting a bug report, please try and verify that what you're encounter
 
 If you think you have found a previously unreported bug, open a new issue in the KumoMTA issue tracker at [https://github.com/kumomta/kumomta/issues](https://github.com/kumomta/kumomta/issues).
 
-```admonish
-The Issue tracker is not a support channel. Any issues submitted that are questions and not bug reports will be summarily closed. See below for information on getting help.
-```
+!!! note
+    The Issue tracker is not a support channel. Any issues submitted that are
+    questions and not bug reports will be summarily closed. See below for
+    information on getting help.
 
 If you submit an issue, please keep the following in mind:
 

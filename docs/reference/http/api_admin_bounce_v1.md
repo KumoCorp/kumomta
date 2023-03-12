@@ -4,9 +4,8 @@ Making a POST request to this endpoint allows the system operator
 to administratively bounce messages that match certain criteria,
 or if no criteria are provided, ALL messages.
 
-```admonish danger
-There is no way to undo the actions carried out by this request!
-```
+!!! danger
+    There is no way to undo the actions carried out by this request!
 
 The body of the post request must be a JSON object; here's an example:
 
@@ -42,12 +41,11 @@ If omitted, any campaign will match.
 Optional string. The tenant to match.
 If omitted, any tenant will match.
 
-```admonish danger
-If you specify none of `domain`, `campaign` or `tenant`, then
-*ALL* queues will be bounced.
+!!! danger
+    If you specify none of `domain`, `campaign` or `tenant`, then
+    *ALL* queues will be bounced.
 
-With great power, comes great responsibility!
-```
+    With great power, comes great responsibility!
 
 ## reason
 

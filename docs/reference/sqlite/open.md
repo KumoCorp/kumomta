@@ -9,11 +9,10 @@ The default is 500ms.
 The returned connection object has a single method, `execute` which can
 be used to execute a query.
 
-```admonish
-when using the special path `:memory:`, sqlite will create an in-memory
-database which is great for this contrived example, but not a great
-deal of use in a real worl usage inside KumoMTA.
-```
+!!! note
+    when using the special path `:memory:`, sqlite will create an in-memory
+    database which is great for this contrived example, but not a great
+    deal of use in a real worl usage inside KumoMTA.
 
 ```lua
 local sqlite = require 'sqlite'

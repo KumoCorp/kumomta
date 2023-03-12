@@ -1,8 +1,7 @@
 # `kumo.on('get_queue_config', function(domain, tenant, campaign))`
 
-```admonish
-This event handler is in flux and may change significantly
-```
+!!! note
+    This event handler is in flux and may change significantly
 
 Not the final form of this API, but this is currently how
 we retrieve configuration used for managing a queue.

@@ -75,10 +75,9 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
 end)
 ```
 
-```admonish
-Maildir support is present primarily for functional validation
-rather than being present as a first class delivery mechanism.
-```
+!!! note
+    Maildir support is present primarily for functional validation
+    rather than being present as a first class delivery mechanism.
 
 Failures to write to the maildir will cause the message to be delayed and
 retried approximately 1 minute later.  The normal message retry schedule does
