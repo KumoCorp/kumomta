@@ -18,32 +18,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Install mdBook
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: mdbook
-          features: search
-          args: --locked
-      - name: Install mdBook-linkcheck
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: mdbook-linkcheck
-          args: --locked
-      - name: Install mdBook-mermaid
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: mdbook-mermaid
-          args: --locked
-      - name: Install mdBook-admonish
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: mdbook-admonish
-          args: --locked
       - name: Install gelatyx
         uses: baptiste0928/cargo-install@v1
         with:
           crate: gelatyx
           args: --locked
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
+      - uses: actions/cache@v2
+        with:
+          key: ${{ github.ref }}
+          path: .cache
       - name: Build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
