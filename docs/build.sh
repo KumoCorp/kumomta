@@ -32,6 +32,8 @@ python3 docs/generate-toc.py $mode || exit 1
 
 case $mode in
   mkdocs)
+    # Adjust path to pick up pip-installed binaries
+    PATH="$HOME/.local/bin;$PATH"
     if ! hash mkdocs 2>/dev/null ; then
       pip install mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin black
     fi
