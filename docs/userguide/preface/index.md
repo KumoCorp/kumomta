@@ -4,13 +4,12 @@ This is the Documentation for the KumoMTA Message Transfer Agent.
 
 ## Legal Notices
 
-Copyright 2023 KumoMTA Corporation
+KumoMTA and this documentation are Copyright 2023 Wez Furlong.
+Both are licensed under the Apache License, Version 2.0 (the "License");
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-> [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2)
+Full [Copyright](https://github.com/kumomta/kumomta/blob/main/COPYRIGHT) and
+[License](https://github.com/kumomta/kumomta/blob/main/LICENSE) information can
+be found in the [KumoMTA repository](https://github.com/kumomta/kumomta).
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
