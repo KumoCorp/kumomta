@@ -12,17 +12,14 @@ If you have questions about using KumoMTA, community support is available in the
 
 This manual uses certain typographical conventions:
 
-```admonish
-This is a noteworthy section
-```
+!!! note
+    This is a noteworthy section
 
-```admonish warning
-This indicates a warning
-```
+!!! warning
+    This indicates a warning
 
-```admonish danger
-This indicates something that can have dangerous consequences
-```
+!!! danger
+    This indicates something that can have dangerous consequences
 
 `Text in this style` indicates input that you type in examples.
 

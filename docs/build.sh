@@ -1,11 +1,18 @@
 #!/bin/bash
 set -e
+set -x
 
 tracked_markdown=$(mktemp)
 trap "rm ${tracked_markdown}" "EXIT"
 find docs -type f | egrep '\.(markdown|md)$' > $tracked_markdown
 
-for doc_dep in gelatyx mdbook mdbook-linkcheck mdbook-mermaid mdbook-admonish ; do
+mode=mkdocs
+
+cargo_deps=gelatyx
+if [ $mode == "mdbook" ]; then
+  cargo_deps="$cargo_deps mdbook mdbook-linkcheck mdbook-mermaid mdbook-admonish"
+fi
+for doc_dep in $cargo_deps ; do
   if ! hash $doc_dep 2>/dev/null ; then
     cargo install $doc_dep --locked
   fi
@@ -21,10 +28,22 @@ if ! gelatyx --language lua --color always --file-list $tracked_markdown --langu
   exit 1
 fi
 
-set -x
+python3 docs/generate-toc.py $mode || exit 1
 
-python3 docs/generate-toc.py || exit 1
-
-mdbook-mermaid install docs
-mdbook build docs
+case $mode in
+  mkdocs)
+    if ! hash mkdocs 2>/dev/null ; then
+      pip install mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin
+    fi
+    mkdocs build
+    # Cleanup some stuff handled by generate-toc.py that we want to exclude
+    # from the default list of stuff copied into the generated site
+    shopt -s globstar
+    rm -rf gh_pages/SUMMARY gh_pages/**/_index
+    ;;
+  mdbook)
+    mdbook-mermaid install docs
+    mdbook build docs
+    ;;
+esac
 
