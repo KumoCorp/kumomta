@@ -30,6 +30,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+        with:
+          # Need full history for the last change date to work
+          # correctly in mkdocs
+          fetch-depth: 0
       - name: Install gelatyx
         uses: baptiste0928/cargo-install@v1
         with:
