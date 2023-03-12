@@ -78,56 +78,56 @@ class Gen(object):
 
 TOC = [
     Page(
-        "General Information",
+        "Tutorial",
         None,
         children=[
-            Page("Preface and Legal Notices", "preface/index.md"),
-            Page("About This Manual", "general/about.md"),
-            Page("How to Report Bugs or Get Help", "general/report.md"),
-            Page("Credits", "general/credits.md"),
-            Page("History", "overview/history.md"),
-            Page("Architecture", "overview/architecture.md"),
+            Page("Getting Started", "tutorial/getting_started.md"),
+            Page(
+                "Environmental Considerations",
+                "tutorial/subs/environment_consideration.md",
+            ),
+            Page("System Preparation", "tutorial/subs/system_preparation.md"),
+            Page(
+                "Installing for Development",
+                "tutorial/subs/install_for_development.md",
+            ),
+            Page(
+                "Installing for Production",
+                "tutorial/subs/install_for_production_use.md",
+            ),
+            Page(
+                "Special instructions for CentOS7 users",
+                "tutorial/subs/special_for_centos7.md",
+            ),
+            Page("Your First Email", "tutorial/subs/your_first_email.md"),
+            Page(
+                "Beyond Basics",
+                "tutorial/beyond_basics.md",
+                children=[
+                    Page("Configuring DKIM", "tutorial/subs/dkim.md"),
+                    Page("Configuring TLS", "tutorial/subs/tls.md"),
+                ],
+            ),
+            Page(
+                "Advanced Configurations",
+                "tutorial/advanced_config.md",
+                children=[
+                    Page("Lua Resources", "tutorial/subs/lua_resources.md"),
+                    Page("Lua Functions", "tutorial/subs/lua_functions.md"),
+                ],
+            ),
         ],
     ),
     Page(
         "User Guide",
         None,
         children=[
-            Page("Getting Started", "guide/getting_started.md"),
-            Page(
-                "Environmental Considerations",
-                "guide/subs/environment_consideration.md",
-            ),
-            Page("System Preparation", "guide/subs/system_preparation.md"),
-            Page(
-                "Installing for Development",
-                "guide/subs/install_for_development.md",
-            ),
-            Page(
-                "Installing for Production",
-                "guide/subs/install_for_production_use.md",
-            ),
-            Page(
-                "Special instructions for CentOS7 users",
-                "guide/subs/special_for_centos7.md",
-            ),
-            Page("Your First Email", "guide/subs/your_first_email.md"),
-            Page(
-                "Beyond Basics",
-                "guide/beyond_basics.md",
-                children=[
-                    Page("Configuring DKIM", "guide/subs/dkim.md"),
-                    Page("Configuring TLS", "guide/subs/tls.md"),
-                ],
-            ),
-            Page(
-                "Advanced Configurations",
-                "guide/advanced_config.md",
-                children=[
-                    Page("Lua Resources", "guide/subs/lua_resources.md"),
-                    Page("Lua Functions", "guide/subs/lua_functions.md"),
-                ],
-            ),
+            Page("Preface and Legal Notices", "userguide/preface/index.md"),
+            Page("About This Manual", "userguide/general/about.md"),
+            Page("How to Report Bugs or Get Help", "userguide/general/report.md"),
+            Page("Credits", "userguide/general/credits.md"),
+            Page("History", "userguide/overview/history.md"),
+            Page("Architecture", "userguide/overview/architecture.md"),
         ],
     ),
     Page(
