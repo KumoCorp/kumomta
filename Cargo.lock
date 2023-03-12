@@ -901,6 +901,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dns-resolver"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kumo-log-types",
+ "lazy_static",
+ "lruttl",
+ "tracing",
+ "trust-dns-resolver",
+]
+
+[[package]]
 name = "domain-map"
 version = "0.1.0"
 dependencies = [
@@ -1633,6 +1645,7 @@ dependencies = [
  "config",
  "console-subscriber",
  "data-loader",
+ "dns-resolver",
  "domain-map",
  "gcd",
  "gethostname 0.4.1",
@@ -1677,7 +1690,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "trust-dns-resolver",
  "version-info",
  "webpki-roots",
  "zstd 0.12.3+zstd.1.5.2",

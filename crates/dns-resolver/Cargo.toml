@@ -1,0 +1,14 @@
+[package]
+name = "dns-resolver"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+kumo-log-types = {path="../kumo-log-types"}
+lazy_static = "1.4"
+lruttl = {path="../lruttl"}
+tracing = "0.1"
+trust-dns-resolver = "0.22"
