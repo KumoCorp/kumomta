@@ -1,39 +1,19 @@
-use bitstring::BitString;
-use bitstring_trees::set::{InnerNode, Node, RadixSet};
+use crate::map::CidrMap;
 pub use cidr::{AnyIpCidr, IpCidr};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(from = "Vec<AnyIpCidr>", into = "Vec<AnyIpCidr>")]
-pub struct CidrSet(RadixSet<AnyIpCidr>);
+pub struct CidrSet(CidrMap<()>);
 
 impl CidrSet {
     pub fn new() -> Self {
-        Self(RadixSet::new())
+        Self::default()
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
-        let key: AnyIpCidr = IpCidr::new_host(ip).into();
-        match self.0.root() {
-            Some(node) => Self::find_item(node, key),
-            None => false,
-        }
-    }
-
-    fn find_item(node: &Node<AnyIpCidr>, ip: AnyIpCidr) -> bool {
-        match node {
-            Node::Leaf(leaf) => leaf.key().contains(&ip.first_address().unwrap()),
-            Node::InnerNode(inner) => Self::find_item(Self::pick_side(inner, ip), ip),
-        }
-    }
-
-    fn pick_side<'a>(inner: &'a InnerNode<AnyIpCidr>, subkey: AnyIpCidr) -> &'a Node<AnyIpCidr> {
-        if subkey.get(inner.key().len()) {
-            inner.right()
-        } else {
-            inner.left()
-        }
+        self.0.contains(ip)
     }
 }
 
@@ -46,7 +26,7 @@ impl<T: Ord + Into<AnyIpCidr>, const N: usize> From<[T; N]> for CidrSet {
 
         // use stable sort to preserve the insertion order.
         arr.sort();
-        let iter = IntoIterator::into_iter(arr).map(|k| k.into());
+        let iter = IntoIterator::into_iter(arr); //.map(|k| k.into());
         iter.collect()
     }
 }
@@ -56,9 +36,9 @@ where
     S: Into<AnyIpCidr>,
 {
     fn from_iter<I: IntoIterator<Item = S>>(iter: I) -> Self {
-        let mut set = RadixSet::new();
+        let mut set = CidrMap::new();
         for entry in iter {
-            set.insert(entry.into());
+            set.insert(entry.into(), ());
         }
         Self(set)
     }
@@ -73,8 +53,8 @@ impl From<Vec<AnyIpCidr>> for CidrSet {
 impl Into<Vec<AnyIpCidr>> for CidrSet {
     fn into(self) -> Vec<AnyIpCidr> {
         let mut result = vec![];
-        for entry in self.0.iter() {
-            result.push(entry.clone());
+        for (key, _unit) in self.0.iter() {
+            result.push(key.clone());
         }
         result
     }

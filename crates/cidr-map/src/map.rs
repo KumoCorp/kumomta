@@ -1,0 +1,650 @@
+// The heart of this CidrMap implementation is derived from rust-bitstring-trees
+// which is Copyright (c) 2017 Stefan Bühler and used here under the terms
+// of its MIT License.
+// The modifications made here are to remove the use of unsafe code and to
+// expose the ability to search, rather than simply iterate, the underlying
+// radix tree.
+use bitstring::BitString;
+pub use cidr::{AnyIpCidr, IpCidr};
+use std::net::IpAddr;
+
+#[derive(Debug, Clone)]
+pub struct CidrMap<V>
+where
+    V: Clone,
+{
+    root: Option<Node<V>>,
+}
+
+/// Nodes of a CidrMap can be either an InnerNode (with two children)
+/// or a leaf node.
+#[derive(Debug, Clone)]
+pub enum Node<V>
+where
+    V: Clone,
+{
+    /// Inner node
+    InnerNode(InnerNode<V>),
+    /// Leaf node
+    Leaf(Leaf<V>),
+}
+
+/// Leaf nodes represent prefixes part of the set
+#[derive(Clone, Debug)]
+pub struct Leaf<V>
+where
+    V: Clone,
+{
+    pub key: AnyIpCidr,
+    pub value: V,
+}
+
+/// Inner node with two direct children.
+#[derive(Clone, Debug)]
+pub struct InnerNode<V>
+where
+    V: Clone,
+{
+    key: AnyIpCidr,
+    children: Box<Children<V>>,
+}
+
+#[derive(Clone, Debug)]
+struct Children<V>
+where
+    V: Clone,
+{
+    left: Node<V>,
+    right: Node<V>,
+}
+
+impl<V> InnerNode<V>
+where
+    V: Clone,
+{
+    pub fn key(&self) -> &AnyIpCidr {
+        &self.key
+    }
+
+    pub fn pick_side<'a>(&'a self, subkey: &AnyIpCidr) -> &'a Node<V> {
+        if subkey.get(self.key.len()) {
+            &self.children.right
+        } else {
+            &self.children.left
+        }
+    }
+
+    pub fn pick_side_mut<'a>(&'a mut self, subkey: &AnyIpCidr) -> &'a mut Node<V> {
+        if subkey.get(self.key.len()) {
+            &mut self.children.right
+        } else {
+            &mut self.children.left
+        }
+    }
+
+    pub fn left(&self) -> &Node<V> {
+        &self.children.left
+    }
+
+    pub fn right(&self) -> &Node<V> {
+        &self.children.right
+    }
+}
+
+impl<V> Node<V>
+where
+    V: Clone,
+{
+    fn new_leaf(key: AnyIpCidr, value: V) -> Self {
+        Self::Leaf(Leaf { key, value })
+    }
+
+    fn new_children_unknown_order(
+        shared_prefix_len: usize,
+        a: Node<V>,
+        b: Node<V>,
+    ) -> Box<Children<V>> {
+        let a_right = a.key().get(shared_prefix_len);
+        assert_eq!(!a_right, b.key().get(shared_prefix_len));
+        if a_right {
+            Box::new(Children { left: b, right: a })
+        } else {
+            Box::new(Children { left: a, right: b })
+        }
+    }
+
+    fn new_inner_unknown_order(shared_prefix_len: usize, a: Node<V>, b: Node<V>) -> Node<V> {
+        let mut key = a.key().clone();
+        key.clip(shared_prefix_len);
+        Node::InnerNode(InnerNode {
+            key,
+            children: Self::new_children_unknown_order(shared_prefix_len, a, b),
+        })
+    }
+
+    /// The longest shared prefix of all nodes in this sub tree.
+    pub fn key(&self) -> &AnyIpCidr {
+        match *self {
+            Node::Leaf(ref leaf) => &leaf.key,
+            Node::InnerNode(ref inner) => &inner.key,
+        }
+    }
+
+    fn leaf_ref(&self) -> Option<&Leaf<V>> {
+        match *self {
+            Node::Leaf(ref leaf) => Some(leaf),
+            _ => None,
+        }
+    }
+
+    /// convert self node to leaf with key clipped to key_len and given
+    /// value
+    fn convert_leaf(&mut self, key_len: usize, value: V) {
+        *self = match self {
+            Node::Leaf(leaf) => {
+                let mut leaf = leaf.clone();
+                leaf.key.clip(key_len);
+                leaf.value = value;
+                Node::Leaf(leaf)
+            }
+            Node::InnerNode(inner) => {
+                let mut key = inner.key;
+                key.clip(key_len);
+                Self::new_leaf(key, value)
+            }
+        };
+    }
+
+    fn insert_uncompressed(&mut self, key: AnyIpCidr, value: V)
+    where
+        V: Clone,
+    {
+        let (self_key_len, shared_prefix_len) = {
+            let key_ref = self.key();
+            (key_ref.len(), key_ref.shared_prefix_len(&key))
+        };
+
+        if shared_prefix_len == key.len() {
+            // either key == self.key, or key is a prefix of self.key
+            // => replace subtree
+            self.convert_leaf(shared_prefix_len, value);
+        } else if shared_prefix_len < self_key_len {
+            debug_assert!(shared_prefix_len < key.len());
+            // need to split path to current node; requires new parent
+            *self = Self::new_inner_unknown_order(
+                shared_prefix_len,
+                self.clone(),
+                Self::new_leaf(key, value),
+            );
+        } else {
+            debug_assert!(shared_prefix_len == self_key_len);
+            debug_assert!(shared_prefix_len < key.len());
+            // new key below in tree
+            match *self {
+                Node::Leaf(_) => {
+                    // linear split of path down to leaf
+                    let old_value = self.leaf_ref().unwrap().value.clone();
+                    let mut new_node = Self::new_leaf(key.clone(), value);
+                    for l in (shared_prefix_len..key.len()).rev() {
+                        let mut other_key = key.clone();
+                        other_key.clip(l + 1);
+                        other_key.flip(l);
+                        new_node = Self::new_inner_unknown_order(
+                            l,
+                            new_node,
+                            Self::new_leaf(other_key, old_value.clone()),
+                        );
+                    }
+                    *self = new_node;
+                }
+                Node::InnerNode(ref mut inner) => {
+                    inner.pick_side_mut(&key).insert_uncompressed(key, value);
+                }
+            }
+        }
+    }
+
+    fn insert(&mut self, key: AnyIpCidr, value: V)
+    where
+        V: Clone + Eq,
+    {
+        let (self_key_len, shared_prefix_len) = {
+            let key_ref = self.key();
+            (key_ref.len(), key_ref.shared_prefix_len(&key))
+        };
+
+        if shared_prefix_len == key.len() {
+            // either key == self.key, or key is a prefix of self.key
+            // => replace subtree
+            self.convert_leaf(shared_prefix_len, value);
+        // no need to compress
+        } else if shared_prefix_len < self_key_len {
+            debug_assert!(shared_prefix_len < key.len());
+            if shared_prefix_len + 1 == self_key_len && shared_prefix_len + 1 == key.len() {
+                if let Node::Leaf(ref mut this) = *self {
+                    if this.value == value {
+                        // we'd split this, and compress it below.
+                        // shortcut the allocations here
+                        this.key.clip(shared_prefix_len);
+                        return; // no need split path
+                    }
+                }
+            }
+
+            // need to split path to current node; requires new parent
+            *self = Self::new_inner_unknown_order(
+                shared_prefix_len,
+                self.clone(),
+                Self::new_leaf(key, value),
+            );
+        // no need to compress - shortcut check above would
+        // have found it
+        } else {
+            debug_assert!(shared_prefix_len == self_key_len);
+            debug_assert!(shared_prefix_len < key.len());
+            // new key below in tree
+            match *self {
+                Node::Leaf(_) => {
+                    // linear split of path down to leaf
+                    let new_node = {
+                        let old_value = &self.leaf_ref().unwrap().value;
+                        if *old_value == value {
+                            // below in tree, but same value - nothing new
+                            return;
+                        }
+                        let mut new_node = Self::new_leaf(key.clone(), value);
+                        for l in (shared_prefix_len..key.len()).rev() {
+                            let mut other_key = key.clone();
+                            other_key.clip(l + 1);
+                            other_key.flip(l);
+                            new_node = Self::new_inner_unknown_order(
+                                l,
+                                new_node,
+                                Self::new_leaf(other_key, old_value.clone()),
+                            );
+                        }
+                        new_node
+                    };
+                    *self = new_node;
+                    // we checked value before, nothing to compress
+                    return;
+                }
+                Node::InnerNode(ref mut inner) => {
+                    inner.pick_side_mut(&key).insert(key, value);
+                }
+            }
+            // after recursion check for compression
+            self.compress();
+        }
+    }
+
+    fn compress(&mut self)
+    where
+        V: Eq,
+    {
+        let self_key_len = self.key().len();
+
+        // compress: if node has two children, and both sub keys are
+        // exactly one bit longer than the key of the parent node, and
+        // both child nodes are leafs and share the same value, make the
+        // current node a leaf
+        let compress = match *self {
+            Node::InnerNode(ref inner) => {
+                let left_value = match inner.children.left {
+                    Node::Leaf(ref leaf) if leaf.key.len() == self_key_len + 1 => &leaf.value,
+                    _ => return, // not a leaf or more than one bit longer
+                };
+                let right_value = match inner.children.right {
+                    Node::Leaf(ref leaf) if leaf.key.len() == self_key_len + 1 => &leaf.value,
+                    _ => return, // not a leaf or more than one bit longer
+                };
+                left_value == right_value
+            }
+            Node::Leaf(_) => return, // already compressed
+        };
+        if compress {
+            *self = match self {
+                // move value from left
+                Node::InnerNode(inner) => match &inner.children.left {
+                    Node::Leaf(leaf) => Node::Leaf(Leaf {
+                        key: inner.key.clone(),
+                        value: leaf.value.clone(),
+                    }),
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+        }
+    }
+}
+
+impl<V> Default for CidrMap<V>
+where
+    V: Clone,
+{
+    fn default() -> Self {
+        Self { root: None }
+    }
+}
+
+impl<V> CidrMap<V>
+where
+    V: Clone,
+{
+    pub fn new() -> Self {
+        Self { root: None }
+    }
+
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        self.get_prefix_match(ip).is_some()
+    }
+
+    pub fn get_prefix_match(&self, ip: IpAddr) -> Option<&V> {
+        let key: AnyIpCidr = IpCidr::new_host(ip).into();
+        let node = self.root.as_ref()?;
+        Self::find_item(node, &key)
+    }
+
+    fn find_item<'a>(node: &'a Node<V>, ip: &AnyIpCidr) -> Option<&'a V> {
+        match node {
+            Node::Leaf(leaf) => {
+                if leaf.key.contains(&ip.first_address().unwrap()) {
+                    Some(&leaf.value)
+                } else {
+                    None
+                }
+            }
+            Node::InnerNode(inner) => Self::find_item(inner.pick_side(&ip), ip),
+        }
+    }
+
+    /// Add a new prefix => value mapping.
+    ///
+    /// As values can't be compared for equality it cannot merge
+    /// neighbour prefixes that map to the same value.
+    pub fn insert_uncompressed(&mut self, key: AnyIpCidr, value: V)
+    where
+        V: Clone,
+    {
+        match self.root {
+            None => {
+                self.root = Some(Node::new_leaf(key, value));
+            }
+            Some(ref mut node) => {
+                node.insert_uncompressed(key, value);
+            }
+        }
+    }
+
+    /// Add a new prefix => value mapping.  (Partially) overwrites old
+    /// mappings.
+    pub fn insert(&mut self, key: AnyIpCidr, value: V)
+    where
+        V: Clone + Eq,
+    {
+        match self.root {
+            None => {
+                self.root = Some(Node::new_leaf(key, value));
+            }
+            Some(ref mut node) => {
+                node.insert(key, value);
+            }
+        }
+    }
+
+    /// Read-only access to the tree.
+    ///
+    /// An empty map doesn't have any nodes (i.e. `None`).
+    pub fn root(&self) -> Option<&Node<V>> {
+        self.root.as_ref()
+    }
+
+    /// Iterate over all values in the map
+    pub fn iter(&self) -> Iter<V> {
+        Iter::new(self)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    Left,
+    Right,
+    Up,
+}
+
+/// Iterate over tree
+pub struct Iter<'a, V: 'a>
+where
+    V: Clone,
+{
+    stack: Vec<(Direction, &'a Node<V>)>,
+}
+
+impl<'a, V> Iter<'a, V>
+where
+    V: Clone,
+{
+    /// new iterator
+    pub fn new(tree: &'a CidrMap<V>) -> Self {
+        match tree.root() {
+            None => Iter { stack: Vec::new() },
+            Some(node) => Iter {
+                stack: vec![(Direction::Left, node)],
+            },
+        }
+    }
+}
+
+impl<'a, V> Iterator for Iter<'a, V>
+where
+    V: Clone,
+{
+    type Item = (&'a AnyIpCidr, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.stack.is_empty() {
+            return None;
+        }
+
+        // go up in tree from last visited node
+        while Direction::Up == self.stack[self.stack.len() - 1].0 {
+            if 1 == self.stack.len() {
+                self.stack.clear();
+                return None;
+            }
+
+            self.stack.pop();
+            // stack cannot be empty yet!
+            debug_assert!(!self.stack.is_empty());
+        }
+
+        loop {
+            let top = self.stack.len() - 1;
+            let (dir, node) = self.stack[top];
+
+            debug_assert!(!self.stack.is_empty());
+            // go down in tree to next node
+            match dir {
+                Direction::Left => match *node {
+                    Node::InnerNode(ref inner) => {
+                        self.stack[top].0 = Direction::Right;
+                        self.stack.push((Direction::Left, inner.left()));
+                    }
+                    Node::Leaf(ref leaf) => {
+                        self.stack[top].0 = Direction::Up;
+                        return Some((&leaf.key, &leaf.value));
+                    }
+                },
+                Direction::Right => match *node {
+                    Node::InnerNode(ref inner) => {
+                        self.stack[top].0 = Direction::Up;
+                        self.stack.push((Direction::Left, inner.right()));
+                    }
+                    Node::Leaf(_) => unreachable!(),
+                },
+                Direction::Up => unreachable!(),
+            }
+        }
+    }
+}
+
+impl<S, V: Clone + Eq> FromIterator<(S, V)> for CidrMap<V>
+where
+    S: Into<AnyIpCidr>,
+{
+    fn from_iter<I: IntoIterator<Item = (S, V)>>(iter: I) -> Self {
+        let mut map = CidrMap::new();
+        for (key, value) in iter {
+            map.insert(key.into(), value);
+        }
+        map
+    }
+}
+
+impl<T: Ord + Into<AnyIpCidr>, const N: usize, V: Clone + Ord> From<[(T, V); N]> for CidrMap<V> {
+    /// Converts a `[(T,V); N]` into a `CidrSet`.
+    fn from(mut arr: [(T, V); N]) -> Self {
+        if N == 0 {
+            return CidrMap::new();
+        }
+
+        // use stable sort to preserve the insertion order.
+        arr.sort();
+        let iter = IntoIterator::into_iter(arr).map(|k| k);
+        iter.collect()
+    }
+}
+
+impl<V: Clone> Into<Vec<(AnyIpCidr, V)>> for CidrMap<V> {
+    fn into(self) -> Vec<(AnyIpCidr, V)> {
+        let mut result = vec![];
+        for (key, value) in self.iter() {
+            result.push((key.clone(), value.clone()));
+        }
+        result
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn cidrmap() {
+        let set: CidrMap<&str> = [
+            (AnyIpCidr::from_str("127.0.0.1").unwrap(), "loopbackv4"),
+            (AnyIpCidr::from_str("::1").unwrap(), "loopbackv6"),
+            (AnyIpCidr::from_str("192.168.1.0/24").unwrap(), ".1"),
+            // This entry is overlapped by the preceding entry
+            (AnyIpCidr::from_str("192.168.1.24").unwrap(), ".1"),
+            (AnyIpCidr::from_str("192.168.3.0/28").unwrap(), ".3"),
+            (AnyIpCidr::from_str("192.168.3.2").unwrap(), ".3.split"),
+            (AnyIpCidr::from_str("10.0.3.0/24").unwrap(), "10.3"),
+            (AnyIpCidr::from_str("10.0.4.0/24").unwrap(), "10.4"),
+            (AnyIpCidr::from_str("10.0.7.0/24").unwrap(), "10.7"),
+        ]
+        .into();
+
+        fn get<'a>(set: &'a CidrMap<&str>, key: &str) -> Option<&'a str> {
+            let key = key.parse().unwrap();
+            set.get_prefix_match(key).copied()
+        }
+
+        assert_eq!(get(&set, "127.0.0.1"), Some("loopbackv4"));
+        assert_eq!(get(&set, "127.0.0.2"), None);
+        assert_eq!(get(&set, "::1"), Some("loopbackv6"));
+
+        assert_eq!(get(&set, "192.168.2.1"), None);
+
+        assert_eq!(get(&set, "192.168.1.0"), Some(".1"));
+        assert_eq!(get(&set, "192.168.1.1"), Some(".1"));
+        assert_eq!(get(&set, "192.168.1.100"), Some(".1"));
+        assert_eq!(get(&set, "192.168.1.24"), Some(".1"));
+
+        assert_eq!(get(&set, "192.168.3.0"), Some(".3"));
+        assert_eq!(get(&set, "192.168.3.16"), None);
+        assert_eq!(get(&set, "192.168.3.2"), Some(".3.split"));
+
+        // Note that the snapshot does not contain 192.168.1.24/32; that
+        // overlaps with the broader 192.168.1.0/24 so is "lost"
+        // when extracting the information from the set.
+        // Furthermore, the .3.split value inserted for .3.2
+        // causes more .3 entries to be generated to accomodate the
+        // split in that subnet.
+        let decompose: Vec<(AnyIpCidr, &str)> = set.into();
+        k9::snapshot!(
+            decompose,
+            r#"
+[
+    (
+        V4(
+            10.0.3.0/24,
+        ),
+        "10.3",
+    ),
+    (
+        V4(
+            10.0.4.0/24,
+        ),
+        "10.4",
+    ),
+    (
+        V4(
+            10.0.7.0/24,
+        ),
+        "10.7",
+    ),
+    (
+        V4(
+            127.0.0.1/32,
+        ),
+        "loopbackv4",
+    ),
+    (
+        V4(
+            192.168.1.0/24,
+        ),
+        ".1",
+    ),
+    (
+        V4(
+            192.168.3.0/31,
+        ),
+        ".3",
+    ),
+    (
+        V4(
+            192.168.3.2/32,
+        ),
+        ".3.split",
+    ),
+    (
+        V4(
+            192.168.3.3/32,
+        ),
+        ".3",
+    ),
+    (
+        V4(
+            192.168.3.4/30,
+        ),
+        ".3",
+    ),
+    (
+        V4(
+            192.168.3.8/29,
+        ),
+        ".3",
+    ),
+    (
+        V6(
+            ::1/128,
+        ),
+        "loopbackv6",
+    ),
+]
+"#
+        );
+    }
+}

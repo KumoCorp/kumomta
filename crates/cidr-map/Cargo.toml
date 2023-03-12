@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 bitstring = "0.1"
-bitstring-trees = "0.1"
 cidr = {version="0.2", features=["serde", "bitstring"]}
 serde = {version="1.0", features=["derive"]}
 

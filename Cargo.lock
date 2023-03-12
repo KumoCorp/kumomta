@@ -317,15 +317,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22a39c0db600cfe77ef1b6d9ea71173bdccf190722877969d526d380519b6ecc"
 
 [[package]]
-name = "bitstring-trees"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f819939b1b1a7dff5a92075e27e82e3d8df09492b56143bebe4e41fdf415419"
-dependencies = [
- "bitstring",
-]
-
-[[package]]
 name = "block-buffer"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -504,7 +495,6 @@ name = "cidr-map"
 version = "0.1.0"
 dependencies = [
  "bitstring",
- "bitstring-trees",
  "cidr",
  "k9",
  "serde",
