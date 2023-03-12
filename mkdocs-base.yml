@@ -1,3 +1,4 @@
+copyright: Copyright &copy; 2023 Kumo Corp
 site_name: KumoMTA Docs
 site_url: https://docs.kumomta.com
 site_description: Documentation for KumoMTA
@@ -25,15 +26,16 @@ theme:
         icon: material/weather-night
         name: Switch to light mode
   features:
-    - navigation.indexes
-    - navigation.tabs
-    - toc.follow
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - search.share
     - content.action.edit
     - content.action.view
+    - navigation.footer
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
 plugins:
   - search
   - social
@@ -54,3 +56,8 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kumomta/kumomta
