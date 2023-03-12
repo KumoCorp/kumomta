@@ -40,6 +40,11 @@ plugins:
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago
+  - exclude:
+      glob:
+        - "**/_index.md"
+        - "generate_toc.py"
+        - "build.sh"
 
 markdown_extensions:
   - admonition

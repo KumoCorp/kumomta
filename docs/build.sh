@@ -34,14 +34,8 @@ case $mode in
   mkdocs)
     # Adjust path to pick up pip-installed binaries
     PATH="$HOME/.local/bin;$PATH"
-    if ! hash mkdocs 2>/dev/null ; then
-      pip install mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin black
-    fi
+    pip install --quiet mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin black mkdocs-exclude
     mkdocs build
-    # Cleanup some stuff handled by generate-toc.py that we want to exclude
-    # from the default list of stuff copied into the generated site
-    shopt -s globstar
-    rm -rf gh_pages/SUMMARY gh_pages/**/_index
     # Keep the toc generator formatted
     black docs/generate-toc.py
     ;;
