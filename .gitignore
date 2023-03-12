@@ -7,6 +7,7 @@ dhat-heap.json
 # to git, and instead use _index.md files.
 /docs/reference/**/index.md
 /docs/mermaid.min.js
+/docs/changelog/index.md
 /pkg
 /target/
 /gh_pages/

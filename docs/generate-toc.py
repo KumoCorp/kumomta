@@ -38,14 +38,15 @@ class Page(object):
 class Gen(object):
     """autogenerate an index page from the contents of a directory"""
 
-    def __init__(self, title, dirname, index=None, extract_title=False):
+    def __init__(self, title, dirname, index=None, extract_title=False, reverse=False):
         self.title = title
         self.dirname = dirname
         self.index = index
         self.extract_title = extract_title
+        self.reverse = reverse
 
     def render(self, output, depth=0, mode="mdbook"):
-        names = sorted(glob.glob(f"{self.dirname}/*.md"))
+        names = sorted(glob.glob(f"{self.dirname}/*.md"), reverse=self.reverse)
         children = []
         for filename in names:
             title = os.path.basename(filename).rsplit(".", 1)[0]
@@ -166,13 +167,7 @@ TOC = [
             Gen("HTTP API", "reference/http", extract_title=True),
         ],
     ),
-    Page(
-        "Changelog",
-        "changelog/index.md",
-        children=[
-            Page("Release 2023.03.27 - Beta 1", "changelog/2023.03.27.md"),
-        ],
-    ),
+    Gen("Changelog", "changelog", extract_title=True, reverse=True),
 ]
 
 mode = sys.argv[1]
