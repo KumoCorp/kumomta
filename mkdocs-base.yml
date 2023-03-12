@@ -33,6 +33,7 @@ theme:
     - search.highlight
     - search.share
     - content.action.edit
+    - content.action.view
 plugins:
   - search
   - social
