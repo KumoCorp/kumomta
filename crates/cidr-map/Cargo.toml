@@ -6,5 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cidr = {version="0.2", features=["serde"]}
+bitstring = "0.1"
+bitstring-trees = "0.1"
+cidr = {version="0.2", features=["serde", "bitstring"]}
 serde = {version="1.0", features=["derive"]}
+
+[dev-dependencies]
+k9 = "0.11"

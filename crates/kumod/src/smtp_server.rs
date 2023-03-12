@@ -5,7 +5,7 @@ use crate::runtime::{rt_spawn, spawn_local};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
-use cidr_map::{CidrSet, IpCidr};
+use cidr_map::{AnyIpCidr, CidrSet};
 use config::{load_config, LuaConfig};
 use data_loader::KeySource;
 use domain_map::DomainMap;
@@ -21,6 +21,7 @@ use serde_json::json;
 use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -144,10 +145,11 @@ impl EsmtpListenerParams {
     }
 
     fn default_relay_hosts() -> CidrSet {
-        CidrSet::new(vec![
-            IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
-            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ])
+        [
+            AnyIpCidr::from_str("127.0.0.1").unwrap(),
+            AnyIpCidr::from_str("::1").unwrap(),
+        ]
+        .into()
     }
 
     fn default_listen() -> String {

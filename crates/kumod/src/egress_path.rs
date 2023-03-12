@@ -7,7 +7,7 @@ use crate::queue::{Queue, QueueManager};
 use crate::runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
 use crate::spool::SpoolManager;
 use anyhow::Context;
-use cidr_map::{CidrSet, IpCidr};
+use cidr_map::{AnyIpCidr, CidrSet};
 use config::load_config;
 use kumo_log_types::ResolvedAddress;
 use message::message::QueueNameComponents;
@@ -21,6 +21,7 @@ use rfc5321::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -145,10 +146,11 @@ impl EgressPathConfig {
     }
 
     fn default_prohibited_hosts() -> CidrSet {
-        CidrSet::new(vec![
-            IpCidr::new("127.0.0.0".parse().unwrap(), 8).unwrap(),
-            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ])
+        [
+            AnyIpCidr::from_str("127.0.0.0/8").unwrap(),
+            AnyIpCidr::from_str("::1").unwrap(),
+        ]
+        .into()
     }
 }
 

@@ -5,10 +5,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
-use cidr_map::{CidrSet, IpCidr};
+use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::str::FromStr;
 use std::sync::Arc;
 
 pub mod auth;
@@ -55,10 +56,11 @@ impl HttpListenerParams {
     }
 
     fn default_trusted_hosts() -> CidrSet {
-        CidrSet::new(vec![
-            IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
-            IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ])
+        [
+            AnyIpCidr::from_str("127.0.0.1").unwrap(),
+            AnyIpCidr::from_str("::1").unwrap(),
+        ]
+        .into()
     }
 
     fn default_hostname() -> String {

@@ -311,6 +311,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bitstring"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22a39c0db600cfe77ef1b6d9ea71173bdccf190722877969d526d380519b6ecc"
+
+[[package]]
+name = "bitstring-trees"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f819939b1b1a7dff5a92075e27e82e3d8df09492b56143bebe4e41fdf415419"
+dependencies = [
+ "bitstring",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,6 +495,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300bccc729b1ada84523246038aad61fead689ac362bb9d44beea6f6a188c34b"
 dependencies = [
+ "bitstring",
  "serde",
 ]
 
@@ -487,7 +503,10 @@ dependencies = [
 name = "cidr-map"
 version = "0.1.0"
 dependencies = [
+ "bitstring",
+ "bitstring-trees",
  "cidr",
+ "k9",
  "serde",
 ]
 
