@@ -7,6 +7,7 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/pages.yml"
+      - "mkdocs-base.yml"
   #schedule:
   #  - cron: "50 * * * *"
 

@@ -10,6 +10,7 @@ on:
       - ".github/ISSUE_TEMPLATE/*"
       - "**/*.md"
       - "**/*.markdown"
+      - "mkdocs-base.yml"
   pull_request:
     branches: [ "main" ]
     paths-ignore:
@@ -19,6 +20,7 @@ on:
       - ".github/ISSUE_TEMPLATE/*"
       - "**/*.md"
       - "**/*.markdown"
+      - "mkdocs-base.yml"
 
 env:
   CARGO_TERM_COLOR: always
