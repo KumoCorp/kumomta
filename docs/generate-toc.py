@@ -79,7 +79,7 @@ class Gen(object):
 TOC = [
     Page(
         "Tutorial",
-        None,
+        "tutorial/index.md",
         children=[
             Page("Getting Started", "tutorial/getting_started.md"),
             Page(
@@ -120,7 +120,7 @@ TOC = [
     ),
     Page(
         "User Guide",
-        None,
+        "userguide/index.md",
         children=[
             Page("Preface and Legal Notices", "userguide/preface/index.md"),
             Page("About This Manual", "userguide/general/about.md"),
@@ -166,7 +166,12 @@ TOC = [
             Gen("HTTP API", "reference/http", extract_title=True),
         ],
     ),
-    Page("Change Log", "changelog.md"),
+    Page(
+        "Changelog", "changelog/index.md",
+        children=[
+            Page("Release 2023-03-27 - Beta 1", "changelog/2023-03-27.md"),
+        ]
+         ),
 ]
 
 mode = sys.argv[1]
