@@ -167,11 +167,12 @@ TOC = [
         ],
     ),
     Page(
-        "Changelog", "changelog/index.md",
+        "Changelog",
+        "changelog/index.md",
         children=[
             Page("Release 2023-03-27 - Beta 1", "changelog/2023-03-27.md"),
-        ]
-         ),
+        ],
+    ),
 ]
 
 mode = sys.argv[1]
