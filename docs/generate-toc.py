@@ -170,7 +170,7 @@ TOC = [
         "Changelog",
         "changelog/index.md",
         children=[
-            Page("Release 2023.03.27 - Beta 1", "changelog/2023-03-27.md"),
+            Page("Release 2023.03.27 - Beta 1", "changelog/2023.03.27.md"),
         ],
     ),
 ]
