@@ -17,7 +17,7 @@ bounce-classify = {path="../bounce-classify"}
 caps = "0.5"
 cgroups-rs = "0.3"
 chrono = {version="0.4", features=["serde"]}
-cidr = {version="0.2", features=["serde"]}
+cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
 console-subscriber = "0.1"

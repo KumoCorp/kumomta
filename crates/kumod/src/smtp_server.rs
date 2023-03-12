@@ -1,4 +1,3 @@
-use crate::cidrset::{CidrSet, IpCidr};
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
@@ -6,6 +5,7 @@ use crate::runtime::{rt_spawn, spawn_local};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
+use cidr_map::{CidrSet, IpCidr};
 use config::{load_config, LuaConfig};
 use data_loader::KeySource;
 use domain_map::DomainMap;

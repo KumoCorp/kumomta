@@ -484,6 +484,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cidr-map"
+version = "0.1.0"
+dependencies = [
+ "cidr",
+ "serde",
+]
+
+[[package]]
 name = "cipher"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1611,7 +1619,7 @@ dependencies = [
  "caps",
  "cgroups-rs",
  "chrono",
- "cidr",
+ "cidr-map",
  "clap",
  "config",
  "console-subscriber",

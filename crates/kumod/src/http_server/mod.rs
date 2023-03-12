@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
-use cidr::IpCidr;
+use cidr_map::{CidrSet, IpCidr};
 use data_loader::KeySource;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
@@ -35,22 +35,17 @@ pub struct HttpListenerParams {
     pub tls_private_key: Option<KeySource>,
 
     #[serde(default = "HttpListenerParams::default_trusted_hosts")]
-    pub trusted_hosts: Vec<IpCidr>,
+    pub trusted_hosts: CidrSet,
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    trusted_hosts: Arc<Vec<IpCidr>>,
+    trusted_hosts: Arc<CidrSet>,
 }
 
 impl AppState {
     pub fn is_trusted_host(&self, addr: IpAddr) -> bool {
-        for cidr in self.trusted_hosts.iter() {
-            if cidr.contains(&addr) {
-                return true;
-            }
-        }
-        false
+        self.trusted_hosts.contains(addr)
     }
 }
 
@@ -59,11 +54,11 @@ impl HttpListenerParams {
         "127.0.0.1:8000".to_string()
     }
 
-    fn default_trusted_hosts() -> Vec<IpCidr> {
-        vec![
+    fn default_trusted_hosts() -> CidrSet {
+        CidrSet::new(vec![
             IpCidr::new("127.0.0.1".parse().unwrap(), 32).unwrap(),
             IpCidr::new("::1".parse().unwrap(), 128).unwrap(),
-        ]
+        ])
     }
 
     fn default_hostname() -> String {

@@ -16,7 +16,6 @@ use tracing_subscriber::{fmt, EnvFilter};
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-mod cidrset;
 mod egress_path;
 mod egress_source;
 mod http_server;

@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/bounce-classify",
+  "crates/cidr-map",
   "crates/domain-map",
   "crates/integration-tests",
   "crates/kumod",

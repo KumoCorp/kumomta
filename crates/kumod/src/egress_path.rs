@@ -1,4 +1,3 @@
-use crate::cidrset::{CidrSet, IpCidr};
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
@@ -8,6 +7,7 @@ use crate::queue::{Queue, QueueManager};
 use crate::runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
 use crate::spool::SpoolManager;
 use anyhow::Context;
+use cidr_map::{CidrSet, IpCidr};
 use config::load_config;
 use kumo_log_types::ResolvedAddress;
 use message::message::QueueNameComponents;
