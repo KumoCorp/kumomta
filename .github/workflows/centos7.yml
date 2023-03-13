@@ -96,19 +96,8 @@ jobs:
         TOKEN: ${{ secrets.OPENREPO_API_TOKEN }}
       shell: bash
       run: |
-        t=$(mktemp)
-        printenv PUB > $t
-        gpg --batch --import $t
-        printenv PRIV > $t
-        gpg --batch --import $t
-        rpmsign --define '_signature gpg' --define '_gpg_name KumoMTA Signing Key' --addsign *.rpm
-        printenv TOKEN > $t
-        for rpm in *.rpm ; do
-          curl -X POST https://openrepo.kumomta.com/api/kumomta-centos7-dev/upload/ \
-              -H "Authorization: Token $(< $t)" \
-              -F "package_file=@$rpm" -i
-        done
-        rm -f $t
+        ./assets/sign-rpm.sh *.rpm
+        ./assets/upload-package.sh kumomta-centos7-dev *.rpm
     - name: "Upload artifact"
       uses: actions/upload-artifact@v3
       with:
