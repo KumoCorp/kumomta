@@ -125,7 +125,9 @@ TOC = [
                 children=[
                     Page("Preface and Legal Notices", "userguide/general/preface.md"),
                     Page("About This Manual", "userguide/general/about.md"),
-                    Page("How to Report Bugs or Get Help", "userguide/general/report.md"),
+                    Page(
+                        "How to Report Bugs or Get Help", "userguide/general/report.md"
+                    ),
                     Page("Credits", "userguide/general/credits.md"),
                     Page("History", "userguide/general/history.md"),
                     Page("Architecture", "userguide/general/architecture.md"),
@@ -134,11 +136,16 @@ TOC = [
             Page(
                 "Installation",
                 "userguide/installation/index.md",
-                children = [
-                    Page("Deployment Architecture", "userguide/installation/deployment.md"),
+                children=[
+                    Page(
+                        "Deployment Architecture",
+                        "userguide/installation/deployment.md",
+                    ),
                     Page("Server Environment", "userguide/installation/environment.md"),
                     Page("Server Hardware", "userguide/installation/hardware.md"),
-                    Page("Operating System", "userguide/installation/operatingsystem.md"),
+                    Page(
+                        "Operating System", "userguide/installation/operatingsystem.md"
+                    ),
                     Page("Installing in Docker", "userguide/installation/docker.md"),
                     Page("Installing on Linux", "userguide/installation/linux.md"),
                     Page("Upgrading", "userguide/installation/upgrading.md"),
