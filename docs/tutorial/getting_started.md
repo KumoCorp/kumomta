@@ -33,8 +33,8 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
     ```
     $ sudo -s
     # apt update && apt install -y curl gnupg
-    # curl https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/openrepo-kumomta-ubuntu-22.gpg
-    # echo "deb [arch=any signed-by=/usr/share/keyrings/openrepo-kumomta-ubuntu-22.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-22/ stable main" > /etc/apt/sources.list.d/openrepo-kumomta-ubuntu-22.list
+    # curl https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-22.gpg
+    # echo "deb [arch=any signed-by=/usr/share/keyrings/kumomta-ubuntu-22.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-22/ stable main" > /etc/apt/sources.list.d/kumomta-ubuntu-22.list
     # apt update
     # apt install -y kumomta-dev
     ```
@@ -43,8 +43,8 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
     ```
     $ sudo -s
     # apt update && apt install -y curl gnupg
-    # curl https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/openrepo-kumomta-ubuntu-20.gpg
-    # echo "deb [arch=any signed-by=/usr/share/keyrings/openrepo-kumomta-ubuntu-20.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-20/ stable main" > /etc/apt/sources.list.d/openrepo-kumomta-ubuntu-20.list
+    # curl https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-20.gpg
+    # echo "deb [arch=any signed-by=/usr/share/keyrings/kumomta-ubuntu-20.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-20/ stable main" > /etc/apt/sources.list.d/kumomta-ubuntu-20.list
     # apt update
     # apt install -y kumomta-dev
     ```
