@@ -155,13 +155,26 @@ TOC = [
                 "Configuration",
                 "userguide/configuration/index.md",
                 children=[
-                    Page("Configuration Concepts", "userguide/configuration/concepts.md"),
-                    Page("An Example Configuration", "userguide/configuration/example.md"),
+                    Page(
+                        "Configuration Concepts", "userguide/configuration/concepts.md"
+                    ),
+                    Page(
+                        "An Example Configuration", "userguide/configuration/example.md"
+                    ),
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
-                    Page("Configuring Listeners", "userguide/configuration/smtplisteners.md"),
-                    Page("Configuring Traffic Shaping", "userguide/configuration/trafficshaping.md"),
+                    Page(
+                        "Configuring Listeners",
+                        "userguide/configuration/smtplisteners.md",
+                    ),
+                    Page(
+                        "Configuring Traffic Shaping",
+                        "userguide/configuration/trafficshaping.md",
+                    ),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
-                    Page("Configuring HTTP Listeners", "userguide/configuration/httplisteners.md"),
+                    Page(
+                        "Configuring HTTP Listeners",
+                        "userguide/configuration/httplisteners.md",
+                    ),
                 ],
             ),
         ],
