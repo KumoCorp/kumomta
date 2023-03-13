@@ -81,8 +81,8 @@ $ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy simple_policy.lu
 ```
 
 In the above you are telling Cargo to run the Rust compiler to build an
-optimized release version and package it as kumod, then execute kumod using the
-policy file called `simple_policy.lua`.
+optimized release version of kumod, then execute kumod using the policy file
+called `simple_policy.lua`.
 
 You can add debugging output by adjusting the `KUMOD_LOG` environment variable.
 For exampe, setting `KUMOD_LOG=kumod=trace` in the environment will run with
