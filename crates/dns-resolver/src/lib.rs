@@ -277,4 +277,27 @@ mod test {
             "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com".to_string()
         );
     }
+
+    /// Verify that the order is preserved and that we treat these two
+    /// examples of differently ordered sets of the same names as two
+    /// separate site name strings
+    #[test]
+    fn mx_order_name_factor() {
+        assert_eq!(
+            factor_names(&[
+                "example-com.mail.protection.outlook.com.",
+                "mx-biz.mail.am0.yahoodns.net.",
+                "mx-biz.mail.am0.yahoodns.net.",
+            ]),
+            "(example-com|mx-biz).mail.(protection|am0).(outlook|yahoodns).(com|net).".to_string()
+        );
+        assert_eq!(
+            factor_names(&[
+                "mx-biz.mail.am0.yahoodns.net.",
+                "mx-biz.mail.am0.yahoodns.net.",
+                "example-com.mail.protection.outlook.com.",
+            ]),
+            "(mx-biz|example-com).mail.(am0|protection).(yahoodns|outlook).(net|com).".to_string()
+        );
+    }
 }
