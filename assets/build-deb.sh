@@ -18,11 +18,11 @@ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 rm -rf pkg || true
 trap "rm -rf pkg" EXIT
 
-mkdir -p pkg/debian/usr/bin pkg/debian/DEBIAN pkg/debian/usr/share/{applications,wezterm}
+mkdir -p pkg/debian/usr/bin pkg/debian/DEBIAN
 cat > pkg/debian/control <<EOF
-Package: wezterm
+Package: ${DEB_NAME}
 Conflicts: ${CONFLICTS}
-Version: ${DEB_NAME}
+Version: ${TAG_NAME}
 Architecture: $(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
 Maintainer: Wez Furlong <wez@wezfurlong.org>
 Section: utils
