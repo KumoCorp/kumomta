@@ -15,7 +15,7 @@ trap "rm -f $t" EXIT
 printenv TOKEN > $t
 
 for pkg in $PACKAGES ; do
-  echo curl --help -X POST https://openrepo.kumomta.com/api/$REPO/upload/ \
+  curl --help -X POST https://openrepo.kumomta.com/api/$REPO/upload/ \
       -H "Authorization: Token $(< $t)" \
       -F "package_file=@$pkg" -i
 done
