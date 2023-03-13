@@ -72,6 +72,8 @@ jobs:
       with:
         cache-on-failure: true
         env-vars: "CARGO RUST"
+    - name: Get Deps
+      run: bash ./get-deps.sh
     - name: Build
       run: |
         source /opt/rh/devtoolset-9/enable

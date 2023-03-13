@@ -43,32 +43,32 @@ fedora_deps() {
   fi
   $YUM group install -y "Development Tools"
   $YUM install -y \
-    'make' \
+    'clang-devel' \
     'gcc' \
     'gcc-c++' \
+    'git' \
+    'make' \
     'openssl-devel' \
     'python3' \
     'python3-pip' \
     'rpm-build' \
-    'clang' \
-    'telnet' \
-    'git'
+    'telnet'
 }
 
 suse_deps() {
   ZYPPER="$SUDO zypper"
   $ZYPPER install -yl \
+    'clang' \
     'cmake' \
-    'make' \
     'gcc' \
     'gcc-c++' \
-    'clang' \
-    'llvm' \
-    'telnet' \
     'git' \
     'libopenssl-devel' \
+    'llvm' \
+    'make' \
     'python3' \
-    'rpm-build'
+    'rpm-build' \
+    'telnet'
 }
 
 debian_deps() {
@@ -93,6 +93,7 @@ arch_deps() {
   $PACMAN -S --noconfirm --needed \
     'base-devel' \
     'cargo' \
+    'clang' \
     'cmake' \
     'git' \
     'pkgconf' \
@@ -105,8 +106,6 @@ bsd_deps() {
   $PKG install -y \
     'cmake' \
     'curl' \
-    'expat' \
-    'fontconfig' \
     'gcc' \
     'gettext' \
     'git' \
@@ -125,7 +124,6 @@ gentoo_deps() {
   EMERGE="$SUDO emerge"
   for pkg in \
     'cmake' \
-    'fontconfig' \
     'openssl' \
     'dev-vcs/git' \
     'pkgconf' \
