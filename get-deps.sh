@@ -42,14 +42,11 @@ fedora_deps() {
     return 1
   fi
   $YUM group install -y "Development Tools"
-  # Fedora 33 moved some perl bits around
-  $YUM install -y 'perl-FindBin' 'perl-File-Compare' || true
   $YUM install -y \
     'make' \
     'gcc' \
     'gcc-c++' \
     'openssl-devel' \
-    'perl-interpreter' \
     'python3' \
     'python3-pip' \
     'rpm-build' \
@@ -60,7 +57,6 @@ fedora_deps() {
 
 suse_deps() {
   ZYPPER="$SUDO zypper"
-  $ZYPPER install -yl 'perl-FindBin' 'perl-File-Compare' || true
   $ZYPPER install -yl \
     'cmake' \
     'make' \
@@ -71,7 +67,6 @@ suse_deps() {
     'telnet' \
     'git' \
     'libopenssl-devel' \
-    'perl' \
     'python3' \
     'rpm-build'
 }
@@ -114,8 +109,6 @@ bsd_deps() {
     'git' \
     'gmake' \
     'openssl' \
-    'p5-ExtUtils-MakeMaker' \
-    'perl5' \
     'pkgconf' \
     'python3' \
     'rust' \
@@ -133,8 +126,7 @@ gentoo_deps() {
     'openssl' \
     'dev-vcs/git' \
     'pkgconf' \
-    'python' \
-    'perl'
+    'python'
   do
 	  equery l "$pkg" > /dev/null || $EMERGE --select $pkg
   done
