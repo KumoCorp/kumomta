@@ -11,6 +11,7 @@ Then replace youremail@address.com with your actual email address.
 Copy the entire thing and paste it into the telnet session in your console.
 
 ```bash
+$ telnet localhost 2025
 ehlo moto
 mail from:youremail@address.com
 rcpt to:youremail@address.com
@@ -27,8 +28,7 @@ Hey, this is my first email!
 ## Curl method for HTTP API
 
 ```bash
-curl 'http://127.0.0.1:8000/api/inject/v1'`
-{
+$ curl -H 'Content-Type: application/json' 'http://127.0.0.1:8000/api/inject/v1' -d '{
     "envelope_sender": "noreply@example.com",
     "content": "Subject: hello\n\nHello there",
     "recipients": [
@@ -36,8 +36,11 @@ curl 'http://127.0.0.1:8000/api/inject/v1'`
             "email": "recipient@example.com",
         }
     ]
-}
+}'
 ```
+
+See the [HTTP injection API reference](../reference/http/api_inject_v1.md) for
+more information about this.
 
 ## Using Swaks for testing
 
@@ -46,7 +49,7 @@ Swaks, the [Swiss Army Knife for SMTP](http://www.jetmore.org/john/code/swaks/) 
 - Click the link above for more detail on how to use Swaks
 - As of this writing, you can pull and install the package with
 
- ```bash
+```bash
 curl -O https://jetmore.org/john/code/swaks/files/swaks-20201014.0.tar.gz
 tar -xvzf swaks-20201014.0.tar.gz
 chmod 755 ./swaks-20201014.0/swaks
@@ -57,7 +60,6 @@ You can test a relay through KumoMTA with this (change user@example.com to your 
 ```bash
 swaks --to user@example.com --server 127.0.0.1 --port 2025
 ```
-
 
 ## Checking the logs
 ...
