@@ -54,7 +54,7 @@ jobs:
       - name: Build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./docs/build.sh
+        run: CARDS=true ./docs/build.sh
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:

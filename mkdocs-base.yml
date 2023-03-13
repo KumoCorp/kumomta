@@ -39,7 +39,8 @@ theme:
     - toc.follow
 plugins:
   - search
-  - social
+  - social:
+      cards: !ENV [CARDS, false]
   - git-revision-date-localized:
       enable_creation_date: true
       type: timeago

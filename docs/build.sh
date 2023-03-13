@@ -40,7 +40,10 @@ case $mode in
 
     # Adjust path to pick up pip-installed binaries
     PATH="$HOME/.local/bin;$PATH"
-    pip install --quiet mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin black mkdocs-exclude
+    pip install --quiet mkdocs-material mkdocs-git-revision-date-localized-plugin black mkdocs-exclude
+    if test -n "${CARDS}" ; then
+      pip install --quiet pillow cairosvg
+    fi
     mkdocs build
     # Keep the toc generator formatted
     black docs/generate-toc.py
