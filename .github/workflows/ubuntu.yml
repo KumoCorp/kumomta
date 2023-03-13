@@ -63,6 +63,8 @@ jobs:
       env:
         ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
     - uses: actions/checkout@v3
+    - name: workaround git permission guff
+      run: git config --global --add safe.directory /__w/kumomta/kumomta
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v1
       with:
