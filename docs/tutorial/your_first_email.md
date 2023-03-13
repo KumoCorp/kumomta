@@ -57,3 +57,8 @@ You can test a relay through KumoMTA with this (change user@example.com to your 
 ```bash
 swaks --to user@example.com --server 127.0.0.1 --port 2025
 ```
+
+
+## Checking the logs
+...
+

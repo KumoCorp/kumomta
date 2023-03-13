@@ -1,80 +1,49 @@
 # Installing KumoMTA in CentOS7
 
-## Special case for development work in CentOS7
+Note that Red Hat full support for RHEL 7 [ended in August 2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates) and CentOS 7 full support [ended in August 2020](https://wiki.centos.org/About/Product). While KumoMTA is available for CentOS7, it is also available for almost any other Linux distro and we recommend upgrading to a newer OS as soon as possible.
 
-Note that Red Hat full support for RHEL 7 [ended in August 2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates) and CentOS 7 full support [ended in August 2020](https://wiki.centos.org/About/Product)
+...
 
-Also note that in testing, this process took several hours.
+First prepare your system by making sure it has the most current updates, includes wget, and any testing tools you need like telnet and curl.
 
-This first starts by adding dnf so all the rest of the install is consistent.
+To run KumoMTA in Centos7, download the prebuilt RPM and policy.
 
-Next, You will need to install a few things in order to get this current.
+RPM: [https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846](https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846)
+  
+Simple policy: [https://github.com/kumomta/kumomta/blob/main/simple_policy.lua](https://github.com/kumomta/kumomta/blob/main/simple_policy.lua)
+  
+Sink policy: [https://github.com/kumomta/kumomta/blob/main/sink.lua](https://github.com/kumomta/kumomta/blob/main/sink.lua)
+  
+You should `unzip centos7.zip`
+  
+Then install with `rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64`
+  
+This will install a working copy of KumoMTA at `/usr/bin/kumod`
+ 
+You can pull a copy of the simple_policy.lua or sink.lua and then run it like:
+
+`/usr/bin/kumod --policy simple_policy.lua`
+  
+  **OR**
+  
+Follow this to do it from the command line:
 
 ```bash
-
-# Get dnf installed first
+# Prepare the system first
 sudo yum install -y dnf
-
-# Now clean up, update and get the basics
 sudo dnf clean all
 sudo dnf update -y
-sudo dnf group install -y "Development Tools"
-sudo dnf install -y libxml2 libxml2-devel clang telnet git
+sudo dnf install -y libxml2 libxml2-devel clang curl telnet git bzip2 wget openssl-devel
 
-# Now for the extra lifting we need to get CentOS7 to a relatively current state 
-sudo dnf -y install bzip2 wget gcc gcc-c++ gmp-devel mpfr-devel libmpc-devel make openssl-devel
-sudo dnf install -y centos-release-scl 
-sudo dnf install -y llvm-toolset-7 devtoolset-9 devtoolset-9-gcc-c++ python3
-
-# And now we need to make the compiler "current"
-# Set us up in the right directory first
-sudo -s
-export PREFIX="/usr/share"
-cd $PREFIX
-
-
-# Get a newer version of GCC-C++ from source
-# This part will take a while so maybe go get lunch... (About 40 minutes)
-cd $PREFIX
-wget https://ftp.gnu.org/gnu/gcc/gcc-12.2.0/gcc-12.2.0.tar.xz
-
-tar xf gcc-12.2.0.tar.xz
-mkdir gcc-12.2.0-build
-cd gcc-12.2.0-build
-../gcc-12.2.0/configure --enable-languages=c,c++ --disable-multilib --prefix=$PREFIX/gcc/12.2.0
-
-make -j$(nproc)
-make install
-
-cd ..
-rm -rf gcc-12.2.0 gcc-12.2.0-build gcc-12.2.0.tar.xz
-echo "export CC=$PREFIX/gcc/12.2.0/bin/gcc" >> ~/.bashrc
-source ~/.bashrc
-echo "export CXX=$PREFIX/gcc/12.2.0/bin/g++" >> ~/.bashrc
-source ~/.bashrc
-echo "export FC=$PREFIX/gcc/12.2.0/bin/gfortran" >> ~/.bashrc
-source ~/.bashrc
-echo "export PATH=$PREFIX/gcc/12.2.0/bin:$PATH" >> ~/.bashrc
-source ~/.bashrc
-echo "export LD_LIBRARY_PATH=$PREFIX/gcc/12.2.0/lib64:$LD_LIRBARY_PATH" >> ~/.bashrc
-source ~/.bashrc
-
-
-
-# Get the latest version of cmake from source (About 20 minutes)
-wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3.tar.gz
-tar zxf cmake-3.25.3.tar.gz
-mv cmake-3.25.3.tar.gz /tmp/
-
-cd cmake-3.25.3
-./bootstrap && make && sudo make install
-ln $PREFIX/cmake-3.25.3/bin/cmake /bin/cmake
-mv $PREFIX/cmake-3.25.3 $PREFIX/cmake-3.25
-
-
-# Get the latest version of llvm (clang) from source
-cd $PREFIX
-git clone --depth=1 https://github.com/llvm/llvm-project.git
-cd llvm-project
-cmake -S llvm -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+# Now install KumoMTA
+cd
+sudo wget https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846
+sudo wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
+sudo wget https://github.com/kumomta/kumomta/blob/main/sink.lua
+sudo unzip centos7.zip
+rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64.rpm
+sudo /usr/bin/kumod --policy sink.lua --user $USER
 ```
+
+You should now be running KumoMTA in CentOS7
+

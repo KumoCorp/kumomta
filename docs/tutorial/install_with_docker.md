@@ -1,10 +1,9 @@
-# Installing KumoMTA for Production Use
+# Installing KumoMTA in a Docker container
 
-If you plan to use KumoMTA for production use without modification, you can install a docker image and "just run it".
 
 To build a lightweight alpine-based docker image:
 
-- Prepare your system with the needed essentials
+- Prepare your system with the needed essentials (see[ System Preparation](./system_preparation.md))
 - Ensure docker is actually installed in your server instance.
 
 ## APT based systems
@@ -30,50 +29,6 @@ In Rocky, Alma, and any other DNF package manager system
 
 If you get an error that `/etc/rc.d/rc.local is not marked executable` then make it executable with `sudo chmod +x /etc/rc.d/rc.local`
 
-## Special Case for CentOS7
-
-First prepare your system by making sure it has the most current updates, includes wget, and any testing tools you need like telnet and curl.
-
-To run KumoMTA in Centos7, download the prebuilt RPM and policy.
-
-RPM: [https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846](https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846)
-  
-Simple policy: [https://github.com/kumomta/kumomta/blob/main/simple_policy.lua](https://github.com/kumomta/kumomta/blob/main/simple_policy.lua)
-  
-Sink policy: [https://github.com/kumomta/kumomta/blob/main/sink.lua](https://github.com/kumomta/kumomta/blob/main/sink.lua)
-  
-You should `unzip centos7.zip`
-  
-Then install with `rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64`
-  
-This will install a working copy of KumoMTA at `/usr/bin/kumod`
- 
-You can pull a copy of the simple_policy.lua or sink.lua and then run it like:
-
-`/usr/bin/kumod --policy simple_policy.lua`
-  
-  **OR**
-  
-Follow this to do it from the command line:
-
-```bash
-# Prepare the system first
-sudo yum install -y dnf
-sudo dnf clean all
-sudo dnf update -y
-sudo dnf install -y libxml2 libxml2-devel clang curl telnet git bzip2 wget openssl-devel
-
-# Now install KumoMTA
-cd
-sudo wget https://github.com/kumomta/kumomta/suites/11445755838/artifacts/590348846
-sudo wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
-sudo wget https://github.com/kumomta/kumomta/blob/main/sink.lua
-sudo unzip centos7.zip
-rpm -ivh centos7/kumomta-2023.03.08_b3fa0dab-1.centos7.x86_64.rpm
-sudo /usr/bin/kumod --policy sink.lua --user $USER
-```
-
-CentOS7 users can disregard the rest of this page.
   
 ### Start Docker
 
@@ -128,3 +83,7 @@ $ sudo docker run --rm -p 2025:25 \
     --env KUMO_POLICY="/config/sink.lua" \
     kumomta/kumod
 ```
+
+
+
+

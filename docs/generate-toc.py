@@ -89,8 +89,8 @@ TOC = [
             ),
             Page("System Preparation", "tutorial/system_preparation.md"),
             Page(
-                "Installing for Production",
-                "tutorial/install_for_production_use.md",
+                "Installing with Docker Containers",
+                "tutorial/install_with_docker.md",
             ),
             Page(
                 "Installing for Development",

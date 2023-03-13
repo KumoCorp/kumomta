@@ -2,16 +2,17 @@
 
 ## Selecting a server or Instance
 
-KumoMTA is a performance MTA that will leverage every bit of power you provide. It may be kind of obvious, but 'more is better' so if you plan to send many millions of messages per hour, deploy the largest server you can. If you are installing for  development, you will need a minimum of 4Gb RAM, 2 cores and 20Gb Storage. In AWS, a t2.medium is adequate for a minimal install.  If you are installing a Docker Image, the same guide applies. See the chart below for sample performance reports.
+KumoMTA is a performance MTA that will leverage every bit of power you provide. It may be kind of obvious, but 'more is better' so if you plan to send many millions of messages per hour, deploy the largest server you can. You can deploy in bare metal, public or private cloud, with or without Kubernetes.
 
 ## Operating Systems
 
 So far this is tested on Rocky (8,9), Alma (8,9), OpenSuse Leap (15.4), Ubuntu (22), AL2, CentOS7, ...
+
 It has been deployed in AWS, Azure, GCP, VMWare and bare metal.
 
 ## RAM and Storage
 
-At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes heavy use of both resources so more is better, but response time is also going to be a factor.  For high performance systems you will want to select storage with the fastest IOPS and lowest latency, so local disk is going to be much better than NAS or SAN. Likewise, you can benefit from faster RAM if it is available.
+At an absolute minimum, you will need 4Gb RAM and 20Gb Storage.  KumoMTA makes heavy use of both resources and response time is going to be a factor.  For high performance systems you will want to select storage with the fastest IOPS and lowest latency, so local disk is going to be much better than NAS or SAN. Likewise, you can benefit from faster RAM if it is available. In AWS, a t2.medium is adequate for a minimal install.  If you are installing a Docker Image, the same guide applies. See the chart below for sample performance reports.
 
 ## Network Interfaces
 
@@ -36,3 +37,5 @@ AWS: [https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttl
 Azure: [https://learn.microsoft.com/en-us/azure/virtual-network/troubleshoot-outbound-smtp-connectivity](https://learn.microsoft.com/en-us/azure/virtual-network/troubleshoot-outbound-smtp-connectivity)
 
 GCP: [https://cloud.google.com/compute/docs/tutorials/sending-mail](https://cloud.google.com/compute/docs/tutorials/sending-mail)
+
+

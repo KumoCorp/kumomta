@@ -1,10 +1,5 @@
 # System Preparation
 
-## Picking the right server size
-Whether you install on bare metal or in a cloud, you will need a minimum of 4Gb RAM, 2 cores and 20Gb Storage.  While it may be possible to use a smaller container for the binary only, you will run into issues with the spool after only a few messages.  You can read more detail on this sizing in the page covering [KumoMTA Environmental Considerations](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/environment_consideration.md#kumomta-environmental-considerations)
-
-A good sized instance for testing features would be 4 cores, 16Gb RAM, 100Gb Storage.  This is the build used for most of the testing shown in this document outside of the performance chart.  In AWS this is an m3.xlarge. In Azure, this is a B4ms.  In GCP, this is an e2-standard-4.
-
 ## Doing the basics
 
 Reguardless of what system you deploy, there are things you need to do to prepare the OS.
@@ -17,7 +12,7 @@ Reguardless of what system you deploy, there are things you need to do to prepar
 
 ### Rocky Linux Example
 
-Rocky Linux is very similar to CentOS, as is Alma and RHEL  The instructions below are shown for a Rocky 8 system but with slight modification, should work for any DNF package management system.
+Rocky Linux is very similar to CentOS, as is Alma and RHEL  The instructions below are shown for a Rocky 8 system but with slight modification, should work for any DNF package management system. For Amazon Linux (AL2) the instructions are identical, but replace "dnf" with "yum".
 
 ```bash
 # Do basic updates 
@@ -33,9 +28,13 @@ sudo systemctl enable chrony
 sudo dnf install -y make gcc firewalld sysstat
 ```
 
-**These next 2 require actually being root so you need to manually set sudo, then run the following commands**
+!!! note
+    The following commands must be executed as the root user
 
-```sudo -s```
+```bash
+# RUN AS ROOT
+sudo -s
+```
 
 Then run these:
 ```
@@ -128,18 +127,14 @@ kernel.shmmni = 4096
 ## OS Hardening
 Above the basics of any system deloyment, you may also want to do some "hardening".  This is the process of minimizing exposure to threats.  This is not a comprehensive list, but are some of the common things you should do to protect your system.
 
- - Disabling unnecessary services
-   - postfix
+ - Disabling unnecessary services like postfix and qpidd
    
 ```
 sudo systemctl stop  postfix.service
 sudo systemctl disable postfix.service
-```
-
-   - qpidd
-   ```
 sudo systemctl stop  qpidd.service
 sudo systemctl disable qpidd.service
+
 ```
 
  - Firewall
@@ -155,3 +150,6 @@ Beyond the basics of any system deloyment, you may also want to do some "hardeni
 - Firewall
 - SSH config
 - Switch to keypair only
+
+
+

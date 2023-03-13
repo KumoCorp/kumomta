@@ -4,17 +4,23 @@
 
 KumoMTA is an open source Message Transfer Agent (MTA) designed to provide high performance outbound email functionality.
 
-KumoMTA is deployable as a Docker container if you just want to use it to send mail.  Alternately, you can install as a developer/contributor and have full access to the source code of the core MTA.  Contributions from the community are welcome.
+KumoMTA is deployable from  RPM, or as a Docker container or you can build it with Rust crates. If you just want to use it to send mail, you can follow the easy path below. Alternately, you can install as a developer/contributor and have full access to the source code of the core MTA.  Contributions from the community are welcome.
 
 If you have no idea what an MTA is then [this may be a good primer](https://en.wikipedia.org/wiki/Message_transfer_agent) before you get too deep into the documentation here.  If you DO know what an MTA is and you are looking for an open source option to support, then read on.
 
 ## How do I install it?
 
-That depends.  
+Got CentOS7?  Do this: 
+Got Rocky or Alma?  Do this: 
+Got Ubuntu or Debian? Do this: 
 
-- If you just want to _use_ it to send email, follow the instructions to [**Install For Production Use**](./install_for_production_use.md).
-- If you want to experiment, contrubute, or hack stuff up, follow the instructions to [**Install For Development**](./install_for_development.md).
+If you want to explore KumoMTA in Docker containers, potenially orchestrated with Kubernetes, You shoudl follow the instructions [here](./install_with_docker.md).
+
+If you want to experiment, contrubute, or hack stuff up, follow the instructions to [**Install For Development**](./install_for_development.md).
 
 ## What's next?
 
-Install the version you need based on your reading above.  Modify your config to make it uniquely yours, then test with a small sample of receivers.
+Read through the environment considerations and system preparation sections to make sure you have a right-sized server, then install the version you need based on your reading above.  Modify your config to make it uniquely yours, then test with a small sample of receivers.
+
+
+
