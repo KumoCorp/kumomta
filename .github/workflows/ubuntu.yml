@@ -1,0 +1,77 @@
+name: Ubuntu LTS
+
+on:
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - "docs/*"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/verify-pages.yml"
+      - ".github/ISSUE_TEMPLATE/*"
+      - "**/*.md"
+      - "**/*.markdown"
+      - "mkdocs-base.yml"
+
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - "docs/*"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/verify-pages.yml"
+      - ".github/ISSUE_TEMPLATE/*"
+      - "**/*.md"
+      - "**/*.markdown"
+      - "mkdocs-base.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        container: ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:18.04"]
+
+    container:
+      image: ${{ matrix.container }}
+      options: --privileged
+
+    steps:
+    - name: "set APT to non-interactive"
+      shell: bash
+      run: "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"
+    - name: "Update APT"
+      shell: bash
+      run: "apt update"
+    - name: "Install git"
+      shell: bash
+      run: "apt-get install -y git"
+    - name: "Install curl"
+      shell: bash
+      run: "apt-get install -y curl"
+    - name: "Update APT"
+      shell: bash
+      run: "apt update"
+    - name: "Install Rust"
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: "minimal"
+        toolchain: "stable"
+        override: true
+      env:
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+    - uses: actions/checkout@v3
+    - name: Install cargo-nextest
+      uses: baptiste0928/cargo-install@v1
+      with:
+        crate: cargo-nextest
+        args: --locked
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+        env-vars: "CARGO RUST"
+    - name: Build
+      run: cargo build --release
+    - name: Run tests
+      run: cargo nextest run --release
