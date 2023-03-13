@@ -6,13 +6,6 @@ on:
       - "docs/**"
       - ".github/workflows/verify-pages.yml"
       - "mkdocs-base.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "docs/**"
-      - ".github/workflows/verify-pages.yml"
-      - "mkdocs-base.yml"
 
 jobs:
   verify-pages:
