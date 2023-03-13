@@ -3,19 +3,21 @@
 
 This section described the process for submitting a bug report and how to get assistance.
 
-## Submitting a Bug Report
+## Before Submitting a Bug Report
 
 Before submitting a bug report, please try and verify that what you're encountering is truly a bug and has not been previously reported:
 
 * Check the online manual at [https://docs.kumomta.com](https://docs.kumomta.com). The manual is updated frequently and contains the latest information on the proper use of KumoMTA. The [Changelog](https://docs.kumomta.com/changelog.html) helps identify any issues that may be solved by updating to a more recent release of KumoMTA.
 * Check the issues list at [https://github.com/kumomta/kumomta/issues](https://github.com/kumomta/kumomta/issues) to see if the bug you've identified has already been reported.
 
-If you think you have found a previously unreported bug, open a new issue in the KumoMTA issue tracker at [https://github.com/kumomta/kumomta/issues](https://github.com/kumomta/kumomta/issues).
-
 !!! note
     The Issue tracker is not a support channel. Any issues submitted that are
     questions and not bug reports will be summarily closed. See below for
     information on getting help.
+
+## Submitting a Bug Report
+
+If you think you have found a previously unreported bug, visit [https://github.com/kumomta/kumomta/issues/new/choose](https://github.com/kumomta/kumomta/issues/new/choose) and follow the instructions on the page.
 
 If you submit an issue, please keep the following in mind:
 
