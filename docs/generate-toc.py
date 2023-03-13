@@ -80,7 +80,7 @@ class Gen(object):
 TOC = [
     Page(
         "Tutorial",
-        "tutorial/index.md",
+        None,
         children=[
             Page("Getting Started", "tutorial/getting_started.md"),
             Page(
