@@ -71,7 +71,18 @@ jobs:
       with:
         cache-on-failure: true
         env-vars: "CARGO RUST"
+    - name: Get Deps
+      run: bash ./get-deps.sh
     - name: Build
       run: cargo build --release
     - name: Run tests
       run: cargo nextest run --release
+    - name: Build Package
+      run: "./assets/build-deb.sh"
+    - name: Verify Package is installable
+      run: "apt-get install ./kumomta*.deb"
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.container }}
+        path: "kumomta*.deb"
