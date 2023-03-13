@@ -6,7 +6,8 @@ KumoMTA is a performance MTA that will leverage every bit of power you provide. 
 
 ## Operating Systems
 
-So far this is tested on Rocky (8), Alma (8), OpenSuse Leap (15.4), Ubuntu (22), ...
+So far this is tested on Rocky (8,9), Alma (8,9), OpenSuse Leap (15.4), Ubuntu (22), AL2, CentOS7, ...
+It has been deployed in AWS, Azure, GCP, VMWare and bare metal.
 
 ## RAM and Storage
 

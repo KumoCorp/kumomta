@@ -12,8 +12,8 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 
 That depends.  
 
-- If you just want to _use_ it to send email, follow the instructions to [**Install For Production Use**](./subs/install_for_production_use.md).
-- If you want to experiment, contrubute, or hack stuff up, follow the instructions to [**Install For Development**](./subs/install_for_development.md).
+- If you just want to _use_ it to send email, follow the instructions to [**Install For Production Use**](./install_for_production_use.md).
+- If you want to experiment, contrubute, or hack stuff up, follow the instructions to [**Install For Development**](./install_for_development.md).
 
 ## What's next?
 

@@ -2,7 +2,7 @@
 
 ## Prepare your environment
 
-Read the [Environmental considerations](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/environment_consideration.md) before proceeding.  You will need a suitably sized server with all of the prerequisites in order to be successful.
+Read the [Environmental considerations](https://github.com/kumomta/kumomta/blob/main/docs/tutorial/environment_consideration.md) before proceeding.  You will need a suitably sized server with all of the prerequisites in order to be successful.
 
 ## Step by Step
 
@@ -30,9 +30,9 @@ This is long and complicated and only relevent if you plan to use Cento7 AND nee
 
 If that describes you, then you can follow this to prepage your system, then come back to install Rust and the KumoMTA repo.
 
-[Special Instructions for Centos7](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/special_for_centos7)
+[Special Instructions for Centos7](https://github.com/kumomta/kumomta/blob/main/docs/tutorial/special_for_centos7)
 
-If you just want to run it in CentOS7, we built and RPM for you [on this page](https://github.com/kumomta/kumomta/blob/main/docs/guide/subs/install_for_production_use.md).
+If you just want to run it in CentOS7, we built and RPM for you [on this page](https://github.com/kumomta/kumomta/blob/main/docs/tutorial/install_for_production_use.md).
 
 ### In Ubuntu
 
