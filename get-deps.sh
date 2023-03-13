@@ -82,7 +82,10 @@ debian_deps() {
     'g++' \
     'libssl-dev' \
     'lsb-release' \
-    'python3'
+    'python3' \
+    'llvm-dev' \
+    'libclang-dev' \
+    'clang'
 }
 
 arch_deps() {
