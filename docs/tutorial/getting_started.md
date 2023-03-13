@@ -11,6 +11,14 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 ## How do I install it?
 
 === "CentOS7"
+
+    !!! note
+        Note that Red Hat full support for RHEL 7
+        [ended in August 2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates)
+        and CentOS 7 full support [ended in August 2020](https://wiki.centos.org/About/Product).
+        We recommend upgrading to a newer OS as soon as possible.
+
+
     ```
     $ sudo yum-config-manager --add-repo=https://raw.githubusercontent.com/kumomta/kumomta/main/assets/yum.repos.d/kumomta-centos7.repo
     $ sudo yum install kumomta-dev

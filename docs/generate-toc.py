@@ -96,10 +96,6 @@ TOC = [
                 "Building from Source",
                 "tutorial/install_from_source.md",
             ),
-            Page(
-                "Special instructions for CentOS7 users",
-                "tutorial/special_for_centos7.md",
-            ),
             Page("Your First Email", "tutorial/your_first_email.md"),
             Page(
                 "Beyond Basics",
