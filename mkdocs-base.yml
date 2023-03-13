@@ -28,6 +28,7 @@ theme:
   features:
     - content.action.edit
     - content.action.view
+    - content.tabs.link
     - navigation.footer
     - navigation.indexes
     - navigation.tabs
@@ -51,6 +52,8 @@ plugins:
 markdown_extensions:
   - admonition
   - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid

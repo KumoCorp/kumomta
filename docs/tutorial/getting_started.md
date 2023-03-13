@@ -10,11 +10,23 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 
 ## How do I install it?
 
-Got CentOS7?  Do this: 
-Got Rocky or Alma?  Do this: 
-Got Ubuntu or Debian? Do this: 
+=== "CentOS7"
+    ```
+    $ sudo yum-config-manager --add-repo=https://raw.githubusercontent.com/kumomta/kumomta/main/assets/yum.repos.d/kumomta-centos7.repo
+    $ sudo yum install kumomta-dev
+    ```
 
-If you want to explore KumoMTA in Docker containers, potenially orchestrated with Kubernetes, You shoudl follow the instructions [here](./install_with_docker.md).
+=== "Rocky"
+    ```
+    $ sudo do something for rocky
+    ```
+
+=== "Ubuntu"
+    ```
+    $ sudo do something for ubuntu
+    ```
+
+If you want to explore KumoMTA in **Docker containers**, potentially orchestrated with Kubernetes, You should follow the instructions [here](./install_with_docker.md).
 
 If you want to experiment, contrubute, or hack stuff up, follow the instructions to [**Install For Development**](./install_for_development.md).
 
