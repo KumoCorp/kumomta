@@ -93,8 +93,8 @@ TOC = [
                 "tutorial/install_with_docker.md",
             ),
             Page(
-                "Installing for Development",
-                "tutorial/install_for_development.md",
+                "Building from Source",
+                "tutorial/install_from_source.md",
             ),
             Page(
                 "Special instructions for CentOS7 users",
