@@ -25,7 +25,7 @@ Here is a very (very) simplified primer to help you read the KumoMTA script/conf
     The concurrency model used by KumoMTA means that global variables
     can be shared in unpredictable ways. If you need to share values that
     change across the life of the program, you should use a data store
-    such as [sqlite](../../../reference/sqlite) or [redis](../../../reference/redis).
+    such as [sqlite](../reference/sqlite/index.md) or [redis](../reference/redis/index.md).
 
 ```lua
 local myvar

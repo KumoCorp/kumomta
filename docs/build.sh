@@ -8,9 +8,12 @@ find docs -type f | egrep '\.(markdown|md)$' > $tracked_markdown
 
 mode=mkdocs
 
-cargo_deps=gelatyx
+# We use mdbook-linkcheck even with mkdocs because we could not find any
+# good mkdocs link checking tools that work properly with local links
+cargo_deps="gelatyx mdbook-linkcheck"
+
 if [ $mode == "mdbook" ]; then
-  cargo_deps="$cargo_deps mdbook mdbook-linkcheck mdbook-mermaid mdbook-admonish"
+  cargo_deps="$cargo_deps mdbook mdbook-mermaid mdbook-admonish"
 fi
 for doc_dep in $cargo_deps ; do
   if ! hash $doc_dep 2>/dev/null ; then
@@ -32,6 +35,9 @@ python3 docs/generate-toc.py $mode || exit 1
 
 case $mode in
   mkdocs)
+    # Run mdbook-linkcheck and clean up its junk
+    mdbook-linkcheck --standalone docs
+
     # Adjust path to pick up pip-installed binaries
     PATH="$HOME/.local/bin;$PATH"
     pip install --quiet mkdocs-material pillow cairosvg mkdocs-git-revision-date-localized-plugin black mkdocs-exclude

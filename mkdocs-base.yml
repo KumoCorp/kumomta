@@ -48,6 +48,8 @@ plugins:
         - "**/_index.md"
         - "generate_toc.py"
         - "build.sh"
+        - "SUMMARY.md"
+        - "book.toml"
 
 markdown_extensions:
   - admonition

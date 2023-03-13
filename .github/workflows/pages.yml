@@ -39,6 +39,11 @@ jobs:
         with:
           crate: gelatyx
           args: --locked
+      - name: Install mdbook-linkcheck
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: mdbook-linkcheck
+          args: --locked
       - uses: actions/setup-python@v4
         with:
           python-version: 3.x
