@@ -48,9 +48,10 @@ jobs:
     - name: "Install git"
       shell: bash
       run: "apt-get install -y git"
-    - name: "Install curl"
+    - name: "Install more deps"
       shell: bash
-      run: "apt-get install -y curl"
+      # some build stuff is needed to support cargo install used below
+      run: "apt-get install -y curl gcc g++"
     - name: "Update APT"
       shell: bash
       run: "apt update"
