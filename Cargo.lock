@@ -1617,9 +1617,12 @@ dependencies = [
 name = "kumo-log-types"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "base64 0.13.1",
  "bounce-classify",
  "chrono",
- "message",
+ "k9",
+ "mailparse",
  "rfc5321",
  "serde",
  "serde_json",
@@ -2025,6 +2028,7 @@ dependencies = [
  "data-loader",
  "futures",
  "k9",
+ "kumo-log-types",
  "lazy_static",
  "lruttl",
  "mail-auth",

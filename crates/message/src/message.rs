@@ -5,6 +5,8 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::any_err;
 use futures::FutureExt;
+use kumo_log_types::rfc3464::Report;
+use kumo_log_types::rfc5965::ARFReport;
 use mail_auth::common::headers::HeaderWriter;
 use mailparse::{MailHeader, MailHeaderMap};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
@@ -497,14 +499,14 @@ impl Message {
         })
     }
 
-    pub fn parse_rfc3464(&self) -> anyhow::Result<Option<crate::rfc3464::Report>> {
+    pub fn parse_rfc3464(&self) -> anyhow::Result<Option<Report>> {
         let data = self.get_data();
-        crate::rfc3464::Report::parse(&data)
+        Report::parse(&data)
     }
 
-    pub fn parse_rfc5965(&self) -> anyhow::Result<Option<crate::rfc5965::ARFReport>> {
+    pub fn parse_rfc5965(&self) -> anyhow::Result<Option<ARFReport>> {
         let data = self.get_data();
-        crate::rfc5965::ARFReport::parse(&data)
+        ARFReport::parse(&data)
     }
 
     pub fn prepend_header(&self, name: Option<&str>, value: &str) {
