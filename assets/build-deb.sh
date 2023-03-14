@@ -18,7 +18,7 @@ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 rm -rf pkg || true
 trap "rm -rf pkg" EXIT
 
-mkdir -p pkg/debian/usr/bin pkg/debian/DEBIAN
+mkdir -p pkg/debian/ pkg/debian/DEBIAN
 cat > pkg/debian/control <<EOF
 Package: ${DEB_NAME}
 Conflicts: ${CONFLICTS}
@@ -34,7 +34,7 @@ EOF
 
 ./assets/install.sh pkg/debian/opt/kumomta
 
-deps=$(cd pkg && dpkg-shlibdeps -O -e debian/usr/bin/*)
+deps=$(cd pkg && dpkg-shlibdeps -O -e debian/opt/kumomta/*bin/*)
 mv pkg/debian/control pkg/debian/DEBIAN/control
 sed -i '/^Source:/d' pkg/debian/DEBIAN/control  # The `Source:` field needs to be valid in a binary package
 echo $deps | sed -e 's/shlibs:Depends=/Depends: /' >> pkg/debian/DEBIAN/control
