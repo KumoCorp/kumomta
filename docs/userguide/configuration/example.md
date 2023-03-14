@@ -50,7 +50,7 @@ kumo.on('init', function()
 
   kumo.configure_bounce_classifier {
     files = {
-      '/etc/kumo/bounce_rules.toml',
+      '/opt/kumomta/etc/bounce_rules.toml',
     },
   }
 
@@ -159,6 +159,7 @@ kumo.on('init', function()
   -- without first installing and configuring redis.
   -- See https://docs.kumomta.com/reference/kumo/configure_redis_throttles/
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
+
 end) -- END OF THE INIT EVENT
 
 -- Configure traffic shaping, typically on a global basis for each
