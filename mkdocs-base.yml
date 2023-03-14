@@ -28,6 +28,7 @@ theme:
   features:
     - content.action.edit
     - content.action.view
+    - content.code.copy
     - content.tabs.link
     - navigation.footer
     - navigation.indexes
@@ -52,10 +53,21 @@ plugins:
         - "SUMMARY.md"
         - "book.toml"
 
+extra_css:
+  - style.css
+extra_javascript:
+  - javascript/fix-codeblock-console-copy-button.js
+
 markdown_extensions:
   - admonition
   - pymdownx.details
   - def_list
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tabbed:

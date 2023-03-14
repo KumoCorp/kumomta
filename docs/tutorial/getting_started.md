@@ -19,14 +19,14 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
         We recommend upgrading to a newer OS as soon as possible.
 
 
-    ```
+    ```console
     $ sudo yum-config-manager --add-repo=\
         https://openrepo.kumomta.com/files/kumomta-centos.repo
     $ sudo yum install kumomta-dev
     ```
 
 === "Rocky"
-    ```
+    ```console
     $ sudo dnf -y install dnf-plugins-core
     $ sudo dnf config-manager \
         --add-repo \
@@ -35,7 +35,7 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
     ```
 
 === "Ubuntu 22.04 LTS"
-    ```
+    ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu22.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
@@ -44,7 +44,7 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
     ```
 
 === "Ubuntu 20.04 LTS"
-    ```
+    ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
