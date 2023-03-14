@@ -17,7 +17,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # and now build our first-party stuff
 COPY . .
-RUN cargo build --release
+RUN cargo build --release -p kumod && cargo build --release -p traffic-gen
 
 # Using Ubuntu rather than alpine because rocksdb, a C++ library,
 # is problematic when built with musl.
