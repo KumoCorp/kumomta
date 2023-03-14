@@ -114,6 +114,7 @@ TOC = [
                     Page("Lua Functions", "tutorial/lua_functions.md"),
                 ],
             ),
+            Page("KumoMTA Day 1", "tutorial/kumomta_day_1.md"),
         ],
     ),
     Page(
