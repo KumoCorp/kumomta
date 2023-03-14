@@ -22,7 +22,6 @@ kumo.on('init', function()
   kumo.define_spool {
     name = 'data',
     path = '/var/tmp/kumo-spool/data',
-    flush = false,
     kind = 'RocksDB',
   }
 
@@ -32,7 +31,6 @@ kumo.on('init', function()
   kumo.define_spool {
     name = 'meta',
     path = '/var/tmp/kumo-spool/meta',
-    flush = false,
     kind = 'RocksDB',
   }
 
@@ -167,9 +165,7 @@ end) -- END OF THE INIT EVENT
 
 -- INSERT THE TRAFFIC SHAPING EXAMPLE HERE
 
--- Not the final form of this API, but this is currently how
--- we retrieve configuration used when making outbound
--- connections
+-- Specify configuration for making outbound connections
 kumo.on('get_egress_path_config', function(domain, site_name)
   return kumo.make_egress_path {
     enable_tls = 'OpportunisticInsecure',
@@ -188,14 +184,9 @@ end)
 -- how messages flow through the queues.
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 
--- Not the final form of this API, but this is currently how
--- we retrieve configuration used for managing a queue.
+-- Specify configuration used for managing a queue.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
-    -- Age out messages after being in the queue for 2 minutes
-    max_age = '2 minutes',
-    retry_interval = '2 seconds',
-    max_retry_interval = '8 seconds',
     egress_pool = 'MyPool',
   }
 end)
@@ -205,17 +196,17 @@ end)
 -- executed whether the message arrived by SMTP or API.
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 
+-- Edit this table to add more signing domains and their selector.
+local DKIM_CONFIG = {
+  ['examplecorp.com'] = 'dkim1024',
+  ['kumocorp.com'] = 's1024',
+}
+
 function dkim_sign(msg)
-  -- Edit this table to add more signing domains and their selector.
-  local DKIM_CONFIG = {
-    ['examplecorp.com'] = 'dkim1024',
-    ['kumocorp.com'] = 's1024',
-  }
-
   local sender_domain = msg:sender().domain
-  local selector = DKIM_CONFIG[sender_domain] or 'default'
+  local selector = DKIM_CONFIG[sender_domain]
 
-  if selector == 'default' then
+  if not selector then
     return false -- DON'T SIGN WITHOUT A SELECTOR
   end
 
