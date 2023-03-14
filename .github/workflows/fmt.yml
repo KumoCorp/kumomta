@@ -3,24 +3,22 @@ name: Check code formatting
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "**/*.rs"
+      - "**/*.lua"
+      - ".github/workflows/fmt.yml"
+      - "**/Cargo.toml"
+      - "stylua.toml"
+      - ".rustfmt.toml"
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "**/*.rs"
+      - "**/*.lua"
+      - ".github/workflows/fmt.yml"
+      - "**/Cargo.toml"
+      - "stylua.toml"
+      - ".rustfmt.toml"
 
 env:
   CARGO_TERM_COLOR: always

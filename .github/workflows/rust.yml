@@ -3,25 +3,17 @@ name: Rust
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/rust.yml"
+      - "**/Cargo.toml"
 
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/rust.yml"
+      - "**/Cargo.toml"
 
 env:
   CARGO_TERM_COLOR: always

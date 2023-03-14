@@ -3,25 +3,23 @@ name: CentOS7
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/centos7.yml"
+      - "**/Cargo.toml"
+      - "get-deps.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/upload-package.sh"
 
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - "docs/*"
-      - ".github/workflows/pages.yml"
-      - ".github/workflows/verify-pages.yml"
-      - ".github/ISSUE_TEMPLATE/*"
-      - "**/*.md"
-      - "**/*.markdown"
-      - "mkdocs-base.yml"
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/centos7.yml"
+      - "**/Cargo.toml"
+      - "get-deps.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/upload-package.sh"
 
 env:
   CARGO_TERM_COLOR: always

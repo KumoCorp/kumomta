@@ -7,6 +7,7 @@ on:
       - "crates/**/*.rs"
       - ".github/workflows/continuous-docker.yml"
       - "**/Cargo.toml"
+      - "docker/kumod/Dockerfile"
     tags:
       # Date based release tag
       - "20*"
