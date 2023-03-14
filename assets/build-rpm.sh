@@ -37,13 +37,12 @@ echo "Doing the build bit here"
 %install
 set -x
 cd ${HERE}
-mkdir -p %{buildroot}/usr/bin 
-install -Dsm755 target/release/kumod -t %{buildroot}/usr/bin
-install -Dsm755 target/release/traffic-gen -t %{buildroot}/usr/bin
+./assets/install.sh %{buildroot}/opt/kumomta
 
 %files
-/usr/bin/kumod
-/usr/bin/traffic-gen
+/opt/kumomta/sbin/kumod
+/opt/kumomta/sbin/traffic-gen
+/opt/kumomta/share/bounce_classifier/*.toml
 EOF
 
 /usr/bin/rpmbuild -bb $spec --verbose

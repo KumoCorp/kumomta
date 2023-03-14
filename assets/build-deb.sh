@@ -32,8 +32,7 @@ Description: A high performance, modern MTA
 Source: https://github.com/kumomta/kumomta
 EOF
 
-install -Dsm755 -t pkg/debian/usr/bin target/release/kumod
-install -Dsm755 -t pkg/debian/usr/bin target/release/traffic-gen
+./assets/install.sh pkg/debian/opt/kumomta
 
 deps=$(cd pkg && dpkg-shlibdeps -O -e debian/usr/bin/*)
 mv pkg/debian/control pkg/debian/DEBIAN/control
