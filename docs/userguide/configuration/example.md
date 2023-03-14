@@ -159,7 +159,6 @@ kumo.on('init', function()
   -- without first installing and configuring redis.
   -- See https://docs.kumomta.com/reference/kumo/configure_redis_throttles/
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
-
 end) -- END OF THE INIT EVENT
 
 -- Configure traffic shaping, typically on a global basis for each
@@ -181,7 +180,7 @@ kumo.on('get_egress_path_config', function(domain, site_name)
 
     -- hosts that we should consider to be poison because
     -- they are a mail loop.
-    prohibited_hosts = { "127.0.0.0/8", "::1" },
+    prohibited_hosts = { '127.0.0.0/8', '::1' },
   }
 end)
 
@@ -194,9 +193,9 @@ end)
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
-    max_age = "2 minutes",
-    retry_interval = "2 seconds",
-    max_retry_interval = "8 seconds",
+    max_age = '2 minutes',
+    retry_interval = '2 seconds',
+    max_retry_interval = '8 seconds',
     egress_pool = 'MyPool',
   }
 end)
@@ -209,22 +208,26 @@ end)
 function dkim_sign(msg)
   -- Edit this table to add more signing domains and their selector.
   local DKIM_CONFIG = {
-    ["examplecorp.com"] = "dkim1024",
-    ["kumocorp.com"] = "s1024",
+    ['examplecorp.com'] = 'dkim1024',
+    ['kumocorp.com'] = 's1024',
   }
 
   local sender_domain = msg:sender().domain
   local selector = DKIM_CONFIG[sender_domain] or 'default'
 
   if selector == 'default' then
-    return false  -- DON'T SIGN WITHOUT A SELECTOR
+    return false -- DON'T SIGN WITHOUT A SELECTOR
   end
 
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = sender_domain,
     selector = selector,
     headers = { 'From', 'To', 'Subject' },
-    key = string.format('/opt/kumomta/etc/dkim/%s/%s.key', sender_domain, selector),
+    key = string.format(
+      '/opt/kumomta/etc/dkim/%s/%s.key',
+      sender_domain,
+      selector
+    ),
   }
   msg:dkim_sign(signer)
 end
