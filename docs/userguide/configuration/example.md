@@ -194,7 +194,7 @@ end) -- END OF THE INIT EVENT
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
-    max_age = "2 minutes"
+    max_age = "2 minutes",
     retry_interval = "2 seconds",
     max_retry_interval = "8 seconds",
     egress_pool = 'MyPool',
@@ -202,24 +202,40 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
 end)
 
 -- Configure DKIM signing. In this case we use a simple approach of a path
--- defined by tokens, with each domain configured in the definition.
+-- defined by tokens, with each domain configured in the definition. This is
+-- executed whether the message arrived by SMTP or API.
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 
 function dkim_sign(msg)
-    local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
-    selector = 'default',
+  -- Edit this table to add more signing domains and their selector.
+  local DKIM_CONFIG = {
+    ["examplecorp.com"] = "dkim1024",
+    ["kumocorp.com"] = "s1024",
+  }
+
+  local sender_domain = msg:sender().domain
+  local selector = DKIM_CONFIG[sender_domain] or 'default'
+
+  if selector == 'default'
+    return false  -- DON'T SIGN WITHOUT A SELECTOR
+  end
+
+  local signer = kumo.dkim.rsa_sha256_signer {
+    domain = sender_domain,
+    selector = selector,
     headers = { 'From', 'To', 'Subject' },
-    key = 'example-private-dkim-key.pem',
+    key = string.format('/opt/kumomta/etc/dkim/%s/%s.key', sender_domain, selector),
   }
   msg:dkim_sign(signer)
 end
 
 kumo.on('smtp_server_message_received', function(msg)
-   dkim_sign(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_sign(msg)
 end)
 
 kumo.on('http_message_generated', function(msg)
-   dkim_sign(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_sign(msg)
 end)
 ```
