@@ -9,7 +9,7 @@ we retrieve configuration used for managing a queue.
 ```lua
 kumo.on('get_queue_config', function(domain_name, tenant, campaign)
   return kumo.make_queue_config {
-    max_retry_interval = 20 * 60,
+    max_retry_interval = '20 minutes',
   }
 end)
 ```

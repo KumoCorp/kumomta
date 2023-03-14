@@ -168,7 +168,6 @@ end) -- END OF THE INIT EVENT
 -- Specify configuration for making outbound connections
 kumo.on('get_egress_path_config', function(domain, site_name)
   return kumo.make_egress_path {
-    enable_tls = 'OpportunisticInsecure',
     -- max_message_rate = '5/min',
     idle_timeout = '5s',
     max_connections = 1024,
@@ -181,13 +180,13 @@ kumo.on('get_egress_path_config', function(domain, site_name)
 end)
 
 -- Configure queue management settings. These are not throttles, but instead
--- how messages flow through the queues.
+-- how messages flow through the queues. This example assigns pool based
+-- on tenant name.
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 
--- Specify configuration used for managing a queue.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {
-    egress_pool = 'MyPool',
+    egress_pool = tenant,
   }
 end)
 
@@ -207,7 +206,7 @@ function dkim_sign(msg)
   local selector = DKIM_CONFIG[sender_domain]
 
   if not selector then
-    return false -- DON'T SIGN WITHOUT A SELECTOR
+    return false -- DON'T SIGN WITHOUT A VALID SELECTOR
   end
 
   local signer = kumo.dkim.rsa_sha256_signer {
@@ -224,6 +223,12 @@ function dkim_sign(msg)
 end
 
 kumo.on('smtp_server_message_received', function(msg)
+  -- Assign tenant based on X-Tenant header.
+  local tenant = msg:get_first_named_header_value('X-Tenant')
+  if tenant then
+    msg:set_meta('tenant', tenant)
+  end
+
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_sign(msg)
 end)
