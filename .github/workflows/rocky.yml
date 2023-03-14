@@ -36,12 +36,9 @@ jobs:
       options: --privileged
 
     steps:
-    - name: "Install config manager"
+    - name: "Install git"
       shell: bash
-      run: "dnf install -y 'dnf-command(config-manager)'"
-    - name: "Enable PowerTools"
-      shell: bash
-      run: "dnf config-manager --set-enabled powertools"
+      run: "dnf install -y git"
     - name: "Install Rust"
       uses: actions-rs/toolchain@v1
       with:
@@ -51,6 +48,8 @@ jobs:
       env:
         ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
     - uses: actions/checkout@v3
+    - name: workaround git permission guff
+      run: git config --global --add safe.directory /__w/kumomta/kumomta
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v1
       with:
