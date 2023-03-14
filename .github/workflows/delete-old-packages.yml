@@ -1,0 +1,23 @@
+name: "Delete Old Packages"
+
+on:
+  schedule:
+    - cron: "50 1 * * *"
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  delete-old-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/delete-package-versions@v4
+        with:
+          package-name: kumomta
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: true
+          package-type: container
