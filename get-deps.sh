@@ -53,6 +53,7 @@ fedora_deps() {
     'python3-pip' \
     'rpm-build' \
     'perl-FindBin' \
+    'curl' \
     'telnet'
 }
 
