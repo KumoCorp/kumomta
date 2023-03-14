@@ -29,14 +29,17 @@ FROM ubuntu:latest as runtime
 # start as root and then drop to this user. That is handled by
 # the docker-runner.sh script.
 RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
-WORKDIR /app
+RUN apt update && apt install -y libsqlite3-dev
+WORKDIR /opt/kumomta/sbin
 COPY --from=builder /app/target/release/kumod .
 COPY --from=builder /app/target/release/traffic-gen .
 COPY docker/kumod/docker-runner.sh .
+WORKDIR /opt/kumomta/bounce_classifier
+COPY assets/bounce_classifier/*.toml .
 EXPOSE 25/tcp
 EXPOSE 587/tcp
 EXPOSE 465/tcp
 EXPOSE 2525/tcp
 EXPOSE 2026/tcp
-CMD ["/app/docker-runner.sh"]
+CMD ["/opt/kumomta/sbin/docker-runner.sh"]
 
