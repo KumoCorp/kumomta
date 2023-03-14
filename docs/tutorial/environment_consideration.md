@@ -12,6 +12,7 @@ So far we've run non-production tests on the following systems:
 * Alma (8,9)
 * OpenSuse Leap (15.4)
 * Ubuntu (22)
+* Debian (11)
 * AL2
 * CentOS7
 
