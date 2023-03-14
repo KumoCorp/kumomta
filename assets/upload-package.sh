@@ -18,7 +18,7 @@ printenv TOKEN > $t
 
 for pkg in $PACKAGES ; do
   echo "Uploading $pkg"
-  curl -X POST --silent --fail-with-body https://openrepo.kumomta.com/api/$REPO/upload/ \
+  curl -X POST --silent https://openrepo.kumomta.com/api/$REPO/upload/ \
       -H "Authorization: Token $(< $t)" \
       -F "overwrite=1" \
       -F "package_file=@$pkg" -i
