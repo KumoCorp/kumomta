@@ -62,7 +62,6 @@ fedora_deps() {
     'python3-pip' \
     'rpm-build' \
     'rpm-sign' \
-    'sqlite-devel' \
     'telnet'
 }
 
