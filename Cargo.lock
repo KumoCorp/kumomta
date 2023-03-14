@@ -2208,7 +2208,6 @@ dependencies = [
  "mlua",
  "serde_json",
  "sqlite",
- "sqlite3-src",
  "tokio",
 ]
 
