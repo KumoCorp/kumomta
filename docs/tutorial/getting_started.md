@@ -36,17 +36,19 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 
 === "Ubuntu 22.04 LTS"
     ```
-    $ sudo apt install -y curl gnupg
-    $ curl https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-22.gpg
-    $ sudo curl https://openrepo.kumomta.com/files/kumomta-ubuntu22.list -o /etc/apt/sources.list.d/kumomta-ubuntu22.list
+    $ sudo apt install -y curl gnupg ca-certificates
+    $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu22.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
+    $ sudo apt update
     $ sudo apt install -y kumomta-dev
     ```
 
 === "Ubuntu 20.04 LTS"
     ```
-    $ sudo apt install -y curl gnupg
-    $ curl https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-20.gpg
-    $ sudo curl https://openrepo.kumomta.com/files/kumomta-ubuntu20.list -o /etc/apt/sources.list.d/kumomta-ubuntu20.list
+    $ sudo apt install -y curl gnupg ca-certificates
+    $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
+    $ sudo apt update
     $ sudo apt install -y kumomta-dev
     ```
 
