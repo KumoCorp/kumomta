@@ -162,28 +162,28 @@ kumo.on('init', function()
 
 end) -- END OF THE INIT EVENT
 
-  -- Configure traffic shaping, typically on a global basis for each
-  -- destination domain. Throttles will apply on a per-ip basis.
-  -- See https://docs.kumomta.com/userguide/configuration/trafficshaping/
+-- Configure traffic shaping, typically on a global basis for each
+-- destination domain. Throttles will apply on a per-ip basis.
+-- See https://docs.kumomta.com/userguide/configuration/trafficshaping/
 
-  -- INSERT THE TRAFFIC SHAPING EXAMPLE HERE
+-- INSERT THE TRAFFIC SHAPING EXAMPLE HERE
 
-  -- Not the final form of this API, but this is currently how
-  -- we retrieve configuration used when making outbound
-  -- connections
-  kumo.on('get_egress_path_config', function(domain, site_name)
-    return kumo.make_egress_path {
-      enable_tls = 'OpportunisticInsecure',
-      -- max_message_rate = '5/min',
-      idle_timeout = '5s',
-      max_connections = 1024,
-      -- max_deliveries_per_connection = 5,
+-- Not the final form of this API, but this is currently how
+-- we retrieve configuration used when making outbound
+-- connections
+kumo.on('get_egress_path_config', function(domain, site_name)
+  return kumo.make_egress_path {
+    enable_tls = 'OpportunisticInsecure',
+    -- max_message_rate = '5/min',
+    idle_timeout = '5s',
+    max_connections = 1024,
+    -- max_deliveries_per_connection = 5,
 
-      -- hosts that we should consider to be poison because
-      -- they are a mail loop.
-      prohibited_hosts = { "127.0.0.0/8", "::1" },
-    }
-  end)
+    -- hosts that we should consider to be poison because
+    -- they are a mail loop.
+    prohibited_hosts = { "127.0.0.0/8", "::1" },
+  }
+end)
 
 -- Configure queue management settings. These are not throttles, but instead
 -- how messages flow through the queues.
@@ -216,7 +216,7 @@ function dkim_sign(msg)
   local sender_domain = msg:sender().domain
   local selector = DKIM_CONFIG[sender_domain] or 'default'
 
-  if selector == 'default'
+  if selector == 'default' then
     return false  -- DON'T SIGN WITHOUT A SELECTOR
   end
 
