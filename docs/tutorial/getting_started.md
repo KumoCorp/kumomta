@@ -20,33 +20,43 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 
 
     ```
-    $ sudo yum-config-manager --add-repo=https://raw.githubusercontent.com/kumomta/kumomta/main/assets/yum.repos.d/kumomta-centos7.repo
+    $ sudo yum-config-manager --add-repo=\
+        https://openrepo.kumomta.com/files/kumomta-centos7.repo
     $ sudo yum install kumomta-dev
     ```
 
-=== "Rocky"
+=== "Rocky 8"
     ```
-    $ sudo do something for rocky
+    $ sudo dnf -y install dnf-plugins-core
+    $ sudo dnf config-manager \
+        --add-repo \
+        https://openrepo.kumomta.com/files/kumomta-rocky8.repo
+    $ sudo yum install kumomta-dev
+    ```
+
+=== "Rocky 9"
+    ```
+    $ sudo dnf -y install dnf-plugins-core
+    $ sudo dnf config-manager \
+        --add-repo \
+        https://openrepo.kumomta.com/files/kumomta-rocky9.repo
+    $ sudo yum install kumomta-dev
     ```
 
 === "Ubuntu 22.04 LTS"
     ```
-    $ sudo -s
-    # apt update && apt install -y curl gnupg
-    # curl https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-22.gpg
-    # echo "deb [arch=any signed-by=/usr/share/keyrings/kumomta-ubuntu-22.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-22/ stable main" > /etc/apt/sources.list.d/kumomta-ubuntu-22.list
-    # apt update
-    # apt install -y kumomta-dev
+    $ sudo apt install -y curl gnupg
+    $ curl https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-22.gpg
+    $ sudo curl https://openrepo.kumomta.com/files/kumomta-ubuntu22.list -o /etc/apt/sources.list.d/kumomta-ubuntu22.list
+    $ sudo apt install -y kumomta-dev
     ```
 
 === "Ubuntu 20.04 LTS"
     ```
-    $ sudo -s
-    # apt update && apt install -y curl gnupg
-    # curl https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-20.gpg
-    # echo "deb [arch=any signed-by=/usr/share/keyrings/kumomta-ubuntu-20.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-20/ stable main" > /etc/apt/sources.list.d/kumomta-ubuntu-20.list
-    # apt update
-    # apt install -y kumomta-dev
+    $ sudo apt install -y curl gnupg
+    $ curl https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta-ubuntu-20.gpg
+    $ sudo curl https://openrepo.kumomta.com/files/kumomta-ubuntu20.list -o /etc/apt/sources.list.d/kumomta-ubuntu20.list
+    $ sudo apt install -y kumomta-dev
     ```
 
 If you want to explore KumoMTA in **Docker containers**, potentially orchestrated with Kubernetes, You should follow the instructions [here](install_with_docker.md).

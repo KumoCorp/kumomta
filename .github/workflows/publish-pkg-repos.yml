@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/publish-pkg-repos.yml"
       - "assets/yum.repos.d/*.repo"
+      - "assets/sources.list.d/*.list"
       - "assets/upload-package.sh"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -21,5 +22,5 @@ jobs:
         TOKEN: ${{ secrets.OPENREPO_API_TOKEN }}
       shell: bash
       run: |
-        ./assets/upload-package.sh files assets/yum.repos.d/*.repo
+        ./assets/upload-package.sh files assets/yum.repos.d/*.repo assets/sources.list.d/*.list
 
