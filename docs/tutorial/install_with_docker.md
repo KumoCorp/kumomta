@@ -1,7 +1,32 @@
 # Installing KumoMTA in a Docker container
 
-We are not currently publishing our docker image to a public registry,
-so you will need to build the image for yourself.
+## Quick Start with published Docker Image
+
+Our CI builds the latest version of our image and publishes it
+to the GitHub Container registry.
+
+You'll need a policy script in order to start kumo.  Grab
+[sink.lua](https://github.com/kumomta/kumomta/blob/main/sink.lua),
+which is a policy that accepts and discards all received mail:
+
+```bash
+$ curl -O https://raw.githubusercontent.com/kumomta/kumomta/main/sink.lua
+```
+
+The docker image will load the policy file defined by the `$KUMO_POLICY`
+environment variable.  When we launch the image, we want to mount our
+`sink.lua` file into the image and tell it to use it. We recommend
+using the `/config` path in the image for that purpose:
+
+```bash
+$ sudo docker run --rm -p 2025:25 \
+    -v .:/config \
+    --name kumo-sink \
+    --env KUMO_POLICY="/config/sink.lua" \
+    ghcr.io/kumomta/kumomta:main
+```
+
+# Longer version that shows how to setup docker
 
 ## Configure Docker
 
@@ -46,7 +71,7 @@ $ systemctl status docker
 After completing Step 3, you can use Docker by prepending each command with sudo. To eliminate the need for administrative access authorization, set up a non-root user access by following the steps below.
 
 1. Use the usermod command to add the user to the docker system group.
-  ```baseh
+  ```bash
   $ sudo usermod -aG docker $USER
   ```
 
