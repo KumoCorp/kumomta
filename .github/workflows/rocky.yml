@@ -31,11 +31,11 @@ jobs:
       fail-fast: false
       matrix:
         container: ["rockylinux:8", "rockylinux:9"]
+    container:
+      image: ${{ matrix.container }}
+      options: --privileged
 
     steps:
-    - name: "WTF?"
-      shell: bash
-      run: "echo $PATH ; ls -l /bin /usr/bin"
     - name: "Install config manager"
       shell: bash
       run: "dnf install -y 'dnf-command(config-manager)'"
