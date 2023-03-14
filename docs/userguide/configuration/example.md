@@ -4,42 +4,58 @@ A default policy file is not published with KumoMTA to prevent the average insta
 
 The following serves as an example of a complete base policy for a functional installation that addresses common use cases for a typical installation. This is not intended as a copy/paste policy file, but as an example to direct new users in developing their server policy file.
 
+The content of this example will be detailed in the following sections of this chapter, links will be in the comments of the example policy.
+
+## The Example Server Policy
+
 ```lua
+-- This require statement is needed in any script passed to KumoMTA.
+-- Includes from this policy script will not need this declared again.
 local kumo = require 'kumo'
 
--- Called on startup to initialize the system
+-- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A REFRESH WHEN CHANGED.
 kumo.on('init', function()
-  -- Define a listener.
-  -- Can be used multiple times with different parameters to
-  -- define multiple listeners!
-  kumo.start_esmtp_listener {
-    listen = '0.0.0.0:2025',
-    -- Override the hostname reported in the banner and other
-    -- SMTP responses:
-    -- hostname="mail.example.com",
+  -- Define the default "data" spool location; this is where
+  -- message bodies will be stored.
+  -- See https://docs.kumomta.com/userguide/configuration/spool/
 
-    -- override the default set of relay hosts
-    relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-    -- Customize the banner.
-    -- The configured hostname will be automatically
-    -- prepended to this text.
-    banner = 'Welcome to KumoMTA!',
-
-    -- Unsafe! When set to true, don't save to spool
-    -- at reception time.
-    -- Saves IO but may cause you to lose messages
-    -- if something happens to this server before
-    -- the message is spooled.
-    deferred_spool = false,
-
-    -- max_recipients_per_message = 1024
-    -- max_messages_per_connection = 10000,
+  kumo.define_spool {
+    name = 'data',
+    path = '/var/tmp/kumo-spool/data',
+    flush = false,
+    kind = 'RocksDB',
   }
+
+  -- Define the default "meta" spool location; this is where
+  -- message envelope and metadata will be stored.
+
+  kumo.define_spool {
+    name = 'meta',
+    path = '/var/tmp/kumo-spool/meta',
+    flush = false,
+    kind = 'RocksDB',
+  }
+
+  -- Configure logging to local disk. Separating spool and logs to separate
+  -- disks helps reduce IO load and can help performance.
+  -- See https://docs.kumomta.com/userguide/configuration/logging/
 
   kumo.configure_local_logs {
     log_dir = '/var/tmp/kumo-logs',
+    -- headers = { 'Subject', 'X-Customer-ID' },
   }
+
+  -- Configure bounce classification.
+  -- See https://docs.kumomta.com/userguide/configuration/bounce/
+
+  kumo.configure_bounce_classifier {
+    files = {
+      '/etc/kumo/bounce_rules.toml',
+    },
+  }
+
+  -- Configure HTTP Listeners for injection and management APIs.
+  -- See https://docs.kumomta.com/userguide/configuration/httplisteners/
 
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
@@ -53,184 +69,157 @@ kumo.on('init', function()
     trusted_hosts = { '127.0.0.1', '::1' },
   }
 
-  -- Define the default "data" spool location; this is where
-  -- message bodies will be stored
-  --
-  -- 'flush' can be set to true to cause fdatasync to be
-  -- triggered after each store to the spool.
-  -- The increased durability comes at the cost of throughput.
-  --
-  -- kind can be 'LocalDisk' (currently the default) or 'RocksDB'.
-  --
-  -- LocalDisk stores one file per message in a filesystem hierarchy.
-  -- RocksDB is a key-value datastore.
-  --
-  -- RocksDB has >4x the throughput of LocalDisk, and enabling
-  -- flush has a marginal (<10%) impact in early testing.
-  kumo.define_spool {
-    name = 'data',
-    path = '/var/tmp/kumo-spool/data',
-    flush = false,
-    kind = 'RocksDB',
+  -- Define an SMTP listener. Can be used multiple times with different
+  -- parameters to define multiple listeners!
+  -- See https://docs.kumomta.com/userguide/configuration/smtplisteners/
+
+  kumo.start_esmtp_listener {
+    listen = '0.0.0.0:25',
+
+    -- override the default set of relay hosts
+    relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
+
+    -- Configure the domains that are allowed for outbound & inbound relay,
+    -- Out-Of-Band bounces, and Feedback Loop Reports.
+    -- See https://docs.kumomta.com/userguide/configuration/domains/
+    domains = {
+      ['examplecorp.com'] = {
+        -- allow relaying mail from any source, so long as it is
+        -- addressed to examplecorp.com, for inbound mail.
+        relay_to = true,
+      },
+      ['send.examplecorp.com'] = {
+        -- relay to anywhere, so long as the sender domain is
+        -- send.examplecorp.com and the connected peer matches one of the
+        -- listed CIDR blocks, helps prevent abuse by less trusted peers.
+        relay_from = { '10.0.0.0/24' },
+      },
+      ['bounce.examplecorp.com'] = {
+        -- accept and log OOB bounce reports sent to bounce.examplecorp.com
+        log_oob = true,
+      },
+      ['fbl.examplecorp.com'] = {
+        -- accept and log ARF feedback reports sent to fbl.examplecorp.com
+        log_arf = true,
+      },
+    },
   }
 
-  -- Define the default "meta" spool location; this is where
-  -- message envelope and metadata will be stored
-  kumo.define_spool {
-    name = 'meta',
-    path = '/var/tmp/kumo-spool/meta',
-    flush = false,
-    kind = 'RocksDB',
+  -- Configure the sending IP addresses that will be used by KumoMTA to
+  -- connect to remote systems. Note that defining sources and pools does
+  -- nothing without some form of policy in effect to assign messages to
+  -- the source pools you have defined.
+  -- See https://docs.kumomta.com/userguide/configuration/sendingips/
+
+  kumo.define_egress_source {
+    name = 'ip-1',
+    source_address = '10.0.0.1',
   }
 
-  -- Use shared throttles rather than in-process throttles
+  kumo.define_egress_source {
+    name = 'ip-2',
+    source_address = '10.0.0.2',
+  }
+
+  kumo.define_egress_source {
+    name = 'ip-3',
+    source_address = '10.0.0.3',
+  }
+
+  kumo.define_egress_source {
+    name = 'ip-4',
+    source_address = '10.0.0.4',
+  }
+
+  kumo.define_egress_source {
+    name = 'ip-5',
+    source_address = '10.0.0.5',
+  }
+
+  kumo.define_egress_pool {
+    name = 'MyPool',
+    entries = {
+      { name = 'ip-1' },
+      { name = 'ip-2' },
+      { name = 'ip-3' },
+      { name = 'ip-4' },
+      { name = 'ip-5' },
+    },
+  }
+
+  kumo.define_egress_pool {
+    name = 'MySubPool',
+    entries = {
+      { name = 'ip-1' },
+      { name = 'ip-2' },
+    },
+  }
+
+  -- Use shared throttles rather than in-process throttles, do not enable
+  -- without first installing and configuring redis.
+  -- See https://docs.kumomta.com/reference/kumo/configure_redis_throttles/
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
 
-  -- Create some example sources
-  local entries = {}
-  for i = 1, 10 do
-    local source_name = 'source' .. tostring(i)
-    kumo.define_egress_source {
-      name = source_name,
+end) -- END OF THE INIT EVENT
+
+  -- Configure traffic shaping, typically on a global basis for each
+  -- destination domain. Throttles will apply on a per-ip basis.
+  -- See https://docs.kumomta.com/userguide/configuration/trafficshaping/
+
+  -- INSERT THE TRAFFIC SHAPING EXAMPLE HERE
+
+  -- Not the final form of this API, but this is currently how
+  -- we retrieve configuration used when making outbound
+  -- connections
+  kumo.on('get_egress_path_config', function(domain, site_name)
+    return kumo.make_egress_path {
+      enable_tls = 'OpportunisticInsecure',
+      -- max_message_rate = '5/min',
+      idle_timeout = '5s',
+      max_connections = 1024,
+      -- max_deliveries_per_connection = 5,
+
+      -- hosts that we should consider to be poison because
+      -- they are a mail loop.
+      prohibited_hosts = { "127.0.0.0/8", "::1" },
     }
-    table.insert(entries, { name = source_name, weight = i * 10 })
-  end
-  kumo.define_egress_pool {
-    name = 'pool0',
-    entries = entries,
-  }
-end)
+  end)
 
--- Called to validate the helo and/or ehlo domain
-kumo.on('smtp_server_ehlo', function(domain)
-  -- print('ehlo domain is', domain)
-  -- Use kumo.reject to return an error to the EHLO command
-  -- kumo.reject(420, 'wooooo!')
-end)
-
--- Called to validate the sender
-kumo.on('smtp_server_mail_from', function(sender)
-  -- print('sender', tostring(sender))
-  -- kumo.reject(420, 'wooooo!')
-end)
-
--- Called to validate a recipient
-kumo.on('smtp_server_rcpt_to', function(rcpt)
-  -- print('rcpt', tostring(rcpt))
-end)
-
--- Called once the body has been received.
--- For multi-recipient mail, this is called for each recipient.
-kumo.on('smtp_server_message_received', function(msg)
-  -- print('id', msg:id(), 'sender', tostring(msg:sender()))
-  -- print(msg:get_meta 'authn_id')
-
-  -- Import scheduling information from X-Schedule and
-  -- then remove that header from the message
-  msg:import_scheduling_header('X-Schedule', true)
-
-  local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
-    selector = 'default',
-    headers = { 'From', 'To', 'Subject' },
-    -- Using a file:
-    key = 'example-private-dkim-key.pem',
-    -- Using HashiCorp Vault:
-    --[[
-    key = {
-      vault_mount = "secret",
-      vault_path = "dkim/" .. msg:sender().domain
-    }
-    ]]
-  }
-  msg:dkim_sign(signer)
-
-  -- set/get metadata fields
-  -- msg:set_meta('X-TestMSG', 'true')
-  -- print('meta X-TestMSG is', msg:get_meta 'X-TestMSG')
-end)
-
--- Not the final form of this API, but this is currently how
--- we retrieve configuration used when making outbound
--- connections
-kumo.on('get_egress_path_config', function(domain, site_name)
-  return kumo.make_egress_path {
-    enable_tls = 'OpportunisticInsecure',
-    -- max_message_rate = '5/min',
-    idle_timeout = '5s',
-    max_connections = 1024,
-    -- max_deliveries_per_connection = 5,
-
-    -- hosts that we should consider to be poison because
-    -- they are a mail loop. The default for this is
-    -- { "127.0.0.0/8", "::1" }, but it is emptied out
-    -- in this config because we're using this to test
-    -- with fake domains that explicitly return loopback
-    -- addresses!
-    prohibited_hosts = {},
-  }
-end)
+-- Configure queue management settings. These are not throttles, but instead
+-- how messages flow through the queues.
+-- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used for managing a queue.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
-  if domain == 'maildir.example.com' then
-    -- Store this domain into a maildir, rather than attempting
-    -- to deliver via SMTP
-    return kumo.make_queue_config {
-      protocol = {
-        maildir_path = '/var/tmp/kumo-maildir',
-      },
-    }
-  end
-
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
-    -- max_age = "2 minutes"
-    -- retry_interval = "2 seconds",
-    -- max_retry_interval = "8 seconds",
-    egress_pool = 'pool0',
+    max_age = "2 minutes"
+    retry_interval = "2 seconds",
+    max_retry_interval = "8 seconds",
+    egress_pool = 'MyPool',
   }
 end)
 
--- A really simple inline auth "database" for very basic HTTP authentication
-function simple_auth_check(user, password)
-  local password_database = {
-    ['scott'] = 'tiger',
+-- Configure DKIM signing. In this case we use a simple approach of a path
+-- defined by tokens, with each domain configured in the definition.
+-- See https://docs.kumomta.com/userguide/configuration/dkim/
+
+function dkim_sign(msg)
+    local signer = kumo.dkim.rsa_sha256_signer {
+    domain = msg:sender().domain,
+    selector = 'default',
+    headers = { 'From', 'To', 'Subject' },
+    key = 'example-private-dkim-key.pem',
   }
-  if password == '' then
-    return false
-  end
-  return password_database[user] == password
+  msg:dkim_sign(signer)
 end
 
--- Consult a hypothetical sqlite database that has an auth table
--- with user and pass fields
-function sqlite_auth_check(user, password)
-  local sqlite = require 'sqlite'
-  local db = sqlite.open '/path/to/auth.db'
-  local result = db:execute(
-    'select user from auth where user=? and pass=?',
-    user,
-    password
-  )
-  return #result == 1
-end
-
--- Use this to lookup and confirm a user/password credential
--- used with the http endpoint
-kumo.on('http_server_validate_auth_basic', function(user, password)
-  return simple_auth_check(user, password)
-
-  -- or use sqlite
-  -- return sqlite_auth_check(user, password)
+kumo.on('smtp_server_message_received', function(msg)
+   dkim_sign(msg)
 end)
 
--- Use this to lookup and confirm a user/password credential
--- when the client attempts SMTP AUTH PLAIN
-kumo.on('smtp_server_auth_plain', function(authz, authc, password)
-  return simple_auth_check(authc, password)
-  -- or use sqlite
-  -- return sqlite_auth_check(authc, password)
+kumo.on('http_message_generated', function(msg)
+   dkim_sign(msg)
 end)
 ```

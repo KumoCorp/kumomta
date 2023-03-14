@@ -163,12 +163,20 @@ TOC = [
                         "An Example Configuration", "userguide/configuration/example.md"
                     ),
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
+                    Page("Configuring Logging", "userguide/configuration/logging.md"),
                     Page(
-                        "Configuring Listeners",
+                        "Configuring Bounce Classification",
+                        "userguide/configuration/bounce.md",
+                    ),
+                    Page(
+                        "Configuring HTTP Listeners",
+                        "userguide/configuration/httplisteners.md",
+                    ),
+                    Page(
+                        "Configuring SMTP Listeners",
                         "userguide/configuration/smtplisteners.md",
                     ),
                     Page("Configuring Domains", "userguide/configuration/domains.md"),
-                    Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
                     Page(
                         "Configuring Sending IPs",
                         "userguide/configuration/sendingips.md",
@@ -178,18 +186,10 @@ TOC = [
                         "userguide/configuration/trafficshaping.md",
                     ),
                     Page(
-                        "Configuring Bounce Classification",
-                        "userguide/configuration/bounce.md",
+                        "Configuring Queue Management",
+                        "userguide/configuration/queuemanagement.md",
                     ),
-                    Page(
-                        "Configuring Message Routing",
-                        "userguide/configuration/routing.md",
-                    ),
-                    Page("Configuring Logging", "userguide/configuration/logging.md"),
-                    Page(
-                        "Configuring HTTP Listeners",
-                        "userguide/configuration/httplisteners.md",
-                    ),
+                    Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
                 ],
             ),
             Page(
