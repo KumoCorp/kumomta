@@ -33,6 +33,9 @@ jobs:
         container: ["rockylinux:8", "rockylinux:9"]
 
     steps:
+    - name: "WTF?"
+      shell: bash
+      run: "echo $PATH ; ls -l /bin /usr/bin"
     - name: "Install config manager"
       shell: bash
       run: "dnf install -y 'dnf-command(config-manager)'"
