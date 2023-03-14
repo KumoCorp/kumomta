@@ -177,6 +177,8 @@ TOC = [
                         "Configuring Traffic Shaping",
                         "userguide/configuration/trafficshaping.md",
                     ),
+                    Page("Configuring Bounce Classification", "userguide/configuration/bounce.md"),
+                    Page("Configuring Message Routing", "userguide/configuration/routing.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
                     Page(
                         "Configuring HTTP Listeners",
