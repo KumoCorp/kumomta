@@ -21,25 +21,16 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
 
     ```
     $ sudo yum-config-manager --add-repo=\
-        https://openrepo.kumomta.com/files/kumomta-centos7.repo
+        https://openrepo.kumomta.com/files/kumomta-centos.repo
     $ sudo yum install kumomta-dev
     ```
 
-=== "Rocky 8"
+=== "Rocky"
     ```
     $ sudo dnf -y install dnf-plugins-core
     $ sudo dnf config-manager \
         --add-repo \
-        https://openrepo.kumomta.com/files/kumomta-rocky8.repo
-    $ sudo yum install kumomta-dev
-    ```
-
-=== "Rocky 9"
-    ```
-    $ sudo dnf -y install dnf-plugins-core
-    $ sudo dnf config-manager \
-        --add-repo \
-        https://openrepo.kumomta.com/files/kumomta-rocky9.repo
+        https://openrepo.kumomta.com/files/kumomta-rocky.repo
     $ sudo yum install kumomta-dev
     ```
 
