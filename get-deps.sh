@@ -61,6 +61,7 @@ fedora_deps() {
     'python3' \
     'python3-pip' \
     'rpm-build' \
+    'rpm-sign' \
     'telnet'
 }
 
