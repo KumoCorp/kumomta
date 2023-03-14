@@ -1,0 +1,89 @@
+name: Rocky
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/rocky.yml"
+      - "**/Cargo.toml"
+      - "get-deps.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/upload-package.sh"
+
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/rocky.yml"
+      - "**/Cargo.toml"
+      - "get-deps.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/upload-package.sh"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container: ["rockylinux:8", "rockylinux:9"]
+
+    steps:
+    - name: "Install config manager"
+      shell: bash
+      run: "dnf install -y 'dnf-command(config-manager)'"
+    - name: "Enable PowerTools"
+      shell: bash
+      run: "dnf config-manager --set-enabled powertools"
+    - name: "Install Rust"
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: "minimal"
+        toolchain: "stable"
+        override: true
+      env:
+        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+    - uses: actions/checkout@v3
+    - name: Install cargo-nextest
+      uses: baptiste0928/cargo-install@v1
+      with:
+        crate: cargo-nextest
+        args: --locked
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+        env-vars: "CARGO RUST"
+    - name: Get Deps
+      run: bash ./get-deps.sh
+    - name: Build
+      run: cargo build --release
+    - name: Run tests
+      run: cargo nextest run --release
+    - name: "Build RPM"
+      run: "./assets/build-rpm.sh"
+    - name: "Move RPM"
+      run: "mv ~/rpmbuild/RPMS/*/*.rpm ."
+    - name: "Sign"
+      if: ${{ github.ref == 'refs/heads/main' }}
+      env:
+        PUB: ${{ secrets.OPENREPO_GPG_PUBLIC }}
+        PRIV: ${{ secrets.OPENREPO_GPG_PRIVATE }}
+        TOKEN: ${{ secrets.OPENREPO_API_TOKEN }}
+      shell: bash
+      run: |
+        ./assets/sign-rpm.sh *.rpm
+        ./assets/upload-package.sh ${{ matrix.container }} *.rpm
+    - name: Make artifact name
+      id: artifact-name
+      run: echo "name=${{ matrix.container }}" | tr ':' '-' >> $GITHUB_OUTPUT
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ steps.artifact-name.outputs.name }}
+        path: "*.rpm"
+
+
