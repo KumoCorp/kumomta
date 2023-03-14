@@ -42,13 +42,17 @@ fedora_deps() {
     echo "No idea what package manager to use, sorry! (perhaps 'dnf' or 'yum' is not in \$PATH?)"
     return 1
   fi
-  $YUM group install -y "Development Tools"
   # perl stuff moved around in different versions of the distro.
   # Make a soft attempt under this name.
   $YUM install -y 'perl-FindBin' 'perl-File-Compare' || true
+  if ! have_command 'curl' ; then
+    # Some systems have curl-minimal which won't tolerate us
+    # trying to install curl, so only try to install if we
+    # don't have it already
+    $YUM install -y 'curl'
+  fi
   $YUM install -y \
     'clang-devel' \
-    'curl' \
     'gcc' \
     'gcc-c++' \
     'git' \
