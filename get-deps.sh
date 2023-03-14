@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 NOTFOUND=0
 
@@ -42,8 +43,12 @@ fedora_deps() {
     return 1
   fi
   $YUM group install -y "Development Tools"
+  # perl stuff moved around in different versions of the distro.
+  # Make a soft attempt under this name.
+  $YUM install -y 'perl-FindBin' 'perl-File-Compare' || true
   $YUM install -y \
     'clang-devel' \
+    'curl' \
     'gcc' \
     'gcc-c++' \
     'git' \
@@ -52,8 +57,6 @@ fedora_deps() {
     'python3' \
     'python3-pip' \
     'rpm-build' \
-    'perl-FindBin' \
-    'curl' \
     'telnet'
 }
 
