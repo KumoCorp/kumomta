@@ -6,7 +6,7 @@ At first, configuration using a policy script may seem like a departure from the
 
 Take a look at the [example policy](example.md) to see how a configuration policy approach can be quite similar to a traditional configuration file.
 
-For more information on implementing policies in KumoMTA, refer to the [policy chapter](../policy/index.md).
+For more information on implementing policies in KumoMTA, refer to the [policy chapter].
 
 ## Configuration Location
 
