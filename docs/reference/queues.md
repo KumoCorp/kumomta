@@ -122,29 +122,52 @@ end
 --   ["yahoo.com"] = "(mta5|mta6|mta7).am0.yahoodns.net"
 -- }
 
--- This table is keyed by the tuple of (site_name, source) or (domain, source).
+-- This table is keyed by either site name or domain name.
 -- Site names are looked up first, then domain names.
-local SHAPING = {
-  [{ SITE_OF['gmail.com'], 'ip-1' }] = {
-    -- appropriate configuration for your source when communicating
+local SHAPE_BY_DOMAIN = {
+  [SITE_OF['gmail.com']] = {
+    -- appropriate general configuration when communicating
     -- with any domain that shares gmail.com's MXs
     max_connection_rate = '1000/hr',
   },
-
-  [{ 'example.com', 'ip-1' }] = {
-    -- appropriate configuration for your source when communicating
+  ['example.com'] = {
+    -- appropriate general configuration when communicating
     -- specifically with example.com
     max_connection_rate = '10/hr',
   },
 }
 
+-- This table is keyed by the tuple of (site_name, source) or (domain, source).
+-- Site names are looked up first, then domain names.
+-- Values override/overlay those in SHAPE_BY_DOMAIN.
+local SHAPE_BY_SOURCE = {
+  [{ SITE_OF['gmail.com'], 'ip-1' }] = {
+    -- appropriate configuration for your source when communicating
+    -- with any domain that shares gmail.com's MXs
+    max_message_rate = '1000/hr',
+  },
+}
+
+function merge_into(src, dest)
+  for k, v in pairs(src) do
+    dest[k] = v
+  end
+end
+
 kumo.on('get_egress_path_config', function(domain, egress_source, site_name)
   -- resolve parameters first based on the site, if any,
   -- then based on the domain, if any,
   -- otherwise use the system defaults
-  local params = SHAPING[{ site_name, egress_source }]
-    or SHAPING[{ domain, egress_source }]
+  local domain_params = SHAPE_BY_DOMAIN[site_name]
+    or SHAPE_BY_DOMAIN[domain]
     or {}
+  local source_params = SHAPE_BY_SOURCE[{ site_name, egress_source }]
+    or SHAPE_BY_SOURCE[{ domain, egress_source }]
+    or {}
+  -- compose the source params over the domain params
+  local params = {}
+  merge_into(domain_params, params)
+  merge_into(source_params, params)
   return kumo.make_egress_path(params)
 end)
 ```
