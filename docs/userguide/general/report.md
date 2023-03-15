@@ -22,15 +22,18 @@ If you think you have found a previously unreported bug, visit [https://github.c
 If you submit an issue, please keep the following in mind:
 
 1) Be sure to include the following information:
-    * The Operating System of your KumoMTA installation, including Linux distribution name and version.
-    * The version of your KumoMTA installation.
-    * A thorough description of your install environment, including hardware specifications, whether the environment is physical or virtual (and if so, details on the virtualization environment).
-    * A thorough description of the action or scenario that caused the bug.
-    * Any error messages encountered must be included in the Issue report. Copy and paste the error message into your report, do not try and reproduce it from memory.
-    * Relative log lines and configuration information to help reproduce the bug. Be sure to sanitize any PII or security credentials.
-    * Details of any resolution steps you have taken so far.
-    * If you built KumoMTA from source, be sure to include all details of the development environment, including the version of Rust being used.
+
+  * The Operating System of your KumoMTA installation, including Linux distribution name and version.
+  * The version of your KumoMTA installation.
+  * A thorough description of your install environment, including hardware specifications, whether the environment is physical or virtual (and if so, details on the virtualization environment).
+  * A thorough description of the action or scenario that caused the bug.
+  * Any error messages encountered must be included in the Issue report. Copy and paste the error message into your report, do not try and reproduce it from memory.
+  * Relative log lines and configuration information to help reproduce the bug. Be sure to sanitize any PII or security credentials.
+  * Details of any resolution steps you have taken so far.
+  * If you built KumoMTA from source, be sure to include all details of the development environment, including the version of Rust being used.
+
 2) Remember that the fastest path to resolution is to prevent any back-and-forth with the developers to gather further information. We can always act on an issue report with too much detail, but not one with too little.
+
 3) If possible, download and install the latest release of KumoMTA and check whether it solves your problem. All official KumoMTA releases are thoroughly tested and should work without issue. We strive to maintain backward compatibility, allowing you to switch versions of KumoMTA without issue.
 
 ## Getting Help
