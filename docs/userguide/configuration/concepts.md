@@ -1,6 +1,6 @@
 # Configuration Concepts
 
-KumoMTA uses Lua in the place of bespoke domain-specific configuration syntax
+KumoMTA uses Lua in place of bespoke domain-specific configuration syntax
 that is common in many other MTAs.
 
 Lua is a surprisingly powerful configuration language, allowing you to simply
@@ -44,7 +44,7 @@ end)
 
 Attributes that are needed at the time of queueing and sending are handled in events that are called repeatedly as messages pass through the server. Any such events are constantly firing, and as such any file or data source access involved in those events will update immediately unless caching is configured.
 
-That said, any modification to the policy script itself is subject to caching of the lua policy, which is refreshed every 300 seconds or 1024 executions by default.
+That said, any modification to the policy script itself is subject to caching of the Lua policy, which is refreshed every 300 seconds or 1024 executions by default.
 
 An example:
 
@@ -58,7 +58,7 @@ end)
 
 ### External Data
 
-Because the configuration is implemented through policy, the traditional practice of breaking things up into discrete files and assembling them using include statements is not used.
+Because the configuration is implemented through policy, the traditional practice of breaking things up into discrete files and assembling them using include statements does not apply.
 
 Since includes were often used for dynamic information such as relay domains or relay hosts, the recommended practice is to store that specific data in a data file or data source and load it using Lua data access functions.
 
