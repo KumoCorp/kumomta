@@ -70,11 +70,11 @@ OK, conratulations for making it this far. Now we can actually install some soft
 In another section of the documentation we show how to build from source and it takes a while.  Here we are going to take the easy path and install the [prebuilt binary from the repo](https://docs.kumomta.com/tutorial/getting_started/).
 
 ```console
-sudo dnf -y install dnf-plugins-core
-sudo dnf config-manager \
+$ sudo dnf -y install dnf-plugins-core
+$ sudo dnf config-manager \
     --add-repo \
     https://openrepo.kumomta.com/files/kumomta-rocky.repo
-sudo yum install kumomta-dev
+$ sudo yum install kumomta-dev
 ```
 This installs the KumoMTA daemon to /opt/kumomta/sbin/kumod
 
@@ -91,34 +91,33 @@ In the process below you will see that I also proactively disable Postfix and Qp
 
 ```console
 # Do basic updates
-sudo dnf clean all
-sudo dnf update -y
+$ sudo dnf clean all
+$ sudo dnf update -y
 
 # Grab some handy tools
-sudo dnf install -y chrony wget bind bind-utils telnet curl mlocate unzip sudo cronie tree
+$ sudo dnf install -y chrony wget bind bind-utils telnet curl mlocate unzip sudo cronie tree
 
-sudo updatedb
+$ sudo updatedb
 
 # Slightly more optional handy tools for dev work
-sudo dnf install -y make gcc firewalld sysstat
+$ sudo dnf install -y make gcc firewalld sysstat
 
 # Disable Postfix and Qpidd so they do not interfere
-sudo systemctl stop  postfix.service
-sudo systemctl disable postfix.service
-sudo systemctl stop  qpidd.service
-sudo systemctl disable qpidd.service
+$ sudo systemctl stop  postfix.service
+$ sudo systemctl disable postfix.service
+$ sudo systemctl stop  qpidd.service
+$ sudo systemctl disable qpidd.service
 ```
 
-This next part needs to be done as root so do a ```sudo -s``` before you run the bits below and remember ```exit``` when done.
 ```console
 # Make sure it all stays up to date
 # Run a dnf update at 3AM daily
-sudo echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1">/etc/cron.d/dnf-updates
+$ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | sudo tee /etc/cron.d/dnf-updates >/dev/null
 
 # Tune sysctl setings. Note that these are suggestions,
 #  you should tune according to your specific build
 
-echo "
+$ echo "
 vm.max_map_count = 768000
 net.core.rmem_default = 32768
 net.core.wmem_default = 32768
@@ -131,16 +130,16 @@ kernel.shmmax = 68719476736
 net.core.somaxconn = 1024
 vm.nr_hugepages = 20
 kernel.shmmni = 4096
-" >> /etc/sysctl.conf
+" | sudo tee -a /etc/sysctl.conf > /dev/null
 
-/sbin/sysctl -p /etc/sysctl.conf
+$ sudo /sbin/sysctl -p /etc/sysctl.conf
 ```
 
 If you have done all that correctly, you can do handy things like this:
 
 ```console
-cd /opt
-tree
+$ cd /opt
+$ tree
 ```
 
 ### Writing Config Policy
@@ -150,7 +149,7 @@ To save you from writing your own policy from scratch, you can just download our
 On your server you can just ...
 
 ```console
-wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
+$ wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
 ```
 
 That will provide you with a basic and safe sending configuration that will allow you to move on to the testing step - we can examine the details later.

@@ -17,18 +17,18 @@ In addition, you will need to install some development packages.
 You will need `git`:
 
 === "RPM based systems"
-    ```bash
+    ```console
     $ sudo dnf install -y git
     ```
 
 === "APT based systems"
-    ```bash
+    ```console
     $ sudo apt install -y git
     ```
 
 Then clone the repo:
 
-```bash
+```console
 $ git clone https://github.com/kumomta/kumomta.git
 $ cd kumomta
 ```
@@ -39,7 +39,7 @@ The `get-deps.sh` script in the repo knows how to install dependencies for
 various systems; you should run it the first time you clone the repo,
 and may need to run it after running a pull to update the repo in the future:
 
-```bash
+```console
 $ ./get-deps.sh
 ```
 
@@ -53,7 +53,7 @@ it is often outdated.
 
 If you are using a priviledged user, drop back to your non-priviledged user first:
 
-```bash
+```console
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 $ source ~/.profile
 $ source ~/.cargo/env
@@ -64,7 +64,7 @@ $ rustc -V
 
 With all the dependencies available, the actual build process is very simple:
 
-```
+```console
 $ cd kumomta
 $ cargo build --release
 ```
@@ -76,7 +76,7 @@ directory in the repo.
 
 This command will bring `kumod` up to date (in case you made changes), and then launch it:
 
-```bash
+```console
 $ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy simple_policy.lua
 ```
 
@@ -90,16 +90,15 @@ very verbose logging.
 
 ## Installing your build
 
-```bash
-$ install -m755 target/release/kumod -t /usr/bin
-$ install -m755 target/release/traffic-gen -t /usr/bin
+```console
+$ assets/install.sh /opt/kumomta
 ```
 
 ## Staying up to date
 
 To synchronize your repo with the latest changes:
 
-```bash
+```console
 $ cd kumomta
 $ git pull --rebase
 $ cargo build --release

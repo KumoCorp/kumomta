@@ -7,18 +7,19 @@ The samples below are present in the _*simple_policy.lua*_ file included with th
 ## Control Access
 
 First let's make sure only authorized systems can access your MTA.  For SMTP, this is done in the configuration with relay_hosts:
-```  -- override the default set of relay hosts
-    relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
+```lua
+-- override the default set of relay hosts
+relay_hosts = { '127.0.0.1', '192.168.1.0/24' }
 ```
 By default only localhost and private networks are able to relay (send) mail.  Add the IP address or CIDR block of your injectors here to allow them to relay mail.
 
 For HTTP, this is done with the _*trusted_hosts*_ setting in a litener stanza.
-``` 
- kumo.start_http_listener {
-    listen = '0.0.0.0:8000',
-    -- allowed to access any http endpoint without additional auth
-    trusted_hosts = { '127.0.0.1', '::1' },
-  }
+```lua
+kumo.start_http_listener {
+  listen = '0.0.0.0:8000',
+  -- allowed to access any http endpoint without additional auth
+  trusted_hosts = { '127.0.0.1', '::1' },
+}
 ```
 
 

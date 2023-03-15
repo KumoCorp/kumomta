@@ -27,7 +27,7 @@ Hey, this is my first email!
 
 ## Curl method for HTTP API
 
-```bash
+```console
 $ curl -H 'Content-Type: application/json' 'http://127.0.0.1:8000/api/inject/v1' -d '{
     "envelope_sender": "noreply@example.com",
     "content": "Subject: hello\n\nHello there",
@@ -49,16 +49,16 @@ Swaks, the [Swiss Army Knife for SMTP](http://www.jetmore.org/john/code/swaks/) 
 - Click the link above for more detail on how to use Swaks
 - As of this writing, you can pull and install the package with
 
-```bash
-curl -O https://jetmore.org/john/code/swaks/files/swaks-20201014.0.tar.gz
-tar -xvzf swaks-20201014.0.tar.gz
-chmod 755 ./swaks-20201014.0/swaks
+```console
+$ curl -O https://jetmore.org/john/code/swaks/files/swaks-20201014.0.tar.gz
+$ tar -xvzf swaks-20201014.0.tar.gz
+$ chmod 755 ./swaks-20201014.0/swaks
 ```
 
 You can test a relay through KumoMTA with this (change user@example.com to your own email address first)
 
-```bash
-swaks --to user@example.com --server 127.0.0.1 --port 2025
+```console
+$ swaks --to user@example.com --server 127.0.0.1 --port 2025
 ```
 
 ## Checking the logs

@@ -71,10 +71,10 @@ Generate public and private keys for each signing domain and create the DKIM pub
 
 The OpenSSL cryptography toolkit can be used to generate RSA keys for DKIM. As an example, the following openssl commands are used to generate public and private keys for the domain example.com with a selector called "default". The files can be stored in any directory such as ~/kumomta/keys/.
 
-```bash
-mkdir -p ~/kumomta/keys/example.com
-openssl genrsa -out ~/kumomta/keys/example.com/default.key 1024
-openssl rsa -in ~/kumomta/keys/example.com/default.key -out ~/kumomta/keys/example.com/default.pub -pubout -outform PEM
+```console
+$ mkdir -p ~/kumomta/keys/example.com
+$ openssl genrsa -out ~/kumomta/keys/example.com/default.key 1024
+$ openssl rsa -in ~/kumomta/keys/example.com/default.key -out ~/kumomta/keys/example.com/default.pub -pubout -outform PEM
 ```
 
 Any DKIM verification implementations must support key sizes of 512, 768, 1024, 1536, and 2048 bits. A signer may choose to sign messages using any of these sizes and may use a different size for different selectors. Larger key sizes provide greater security but impose higher CPU costs during message signing and verification. It is not recommended to use a key size lower than 1024 unless absolutely necessary. Note that Google _requires_ senders to sign with a 1024 bit or greater key size.

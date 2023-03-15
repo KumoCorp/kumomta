@@ -14,38 +14,33 @@ Reguardless of what system you deploy, there are things you need to do to prepar
 
 Rocky Linux is very similar to CentOS, as is Alma and RHEL  The instructions below are shown for a Rocky 8 system but with slight modification, should work for any DNF package management system. For Amazon Linux (AL2) the instructions are identical, but replace "dnf" with "yum".
 
-```bash
+```console
 # Do basic updates 
-sudo dnf clean all
-sudo dnf update -y
+$ sudo dnf clean all
+$ sudo dnf update -y
 
 # Grab some handy tools
-sudo dnf install -y chrony wget bind bind-utils telnet curl mlocate unzip sudo cronie
+$ sudo dnf install -y chrony wget bind bind-utils telnet curl mlocate unzip sudo cronie
 
-sudo systemctl enable chrony
+$ sudo systemctl enable chrony
 
 # Slightly more optional handy tools for dev work
-sudo dnf install -y make gcc firewalld sysstat
+$ sudo dnf install -y make gcc firewalld sysstat
 ```
 
 !!! note
     The following commands must be executed as the root user
 
-```bash
-# RUN AS ROOT
-sudo -s
-```
-
 Then run these:
-```
+```console
 # Make sure it all stays up to date
 # Run a dnf update at 3AM daily
-sudo echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1">/etc/cron.d/dnf-updates
+$ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | sudo tee /etc/cron.d/dnf-updates >/dev/null
 
 # Tune sysctl setings. Note that these are suggestions, 
 #  you should tune according to your specific build
 
-echo "
+$ echo "
 vm.max_map_count = 768000
 net.core.rmem_default = 32768
 net.core.wmem_default = 32768
@@ -58,48 +53,42 @@ kernel.shmmax = 68719476736
 net.core.somaxconn = 1024
 vm.nr_hugepages = 20
 kernel.shmmni = 4096
-" >> /etc/sysctl.conf
+" | sudo tee -a /etc/sysctl.conf > /dev/null
 
-/sbin/sysctl -p /etc/sysctl.conf
+$ sudo /sbin/sysctl -p /etc/sysctl.conf
 ```
-
-**Now exit from root user**
-
-```exit```
 
 ### Ubuntu Linux Example
 
 The instructions below are shown for an Ubuntu 22 system but with slight modification, should work for any APT package management system.
 
-```bash
+```console
 # Do basic updates 
-sudo apt-get -y update
-sudo apt-get -y upgrade
+$ sudo apt-get -y update
+$ sudo apt-get -y upgrade
 
 # Grab some handy tools
-sudo apt-get install -y chrony wget bind9 bind9-utils telnet curl mlocate unzip sudo cron
+$ sudo apt-get install -y chrony wget bind9 bind9-utils telnet curl mlocate unzip sudo cron
 
-sudo systemctl enable chrony
+$ sudo systemctl enable chrony
 
 # Slightly more optional handy tools for dev work
-sudo apt-get install -y make gcc firewalld sysstat
+$ sudo apt-get install -y make gcc firewalld sysstat
 ```
 
 !!! note
     The following commands must be executed as the root user
 
 ```bash
-# RUN AS ROOT
-sudo -s
 
 # Make sure it all stays up to date
 # Run a dnf update at 3AM daily
-sudo echo "0 3 * * * root /usr/bin/apt-get update -y >/dev/null 2>&1">/etc/cron.d/apt-get-updates
-sudo echo "5 3 * * * root /usr/bin/apt-get upgrade -y >/dev/null 2>&1">>/etc/cron.d/apt-get-updates
+$ sudo echo "0 3 * * * root /usr/bin/apt-get update -y >/dev/null 2>&1" | sudo tee /etc/cron.d/apt-get-updates >/dev/null
+$ sudo echo "5 3 * * * root /usr/bin/apt-get upgrade -y >/dev/null 2>&1" | sudo tee -a /etc/cron.d/apt-get-updates >/dev/null
 
 # Tune sysctl setings. Note that these are suggestions, you should tune according to your specific build
 
-sudo echo "
+$ echo "
 vm.max_map_count = 768000
 net.core.rmem_default = 32768
 net.core.wmem_default = 32768
@@ -112,29 +101,21 @@ kernel.shmmax = 68719476736
 net.core.somaxconn = 1024
 vm.nr_hugepages = 20
 kernel.shmmni = 4096
-" >> /etc/sysctl.conf
+" | sudo tee -a /etc/sysctl.conf >/dev/null
 
-/sbin/sysctl -p /etc/sysctl.conf
+$ sudo /sbin/sysctl -p /etc/sysctl.conf
 ```
-
-
-**Now exit from root user**
-
-```exit```
-
-
 
 ## OS Hardening
 Above the basics of any system deloyment, you may also want to do some "hardening".  This is the process of minimizing exposure to threats.  This is not a comprehensive list, but are some of the common things you should do to protect your system.
 
  - Disabling unnecessary services like postfix and qpidd
-   
-```
-sudo systemctl stop  postfix.service
-sudo systemctl disable postfix.service
-sudo systemctl stop  qpidd.service
-sudo systemctl disable qpidd.service
 
+```console
+$ sudo systemctl stop  postfix.service
+$ sudo systemctl disable postfix.service
+$ sudo systemctl stop  qpidd.service
+$ sudo systemctl disable qpidd.service
 ```
 
  - Firewall
@@ -150,6 +131,4 @@ Beyond the basics of any system deloyment, you may also want to do some "hardeni
 - Firewall
 - SSH config
 - Switch to keypair only
-
-
 
