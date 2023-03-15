@@ -1,3 +1,4 @@
+use crate::address::HeaderAddressList;
 use crate::dkim::Signer;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
@@ -534,6 +535,19 @@ impl Message {
         }
     }
 
+    pub fn get_address_header(
+        &self,
+        header_name: &str,
+    ) -> anyhow::Result<Option<HeaderAddressList>> {
+        let data = self.get_data();
+        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+
+        match headers.get_first_header(header_name) {
+            Some(hdr) => Ok(HeaderAddressList::parse_header_value(hdr.get_value_raw())),
+            None => Ok(None),
+        }
+    }
+
     pub fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
         let data = self.get_data();
         let (headers, _body_offset) = mailparse::parse_headers(&data)?;
@@ -734,6 +748,16 @@ impl UserData for Message {
                 Ok(this.append_header(Some(&name), &value))
             },
         );
+        methods.add_method("get_address_header", move |_, this, name: String| {
+            Ok(this.get_address_header(&name).map_err(any_err)?)
+        });
+        methods.add_method("from_header", move |_, this, ()| {
+            Ok(this.get_address_header("From").map_err(any_err)?)
+        });
+        methods.add_method("to_header", move |_, this, ()| {
+            Ok(this.get_address_header("To").map_err(any_err)?)
+        });
+
         methods.add_method(
             "get_first_named_header_value",
             move |_, this, name: String| {

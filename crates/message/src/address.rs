@@ -1,3 +1,5 @@
+use config::any_err;
+use mail_parser::{Addr, Group, HeaderValue};
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
@@ -59,11 +61,249 @@ impl UserData for EnvelopeAddress {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| Ok(this.user().to_string()));
         fields.add_field_method_get("domain", |_, this| Ok(this.domain().to_string()));
+        fields.add_field_method_get("email", |_, this| Ok(this.0.to_string()));
     }
 
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             Ok(this.0.to_string())
         });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeaderAddressList(Vec<HeaderAddressEntry>);
+
+impl HeaderAddressList {
+    /// If the address list is comprised of a single entry,
+    /// returns just the email domain from that entry
+    pub fn domain(&self) -> anyhow::Result<&str> {
+        let (_local, domain) = self.single_address_cracked()?;
+        Ok(domain)
+    }
+
+    /// If the address list is comprised of a single entry,
+    /// returns just the email domain from that entry
+    pub fn user(&self) -> anyhow::Result<&str> {
+        let (user, _domain) = self.single_address_cracked()?;
+        Ok(user)
+    }
+
+    /// If the address list is comprised of a single entry,
+    /// returns just the display name portion, if any
+    pub fn name(&self) -> anyhow::Result<Option<&str>> {
+        let addr = self.single_address()?;
+        Ok(addr.name.as_deref())
+    }
+
+    pub fn email(&self) -> anyhow::Result<Option<&str>> {
+        let addr = self.single_address()?;
+        Ok(addr.address.as_deref())
+    }
+
+    /// Flattens the groups and list and returns a simple list
+    /// of addresses
+    pub fn flatten(&self) -> Vec<&HeaderAddress> {
+        let mut res = vec![];
+        for entry in &self.0 {
+            match entry {
+                HeaderAddressEntry::Address(a) => res.push(a),
+                HeaderAddressEntry::Group(group) => {
+                    for addr in &group.addresses {
+                        res.push(addr);
+                    }
+                }
+            }
+        }
+        res
+    }
+
+    pub fn single_address_cracked(&self) -> anyhow::Result<(&str, &str)> {
+        let addr = self.single_address_string()?;
+        let tuple = addr
+            .split_once('@')
+            .ok_or_else(|| anyhow::anyhow!("no @ in address"))?;
+        Ok(tuple)
+    }
+
+    pub fn single_address_string(&self) -> anyhow::Result<&str> {
+        let addr = self.single_address()?;
+        match &addr.address {
+            None => anyhow::bail!("no address"),
+            Some(addr) => Ok(addr),
+        }
+    }
+
+    pub fn single_address(&self) -> anyhow::Result<&HeaderAddress> {
+        match self.0.len() {
+            0 => anyhow::bail!("no addresses"),
+            1 => match &self.0[0] {
+                HeaderAddressEntry::Address(a) => Ok(a),
+                _ => anyhow::bail!("is not a simple address"),
+            },
+            _ => anyhow::bail!("is not a simple single address"),
+        }
+    }
+}
+
+impl UserData for HeaderAddressList {
+    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("user", |_, this| {
+            Ok(this.user().map_err(any_err)?.to_string())
+        });
+        fields.add_field_method_get("domain", |_, this| {
+            Ok(this.domain().map_err(any_err)?.to_string())
+        });
+        fields.add_field_method_get("email", |_, this| {
+            Ok(this.email().map_err(any_err)?.map(|s| s.to_string()))
+        });
+        fields.add_field_method_get("name", |_, this| {
+            Ok(this.name().map_err(any_err)?.map(|s| s.to_string()))
+        });
+        fields.add_field_method_get("list", |_, this| {
+            Ok(this
+                .flatten()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<HeaderAddress>>())
+        });
+    }
+
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
+            let json = serde_json::to_string(&this.0).map_err(any_err)?;
+            Ok(json)
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HeaderAddressEntry {
+    Address(HeaderAddress),
+    Group(AddressGroup),
+}
+
+impl From<Addr<'_>> for HeaderAddressEntry {
+    fn from(addr: Addr) -> Self {
+        Self::Address(addr.into())
+    }
+}
+
+impl From<Group<'_>> for HeaderAddressEntry {
+    fn from(group: Group) -> Self {
+        Self::Group(AddressGroup {
+            name: group.name.map(|s| s.to_string()),
+            addresses: group.addresses.into_iter().map(|a| a.into()).collect(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeaderAddress {
+    pub name: Option<String>,
+    pub address: Option<String>,
+}
+
+impl HeaderAddress {
+    fn user(&self) -> anyhow::Result<&str> {
+        let (user, _domain) = self.crack_address().map_err(any_err)?;
+        Ok(user)
+    }
+    fn domain(&self) -> anyhow::Result<&str> {
+        let (_user, domain) = self.crack_address().map_err(any_err)?;
+        Ok(domain)
+    }
+    fn email(&self) -> Option<&str> {
+        self.address.as_deref()
+    }
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    fn crack_address(&self) -> anyhow::Result<(&str, &str)> {
+        let address = self
+            .address
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("no address"))?;
+
+        Ok(address
+            .split_once('@')
+            .ok_or_else(|| anyhow::anyhow!("no @ in address"))?)
+    }
+}
+
+impl UserData for HeaderAddress {
+    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+        fields.add_field_method_get("user", |_, this| {
+            Ok(this.user().map_err(any_err)?.to_string())
+        });
+        fields.add_field_method_get("domain", |_, this| {
+            Ok(this.domain().map_err(any_err)?.to_string())
+        });
+        fields.add_field_method_get("email", |_, this| Ok(this.email().map(|s| s.to_string())));
+        fields.add_field_method_get("name", |_, this| Ok(this.name().map(|s| s.to_string())));
+    }
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
+            let json = serde_json::to_string(&this).map_err(any_err)?;
+            Ok(json)
+        });
+    }
+}
+
+impl From<Addr<'_>> for HeaderAddress {
+    fn from(addr: Addr) -> Self {
+        Self {
+            name: addr.name.map(|s| s.to_string()),
+            address: addr.address.map(|s| s.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddressGroup {
+    pub name: Option<String>,
+    pub addresses: Vec<HeaderAddress>,
+}
+
+impl HeaderAddressList {
+    pub fn parse_header_value(data: &[u8]) -> Option<Self> {
+        // The parser needs a newline in the data otherwise it
+        // won't recognize the value
+        let mut fixed = data.to_vec();
+        fixed.push(b'\n');
+        let res = mail_parser::parsers::MessageStream::new(&fixed).parse_address();
+
+        let mut results = vec![];
+
+        match res {
+            HeaderValue::Address(addr) => {
+                results.push(addr.into());
+            }
+            HeaderValue::AddressList(list) => {
+                for addr in list {
+                    results.push(addr.into());
+                }
+            }
+            HeaderValue::Group(group) => {
+                results.push(group.into());
+            }
+            HeaderValue::GroupList(list) => {
+                for group in list {
+                    results.push(group.into());
+                }
+            }
+            HeaderValue::Text(_)
+            | HeaderValue::TextList(_)
+            | HeaderValue::DateTime(_)
+            | HeaderValue::ContentType(_)
+            | HeaderValue::Empty => {}
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(Self(results))
+        }
     }
 }

@@ -123,7 +123,7 @@ kumo.on('smtp_server_message_received', function(msg)
   msg:import_scheduling_header('X-Schedule', true)
 
   local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
+    domain = msg:from_header().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
     -- Using a file:

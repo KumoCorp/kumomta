@@ -243,6 +243,10 @@ TOC = [
                 "reference/address",
             ),
             Gen(
+                "object: addressheader",
+                "reference/addressheader",
+            ),
+            Gen(
                 "object: message",
                 "reference/message",
             ),
