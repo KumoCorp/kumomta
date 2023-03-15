@@ -24,11 +24,11 @@ An example:
 
 ```lua
 kumo.on('init', function()
-    kumo.define_spool {
-        name = 'data',
-        path = '/var/tmp/kumo-spool/data',
-        kind = 'RocksDB',
-    }
+  kumo.define_spool {
+    name = 'data',
+    path = '/var/tmp/kumo-spool/data',
+    kind = 'RocksDB',
+  }
 end)
 ```
 
@@ -42,9 +42,9 @@ An example:
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign)
-    return kumo.make_queue_config {
-        egress_pool = tenant,
-    }
+  return kumo.make_queue_config {
+    egress_pool = tenant,
+  }
 end)
 ```
 
@@ -63,11 +63,11 @@ For example, DKIM signing information by domain and selector could be stored in 
 The data file could then be read and used to control signing:
 
 ```lua
-local DKIM_CONFIG = kumo.json_load('/opt/kumomta/policy/dkim_config.json')
+local DKIM_CONFIG = kumo.json_load '/opt/kumomta/policy/dkim_config.json'
 
 function dkim_sign(msg)
   local sender_domain = msg:from_header().domain
   local selector = DKIM_CONFIG[sender_domain]
-   -- and so on
+  -- and so on
 end
 ```
