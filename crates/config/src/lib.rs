@@ -138,6 +138,21 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
     let lua = Lua::new();
     let created = Instant::now();
 
+    {
+        let globals = lua.globals();
+        let package: Table = globals.get("package")?;
+        let package_path: String = package.get("path")?;
+        let mut path_array: Vec<String> = package_path.split(";").map(|s| s.to_owned()).collect();
+
+        fn prefix_path(array: &mut Vec<String>, path: &str) {
+            array.insert(0, format!("{}/?.lua", path));
+            array.insert(1, format!("{}/?/init.lua", path));
+        }
+
+        prefix_path(&mut path_array, "/opt/kumomta/policy");
+        package.set("path", path_array.join(";"))?;
+    }
+
     for func in get_funcs() {
         (func)(&lua)?;
     }
