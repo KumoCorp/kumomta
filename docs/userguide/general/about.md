@@ -42,7 +42,7 @@ When commands or statements are prefixed by a prompt, we use these:
 ```text
 $> type a command here
 #> type a command as root here
-kumo> type a mysql statement here
+kumo> type a KumoMTA CLI command here
 ```
 
 Commands are issued in your command interpreter. On Unix, this is typically a program such as sh, csh, or bash.
