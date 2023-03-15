@@ -218,9 +218,9 @@ TOC = [
             Page(
                 "Policy",
                 "userguide/policy/index.md",
-                children = [
+                children=[
                     Page("Custom Destination Routing", "userguide/policy/routing.md"),
-                ]
+                ],
             ),
         ],
     ),
