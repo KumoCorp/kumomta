@@ -1,10 +1,16 @@
 # Configuration Concepts
 
-KumoMTA differs from existing commercial and Open Source MTAs in that there is no configuration file in the traditional sense. Instead, all server configuration is achieved through the passing of a policy file written in Lua at server startup.
+KumoMTA uses Lua in the place of bespoke domain-specific configuration syntax
+that is common in many other MTAs.
 
-At first, configuration using a policy script may seem like a departure from the traditional approach to configuration, but using a Lua script as a configuration methodology will look quite familiar to administrators of the popular commercial MTA solutions.
+Lua is a surprisingly powerful configuration language, allowing you to simply
+and declaratively specify tables and mappings while also providing a full
+[Turing complete](https://en.wikipedia.org/wiki/Turing_completeness) language
+for when you need maximum power.
 
-Take a look at the [example policy](example.md) to see how a configuration policy approach can be quite similar to a traditional configuration file.
+That may sound intimidating, but in practice, many configurations end up being
+very succinct and readable.  Take a look at the [example policy](example.md) to
+see how can appear quite similar to a traditional configuration file.
 
 For more information on implementing policies in KumoMTA, refer to the [policy chapter].
 
