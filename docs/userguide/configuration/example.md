@@ -48,7 +48,7 @@ kumo.on('init', function()
 
   kumo.configure_bounce_classifier {
     files = {
-      '/opt/kumomta/etc/bounce_rules.toml',
+      '/opt/kumomta/share/bounce_classier/iana.toml',
     },
   }
 
@@ -229,6 +229,7 @@ local SHAPE_BY_SOURCE = {
   },
 }
 
+-- Helper function that merges the values from `src` into `dest`
 function merge_into(src, dest)
   for k, v in pairs(src) do
     dest[k] = v
@@ -267,7 +268,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   local params = {
     egress_pool = tenant,
   }
-  merge_into(TENANT_PARAMS[tenant], params)
+  merge_into(TENANT_PARAMS[tenant] or {}, params)
   return kumo.make_queue_config(params)
 end)
 
