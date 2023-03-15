@@ -6,6 +6,7 @@ use crate::logging::{ClassifierParams, LogFileParams};
 use crate::queue::QueueConfig;
 use crate::runtime::spawn;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
+use anyhow::Context;
 use config::{any_err, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
@@ -125,6 +126,43 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, params: Value| {
             let pool: EgressPool = lua.from_value(params)?;
             pool.register().map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "json_load",
+        lua.create_async_function(|lua, file_name: String| async move {
+            let data = tokio::fs::read(&file_name)
+                .await
+                .with_context(|| format!("reading file {file_name}"))
+                .map_err(any_err)?;
+            let obj: serde_json::Value = serde_json::from_slice(&data)
+                .with_context(|| format!("parsing {file_name} as json"))
+                .map_err(any_err)?;
+            Ok(lua.to_value(&obj))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "json_parse",
+        lua.create_async_function(|lua, text: String| async move {
+            let obj: serde_json::Value = serde_json::from_str(&text)
+                .with_context(|| format!("parsing {text} as json"))
+                .map_err(any_err)?;
+            Ok(lua.to_value(&obj))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "json_encode",
+        lua.create_async_function(|_, value: Value| async move {
+            serde_json::to_string(&value).map_err(any_err)
+        })?,
+    )?;
+    kumo_mod.set(
+        "json_encode_pretty",
+        lua.create_async_function(|_, value: Value| async move {
+            serde_json::to_string_pretty(&value).map_err(any_err)
         })?,
     )?;
 
