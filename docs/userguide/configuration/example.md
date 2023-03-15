@@ -190,7 +190,7 @@ end) -- END OF THE INIT EVENT
 -- }
 
 local MX_ROLLUP = {}
-for _, domain in ipairs { 'gmail.com', 'yahoo.com', "outlook.com" } do
+for _, domain in ipairs { 'gmail.com', 'yahoo.com', 'outlook.com' } do
   MX_ROLLUP[domain] = kumo.dns.lookup_mx(domain).site_name
 end
 
@@ -224,7 +224,7 @@ local SHAPE_BY_SOURCE = {
   [{ MX_ROLLUP['gmail.com'], 'ip-1' }] = {
     max_message_rate = '1000/hr',
   },
-  [{'comcast.net', 'ip-2'}] = {
+  [{ 'comcast.net', 'ip-2' }] = {
     max_message_rate = '10/second',
   },
 }
@@ -259,8 +259,8 @@ end)
 
 local TENANT_PARAMS = {
   TenantOne = {
-    max_age = '5 minutes'
-  }
+    max_age = '5 minutes',
+  },
 }
 
 kumo.on('get_queue_config', function(domain, tenant, campaign)
