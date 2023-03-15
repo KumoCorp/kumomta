@@ -108,14 +108,19 @@ With that in mind, the egress path is internally identified by the combination
 of the *egress_source* and the *site_name*.
 
 ```lua
--- Maps from a domain name to the "site name"
--- We may provide some helpers to make this more convenient in the future.
+-- Build a mapping from a domain name to the "site name"
 -- You'll likely want this to list the major domains for which there are
--- several aliases. You only need to key it with the primary domain; you
--- needn't specify any of its aliases here.
-local SITE_OF = {
-  ['gmail.com'] = '(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com',
-}
+-- several aliases. You only need populate entries for the big aliased
+-- domains; you needn't specify any of the aliases here.
+local SITE_OF = {}
+for _, domain in ipairs { 'gmail.com', 'yahoo.com' } do
+  SITE_OF[domain] = kumo.dns.lookup_mx(domain).site_name
+end
+-- SITE_OF is now equivalent to:
+-- local SITE_OF = {
+--   ["gmail.com"] = "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com",
+--   ["yahoo.com"] = "(mta5|mta6|mta7).am0.yahoodns.net"
+-- }
 
 -- This table is keyed by the tuple of (site_name, source) or (domain, source).
 -- Site names are looked up first, then domain names.

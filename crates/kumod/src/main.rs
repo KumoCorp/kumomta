@@ -192,6 +192,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         message::dkim::register,
         mod_sqlite::register,
         mod_redis::register,
+        mod_dns_resolver::register,
     ] {
         config::register(func);
     }

@@ -908,6 +908,7 @@ dependencies = [
  "kumo-log-types",
  "lazy_static",
  "lruttl",
+ "serde",
  "tracing",
  "trust-dns-resolver",
 ]
@@ -1669,6 +1670,7 @@ dependencies = [
  "metrics-tracing-context",
  "minijinja",
  "mlua",
+ "mod-dns-resolver",
  "mod-redis",
  "mod-sqlite",
  "nix 0.26.2",
@@ -2183,6 +2185,17 @@ dependencies = [
  "pkg-config",
  "rustc-hash",
  "serde",
+]
+
+[[package]]
+name = "mod-dns-resolver"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "dns-resolver",
+ "mlua",
+ "tokio",
 ]
 
 [[package]]
