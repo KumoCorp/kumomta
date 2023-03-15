@@ -29,7 +29,7 @@ kumo.on('init', function()
         path = '/var/tmp/kumo-spool/data',
         kind = 'RocksDB',
     }
-)end
+end)
 ```
 
 ### Realtime Events
