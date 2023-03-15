@@ -12,7 +12,7 @@ We assume that you have an AWS account, Github account, and have a working knowl
 
 ## Picking a Server
 
-Considerations here have to balance performance with cost.  With the requirement of 8 million messages per day, we are also going to assume that is not evenly distributed.  In our scenario, we will assume those eight million messages will be sent roughly evenly over an 8 hour window (how convenient...).  
+Considerations here have to balance performance with cost.  With the requirement of 8 million messages per day, we are also going to assume that is not evenly distributed.  In our scenario, we will assume those eight million messages will be sent roughly evenly over an 8 hour window (how convenient...).
 
 Lets do some math!
 
@@ -22,17 +22,17 @@ Lets do some math!
 
 50GB / 3600s = 111 Mbps (0.1Gbps) Bandwidth
 
-Knowing this we can plan the server size we need.  Sending 1 Million 50KB Messages per hour is actually pretty typical in the world of high performance MTAs so this sample build should suit a large portion of readers. 
+Knowing this we can plan the server size we need.  Sending 1 Million 50KB Messages per hour is actually pretty typical in the world of high performance MTAs so this sample build should suit a large portion of readers.
 
 ### NETWORK
-The bandwidth above is important because AWS EC2 network interfaces typically [support 5Gbps](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-network-bandwidth.html) at the low end.  This means you dont need to stress about adding any network capacity for this build. 
+The bandwidth above is important because AWS EC2 network interfaces typically [support 5Gbps](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-network-bandwidth.html) at the low end.  This means you dont need to stress about adding any network capacity for this build.
 
 ### STORAGE VOLUME
-The total volume is inportant for calculating storage capacity.  KumoMTA does not store the full body after delivery, but it will be needed to calculate spool capacity and memory use.  In a worst case scenario, if all of your messages are deferred (temporarily undeliverable) then your delayed queue is going to need at least this amount of space\* to store them.  In the example case, we may need to store 400GB for the full day's queue.  
+The total volume is inportant for calculating storage capacity.  KumoMTA does not store the full body after delivery, but it will be needed to calculate spool capacity and memory use.  In a worst case scenario, if all of your messages are deferred (temporarily undeliverable) then your delayed queue is going to need at least this amount of space\* to store them.  In the example case, we may need to store 400GB for the full day's queue.
 In reality, most of that will drain in realtime and the better your sending reputation, the less spool storage you need, so there is one more good reason to maintain a good sending reputation. For the purposes of this sample, we are going to assume a 50% delivery rate so we will only need half that volume for spool.
 \* Spool storage is calculated as ((Average_Message_Size + 50) x volume)
 
-Logs will also consume drive space.  The amount of space is highly depended on your specific configuration, but based on the default sample policy, each log line will consume about 1KB and there may be an avarage of 5 log lines per message.  In this example we are going to assume logging at a rate of 5KB per mesage and then double it for safety. 
+Logs will also consume drive space.  The amount of space is highly depended on your specific configuration, but based on the default sample policy, each log line will consume about 1KB and there may be an avarage of 5 log lines per message.  In this example we are going to assume logging at a rate of 5KB per mesage and then double it for safety.
 
 (5KB * 8Million) * 2 = 80Gb (per day of log storage)
 
@@ -45,10 +45,10 @@ While you could theoretically get by with 1 vCPU, email is actually pretty hard 
 KumoMTA will process as many messages in RAM as possible, so more is better.  We recommend 16Gb RAM, but you will see benefits from adding more as your message processing volume increases.
 
 So, from all of that we see a need for 4 vCPUs, 16Gb RAM, and 300Gb.   In AWS, that translates to a t2.xlarge.
- 
+
 
 ## System Preparation
-Now that we know what to build, lets build it.  Open up AWS, select EC2 and hit the [Launch Instance] button.
+Now that we know what to build, lets build it.  Open up AWS, select EC2 and hit the `Launch Instance` button.
 
 Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
 
@@ -56,13 +56,13 @@ Under Instance Type, select a t2.xlarge, provide your keypair for login or creat
 
 In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
 
-Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click [Launch Instance].
+Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click `Launch Instance`.
 
 ... wait ....
 
 When AWS has finished building your server instance, you can select it and connect. I prefer to find the SSH client information and use a remote terminal emulator like Putty or Terminal like this:
 
- ssh -i "yourkeyname.pem" rocky@ec2-<pub-lic-ip>.us-west-2.compute.amazonaws.com  
+ ssh -i "yourkeyname.pem" rocky@ec2-<pub-lic-ip>.us-west-2.compute.amazonaws.com
 
 ## Installing It!
 OK, conratulations for making it this far. Now we can actually install some software.  This is probably the easiest part.
@@ -78,7 +78,7 @@ sudo yum install kumomta-dev
 ```
 This installs the KumoMTA daemon to /opt/kumomta/sbin/kumod
 
-Yup, thats it.  Well, sort of.  
+Yup, thats it.  Well, sort of.
 
 Technically KumoMTA is now installed, but it will need a configuration policy in order to do anything useful. We should also add some helper apps and clean up the OS in general for security reasons.  Lets take care of that first.
 
@@ -90,7 +90,7 @@ There are a number of helper apps I like to install but are completley optional.
 In the process below you will see that I also proactively disable Postfix and Qpidd just in case they happen to be installed by default.  These will interfere with KumoMTA and need to be disabled. It is entirely possible that these are not installed so you will see error messages like ```Failed to stop postfix.service``` and that is fine - ignore them.
 
 ```console
-# Do basic updates 
+# Do basic updates
 sudo dnf clean all
 sudo dnf update -y
 
@@ -115,7 +115,7 @@ This next part needs to be done as root so do a ```sudo -s``` before you run the
 # Run a dnf update at 3AM daily
 sudo echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1">/etc/cron.d/dnf-updates
 
-# Tune sysctl setings. Note that these are suggestions, 
+# Tune sysctl setings. Note that these are suggestions,
 #  you should tune according to your specific build
 
 echo "
@@ -150,8 +150,8 @@ To save you from writing your own policy from scratch, you can just download our
 On your server you can just ...
 
 ```console
-wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua 
-``` 
+wget https://github.com/kumomta/kumomta/blob/main/simple_policy.lua
+```
 
 That will provide you with a basic and safe sending configuration that will allow you to move on to the testing step - we can examine the details later.
 

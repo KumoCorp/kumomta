@@ -215,6 +215,13 @@ TOC = [
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],
             ),
+            Page(
+                "Policy",
+                "userguide/policy/index.md",
+                children = [
+                    Page("Custom Destination Routing", "userguide/policy/routing.md"),
+                ]
+            ),
         ],
     ),
     Page(
