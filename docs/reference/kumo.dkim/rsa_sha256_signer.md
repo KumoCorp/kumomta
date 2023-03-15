@@ -7,7 +7,7 @@ Create a DKIM signer that uses RSA SHA256.
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
   local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
+    domain = msg:from_header().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
     key = 'example-private-dkim-key.pem',
@@ -80,7 +80,7 @@ The key must be either RSA PEM or a PKCS8 PEM encoded.
 
 ```lua
 local file_signer = kumo.dkim.rsa_sha256_signer {
-  domain = msg:sender().domain,
+  domain = msg:from_header().domain,
   selector = 'default',
   headers = { 'From', 'To', 'Subject' },
   key = '/path/to/example-private-dkim-key.pem',
@@ -91,12 +91,12 @@ using [HashiCorp Vault](https://www.hashicorp.com/products/vault):
 
 ```lua
 local file_signer = kumo.dkim.rsa_sha256_signer {
-  domain = msg:sender().domain,
+  domain = msg:from_header().domain,
   selector = 'default',
   headers = { 'From', 'To', 'Subject' },
   key = {
     vault_mount = 'secret',
-    vault_path = 'dkim/' .. msg:sender().domain,
+    vault_path = 'dkim/' .. msg:from_header().domain,
 
     -- Specify how to reach the vault; if you omit these,
     -- values will be read from $VAULT_ADDR and $VAULT_TOKEN

@@ -202,7 +202,7 @@ local DKIM_CONFIG = {
 }
 
 function dkim_sign(msg)
-  local sender_domain = msg:sender().domain
+  local sender_domain = msg:from_header().domain
   local selector = DKIM_CONFIG[sender_domain]
 
   if not selector then

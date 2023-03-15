@@ -117,7 +117,7 @@ Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.  
 
 ```lua
 local signer = kumo.dkim.rsa_sha256_signer {
-  domain = msg:sender().domain,
+  domain = msg:from_header().domain,
   selector = 'default',
   headers = { 'From', 'To', 'Subject' },
   file_name = 'example-private-dkim-key.pem',

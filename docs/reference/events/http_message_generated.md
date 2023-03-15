@@ -23,7 +23,7 @@ message from being queued for delivery.
 ```lua
 kumo.on('http_message_generated', function(msg)
   local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
+    domain = msg:from_header().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
     key = 'example-private-dkim-key.pem',

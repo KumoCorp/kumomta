@@ -20,7 +20,7 @@ This event is the best place to carry out a number of important policy decisions
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
   local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:sender().domain,
+    domain = msg:from_header().domain,
     selector = 'default',
     headers = { 'From', 'To', 'Subject' },
     key = 'example-private-dkim-key.pem',
