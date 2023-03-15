@@ -257,14 +257,18 @@ end)
 -- on tenant name, and customized message expiry for a specific tenant.
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
-  return kumo.make_queue_config {
-    if tenant = 'TenantOne' then
-      max_age = '5 minutes'
-    end
+local TENANT_PARAMS = {
+  TenantOne = {
+    max_age = '5 minutes'
+  }
+}
 
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  local params = {
     egress_pool = tenant,
   }
+  merge_into(TENANT_PARAMS[tenant], params)
+  return kumo.make_queue_config(params)
 end)
 
 -- Configure DKIM signing. In this case we use a simple approach of a path
