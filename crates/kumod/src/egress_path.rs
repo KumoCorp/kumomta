@@ -105,6 +105,9 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     skip_hosts: CidrSet,
+
+    #[serde(default)]
+    ehlo_domain: Option<String>,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -124,6 +127,7 @@ impl Default for EgressPathConfig {
             client_timeouts: SmtpClientTimeouts::default(),
             prohibited_hosts: Self::default_prohibited_hosts(),
             skip_hosts: CidrSet::default(),
+            ehlo_domain: None,
         }
     }
 }
@@ -503,10 +507,13 @@ impl Dispatcher {
         egress_source: EgressSource,
         egress_pool: String,
     ) -> anyhow::Result<()> {
-        let ehlo_name = gethostname::gethostname()
-            .to_str()
-            .unwrap_or("[127.0.0.1]")
-            .to_string();
+        let ehlo_name = match &path_config.ehlo_domain {
+            Some(n) => n.to_string(),
+            None => gethostname::gethostname()
+                .to_str()
+                .unwrap_or("[127.0.0.1]")
+                .to_string(),
+        };
 
         let activity = Activity::get()?;
 

@@ -33,6 +33,11 @@ any hosts listed in MX`.
 
 The default value for this setting is 100.
 
+## ehlo_domain
+
+Optional string. Specifies the EHLO domain when initiating a connection to
+the destination. The default value is the local machine hostname.
+
 ## enable_tls
 
 Controls whether and how TLS will be used when connecting to the destination.
