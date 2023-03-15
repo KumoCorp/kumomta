@@ -45,7 +45,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     return kumo.make_queue_config {
         egress_pool = tenant,
     }
-)end
+end)
 ```
 
 ### External Data
