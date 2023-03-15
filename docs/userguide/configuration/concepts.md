@@ -12,7 +12,7 @@ That may sound intimidating, but in practice, many configurations end up being
 very succinct and readable.  Take a look at the [example policy](example.md) to
 see how can appear quite similar to a traditional configuration file.
 
-For more information on implementing policies in KumoMTA, refer to the [policy chapter](../policy/).
+For more information on implementing policies in KumoMTA, refer to the [policy chapter](../policy/index.md).
 
 ## Configuration Location
 
