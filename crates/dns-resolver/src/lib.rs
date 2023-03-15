@@ -230,11 +230,9 @@ fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
     let mut names = vec![];
 
     for name in name_strings {
-        names.push(
-            fully_qualify(name.as_ref())
-                .expect("names to be valid")
-                .to_lowercase(),
-        );
+        if let Ok(name) = fully_qualify(name.as_ref()) {
+            names.push(name.to_lowercase());
+        }
     }
 
     let mut elements: Vec<Vec<&str>> = vec![];
