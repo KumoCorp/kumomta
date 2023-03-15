@@ -112,33 +112,36 @@ kumo.on('init', function()
   kumo.define_egress_source {
     name = 'ip-1',
     source_address = '10.0.0.1',
+    ehlo_domain = 'mta1.examplecorp.com',
   }
 
   kumo.define_egress_source {
     name = 'ip-2',
     source_address = '10.0.0.2',
+    ehlo_domain = 'mta3.examplecorp.com',
   }
 
   kumo.define_egress_source {
     name = 'ip-3',
     source_address = '10.0.0.3',
+    ehlo_domain = 'mta1.examplecorp.com',
   }
 
   kumo.define_egress_source {
     name = 'ip-4',
     source_address = '10.0.0.4',
+    ehlo_domain = 'mta4.examplecorp.com',
   }
 
   kumo.define_egress_source {
     name = 'ip-5',
     source_address = '10.0.0.5',
+    ehlo_domain = 'mta5.examplecorp.com',
   }
 
   kumo.define_egress_pool {
-    name = 'MyPool',
+    name = 'TenantOne',
     entries = {
-      { name = 'ip-1' },
-      { name = 'ip-2' },
       { name = 'ip-3' },
       { name = 'ip-4' },
       { name = 'ip-5' },
@@ -146,10 +149,11 @@ kumo.on('init', function()
   }
 
   kumo.define_egress_pool {
-    name = 'MySubPool',
+    name = 'TenantTwo',
     entries = {
       { name = 'ip-1' },
       { name = 'ip-2' },
+      { name = 'ip-3' },
     },
   }
 
