@@ -58,8 +58,6 @@ Under Instance Type, select a t2.xlarge, provide your keypair for login or creat
 
 In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
 
-Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click `Launch Instance`.
-=======
 Now that we know *_what_* to build, lets go ahead and build it.  
  - Open up AWS, select EC2 and hit the [Launch Instance] button.
  - Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
@@ -181,10 +179,10 @@ Start the MTA with this:
 
 ```
  - Using sudo allows it to run as a privileged user so it can access port 25 which is needed to deliver via SMTP to the internet.
- - The damon `kumod` is the MTA 
+ - The daemon `kumod` is the MTA 
  - The directive --policy makes kumod load the `simple_policy.lua` file as configuration policy.  
- - Because we launched wirh sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
- - The line ends wit a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
+ - Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
+ - The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
 
 You can test with a simple SMTP message right from the command line. The simple_policy defines a Listener on port 2025, so you can use that to inject a message.
 
@@ -211,7 +209,7 @@ Hey, this is my first email!
 
 Check your mail to make sure it delivered.  
 
-Note that if you have not [specifically requested outbound use of port 25](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/) from AWS, than it is very possible the message will not be delivered.  If that is the case, try changing the outboud port to 465, which can sometimes be effective for low volume testing.
+Note that if you have not [specifically requested outbound use of port 25](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/) from AWS, then it is very possible the message will not be delivered.  If that is the case, try changing the outboud port to 465, which can sometimes be effective for low volume testing.
 
 You can change the outbound port from the default 25 to 465 by editing the `remote_port` in the _egress_source_ definition like this: 
 
