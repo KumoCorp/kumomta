@@ -106,7 +106,7 @@ kumo.on('init', function()
   -- Add an IPv6 Listener
   kumo.start_esmtp_listener {
     listen = '[::]:25',
-    relay_hosts = { '::1' }
+    relay_hosts = { '::1' },
   },
 
   -- Configure the sending IP addresses that will be used by KumoMTA to
