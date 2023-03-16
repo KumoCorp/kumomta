@@ -1,7 +1,7 @@
 use config::get_or_create_sub_module;
 use data_loader::KeySource;
 use lruttl::LruCacheWithTtl;
-use mail_auth::common::crypto::{HashAlgorithm, RsaKey, Sha256, SigningKey};
+use mail_auth::common::crypto::{Ed25519Key, HashAlgorithm, RsaKey, Sha256, SigningKey};
 use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain, Signature};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, Value};
@@ -113,6 +113,7 @@ impl SignerConfig {
 
 pub enum SignerInner {
     RsaSha256(DkimSigner<RsaKey<Sha256>, Done>),
+    Ed25519(DkimSigner<Ed25519Key, Done>),
 }
 
 #[derive(Clone)]
@@ -128,6 +129,7 @@ impl SignerInner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<Signature> {
         match self {
             Self::RsaSha256(signer) => signer.sign(message),
+            Self::Ed25519(signer) => signer.sign(message),
         }
         .map_err(|err| anyhow::anyhow!("{err:#}"))
     }
@@ -161,6 +163,35 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
             let signer = params.configure_signer(DkimSigner::from_key(key));
 
             let inner = Arc::new(SignerInner::RsaSha256(signer));
+            let expiration = Instant::now() + Duration::from_secs(params.ttl);
+            SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
+
+            Ok(Signer(inner))
+        })?,
+    )?;
+
+    dkim_mod.set(
+        "ed25519_signer",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params: SignerConfig = lua.from_value(params)?;
+
+            if let Some(inner) = SIGNER_CACHE.get(&params) {
+                return Ok(Signer(inner));
+            }
+
+            let data = params
+                .key
+                .get()
+                .await
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
+
+            let key = Ed25519Key::from_pkcs8_der(&data)
+                .or_else(|_| Ed25519Key::from_pkcs8_maybe_unchecked_der(&data))
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
+
+            let signer = params.configure_signer(DkimSigner::from_key(key));
+
+            let inner = Arc::new(SignerInner::Ed25519(signer));
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
