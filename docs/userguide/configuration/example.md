@@ -107,7 +107,7 @@ kumo.on('init', function()
   kumo.start_esmtp_listener {
     listen = '[::]:25',
     relay_hosts = { '::1' },
-  },
+  }
 
   -- Configure the sending IP addresses that will be used by KumoMTA to
   -- connect to remote systems. Note that defining sources and pools does
