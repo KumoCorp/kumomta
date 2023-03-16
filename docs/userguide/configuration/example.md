@@ -21,7 +21,7 @@ kumo.on('init', function()
 
   kumo.define_spool {
     name = 'data',
-    path = '/var/tmp/kumo-spool/data',
+    path = '/var/spool/kumo/data',
     kind = 'RocksDB',
   }
 
@@ -30,7 +30,7 @@ kumo.on('init', function()
 
   kumo.define_spool {
     name = 'meta',
-    path = '/var/tmp/kumo-spool/meta',
+    path = '/var/spool/kumo/meta',
     kind = 'RocksDB',
   }
 
@@ -39,7 +39,7 @@ kumo.on('init', function()
   -- See https://docs.kumomta.com/userguide/configuration/logging/
 
   kumo.configure_local_logs {
-    log_dir = '/var/tmp/kumo-logs',
+    log_dir = '/var/log/kumo',
     -- headers = { 'Subject', 'X-Customer-ID' },
   }
 
@@ -103,6 +103,12 @@ kumo.on('init', function()
     },
   }
 
+  -- Add an IPv6 Listener
+  kumo.start_esmtp_listener {
+    listen = '[::]:25',
+    relay_hosts = { '::1' }
+  },
+
   -- Configure the sending IP addresses that will be used by KumoMTA to
   -- connect to remote systems. Note that defining sources and pools does
   -- nothing without some form of policy in effect to assign messages to
@@ -118,33 +124,21 @@ kumo.on('init', function()
   kumo.define_egress_source {
     name = 'ip-2',
     source_address = '10.0.0.2',
-    ehlo_domain = 'mta3.examplecorp.com',
+    ehlo_domain = 'mta2.examplecorp.com',
   }
 
+  -- IPv6 is also supported.
   kumo.define_egress_source {
     name = 'ip-3',
-    source_address = '10.0.0.3',
-    ehlo_domain = 'mta1.examplecorp.com',
-  }
-
-  kumo.define_egress_source {
-    name = 'ip-4',
-    source_address = '10.0.0.4',
-    ehlo_domain = 'mta4.examplecorp.com',
-  }
-
-  kumo.define_egress_source {
-    name = 'ip-5',
-    source_address = '10.0.0.5',
-    ehlo_domain = 'mta5.examplecorp.com',
+    source_address = '2001:db8:3333:4444:5555:6666:7777:8888',
+    ehlo_domain = 'mta3.examplecorp.com',
   }
 
   kumo.define_egress_pool {
     name = 'TenantOne',
     entries = {
+      { name = 'ip-2' },
       { name = 'ip-3' },
-      { name = 'ip-4' },
-      { name = 'ip-5' },
     },
   }
 
@@ -153,7 +147,6 @@ kumo.on('init', function()
     entries = {
       { name = 'ip-1' },
       { name = 'ip-2' },
-      { name = 'ip-3' },
     },
   }
 
