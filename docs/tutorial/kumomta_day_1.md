@@ -7,11 +7,44 @@ This walkthrough is not a replacement for reading the full documentation, but ra
 We assume that you have an AWS account, Github account, and have a working knowledge of how those tools operate. We also assume that you know what an MTA is and why you need one.  If not, you may want to [read this first](https://en.wikipedia.org/wiki/Message_transfer_agent).
 
 ## Getting Started
-
 The scenario we are going to emulate is a deployment using Rocky Linux V9 in AWS Public cloud. This will be a single node server having to send about eight million messages a day to the public Internet. The average size of these messages will be 50KB.
 
-## Picking a Server
+## The TL;DR version
+If you just want to get this installed and running, here are the quick steps with no explanation. This assumes you know what you are doing and just want the high-level info.  The longer version with deeper explanation follows in the next section.
 
+1) Spin up an AWS t2.xlarge instance (or any server with 4vCPUs, 16Gb RAM, 300Gb Hard Drive)
+2) Install Rocky linux 9
+3) Update the OS and disable PostFix if needed
+
+```console
+sudo dnf clean all
+sudo dnf update -y
+sudo systemctl stop  postfix.service
+sudo systemctl disable postfix.service
+```
+
+4) Add the KumoMTA repo to your config manager and yum install it like this:
+
+```console
+sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager \
+    --add-repo \
+    https://openrepo.kumomta.com/files/kumomta-rocky.repo
+sudo yum install kumomta-dev
+```
+
+5) Create a configuration policy in ```/opt/kumomta/etc/policy/``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
+Hint, you can copy and paste that into a new file and edit the necessary parts.
+
+6) Run it with (assuming you named your policy "example.lua") 
+```console
+sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/example.lua --user rocky
+```
+
+And you are done.  KumoMTA will now be installed and running the example configuration from ```/opt/kumomta/sbin/kumod```.  If you want to dive into some details about WHY that all works, read on.
+
+
+## Picking a Server
 Considerations here have to balance performance with cost.  With the requirement of 8 million messages per day, we are also going to assume that is not evenly distributed.  In our scenario, we will assume those eight million messages will be sent roughly evenly over an 8 hour window (how convenient...).
 
 Lets do some math!
@@ -122,34 +155,6 @@ $ sudo systemctl stop  qpidd.service
 $ sudo systemctl disable qpidd.service
 ```
 
-This next part needs to be done as root so do a ``` sudo -s ``` before you run the bits below and remember ``` exit ``` when done.
-
-```console
-# Make sure it all stays up to date
-# Run a dnf update at 3AM daily
-$ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | sudo tee /etc/cron.d/dnf-updates >/dev/null
-
-# Tune sysctl setings. Note that these are suggestions,
-#  you should tune according to your specific build
-
-$ echo "
-vm.max_map_count = 768000
-net.core.rmem_default = 32768
-net.core.wmem_default = 32768
-net.core.rmem_max = 262144
-net.core.wmem_max = 262144
-fs.file-max = 250000
-net.ipv4.ip_local_port_range = 5000 63000
-net.ipv4.tcp_tw_reuse = 1
-kernel.shmmax = 68719476736
-net.core.somaxconn = 1024
-vm.nr_hugepages = 20
-kernel.shmmni = 4096
-" | sudo tee -a /etc/sysctl.conf > /dev/null
-
-$ sudo /sbin/sysctl -p /etc/sysctl.conf
-```
-
 If you have done all that correctly, you can do handy things like this:
 
 ```console
@@ -231,7 +236,7 @@ Type ```fg``` to bring kumod to the forground, then CTRL-C to end the process.  
 ```
 
 ## Check the logs
-Reguardless of whether the mail delivers or not, you should take a look at the logs.  Standard logs are found in ```/var/tmp/kumo-logs``` as can be seen in this tree. Logs are bundled by day and compressed so to read these, you need to unpack them first.
+Reguardless of whether the mail delivers or not, you should take a look at the logs.  Standard logs are found in ```/var/tmp/kumo-logs``` as can be seen in this tree. Logs are bundled by day and compressed so to read these, you need to unpack them first. The logs are typically stored in date formatted files, but you have [many options](https://docs.kumomta.com/userguide/configuration/logging/) and KumoMTA is highly configurable.
 
 ```info
 /var/tmp/kumo-logs
@@ -245,11 +250,47 @@ We can take a look at a specific log by decompressing it first.
 
 
 
+
 ## Tune for Performance
+This next part needs to be done as root so do a ``` sudo -s ``` before you run the bits below and remember ``` exit ``` when done.
+
+
+You can save your self some hassle by automating patch updates with cron.
+```console
+# Make sure it all stays up to date
+# Run a dnf update at 3AM daily
+$ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | sudo tee /etc/cron.d/dnf-updates >/dev/null
+'''
+
+You can get better performace with some fine tuning of system parameters,  The settings below are examples only but have worked in test and development servers.  As the saying goes, "your milage may vary" so you should research these and tune as needed for your own system.
+```console
+# Tune sysctl setings. Note that these are suggestions,
+#  you should tune according to your specific build
+
+$ echo "
+vm.max_map_count = 768000
+net.core.rmem_default = 32768
+net.core.wmem_default = 32768
+net.core.rmem_max = 262144
+net.core.wmem_max = 262144
+fs.file-max = 250000
+net.ipv4.ip_local_port_range = 5000 63000
+net.ipv4.tcp_tw_reuse = 1
+kernel.shmmax = 68719476736
+net.core.somaxconn = 1024
+vm.nr_hugepages = 20
+kernel.shmmni = 4096
+" | sudo tee -a /etc/sysctl.conf > /dev/null
+
+$ sudo /sbin/sysctl -p /etc/sysctl.conf
+```
 
 ## Performnance Test
+OK, now lets really test this with some volume.  You will not want to do that in the public internet with real adresses for a number of reasons, so you shoudl set up another KumoMTA instance and have it run the included "sink.lua" policy.  That will set KumoMTA to accept all messages and discard them without forwarding.
 
 ## Now What?
+
+RTFM.  Seriously.  KumoMTA is a very powerful, highly configurable MTA that you can integrate in many ways.  There is no way we can document every possible use case or configuration.
 
 
 
