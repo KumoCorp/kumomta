@@ -83,12 +83,18 @@ TOC = [
         "Tutorial",
         None,
         children=[
-            Page("Getting Started", "tutorial/getting_started.md"),
+            Page(
+                "Getting Started",
+                "tutorial/getting_started.md",
+            ),
             Page(
                 "Environmental Considerations",
                 "tutorial/environment_consideration.md",
             ),
-            Page("System Preparation", "tutorial/system_preparation.md"),
+            Page(
+                "System Preparation",
+                "tutorial/system_preparation.md",
+            ),
             Page(
                 "Installing with Docker Containers",
                 "tutorial/install_with_docker.md",
@@ -98,22 +104,9 @@ TOC = [
                 "tutorial/install_from_source.md",
             ),
             Page("Your First Email", "tutorial/your_first_email.md"),
-            Page(
-                "Beyond Basics",
-                "tutorial/beyond_basics.md",
-                children=[
-                    Page("Configuring DKIM", "tutorial/dkim.md"),
-                    Page("Configuring TLS", "tutorial/tls.md"),
-                ],
-            ),
-            Page(
-                "Advanced Configurations",
-                "tutorial/advanced_config.md",
-                children=[
-                    Page("Lua Resources", "tutorial/lua_resources.md"),
-                    Page("Lua Functions", "tutorial/lua_functions.md"),
-                ],
-            ),
+            Page("Beyond Basics", "tutorial/beyond_basics.md"),
+            Page("Lua Resources", "tutorial/lua_resources.md"),
+            Page("Lua Functions", "tutorial/lua_functions.md"),
             Page("KumoMTA Day 1", "tutorial/kumomta_day_1.md"),
         ],
     ),
