@@ -35,6 +35,7 @@ sudo yum install kumomta-dev
 
 5) Create a configuration policy in ```/opt/kumomta/etc/policy/``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
 Hint, you can copy and paste that into a new file and edit the necessary parts.
+You should either create dkim keys or comment out the dkim signing portion for now.
 
 6) Run it with (assuming you named your policy "example.lua") 
 ```console
@@ -176,7 +177,7 @@ That will provide you with a basic and safe sending configuration that will allo
 
 
 ## Your First Email
-If you followed all the instructions above without errors, you shoudl now have a working MTA on a properly sized server.  Lets test that theory.
+If you followed all the instructions above without errors, you should now have a working MTA on a properly sized server.  Lets test that theory.
 
 Start the MTA with this:
 ```console
@@ -189,7 +190,17 @@ Start the MTA with this:
  - Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
  - The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
 
-You can test with a simple SMTP message right from the command line. The simple_policy defines a Listener on port 2025, so you can use that to inject a message.
+Before actually sending any email, you should configure DKIM. [Read the guide](https://docs.kumomta.com/tutorial/dkim/) for details, but the short version is below.  Replace the domain and selector with your own, then generate signing keys with:
+```console
+export DOMAIN=<your_domain>
+export SELECTOR=<your_selector>
+mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
+openssl genrsa -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
+openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
+ -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
+```
+
+Now, you can test with a simple SMTP message right from the command line. The simple_policy defines a Listener on port 2025, so you can use that to inject a message.
 
 ```console
  telnet localhost 2025 
