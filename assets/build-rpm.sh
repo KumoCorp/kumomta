@@ -27,12 +27,20 @@ Packager: Wez Furlong <wez@wezfurlong.org>
 License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
+Requires(pre): shadow-utils
 
 %description
 A high performance, modern MTA.
 
 %build
 echo "Doing the build bit here"
+
+%pre
+getent group kumod >/dev/null || groupadd --system kumod
+getent passwd kumod >/dev/null || \
+    useradd --system -g kumod -d /var/spool/kumod -s /sbin/nologin \
+    -c "Service account for kumomta" kumod
+exit 0
 
 %install
 set -x

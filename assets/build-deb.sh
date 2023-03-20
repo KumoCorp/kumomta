@@ -34,6 +34,15 @@ EOF
 
 ./assets/install.sh pkg/debian/opt/kumomta
 
+cat > pkg/debian/preinst <<EOF
+#!/bin/sh
+getent group kumod >/dev/null || groupadd --system kumod
+getent passwd kumod >/dev/null || \
+    useradd --system -g kumod -d /var/spool/kumod -s /sbin/nologin \
+    -c "Service account for kumomta" kumod
+exit 0
+EOF
+
 deps=$(cd pkg && dpkg-shlibdeps -O -e debian/opt/kumomta/*bin/*)
 mv pkg/debian/control pkg/debian/DEBIAN/control
 sed -i '/^Source:/d' pkg/debian/DEBIAN/control  # The `Source:` field needs to be valid in a binary package
