@@ -25,7 +25,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-rocky:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -25,7 +25,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-ubuntu:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -69,6 +69,7 @@ jobs:
       with:
         crate: cargo-nextest
         args: --locked
+        cache-key: $${ matrix.container }}
     - uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
