@@ -100,14 +100,15 @@ impl Opt {
         let user = User::from_name(&user_name)?
             .ok_or_else(|| anyhow::anyhow!("Invalid user {user_name}"))?;
 
+        nix::unistd::setgid(user.gid).context("setgid")?;
         // We set the euid only so that we can retain CAP_NET_BIND_SERVICE
         // below. We'll still show up in the process listing as the target
         // user, but because we're dropping all the other caps, we lose all
         // other parts of our root-ness.
         nix::unistd::seteuid(user.uid).context("setuid")?;
 
-        tracing::trace!("permitted: {:?}", caps::read(None, CapSet::Permitted)?);
-        tracing::trace!("effective: {:?}", caps::read(None, CapSet::Effective)?);
+        // eprintln!("permitted: {:?}", caps::read(None, CapSet::Permitted)?);
+        // eprintln!("effective: {:?}", caps::read(None, CapSet::Effective)?);
 
         // Want to drop all capabilities except the ability to
         // bind to privileged ports, so that we can reload the
