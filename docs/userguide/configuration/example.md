@@ -21,7 +21,7 @@ kumo.on('init', function()
 
   kumo.define_spool {
     name = 'data',
-    path = '/var/spool/kumo/data',
+    path = '/var/spool/kumomta/data',
     kind = 'RocksDB',
   }
 
@@ -30,7 +30,7 @@ kumo.on('init', function()
 
   kumo.define_spool {
     name = 'meta',
-    path = '/var/spool/kumo/meta',
+    path = '/var/spool/kumomta/meta',
     kind = 'RocksDB',
   }
 
@@ -39,7 +39,7 @@ kumo.on('init', function()
   -- See https://docs.kumomta.com/userguide/configuration/logging/
 
   kumo.configure_local_logs {
-    log_dir = '/var/log/kumo',
+    log_dir = '/var/log/kumomta',
     -- headers = { 'Subject', 'X-Customer-ID' },
   }
 
@@ -48,7 +48,7 @@ kumo.on('init', function()
 
   kumo.configure_bounce_classifier {
     files = {
-      '/opt/kumomta/share/bounce_classier/iana.toml',
+      '/opt/kumomta/share/bounce_classifier/iana.toml',
     },
   }
 
