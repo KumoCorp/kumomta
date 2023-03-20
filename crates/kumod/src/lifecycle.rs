@@ -52,6 +52,7 @@ struct ShutdownState {
     tx: WatchSender<()>,
     rx: WatchReceiver<()>,
     request_shutdown_tx: MPSCSender<()>,
+    stop_requested: AtomicBool,
 }
 
 /// ShutdownSubcription can be used by code that is idling.
@@ -102,6 +103,7 @@ impl LifeCycle {
                 tx,
                 rx,
                 request_shutdown_tx,
+                stop_requested: AtomicBool::new(false),
             })
             .map_err(|_| ())
             .unwrap();
@@ -119,7 +121,17 @@ impl LifeCycle {
     pub async fn request_shutdown() {
         tracing::debug!("shutdown has been requested");
         if let Some(state) = STOPPING.get() {
-            state.request_shutdown_tx.send(()).await.ok();
+            if state.stop_requested.compare_exchange(
+                false,
+                true,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) == Ok(false)
+            {
+                state.request_shutdown_tx.send(()).await.ok();
+            }
+        } else {
+            tracing::error!("request_shutdown: STOPPING channel is unavailable");
         }
     }
 
