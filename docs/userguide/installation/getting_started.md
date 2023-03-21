@@ -52,9 +52,9 @@ If you have no idea what an MTA is then [this may be a good primer](https://en.w
     $ sudo apt install -y kumomta-dev
     ```
 
-If you want to explore KumoMTA in **Docker containers**, potentially orchestrated with Kubernetes, You should follow the instructions [here](install_with_docker.md).
+If you want to explore KumoMTA in **Docker containers**, potentially orchestrated with Kubernetes, You should follow the instructions [here](docker.md).
 
-If you want to experiment, contrubute, or hack stuff up, follow the instructions for [**Building from Source**](install_from_source.md).
+If you want to experiment, contrubute, or hack stuff up, follow the instructions for [**Building from Source**](linux.md).
 
 ## What's next?
 

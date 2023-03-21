@@ -1,7 +1,7 @@
 # Your First Email
 
 Now that you have KumoMTA installed, you should test it from the command line of the installed host.  
-This is easy if you installed the basic tools as described in the System Preparation section.  
+This is easy if you installed the basic tools as described earlier.  
 Note that the default SMTP listener is on port 2025, so we have use that in these examples.
 
 ## Telnet method for SMTP
@@ -11,7 +11,6 @@ Then replace youremail@address.com with your actual email address.
 Copy the entire thing and paste it into the telnet session in your console.
 
 ```bash
-$ telnet localhost 2025
 ehlo moto
 mail from:youremail@address.com
 rcpt to:youremail@address.com
@@ -24,6 +23,8 @@ Hey, this is my first email!
 
 .
 ```
+
+Note that you could easily do this with nc (netcat) in exactly the same way, I just prefer telnet.
 
 ## Curl method for HTTP API
 
@@ -61,6 +62,4 @@ You can test a relay through KumoMTA with this (change user@example.com to your 
 $ swaks --to user@example.com --server 127.0.0.1 --port 2025
 ```
 
-## Checking the logs
-...
 
