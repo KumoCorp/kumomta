@@ -41,7 +41,11 @@ getent passwd kumod >/dev/null || \
     useradd --system -g kumod -d /var/spool/kumod -s /sbin/nologin \
     -c "Service account for kumomta" kumod
 
-for dir in /var/spool/kumomta /var/log/kumomta ; do
+for dir in /opt/kumomta/etc /opt/kumomta/etc/policy ; do
+  [ -d "\$dir" ] || install -d --mode 665 --owner kumod --group kumod \$dir
+done
+
+for dir in /var/spool/kumomta /var/log/kumomta /opt/kumomta/etc/dkim ; do
   [ -d "\$dir" ] || install -d --mode 2770 --owner kumod --group kumod \$dir
 done
 
