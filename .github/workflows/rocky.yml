@@ -57,6 +57,7 @@ jobs:
       with:
         crate: cargo-nextest
         args: --locked
+        cache-key: $${ matrix.container }}
     - uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
