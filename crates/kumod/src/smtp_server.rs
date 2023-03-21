@@ -1022,26 +1022,27 @@ impl SmtpServer {
                             if relay_disposition.relay && !self.params.deferred_spool {
                                 message.save().await?;
                             }
-                            log_disposition(LogDisposition {
-                                kind: RecordType::Reception,
-                                msg: message.clone(),
-                                site: "",
-                                peer_address: Some(&ResolvedAddress {
-                                    name: self.said_hello.as_deref().unwrap_or("").to_string(),
-                                    addr: self.peer_address.ip(),
-                                }),
-                                response: Response {
-                                    code: 250,
-                                    enhanced_code: None,
-                                    command: None,
-                                    content: "".to_string(),
-                                },
-                                egress_pool: None,
-                                egress_source: None,
-                                relay_disposition: None,
-                            })
-                            .await;
-
+                        }
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Reception,
+                            msg: message.clone(),
+                            site: "",
+                            peer_address: Some(&ResolvedAddress {
+                                name: self.said_hello.as_deref().unwrap_or("").to_string(),
+                                addr: self.peer_address.ip(),
+                            }),
+                            response: Response {
+                                code: 250,
+                                enhanced_code: None,
+                                command: None,
+                                content: "".to_string(),
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                        })
+                        .await;
+                        if queue_name != "null" {
                             if relay_disposition.relay {
                                 messages.push((queue_name, message));
                             }
