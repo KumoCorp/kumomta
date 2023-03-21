@@ -61,6 +61,7 @@ jobs:
       with:
         cache-on-failure: true
         env-vars: "CARGO RUST"
+        key: $${ matrix.container }}
     - name: Build
       run: cargo build --release
     - name: Run tests
