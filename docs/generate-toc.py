@@ -84,9 +84,12 @@ TOC = [
         None,
         children=[
             Page("KumoMTA Day 1", "tutorial/kumomta_day_1.md"),
+            Page("Server Environment", "tutorial/server_environment.md"),
             Page("System Preparation", "tutorial/system_preparation.md"),
+            Page("Install It", "tutorial/install_it.md"),
             Page("Your First Email", "tutorial/your_first_email.md"),
-            Page("Beyond Basics", "tutorial/beyond_basics.md"),
+            Page("Checking Logs", "tutorial/checking_logs.md"),
+            Page("Performance tuning", "tutorial/performance.md"),
             Page("Lua Resources", "tutorial/lua_resources.md"),
         ],
     ),

@@ -1,5 +1,15 @@
 # Your First Email
 
+Before actually sending any email, you should configure DKIM. [Read the guide](https://docs.kumomta.com/userguide/configuration/dkim/) for details, but the short version is below.  Replace the domain and selector with your own, then generate signing keys with:
+```console
+export DOMAIN=<your_domain>
+export SELECTOR=<your_selector>
+mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
+openssl genrsa -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
+openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
+ -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
+```
+
 Now that you have KumoMTA installed, you should test it from the command line of the installed host.  
 This is easy if you installed the basic tools as described earlier.  
 Note that the default SMTP listener is on port 2025, so we have use that in these examples.
@@ -26,6 +36,11 @@ Hey, this is my first email!
 
 Note that you could easily do this with nc (netcat) in exactly the same way, I just prefer telnet.
 
+Check your mail to make sure it delivered.
+
+Note that if you have not [specifically requested outbound use of port 25](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/) from AWS, then it is very possible the message will not be delivered.  If that is the case, try changing the outboud port to 465, which can sometimes be effective for low volume testing.
+
+
 ## Curl method for HTTP API
 
 ```console
@@ -51,15 +66,15 @@ Swaks, the [Swiss Army Knife for SMTP](http://www.jetmore.org/john/code/swaks/) 
 - As of this writing, you can pull and install the package with
 
 ```console
-$ curl -O https://jetmore.org/john/code/swaks/files/swaks-20201014.0.tar.gz
-$ tar -xvzf swaks-20201014.0.tar.gz
-$ chmod 755 ./swaks-20201014.0/swaks
+curl -O https://jetmore.org/john/code/swaks/files/swaks-20201014.0.tar.gz
+tar -xvzf swaks-20201014.0.tar.gz
+chmod 755 ./swaks-20201014.0/swaks
 ```
 
 You can test a relay through KumoMTA with this (change user@example.com to your own email address first)
 
 ```console
-$ swaks --to user@example.com --server 127.0.0.1 --port 2025
+swaks --to user@example.com --server 127.0.0.1 --port 2025
 ```
 
 
