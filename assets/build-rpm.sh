@@ -10,7 +10,7 @@ RPM_NAME=${RPM_NAME:-kumomta-dev}
 CONFLICTS=kumomta
 [[ ${RPM_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 
-KUMO_RPM_VERSION=$(echo ${TAG_NAME} | tr - _)
+KUMO_RPM_VERSION=$(git -c "core.abbrev=8" show -s "--format=%cd_%h" "--date=format:%Y.%m.%d.%H%M%S")
 distroid=$(sh -c "source /etc/os-release && echo \$ID" | tr - _)
 distver=$(sh -c "source /etc/os-release && echo \$VERSION_ID" | tr - _)
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
