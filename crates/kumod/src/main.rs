@@ -75,7 +75,6 @@ struct Opt {
     user: Option<String>,
 }
 
-
 impl Opt {
     fn drop_privs(&self) -> anyhow::Result<()> {
         let uid = Uid::effective();
