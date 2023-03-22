@@ -76,3 +76,47 @@ $ sudo systemctl stop  qpidd.service
 $ sudo systemctl disable qpidd.service
 ```
 
+## Creating a Self-Signed Certificate
+
+Before you continue, you should ensure that your system has a valid SSL Certificate.  If you do not have one available, a self-signed certificate is usually ok for most purposes.  You can create one like this. (Change the certificate variables before executing this)
+
+```console
+# For the certificate enter your FQDN
+MyFQDN="my.company.com"
+
+# For the certificate, what country code are you in? (CA,US,UK, etc)
+CERT_CO=US
+
+# For the certificate, what State or Province are you in? (Alberta, California, etc)"
+CERT_ST="California"
+  
+# For the certificate, what city are you in? (Edmonton, Houston, etc)"
+CERT_LO="Los Angeles"
+  
+# For the certificate, what is the name of your company or organization"
+CERT_ORG="My Company"
+
+# Generate private key 
+openssl genrsa -out ca.key 2048 
+
+# Generate CSR 
+#openssl req -new -key ca.key -out ca.csr           
+openssl req -new -key ca.key -out ca.csr -subj "/C=$CERT_CO/ST=$CERT_ST/L=$CERT_LO/O=$CERT_ORG/CN=$MYFQDN/"
+
+
+# Generate Self Signed Key
+openssl x509 -req -days 365 -in ca.csr -signkey ca.key -out ca.crt
+
+# Copy the files to the correct locations
+mv -f ca.crt /etc/pki/tls/certs
+mv -f ca.key /etc/pki/tls/private/ca.key
+mv -f ca.csr /etc/pki/tls/private/ca.csr
+
+# If Apache HTTPD is installed, update the SSL config (ignore errors)
+sed -i 's/SSLCertificateFile \/etc\/pki\/tls\/certs\/localhost.crt/SSLCertificateFile \/etc\/pki\/tls\/certs\/ca.crt/' /etc/httpd/conf.d/ssl.conf
+sed -i 's/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/localhost.key/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/ca.key/' /etc/httpd/conf.d/ssl.conf
+
+```
+
+Now you can move on to Installing it.
+
