@@ -10,8 +10,7 @@ openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
  -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
 ```
 
-Now that you have KumoMTA installed, you should test it from the command line of the installed host.  
-This is easy if you installed the basic tools as described earlier.  
+Now that you have KumoMTA installed, you should test it from the command line of the installed host. This is easy if you installed the basic tools as described earlier.  
 Note that the default SMTP listener is on port 2025, so we have use that in these examples.
 
 ## Telnet method for SMTP
@@ -38,7 +37,7 @@ Note that you could easily do this with nc (netcat) in exactly the same way, I j
 
 Check your mail to make sure it delivered.
 
-Note that if you have not [specifically requested outbound use of port 25](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/) from AWS, then it is very possible the message will not be delivered.  If that is the case, try changing the outboud port to 465, which can sometimes be effective for low volume testing.
+Note that if you have not [specifically requested outbound use of port 25](https://aws.amazon.com/premiumsupport/knowledge-center/ec2-port-25-throttle/) from AWS, then it is very possible the message will not be delivered. 
 
 
 ## Curl method for HTTP API

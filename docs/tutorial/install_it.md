@@ -76,5 +76,5 @@ Start the MTA with this:
  * Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
  * The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
 
-If all goes well, it shoudl return a PID and drop you back to a Linux prompt.
+If all goes well, it should return a PID and drop you back to a Linux prompt.
 

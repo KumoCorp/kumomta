@@ -14,7 +14,7 @@ We can take a look at a specific log by decompressing it and since these are zst
 
 Using the example above, we can see the content of the newest file after stopping KumoMTA with a zstdcat /var/log/kumomta/20230314-181435.
 
-While this may seem cumbersome, this method is only use for initial debugging.  A full implmementation of RabbitMQ is normally employed so that production logging events are streamed in real-time to your external logging database.
+While this may seem cumbersome, this method is only use for initial debugging.  A full implemementation of RabbitMQ is normally employed so that production logging events are streamed in real-time to your external logging database.
 
-Logging is a complex topic and shoudl be reviewd [here](https://docs.kumomta.com/reference/kumo/configure_local_logs/)
+Logging is a complex topic and should be reviewd [here](https://docs.kumomta.com/reference/kumo/configure_local_logs/)
 

@@ -31,10 +31,20 @@ OK, now lets really test this with some volume.  You will **_not_** want to do t
 
 Once you have the second one configured, you can create a script on the sending server to loop over an injection to the sink as many time as you like. Using a function like 'time' can give you an accurate time windows and knowing the number of loops and size of email, you can determine performance. There is a sample chart below of one done recently.
 
+One handy setting for performance testing is [custom routing](https://docs.kumomta.com/userguide/policy/routing/).  If you configure your sending server to route all messages to the sink server, and the sink is configured to dev/null all messages, that can make your testing script less complicated.  IE:
+
+```console
+kumo.on('smtp_server_message_received', function(msg)
+    msg:set_meta('queue', 'my.sink.server')
+end)
+
+```
+
 General: a 50KB Payload sent in a loop to a sink in the same AWS region
-|time|count|rate|
-|---|---|---|
-|0  |0  |0  |
+
+| time | count | rate |
+| --- | --- | --- |
+| 0  | 0  | 0  |
 
 
 ## Now What?

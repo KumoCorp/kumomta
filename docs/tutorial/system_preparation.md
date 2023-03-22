@@ -1,11 +1,12 @@
 # System Preparation
 
 Now that we know **_what_** to build, lets go ahead and build it.
- * Open up AWS, select EC2 and hit the [Launch Instance] button.
- * Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
- * Under Instance Type, select a t2.xlarge, provide your keypair for login or create a pair if necessary.
- * In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
- * Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click [Launch Instance].
+
+* Open up AWS, select EC2 and hit the [Launch Instance] button.
+* Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
+* Under Instance Type, select a t2.xlarge, provide your keypair for login or create a pair if necessary.
+* In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
+* Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click [Launch Instance].
 
 ... wait ....
 
@@ -66,7 +67,7 @@ sudo systemctl enable firewalld
 sudo firewall-cmd --reload
 ```
 
-ANd finally, disabling unnecessary services like postfix and qpidd
+And finally, disabling unnecessary services like postfix and qpidd
 
 ```console
 $ sudo systemctl stop  postfix.service
