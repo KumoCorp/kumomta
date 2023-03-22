@@ -34,7 +34,7 @@ EOF
 
 ./assets/install.sh pkg/debian/opt/kumomta
 
-cat > pkg/debian/preinst <<EOF
+cat > pkg/debian/DEBIAN/preinst <<EOF
 #!/bin/sh
 getent group kumod >/dev/null || groupadd --system kumod
 getent passwd kumod >/dev/null || \
@@ -51,6 +51,7 @@ done
 
 exit 0
 EOF
+chmod 0775 pkg/debian/DEBIAN/preinst
 
 deps=$(cd pkg && dpkg-shlibdeps -O -e debian/opt/kumomta/*bin/*)
 mv pkg/debian/control pkg/debian/DEBIAN/control
@@ -59,5 +60,10 @@ echo $deps | sed -e 's/shlibs:Depends=/Depends: /' >> pkg/debian/DEBIAN/control
 cat pkg/debian/DEBIAN/control
 
 debname=${DEB_NAME}.$distro$distver
-fakeroot dpkg-deb --build pkg/debian $debname.deb
+find pkg -ls
+FAKEROOT=fakeroot
+if test "$EUID" -eq 0 ; then
+  FAKEROOT=""
+fi
+$FAKEROOT dpkg-deb --verbose --build pkg/debian $debname.deb
 
