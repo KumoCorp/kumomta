@@ -10,7 +10,7 @@ DEB_NAME=${DEB_NAME:-kumomta-dev}
 CONFLICTS=kumomta
 [[ ${DEB_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 
-KUMO_DEB_VERSION=$(echo ${TAG_NAME} | tr - _)
+KUMO_DEB_VERSION=$(echo ${TAG_NAME} | tr - .)
 distro=$(lsb_release -is 2>/dev/null || sh -c "source /etc/os-release && echo \$NAME")
 distver=$(lsb_release -rs 2>/dev/null || sh -c "source /etc/os-release && echo \$VERSION_ID")
 export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
@@ -22,7 +22,7 @@ mkdir -p pkg/debian/ pkg/debian/DEBIAN
 cat > pkg/debian/control <<EOF
 Package: ${DEB_NAME}
 Conflicts: ${CONFLICTS}
-Version: ${TAG_NAME}
+Version: ${KUMO_DEB_VERSION}
 Architecture: $(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
 Maintainer: Wez Furlong <wez@wezfurlong.org>
 Section: utils
