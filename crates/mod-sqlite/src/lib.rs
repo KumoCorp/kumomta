@@ -21,7 +21,7 @@ fn bind_param<I: ParameterIndex>(
                 anyhow::bail!("numeric value {n} is out of range for sqlite");
             }
         }
-        JsonValue::String(s) => stmt.bind((index, s.as_bytes()))?,
+        JsonValue::String(s) => stmt.bind((index, s.as_str()))?,
         _ => {
             anyhow::bail!("only numbers, strings and nil can be passed as parameter values");
         }
@@ -104,8 +104,8 @@ impl Conn {
             .with_context(|| format!("bind parameters {params:?} in query `{sql}'"))?;
 
         let state = stmt.next()?;
-        if state == State::Done {
-            // Query didn't return any rows, so we'll return
+        if state == State::Done && stmt.column_count() == 0 {
+            // Query cannot return any rows, so we'll return
             // the affected row count
             return Ok(self.0.change_count().into());
         }
