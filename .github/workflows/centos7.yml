@@ -8,6 +8,7 @@ on:
       - ".github/workflows/centos7.yml"
       - "**/Cargo.toml"
       - "get-deps.sh"
+      - "assets/build-rpm.sh"
       - "assets/sign-rpm.sh"
       - "assets/upload-package.sh"
 
@@ -18,6 +19,7 @@ on:
       - ".github/workflows/centos7.yml"
       - "**/Cargo.toml"
       - "get-deps.sh"
+      - "assets/build-rpm.sh"
       - "assets/sign-rpm.sh"
       - "assets/upload-package.sh"
 
