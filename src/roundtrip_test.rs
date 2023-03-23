@@ -21,7 +21,7 @@ mod tests {
 
         let mut out = "".to_owned();
         for m in re.find_iter(&data) {
-            out += &m.as_str().replace("\"", "");
+            out += &m.as_str().replace('\"', "");
         }
         out
     }
@@ -32,7 +32,7 @@ mod tests {
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
         let logger = test_logger();
-        let time = chrono::Utc.ymd(2021, 1, 1).and_hms_milli(0, 0, 1, 444);
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
             .with_signed_headers(&["From", "Subject"])

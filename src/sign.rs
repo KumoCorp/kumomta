@@ -1,4 +1,9 @@
+use base64::engine::general_purpose;
+use base64::Engine;
 use ed25519_dalek::ExpandedSecretKey;
+use rsa::Pkcs1v15Sign;
+use sha1::Sha1;
+use sha2::Sha256;
 
 use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HEADER};
@@ -111,7 +116,7 @@ impl<'a> SignerBuilder<'a> {
             signed_headers: self
                 .signed_headers
                 .ok_or(BuilderError("missing required signed headers"))?,
-            private_key: private_key,
+            private_key,
             selector: self
                 .selector
                 .ok_or(BuilderError("missing required selector"))?,
@@ -122,9 +127,15 @@ impl<'a> SignerBuilder<'a> {
             header_canonicalization: self.header_canonicalization,
             body_canonicalization: self.body_canonicalization,
             expiry: self.expiry,
-            hash_algo: hash_algo,
+            hash_algo,
             time: self.time,
         })
+    }
+}
+
+impl<'a> Default for SignerBuilder<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -154,17 +165,12 @@ impl<'a> Signer<'a> {
         let signature = match &self.private_key {
             DkimPrivateKey::Rsa(private_key) => private_key
                 .sign(
-                    rsa::PaddingScheme::PKCS1v15Sign {
-                        hash: Some(match &self.hash_algo {
-                            hash::HashAlgo::RsaSha1 => rsa::hash::Hash::SHA1,
-                            hash::HashAlgo::RsaSha256 => rsa::hash::Hash::SHA2_256,
-                            hash => {
-                                return Err(DKIMError::UnsupportedHashAlgorithm(format!(
-                                    "{:?}",
-                                    hash
-                                )))
-                            }
-                        }),
+                    match &self.hash_algo {
+                        hash::HashAlgo::RsaSha1 => Pkcs1v15Sign::new::<Sha1>(),
+                        hash::HashAlgo::RsaSha256 => Pkcs1v15Sign::new::<Sha256>(),
+                        hash => {
+                            return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash)))
+                        }
                     },
                     &header_hash,
                 )
@@ -180,7 +186,7 @@ impl<'a> Signer<'a> {
 
         // add the signature into the DKIM header and generate the header
         let dkim_header = dkim_header_builder
-            .add_tag("b", &base64::encode(&signature))
+            .add_tag("b", &general_purpose::STANDARD.encode(signature))
             .build()?;
 
         Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
@@ -197,7 +203,7 @@ impl<'a> Signer<'a> {
         let mut builder = DKIMHeaderBuilder::new()
             .add_tag("v", "1")
             .add_tag("a", hash_algo)
-            .add_tag("d", &self.signing_domain)
+            .add_tag("d", self.signing_domain)
             .add_tag("s", self.selector)
             .add_tag(
                 "c",
@@ -215,7 +221,7 @@ impl<'a> Signer<'a> {
         if let Some(time) = self.time {
             builder = builder.set_time(time);
         } else {
-            builder = builder.set_time(now.into());
+            builder = builder.set_time(now);
         }
 
         Ok(builder)
@@ -278,7 +284,7 @@ Hello Alice
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
         let logger = test_logger();
-        let time = chrono::Utc.ymd(2021, 1, 1).and_hms_milli(0, 0, 1, 444);
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
             .with_signed_headers(&["From", "Subject"])
@@ -308,15 +314,15 @@ Hi.
 We lost the game.  Are you hungry yet?
 
 Joe."#
-            .replace("\n", "\r\n");
+            .replace('\n', "\r\n");
         let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
 
         let file_content = fs::read("./test/keys/ed.private").unwrap();
-        let file_decoded = base64::decode(file_content).unwrap();
+        let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
         let secret_key = ed25519_dalek::SecretKey::from_bytes(&file_decoded).unwrap();
 
         let file_content = fs::read("./test/keys/ed.public").unwrap();
-        let file_decoded = base64::decode(file_content).unwrap();
+        let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
         let public_key = ed25519_dalek::PublicKey::from_bytes(&file_decoded).unwrap();
 
         let keypair = ed25519_dalek::Keypair {
@@ -325,7 +331,9 @@ Joe."#
         };
 
         let logger = test_logger();
-        let time = chrono::Utc.ymd(2018, 6, 10).and_hms_milli(13, 38, 29, 444);
+        let time = chrono::Utc
+            .with_ymd_and_hms(2018, 6, 10, 13, 38, 29)
+            .unwrap();
 
         let signer = SignerBuilder::new()
             .with_signed_headers(&[

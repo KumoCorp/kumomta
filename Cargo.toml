@@ -1,6 +1,6 @@
 [package]
 name = "cfdkim"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Sven Sauleau <sven@cloudflare.com>"]
 edition = "2021"
 description = "DKIM (RFC6376) implementation"
@@ -13,19 +13,19 @@ license = "MIT"
 
 [dependencies]
 ed25519-dalek = "1.0.1"
-mailparse = "0.13.7"
+mailparse = "0.14"
 quick-error = "2.0.1"
 nom = "7.1.0"
 chrono = { version = "0.4.19", default-features = false, features = ["clock", "std"] }
-trust-dns-resolver = "0.21"
+trust-dns-resolver = "0.22"
 futures = "0.3.18"
-sha-1 = "0.10"
-sha2 = "0.10"
-base64 = "0.13.0"
-rsa = "0.6"
+sha-1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
+base64 = "0.21.0"
+rsa = "0.8"
 slog = "2.7.0"
 indexmap = "1.8.0"
 
 [dev-dependencies]
-tokio = { version = "1.20.3", features = ["macros"] }
+tokio = { version = "1.20", features = ["macros"] }
 regex = "1"

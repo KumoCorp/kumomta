@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use base64::engine::general_purpose;
+use base64::Engine;
 use slog::debug;
 
 use crate::canonicalization::{
@@ -64,11 +66,11 @@ pub(crate) fn compute_body_hash<'a>(
         HashAlgo::RsaSha256 => hash_sha256(&canonicalized_body),
         HashAlgo::Ed25519Sha256 => hash_sha256(&canonicalized_body),
     };
-    Ok(base64::encode(&hash))
+    Ok(general_purpose::STANDARD.encode(hash))
 }
 
-fn select_headers<'a, 'b>(
-    dkim_header: &'b str,
+fn select_headers<'a>(
+    dkim_header: &str,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<Vec<(String, &'a [u8])>, DKIMError> {
     let mut signed_headers = vec![];
@@ -78,7 +80,7 @@ fn select_headers<'a, 'b>(
     let mut last_index: HashMap<String, usize> = HashMap::new();
 
     'outer: for name in dkim_header
-        .split(":")
+        .split(':')
         .map(|h| h.trim().to_ascii_lowercase())
     {
         let index = last_index.get(&name).unwrap_or(&num_headers);
@@ -114,9 +116,9 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     // Add the headers defined in `h=` in the hash
     for (key, value) in select_headers(headers, email)? {
         let canonicalized_value = if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(&key, &value)
+            canonicalize_header_simple(&key, value)
         } else {
-            canonicalize_header_relaxed(&key, &value)
+            canonicalize_header_relaxed(&key, value)
         };
         input.extend_from_slice(&canonicalized_value);
     }
@@ -127,9 +129,9 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
         let sign = dkim_header.get_raw_tag("b").unwrap();
         let value = dkim_header.raw_bytes.replace(&sign, "");
         let mut canonicalized_value = if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(HEADER, &value.as_bytes())
+            canonicalize_header_simple(HEADER, value.as_bytes())
         } else {
-            canonicalize_header_relaxed(HEADER, &value.as_bytes())
+            canonicalize_header_relaxed(HEADER, value.as_bytes())
         };
 
         // remove trailing "\r\n"
@@ -249,7 +251,7 @@ Hello Alice
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
-            compute_body_hash(canonicalization_type, length.clone(), hash_algo, &email).unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
         )
     }
@@ -273,7 +275,7 @@ Hello Alice
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
-            compute_body_hash(canonicalization_type, length.clone(), hash_algo, &email).unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "frcCV1k9oG9oKj3dpUqdJg1PxRT2RSN/XKdLCPjaYaY="
         )
     }
@@ -297,7 +299,7 @@ Hello Alice
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
-            compute_body_hash(canonicalization_type, length.clone(), hash_algo, &email).unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
         )
     }
@@ -338,7 +340,7 @@ Hello Alice
         assert_eq!(
             compute_headers_hash(
                 &logger,
-                canonicalization_type.clone(),
+                canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
@@ -388,7 +390,7 @@ Hello Alice
         assert_eq!(
             compute_headers_hash(
                 &logger,
-                canonicalization_type.clone(),
+                canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),

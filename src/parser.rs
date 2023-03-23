@@ -70,7 +70,7 @@ fn tag_name(input: &str) -> IResult<&str, &str> {
 /// tval      =  1*VALCHAR
 /// VALCHAR   =  %x21-3A / %x3C-7E
 fn tag_value(input: &str) -> IResult<&str, String> {
-    let is_valchar = |c| (c >= '!' && c <= ':') || (c >= '<' && c <= '~');
+    let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
     match opt(take_while1(is_valchar))(input)? {
         (input, Some(start)) => fold_many0(
             preceded(fws, take_while1(is_valchar)),
@@ -85,7 +85,7 @@ fn tag_value(input: &str) -> IResult<&str, String> {
 }
 
 fn raw_tag_value(input: &str) -> IResult<&str, String> {
-    let is_valchar = |c| (c >= '!' && c <= ':') || (c >= '<' && c <= '~');
+    let is_valchar = |c| ('!'..=':').contains(&c) || ('<'..='~').contains(&c);
     match opt(take_while1(is_valchar))(input)? {
         (input, Some(start)) => fold_many0(
             pair(fws, take_while1(is_valchar)),
@@ -104,9 +104,9 @@ fn fws(input: &str) -> IResult<&str, &str> {
     take_while1(|c| c == ' ' || c == '\t' || c == '\r' || c == '\n')(input)
 }
 
-pub(crate) fn parse_hash_algo(value: &String) -> Result<hash::HashAlgo, DKIMError> {
+pub(crate) fn parse_hash_algo(value: &str) -> Result<hash::HashAlgo, DKIMError> {
     use hash::HashAlgo;
-    match value.as_str() {
+    match value {
         "rsa-sha1" => Ok(HashAlgo::RsaSha1),
         "rsa-sha256" => Ok(HashAlgo::RsaSha256),
         "ed25519-sha256" => Ok(HashAlgo::Ed25519Sha256),
