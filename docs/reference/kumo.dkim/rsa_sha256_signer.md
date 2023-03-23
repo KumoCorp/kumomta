@@ -71,12 +71,11 @@ headers.  Can be one of:
 
 ## source
 
-Required. Specify the signing key. Currently accepts two different forms:
+Required. Specify the signing key data.
 
-* *string* - path to the file from which the signing key will be loaded.
-* *object* - load the key from a key management store
+The value is a [KeySource](../keysource.md).
 
-The key must be either RSA PEM or a PKCS8 PEM encoded.
+The key data must be either RSA PEM or a PKCS8 PEM encoded.
 
 ```lua
 local file_signer = kumo.dkim.rsa_sha256_signer {
@@ -87,32 +86,11 @@ local file_signer = kumo.dkim.rsa_sha256_signer {
 }
 ```
 
-using [HashiCorp Vault](https://www.hashicorp.com/products/vault):
+!!! tip
+    The [KeySource](../keysource.md) page explains how to read from
+    [HashiCorp Vault](https://www.hashicorp.com/products/vault) or from an
+    arbitrary source of data.
 
-```lua
-local file_signer = kumo.dkim.rsa_sha256_signer {
-  domain = msg:from_header().domain,
-  selector = 'default',
-  headers = { 'From', 'To', 'Subject' },
-  key = {
-    vault_mount = 'secret',
-    vault_path = 'dkim/' .. msg:from_header().domain,
-
-    -- Specify how to reach the vault; if you omit these,
-    -- values will be read from $VAULT_ADDR and $VAULT_TOKEN
-
-    -- vault_address = "http://127.0.0.1:8200"
-    -- vault_token = "hvs.TOKENTOKENTOKEN"
-  },
-}
-```
-
-The key must be stored as `key` under the `path` specified.
-For example, you might populate it like this:
-
-```
-$ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
-```
 
 ## ttl
 

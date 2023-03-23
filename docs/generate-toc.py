@@ -237,6 +237,10 @@ TOC = [
                 "object: addressheader",
                 "reference/addressheader",
             ),
+            Page(
+                "object: keysource",
+                "reference/keysource.md",
+            ),
             Gen(
                 "object: message",
                 "reference/message",
