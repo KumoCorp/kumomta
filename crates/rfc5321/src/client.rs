@@ -641,16 +641,17 @@ mod test {
     #[tokio::test]
     async fn test_against_sink() {
         use tokio::net::TcpStream;
-        let stream = TcpStream::connect("127.0.0.1:25").await.unwrap();
-        let mut client = SmtpClient::with_stream(stream, "localhost");
-        dbg!(client.read_response().await).unwrap();
+        let stream = TcpStream::connect("127.0.0.1:2025").await.unwrap();
+        let mut client =
+            SmtpClient::with_stream(stream, "localhost", SmtpClientTimeouts::default());
+        dbg!(client.read_response(None).await).unwrap();
         dbg!(client.ehlo("localhost").await).unwrap();
         let insecure = true;
         dbg!(client.starttls(insecure).await).unwrap();
         let resp = client
             .send_mail(
-                ReversePath::try_from("wez@wez").unwrap(),
-                ForwardPath::try_from("wez@wez").unwrap(),
+                ReversePath::try_from("wez@mail.example.com").unwrap(),
+                ForwardPath::try_from("wez@mail.example.com").unwrap(),
                 "Subject: hello\r\n\r\nwoot\r\n",
             )
             .await

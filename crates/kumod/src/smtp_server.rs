@@ -587,7 +587,10 @@ impl SmtpServer {
                     }
                     self.write_response(220, "Ready to Start TLS").await?;
                     let acceptor = self.params.build_tls_acceptor().await?;
-                    let socket = acceptor.accept(self.socket.take().unwrap()).await?;
+                    let socket = acceptor
+                        .accept(self.socket.take().unwrap())
+                        .await
+                        .context("STARTTLS accept")?;
                     let socket: BoxedAsyncReadAndWrite = Box::new(socket);
                     self.socket.replace(socket);
                     self.tls_active = true;
