@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine};
 use rsa::{pkcs1, pkcs8};
 use slog::{debug, warn};
 use std::collections::HashMap;
@@ -52,9 +53,11 @@ pub(crate) async fn retrieve_public_key(
     };
 
     let tag = tags_map.get("p").ok_or(DKIMError::NoKeyForSignature)?;
-    let bytes = base64::decode(&tag.value).map_err(|err| {
-        DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
-    })?;
+    let bytes = general_purpose::STANDARD
+        .decode(&tag.value)
+        .map_err(|err| {
+            DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
+        })?;
     let key = if key_type == RSA_KEY_TYPE {
         DkimPublicKey::Rsa(
             pkcs8::DecodePublicKey::from_public_key_der(&bytes)

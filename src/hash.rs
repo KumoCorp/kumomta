@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use base64::engine::general_purpose;
+use base64::Engine;
 use slog::debug;
 
 use crate::canonicalization::{
@@ -64,7 +66,7 @@ pub(crate) fn compute_body_hash<'a>(
         HashAlgo::RsaSha256 => hash_sha256(&canonicalized_body),
         HashAlgo::Ed25519Sha256 => hash_sha256(&canonicalized_body),
     };
-    Ok(base64::encode(&hash))
+    Ok(general_purpose::STANDARD.encode(&hash))
 }
 
 fn select_headers<'a, 'b>(

@@ -1,9 +1,14 @@
 // Implementation of DKIM: https://datatracker.ietf.org/doc/html/rfc6376
 
+use base64::engine::general_purpose;
+use base64::Engine;
 use indexmap::map::IndexMap;
+use rsa::Pkcs1v15Sign;
 use rsa::PublicKey;
 use rsa::RsaPrivateKey;
 use rsa::RsaPublicKey;
+use sha1::Sha1;
+use sha2::Sha256;
 use slog::debug;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -113,8 +118,11 @@ fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
 
     // Check that "x=" tag isn't expired
     if let Some(expiration) = header.get_tag("x") {
-        let mut expiration =
-            chrono::NaiveDateTime::from_timestamp(expiration.parse::<i64>().unwrap_or_default(), 0);
+        let mut expiration = chrono::NaiveDateTime::from_timestamp_opt(
+            expiration.parse::<i64>().unwrap_or_default(),
+            0,
+        )
+        .ok_or(DKIMError::SignatureExpired)?;
         expiration += chrono::Duration::minutes(SIGN_EXPIRATION_DRIFT_MINS);
         let now = chrono::Utc::now().naive_utc();
         if now > expiration {
@@ -135,14 +143,10 @@ fn verify_signature(
     Ok(match public_key {
         DkimPublicKey::Rsa(public_key) => public_key
             .verify(
-                rsa::PaddingScheme::PKCS1v15Sign {
-                    hash: Some(match hash_algo {
-                        hash::HashAlgo::RsaSha1 => rsa::hash::Hash::SHA1,
-                        hash::HashAlgo::RsaSha256 => rsa::hash::Hash::SHA2_256,
-                        hash => {
-                            return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash)))
-                        }
-                    }),
+                match hash_algo {
+                    hash::HashAlgo::RsaSha1 => Pkcs1v15Sign::new::<Sha1>(),
+                    hash::HashAlgo::RsaSha256 => Pkcs1v15Sign::new::<Sha256>(),
+                    hash => return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash))),
                 },
                 &header_hash,
                 &signature,
@@ -196,9 +200,11 @@ async fn verify_email_header<'a>(
         return Err(DKIMError::BodyHashDidNotVerify);
     }
 
-    let signature = base64::decode(dkim_header.get_required_tag("b")).map_err(|err| {
-        DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
-    })?;
+    let signature = general_purpose::STANDARD
+        .decode(dkim_header.get_required_tag("b"))
+        .map_err(|err| {
+            DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
+        })?;
     if !verify_signature(hash_algo, computed_headers_hash, signature, public_key)? {
         return Err(DKIMError::SignatureDidNotVerify);
     }

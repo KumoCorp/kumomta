@@ -123,7 +123,7 @@ mod tests {
     fn test_dkim_header_builder_time() {
         use chrono::TimeZone;
 
-        let time = chrono::Utc.ymd(2021, 1, 1).and_hms_milli(0, 0, 1, 444);
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let header = DKIMHeaderBuilder::new()
             .set_time(time)
