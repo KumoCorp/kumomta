@@ -73,13 +73,13 @@ The parameters it accepts are:
 * *FUNCTION* - the function or lambda which will be called when there is a cache miss.
   When it is called, it will be passed the parameters that were passed to the *memoized function*.
 * *PARAMS* is a required lua table with the following fields, all of which are required:
-  * `name` - the name for the cache. You should create one name per function/purpose.
-  * `ttl` - the Time To Live for cache entries; how long a previously computed
-    value should remain valid.  The duration is expressed as a string like `5
-    minutes` or `10 seconds`.
-  * `capacity` - the total number of results to retain in the cache. When a new
-    entry needs to be inserted, if the cache is at capacity, the eldest entry
-    will be evicted to make space.
+     * `name` - the name for the cache. You should create one name per function/purpose.
+     * `ttl` - the Time To Live for cache entries; how long a previously computed
+       value should remain valid.  The duration is expressed as a string like `5
+       minutes` or `10 seconds`.
+     * `capacity` - the total number of results to retain in the cache. When a new
+       entry needs to be inserted, if the cache is at capacity, the eldest entry
+       will be evicted to make space.
 
 In the example above calling:
 
