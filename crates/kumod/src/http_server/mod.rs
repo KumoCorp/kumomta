@@ -1,5 +1,6 @@
 use crate::runtime::spawn;
 use anyhow::Context;
+use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -83,9 +84,9 @@ impl HttpListenerParams {
     pub async fn start(self) -> anyhow::Result<()> {
         let app = Router::new()
             .route("/metrics", get(report_metrics))
+            .route("/metrics.json", get(report_metrics_json))
             .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
-            .route("/wat", get(test_wat))
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header
             .route_layer(axum::middleware::from_fn_with_state(
@@ -160,6 +161,94 @@ async fn report_metrics(_: TrustedIpRequired) -> Result<String, AppError> {
     Ok(report)
 }
 
-async fn test_wat(auth: AuthKind) -> Result<String, AppError> {
-    Ok(format!("Hello. auth={auth:?}"))
+async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Value>, AppError> {
+    use prometheus::proto::MetricType;
+    use serde_json::{json, Map, Number, Value};
+
+    let mut result = Map::new();
+
+    let metrics = prometheus::default_registry().gather();
+    for mf in metrics {
+        let name = mf.get_name();
+        let help = mf.get_help();
+
+        let mut family = Map::new();
+        let metric_type = mf.get_field_type();
+        family.insert(
+            "type".to_string(),
+            format!("{metric_type:?}").to_lowercase().into(),
+        );
+        if !help.is_empty() {
+            family.insert("help".to_string(), help.into());
+        }
+
+        let mut value = Value::Null;
+
+        fn apply_to_value(
+            value: &mut Value,
+            this_value: Value,
+            label: &[prometheus::proto::LabelPair],
+        ) {
+            if label.is_empty() {
+                *value = this_value;
+            } else if label.len() == 1 {
+                let only_pair = &label[0];
+                if value.is_null() {
+                    let mut map = Map::new();
+                    map.insert(only_pair.get_name().to_string(), json!({}));
+                    *value = Value::Object(map);
+                }
+                let by_label = value
+                    .as_object_mut()
+                    .unwrap()
+                    .entry(only_pair.get_name().to_string())
+                    .or_insert_with(|| json!({}));
+                by_label
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(only_pair.get_value().to_string(), this_value);
+            } else {
+                if value.is_null() {
+                    *value = json!([]);
+                }
+                let mut pairs = Map::new();
+                for p in label {
+                    pairs.insert(p.get_name().to_string(), p.get_value().to_string().into());
+                }
+                pairs.insert("@".to_string(), this_value);
+                value.as_array_mut().unwrap().push(Value::Object(pairs));
+            }
+        }
+
+        for mc in mf.get_metric() {
+            let label = mc.get_label();
+
+            match metric_type {
+                MetricType::COUNTER => {
+                    let this_value = Value::Number(
+                        Number::from_f64(mc.get_counter().get_value()).unwrap_or_else(|| 0.into()),
+                    );
+
+                    apply_to_value(&mut value, this_value, label);
+                }
+                MetricType::GAUGE => {
+                    let this_value = Value::Number(
+                        Number::from_f64(mc.get_gauge().get_value()).unwrap_or_else(|| 0.into()),
+                    );
+
+                    apply_to_value(&mut value, this_value, label);
+                }
+                _ => {
+                    // Other types are currently not implemented
+                    // as we don't currently export any other type
+                }
+            }
+        }
+
+        family.insert("value".to_string(), value);
+
+        result.insert(name.to_string(), Value::Object(family));
+    }
+
+    Ok(Json(Value::Object(result)))
 }
