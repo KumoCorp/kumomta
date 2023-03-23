@@ -21,7 +21,7 @@ mod tests {
 
         let mut out = "".to_owned();
         for m in re.find_iter(&data) {
-            out += &m.as_str().replace("\"", "");
+            out += &m.as_str().replace('\"', "");
         }
         out
     }

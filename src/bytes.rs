@@ -3,9 +3,9 @@
 pub(crate) fn get_all_after<'a>(bytes: &'a [u8], end: &[u8]) -> &'a [u8] {
     if let Some(mut end_index) = find(bytes, end) {
         end_index += end.len();
-        return &bytes[end_index..];
+        &bytes[end_index..]
     } else {
-        return &[];
+        &[]
     }
 }
 
@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn it_replace_slice() {
         let source = "aba".as_bytes();
-        assert_eq!(replace_slice(&source, &[97], &[99]), "cbc".as_bytes());
-        assert_eq!(replace_slice(&source, &[97, 98], &[]), "a".as_bytes());
+        assert_eq!(replace_slice(source, &[97], &[99]), "cbc".as_bytes());
+        assert_eq!(replace_slice(source, &[97, 98], &[]), "a".as_bytes());
     }
 }

@@ -55,7 +55,7 @@ pub enum DkimPrivateKey {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1
-fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
+fn validate_header(value: &str) -> Result<DKIMHeader, DKIMError> {
     let (_, tags) =
         parser::tag_list(value).map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?;
 
@@ -103,7 +103,7 @@ fn validate_header<'a>(value: &'a str) -> Result<DKIMHeader, DKIMError> {
     // Check that "h=" tag includes the From header
     {
         let value = header.get_required_tag("h");
-        let headers = value.split(":");
+        let headers = value.split(':');
         let headers: Vec<String> = headers.map(|h| h.to_lowercase()).collect();
         if !headers.contains(&"from".to_string()) {
             return Err(DKIMError::FromFieldNotSigned);
@@ -190,12 +190,12 @@ async fn verify_email_header<'a>(
         header_canonicalization_type.clone(),
         &dkim_header.get_required_tag("h"),
         hash_algo.clone(),
-        &dkim_header,
+        dkim_header,
         email,
     )?;
     debug!(logger, "body_hash {:?}", computed_body_hash);
 
-    let header_body_hash = dkim_header.get_required_tag("bh").clone();
+    let header_body_hash = dkim_header.get_required_tag("bh");
     if header_body_hash != computed_body_hash {
         return Err(DKIMError::BodyHashDidNotVerify);
     }
@@ -419,7 +419,7 @@ Hi.
 We lost the game.  Are you hungry yet?
 
 Joe."#
-            .replace("\n", "\r\n");
+            .replace('\n', "\r\n");
 
         let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
         let h = email
@@ -471,7 +471,7 @@ We lost the game. Are you hungry yet?
 
 Joe.
 "#
-            .replace("\n", "\r\n");
+            .replace('\n', "\r\n");
         let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
         let h = email
             .headers
