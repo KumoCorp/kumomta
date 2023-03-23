@@ -587,13 +587,21 @@ impl SmtpServer {
                     }
                     self.write_response(220, "Ready to Start TLS").await?;
                     let acceptor = self.params.build_tls_acceptor().await?;
-                    let socket = acceptor
+                    let socket: BoxedAsyncReadAndWrite = match acceptor
                         .accept(self.socket.take().unwrap())
+                        .into_fallible()
                         .await
-                        .context("STARTTLS accept")?;
-                    let socket: BoxedAsyncReadAndWrite = Box::new(socket);
+                    {
+                        Ok(stream) => {
+                            self.tls_active = true;
+                            Box::new(stream)
+                        }
+                        Err((err, stream)) => {
+                            tracing::debug!("TLS handshake failed: {err:#}");
+                            stream
+                        }
+                    };
                     self.socket.replace(socket);
-                    self.tls_active = true;
                 }
                 Ok(Command::Auth {
                     sasl_mech,

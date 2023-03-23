@@ -904,7 +904,10 @@ impl Dispatcher {
                 | Tls::RequiredInsecure,
                 true,
             ) => {
-                client.starttls(enable_tls.allow_insecure()).await?;
+                if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
+                    client.send_command(&rfc5321::Command::Quit).await.ok();
+                    anyhow::bail!("TLS handshake failed: {handshake_error}");
+                }
             }
         };
 

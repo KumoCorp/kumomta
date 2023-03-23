@@ -383,14 +383,20 @@ impl SmtpClient {
         Ok(&self.capabilities)
     }
 
-    pub async fn starttls(&mut self, insecure: bool) -> Result<(), ClientError> {
+    /// Attempt TLS handshake.
+    /// Returns Err for IO errors.
+    /// On completion, return an option that will be:
+    /// * Some(handshake_error) - if the handshake failed
+    /// * None - if the handshake succeeded
+    pub async fn starttls(&mut self, insecure: bool) -> Result<Option<String>, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
             return Err(ClientError::Rejected(resp));
         }
 
         let connector = build_tls_connector(insecure);
-        let stream = connector
+        let mut handshake_error = None;
+        let stream: BoxedAsyncReadAndWrite = match connector
             .connect(
                 ServerName::try_from(self.hostname.as_str())?,
                 match self.socket.take() {
@@ -398,10 +404,18 @@ impl SmtpClient {
                     None => return Err(ClientError::NotConnected),
                 },
             )
-            .await?;
-        let stream: BoxedAsyncReadAndWrite = Box::new(stream);
+            .into_fallible()
+            .await
+        {
+            Ok(stream) => Box::new(stream),
+            Err((err, stream)) => {
+                handshake_error.replace(format!("{err:#}"));
+                stream
+            }
+        };
+
         self.socket.replace(stream);
-        Ok(())
+        Ok(handshake_error)
     }
 
     pub async fn send_mail<B: AsRef<[u8]>, SENDER: Into<ReversePath>, RECIP: Into<ForwardPath>>(
