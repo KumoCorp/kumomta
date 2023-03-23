@@ -42,6 +42,7 @@ metrics-tracing-context = "0.13"
 minijinja = {version="0.30",features=["source"]}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-memoize = {path="../mod-memoize"}
 mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
 nix = {version="0.26", features=["resource"]}

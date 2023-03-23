@@ -1671,6 +1671,7 @@ dependencies = [
  "minijinja",
  "mlua",
  "mod-dns-resolver",
+ "mod-memoize",
  "mod-redis",
  "mod-sqlite",
  "nix 0.26.2",
@@ -2196,6 +2197,20 @@ dependencies = [
  "dns-resolver",
  "mlua",
  "tokio",
+]
+
+[[package]]
+name = "mod-memoize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "humantime-serde",
+ "lruttl",
+ "mlua",
+ "once_cell",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

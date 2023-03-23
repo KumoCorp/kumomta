@@ -194,6 +194,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         mod_sqlite::register,
         mod_redis::register,
         mod_dns_resolver::register,
+        mod_memoize::register,
     ] {
         config::register(func);
     }
