@@ -87,6 +87,10 @@ impl HttpListenerParams {
             .route("/metrics.json", get(report_metrics_json))
             .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
+            .route(
+                "/api/admin/set_diagnostic_log_filter/v1",
+                post(set_diagnostic_log_filter_v1),
+            )
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header
             .route_layer(axum::middleware::from_fn_with_state(
@@ -251,4 +255,18 @@ async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Va
     }
 
     Ok(Json(Value::Object(result)))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SetDiagnosticFilterRequest {
+    pub filter: String,
+}
+
+async fn set_diagnostic_log_filter_v1(
+    _: TrustedIpRequired,
+    // Note: Json<> must be last in the param list
+    Json(request): Json<SetDiagnosticFilterRequest>,
+) -> Result<(), AppError> {
+    crate::set_diagnostic_log_filter(&request.filter)?;
+    Ok(())
 }
