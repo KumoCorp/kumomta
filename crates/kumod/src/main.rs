@@ -170,6 +170,12 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         DiagnosticFormat::Json => layer.json().boxed(),
     };
 
+    let env_filter = EnvFilter::try_new(
+        std::env::var("KUMOD_LOG")
+            .as_deref()
+            .unwrap_or("kumod=info"),
+    )?;
+
     tracing_subscriber::registry()
         .with(if opts.tokio_console {
             Some(console_subscriber::spawn())
@@ -177,7 +183,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             None
         })
         .with(layer)
-        .with(EnvFilter::from_env("KUMOD_LOG"))
+        .with(env_filter)
         .with(metrics_tracing_context::MetricsLayer::new())
         .init();
 
