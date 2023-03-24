@@ -27,6 +27,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_diagnostic_log_filter",
+        lua.create_function(move |_, filter: String| {
+            crate::set_diagnostic_log_filter(&filter).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "configure_bounce_classifier",
         lua.create_function(move |lua, params: Value| {
             let params: ClassifierParams = lua.from_value(params)?;
