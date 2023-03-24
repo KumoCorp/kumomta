@@ -175,13 +175,13 @@ impl Logger {
         let thread = std::thread::Builder::new()
             .name("logger".to_string())
             .spawn(move || {
-                tracing::info!("started logger thread");
+                tracing::debug!("started logger thread");
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_time()
                     .build()
                     .expect("create logger runtime");
                 runtime.block_on(async move {
-                    tracing::info!("calling state.logger_thread()");
+                    tracing::debug!("calling state.logger_thread()");
                     let mut state = LogThreadState {
                         params,
                         receiver,
