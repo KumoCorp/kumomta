@@ -149,7 +149,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
             array.insert(1, format!("{}/?/init.lua", path));
         }
 
-        prefix_path(&mut path_array, "/opt/kumomta/policy");
+        prefix_path(&mut path_array, "/opt/kumomta/etc/policy");
         package.set("path", path_array.join(";"))?;
     }
 

@@ -66,7 +66,7 @@ enum DiagnosticFormat {
 #[command(about, version=version_info::kumo_version())]
 struct Opt {
     /// Lua policy file to load.
-    #[arg(long, default_value = "/opt/kumomta/policy/init.lua")]
+    #[arg(long, default_value = "/opt/kumomta/etc/policy/init.lua")]
     policy: PathBuf,
 
     /// Directory where diagnostic log files will be placed.
