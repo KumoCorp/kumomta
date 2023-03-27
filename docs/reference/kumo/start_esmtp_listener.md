@@ -48,6 +48,17 @@ kumo.start_esmtp_listener {
 }
 ```
 
+## data_buffer_size
+
+Specified the size of the buffer used to read chunks of the message payload
+during the `DATA` phase of the SMTP transaction.  Making this larger will
+improve the throughput in terms of bytes-per-syscall at the expense of
+using more RAM.
+
+The default size is 128KB (`128 * 1024`).  If your average message size is
+significantly larger than the default, then you may wish to increase this
+value.
+
 ## deferred_spool
 
 !!! danger
@@ -163,7 +174,7 @@ kumo.start_esmtp_listener {
 
 ## max_messages_per_connection
 
-Specified the maximum number of consecutive `MAIL FROM` commands that can be
+Specifies the maximum number of consecutive `MAIL FROM` commands that can be
 issued for a given SMTP connection.  When the limit is reached, transient
 failures will be returned to those additional `MAIL FROM` commands.
 
@@ -172,6 +183,15 @@ kumo.start_esmtp_listener {
   max_messages_per_connection = 10000,
 }
 ```
+
+## max_message_size
+
+Specifies the maximum size of a message that can be relayed through
+this listener, in bytes.
+
+The default is `20 MB` (`20 * 1024 * 1024`).
+
+Messages exceeding this size will be rejected.
 
 ## max_recipients_per_message
 

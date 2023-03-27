@@ -10,9 +10,10 @@ use config::{load_config, LuaConfig};
 use data_loader::KeySource;
 use domain_map::DomainMap;
 use kumo_log_types::ResolvedAddress;
+use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::ToLuaMulti;
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
@@ -29,6 +30,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
+
+static CRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n"));
 
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct EsmtpDomain {
@@ -129,6 +132,12 @@ pub struct EsmtpListenerParams {
     max_messages_per_connection: usize,
     #[serde(default = "EsmtpListenerParams::default_max_recipients_per_message")]
     max_recipients_per_message: usize,
+
+    #[serde(default = "EsmtpListenerParams::default_max_message_size")]
+    max_message_size: usize,
+
+    #[serde(default = "EsmtpListenerParams::default_data_buffer_size")]
+    data_buffer_size: usize,
 }
 
 impl EsmtpListenerParams {
@@ -138,6 +147,14 @@ impl EsmtpListenerParams {
 
     fn default_max_recipients_per_message() -> usize {
         1024
+    }
+
+    fn default_max_message_size() -> usize {
+        20 * 1024 * 1024
+    }
+
+    fn default_data_buffer_size() -> usize {
+        128 * 1024
     }
 
     fn default_client_timeout() -> Duration {
@@ -423,26 +440,88 @@ impl SmtpServer {
     }
 
     #[instrument(skip(self))]
+    async fn read_data(&mut self) -> anyhow::Result<ReadData> {
+        let mut too_big = false;
+        tracing::trace!("reading data");
+
+        static CRLFDOTCRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n.\r\n"));
+        let mut data = vec![0u8; self.params.data_buffer_size];
+        let mut next_index = 0;
+
+        loop {
+            if let Some(i) = CRLFDOTCRLF.find(&self.read_buffer[next_index..]) {
+                let i = i + next_index;
+
+                if too_big {
+                    self.read_buffer.drain(0..i + 5);
+                    return Ok(ReadData::TooBig);
+                }
+
+                let mut tail = self.read_buffer.split_off(i + 2);
+                std::mem::swap(&mut tail, &mut self.read_buffer);
+                self.read_buffer.drain(0..3);
+
+                let data = unstuff(tail);
+
+                if !check_line_lengths(&data, MAX_LINE_LEN) {
+                    return Ok(ReadData::TooLong);
+                }
+
+                tracing::trace!("{data:?}");
+                return Ok(ReadData::Data(data));
+            }
+
+            tracing::trace!("read_buffer len is {}", self.read_buffer.len());
+            let buf_len = self.read_buffer.len();
+            next_index = buf_len.saturating_sub(5);
+            if buf_len >= self.params.max_message_size {
+                too_big = true;
+                self.read_buffer.drain(0..next_index);
+                next_index = 0;
+            }
+
+            // Didn't find terminator, fill up the buffer
+            tokio::select! {
+                _ = tokio::time::sleep(self.params.client_timeout) => {
+                    return Ok(ReadData::TimedOut);
+                }
+                size = self.socket.as_mut().unwrap().read(&mut data) => {
+                    match size {
+                        Err(err) => {
+                            tracing::trace!("error reading: {err:#}");
+                            return Ok(ReadData::Disconnected);
+                        }
+                        Ok(size) if size == 0 => {
+                            return Ok(ReadData::Disconnected);
+                        }
+                        Ok(size) => {
+                            self.read_buffer.extend_from_slice(&data[0..size]);
+                        }
+                    }
+                }
+                _ = self.shutdown.shutting_down() => {
+                    return Ok(ReadData::ShuttingDown);
+                }
+            };
+        }
+    }
+
+    #[instrument(skip(self))]
     async fn read_line(&mut self, override_limit: Option<usize>) -> anyhow::Result<ReadLine> {
         let mut too_long = false;
         tracing::trace!("reading line");
-        loop {
-            let mut iter = self.read_buffer.iter().enumerate();
-            while let Some((i, &b)) = iter.next() {
-                if b != b'\r' {
-                    continue;
-                }
-                if let Some((_, b'\n')) = iter.next() {
-                    if too_long {
-                        self.read_buffer.drain(0..i + 2);
-                        return Ok(ReadLine::TooLong);
-                    }
 
-                    let line = String::from_utf8(self.read_buffer[0..i].to_vec());
+        loop {
+            if let Some(i) = CRLF.find(&self.read_buffer) {
+                if too_long {
                     self.read_buffer.drain(0..i + 2);
-                    tracing::trace!("{line:?}");
-                    return Ok(ReadLine::Line(line?));
+                    return Ok(ReadLine::TooLong);
                 }
+
+                let line = String::from_utf8(self.read_buffer[0..i].to_vec());
+                self.read_buffer.drain(0..i + 2);
+                tracing::trace!("{line:?}");
+                return Ok(ReadLine::Line(line?));
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
             if self.read_buffer.len() > override_limit.unwrap_or(MAX_LINE_LEN) {
@@ -881,56 +960,37 @@ impl SmtpServer {
                         continue;
                     }
 
-                    let mut data = vec![];
-                    let mut too_long = false;
-
                     self.write_response(354, "Send body; end with CRLF.CRLF")
                         .await?;
 
-                    loop {
-                        let line = match self.read_line(None).await? {
-                            ReadLine::Disconnected => return Ok(()),
-                            ReadLine::Line(line) => line,
-                            ReadLine::TooLong => {
-                                too_long = true;
-                                data.clear();
-                                continue;
-                            }
-                            ReadLine::TimedOut => {
-                                self.write_response(
-                                    421,
-                                    format!("4.3.2 {} idle too long", self.params.hostname),
-                                )
-                                .await?;
-                                return Ok(());
-                            }
-                            ReadLine::ShuttingDown => {
-                                self.write_response(
-                                    421,
-                                    format!("4.3.2 {} shutting down", self.params.hostname),
-                                )
-                                .await?;
-                                return Ok(());
-                            }
-                        };
-                        if line == "." {
-                            break;
+                    let data = match self.read_data().await? {
+                        ReadData::Disconnected => return Ok(()),
+                        ReadData::Data(data) => data,
+                        ReadData::TooBig => {
+                            self.write_response(552, "5.3.4 message too big").await?;
+                            continue;
                         }
-
-                        let line = if line.starts_with('.') {
-                            &line[1..]
-                        } else {
-                            &line
-                        };
-
-                        data.extend_from_slice(line.as_bytes());
-                        data.extend_from_slice(b"\r\n");
-                    }
-
-                    if too_long {
-                        self.write_response(500, "5.2.3 line too long").await?;
-                        continue;
-                    }
+                        ReadData::TooLong => {
+                            self.write_response(500, "5.2.3 line too long").await?;
+                            continue;
+                        }
+                        ReadData::TimedOut => {
+                            self.write_response(
+                                421,
+                                format!("4.3.2 {} idle too long", self.params.hostname),
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                        ReadData::ShuttingDown => {
+                            self.write_response(
+                                421,
+                                format!("4.3.2 {} shutting down", self.params.hostname),
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                    };
 
                     let state = self
                         .state
@@ -1107,4 +1167,75 @@ enum ReadLine {
     ShuttingDown,
     TimedOut,
     Disconnected,
+}
+
+#[derive(PartialEq)]
+enum ReadData {
+    Data(Vec<u8>),
+    TooLong,
+    TooBig,
+    ShuttingDown,
+    TimedOut,
+    Disconnected,
+}
+
+fn unstuff(data: Vec<u8>) -> Vec<u8> {
+    static CRLFDOTDOT: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n.."));
+    let mut stuffing_finder = CRLFDOTDOT.find_iter(&data);
+    if let Some(stuffed) = stuffing_finder.next() {
+        let mut unstuffed = Vec::with_capacity(data.len());
+        unstuffed.extend_from_slice(&data[0..stuffed + 3]);
+        let mut last_pos = stuffed + 4;
+        while let Some(stuffed) = stuffing_finder.next() {
+            unstuffed.extend_from_slice(&data[last_pos..stuffed + 3]);
+            last_pos = stuffed + 4;
+        }
+        unstuffed.extend_from_slice(&data[last_pos..]);
+        return unstuffed;
+    }
+    data
+}
+
+fn check_line_lengths(data: &[u8], limit: usize) -> bool {
+    let mut last_index = 0;
+    for idx in CRLF.find_iter(data) {
+        if idx - last_index > limit {
+            return false;
+        }
+        last_index = idx;
+    }
+    data.len() - last_index <= limit
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn unstuffer() {
+        let stuffed = b"hello\r\n..dot\r\nthere\r\n..more dot".to_vec();
+        assert_eq!(
+            unstuff(stuffed).as_slice(),
+            b"hello\r\n.dot\r\nthere\r\n.more dot"
+        );
+
+        let stuffed = b"hello".to_vec();
+        assert_eq!(unstuff(stuffed).as_slice(), b"hello");
+    }
+
+    #[test]
+    fn line_lengths() {
+        assert!(check_line_lengths(b"hello", 78));
+        assert!(check_line_lengths(b"hello", 5));
+        assert!(!check_line_lengths(b"hello", 4));
+
+        assert!(check_line_lengths(
+            b"hello there\r\nanother line over there\r\n",
+            78
+        ));
+        assert!(!check_line_lengths(
+            b"hello there\r\nanother line over there\r\n",
+            12
+        ));
+    }
 }

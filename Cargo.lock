@@ -1664,6 +1664,7 @@ dependencies = [
  "mail-parser",
  "maildir",
  "maplit",
+ "memchr",
  "message",
  "metrics",
  "metrics-prometheus",

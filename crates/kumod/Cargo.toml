@@ -35,6 +35,7 @@ lruttl = {path="../lruttl"}
 mail-auth = "0.3"
 mail-builder = "0.2"
 maildir = {git="https://github.com/wez/maildir.git", rev="898d604fec05bfcb5af52f3960c4b07028faad39"}
+memchr = "2.5"
 message = {path="../message"}
 metrics = "0.20"
 metrics-prometheus = "0.3"
