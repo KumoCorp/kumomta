@@ -16,7 +16,7 @@ For more information on implementing policies in KumoMTA, refer to the [policy c
 
 ## Configuration Location
 
-By default, the server will load from `/opt/kumomta/policy/init.lua` on startup.
+By default, the server will load from `/opt/kumomta/etc/policy/init.lua` on startup.
 
 ## Configuration Structure
 
@@ -34,7 +34,7 @@ An example:
 kumo.on('init', function()
   kumo.define_spool {
     name = 'data',
-    path = '/var/tmp/kumo-spool/data',
+    path = '/var/spool/kumomta/data',
     kind = 'RocksDB',
   }
 end)
@@ -65,13 +65,16 @@ Since includes were often used for dynamic information such as relay domains or 
 For example, DKIM signing information by domain and selector could be stored in a JSON file like this:
 
 ```json
-    [{"examplecorp.com": "s1024"} ,{"newcorp.com" "dkim2023"}]
+{
+  "examplecorp.com": "s1024",
+  "newcorp.com": "dkim2023"
+}
 ```
 
 The data file could then be read and used to control signing:
 
 ```lua
-local DKIM_CONFIG = kumo.json_load '/opt/kumomta/policy/dkim_config.json'
+local DKIM_CONFIG = kumo.json_load '/opt/kumomta/etc/policy/dkim_config.json'
 
 function dkim_sign(msg)
   local sender_domain = msg:from_header().domain
