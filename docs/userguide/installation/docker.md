@@ -49,7 +49,7 @@ and tell it to use it.  The default location for this is `/opt/kumomta/policy`:
 $ sudo docker run --rm -p 2025:25 \
     -v .:/opt/kumomta/policy \
     --name kumo-sink \
-    ghcr.io/kumomta/kumomta:main
+    ghcr.io/KumoCorp/kumomta:main
 ```
 
 ## Building your own KumoMTA container image
@@ -69,7 +69,7 @@ You need `git` to clone the repo:
 Then clone the repo and run the image builder script:
 
 ```console
-$ git clone https://github.com/kumomta/kumomta.git
+$ git clone https://github.com/KumoCorp/kumomta.git
 $ cd kumomta
 $ ./docker/kumod/build-docker-image.sh
 ```

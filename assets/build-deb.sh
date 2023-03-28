@@ -27,9 +27,9 @@ Architecture: $(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
 Maintainer: Wez Furlong <wez@wezfurlong.org>
 Section: utils
 Priority: optional
-Homepage: https://github.com/kumomta/kumomta
+Homepage: https://github.com/KumoCorp/kumomta
 Description: A high performance, modern MTA
-Source: https://github.com/kumomta/kumomta
+Source: https://github.com/KumoCorp/kumomta
 EOF
 
 ./assets/install.sh pkg/debian/opt/kumomta

@@ -2,7 +2,7 @@ copyright: Copyright &copy; 2023 Kumo Corp
 site_name: KumoMTA Docs
 site_url: https://docs.kumomta.com
 site_description: Documentation for KumoMTA
-repo_url: https://github.com/kumomta/kumomta
+repo_url: https://github.com/KumoCorp/kumomta
 edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: gh_pages
@@ -81,4 +81,4 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/kumomta/kumomta
+      link: https://github.com/KumoCorp/kumomta

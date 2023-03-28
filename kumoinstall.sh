@@ -21,7 +21,7 @@ source ~/.cargo/env
 rustc -V
 
 sudo dnf install -y git
-git clone https://github.com/kumomta/kumomta.git
+git clone https://github.com/KumoCorp/kumomta.git
 
 cd kumomta
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua

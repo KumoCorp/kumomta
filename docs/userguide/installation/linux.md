@@ -33,7 +33,7 @@ You will need `git`:
 Then clone the repo:
 
 ```console
-$ git clone https://github.com/kumomta/kumomta.git
+$ git clone https://github.com/KumoCorp/kumomta.git
 $ cd kumomta
 ```
 
