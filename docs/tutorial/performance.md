@@ -53,8 +53,7 @@ end)
 ```
 
 ## Test Results
-The test configuration was one "sending" configured KumoMTA in AWS (variable CPU and RAM) and one "sink" KumoMTA in Azure (8 CPU/16GB RAM) using a payload of 100KB sent in a loop 100,000 times.
-
+The test configuration was one "sending" configured KumoMTA in AWS (variable CPU and RAM) and one "sink" KumoMTA in Azure (8 CPU/16GB RAM) using a payload of 100KB sent in a loop 100,000 times. 
 The test usilized the included traffic-gen utility described above.
 
 | CPU | RAM | RATE |
@@ -64,6 +63,7 @@ The test usilized the included traffic-gen utility described above.
 | 8   | 30  | 4.9 MMH  |
 | 16   | 64  | 5.1 MMH  |
 
+**NOTE** that these numbers are NOT guaranteed and are for informational purposes only. Your results may vary considerably.
 
 
 ## Now What?
