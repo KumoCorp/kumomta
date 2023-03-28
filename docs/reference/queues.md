@@ -11,9 +11,21 @@ some metadata associated with the message:
 * destination domain - the site where the email will be routed
 
 These three pieces of information are combined to produce the name of the queue
-in the form `campaign:tenant@domain`.
+in the form `campaign:tenant@domain`. You don't need to explicitly assign
+a campaign or a tenant. The queue name will be formed based on what is set:
 
-At reception, in your [smtp_server_message_received](events/smtp_server_message_received.md) event, you have the opportunity to set `tenant` and `campaign` meta values, if desired. By default, the queue associated with the message will be formed from those values as described above.
+|tenant set?|campaign set?|Resulting queue name      |
+|-----------|-------------|--------------------------|
+| yes       | yes         | `campaign:tenant@domain` |
+| yes       | no          | `tenant@domain`          |
+| no        | yes         | `campaign:@domain`       |
+| no        | no          | `domain`                 |
+
+At reception, in your
+[smtp_server_message_received](events/smtp_server_message_received.md) event,
+you have the opportunity to set `tenant` and `campaign` meta values, if
+desired. By default, the queue associated with the message will be formed from
+those values as described above.
 
 You may also explicitly set the queue meta value directly.
 
