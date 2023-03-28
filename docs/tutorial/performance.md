@@ -29,7 +29,19 @@ sudo /sbin/sysctl -p |sudo tee -a /etc/sysctl.conf
 ## Performance Test
 OK, now lets really test this with some volume.  You will **_not_** want to do that in the public internet with real adresses for a number of reasons, so you should set up another KumoMTA instance and have it run the included "sink.lua" policy.  That will set KumoMTA to accept all messages and discard them without forwarding.
 
-Once you have the second one configured, you can create a script on the sending server to loop over an injection to the sink as many time as you like. Using a function like 'time' can give you an accurate time windows and knowing the number of loops and size of email, you can determine performance. There is a sample chart below of one done recently.
+Once you have the second one configured, you can create a script on the sending server to loop over an injection to the sink as many time as you like. Using a function like 'time' can give you an accurate time windows and knowing the number of loops and size of email, you can determine performance. 
+
+Part of the packaged build is a "traffic Generator" that can be use to send volume test mail for this purpose.  It will append a known domain to all outbound mail that resolves to your own loopback address so that mail can be delivered, but will never deliver to real addresses.  You can use it like this:
+```console
+sudo /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:587 --concurrency 20000 --message-count 100000 --body-size 100000 
+```
+
+Get more usage info with 
+```console
+sudo /opt/kumomta/sbin/traffic-gen --help
+```
+
+That traffic generator was used to test throughput before the initial release. There is a sample chart below of one done recently.
 
 One handy setting for performance testing is [custom routing](https://docs.kumomta.com/userguide/policy/routing/).  If you configure your sending server to route all messages to the sink server, and the sink is configured to dev/null all messages, that can make your testing script less complicated.  IE:
 
@@ -40,11 +52,18 @@ end)
 
 ```
 
-General: a 50KB Payload sent in a loop to a sink in the same AWS region
+## Test Results
+The test configuration was one "sending" configured KumoMTA in AWS (variable CPU and RAM) and one "sink" KumoMTA in Azure (8 CPU/16GB RAM) using a payload of 100KB sent in a loop 100,000 times.
 
-| time | count | rate |
+The test usilized the included traffic-gen utility described above.
+
+| CPU | RAM | RATE |
 | --- | --- | --- |
-| 0  | 0  | 0  |
+| 2   | 4  |  2.7 MMH  |
+| 4   | 16  | 4.4 MMH  |
+| 8   | 30  | 4.9 MMH  |
+| 16   | 64  | 5.1 MMH  |
+
 
 
 ## Now What?

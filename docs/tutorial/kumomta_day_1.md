@@ -10,11 +10,11 @@ The scenario we are going to emulate is a deployment using Rocky Linux V9 in AWS
 ## The TL;DR version
 If you just want to get this installed and running without exhaustive explanation, follow these steps. This assumes you know what you are doing and just want the high-level info.  The longer version with deeper explanation follows in the next section.
 
-1) Spin up an AWS t2.xlarge instance (or any server with 4vCPUs, 16Gb RAM, 300Gb Hard Drive)
+1) Spin up an AWS t2.xlarge (or larger)instance (or any server with at least 4vCPUs, 16Gb RAM, 300Gb Hard Drive)
 
 2) Install Rocky linux 9
 
-3) Update the OS and disable PostFix if needed
+3) Update the OS and disable Postfix if needed
 
 ```console
 sudo dnf clean all
@@ -33,11 +33,11 @@ sudo dnf config-manager \
 sudo yum install kumomta-dev
 ```
 
-5) Create a configuration policy in ```/opt/kumomta/etc/policy/``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
+5) Create a configuration policy in ```/opt/kumomta/etc/policy/example.lua``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
 Hint, you can copy and paste that into a new file and edit the necessary parts.
 You should either create dkim keys or comment out the dkim signing portion for now.
 
-6) Run it with (assuming you named your policy "example.lua") 
+6) Run it with : 
 ```console
 sudo /opt/kumomta/sbin/kumod --policy \
   /opt/kumomta/etc/policy/example.lua --user kumod&

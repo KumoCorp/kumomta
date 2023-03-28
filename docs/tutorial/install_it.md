@@ -20,11 +20,10 @@ Technically KumoMTA is now installed, but it will need a configuration policy in
 ### Writing Config Policy
 The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html).  If you have not heard of Lua before, that is ok, you are not alone.  It is a powerful scripting language that is easy to read and code, but is very powerful.  It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](https://docs.kumomta.com/tutorial/lua_resources/).
 
-To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevent sections.  Create that in ```/opt/kumomta/etc/policy/``` like this:
+To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevent sections.  Create that in ```/opt/kumomta/etc/policy/example.lua``` like this:
 
 ```console
-cd /opt/kumomta/etc/policy/
-vi example.lua
+sudo vi /opt/kumomta/etc/policy/example.lua
 ```
 ... and paste the example configuration.  You can then edit the config to adjust things like outbound port, queues, banners, etc.
 
@@ -66,7 +65,8 @@ If you followed all the instructions above without errors, you should now have a
 
 Start the MTA with this:
 ```console
- sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/example.lua --user kumod&
+ sudo /opt/kumomta/sbin/kumod --policy \ 
+ /opt/kumomta/etc/policy/example.lua --user kumod&
 ```
 
  * Using sudo allows it to run as a privileged user so it can access port 25 which is needed to deliver via SMTP to the internet.
@@ -74,6 +74,11 @@ Start the MTA with this:
  * The directive --policy makes kumod load the 'example.lua' file as configuration policy.
  * Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
  * The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
+
+You can also get immedaite feedback by pre-pending ```KUMOD_LOG=kumod=info``` (or debug for more detail) like this:
+```console
+sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/sink.lua --user kumod&
+```
 
 If all goes well, it should return a PID and drop you back to a Linux prompt.
 

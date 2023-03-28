@@ -36,7 +36,10 @@ sudo dnf clean all
 sudo dnf update -y
 
 # Grab some handy tools
-sudo dnf install -y wget bind bind-utils telnet firewalld 
+sudo dnf install -y wget bind bind-utils telnet firewalld
+
+sudo systemctl start named
+sudo systemctl enable named 
 ```
 
 It is always a good idea to automate daily systems updates.
