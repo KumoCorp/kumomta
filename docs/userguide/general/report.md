@@ -17,33 +17,40 @@ Before submitting a bug report, please try and verify that what you're encounter
 
 ## Submitting a Bug Report
 
-If you think you have found a previously unreported bug, visit [https://github.com/kumomta/kumomta/issues/new/choose](https://github.com/kumomta/kumomta/issues/new/choose) and follow the instructions on the page.
+If you think you have found a previously unreported bug, visit
+[https://github.com/kumomta/kumomta/issues/new/choose](https://github.com/kumomta/kumomta/issues/new/choose)
+and follow the instructions on the page.
 
 If you submit an issue, please keep the following in mind:
 
-1) Be sure to include the following information:
-
-  * The Operating System of your KumoMTA installation, including Linux distribution name and version.
-  * The version of your KumoMTA installation.
-  * A thorough description of your install environment, including hardware specifications, whether the environment is physical or virtual (and if so, details on the virtualization environment).
-  * A thorough description of the action or scenario that caused the bug.
-  * Any error messages encountered must be included in the Issue report. Copy and paste the error message into your report, do not try and reproduce it from memory.
-  * Relative log lines and configuration information to help reproduce the bug. Be sure to sanitize any PII or security credentials.
-  * Details of any resolution steps you have taken so far.
-  * If you built KumoMTA from source, be sure to include all details of the development environment, including the version of Rust being used.
-
-2) Remember that the fastest path to resolution is to prevent any back-and-forth with the developers to gather further information. We can always act on an issue report with too much detail, but not one with too little.
-
-3) If possible, download and install the latest release of KumoMTA and check whether it solves your problem. All official KumoMTA releases are thoroughly tested and should work without issue. We strive to maintain backward compatibility, allowing you to switch versions of KumoMTA without issue.
+* Be sure to include all of the information requested by the form.
+* Remember that the fastest path to resolution is to prevent any
+  back-and-forth with the developers to gather further information. We can always
+  act on an issue report with too much detail, but not one with too little.
+* If possible, download and install the latest release of KumoMTA and check
+  whether it solves your problem. All official KumoMTA releases are thoroughly
+  tested and should work without issue. We strive to maintain backward
+  compatibility, allowing you to switch versions of KumoMTA without issue.
 
 ## Getting Help
 
-Community support for KumoMTA is available both in the forum and in the community Discord server. Paid support customers should consult their support SLA document for information on how to contact KumoMTA support and their relevant guaranteed response and resolution times.
+Community support for KumoMTA is available both in the forum and in the
+community Discord server. Paid support customers should consult their support
+SLA document for information on how to contact KumoMTA support and their
+relevant guaranteed response and resolution times.
 
 ### Discord
 
-The KumoMTA Discord server is intended for real-time communication about KumoMTA and MailOps/Deliverability in general. The KumoMTA team also hosts weekly office hours in the Discord server to better engage with the KumoMTA community. The Discord server can be found at [https://kumomta.com/discord](https://kumomta.com/discord).
+The KumoMTA Discord server is intended for real-time communication about
+KumoMTA and MailOps/Deliverability in general. The KumoMTA team also hosts
+weekly office hours in the Discord server to better engage with the KumoMTA
+community. The Discord server can be found at
+[https://kumomta.com/discord](https://kumomta.com/discord).
 
 ### Forum
 
-The KumoMTA forum is best suited to longer-form help requests that benefit from higher visibility in the community (as the help request won't get lost in the chat scroll or otherwise missed), and which would be of benefit to other users thanks to the more permanent nature of forum interactions. The forum can be accessed at [https://forum.kumomta.com](https://forum.kumomta.com).
+The KumoMTA forum is best suited to longer-form help requests that benefit from
+higher visibility in the community (as the help request won't get lost in the
+chat scroll or otherwise missed), and which would be of benefit to other users
+thanks to the more permanent nature of forum interactions. The forum can be
+accessed at [https://forum.kumomta.com](https://forum.kumomta.com).

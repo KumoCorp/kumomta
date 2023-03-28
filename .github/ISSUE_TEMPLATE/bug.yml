@@ -9,8 +9,20 @@ body:
       label: What Operating System are you seeing this problem on?
       description: |
         Please include the kernel version as well as the name and version
-        of your distribution
+        of your distribution, and how you installed the software; from
+        a pre-built package, or whether you built it from source.
       placeholder: "ex: Linux, CentOS 8, kernel 6.1"
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: What Hardware is this system running?
+      description: |
+        Please describe the hardware specifications of the system where
+        this is running (CPU, storage, network) and whether the environment
+        is physical or virtual, and if so, details on the virtualization environment.
+      placeholder: "AMD EPYC 9654"
     validations:
       required: true
   - type: input
@@ -67,3 +79,5 @@ body:
         Add any other context about the problem here.  You can attach screenshots by clicking
         this area to highlight it and then drag the files in, or just paste the image from
         the clipboard to upload it.
+        **BEFORE ATTACHING LOGS**: ensure that any PII has been removed/sanitized, as this
+        issue tracker is public.
