@@ -129,7 +129,7 @@ TOC = [
                         "Operating System", "userguide/installation/operatingsystem.md"
                     ),
                     Page("Installing in Docker", "userguide/installation/docker.md"),
-                    Page("Installing on Linux", "userguide/installation/linux.md"),
+                    Page("Build from Source", "userguide/installation/linux.md"),
                     Page("Upgrading", "userguide/installation/upgrading.md"),
                 ],
             ),

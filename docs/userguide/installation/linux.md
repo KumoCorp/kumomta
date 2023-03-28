@@ -1,20 +1,18 @@
-# Installing on Linux
-
-# Installing from our repo 
-A repo install is recommended if you are on Ubuntu or Rocky Linux and just want to use it.  Follow the instructions in the [Getting Started](https://docs.kumomta.com/userguide/installation/getting_started.md) section.
-
-
 # Building KumoMTA from Source
 
 If pre-built binaries are not provided for your system of choice, of if you'd
 like try your hand at extending KumoMTA, you'll need to build it from source.
 
+If you are on Ubuntu or Rocky Linux and just want to try KumoMTA, rather than
+build from source we recommend that you follow the instructions in the [Getting
+Started](getting_started.md) section.
+
+
 ## Prepare your environment
 
-Read the [Environmental
-considerations](https://github.com/kumomta/kumomta/blob/main/docs/userguide/installation/environment.md)
-before proceeding.  You will need a suitably sized server with all of the
-prerequisites in order to be successful.
+Read the [Environmental considerations](environment.md) before proceeding.  You
+will need a suitably sized server with all of the prerequisites in order to be
+successful.
 
 In addition, you will need to install some development packages.
 
