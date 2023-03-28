@@ -26,7 +26,7 @@ kernel.shmmni = 4096
 sudo /sbin/sysctl -p |sudo tee -a /etc/sysctl.conf
 ```
 
-## Performnance Test
+## Performance Test
 OK, now lets really test this with some volume.  You will **_not_** want to do that in the public internet with real adresses for a number of reasons, so you should set up another KumoMTA instance and have it run the included "sink.lua" policy.  That will set KumoMTA to accept all messages and discard them without forwarding.
 
 Once you have the second one configured, you can create a script on the sending server to loop over an injection to the sink as many time as you like. Using a function like 'time' can give you an accurate time windows and knowing the number of loops and size of email, you can determine performance. There is a sample chart below of one done recently.
