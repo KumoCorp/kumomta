@@ -32,4 +32,4 @@ elements in our development and deployment:
 The following companies have helped finance the development of the KumoMTA server, such as by paying for feature development or contributing other resources:
 
 * *TaguchiMarketing Pty Ltd*
-   * Our first sponsor, in support of the initial KumoMTA beta release.  
+    * Our first sponsor, in support of the initial KumoMTA beta release.
