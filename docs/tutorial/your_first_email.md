@@ -4,9 +4,9 @@ Before actually sending any email, you should configure DKIM. [Read the guide](h
 ```console
 export DOMAIN=<your_domain>
 export SELECTOR=<your_selector>
-mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-openssl genrsa -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
-openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
+sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
+sudo openssl genrsa -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
+sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
  -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
 ```
 

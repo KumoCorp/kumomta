@@ -29,13 +29,12 @@ vi example.lua
 ... and paste the example configuration.  You can then edit the config to adjust things like outbound port, queues, banners, etc.
 
 
-You can change the outbound (remote) port from the default 25 to 465 by editing the `remote_port` in the _egress_source_ definition.  Likewize you can change the IP address you wnat to egress from in the same section of config.
+For instance, you can change the IP address you want to egress from in the 'define_egress_source' section of config.
 
 ```console
 kumo.define_egress_source {
     name = 'ip-1',
     source_address = '10.0.0.1',
-    remote_port = '465',
   }
 end)
 ```

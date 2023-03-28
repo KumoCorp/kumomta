@@ -43,8 +43,10 @@ sudo /opt/kumomta/sbin/kumod --policy \
   /opt/kumomta/etc/policy/example.lua --user kumod&
 ```
 
-And you are done.  KumoMTA will now be installed and running the example configuration from ```/opt/kumomta/sbin/kumod```.  The & pushed the running process to the background, type 'fg' to bring it forward again.
+And you are done.  KumoMTA will now be installed and running the example configuration from ```/opt/kumomta/sbin/kumod```.  The & pushes the running process to the background, type 'fg' to bring it forward again.
 
-If you want to dive into some details about WHY that all works, read on to the next section.
+## The Longer Version
+This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions.  Read on to the next section to look at server selection and sizing, OS preparation, installing and testing it with more detail.
+
 
 
