@@ -59,6 +59,7 @@ exit 0
 set -x
 cd ${HERE}
 ./assets/install.sh %{buildroot}/opt/kumomta
+mkdir -p %{buildroot}/usr/lib/systemd/system
 install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 
 %files
