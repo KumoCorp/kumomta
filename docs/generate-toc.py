@@ -116,8 +116,8 @@ TOC = [
                 None,
                 children=[
                     Page(
-                        "Getting Started",
-                        "userguide/installation/getting_started.md",
+                        "Installation Overview",
+                        "userguide/installation/overview.md",
                     ),
                     Page(
                         "Deployment Architecture",
@@ -131,6 +131,7 @@ TOC = [
                     Page("Installing in Docker", "userguide/installation/docker.md"),
                     Page("Installing on Linux", "userguide/installation/linux.md"),
                     Page("Upgrading", "userguide/installation/upgrading.md"),
+                    Page("Building from Source", "userguide/installation/source.md"),
                 ],
             ),
             Page(

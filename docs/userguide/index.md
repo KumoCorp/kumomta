@@ -11,7 +11,7 @@ Those who are experienced at using KumoMTA and are looking for more detailed inf
 The user guide is structured in the typical order a user would need in the process of setting up and administrating a server:
 
 * [General](./general/preface.md) - Information on the project, its history, and how to interact with the developer team.
-* [Installation](./installation/getting_started.md) - Information on how to install KumoMTA for a variety of use cases and platforms.
+* [Installation](./installation/overview.md) - Information on how to install KumoMTA for a variety of use cases and platforms.
 * [Configuration](./configuration/concepts.md) - An explanation of how to configure KumoMTA for typical use cases.
 * [Operation](./operation/starting.md) - Information on how to manage and interact with a KumoMTA server.
 * [Policy](./policy/index.md) - A deeper dive into the policy capabilities of KumoMTA and how to implement advanced use cases.
