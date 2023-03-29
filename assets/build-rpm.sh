@@ -28,6 +28,7 @@ License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
+BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
 
 %description
@@ -38,6 +39,12 @@ echo "Doing the build bit here"
 
 %post
 %systemd_post kumomta.service
+
+%preun
+%systemd_preun kumomta.service
+
+%postun
+%systemd_postun_with_restart kumomta.service
 
 %pre
 getent group kumod >/dev/null || groupadd --system kumod
