@@ -29,7 +29,6 @@ URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
 %{?systemd_requires}
-BuildRequires: systemd
 
 %description
 A high performance, modern MTA.
