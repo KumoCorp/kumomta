@@ -113,7 +113,7 @@ TOC = [
             ),
             Page(
                 "Installation",
-                "userguide/installation/index.md",
+                None,
                 children=[
                     Page(
                         "Getting Started",
@@ -129,13 +129,13 @@ TOC = [
                         "Operating System", "userguide/installation/operatingsystem.md"
                     ),
                     Page("Installing in Docker", "userguide/installation/docker.md"),
-                    Page("Build from Source", "userguide/installation/linux.md"),
+                    Page("Installing on Linux", "userguide/installation/linux.md"),
                     Page("Upgrading", "userguide/installation/upgrading.md"),
                 ],
             ),
             Page(
                 "Configuration",
-                "userguide/configuration/index.md",
+                None,
                 children=[
                     Page(
                         "Configuration Concepts", "userguide/configuration/concepts.md"
@@ -175,7 +175,7 @@ TOC = [
             ),
             Page(
                 "Operation",
-                "userguide/operation/index.md",
+                None,
                 children=[
                     Page("Starting KumoMTA", "userguide/operation/starting.md"),
                     Page("Getting Server Status", "userguide/operation/status.md"),
