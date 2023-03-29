@@ -4,8 +4,7 @@ If pre-built binaries are not provided for your system of choice, of if you'd
 like try your hand at extending KumoMTA, you'll need to build it from source.
 
 If you are on Ubuntu or Rocky Linux and just want to try KumoMTA, rather than
-build from source we recommend that you follow the instructions in the [Getting
-Started](getting_started.md) section.
+build from source we recommend that you follow the instructions in the [Installing on Linux](linux.md) section.
 
 ## Prepare your environment
 
