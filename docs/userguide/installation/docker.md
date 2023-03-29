@@ -43,11 +43,11 @@ end)
 ```
 
 When we launch the image, we want to mount our `init.lua` file into the image
-and tell it to use it.  The default location for this is `/opt/kumomta/policy`:
+and tell it to use it.  The default location for this is `/opt/kumomta/etc/policy`:
 
 ```console
 $ sudo docker run --rm -p 2025:25 \
-    -v .:/opt/kumomta/policy \
+    -v .:/opt/kumomta/etc/policy \
     --name kumo-sink \
     ghcr.io/KumoCorp/kumomta:main
 ```
