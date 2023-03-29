@@ -28,12 +28,17 @@ License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
+%{?systemd_requires}
+BuildRequires: systemd
 
 %description
 A high performance, modern MTA.
 
 %build
 echo "Doing the build bit here"
+
+%post
+%systemd_post kumomta.service
 
 %pre
 getent group kumod >/dev/null || groupadd --system kumod
@@ -55,11 +60,13 @@ exit 0
 set -x
 cd ${HERE}
 ./assets/install.sh %{buildroot}/opt/kumomta
+install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 
 %files
 /opt/kumomta/sbin/kumod
 /opt/kumomta/sbin/traffic-gen
 /opt/kumomta/share/bounce_classifier/*.toml
+/usr/lib/systemd/system/kumomta.service
 EOF
 
 /usr/bin/rpmbuild -bb $spec --verbose
