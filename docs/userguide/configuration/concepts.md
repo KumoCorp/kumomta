@@ -82,3 +82,5 @@ function dkim_sign(msg)
   -- and so on
 end
 ```
+
+That said, Lua does support Include and Require directives, but they operate similarly to the Include and Require directives commonly used in programming languages.
