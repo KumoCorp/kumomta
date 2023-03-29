@@ -18,3 +18,5 @@ dhat-heap.json
 /.cache
 .idea/
 .vscode/
+**/*.deb
+**/*.rpm

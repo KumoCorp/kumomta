@@ -34,6 +34,8 @@ EOF
 
 ./assets/install.sh pkg/debian/opt/kumomta
 
+install -Dm644 ./assets/kumomta.service -t pkg/debian/usr/lib/systemd/system
+
 cat > pkg/debian/DEBIAN/preinst <<EOF
 #!/bin/sh
 getent group kumod >/dev/null || groupadd --system kumod
@@ -52,6 +54,51 @@ done
 exit 0
 EOF
 chmod 0775 pkg/debian/DEBIAN/preinst
+
+cat > pkg/debian/DEBIAN/postinst <<EOF
+#!/bin/sh
+set -e
+if [ "\$1" = "configure" ]; then
+    if [ -x "/usr/bin/deb-systemd-helper" ]; then
+      deb-systemd-helper enable kumomta.service >/dev/null
+    fi
+fi
+exit 0
+EOF
+chmod 0775 pkg/debian/DEBIAN/postinst
+
+cat > pkg/debian/DEBIAN/postrm <<EOF
+#!/bin/sh
+set -e
+if [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null || true
+fi
+if [ "\$1" = "remove" ]; then
+    if [ -x "/usr/bin/deb-systemd-helper" ]; then
+        deb-systemd-helper mask kumomta.service >/dev/null
+    fi
+fi
+
+if [ "\$1" = "purge" ]; then
+     if [ -x "/usr/bin/deb-systemd-helper" ]; then
+        deb-systemd-helper purge kumomta.service >/dev/null
+        deb-systemd-helper unmask kumomta.service >/dev/null
+    fi
+fi
+exit 0
+EOF
+chmod 0775 pkg/debian/DEBIAN/postrm
+
+cat > pkg/debian/DEBIAN/prerm <<EOF
+#!/bin/sh
+set -e
+if [ -d /run/systemd/system ]; then
+    deb-systemd-helper stop kumomta.service >/dev/null
+fi
+exit 0
+EOF
+chmod 0775 pkg/debian/DEBIAN/prerm
+
 
 deps=$(cd pkg && dpkg-shlibdeps -O -e debian/opt/kumomta/*bin/*)
 mv pkg/debian/control pkg/debian/DEBIAN/control
