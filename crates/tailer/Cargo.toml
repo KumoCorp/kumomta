@@ -1,0 +1,16 @@
+[package]
+name = "tailer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+camino = "1.1"
+clap = {version="4.1", features=["derive"]}
+filenamegen = "0.2"
+memchr = "2.5"
+notify = "5.1"
+thiserror = "1.0"
+zstd-safe = {version="6.0", features=["std"]}

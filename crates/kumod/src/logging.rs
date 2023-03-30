@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use zstd::stream::write::{AutoFinishEncoder, Encoder};
+use zstd::stream::write::Encoder;
 
 static LOGGER: OnceCell<Logger> = OnceCell::new();
 static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
@@ -436,10 +436,48 @@ struct FileNameKey {
 }
 
 struct OpenedFile {
-    file: AutoFinishEncoder<'static, File>,
+    file: Encoder<'static, File>,
     name: PathBuf,
     written: u64,
     expires: Option<Instant>,
+}
+
+impl Drop for OpenedFile {
+    fn drop(&mut self) {
+        self.file.do_finish().ok();
+        mark_path_as_done(&self.name).ok();
+    }
+}
+
+fn mark_path_as_done(path: &PathBuf) -> std::io::Result<()> {
+    let meta = path.metadata()?;
+    // Remove the `w` bit to signal to the tailer that this
+    // file will not be written to any more and that it is
+    // now considered to be complete
+    let mut perms = meta.permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&path, perms)
+}
+
+fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading dir {dir:?}"))? {
+        if let Ok(entry) = entry {
+            match entry.file_name().to_str() {
+                Some(name) if name.starts_with('.') => {
+                    continue;
+                }
+                None => continue,
+                Some(_name) => {
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_file() {
+                            mark_path_as_done(&entry.path()).ok();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 struct LogThreadState {
@@ -452,6 +490,9 @@ struct LogThreadState {
 impl LogThreadState {
     async fn logger_thread(&mut self) {
         tracing::debug!("LogFileParams: {:#?}", self.params);
+
+        self.mark_existing_logs_as_done();
+
         loop {
             let deadline = self.get_deadline();
             tracing::debug!("waiting until {deadline:?} for log");
@@ -484,6 +525,19 @@ impl LogThreadState {
                     if let Err(err) = self.do_record(record) {
                         tracing::error!("failed to log: {err:#}");
                     };
+                }
+            }
+        }
+    }
+
+    fn mark_existing_logs_as_done(&self) {
+        if let Err(err) = mark_existing_logs_as_done_in_dir(&self.params.log_dir) {
+            tracing::error!("Error: {err:#}");
+        }
+        for params in self.params.per_record.values() {
+            if let Some(log_dir) = &params.log_dir {
+                if let Err(err) = mark_existing_logs_as_done_in_dir(log_dir) {
+                    tracing::error!("Error: {err:#}");
                 }
             }
         }
@@ -577,8 +631,7 @@ impl LogThreadState {
                 file_key.clone(),
                 OpenedFile {
                     file: Encoder::new(f, self.params.compression_level)
-                        .context("set up zstd encoder")?
-                        .auto_finish(),
+                        .context("set up zstd encoder")?,
                     name,
                     written: 0,
                     expires: self

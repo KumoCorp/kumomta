@@ -7,6 +7,7 @@ members = [
   "crates/kumod",
   "crates/rfc5321",
   "crates/spool",
+  "crates/tailer",
   "crates/timeq",
   "crates/throttle",
   "crates/traffic-gen",
