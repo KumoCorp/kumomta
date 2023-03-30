@@ -30,6 +30,8 @@ jobs:
     - uses: actions/checkout@v3
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: nightly
     - name: Rust formatting
       run: cargo +nightly fmt --all -- --check
     - name: Install stylua
