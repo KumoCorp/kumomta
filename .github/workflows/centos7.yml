@@ -2,6 +2,8 @@ name: CentOS7
 
 on:
   push:
+    tags:
+      - "20*"
     branches: [ "main" ]
     paths:
       - "crates/**/*.rs"
@@ -89,15 +91,18 @@ jobs:
         source /opt/rh/llvm-toolset-7/enable
         cargo nextest run --release
     - name: "Build RPM"
+      env:
+        REF_TYPE: ${{ github.ref_type }}
       run: "./assets/build-rpm.sh"
     - name: "Move RPM"
       run: "mv ~/rpmbuild/RPMS/*/*.rpm ."
     - name: "Sign"
-      if: ${{ github.ref == 'refs/heads/main' }}
+      if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
       env:
         PUB: ${{ secrets.OPENREPO_GPG_PUBLIC }}
         PRIV: ${{ secrets.OPENREPO_GPG_PRIVATE }}
         TOKEN: ${{ secrets.OPENREPO_API_TOKEN }}
+        REF_TYPE: ${{ github.ref_type }}
       shell: bash
       run: |
         ./assets/sign-rpm.sh *.rpm
@@ -106,5 +111,5 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: "centos7"
-        path: "kumomta-*.rpm"
+        path: "kumomta*.rpm"
 

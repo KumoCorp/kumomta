@@ -5,8 +5,10 @@ TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=
 HERE=$(pwd)
 
 # If not specified, build the package as `kumomta-dev`.
-# When we're building from a tag we'll set 'DEB_NAME=kumomta'
+# When we're building from a tag (REF_TYPE is set to tag) we set 'DEB_NAME=kumomta'
+[[ "${REF_TYPE}" == "tag" ]] && DEB_NAME=kumomta
 DEB_NAME=${DEB_NAME:-kumomta-dev}
+
 CONFLICTS=kumomta
 [[ ${DEB_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 

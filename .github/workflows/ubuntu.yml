@@ -2,6 +2,8 @@ name: Ubuntu LTS
 
 on:
   push:
+    tags:
+      - "20*"
     branches: [ "main" ]
     paths:
       - "crates/**/*.rs"
@@ -76,6 +78,8 @@ jobs:
     - name: Run tests
       run: cargo nextest run --release
     - name: Build Package
+      env:
+        REF_TYPE: ${{ github.ref_type }}
       run: "./assets/build-deb.sh"
     - name: Verify Package is installable
       run: "apt-get install ./kumomta*.deb"
@@ -88,9 +92,10 @@ jobs:
         name: ${{ steps.artifact-name.outputs.name }}
         path: "kumomta*.deb"
     - name: "Publish"
-      if: ${{ github.ref == 'refs/heads/main' }}
+      if: ${{ github.ref == 'refs/heads/main' || github.ref_type == 'tag' }}
       env:
         TOKEN: ${{ secrets.OPENREPO_API_TOKEN }}
+        REF_TYPE: ${{ github.ref_type }}
       shell: bash
       run: |
         ./assets/upload-package.sh ${{ matrix.container }} kumomta*.deb
