@@ -8,7 +8,7 @@ So far we've run non-production tests on the following systems:
 * Rocky (8,9)
 * Alma (8,9)
 * Debian (11)
-* Ubuntu (18,22)
+* Ubuntu (18,20,22)
 * OpenSuse Leap (15.4)
 * AL2
 * CentOS7

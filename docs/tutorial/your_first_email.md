@@ -19,7 +19,7 @@ Start a telnet session with ```telnet localhost 2025```
 Then replace youremail@address.com with your actual email address.
 Copy the entire thing and paste it into the telnet session in your console.
 
-```bash
+```console
 ehlo moto
 mail from:youremail@address.com
 rcpt to:youremail@address.com

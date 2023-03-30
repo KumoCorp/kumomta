@@ -20,10 +20,10 @@ Technically KumoMTA is now installed, but it will need a configuration policy in
 ### Writing Config Policy
 The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html).  If you have not heard of Lua before, that is ok, you are not alone.  It is a powerful scripting language that is easy to read and code, but is very powerful.  It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](https://docs.kumomta.com/tutorial/lua_resources/).
 
-To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevent sections.  Create that in ```/opt/kumomta/etc/policy/example.lua``` like this:
+To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevent sections.  Create that in ```/opt/kumomta/etc/policy/init.lua``` like this:
 
 ```console
-sudo vi /opt/kumomta/etc/policy/example.lua
+sudo vi /opt/kumomta/etc/policy/init.lua
 ```
 ... and paste the example configuration.  You can then edit the config to adjust things like outbound port, queues, banners, etc.
 
@@ -64,20 +64,29 @@ That will provide you with a basic and safe sending configuration that will allo
 If you followed all the instructions above without errors, you should now have a working MTA on a properly sized server.  Lets test that theory.
 
 Start the MTA with this:
+```
+sudo systemctl start kumomta
+```
+You can enable it to restart as a service with a reboot with:
+```
+sudo systemctl enable kumomta
+```
+
+Alternately you can start it manually with:
 ```console
  sudo /opt/kumomta/sbin/kumod --policy \ 
- /opt/kumomta/etc/policy/example.lua --user kumod&
+ /opt/kumomta/etc/policy/init.lua --user kumod&
 ```
 
  * Using sudo allows it to run as a privileged user so it can access port 25 which is needed to deliver via SMTP to the internet.
  * The daemon `kumod` is the MTA
- * The directive --policy makes kumod load the 'example.lua' file as configuration policy.
+ * The directive --policy makes kumod load the 'init.lua' file as configuration policy.
  * Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
  * The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
 
 You can also get immedaite feedback by pre-pending ```KUMOD_LOG=kumod=info``` (or debug for more detail) like this:
 ```console
-sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/sink.lua --user kumod&
+sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod&
 ```
 
 If all goes well, it should return a PID and drop you back to a Linux prompt.

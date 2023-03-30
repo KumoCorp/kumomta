@@ -33,17 +33,23 @@ sudo dnf config-manager \
 sudo yum install kumomta-dev
 ```
 
-5) Create a configuration policy in ```/opt/kumomta/etc/policy/example.lua``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
+5) Create a configuration policy in ```/opt/kumomta/etc/policy/init.lua``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
 Hint, you can copy and paste that into a new file and edit the necessary parts.
 You should either create dkim keys or comment out the dkim signing portion for now.
 
 6) Run it with : 
-```console
-sudo /opt/kumomta/sbin/kumod --policy \
-  /opt/kumomta/etc/policy/example.lua --user kumod&
+```
+sudo systemctl start kumomta
+sudo systemctl enable kumomta
 ```
 
-And you are done.  KumoMTA will now be installed and running the example configuration from ```/opt/kumomta/sbin/kumod```.  The & pushes the running process to the background, type 'fg' to bring it forward again.
+Alternately you can run it manually with :
+```console
+sudo /opt/kumomta/sbin/kumod --policy \
+  /opt/kumomta/etc/policy/init.lua --user kumod&
+```
+
+And you are done.  KumoMTA will now be installed and running the init.lua configuration from ```/opt/kumomta/sbin/kumod```.  If you started it manually, the `&` pushes the running process to the background, type 'fg' to bring it forward again.
 
 ## The Longer Version
 This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions.  Read on to the next section to look at server selection and sizing, OS preparation, installing and testing it with more detail.
