@@ -32,6 +32,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: nightly
+        components: rustfmt
     - name: Rust formatting
       run: cargo +nightly fmt --all -- --check
     - name: Install stylua
