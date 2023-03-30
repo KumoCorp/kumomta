@@ -42,13 +42,7 @@ jobs:
       shell: bash
       run: "dnf install -y git"
     - name: "Install Rust"
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: "minimal"
-        toolchain: "stable"
-        override: true
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+      uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
     - name: workaround git permission guff
       run: git config --global --add safe.directory /__w/kumomta/kumomta

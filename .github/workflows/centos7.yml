@@ -55,13 +55,7 @@ jobs:
         fi
         ln -s /usr/local/git/bin/git /usr/local/bin/git
     - name: "Install Rust"
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: "minimal"
-        toolchain: "stable"
-        override: true
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+      uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
       with:

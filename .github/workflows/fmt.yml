@@ -29,12 +29,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: "Install Rust"
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: "minimal"
-        toolchain: "nightly"
-        override: true
-        components: "rustfmt"
+      uses: dtolnay/rust-toolchain@stable
     - name: Rust formatting
       run: cargo +nightly fmt --all -- --check
     - name: Install stylua
