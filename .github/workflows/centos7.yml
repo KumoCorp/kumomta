@@ -76,10 +76,9 @@ jobs:
     - name: Get Deps
       run: bash ./get-deps.sh
     - name: Install cargo-nextest
-      uses: baptiste0928/cargo-install@v1
+      uses: baptiste0928/cargo-install@v2
       with:
         crate: cargo-nextest
-        args: --locked
     - name: Build
       run: |
         source /opt/rh/devtoolset-9/enable
