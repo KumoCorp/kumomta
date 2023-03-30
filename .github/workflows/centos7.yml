@@ -54,8 +54,18 @@ jobs:
             make prefix=/usr/local/git install
         fi
         ln -s /usr/local/git/bin/git /usr/local/bin/git
-    - name: "Install Rust"
-      uses: dtolnay/rust-toolchain@stable
+    - name: "Install Rustup"
+      shell: bash
+      run: |
+        if ! command -v rustup &>/dev/null; then
+          curl --proto '=https' --tlsv1.2 --retry 10 -fsSL "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
+          echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
+        fi
+    - name: "Setup Toolchain"
+      shell: bash
+      run: |
+        rustup toolchain install stable --profile minimal --no-self-update
+        rustup default stable
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
       with:
