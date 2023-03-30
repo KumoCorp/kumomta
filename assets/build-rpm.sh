@@ -28,8 +28,6 @@ License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
-BuildRequires: systemd-rpm-macros
-%{?systemd_requires}
 
 %description
 A high performance, modern MTA.
@@ -38,13 +36,25 @@ A high performance, modern MTA.
 echo "Doing the build bit here"
 
 %post
-%systemd_post kumomta.service
+
+if [ \$1 -eq 1 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    # Initial installation
+    /usr/lib/systemd/systemd-update-helper install-system-units kumomta.service || :
+fi
 
 %preun
-%systemd_preun kumomta.service
+
+if [ \$1 -eq 0 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    # Package removal, not upgrade
+    /usr/lib/systemd/systemd-update-helper remove-system-units kumomta.service || :
+fi
 
 %postun
-%systemd_postun_with_restart kumomta.service
+
+if [ \$1 -ge 1 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
+    # Package upgrade, not uninstall
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units kumomta.service || :
+fi
 
 %pre
 getent group kumod >/dev/null || groupadd --system kumod
