@@ -5,8 +5,10 @@ TAG_NAME=${TAG_NAME:-$(git -c "core.abbrev=8" show -s "--format=%cd-%h" "--date=
 HERE=$(pwd)
 
 # If not specified, build the rpm as `kumomta-dev`.
-# When we're building from a tag we'll set 'RPM_NAME=kumomta'
+# When we're building from a tag (REF_TYPE is set to tag) we set 'RPM_NAME=kumomta'
+[[ "${REF_TYPE}" == "tag" ]] && RPM_NAME=kumomta
 RPM_NAME=${RPM_NAME:-kumomta-dev}
+
 CONFLICTS=kumomta
 [[ ${RPM_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 

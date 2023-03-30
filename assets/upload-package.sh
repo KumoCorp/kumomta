@@ -12,6 +12,8 @@ case "$REPO" in
   "rockylinux:9") REPO="kumomta-rockylinux-9" ;;
 esac
 
+[[ "${REF_TYPE}" == "tag" ]] && REPO="${REPO}-stable"
+
 t=$(mktemp)
 trap "rm -f $t" EXIT
 printenv TOKEN > $t
