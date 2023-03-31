@@ -47,3 +47,20 @@ $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee
 $ sudo apt update
 $ sudo apt install -y kumomta-dev
 ```
+
+To start KumoMTA you can use the systemd service or start manually.
+
+With systemd,
+```console
+$ sudo systemctl start kumomta
+```
+To ensure it survives a restart,
+```console
+$ sudo systemctl enable kumomta
+```
+
+To start manually in the foreground, (Use the service above it you want it in the background)
+```console
+$ sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+```
+
