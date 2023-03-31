@@ -9,3 +9,5 @@ For instructions on installing from a repository, see the [Installing on Linux](
 For instructions on installing the Docker container, see the [Installing on Docker](docker.md) page.
 
 For instructions on building from source, see the [Building from Source](linux.md) page.
+
+Once installed, [Configure](../configuration/concepts.md) and [Start](../operation/starting.md) your server.

@@ -2,11 +2,11 @@
 
 Now that we know **_what_** to build, lets go ahead and build it.
 
-* Open up AWS, select EC2 and hit the [Launch Instance] button.
+* Open up AWS, select EC2 and hit the **Launch Instance** button.
 * Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
 * Under Instance Type, select a t2.xlarge, provide your keypair for login or create a pair if necessary.
 * In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
-* Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click [Launch Instance].
+* Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click **Launch Instance.**
 
 ... wait ....
 
@@ -39,7 +39,7 @@ sudo dnf update -y
 sudo dnf install -y wget bind bind-utils telnet firewalld
 
 sudo systemctl start named
-sudo systemctl enable named 
+sudo systemctl enable named
 ```
 
 It is always a good idea to automate daily systems updates.
@@ -93,17 +93,17 @@ CERT_CO=US
 
 # For the certificate, what State or Province are you in? (Alberta, California, etc)"
 CERT_ST="California"
-  
+
 # For the certificate, what city are you in? (Edmonton, Houston, etc)"
 CERT_LO="Los Angeles"
-  
+
 # For the certificate, what is the name of your company or organization"
 CERT_ORG="My Company"
 
-# Generate private key 
-openssl genrsa -out ca.key 2048 
+# Generate private key
+openssl genrsa -out ca.key 2048
 
-# Generate CSR 
+# Generate CSR
 openssl req -new -key ca.key -out ca.csr -subj "/C=$CERT_CO/ST=$CERT_ST/L=$CERT_LO/O=$CERT_ORG/CN=$MYFQDN/"
 
 # Generate Self Signed Key
