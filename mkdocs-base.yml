@@ -3,6 +3,7 @@ site_name: KumoMTA Docs
 site_url: https://docs.kumomta.com
 site_description: Documentation for KumoMTA
 repo_url: https://github.com/KumoCorp/kumomta
+repo_name: KumoCorp/kumomta
 edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: gh_pages
