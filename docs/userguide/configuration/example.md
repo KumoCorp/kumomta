@@ -289,7 +289,7 @@ function dkim_sign(msg)
     selector = selector,
     headers = { 'From', 'To', 'Subject' },
     key = string.format(
-      '/opt/kumomta/etc/dkim/%s/%s.key',
+      '/opt/kumomta/etc/dkim/%d/%s.key',
       sender_domain,
       selector
     ),
