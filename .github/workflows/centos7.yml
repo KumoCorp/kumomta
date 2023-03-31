@@ -105,7 +105,7 @@ jobs:
       shell: bash
       run: |
         ./assets/sign-rpm.sh *.rpm
-        ./assets/upload-package.sh kumomta-centos7-dev *.rpm
+        ./assets/upload-package.sh centos:7 *.rpm
     - name: "Upload artifact"
       uses: actions/upload-artifact@v3
       with:

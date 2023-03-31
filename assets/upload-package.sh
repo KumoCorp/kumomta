@@ -10,6 +10,7 @@ case "$REPO" in
   "ubuntu:22.04") REPO="kumomta-ubuntu-22" ;;
   "rockylinux:8") REPO="kumomta-rockylinux-8" ;;
   "rockylinux:9") REPO="kumomta-rockylinux-9" ;;
+  "centos:7") REPO="kumomta-centos-7" ;;
 esac
 
 [[ "${REF_TYPE}" == "tag" ]] && REPO="${REPO}-stable"
