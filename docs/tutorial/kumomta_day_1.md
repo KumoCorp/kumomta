@@ -2,7 +2,7 @@
 
 This document will outline a typical deployment of KumoMTA starting from scratch. This walkthrough is not a replacement for reading the full documentation, but rather will show how to install and configure in a specific environment as a sample that you can bend to your own needs.
 
-We assume that you iknow Linux, have an AWS account, Github account, and have a working knowledge of how those tools operate. We also assume that you know what an MTA is and why you need one.  If not, you may want to [read this first](https://en.wikipedia.org/wiki/Message_transfer_agent).
+We assume that you know Linux, have an AWS account, Github account, and have a working knowledge of how those tools operate. We also assume that you know what an MTA is and why you need one.  If not, you may want to [read this first](https://en.wikipedia.org/wiki/Message_transfer_agent).
 
 ## Getting Started
 The scenario we are going to emulate is a deployment using Rocky Linux V9 in AWS Public cloud. This will be a single node server having to send about eight million messages a day to the public Internet. The average size of these messages will be 50KB.

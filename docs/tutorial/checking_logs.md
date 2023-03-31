@@ -4,7 +4,7 @@ Regardless of whether the mail delivers or not, you should take a look at the
 logs.  Compressed logs are found in `/var/log/kumomta/` as can be seen in this
 tree. Logs are segmented by a combination of size/time and stored in compressed
 files named after the time that the segment was started. To read these, you
-need to unpack them first. You have [many options for configurating
+need to unpack them first. You have [many options for configuring
 logging](../userguide/configuration/logging.md).
 
 ```info

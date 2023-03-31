@@ -20,7 +20,7 @@ Technically KumoMTA is now installed, but it will need a configuration policy in
 ### Writing Config Policy
 The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html).  If you have not heard of Lua before, that is ok, you are not alone.  It is a powerful scripting language that is easy to read and code, but is very powerful.  It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](https://docs.kumomta.com/tutorial/lua_resources/).
 
-To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevent sections.  Create that in ```/opt/kumomta/etc/policy/init.lua``` like this:
+To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevant sections.  Create that in ```/opt/kumomta/etc/policy/init.lua``` like this:
 
 ```console
 sudo vi /opt/kumomta/etc/policy/init.lua
@@ -46,7 +46,7 @@ relay_hosts = { '127.0.0.1', '192.168.1.0/24' }
 ```
 By default only localhost and private networks are able to relay (send) mail.  Add the IP address or CIDR block of your injectors here to allow them to relay mail.
 
-For HTTP, this is done with the _*trusted_hosts*_ setting in a litener stanza.
+For HTTP, this is done with the _*trusted_hosts*_ setting in a listener stanza.
 ```lua
 kumo.start_http_listener {
   listen = '0.0.0.0:8000',
@@ -84,7 +84,7 @@ Alternately you can start it manually with:
  * Because we launched with sudo, you need to use the directive --user and provide a valid user to assign responsibility to.
  * The line ends with a `&` that forces the daemon to run in the background and returns you to a usable prompt (use `fg` to bring it back to the foreground)
 
-You can also get immedaite feedback by pre-pending ```KUMOD_LOG=kumod=info``` (or debug for more detail) like this:
+You can also get immediate feedback by pre-pending ```KUMOD_LOG=kumod=info``` (or debug for more detail) like this:
 ```console
 sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod&
 ```

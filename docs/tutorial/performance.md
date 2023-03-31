@@ -1,11 +1,11 @@
 # Tuning for Performance
 
-You can get better performace with some fine tuning of system parameters,  The settings below are examples only but have worked in test and development servers.  As the saying goes, "your milage may vary" so you should research these and tune as needed for your own system.
+You can get better performance with some fine tuning of system parameters,  The settings below are examples only but have worked in test and development servers.  As the saying goes, "your milage may vary" so you should research these and tune as needed for your own system.
 
 KumoMTA makes heavy use of files, RAM, CPU and network resources. Setting these can be helpful as a default Linux install assumes the need to share resources with many applications, but we need to allow KumoMTA to use as much of the resource pool as possible.
 
 ```console
-# Tune sysctl setings. Note that these are suggestions,
+# Tune sysctl settings. Note that these are suggestions,
 #  you should tune according to your specific build
 
 echo "
@@ -27,7 +27,7 @@ sudo /sbin/sysctl -p |sudo tee -a /etc/sysctl.conf
 ```
 
 ## Performance Test
-OK, now lets really test this with some volume.  You will **_not_** want to do that in the public internet with real adresses for a number of reasons, so you should set up another KumoMTA instance and have it run the included "sink.lua" policy.  That will set KumoMTA to accept all messages and discard them without forwarding.
+OK, now lets really test this with some volume.  You will **_not_** want to do that in the public internet with real addresses for a number of reasons, so you should set up another KumoMTA instance and have it run the included "sink.lua" policy.  That will set KumoMTA to accept all messages and discard them without forwarding.
 
 Once you have the second one configured, you can create a script on the sending server to loop over an injection to the sink as many time as you like. Using a function like 'time' can give you an accurate time windows and knowing the number of loops and size of email, you can determine performance. 
 
@@ -54,7 +54,7 @@ end)
 
 ## Test Results
 The test configuration was one "sending" configured KumoMTA in AWS (variable CPU and RAM) and one "sink" KumoMTA in Azure (8 CPU/16GB RAM) using a payload of 100KB sent in a loop 100,000 times. 
-The test usilized the included traffic-gen utility described above.
+The test utilized the included traffic-gen utility described above.
 
 | CPU | RAM | RATE |
 | --- | --- | --- |

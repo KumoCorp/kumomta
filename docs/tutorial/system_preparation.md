@@ -18,13 +18,13 @@ ssh -i "yourkeyname.pem" rocky@ec2-\<pub-lic-ip\>.us-west-2.compute.amazonaws.co
 
 ## Doing the basics
 
-Reguardless of what system you deploy, there are things you need to do to prepare the OS before installing the MTA.
+Regardless of what system you deploy, there are things you need to do to prepare the OS before installing the MTA.
 
 * Update to the latest patches
 * Install basic testing and support tools
 * Turn off services that are wasteful or can interfere
 * Tune the use of memory and file access for best performance
-* Automate updates and startup for resilliency
+* Automate updates and startup for resiliency
 
 ### Rocky Linux Example
 

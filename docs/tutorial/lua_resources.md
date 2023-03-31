@@ -1,6 +1,6 @@
 # Lua Resources
 
-Lua is portugese for moon.  It is also the name of the scripting language we use in KumoMTA.  Because it is a name, Lua is always capitalized.
+Lua is Portuguese for moon.  It is also the name of the scripting language we use in KumoMTA.  Because it is a name, Lua is always capitalized.
 
 Understanding Lua is not required to deploy and use KumoMTA, but it will help you leverage the full power of this incredibly flexible system. Lua is easy to learn, easy to read, and easy to implement.
 
