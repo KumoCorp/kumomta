@@ -31,6 +31,18 @@ lazy_static::lazy_static! {
             "total number of message delivery attempts that permanently failed",
             &["service"]).unwrap()
     };
+    pub static ref READY_COUNT_GAUGE: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!(
+            "ready_count",
+            "number of messages in the ready queue",
+            &["service"]).unwrap()
+    };
+}
+
+pub fn ready_count_gauge_for_service(service: &str) -> IntGauge {
+    READY_COUNT_GAUGE
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 pub fn connection_gauge_for_service(service: &str) -> IntGauge {

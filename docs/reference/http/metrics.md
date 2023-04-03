@@ -47,6 +47,10 @@ message_data_resident_count 1
 # HELP message_meta_resident_count total number of Message objects with metadata loaded
 # TYPE message_meta_resident_count gauge
 message_meta_resident_count 1
+# HELP ready_count number of messages in the ready queue
+# TYPE ready_count gauge
+ready_count{service="smtp_client:source1->loopback.dummy-mx.example.com"} 0
+ready_count{service="smtp_client:source2->loopback.dummy-mx.example.com"} 0
 # HELP total_connection_count total number of active connections ever made
 # TYPE total_connection_count counter
 total_connection_count{service="smtp_client"} 0

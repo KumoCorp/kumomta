@@ -262,6 +262,7 @@ impl EgressPathManager {
                 global_connection_total: crate::metrics_helper::connection_total_for_service(
                     "smtp_client",
                 ),
+                ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
                 msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
                 global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
                     "smtp_client",
@@ -310,6 +311,8 @@ struct DeliveryMetrics {
     connection_total: IntCounter,
     global_connection_total: IntCounter,
 
+    ready_count: IntGauge,
+
     msgs_delivered: IntCounter,
     global_msgs_delivered: IntCounter,
 
@@ -343,6 +346,7 @@ impl EgressPath {
 
     pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
         let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        self.metrics.ready_count.set(0);
         for msg in msgs {
             let id = *msg.id();
             bounce.log(msg, None).await;
@@ -355,6 +359,7 @@ impl EgressPath {
             msg.shrink().ok();
         }
         self.ready.lock().unwrap().push_back(msg);
+        self.metrics.ready_count.inc();
         self.notify.notify_waiters();
         self.maintain();
         self.last_change = Instant::now();
@@ -410,6 +415,7 @@ impl EgressPath {
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.
             let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+            self.metrics.ready_count.set(0);
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
@@ -636,6 +642,7 @@ impl Dispatcher {
 
     async fn throttle_ready_queue(&mut self, delay: Duration) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        self.metrics.ready_count.set(0);
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -670,6 +677,7 @@ impl Dispatcher {
     #[instrument(skip(self))]
     async fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        self.metrics.ready_count.set(0);
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -747,7 +755,12 @@ impl Dispatcher {
             return true;
         }
         self.msg = self.ready.lock().unwrap().pop_front();
-        self.msg.is_some()
+        if self.msg.is_some() {
+            self.metrics.ready_count.dec();
+            true
+        } else {
+            false
+        }
     }
 
     #[instrument(skip(self))]

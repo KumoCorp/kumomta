@@ -77,6 +77,16 @@ will vary as we continue to enhance KumoMTA.
     "type": "gauge",
     "value": 1.0
   },
+  "ready_count": {
+    "help": "number of messages in the ready queue",
+    "type": "gauge",
+    "value": {
+      "service": {
+        "smtp_client:source1->loopback.dummy-mx.example.com": 46.0,
+        "smtp_client:source2->loopback.dummy-mx.example.com": 152.0,
+      }
+    }
+  },
   "total_connection_count": {
     "help": "total number of active connections ever made",
     "type": "counter",
