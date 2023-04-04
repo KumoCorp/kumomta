@@ -3530,6 +3530,8 @@ dependencies = [
  "filenamegen",
  "memchr",
  "notify",
+ "serde",
+ "serde_json",
  "thiserror",
  "zstd-safe 6.0.4+zstd.1.5.4",
 ]
