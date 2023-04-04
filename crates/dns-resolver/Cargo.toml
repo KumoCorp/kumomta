@@ -11,5 +11,6 @@ kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 serde = {version="1.0", features=["derive"]}
+tokio = "1.25"
 tracing = "0.1"
 trust-dns-resolver = "0.22"

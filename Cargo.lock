@@ -926,6 +926,7 @@ dependencies = [
  "lazy_static",
  "lruttl",
  "serde",
+ "tokio",
  "tracing",
  "trust-dns-resolver",
 ]

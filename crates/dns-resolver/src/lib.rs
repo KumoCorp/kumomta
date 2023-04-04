@@ -167,10 +167,44 @@ pub async fn ip_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)> 
     if let Some(value) = IP_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
         return Ok(value);
     }
-    let (addr, exp) = match ipv4_lookup(key).await {
-        Ok((v4, exp)) => (v4, exp),
-        Err(_) => ipv6_lookup(key).await?,
-    };
+
+    let (v4, v6) = tokio::join!(ipv4_lookup(key), ipv6_lookup(key));
+
+    let mut results = vec![];
+    let mut errors = vec![];
+    let mut expires = None;
+
+    match v4 {
+        Ok((addrs, exp)) => {
+            expires.replace(exp);
+            for a in addrs.iter() {
+                results.push(*a);
+            }
+        }
+        Err(err) => errors.push(err),
+    }
+
+    match v6 {
+        Ok((addrs, exp)) => {
+            let exp = match expires.take() {
+                Some(existing) => exp.min(existing),
+                None => exp,
+            };
+            expires.replace(exp);
+
+            for a in addrs.iter() {
+                results.push(*a);
+            }
+        }
+        Err(err) => errors.push(err),
+    }
+
+    if results.is_empty() && !errors.is_empty() {
+        return Err(errors.remove(0));
+    }
+
+    let addr = Arc::new(results);
+    let exp = expires.take().unwrap_or_else(|| Instant::now());
 
     IP_CACHE.lock().unwrap().insert(key_fq, addr.clone(), exp);
     Ok((addr, exp))
@@ -204,11 +238,11 @@ pub async fn ipv6_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
         return Ok(value);
     }
 
-    let ipv6_lookup = RESOLVER.ipv4_lookup(key).await?;
+    let ipv6_lookup = RESOLVER.ipv6_lookup(key).await?;
     let ips = ipv6_lookup
         .as_lookup()
         .record_iter()
-        .filter_map(|r| (IpAddr::from(*r.data()?.as_a()?)).into())
+        .filter_map(|r| (IpAddr::from(*r.data()?.as_aaaa()?)).into())
         .collect::<Vec<_>>();
 
     let ips = Arc::new(ips);
