@@ -63,6 +63,10 @@ markdown_extensions:
   - admonition
   - pymdownx.details
   - def_list
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: KumoCorp
+      repo: kumomta
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
