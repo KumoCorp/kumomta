@@ -9,6 +9,7 @@ docs_dir: docs
 site_dir: gh_pages
 theme:
   name: material
+  custom_dir: docs/overrides
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -87,3 +88,6 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/KumoCorp/kumomta
+  analytics:
+    provider: custom
+    property: foobar
