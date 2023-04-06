@@ -29,15 +29,16 @@ kumo.start_http_listener {
   tls_certificate = '/path/to/cert.pem',
   tls_private_key = '/path/to/key.pem',
 
---[[ ALternately configure to pull the certificate from HashiCorp Vault ]]--
---[[
+  --[[ ALternately configure to pull the certificate from HashiCorp Vault ]]
+  --
+  --[[
    tls_certificate = {
     vault_mount = 'secret',
     vault_path = 'tls/mail.example.com.cert',
     vault_address = "http://127.0.0.1:8200",
     vault_token = "hvs.TOKENTOKENTOKEN",
   },
-]]--
-
+]]
+  --
 }
 ```
