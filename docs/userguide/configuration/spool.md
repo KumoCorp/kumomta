@@ -38,11 +38,11 @@ to reduce I/O cost and increase performance. This gives increased performance si
 kumo.define_spool {
   name = 'data',
   path = '/var/spool/kumo/data',
-  kind = `RocksDB`,
+  kind = 'RocksDB',
 }
 kumo.define_spool {
   name = 'meta',
   path = '/var/spool/kumo/meta',
-  kind = `RocksDB`,
+  kind = 'RocksDB',
 }
 ```
