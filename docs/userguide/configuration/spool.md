@@ -15,4 +15,4 @@ There are two kinds of spool storage possible.  The default is in files on the l
     path = '/var/spool/kumo/meta',
     kind = `RocksDB`,
   }
-  ```
+```
