@@ -10,7 +10,7 @@ The simplest logging configuration, added to the init event, is as follows:
   kumo.configure_local_logs {
     log_dir = '/var/log/kumomta',
   }
-  ```
+```
 
 ## OS Considerations
 
