@@ -7,9 +7,9 @@ By default, KumoMTA writes to a JSON log format, the format of which can be foun
 The simplest logging configuration, added to the init event, is as follows:
 
 ```lua
-  kumo.configure_local_logs {
-    log_dir = '/var/log/kumomta',
-  }
+kumo.configure_local_logs {
+  log_dir = '/var/log/kumomta',
+}
 ```
 
 ## OS Considerations
