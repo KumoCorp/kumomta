@@ -169,7 +169,7 @@ The JSON log record fields shown in the section below are assigned as template
 variables, so using `{{ id }}` in your log template will be substituted with
 the `id` field from the log record section below.
 
-# Log Record
+## Log Record
 
 The log record is a JSON object with the following shape:
 
