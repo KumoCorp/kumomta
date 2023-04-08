@@ -15,10 +15,10 @@ event handler.
 
 The classifier must be configured with a set of rules files
 that provide mappings from a set of regular expressions to
-the available clasification codes.
+the available classification codes.
 
 `kumo.configure_bounce_classifier` will compile the merged
-set of files and rules into an efficient regexset that can
+set of files and rules into an efficient regex set that can
 quickly match the rule to the classification code.
 
 Once the classifier has been configured via this function,
@@ -43,7 +43,7 @@ The `iana.toml` file is provided with rules that map from
 codes](https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml)
 to an appropriate bounce class.
 
-You may create and maintain your own classifications and add then to the list
+You may create and maintain your own classifications and add them to the list
 of files.
 
 Here's an excerpt of the `iana.toml`:
