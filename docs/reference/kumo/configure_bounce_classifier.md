@@ -28,11 +28,11 @@ populate the `bounce_classification` field.
 ```lua
 kumo.on('init', function()
   kumo.configure_local_logs {
-    log_dir = '/var/log/kumo-logs',
+    log_dir = '/var/log/kumomta',
   }
   kumo.configure_bounce_classifier {
     files = {
-      '/etc/kumo/iana.toml',
+      '/opt/kumomta/share/bounce_classifier/iana.toml',
     },
   }
 end)
