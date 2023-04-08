@@ -15,8 +15,8 @@ kumo.start_http_listener {
 
   Refer to the [Reference Manual](https://docs.kumomta.com/reference/kumo/start_http_listener/) for detailed options.
 
-  ## What can you use the HTTP listener for?
-  Aside from injecting messages using the [Inject API](https://docs.kumomta.com/reference/http/api_inject_v1/), you can also perform arbitrary administrative bounces, and collect detailed metrics.  A list of HTTP API functions exists [here](https://docs.kumomta.com/reference/http/).
+## What can you use the HTTP listener for?
+Aside from injecting messages using the [Inject API](https://docs.kumomta.com/reference/http/api_inject_v1/), you can also perform arbitrary administrative bounces, and collect detailed metrics.  A list of HTTP API functions exists [here](https://docs.kumomta.com/reference/http/).
 
 ## Configuring for HTTPS
 The HTTP listener can easily be secured with TLS by adding the TLS directives and a certificate to the configuration.  Below is an example of an HTTPS configuration.
