@@ -143,7 +143,7 @@ TOC = [
                         "Configuration Concepts", "userguide/configuration/concepts.md"
                     ),
                     Page(
-                        "An Example Configuration", "userguide/configuration/example.md"
+                        "Example Server Policy", "userguide/configuration/example.md"
                     ),
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
