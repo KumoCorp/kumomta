@@ -146,9 +146,10 @@ TOC = [
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
                     Page(
-                        "Configuring Bounce & FBL Processing",
+                        "Configuring Bounce Classification",
                         "userguide/configuration/bounce.md",
                     ),
+                    Page("Configuring FBL Processing", "userguide/configuration/fbl.md"),
                     Page(
                         "Configuring HTTP Listeners",
                         "userguide/configuration/httplisteners.md",
