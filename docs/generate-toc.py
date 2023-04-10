@@ -149,7 +149,9 @@ TOC = [
                         "Configuring Bounce Classification",
                         "userguide/configuration/bounce.md",
                     ),
-                    Page("Configuring FBL Processing", "userguide/configuration/fbl.md"),
+                    Page(
+                        "Configuring FBL Processing", "userguide/configuration/fbl.md"
+                    ),
                     Page(
                         "Configuring HTTP Listeners",
                         "userguide/configuration/httplisteners.md",
