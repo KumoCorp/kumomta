@@ -1,6 +1,6 @@
 # Queues, Sources, Pools
 
-Messages are assigned to a queue upon reception. The system can support
+Messages are assigned to a **Scheduled Queue** upon reception. The system can support
 arbitrarily named queues but the convention is to construct the queue name from
 some metadata associated with the message:
 
@@ -42,7 +42,7 @@ end)
 
 ## Egress Sources and Pools
 
-Once assigned to a queue, the system will attempt to deliver it.
+Once assigned to a Scheduled Queue, the system will attempt to deliver it.
 The first stage is to resolve the configuration for the queue by triggering
 the [get_queue_config](events/get_queue_config.md) event.
 
@@ -188,7 +188,7 @@ end)
 
 ```mermaid
 graph TD
-   DQ["Queue: campaign:tenant@domain.com"]
+   SQ["Scheduled Queue: campaign:tenant@domain.com"]
    SMTPL["ESMTP Listener"]
    HTTPI["Injection API"]
    RQ1["Ready Queue: 10.0.0.1->MX(domain.com)"]
@@ -199,9 +199,9 @@ graph TD
    MAINT["Queue Maintainer"]
    DESTSITE["domain.com"]
 
-   SMTPL --> DQ
-   HTTPI --> DQ
-   DQ --> MAINT
+   SMTPL --> SQ
+   HTTPI --> SQ
+   SQ --> MAINT
    IP1 --> POOL
    IP2 --> POOL
    POOL -- per tenant:domain config --> MAINT
