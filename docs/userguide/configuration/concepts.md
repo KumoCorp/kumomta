@@ -53,9 +53,9 @@ graph TD
 
 4) Messages move from the Ready Queue to their destination via an **egress path** that was configured for the Ready Queue. This egress path is defined as a combination of an **egress source** and a **site name**. Traffic shaping and other similar options are configured based on this combination, see the [Configuring Traffic Shaping](./trafficshaping.md) chapter for more information.
 
-    * The **egress source** is a configured structure that defines the name, source IP, and ehlo domain of a given pathway, and it is added to an egress pool, which the message is assigned to as part of the queue config.
+  * The **egress source** is a configured structure that defines the name, source IP, and ehlo domain of a given pathway, and it is added to an egress pool, which the message is assigned to as part of the queue config.
 
-     * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
+    * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
 
 5) All delivery attempts are logged, and any messages that receive a 4xx tempfail response from the remote host are returned to the Scheduled Queue to await a retry attempt. See the [Configuring Logging](./logging.md) chapter for more information on logging.
 
