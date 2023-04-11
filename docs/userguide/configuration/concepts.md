@@ -1,22 +1,63 @@
 # Configuration Concepts
 
-KumoMTA uses Lua in place of bespoke domain-specific configuration syntax
-that is common in many other MTAs.
+KumoMTA uses Lua in place of a more traditional formatted configuration file.
 
-Lua is a surprisingly powerful configuration language, allowing you to simply
-and declaratively specify tables and mappings while also providing a full
-[Turing complete](https://en.wikipedia.org/wiki/Turing_completeness) language
-for when you need maximum power.
+Lua is a surprisingly powerful configuration language, allowing you to either statically define configuration or dynamically build it by pulling from multiple data sources.
 
-That may sound intimidating, but in practice, many configurations end up being
+While using a scripting language for configuration may sound complicated, in practice many configurations end up being
 very succinct and readable.  Take a look at the [example policy](example.md) to
-see how can appear quite similar to a traditional configuration file.
+see how a Lua configuration can appear quite similar to a traditional configuration file.
 
 For more information on implementing policies in KumoMTA, refer to the [policy chapter](../policy/index.md).
 
 ## Configuration Location
 
-By default, the server will load from `/opt/kumomta/etc/policy/init.lua` on startup.
+By default, the server will load from `/opt/kumomta/etc/policy/init.lua` on startup. We recommend using this location, but information on starting the server with an alternate path can be found in the chapter on [starting KumoMTA](../operation/starting.md).
+
+## Configuration Scopes
+
+To better understand how a KumoMTA configuration is built, it helps to review the general flow of a message through the KumoMTA server. This is covered in more detail in the [Queues chapter of the reference manual](../../reference/queues.md) but will be summarized here.
+
+```mermaid
+graph TD
+   SQ["Scheduled Queue: campaign:tenant@domain.com"]
+   SMTPL["ESMTP Listener"]
+   HTTPI["Injection API"]
+   RQ1["Ready Queue: 10.0.0.1->MX(domain.com)"]
+   RQ2["Ready Queue: 10.0.0.2->MX(domain.com)"]
+   POOL["egress pool"]
+   IP1["Source: 10.0.0.1"]
+   IP2["Source: 10.0.0.2"]
+   MAINT["Queue Maintainer"]
+   DESTSITE["domain.com"]
+
+   SMTPL --> SQ
+   HTTPI --> SQ
+   SQ --> MAINT
+   IP1 --> POOL
+   IP2 --> POOL
+   POOL -- per tenant:domain config --> MAINT
+   MAINT -- throttle per tenant:domain config --> RQ1
+   MAINT -- throttle per tenant:domain config --> RQ2
+   RQ1 -- throttle per source:domain config\nconnect via 10.0.0.1 --> DESTSITE
+   RQ2 -- throttle per source:domain config\nconnect via 10.0.0.2 --> DESTSITE
+```
+
+1) A message is injected into the KumoMTA server. This is affected by configuring either an [SMTP Listener](./smtplisteners.md) or an [HTTP Listener](./httplisteners.md).
+
+2) The message is assigned into a Scheduled Queue based on the combination of its **campaign,** **tenant,** and destination **domain**. If there is no defined campaign or tenant, the message is placed in a queue based on the elements that are present.
+
+ At this point, the behavior of the queue can be configured to control things such as the age of a message, the retry intervals, and the routing of a message. These options are described in the [Configuring Queue Management](./queuemanagement.md) chapter.
+
+3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on retry intervals configured for the Standby Queue. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
+
+4) Messages move from the Ready Queue to their destination via an **egress path** that was configured for the Ready Queue. This egress path is defined as a combination of an **egress source** and a **site name**. Traffic shaping and other similar options are configured based on this combination, see the [Configuring Traffic Shaping](./trafficshaping.md) chapter for more information.
+
+    * The **egress source** is a configured structure that defines the name, source IP, and ehlo domain of a given pathway, and it is added to an egress pool, which the message is assigned to as part of the queue config.
+
+     * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
+
+5) All delivery attempts are logged, and any messages that receive a 4xx tempfail response from the remote host are returned to the Scheduled Queue to await a retry attempt. See the [Configuring Logging](./logging.md) chapter for more information on logging.
 
 ## Configuration Structure
 

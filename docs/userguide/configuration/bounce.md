@@ -1,6 +1,4 @@
-# Configuring Bounce & FBL Processing
-
-## Bounce Classification
+# Configuring Bounce Classification
 
 By default, the logs will contain extensive information on the responses provided by a remote host during a delivery attempt:
 
