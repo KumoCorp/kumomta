@@ -47,7 +47,7 @@ graph TD
 
 2) The message is assigned into a Scheduled Queue based on the combination of its **campaign,** **tenant,** and destination **domain**. If there is no defined campaign or tenant, the message is placed in a queue based on the elements that are present.
 
- At this point, the behavior of the queue can be configured to control things such as the age of a message, the retry intervals, and the routing of a message. These options are described in the [Configuring Queue Management](./queuemanagement.md) chapter.
+  At this point, the behavior of the queue can be configured to control things such as the age of a message, the retry intervals, and the routing of a message. These options are described in the [Configuring Queue Management](./queuemanagement.md) chapter.
 
 3) The KumoMTA server moves the message from the Scheduled Queue into the Ready Queue based on retry intervals configured for the Standby Queue. If a message is on its first attempt, it will be moved to the Ready Queue immediately.
 
@@ -55,7 +55,7 @@ graph TD
 
   * The **egress source** is a configured structure that defines the name, source IP, and ehlo domain of a given pathway, and it is added to an egress pool, which the message is assigned to as part of the queue config.
 
-    * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
+  * The **site name** is an identifier string created by merging the combined MX hostnames for a given destination domain. This approach allows the server to queue and throttle based not on the destination domain for a given message, but on the aggregate of all domains that share the same set of MXes.
 
 5) All delivery attempts are logged, and any messages that receive a 4xx tempfail response from the remote host are returned to the Scheduled Queue to await a retry attempt. See the [Configuring Logging](./logging.md) chapter for more information on logging.
 
