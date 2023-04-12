@@ -74,17 +74,74 @@ $ cargo build --release
 This will build everything, leaving the binaries in the `target/release`
 directory in the repo.
 
+
+## Creating the initial config
+KumoMTA is now installed, but it requires a configuration policy so it knows how to behave.
+The config is written in Lua and should live in /opt/kumomta/etc/policy. It *MUST* be named `init.lua` in order to work with systemctl services, so you should start by editing a file at /opt/kumomta/etc/policy/init.lua and populate it with at least the minimal config shown below.  Alternately, there is a more substantial config sample [HERE](https://docs.kumomta.com/userguide/configuration/example/), but you must save it as `init.lua`.
+
+```lua
+--[[
+########################################################
+  KumoMTA minimal Send Policy
+  (Rename this to init.lua for systemd automation)
+  This config policy defines KumoMTA with a minimal
+  set of modifications from default.
+  Please read the docs at https://docs.kumomta.com/
+  For detailed configuration instructions.
+########################################################
+]]
+--
+local kumo = require 'kumo'
+--[[ Start of INIT section ]]
+--
+
+kumo.on('init', function()
+  kumo.start_esmtp_listener {
+    listen = '0.0.0.0:25',
+    -- The following intentionally limits outbound trafic for your protection.
+    -- Alter this only after reading the documentation.
+    max_messages_per_connection = 100,
+  }
+
+  kumo.start_http_listener {
+    listen = '127.0.0.1:8000',
+  }
+
+  kumo.define_spool {
+    name = 'data',
+    path = '/var/spool/kumomta/data',
+  }
+
+  kumo.define_spool {
+    name = 'meta',
+    path = '/var/spool/kumomta/meta',
+  }
+
+  kumo.configure_local_logs {
+    log_dir = '/var/log/kumomta',
+  }
+end)
+--[[ END IF INIT Section ]]
+--
+
+--[[ Start of Non-INIT level config ]]
+--
+-- PLEASE real https://docs.kumomta.com/ for extensive documentation on customizing this config.
+--[[ End of Non-INIT level config ]]
+--
+```
+
 ## Running from your source directory
 
 This command will bring `kumod` up to date (in case you made changes), and then launch it:
 
 ```console
-$ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy simple_policy.lua
+$ sudo KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy /opt/kumomta/etc/policy/init.lua --user kumod
 ```
 
 In the above you are telling Cargo to run the Rust compiler to build an
 optimized release version of kumod, then execute kumod using the policy file
-called `simple_policy.lua`.
+called `init.lua`.
 
 You can add debugging output by adjusting the `KUMOD_LOG` environment variable.
 For exampe, setting `KUMOD_LOG=kumod=trace` in the environment will run with
