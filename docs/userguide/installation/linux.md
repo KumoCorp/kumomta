@@ -102,7 +102,7 @@ end)
 
 --[[ Start of Non-INIT level config ]]
 --
--- PLEASE real https://docs.kumomta.com/ for extensive documentation on customizing this config.
+-- PLEASE read https://docs.kumomta.com/ for extensive documentation on customizing this config.
 --[[ End of Non-INIT level config ]]
 --
 ```
