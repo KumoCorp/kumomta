@@ -24,7 +24,7 @@ use tracing::instrument;
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
     static ref DELAY_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("delayed_count", "number of messages in the delayed queue", &["queue"]).unwrap()
+        prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
 }
 

@@ -28,8 +28,8 @@ will vary as we continue to enhance KumoMTA.
       }
     }
   },
-  "delayed_count": {
-    "help": "number of messages in the delayed queue",
+  "scheduled_count": {
+    "help": "number of messages in the scheduled queue",
     "type": "gauge",
     "value": {
       "queue": {

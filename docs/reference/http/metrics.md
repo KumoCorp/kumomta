@@ -20,9 +20,9 @@ will vary as we continue to enhance KumoMTA.
 connection_count{service="esmtp_listener"} 0
 connection_count{service="smtp_client"} 0
 connection_count{service="smtp_client:source2->"} 0
-# HELP delayed_count number of messages in the delayed queue
-# TYPE delayed_count gauge
-delayed_count{queue="example.com"} 0
+# HELP scheduled_count number of messages in the scheduled queue
+# TYPE scheduled_count gauge
+scheduled_count{queue="example.com"} 0
 # HELP lua_count the number of lua contexts currently alive
 # TYPE lua_count gauge
 lua_count 1
