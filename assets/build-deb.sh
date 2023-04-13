@@ -61,6 +61,12 @@ cat > pkg/debian/DEBIAN/postinst <<EOF
 #!/bin/sh
 set -e
 if [ "\$1" = "configure" ]; then
+
+    if [ ! -f "/opt/kumomta/etc/policy/init.lua" ] ; then
+      # Create initial policy script
+      cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua
+    fi
+
     if [ -x "/usr/bin/deb-systemd-helper" ]; then
       deb-systemd-helper enable kumomta.service >/dev/null
     fi

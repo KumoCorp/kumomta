@@ -39,6 +39,11 @@ echo "Doing the build bit here"
 
 %post
 
+if [ ! -f "/opt/kumomta/etc/policy/init.lua" ] ; then
+  # Create initial policy script
+  cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua
+fi
+
 if [ \$1 -eq 1 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
     # Initial installation
     /usr/lib/systemd/systemd-update-helper install-system-units kumomta.service || :
@@ -85,6 +90,7 @@ install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 /opt/kumomta/sbin/kumod
 /opt/kumomta/sbin/traffic-gen
 /opt/kumomta/share/bounce_classifier/*.toml
+/opt/kumomta/share/minimal-init.lua
 /usr/lib/systemd/system/kumomta.service
 EOF
 
