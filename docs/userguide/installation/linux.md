@@ -1,4 +1,4 @@
-## Installing on Linux
+# Installing on Linux
 
 Pre-built releases are available for CentOS 7, Rocky Linux 8/9, and Ubuntu 20.04/22.04.
 
@@ -103,79 +103,18 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
     $ sudo apt install -y kumomta-dev
     ```
 
-## Creating the initial config
-KumoMTA is now installed, but it requires a configuration policy so it knows how to behave.
-The config is written in Lua and should live in /opt/kumomta/etc/policy. It **MUST** be named `init.lua` in order to work with systemctl services, so you should start by editing a file at `/opt/kumomta/etc/policy/init.lua` and populate it with at least the minimal config shown below.  Alternately, there is a more substantial config sample [HERE](https://docs.kumomta.com/userguide/configuration/example/), but you must save it as `init.lua`.
+## The Initial Config File
 
-```lua
---[[
-########################################################
-  KumoMTA minimal Send Policy
-  (Rename this to init.lua for systemd automation)
-  This config policy defines KumoMTA with a minimal
-  set of modifications from default.
-  Please read the docs at https://docs.kumomta.com/
-  For detailed configuration instructions.
-########################################################
-]]
---
-local kumo = require 'kumo'
---[[ Start of INIT section ]]
---
+KumoMTA is now installed, but it requires a configuration policy so it knows how to behave. The installer creates a minimal configuration policy file at `/opt/kumomta/etc/policy/init.lua` that enables basic localhost relaying and logging.
 
-kumo.on('init', function()
-  kumo.start_esmtp_listener {
-    listen = '0.0.0.0:25',
-    -- The following intentionally limits outbound trafic for your protection.
-    -- Alter this only after reading the documentation.
-    max_messages_per_connection = 100,
-  }
-
-  kumo.start_http_listener {
-    listen = '127.0.0.1:8000',
-  }
-
-  kumo.define_spool {
-    name = 'data',
-    path = '/var/spool/kumomta/data',
-  }
-
-  kumo.define_spool {
-    name = 'meta',
-    path = '/var/spool/kumomta/meta',
-  }
-
-  kumo.configure_local_logs {
-    log_dir = '/var/log/kumomta',
-  }
-end)
---[[ End of INIT Section ]]
---
-
---[[ Start of Non-INIT level config ]]
---
--- PLEASE read https://docs.kumomta.com/ for extensive documentation on customizing this config.
---[[ End of Non-INIT level config ]]
---
-```
+See the [configuration](../configuration/concepts.md) chapter for more information on creating your own configuration policy.
 
 ## Starting KumoMTA
-To start KumoMTA you can use the systemd service or start manually.
 
-With systemd:
+To start KumoMTA using systemd, execute the following command:
+
 ```console
 $ sudo systemctl start kumomta
 ```
 
-To ensure it survives a restart:
-```console
-$ sudo systemctl enable kumomta
-```
-
-To start manually in the foreground, (Use the service above it you want it in the background)
-```console
-$ sudo /opt/kumomta/sbin/kumod \
-   --policy /opt/kumomta/etc/policy/init.lua \
-   --user kumod
-```
-
+For additional details on starting KumoMTA, including as a persistent service, see the [Starting KumoMTA](../operation/starting.md) chapter.
