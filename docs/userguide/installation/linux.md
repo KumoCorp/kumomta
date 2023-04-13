@@ -19,6 +19,58 @@ The install instructions for supported platforms are shown below. If your platfo
     ```console
     $ sudo yum-config-manager --add-repo=\
         https://openrepo.kumomta.com/files/kumomta-centos.repo
+    $ sudo yum install kumomta
+    ```
+
+=== "Rocky"
+
+    ```console
+    $ sudo dnf -y install dnf-plugins-core
+    $ sudo dnf config-manager --add-repo \
+        https://openrepo.kumomta.com/files/kumomta-rocky.repo
+    $ sudo yum install kumomta
+    ```
+
+=== "Ubuntu 22.04 LTS"
+
+    ```console
+    $ sudo apt install -y curl gnupg ca-certificates
+    $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu22.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
+    $ sudo apt update
+    $ sudo apt install -y kumomta
+    ```
+
+=== "Ubuntu 20.04 LTS"
+
+    ```console
+    $ sudo apt install -y curl gnupg ca-certificates
+    $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
+    $ sudo apt update
+    $ sudo apt install -y kumomta
+    ```
+
+## Installing from a Dev Repository
+
+If you want to test the latest additions and improvements to KumoMTA, you can instead install from the dev repository on your platform of choice. The dev repository is rebuilt after each commit to the KumoMTA repository, which means the dev repository will always include the latest changes.
+
+!!! warning
+    While we do our best to test all commits, dev repositories should **never** be installed in production environments.
+
+=== "CentOS7"
+
+    !!! note
+        Note that Red Hat full support for RHEL 7 [ended in August
+        2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates)
+        and CentOS 7 full support [ended in August
+        2020](https://wiki.centos.org/About/Product).
+
+        We recommend upgrading to a newer OS as soon as possible.
+
+    ```console
+    $ sudo yum-config-manager --add-repo=\
+        https://openrepo.kumomta.com/files/kumomta-centos.repo
     $ sudo yum install kumomta-dev
     ```
 
