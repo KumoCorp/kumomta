@@ -104,7 +104,7 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
     ```
 
 ## Creating the initial config
-KumoMTA is now installed, but it requires a configuration policy so it knows how to behave. 
+KumoMTA is now installed, but it requires a configuration policy so it knows how to behave.
 The config is written in Lua and should live in /opt/kumomta/etc/policy. It **MUST** be named `init.lua` in order to work with systemctl services, so you should start by editing a file at `/opt/kumomta/etc/policy/init.lua` and populate it with at least the minimal config shown below.  Alternately, there is a more substantial config sample [HERE](https://docs.kumomta.com/userguide/configuration/example/), but you must save it as `init.lua`.
 
 ```lua
@@ -158,8 +158,8 @@ end)
 --[[ End of Non-INIT level config ]]
 --
 ```
- 
-## Start 'er up!
+
+## Starting KumoMTA
 To start KumoMTA you can use the systemd service or start manually.
 
 With systemd:
