@@ -3012,7 +3012,7 @@ checksum = "ffbe84efe2f38dea12e9bfc1f65377fdf03e53a18cb3b995faedf7934c7e785b"
 dependencies = [
  "pem",
  "ring",
- "time 0.3.20",
+ "time",
  "yasna",
 ]
 
@@ -3036,10 +3036,10 @@ dependencies = [
 [[package]]
 name = "redis-cell-impl"
 version = "0.1.0"
-source = "git+https://github.com/wez/redis-cell.git?rev=ec4c4510f01128d34ffa9733ff6fc5fbea116bf4#ec4c4510f01128d34ffa9733ff6fc5fbea116bf4"
+source = "git+https://github.com/wez/redis-cell.git?rev=97d409c3a62f2a0f5518c31fc9b4b65afbce2053#97d409c3a62f2a0f5518c31fc9b4b65afbce2053"
 dependencies = [
  "bitflags",
- "time 0.1.43",
+ "time",
 ]
 
 [[package]]
@@ -3694,7 +3694,6 @@ dependencies = [
  "redis-cell-impl",
  "serde",
  "thiserror",
- "time 0.1.43",
 ]
 
 [[package]]
@@ -3715,16 +3714,6 @@ checksum = "20612db8a13a6c06d57ec83953694185a367e16945f66565e8028d2c0bd76979"
 dependencies = [
  "libc",
  "tikv-jemalloc-sys",
-]
-
-[[package]]
-name = "time"
-version = "0.1.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]
@@ -3971,7 +3960,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09d48f71a791638519505cefafe162606f706c25592e4bde4d97600c0195312e"
 dependencies = [
  "crossbeam-channel",
- "time 0.3.20",
+ "time",
  "tracing-subscriber",
 ]
 
@@ -4611,7 +4600,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
 dependencies = [
- "time 0.3.20",
+ "time",
 ]
 
 [[package]]
@@ -4630,7 +4619,7 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "sha1",
- "time 0.3.20",
+ "time",
  "zstd 0.11.2+zstd.1.5.2",
 ]
 

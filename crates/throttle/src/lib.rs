@@ -4,7 +4,7 @@
 //! among multiple machines.
 use mod_redis::{Cmd, FromRedisValue, RedisConnection, RedisError};
 use once_cell::sync::OnceCell;
-use redis_cell_impl::{MemoryStore, Rate, RateLimiter, RateQuota};
+use redis_cell_impl::{time, MemoryStore, Rate, RateLimiter, RateQuota};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::sync::Mutex;
@@ -117,7 +117,7 @@ fn local_throttle(
         .unwrap();
     let max_rate = Rate::per_period(
         limit as i64,
-        time::Duration::from_std(period).map_err(|err| Error::Generic(format!("{err:#}")))?,
+        time::Duration::try_from(period).map_err(|err| Error::Generic(format!("{err:#}")))?,
     );
     let mut limiter = RateLimiter::new(
         &mut *store,
@@ -134,12 +134,12 @@ fn local_throttle(
     // If either time had a partial component, bump it up to the next full
     // second because otherwise a fast-paced caller could try again too
     // early.
-    let mut retry_after = rate_limit_result.retry_after.num_seconds();
-    if rate_limit_result.retry_after.num_milliseconds() > 0 {
+    let mut retry_after = rate_limit_result.retry_after.whole_seconds();
+    if rate_limit_result.retry_after.subsec_milliseconds() > 0 {
         retry_after += 1
     }
-    let mut reset_after = rate_limit_result.reset_after.num_seconds();
-    if rate_limit_result.reset_after.num_milliseconds() > 0 {
+    let mut reset_after = rate_limit_result.reset_after.whole_seconds();
+    if rate_limit_result.reset_after.subsec_milliseconds() > 0 {
         reset_after += 1
     }
 
@@ -251,7 +251,7 @@ mod test {
             "throttled after {throttled_iter} iterations for \
                  limit {limit}. diff={diff}. tolerance {tolerance}"
         );
-        let max_rate = Rate::per_period(limit as i64, time::Duration::from_std(period).unwrap());
+        let max_rate = Rate::per_period(limit as i64, time::Duration::try_from(period).unwrap());
         println!("max_rate: {max_rate:?}");
 
         assert!(
