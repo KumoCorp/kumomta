@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 base64 = "0.13"
 bounce-classify = {path="../bounce-classify"}
-chrono = {version="0.4", features=["serde"]}
+chrono = {version="0.4", default-features=false, features=["serde"]}
 mailparse = "0.14"
 #message = {path="../message"}
 rfc5321 = {path="../rfc5321"}

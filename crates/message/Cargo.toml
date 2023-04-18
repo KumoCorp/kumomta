@@ -10,7 +10,7 @@ anyhow = "1.0"
 base64 = "0.13"
 bitflags = "1.3"
 config = {path="../config"}
-chrono = {version="0.4", features=["serde"]}
+chrono = {version="0.4", default-features=false, features=["serde"]}
 chrono-tz = {version="0.8", features=["serde"]}
 data-loader = {path="../data-loader"}
 futures = "0.3"

@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-chrono = "0.4"
+chrono = {version="0.4", default-features=false}
 getrandom = "0.2"
 jwalk = "0.8"
 lazy_static = "1.4"

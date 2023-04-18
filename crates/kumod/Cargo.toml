@@ -16,7 +16,7 @@ base64 = "0.13"
 bounce-classify = {path="../bounce-classify"}
 caps = "0.5"
 cgroups-rs = "0.3"
-chrono = {version="0.4", features=["serde"]}
+chrono = {version="0.4", default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}

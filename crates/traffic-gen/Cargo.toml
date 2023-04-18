@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-chrono = "0.4"
+chrono = {version="0.4", default-features=false, features=["clock"]}
 clap = {version="4.1", features=["derive"]}
 futures = "0.3"
 humansize = "2.1" # for printing
