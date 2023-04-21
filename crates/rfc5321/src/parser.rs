@@ -319,7 +319,7 @@ impl ToString for Domain {
             Self::Name(name) => name.to_string(),
             Self::V4(addr) => format!("[{addr}]"),
             Self::V6(addr) => format!("[IPv6:{addr}]"),
-            Self::Tagged { tag, literal } => format!("[{tag}:{literal}"),
+            Self::Tagged { tag, literal } => format!("[{tag}:{literal}]"),
         }
     }
 }
@@ -554,6 +554,32 @@ mod test {
         );
 
         assert_eq!(
+            Parser::parse_command("Rcpt To:<admin@[2001:aaaa:bbbbb]>").unwrap(),
+            Command::RcptTo {
+                address: ForwardPath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "admin".to_string(),
+                        domain: Domain::Tagged {
+                            tag: "2001".to_string(),
+                            literal: "aaaa:bbbbb".to_string()
+                        }
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
+
+        assert_eq!(
+            Domain::Tagged {
+                tag: "2001".to_string(),
+                literal: "aaaa:bbbbb".to_string()
+            }
+            .to_string(),
+            "[2001:aaaa:bbbbb]".to_string()
+        );
+
+        assert_eq!(
             Parser::parse_command("Rcpt To:<\"asking for trouble\"@host.name>").unwrap(),
             Command::RcptTo {
                 address: ForwardPath::Path(MailPath {
@@ -682,6 +708,15 @@ mod test {
                 }),
                 parameters: vec![],
             }
+        );
+
+        assert_eq!(
+            Mailbox {
+                local_part: "user".to_string(),
+                domain: Domain::V6("::1".to_string())
+            }
+            .to_string(),
+            "user@[IPv6:::1]".to_string()
         );
 
         assert_eq!(
