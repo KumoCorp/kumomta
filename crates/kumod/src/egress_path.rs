@@ -608,6 +608,8 @@ impl Dispatcher {
             return Ok(());
         }
 
+        let mut connection_failures = vec![];
+
         loop {
             if !dispatcher.wait_for_message().await? {
                 // No more messages within our idle time; we can close
@@ -616,9 +618,34 @@ impl Dispatcher {
                 return Ok(());
             }
             if let Err(err) = dispatcher.attempt_connection().await {
+                connection_failures.push(format!("{err:#}"));
                 dispatcher.metrics.connection_gauge.dec();
                 dispatcher.metrics.global_connection_gauge.dec();
                 if dispatcher.addresses.is_empty() {
+                    if let Some(msg) = dispatcher.msg.take() {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: &dispatcher.name,
+                            peer_address: None,
+                            response: Response {
+                                code: 400,
+                                enhanced_code: None,
+                                content: format!(
+                                    "KumoMTA internal: \
+                                     failed to connect to any candidate \
+                                     hosts: {}",
+                                    connection_failures.join(", ")
+                                ),
+                                command: None,
+                            },
+                            egress_pool: Some(&dispatcher.egress_pool),
+                            egress_source: Some(&dispatcher.egress_source.name),
+                            relay_disposition: None,
+                        })
+                        .await;
+                    }
+
                     if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
                         > dispatcher
                             .path_config
@@ -632,6 +659,8 @@ impl Dispatcher {
                 // Try the next candidate MX address
                 continue;
             }
+
+            connection_failures.clear();
             consecutive_connection_failures.store(0, Ordering::SeqCst);
             dispatcher
                 .deliver_message()
