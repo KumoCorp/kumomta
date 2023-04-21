@@ -2,7 +2,7 @@ use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 use trust_dns_resolver::error::{ResolveErrorKind, ResolveResult};
@@ -35,6 +35,57 @@ fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
 
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+        if domain_name.starts_with('[') {
+            // It's a literal address, no DNS lookup necessary
+
+            if !domain_name.ends_with(']') {
+                anyhow::bail!(
+                    "domain_name `{domain_name}` is a malformed literal \
+                     domain with no trailing `]`"
+                );
+            }
+
+            let lowered = domain_name.to_ascii_lowercase();
+            let literal = &lowered[1..lowered.len() - 1];
+
+            if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
+                match v6_literal.parse::<Ipv6Addr>() {
+                    Ok(addr) => {
+                        let mut by_pref = HashMap::new();
+                        by_pref.insert(1, vec![addr.to_string()]);
+                        return Ok(Arc::new(Self {
+                            domain_name: domain_name.to_string(),
+                            hosts: vec![addr.to_string()],
+                            site_name: addr.to_string(),
+                            by_pref,
+                        }));
+                    }
+                    Err(err) => {
+                        anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
+                    }
+                }
+            }
+
+            // Try to interpret the literal as either an IPv4 or IPv6 address.
+            // Note that RFC5321 doesn't actually permit using an untagged
+            // IPv6 address, so this is non-conforming behavior.
+            match literal.parse::<IpAddr>() {
+                Ok(addr) => {
+                    let mut by_pref = HashMap::new();
+                    by_pref.insert(1, vec![addr.to_string()]);
+                    return Ok(Arc::new(Self {
+                        domain_name: domain_name.to_string(),
+                        hosts: vec![addr.to_string()],
+                        site_name: addr.to_string(),
+                        by_pref,
+                    }));
+                }
+                Err(err) => {
+                    anyhow::bail!("invalid address: `{literal}`: {err:#}");
+                }
+            }
+        }
+
         let name_fq = fully_qualify(domain_name)?;
         if let Some(mx) = MX_CACHE.lock().unwrap().get(&name_fq) {
             return Ok(mx);
@@ -93,6 +144,16 @@ impl MailExchanger {
             if mx_host == "." {
                 continue;
             }
+
+            // Handle the literal address case
+            if let Ok(addr) = mx_host.parse::<IpAddr>() {
+                result.push(ResolvedAddress {
+                    name: mx_host.to_string(),
+                    addr,
+                });
+                continue;
+            }
+
             match ip_lookup(mx_host).await {
                 Err(err) => {
                     tracing::error!("failed to resolve {mx_host}: {err:#}");
@@ -326,6 +387,99 @@ fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[tokio::test]
+    async fn literal_resolve() {
+        let v4_loopback = MailExchanger::resolve("[127.0.0.1]").await.unwrap();
+        k9::snapshot!(
+            &v4_loopback,
+            r#"
+MailExchanger {
+    domain_name: "[127.0.0.1]",
+    hosts: [
+        "127.0.0.1",
+    ],
+    site_name: "127.0.0.1",
+    by_pref: {
+        1: [
+            "127.0.0.1",
+        ],
+    },
+}
+"#
+        );
+        k9::snapshot!(
+            v4_loopback.resolve_addresses().await,
+            r#"
+[
+    ResolvedAddress {
+        name: "127.0.0.1",
+        addr: 127.0.0.1,
+    },
+]
+"#
+        );
+
+        let v6_loopback_non_conforming = MailExchanger::resolve("[::1]").await.unwrap();
+        k9::snapshot!(
+            &v6_loopback_non_conforming,
+            r#"
+MailExchanger {
+    domain_name: "[::1]",
+    hosts: [
+        "::1",
+    ],
+    site_name: "::1",
+    by_pref: {
+        1: [
+            "::1",
+        ],
+    },
+}
+"#
+        );
+        k9::snapshot!(
+            v6_loopback_non_conforming.resolve_addresses().await,
+            r#"
+[
+    ResolvedAddress {
+        name: "::1",
+        addr: ::1,
+    },
+]
+"#
+        );
+
+        let v6_loopback = MailExchanger::resolve("[IPv6:::1]").await.unwrap();
+        k9::snapshot!(
+            &v6_loopback,
+            r#"
+MailExchanger {
+    domain_name: "[IPv6:::1]",
+    hosts: [
+        "::1",
+    ],
+    site_name: "::1",
+    by_pref: {
+        1: [
+            "::1",
+        ],
+    },
+}
+"#
+        );
+        k9::snapshot!(
+            v6_loopback.resolve_addresses().await,
+            r#"
+[
+    ResolvedAddress {
+        name: "::1",
+        addr: ::1,
+    },
+]
+"#
+        );
+    }
 
     #[test]
     fn name_factoring() {

@@ -978,6 +978,7 @@ name = "dns-resolver"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "k9",
  "kumo-log-types",
  "lazy_static",
  "lruttl",
