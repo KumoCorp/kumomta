@@ -232,7 +232,7 @@ impl Logger {
         }
     }
 
-    pub fn extract_fields(
+    pub async fn extract_fields(
         &self,
         msg: &Message,
     ) -> (HashMap<String, Value>, HashMap<String, Value>) {
@@ -240,6 +240,8 @@ impl Logger {
         let mut meta = HashMap::new();
 
         if !self.headers.is_empty() {
+            msg.load_data_if_needed().await.ok();
+
             let mut all_headers: HashMap<String, Vec<Value>> = HashMap::new();
             for (name, value) in msg.get_all_headers().unwrap_or_else(|_| vec![]) {
                 all_headers
@@ -297,6 +299,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     if let Some(logger) = Logger::get() {
         let mut feedback_report = None;
 
+        msg.load_meta_if_needed().await.ok();
+
         if kind == RecordType::Reception {
             if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
                 if let Ok(Some(report)) = msg.parse_rfc5965() {
@@ -310,7 +314,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             return;
         }
 
-        let (headers, meta) = logger.extract_fields(&msg);
+        let (headers, meta) = logger.extract_fields(&msg).await;
 
         let record = JsonLogRecord {
             kind,
