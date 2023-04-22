@@ -73,6 +73,7 @@ kumo.on('init', function()
 
   kumo.start_esmtp_listener {
     listen = '0.0.0.0:25',
+    hostname = 'mail.example.com',
 
     -- override the default set of relay hosts
     relay_hosts = { '127.0.0.1', '192.168.1.0/24' },

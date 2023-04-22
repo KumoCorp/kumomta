@@ -309,14 +309,14 @@ about the `supplemental_trace` field.
         "arrival_date": "2005-03-08T18:00:00Z",
         "incidents": nil,
         "original_envelope_id": nil,
-        "original_mail_from": "<somespammer@example.net>",
+        "original_mail_from": "<somesender@example.net>",
         "reporting_mta": {
             "mta_type": "dns",
             "name": "mail.example.com",
         },
         "source_ip": "192.0.2.1",
         "authentication_results": [
-            "mail.example.com; spf=fail smtp.mail=somespammer@example.com",
+            "mail.example.com; spf=fail smtp.mail=somesender@example.com",
         ],
         "original_rcpto_to": [
             "<user@example.com>",
@@ -340,7 +340,7 @@ about the `supplemental_trace` field.
 
         // The original message or message headers, if provided in
         // the report
-        "original_message": "From: <somespammer@example.net>
+        "original_message": "From: <somesender@example.net>
 Received: from mailserver.example.net (mailserver.example.net
     [192.0.2.1]) by example.com with ESMTP id M63d4137594e46;
     Tue, 08 Mar 2005 14:00:00 -0400
