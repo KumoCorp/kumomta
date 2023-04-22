@@ -150,7 +150,8 @@ TOC = [
                         "userguide/configuration/bounce.md",
                     ),
                     Page(
-                        "Configuring Feedback Loop Processing", "userguide/configuration/fbl.md"
+                        "Configuring Feedback Loop Processing",
+                        "userguide/configuration/fbl.md",
                     ),
                     Page(
                         "Configuring HTTP Listeners",
@@ -160,7 +161,10 @@ TOC = [
                         "Configuring SMTP Listeners",
                         "userguide/configuration/smtplisteners.md",
                     ),
-                    Page("Configuring Inbound and Relay Domains", "userguide/configuration/domains.md"),
+                    Page(
+                        "Configuring Inbound and Relay Domains",
+                        "userguide/configuration/domains.md",
+                    ),
                     Page(
                         "Configuring Sending IPs",
                         "userguide/configuration/sendingips.md",

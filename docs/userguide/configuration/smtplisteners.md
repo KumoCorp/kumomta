@@ -12,10 +12,10 @@ kumo.start_esmtp_listener {
   hostname = 'mail.example.com',
   relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
   ['send.example.com'] = {
-      -- relay to anywhere, so long as the sender domain is send.example.com
-      -- and the connected peer matches one of the listed CIDR blocks
-      relay_from = { '10.0.0.0/24' },
-    },
+    -- relay to anywhere, so long as the sender domain is send.example.com
+    -- and the connected peer matches one of the listed CIDR blocks
+    relay_from = { '10.0.0.0/24' },
+  },
 }
 ```
 
