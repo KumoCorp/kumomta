@@ -121,8 +121,8 @@ In addition, it should be noted that the MX record for your domain will still be
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-  if msg:recipient():domain() == "bounce.examplecorp.com" then
-    msg:set_queue('[192.168.1.100]')
+  if msg:recipient():domain() == 'bounce.examplecorp.com' then
+    msg:set_queue '[192.168.1.100]'
   end
 end)
 ```

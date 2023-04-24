@@ -76,8 +76,8 @@ kumo.on('init', function()
   kumo.define_egress_pool {
     name = 'SharedPool',
     entries = {
-      { name = 'ip-1', weight= 1 },
-      {name = 'ip-2', weight = 2 },
+      { name = 'ip-1', weight = 1 },
+      { name = 'ip-2', weight = 2 },
     },
   }
 end)
