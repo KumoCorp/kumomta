@@ -143,7 +143,7 @@ Once the `DATA` stage has transmitted the message content, and after the
 [smtp_server_message_received](../events/smtp_server_message_received.md) event
 has been processed, and the reception logged (which is where OOB and FBL data
 is parsed and logged), the recipient domain is resolved from the domain list
-again; if `relay` is `false` then the message will not be spooled and that will
+again; if `relay_to` is `false` then the message will not be spooled and that will
 be the end of its processing.
 
 ## hostname

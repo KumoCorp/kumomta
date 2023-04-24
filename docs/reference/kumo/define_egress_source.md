@@ -36,7 +36,7 @@ Optional string.
 If set, specifies the local IP address that should be used as the source of any
 connection that will be made from this source.
 
-In not specified, the kernel will select the IP address automatically.
+If not specified, the kernel will select the IP address automatically.
 
 ```lua
 kumo.on('init', function()
@@ -44,6 +44,25 @@ kumo.on('init', function()
   kumo.define_egress_source {
     name = 'ip-1',
     source_address = '10.0.0.1',
+  }
+end)
+```
+
+## ehlo_domain
+
+Optional string.
+
+If set, specifies the hostname to be passed with the EHLO command when the server connects to a remote host.
+
+If not specified, the kernel will use the server's hostname.
+
+```lua
+kumo.on('init', function()
+  -- Make a source that will emit from 10.0.0.1
+  kumo.define_egress_source {
+    name = 'ip-1',
+    source_address = '10.0.0.1',
+    ehlo_domain = 'mta1.examplecorp.com',
   }
 end)
 ```

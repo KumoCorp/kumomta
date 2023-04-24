@@ -9,11 +9,15 @@ The content of this example will be detailed in the following sections of this c
 ## The Example Server Policy
 
 ```lua
+-- NOTE: This example policy is not meant to be used as-is, and will require some editing.
+-- We strongly recommend reading the User Guide chapter on configuration before working with
+-- this example policy. See https://docs.kumomta.com/userguide/configuration
+
 -- This require statement is needed in any script passed to KumoMTA.
 -- Includes from this policy script will not need this declared again.
 local kumo = require 'kumo'
 
--- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A REFRESH WHEN CHANGED.
+-- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A SERVER RESTART WHEN CHANGED.
 kumo.on('init', function()
   -- Define the default "data" spool location; this is where
   -- message bodies will be stored.

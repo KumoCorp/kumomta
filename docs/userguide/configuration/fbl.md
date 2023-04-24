@@ -4,6 +4,8 @@ Feedback Loops are provided by several mailbox providers, including AOL, Hotmail
 
 The mailbox providers send registered senders formatted abuse report messages to a pre-configured address in ARF format, but those messages typically do not include information that can help senders suppress future sends to the recipient that reported the message. KumoMTA can not only process and log ARF messages, but it can also inject tracking headers into the message that it can later decode to preserve recipient data needed for unsubscribing recipients that have reported messages as spam.
 
+For more information on Feedback Loops and how to apply for them, see [https://www.emailfeedbackloops.com/](https://www.emailfeedbackloops.com/).
+
 ## Configuring Tracking Headers
 
 By default, KumoMTA will include a supplemental tracking header that will be extracted as part of the ARF message processing. This setting is controlled by the *supplemental_header* option in the **kumo.start_esmtp_listener** function. Additional metadata can be preserved by listing the metadata keys desired in the *include_meta_names* argument.
@@ -49,6 +51,42 @@ kumo.start_esmtp_listener {
 ```
 
 The preceding example designates that messages injected from remote hosts destined for fbl.examplecorp.com will be accepted and then processed as ARF abuse report messages.
+
+## Message Disposition After Processing
+
+For most use cases, the desired outcome after a message is processed is to discard the message, but in some cases it can be desirable to forward the message for further processing or storage, especially during testing and migration.
+
+To queue a message after processing, add `relay_to = true` to the domain configuration:
+
+```lua
+kumo.start_esmtp_listener {
+  listen = '0.0.0.0:25',
+
+  -- override the default set of relay hosts
+  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
+
+  -- Configure the domains that are allowed for outbound & inbound relay,
+  -- Out-Of-Band bounces, and Feedback Loop Reports.
+  -- See https://docs.kumomta.com/userguide/configuration/domains/
+  domains = {
+    ['fbl.examplecorp.com'] = {
+      -- accept and log ARF feedback reports sent to fbl.examplecorp.com
+      log_arf = true,
+      relay_to = true,
+    },
+  },
+}
+```
+
+In addition, it should be noted that the MX record for your domain will still be pointed at the KumoMTA instance, which means that in order to avoid a mail loop you will need to configure routing for the domain to specify where the message should be relayed to from the KumoMTA instance, by overriding the destination queue for the message in the *smtp_server_message_received* event:
+
+```lua
+kumo.on('smtp_server_message_received', function(msg)
+  if msg:recipient():domain() == "fbl.examplecorp.com" then
+    msg:set_queue('[192.168.1.100]')
+  end
+end)
+```
 
 ## FBL Message Logs
 

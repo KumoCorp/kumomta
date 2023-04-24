@@ -146,36 +146,32 @@ TOC = [
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
                     Page(
+                        "Configuring SMTP Listeners",
+                        "userguide/configuration/smtplisteners.md",
+                    ),
+                    Page("Configuring Inbound and Relay Domains", "userguide/configuration/domains.md"),
+                                        Page(
                         "Configuring Bounce Classification",
                         "userguide/configuration/bounce.md",
                     ),
                     Page(
-                        "Configuring Feedback Loop Processing",
-                        "userguide/configuration/fbl.md",
+                        "Configuring Feedback Loop Processing", "userguide/configuration/fbl.md"
                     ),
                     Page(
                         "Configuring HTTP Listeners",
                         "userguide/configuration/httplisteners.md",
                     ),
                     Page(
-                        "Configuring SMTP Listeners",
-                        "userguide/configuration/smtplisteners.md",
-                    ),
-                    Page(
-                        "Configuring Inbound and Relay Domains",
-                        "userguide/configuration/domains.md",
-                    ),
-                    Page(
                         "Configuring Sending IPs",
                         "userguide/configuration/sendingips.md",
                     ),
                     Page(
-                        "Configuring Traffic Shaping",
-                        "userguide/configuration/trafficshaping.md",
-                    ),
-                    Page(
                         "Configuring Queue Management",
                         "userguide/configuration/queuemanagement.md",
+                    ),
+                    Page(
+                        "Configuring Traffic Shaping",
+                        "userguide/configuration/trafficshaping.md",
                     ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
                 ],
