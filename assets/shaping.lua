@@ -24,8 +24,10 @@ Create a `/opt/kumomta/etc/shaping.json` with contents like:
     // Entries that are themselves objects are considered to be
     // source configuration. These will take precendence over
     // the more general configuration for the domain/site
-    "source-0": {
-      "connection_limit": 5
+    "sources": {
+      "source-0": {
+        "connection_limit": 5
+      }
     }
   }
 }
@@ -55,8 +57,8 @@ function mod:setup_json()
       config.mx_rollup = nil
 
       for k, v in pairs(config) do
-        if type(v) == 'table' then
-          entry.sources[k] = v
+        if k == 'sources' then
+          entry.sources = v
         else
           entry.params[k] = v
         end
@@ -88,6 +90,10 @@ function mod:setup_json()
     local options = by_site or by_domain
 
     local params = {}
+    -- apply basic/default configuration
+    merge_into(data.by_domain['default'], params)
+
+    -- then any overrides based on the site, domain, source
     if options then
       merge_into(options.params, params)
       merge_into(options.sources[egress_source], params)
