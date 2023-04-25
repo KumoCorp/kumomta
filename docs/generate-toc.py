@@ -195,10 +195,6 @@ TOC = [
                         "userguide/operation/httpinjection.md",
                     ),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
-                    Page("Handling Out-of-Band Bounces", "userguide/operation/oob.md"),
-                    Page(
-                        "Handling Feedback Loop Messages", "userguide/operation/fbl.md"
-                    ),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],
             ),

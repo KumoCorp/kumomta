@@ -84,3 +84,9 @@ end)
 ```
 
 For more information, see the [define_egress_pool](../../reference/kumo/define_egress_pool.md) chapter of the Reference Manual.
+
+## Assigning Messages to Pools
+
+It's not enough to simply create an Egress Source and assign it to an Egress Pool, the server requires explicit logic to know which message is assigned to which Egress Pool.
+
+This logic occurs in the events related to queue management, see the [Queue Management](./queuemanagement.md#configuring-egress-pool-assignment) chapter for more informaton.
