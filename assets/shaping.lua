@@ -18,7 +18,7 @@ Create a `/opt/kumomta/etc/shaping.json` with contents like:
 ```json
 {
   "gmail.com": {
-    "mx_rollup": true, // if true, shared with other domains with same mx
+    // "mx_rollup": false, // if false, is NOT shared with other domains with same mx
     "connection_limit": 3,
 
     // Entries that are themselves objects are considered to be
@@ -53,7 +53,7 @@ function mod:setup_json()
         params = {},
       }
 
-      local mx_rollup = config.mx_rollup
+      local mx_rollup = config.mx_rollup or true
       config.mx_rollup = nil
 
       for k, v in pairs(config) do
