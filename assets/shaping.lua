@@ -43,6 +43,7 @@ kumo.on('get_egress_path_config', shaping:setup_json())
 function mod:setup_json()
   local function load_shaping_data(filename)
     local data = kumo.json_load(filename)
+    local site_to_domains = {}
     local result = {
       by_site = {},
       by_domain = {},
@@ -55,6 +56,9 @@ function mod:setup_json()
 
       local mx_rollup = config.mx_rollup or true
       config.mx_rollup = nil
+      if domain == 'default' then
+        mx_rollup = false
+      end
 
       for k, v in pairs(config) do
         if k == 'sources' then
@@ -67,10 +71,39 @@ function mod:setup_json()
       if mx_rollup then
         local site_name = kumo.dns.lookup_mx(domain).site_name
         result.by_site[site_name] = entry
+
+        local site_domains = site_to_domains[site_name] or {}
+        table.insert(site_domains, domain)
+        site_to_domains[site_name] = site_domains
       else
         result.by_domain[domain] = entry
       end
     end
+
+    local conflicted = {}
+    for site, domains in pairs(site_to_domains) do
+      if #domains > 1 then
+        domains = table.concat(domains, ', ')
+        table.insert(conflicted, domains)
+        print(
+          'Multiple domains rollup to the same site: '
+            .. site
+            .. ' -> '
+            .. domains
+        )
+      end
+    end
+
+    if conflicted then
+      -- This will generate a transient failure for every message
+      -- until the issue is resolved
+      error(
+        'multiple conflicting rollup domains '
+          .. table.concat(conflicted, ' ')
+      )
+    end
+
+    -- print(kumo.json_encode(result))
     return result
   end
 
@@ -89,7 +122,7 @@ function mod:setup_json()
     local params = {}
 
     -- apply basic/default configuration
-    merge_into(data.by_domain['default'], params)
+    merge_into(data.by_domain['default'].params, params)
 
     -- then site config
     if by_site then
@@ -109,6 +142,8 @@ function mod:setup_json()
     if by_domain then
       merge_into(by_domain.sources[egress_source], params)
     end
+
+    -- print("going to make egress path", kumo.json_encode(params))
 
     return kumo.make_egress_path(params)
   end
