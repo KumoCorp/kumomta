@@ -161,6 +161,28 @@ kumo.on('init', function()
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
 end) -- END OF THE INIT EVENT
 
+-- Configure queue management settings. These are not throttles, but instead
+-- how messages flow through the queues. This example assigns pool based
+-- on tenant name, and customized message expiry for a specific tenant.
+-- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
+
+local TENANT_PARAMS = {
+  TenantOne = {
+    max_age = '5 minutes',
+  },
+}
+
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  local params = {
+    max_age = '5 minutes',
+    retry_interval = '10 minutes',
+    max_retry_interval = '100 minutes',
+    egress_pool = tenant,
+  }
+  merge_into(TENANT_PARAMS[tenant] or {}, params)
+  return kumo.make_queue_config(params)
+end)
+
 -- Configure traffic shaping, typically on a global basis for each
 -- destination domain. Throttles will apply on a per-ip basis.
 -- See https://docs.kumomta.com/userguide/configuration/trafficshaping/
@@ -249,25 +271,6 @@ kumo.on('get_egress_path_config', function(domain, egress_source, site_name)
   merge_into(domain_params, params)
   merge_into(source_params, params)
   return kumo.make_egress_path(params)
-end)
-
--- Configure queue management settings. These are not throttles, but instead
--- how messages flow through the queues. This example assigns pool based
--- on tenant name, and customized message expiry for a specific tenant.
--- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
-
-local TENANT_PARAMS = {
-  TenantOne = {
-    max_age = '5 minutes',
-  },
-}
-
-kumo.on('get_queue_config', function(domain, tenant, campaign)
-  local params = {
-    egress_pool = tenant,
-  }
-  merge_into(TENANT_PARAMS[tenant] or {}, params)
-  return kumo.make_queue_config(params)
 end)
 
 -- Configure DKIM signing. In this case we use a simple approach of a path
