@@ -86,17 +86,28 @@ function mod:setup_json()
     local by_site = data.by_site[site_name]
     local by_domain = data.by_domain[domain]
 
-    -- domain config takes precedence over shared site config
-    local options = by_domain or by_site
-
     local params = {}
+
     -- apply basic/default configuration
     merge_into(data.by_domain['default'], params)
 
-    -- then any overrides based on the site, domain, source
-    if options then
-      merge_into(options.params, params)
-      merge_into(options.sources[egress_source], params)
+    -- then site config
+    if by_site then
+      merge_into(by_site.params, params)
+    end
+    -- then domain config
+    if by_domain then
+      merge_into(by_domain.params, params)
+    end
+
+    -- then source config for the site
+    if by_site then
+      merge_into(by_site.sources[egress_source], params)
+    end
+
+    -- then source config for the domain
+    if by_domain then
+      merge_into(by_domain.sources[egress_source], params)
     end
 
     return kumo.make_egress_path(params)
