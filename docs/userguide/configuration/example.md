@@ -183,95 +183,12 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config(params)
 end)
 
--- Configure traffic shaping, typically on a global basis for each
--- destination domain. Throttles will apply on a per-ip basis.
--- See https://docs.kumomta.com/userguide/configuration/trafficshaping/
+-- Configure traffic shaping.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
 
--- Throttles are part of an egress path, which is a combination of source
--- IP (egress_source) and destination. While an individual message will have
--- a named destination domain, queues are defined by using a site_name, which
--- is a pattern string that represents all MXes for the destination domain,
--- such as (alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com
--- This means that we configure throttles at the site_name level, which we
--- can map from the recipient domain name. This example stores throttle
--- configuration in a pair of lua tables that contain either the destination
--- domain, or the site name, depending on whether we expect the domain to
--- have a single domain name for all MX records, or to roll up many domains.
-
--- For each domain in the table, render the site name for lookup.
--- This will populate the MX_ROLLUP table with the correct queue identifiers
--- for all domains that are hosted by that top level domain. Note we're just
--- listing one top-level domain, not every possible MX pattern.
-
--- Once lookup is done, the table will look similar to this:
--- local MX_ROLLUP = {
---   ["gmail.com"] = "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com",
---   ["yahoo.com"] = "(mta5|mta6|mta7).am0.yahoodns.net"
--- }
-
-local MX_ROLLUP = {}
-for _, domain in ipairs { 'gmail.com', 'yahoo.com', 'outlook.com' } do
-  MX_ROLLUP[domain] = kumo.dns.lookup_mx(domain).site_name
-end
-
--- Global domain default traffic shaping rules.
--- This table is keyed by either site name or domain name.
--- Site names are looked up first, then domain names.
-local SHAPE_BY_DOMAIN = {
-  [MX_ROLLUP['gmail.com']] = {
-    connection_limit = 3,
-    max_deliveries_per_connection = 50,
-  },
-  [MX_ROLLUP['outlook.com']] = {
-    connection_limit = 10,
-  },
-  [MX_ROLLUP['yahoo.com']] = {
-    connection_limit = 10,
-    max_deliveries_per_connection = 20,
-  },
-  ['comcast.net'] = {
-    connection_limit = 2,
-    max_deliveries_per_connection = 100,
-    max_message_rate = '1/second',
-  },
-}
-
--- Per IP/Domain traffic shaping rules.
--- This table is keyed by the tuple of (site_name, source) or (domain, source).
--- Site names are looked up first, then domain names.
--- Values override/overlay those in SHAPE_BY_DOMAIN.
-local SHAPE_BY_SOURCE = {
-  [{ MX_ROLLUP['gmail.com'], 'ip-1' }] = {
-    max_message_rate = '1000/hr',
-  },
-  [{ 'comcast.net', 'ip-2' }] = {
-    max_message_rate = '10/second',
-  },
-}
-
--- Helper function that merges the values from `src` into `dest`
-function merge_into(src, dest)
-  for k, v in pairs(src) do
-    dest[k] = v
-  end
-end
-
-kumo.on('get_egress_path_config', function(domain, egress_source, site_name)
-  -- resolve parameters first based on the site, if any,
-  -- then based on the domain, if any,
-  -- otherwise use the system defaults
-  local domain_params = SHAPE_BY_DOMAIN[site_name]
-    or SHAPE_BY_DOMAIN[domain]
-    or {}
-  local source_params = SHAPE_BY_SOURCE[{ site_name, egress_source }]
-    or SHAPE_BY_SOURCE[{ domain, egress_source }]
-    or {}
-  -- compose the source params over the domain params
-  local params = {}
-  merge_into(domain_params, params)
-  merge_into(source_params, params)
-  return kumo.make_egress_path(params)
-end)
+local shaping = require 'shaping'
+kumo.on('get_egress_path_config', shaping:setup_json())
 
 -- Configure DKIM signing. In this case we use a simple approach of a path
 -- defined by tokens, with each domain configured in the definition. This is
