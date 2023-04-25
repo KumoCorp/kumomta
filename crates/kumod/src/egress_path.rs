@@ -194,21 +194,22 @@ impl EgressPathManager {
     ) -> anyhow::Result<EgressPathHandle> {
         let components = QueueNameComponents::parse(queue_name);
         let mx = MailExchanger::resolve(components.domain).await?;
-        let name = &mx.site_name;
 
-        let name = format!("{egress_source}->{name}");
+        let name = format!("{egress_source}->{}", mx.site_name);
         let egress_source = EgressSource::resolve(egress_source)?;
 
         let mut config = load_config().await?;
 
-        let path_config: EgressPathConfig = config.call_callback(
-            "get_egress_path_config",
-            (
-                components.domain,
-                egress_source.name.to_string(),
-                name.to_string(),
-            ),
-        )?;
+        let path_config: EgressPathConfig = config
+            .async_call_callback(
+                "get_egress_path_config",
+                (
+                    components.domain,
+                    egress_source.name.to_string(),
+                    mx.site_name.to_string(),
+                ),
+            )
+            .await?;
 
         let mut manager = Self::get().await;
         let activity = Activity::get()?;
