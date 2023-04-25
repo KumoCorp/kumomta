@@ -86,8 +86,8 @@ function mod:setup_json()
     local by_site = data.by_site[site_name]
     local by_domain = data.by_domain[domain]
 
-    -- site config takes precedence over domain config
-    local options = by_site or by_domain
+    -- domain config takes precedence over shared site config
+    local options = by_domain or by_site
 
     local params = {}
     -- apply basic/default configuration
