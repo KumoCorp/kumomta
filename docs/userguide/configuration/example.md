@@ -13,6 +13,8 @@ The content of this example will be detailed in the following sections of this c
 -- We strongly recommend reading the User Guide chapter on configuration before working with
 -- this example policy. See https://docs.kumomta.com/userguide/configuration
 
+-- This file must be written to /opt/kumomta/etc/policy/init.lua for use.
+
 -- This require statement is needed in any script passed to KumoMTA.
 -- Includes from this policy script will not need this declared again.
 local kumo = require 'kumo'
@@ -187,7 +189,7 @@ end)
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
 
-local shaping = require 'shaping'
+local shaping = require 'policy-extras.shaping'
 kumo.on('get_egress_path_config', shaping:setup_json())
 
 -- Configure DKIM signing. In this case we use a simple approach of a path

@@ -26,7 +26,12 @@ Messages in the Ready Queue are grouped into separate queues based on the combin
 
 While you can use whatever Lua policy you see fit to determine which traffic-shaping rules you wish to use for sending, the shaping.lua policy file is available as both an example of how rules can be stored and retrieved from a data source, and as a default set of traffic-shaping rules.
 
-The current version of the shaping.lua file is available at [https://github.com/KumoCorp/kumomta/blob/main/assets/shaping.lua](https://github.com/KumoCorp/kumomta/blob/main/assets/shaping.lua). It should be written to *`/opt/kumomta/etc/shaping.lua`*.
+To use the shaping.lua helper, add the following to your init.lua, outside the init event:
+
+```lua
+local shaping = require 'policy-extras.shaping'
+kumo.on('get_egress_path_config', shaping:setup_json())
+```
 
 The shaping.lua policy reads a JSON file, which needs to be written to *`/opt/kumomta/etc/shaping.json`*, and which is structured as follows:
 
