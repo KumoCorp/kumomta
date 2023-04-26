@@ -350,10 +350,12 @@ impl Queue {
         let mut config = load_config().await?;
 
         let components = QueueNameComponents::parse(&name);
-        let queue_config: QueueConfig = config.call_callback(
-            "get_queue_config",
-            (components.domain, components.tenant, components.campaign),
-        )?;
+        let queue_config: QueueConfig = config
+            .async_call_callback(
+                "get_queue_config",
+                (components.domain, components.tenant, components.campaign),
+            )
+            .await?;
 
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref())?;
         let rr = EgressPoolRoundRobin::new(&pool);
