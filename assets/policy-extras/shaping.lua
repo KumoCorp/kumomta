@@ -34,7 +34,7 @@ Create a `/opt/kumomta/etc/shaping.json` with contents like:
 ```
 
 ---
-local shaping = require 'shaping'
+local shaping = require 'policy-extras.shaping'
 kumo.on('get_egress_path_config', shaping:setup_json())
 ---
 

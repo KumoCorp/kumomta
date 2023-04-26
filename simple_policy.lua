@@ -1,5 +1,7 @@
 local kumo = require 'kumo'
 
+local shaping = require 'policy-extras.shaping'
+
 -- Called on startup to initialize the system
 kumo.on('init', function()
   -- Define a listener.

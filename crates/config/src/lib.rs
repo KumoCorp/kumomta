@@ -150,6 +150,11 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         }
 
         prefix_path(&mut path_array, "/opt/kumomta/etc/policy");
+        prefix_path(&mut path_array, "/opt/kumomta/share");
+
+        #[cfg(debug_assertions)]
+        prefix_path(&mut path_array, "assets");
+
         package.set("path", path_array.join(";"))?;
     }
 
