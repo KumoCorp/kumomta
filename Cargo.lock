@@ -1711,6 +1711,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_comments"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41ee439ee368ba4a77ac70d04f14015415af8600d6c894dc1f11bd79758c57d5"
+
+[[package]]
 name = "jwalk"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1798,6 +1804,7 @@ dependencies = [
  "gethostname 0.4.2",
  "humansize",
  "humantime-serde",
+ "json_comments",
  "k9",
  "kumo-log-types",
  "lazy_static",

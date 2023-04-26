@@ -143,7 +143,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .await
                 .with_context(|| format!("reading file {file_name}"))
                 .map_err(any_err)?;
-            let obj: serde_json::Value = serde_json::from_slice(&data)
+
+            let stripped = json_comments::StripComments::new(&*data);
+
+            let obj: serde_json::Value = serde_json::from_reader(stripped)
                 .with_context(|| format!("parsing {file_name} as json"))
                 .map_err(any_err)?;
             Ok(lua.to_value(&obj))
@@ -153,7 +156,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "json_parse",
         lua.create_async_function(|lua, text: String| async move {
-            let obj: serde_json::Value = serde_json::from_str(&text)
+            let stripped = json_comments::StripComments::new(text.as_bytes());
+            let obj: serde_json::Value = serde_json::from_reader(stripped)
                 .with_context(|| format!("parsing {text} as json"))
                 .map_err(any_err)?;
             Ok(lua.to_value(&obj))
