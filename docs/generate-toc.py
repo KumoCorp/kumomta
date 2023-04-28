@@ -204,7 +204,10 @@ TOC = [
                 "userguide/policy/index.md",
                 children=[
                     Page("Custom Destination Routing", "userguide/policy/routing.md"),
-                    Page("Advanced Tenant to Pool Mapping", "userguide/policy/tenantpool.md"),
+                    Page(
+                        "Advanced Tenant to Pool Mapping",
+                        "userguide/policy/tenantpool.md",
+                    ),
                 ],
             ),
         ],

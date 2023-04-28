@@ -3,22 +3,22 @@
 if you want to verify that the tenant is a known-good tenant then I'd recommend handling that in the smtp_server_message_received event:
 
 ```lua
-local tenant = msg:get_first_named_header_value('X-tenant')
+local tenant = msg:get_first_named_header_value 'X-tenant'
 if not tenant then
-  kumo.reject(500, "missing x-tenant header")
+  kumo.reject(500, 'missing x-tenant header')
 end
 
 local TENANT_TO_POOL = {
-  ["tenant-id-0"] = "pool-0",
-  ["tenant-id-1"] = "pool-0",
-  ["tenant-id-2"] = "pool-1",
+  ['tenant-id-0'] = 'pool-0',
+  ['tenant-id-1'] = 'pool-0',
+  ['tenant-id-2'] = 'pool-1',
 }
 
 if not TENANT_TO_POOL[tenant] then
-  kumo.reject(500, "invalid/unknown tenant " .. tenant)
+  kumo.reject(500, 'invalid/unknown tenant ' .. tenant)
 end
 
-msg:set_meta("tenant", tenant)
+msg:set_meta('tenant', tenant)
 ```
 
 You could then reference that same TENANT_TO_POOL mapping later on:
@@ -42,10 +42,10 @@ more robust tenant validation should probably consider the sending domain as wel
 
 ```lua
 local TENANTS = {
-  ["tenant-id-0"] = {
+  ['tenant-id-0'] = {
     domain_to_pool = {
-       ["tenant-0.com"] = "pool-0",
-    }
+      ['tenant-0.com'] = 'pool-0',
+    },
   },
 }
 ```
