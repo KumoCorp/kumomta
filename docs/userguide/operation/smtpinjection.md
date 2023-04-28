@@ -2,7 +2,7 @@
 
 KumoMTA will listen for message injection in any [listener](https://docs.kumomta.com/reference/kumo/start_esmtp_listener/) [defined](https://docs.kumomta.com/reference/kumo/start_http_listener/) in configuration. You have complete control over the IPs and Ports available for message injection.
 
-The ESMTP Listener will accept any properly formatted SMTP connection request allowd by its configuration.  For instance, based on this:
+The ESMTP Listener will accept any properly formatted SMTP connection request allowed by its configuration.  For instance, based on this:
 ```console
 kumo.start_esmtp_listener {
     listen = '0.0.0.0:25',
@@ -30,5 +30,5 @@ If that returns a `250 OK`, then any more complex injection should work as well.
 
 In most campaign systems that connect with third-party MTA's, you will need to enter the configuration settings, and find something like "SMTP" or "OutBound Email" and set the SMTP Port, Hostname or IP ddress and If you have configured [SMTP_Auth](https://docs.kumomta.com/reference/events/smtp_server_auth_plain/), your injection username and password as well. Below is a sample of the configuration page for [Mautic](https://docs.mautic.org/en/setup/how-to-install-mautic/install-mautic-from-package) marketing automation.
   
-![Mautic SMTP Configuration](/docs/assets/images/Mautic_SMTP_Config.png)
+![Mautic SMTP Configuration](https://github.com/KumoCorp/kumomta/blob/main/docs/assets/images/Mautic_SMTP_Config.png)
 
