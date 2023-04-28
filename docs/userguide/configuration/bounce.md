@@ -68,7 +68,7 @@ For additional information, see the [reference manual page on bounce classificat
 
 ## Configuring Out-Of-Band Bounce Processing
 
-Not all bounces occur while the server is connected to the remote host. It is not uncommon for a remote host to accept a message, perform further processing, and then determine that the message should be rejected. This can be because of user validation, AntiVirus/AntiSpam processing, or other post-connection logic. When a remote host rejects a message after accepting it, RFCs require that a Message Disposition Notification (MDN) message be sent to the return path address of the message specified in the MAIL FROM command during the relay session. See (https://en.wikipedia.org/wiki/Bounce_message)[https://en.wikipedia.org/wiki/Bounce_message] for more information.
+Not all bounces occur while the server is connected to the remote host. It is not uncommon for a remote host to accept a message, perform further processing, and then determine that the message should be rejected. This can be because of user validation, AntiVirus/AntiSpam processing, or other post-connection logic. When a remote host rejects a message after accepting it, RFCs require that a Message Disposition Notification (MDN) message be sent to the return path address of the message specified in the MAIL FROM command during the relay session. See [https://en.wikipedia.org/wiki/Bounce_message](https://en.wikipedia.org/wiki/Bounce_message) for more information.
 
 The KumoMTA server can process these MDN messages, but must be configured to know which domains are candidates for OOB bounce processing:
 

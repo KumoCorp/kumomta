@@ -5,7 +5,7 @@ Once KumoMTA is installed, you can check on the server status with systemctl.
 sudo systemctl status kumomta
 ```
 The result should look something like this:
-`` kumomta.service - KumoMTA SMTP service
+``` kumomta.service - KumoMTA SMTP service
      Loaded: loaded (/lib/systemd/system/kumomta.service; enabled; vendor preset: enabled)
      Active: active (running) since Thu 2023-04-27 22:59:06 MST; 10h ago
    Main PID: 17912 (kumod)
@@ -34,16 +34,22 @@ If you have configured an HTTP listener, you can access server metrics with `cur
 Metrics available are:
 
 * connection_count: number of active connections
+
 `connection_count{service="esmtp_listener"} 0`
 * lua_count: the number of lua contexts currently alive
+
 `lua_count 0`
 * lua_load_count: how many times the policy lua script has been loaded into a new context
+
 `lua_load_count 1`
 * lua_spare_count: the number of lua contexts available for reuse in the pool
+
 `lua_spare_count 0`
 * memory_limit: soft memory limit measured in bytes
+
 `memory_limit 12583633920`
 * memory_usage: number of bytes of used memory
+
 `memory_usage 277835776`
 
 
