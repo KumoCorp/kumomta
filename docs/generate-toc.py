@@ -194,7 +194,7 @@ TOC = [
                         "Injecting Messages using HTTP",
                         "userguide/operation/httpinjection.md",
                     ),
-                    Page("Viewing Logs", "userguide/operation/logs.md")
+                    Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],
