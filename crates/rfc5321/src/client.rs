@@ -168,6 +168,7 @@ impl SmtpClientTimeouts {
     }
 }
 
+#[derive(Debug)]
 pub struct SmtpClient {
     socket: Option<BoxedAsyncReadAndWrite>,
     hostname: String,

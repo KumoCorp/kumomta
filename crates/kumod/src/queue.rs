@@ -1,8 +1,9 @@
-use crate::egress_path::EgressPathManager;
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::lua_deliver::LuaDeliveryProtocol;
+use crate::ready_queue::ReadyQueueManager;
 use crate::runtime::{rt_spawn, spawn, spawn_blocking};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
@@ -33,6 +34,7 @@ lazy_static::lazy_static! {
 pub enum DeliveryProto {
     Smtp,
     Maildir { maildir_path: std::path::PathBuf },
+    Lua(LuaDeliveryProtocol),
 }
 
 impl Default for DeliveryProto {
@@ -48,25 +50,25 @@ pub struct QueueConfig {
         default = "QueueConfig::default_retry_interval",
         with = "humantime_serde"
     )]
-    retry_interval: Duration,
+    pub retry_interval: Duration,
 
     /// Optional cap on the computed retry interval.
     /// Set to the same number as retry_interval to
     /// prevent using exponential backoff
     #[serde(default, with = "humantime_serde")]
-    max_retry_interval: Option<Duration>,
+    pub max_retry_interval: Option<Duration>,
 
     /// Limits how long a message can remain in the queue
     #[serde(default = "QueueConfig::default_max_age", with = "humantime_serde")]
-    max_age: Duration,
+    pub max_age: Duration,
 
     /// Specifies which egress pool should be used when
     /// delivering these messages
     #[serde(default)]
-    egress_pool: Option<String>,
+    pub egress_pool: Option<String>,
 
     #[serde(default)]
-    protocol: DeliveryProto,
+    pub protocol: DeliveryProto,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -404,7 +406,7 @@ impl Queue {
 
         let sources = self.rr.all_sources();
         for source in &sources {
-            if let Some(site) = EgressPathManager::get_opt(&self.name, source).await {
+            if let Some(site) = ReadyQueueManager::get_opt(&self.name, &self.queue_config, source).await {
                 site.lock().await.bounce_all(bounce).await;
             }
         }
@@ -520,13 +522,14 @@ impl Queue {
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
-            DeliveryProto::Smtp => {
+            DeliveryProto::Smtp | DeliveryProto::Lua(_) => {
                 let egress_source = self
                     .rr
                     .next()
                     .ok_or_else(|| anyhow!("no sources in pool"))?;
-                match EgressPathManager::resolve_by_queue_name(
+                match ReadyQueueManager::resolve_by_queue_name(
                     &self.name,
+                    &self.queue_config,
                     &egress_source,
                     &self.rr.name,
                 )
@@ -755,10 +758,10 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     drop(msg);
                 }
 
-                let path_mgr = EgressPathManager::get().await;
-                if path_mgr.number_of_sites() == 0 {
+                let queue_mgr = ReadyQueueManager::get().await;
+                if queue_mgr.number_of_queues() == 0 {
                     tracing::debug!(
-                        "{}: there are no more sites and the delayed queue is empty, reaping",
+                        "{}: there are no more queues and the delayed queue is empty, reaping",
                         q.name
                     );
                     let mut mgr = QueueManager::get().await;
@@ -779,8 +782,9 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                         let egress_source =
                             q.rr.next().ok_or_else(|| anyhow!("no sources in pool"))?;
 
-                        match EgressPathManager::resolve_by_queue_name(
+                        match ReadyQueueManager::resolve_by_queue_name(
                             &q.name,
+                            &q.queue_config,
                             &egress_source,
                             &q.rr.name,
                         )

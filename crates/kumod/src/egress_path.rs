@@ -1,40 +1,12 @@
-use crate::egress_source::EgressSource;
-use crate::http_server::admin_bounce_v1::AdminBounceEntry;
-use crate::lifecycle::{Activity, ShutdownSubcription};
-use crate::logging::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{Queue, QueueManager};
-use crate::runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
-use crate::spool::SpoolManager;
-use anyhow::Context;
 use cidr_map::{AnyIpCidr, CidrSet};
-use config::load_config;
-use dns_resolver::MailExchanger;
-use kumo_log_types::ResolvedAddress;
-use message::message::QueueNameComponents;
-use message::Message;
 use mlua::prelude::*;
 use prometheus::{IntCounter, IntGauge};
 use rfc5321::{
-    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient,
     SmtpClientTimeouts,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
-use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
-use std::time::{Duration, Instant};
 use throttle::ThrottleSpec;
-use tokio::net::TcpSocket;
-use tokio::sync::{Mutex, MutexGuard, Notify};
-use tokio::task::JoinHandle;
-use tokio::time::timeout;
-use tracing::instrument;
-
-lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<EgressPathManager> = Mutex::new(EgressPathManager::new());
-}
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Tls {
@@ -74,40 +46,40 @@ impl Default for Tls {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_connection_limit")]
-    connection_limit: usize,
+    pub connection_limit: usize,
 
     #[serde(default)]
-    enable_tls: Tls,
+    pub enable_tls: Tls,
 
     #[serde(flatten)]
-    client_timeouts: SmtpClientTimeouts,
+    pub client_timeouts: SmtpClientTimeouts,
 
     #[serde(default = "EgressPathConfig::default_max_ready")]
-    max_ready: usize,
+    pub max_ready: usize,
 
     #[serde(default = "EgressPathConfig::default_consecutive_connection_failures_before_delay")]
-    consecutive_connection_failures_before_delay: usize,
+    pub consecutive_connection_failures_before_delay: usize,
 
     #[serde(default = "EgressPathConfig::default_smtp_port")]
-    smtp_port: u16,
+    pub smtp_port: u16,
 
     #[serde(default)]
-    max_message_rate: Option<ThrottleSpec>,
+    pub max_message_rate: Option<ThrottleSpec>,
 
     #[serde(default)]
-    max_connection_rate: Option<ThrottleSpec>,
+    pub max_connection_rate: Option<ThrottleSpec>,
 
     #[serde(default)]
-    max_deliveries_per_connection: Option<usize>,
+    pub max_deliveries_per_connection: Option<usize>,
 
     #[serde(default = "EgressPathConfig::default_prohibited_hosts")]
-    prohibited_hosts: CidrSet,
+    pub prohibited_hosts: CidrSet,
 
     #[serde(default)]
-    skip_hosts: CidrSet,
+    pub skip_hosts: CidrSet,
 
     #[serde(default)]
-    ehlo_domain: Option<String>,
+    pub ehlo_domain: Option<String>,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -158,996 +130,81 @@ impl EgressPathConfig {
     }
 }
 
-pub struct EgressPathManager {
-    paths: HashMap<String, EgressPathHandle>,
-}
-
-impl EgressPathManager {
-    pub fn new() -> Self {
-        Self {
-            paths: HashMap::new(),
-        }
-    }
-
-    pub fn number_of_sites(&self) -> usize {
-        self.paths.len()
-    }
-
-    pub async fn get() -> MutexGuard<'static, Self> {
-        MANAGER.lock().await
-    }
-
-    pub async fn get_opt(queue_name: &str, egress_source: &str) -> Option<EgressPathHandle> {
-        let components = QueueNameComponents::parse(queue_name);
-        let mx = MailExchanger::resolve(components.domain).await.ok()?;
-        let name = &mx.site_name;
-        let name = format!("{egress_source}->{name}");
-        let manager = Self::get().await;
-        manager.paths.get(&name).cloned()
-    }
-
-    #[instrument]
-    pub async fn resolve_by_queue_name(
-        queue_name: &str,
-        egress_source: &str,
-        egress_pool: &str,
-    ) -> anyhow::Result<EgressPathHandle> {
-        let components = QueueNameComponents::parse(queue_name);
-        let mx = MailExchanger::resolve(components.domain).await?;
-
-        let name = format!("{egress_source}->{}", mx.site_name);
-        let egress_source = EgressSource::resolve(egress_source)?;
-
-        let mut config = load_config().await?;
-
-        let path_config: EgressPathConfig = config
-            .async_call_callback(
-                "get_egress_path_config",
-                (
-                    components.domain,
-                    egress_source.name.to_string(),
-                    mx.site_name.to_string(),
-                ),
-            )
-            .await?;
-
-        let mut manager = Self::get().await;
-        let activity = Activity::get()?;
-        let handle = manager.paths.entry(name.clone()).or_insert_with(|| {
-            rt_spawn_non_blocking(format!("maintain {name}"), {
-                let name = name.clone();
-                move || {
-                    Ok(async move {
-                        let mut shutdown = ShutdownSubcription::get();
-                        let mut interval = Duration::from_secs(60);
-                        let mut memory = crate::memory::subscribe_to_memory_status_changes();
-                        loop {
-                            tokio::select! {
-                                _ = tokio::time::sleep(interval) => {},
-                                _ = shutdown.shutting_down() => {
-                                    interval = Duration::from_secs(1);
-                                },
-                                _ = memory.changed() => {},
-                            };
-                            let mut mgr = EgressPathManager::get().await;
-                            let path = { mgr.paths.get(&name).cloned() };
-                            match path {
-                                None => break,
-                                Some(path) => {
-                                    let mut path = path.lock().await;
-                                    if path.reapable() {
-                                        tracing::debug!("reaping site {name}");
-                                        mgr.paths.remove(&name);
-                                        crate::metrics_helper::remove_metrics_for_service(
-                                            &format!("smtp_client:{name}"),
-                                        );
-                                        break;
-                                    } else if crate::memory::get_headroom() == 0 {
-                                        path.shrink_ready_queue_due_to_low_mem().await;
-                                    }
-                                }
-                            }
-                        }
-                    })
-                }
-            })
-            .expect("failed to spawn maintainer");
-
-            let service = format!("smtp_client:{name}");
-            let metrics = DeliveryMetrics {
-                connection_gauge: crate::metrics_helper::connection_gauge_for_service(&service),
-                global_connection_gauge: crate::metrics_helper::connection_gauge_for_service(
-                    "smtp_client",
-                ),
-                connection_total: crate::metrics_helper::connection_total_for_service(&service),
-                global_connection_total: crate::metrics_helper::connection_total_for_service(
-                    "smtp_client",
-                ),
-                ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
-                msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
-                global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
-                    "smtp_client",
-                ),
-                msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(&service),
-                global_msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(
-                    "smtp_client",
-                ),
-                msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
-                global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service("smtp_client"),
-            };
-            let ready = Arc::new(StdMutex::new(VecDeque::new()));
-            let notify = Arc::new(Notify::new());
-            EgressPathHandle(Arc::new(Mutex::new(EgressPath {
-                name: name.clone(),
-                ready,
-                mx,
-                notify,
-                connections: vec![],
-                last_change: Instant::now(),
-                path_config,
-                egress_source,
-                metrics,
-                activity,
-                consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
-                egress_pool: egress_pool.to_string(),
-            })))
-        });
-        Ok(handle.clone())
-    }
-}
-
-#[derive(Clone)]
-pub struct EgressPathHandle(Arc<Mutex<EgressPath>>);
-
-impl EgressPathHandle {
-    pub async fn lock(&self) -> MutexGuard<EgressPath> {
-        self.0.lock().await
-    }
-}
-
 #[derive(Clone, Debug)]
-struct DeliveryMetrics {
-    connection_gauge: IntGauge,
-    global_connection_gauge: IntGauge,
-    connection_total: IntCounter,
-    global_connection_total: IntCounter,
+pub struct DeliveryMetrics {
+    pub connection_gauge: IntGauge,
+    pub global_connection_gauge: IntGauge,
+    pub connection_total: IntCounter,
+    pub global_connection_total: IntCounter,
 
-    ready_count: IntGauge,
+    pub ready_count: IntGauge,
 
-    msgs_delivered: IntCounter,
-    global_msgs_delivered: IntCounter,
+    pub msgs_delivered: IntCounter,
+    pub global_msgs_delivered: IntCounter,
 
-    msgs_transfail: IntCounter,
-    global_msgs_transfail: IntCounter,
+    pub msgs_transfail: IntCounter,
+    pub global_msgs_transfail: IntCounter,
 
-    msgs_fail: IntCounter,
-    global_msgs_fail: IntCounter,
+    pub msgs_fail: IntCounter,
+    pub global_msgs_fail: IntCounter,
 }
 
-pub struct EgressPath {
-    name: String,
-    mx: Arc<MailExchanger>,
-    ready: Arc<StdMutex<VecDeque<Message>>>,
-    notify: Arc<Notify>,
-    connections: Vec<JoinHandle<()>>,
-    last_change: Instant,
-    path_config: EgressPathConfig,
-    egress_pool: String,
-    egress_source: EgressSource,
+impl DeliveryMetrics {
+    pub fn wrap_connection<T>(&self, client: T) -> MetricsWrappedConnection<T> {
+        self.connection_gauge.inc();
+        self.global_connection_gauge.inc();
+        self.connection_total.inc();
+        self.global_connection_total.inc();
+        MetricsWrappedConnection {
+            client,
+            metrics: self.clone(),
+            armed: true,
+        }
+    }
+}
+
+/// A helper struct to manage the number of connections.
+/// It increments counters when created by DeliveryMetrics::wrap_connection
+/// and decrements them when dropped
+#[derive(Debug)]
+pub struct MetricsWrappedConnection<T> {
+    client: T,
     metrics: DeliveryMetrics,
-    activity: Activity,
-    consecutive_connection_failures: Arc<AtomicUsize>,
+    armed: bool,
 }
 
-impl EgressPath {
-    #[allow(unused)]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
-        let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
-        for msg in msgs {
-            let id = *msg.id();
-            bounce.log(msg, None).await;
-            SpoolManager::remove_from_spool(id).await.ok();
+impl<T> MetricsWrappedConnection<T> {
+    /// Propagate the count from one type of connection to another
+    pub fn map_connection<O>(mut self, client: O) -> MetricsWrappedConnection<O> {
+        self.armed = false;
+        MetricsWrappedConnection {
+            client,
+            metrics: self.metrics.clone(),
+            armed: true,
         }
     }
 
-    pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
-        if crate::memory::low_memory() {
-            msg.shrink().ok();
-        }
-        self.ready.lock().unwrap().push_back(msg);
-        self.metrics.ready_count.inc();
-        self.notify.notify_waiters();
-        self.maintain();
-        self.last_change = Instant::now();
-
-        Ok(())
-    }
-
-    pub fn ready_count(&self) -> usize {
-        self.ready.lock().unwrap().len()
-    }
-
-    pub fn ideal_connection_count(&self) -> usize {
-        if self.activity.is_shutting_down() {
-            0
-        } else {
-            let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
-            if n > 0 && crate::memory::get_headroom() == 0 {
-                n.min(2)
-            } else {
-                n
-            }
-        }
-    }
-
-    #[instrument(skip(self))]
-    async fn shrink_ready_queue_due_to_low_mem(&mut self) {
-        let mut ready = self.ready.lock().unwrap();
-        ready.shrink_to_fit();
-        if ready.is_empty() {
-            return;
-        }
-
-        let mut count = 0;
-
-        for msg in ready.iter() {
-            if let Ok(true) = msg.shrink() {
-                count += 1;
-            }
-        }
-
-        tracing::error!(
-            "did shrink {} of out {} msgs in ready queue {} due to memory shortage",
-            count,
-            ready.len(),
-            self.name
-        );
-    }
-
-    pub fn maintain(&mut self) {
-        // Prune completed connection tasks
-        self.connections.retain(|handle| !handle.is_finished());
-
-        if self.activity.is_shutting_down() {
-            // We are shutting down; we want all messages to get saved.
-            let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-            self.metrics.ready_count.set(0);
-            if !msgs.is_empty() {
-                let activity = self.activity.clone();
-                spawn(format!("saving messages for {}", self.name), async move {
-                    for msg in msgs {
-                        Queue::save_if_needed_and_log(&msg).await;
-                        drop(msg);
-                    }
-                    drop(activity);
-                })
-                .expect("failed to spawn save_if_needed_and_log");
-            }
-
-            return;
-        }
-
-        // TODO: throttle rate at which connections are opened
-        let ideal = self.ideal_connection_count();
-
-        for _ in self.connections.len()..ideal {
-            // Open a new connection
-            let name = self.name.clone();
-            let mx = self.mx.clone();
-            let ready = Arc::clone(&self.ready);
-            let notify = self.notify.clone();
-            let path_config = self.path_config.clone();
-            let metrics = self.metrics.clone();
-            let egress_source = self.egress_source.clone();
-            let egress_pool = self.egress_pool.clone();
-            let consecutive_connection_failures = self.consecutive_connection_failures.clone();
-
-            tracing::trace!("spawning client for {name}");
-            if let Ok(handle) = spawn(format!("smtp client {name}"), async move {
-                if let Err(err) = Dispatcher::run(
-                    &name,
-                    mx,
-                    ready,
-                    notify,
-                    path_config,
-                    metrics,
-                    consecutive_connection_failures.clone(),
-                    egress_source,
-                    egress_pool,
-                )
-                .await
-                {
-                    tracing::debug!(
-                        "Error in Dispatcher::run for {name}: {err:#} \
-                         (consecutive_connection_failures={consecutive_connection_failures:?})"
-                    );
-                }
-            }) {
-                self.connections.push(handle);
-            }
-        }
-    }
-
-    pub fn reapable(&mut self) -> bool {
-        self.maintain();
-        let ideal = self.ideal_connection_count();
-        ideal == 0
-            && self.connections.is_empty()
-            && (self.last_change.elapsed() > Duration::from_secs(10 * 60))
-                | self.activity.is_shutting_down()
-    }
 }
 
-struct Dispatcher {
-    name: String,
-    ready: Arc<StdMutex<VecDeque<Message>>>,
-    notify: Arc<Notify>,
-    addresses: Vec<ResolvedAddress>,
-    msg: Option<Message>,
-    client: Option<SmtpClient>,
-    client_address: Option<ResolvedAddress>,
-    ehlo_name: String,
-    path_config: EgressPathConfig,
-    metrics: DeliveryMetrics,
-    shutting_down: ShutdownSubcription,
-    activity: Activity,
-    egress_source: EgressSource,
-    egress_pool: String,
-    delivered_this_connection: usize,
-}
-
-impl Dispatcher {
-    #[instrument(skip(ready, metrics, notify))]
-    async fn run(
-        name: &str,
-        mx: Arc<MailExchanger>,
-        ready: Arc<StdMutex<VecDeque<Message>>>,
-        notify: Arc<Notify>,
-        path_config: EgressPathConfig,
-        metrics: DeliveryMetrics,
-        consecutive_connection_failures: Arc<AtomicUsize>,
-        egress_source: EgressSource,
-        egress_pool: String,
-    ) -> anyhow::Result<()> {
-        let ehlo_name = match &path_config.ehlo_domain {
-            Some(n) => n.to_string(),
-            None => gethostname::gethostname()
-                .to_str()
-                .unwrap_or("[127.0.0.1]")
-                .to_string(),
-        };
-
-        let activity = Activity::get()?;
-
-        let addresses = mx.resolve_addresses().await;
-        tracing::trace!("mx resolved to {addresses:?}");
-
-        let mut dispatcher = Self {
-            name: name.to_string(),
-            ready,
-            notify,
-            msg: None,
-            client: None,
-            client_address: None,
-            addresses,
-            ehlo_name,
-            path_config,
-            metrics,
-            shutting_down: ShutdownSubcription::get(),
-            activity,
-            egress_source,
-            egress_pool,
-            delivered_this_connection: 0,
-        };
-
-        if dispatcher.addresses.is_empty() {
-            dispatcher
-                .bulk_ready_queue_operation(Response {
-                    code: 556,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 1,
-                        detail: 10,
-                    }),
-                    content: "Recipient address has a null MX".to_string(),
-                    command: None,
-                })
-                .await;
-            return Ok(());
-        }
-
-        for addr in &dispatcher.addresses {
-            if dispatcher.path_config.prohibited_hosts.contains(addr.addr) {
-                dispatcher
-                    .bulk_ready_queue_operation(Response {
-                        code: 550,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
-                            subject: 4,
-                            detail: 4,
-                        }),
-                        content: format!(
-                            "{addr:?} is on the list of prohibited_hosts {:?}",
-                            dispatcher.path_config.prohibited_hosts
-                        ),
-                        command: None,
-                    })
-                    .await;
-                return Ok(());
-            }
-        }
-
-        dispatcher
-            .addresses
-            .retain(|addr| !dispatcher.path_config.skip_hosts.contains(addr.addr));
-
-        if dispatcher.addresses.is_empty() {
-            dispatcher
-                .bulk_ready_queue_operation(Response {
-                    code: 550,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 4,
-                        detail: 4,
-                    }),
-                    content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
-                    command: None,
-                })
-                .await;
-            return Ok(());
-        }
-
-        dispatcher.obtain_message();
-        if dispatcher.msg.is_none() {
-            // We raced with another dispatcher and there is no
-            // more work to be done; no need to open a new connection.
-            return Ok(());
-        }
-
-        let mut connection_failures = vec![];
-
-        loop {
-            if !dispatcher.wait_for_message().await? {
-                // No more messages within our idle time; we can close
-                // the connection
-                tracing::debug!("{} Idling out connection", dispatcher.name);
-                return Ok(());
-            }
-            if let Err(err) = dispatcher.attempt_connection().await {
-                connection_failures.push(format!("{err:#}"));
-                dispatcher.metrics.connection_gauge.dec();
-                dispatcher.metrics.global_connection_gauge.dec();
-                if dispatcher.addresses.is_empty() {
-                    if let Some(msg) = dispatcher.msg.take() {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: None,
-                            response: Response {
-                                code: 400,
-                                enhanced_code: None,
-                                content: format!(
-                                    "KumoMTA internal: \
-                                     failed to connect to any candidate \
-                                     hosts: {}",
-                                    connection_failures.join(", ")
-                                ),
-                                command: None,
-                            },
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                        })
-                        .await;
-                    }
-
-                    if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
-                        > dispatcher
-                            .path_config
-                            .consecutive_connection_failures_before_delay
-                    {
-                        dispatcher.delay_ready_queue().await;
-                    }
-                    return Err(err);
-                }
-                tracing::debug!("{err:#}");
-                // Try the next candidate MX address
-                continue;
-            }
-
-            connection_failures.clear();
-            consecutive_connection_failures.store(0, Ordering::SeqCst);
-            dispatcher
-                .deliver_message()
-                .await
-                .context("deliver_message")?;
-        }
-    }
-
-    async fn throttle_ready_queue(&mut self, delay: Duration) {
-        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
-        if let Some(msg) = self.msg.take() {
-            msgs.push(msg);
-        }
-        if !msgs.is_empty() {
-            tracing::debug!(
-                "throttled: delaying ready queue {} - {} messages",
-                self.name,
-                msgs.len()
-            );
-            let activity = self.activity.clone();
-            let delay = chrono::Duration::from_std(delay).unwrap_or_else(|err| {
-                tracing::error!(
-                    "error creating duration from {delay:?}: {err:#}. Using 1 minute instead"
-                );
-                chrono::Duration::seconds(60)
-            });
-            rt_spawn("requeue for throttle".to_string(), move || {
-                Ok(async move {
-                    for msg in msgs {
-                        if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                            tracing::error!("error requeuing message: {err:#}");
-                        }
-                    }
-                    drop(activity);
-                })
-            })
-            .await
-            .expect("failed to spawn requeue");
-        }
-    }
-
-    #[instrument(skip(self))]
-    async fn bulk_ready_queue_operation(&mut self, response: Response) {
-        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
-        if let Some(msg) = self.msg.take() {
-            msgs.push(msg);
-        }
-        if !msgs.is_empty() {
-            let activity = self.activity.clone();
-            let name = self.name.clone();
-            let egress_pool = self.egress_pool.clone();
-            let egress_source = self.egress_source.name.clone();
-            rt_spawn(
-                format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),
-                move || {
-                    Ok(async move {
-                        let increment_attempts = true;
-                        for msg in msgs {
-                            log_disposition(LogDisposition {
-                                kind: if response.is_transient() {
-                                    RecordType::TransientFailure
-                                } else {
-                                    RecordType::Bounce
-                                },
-                                msg: msg.clone(),
-                                site: &name,
-                                peer_address: None,
-                                response: response.clone(),
-                                egress_pool: Some(&egress_pool),
-                                egress_source: Some(&egress_source),
-                                relay_disposition: None,
-                            })
-                            .await;
-
-                            if response.is_transient() {
-                                if let Err(err) =
-                                    Self::requeue_message(msg, increment_attempts, None).await
-                                {
-                                    tracing::error!("error requeuing message: {err:#}");
-                                }
-                            } else if response.is_permanent() {
-                                spawn("remove msg from spool", async move {
-                                    SpoolManager::remove_from_spool(*msg.id()).await
-                                })
-                                .ok();
-                            }
-                        }
-                        drop(activity);
-                    })
-                },
-            )
-            .await
-            .expect("bulk queue spawned");
-        }
-    }
-
-    #[instrument(skip(self))]
-    async fn delay_ready_queue(&mut self) {
-        tracing::debug!(
-            "too many connection failures, delaying ready queue {}",
-            self.name,
-        );
-        self.bulk_ready_queue_operation(Response {
-            code: 451,
-            enhanced_code: Some(EnhancedStatusCode {
-                class: 4,
-                subject: 4,
-                detail: 1,
-            }),
-            content: "No answer from any hosts listed in MX".to_string(),
-            command: None,
-        })
-        .await;
-    }
-
-    #[instrument(skip(self))]
-    fn obtain_message(&mut self) -> bool {
-        if self.msg.is_some() {
-            return true;
-        }
-        self.msg = self.ready.lock().unwrap().pop_front();
-        if self.msg.is_some() {
-            self.metrics.ready_count.dec();
-            true
-        } else {
-            false
-        }
-    }
-
-    #[instrument(skip(self))]
-    async fn wait_for_message(&mut self) -> anyhow::Result<bool> {
-        if self.activity.is_shutting_down() {
-            if let Some(msg) = self.msg.take() {
-                Queue::save_if_needed_and_log(&msg).await;
-            }
-            return Ok(false);
-        }
-
-        if let Some(limit) = self.path_config.max_deliveries_per_connection {
-            if self.delivered_this_connection >= limit {
-                if let Some(mut client) = self.client.take() {
-                    tracing::trace!(
-                        "Sent {} and limit is {limit}, close and make a new connection",
-                        self.delivered_this_connection
-                    );
-                    client.send_command(&rfc5321::Command::Quit).await.ok();
-                    // Close out this dispatcher and let the maintainer spawn
-                    // a new connection
-                    return Ok(false);
-                }
-            }
-        }
-
-        if self.obtain_message() {
-            return Ok(true);
-        }
-
-        let idle_timeout = self.path_config.client_timeouts.idle_timeout;
-        tokio::select! {
-            _ = tokio::time::sleep(idle_timeout) => {},
-            _ = self.notify.notified() => {}
-            _ = self.shutting_down.shutting_down() => {
-                return Ok(false);
-            }
-        };
-        Ok(self.obtain_message())
-    }
-
-    #[instrument(skip(self))]
-    async fn attempt_connection(&mut self) -> anyhow::Result<()> {
-        if self.client.is_some() {
-            return Ok(());
-        }
-
-        if let Some(throttle) = &self.path_config.max_connection_rate {
-            loop {
-                let result = throttle
-                    .throttle(format!("{}-connection-rate", self.name))
-                    .await?;
-
-                if let Some(delay) = result.retry_after {
-                    if delay >= self.path_config.client_timeouts.idle_timeout {
-                        self.throttle_ready_queue(delay).await;
-                        anyhow::bail!("connection rate throttled for {delay:?}");
-                    }
-                    tracing::trace!(
-                        "{} throttled connection rate, sleep for {delay:?}",
-                        self.name
-                    );
-                    let mut shutdown = ShutdownSubcription::get();
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {},
-                        _ = shutdown.shutting_down() => {
-                            anyhow::bail!("shutting down");
-                        }
-                    };
-                } else {
-                    break;
-                }
-            }
-        }
-
-        self.metrics.connection_gauge.inc();
-        self.metrics.global_connection_gauge.inc();
-        self.metrics.connection_total.inc();
-        self.metrics.global_connection_total.inc();
-
-        let address = self
-            .addresses
-            .pop()
-            .ok_or_else(|| anyhow::anyhow!("no more addresses to try!"))?;
-
-        let ehlo_name = self.ehlo_name.to_string();
-        let mx_host = address.name.to_string();
-        let enable_tls = self.path_config.enable_tls;
-        let egress_source_name = self.egress_source.name.to_string();
-        let port = self
-            .egress_source
-            .remote_port
-            .unwrap_or(self.path_config.smtp_port);
-        let source_address = self.egress_source.source_address.clone();
-        let connect_context = format!("connect to {address:?} port {port} and read initial banner");
-
-        let mut client = timeout(self.path_config.client_timeouts.connect_timeout, {
-            let address = address.clone();
-            let timeouts = self.path_config.client_timeouts.clone();
-            async move {
-                let socket = match address.addr {
-                    IpAddr::V4(_) => TcpSocket::new_v4(),
-                    IpAddr::V6(_) => TcpSocket::new_v6(),
-                }
-                .with_context(|| format!("make socket to connect to {address:?} port {port}"))?;
-                if let Some(source) = source_address {
-                    if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                        // Always log failure to bind: it indicates a critical
-                        // misconfiguration issue
-                        let error = format!(
-                            "bind {source:?} for source:{egress_source_name} failed: {err:#} \
-                             while attempting to connect to {address:?} port {port}"
-                        );
-                        tracing::error!("{error}");
-                        anyhow::bail!("{error}");
-                    }
-                }
-                let stream = socket
-                    .connect(SocketAddr::new(address.addr, port))
-                    .await
-                    .with_context(|| format!("connect to {address:?} port {port}"))?;
-
-                let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
-
-                // Read banner
-                let banner = client.read_response(None).await.context("reading banner")?;
-                if banner.code != 220 {
-                    return Err(ClientError::Rejected(banner).into());
-                }
-
-                Ok(client)
-            }
-        })
-        .await
-        .with_context(|| connect_context.clone())?
-        .with_context(|| connect_context.clone())?;
-
-        // Say EHLO
-        let caps = client.ehlo(&ehlo_name).await.context("EHLO")?;
-
-        // Use STARTTLS if available.
-        let has_tls = caps.contains_key("STARTTLS");
-        match (enable_tls, has_tls) {
-            (Tls::Required | Tls::RequiredInsecure, false) => {
-                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised",);
-            }
-            (Tls::Disabled, _) | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
-                // Do not use TLS
-            }
-            (
-                Tls::Opportunistic
-                | Tls::OpportunisticInsecure
-                | Tls::Required
-                | Tls::RequiredInsecure,
-                true,
-            ) => {
-                if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
-                    client.send_command(&rfc5321::Command::Quit).await.ok();
-                    anyhow::bail!("TLS handshake failed: {handshake_error}");
-                }
-            }
-        };
-
-        self.client.replace(client);
-        self.client_address.replace(address);
-        self.delivered_this_connection = 0;
-        Ok(())
-    }
-
-    #[instrument(skip(msg))]
-    async fn requeue_message(
-        msg: Message,
-        increment_attempts: bool,
-        delay: Option<chrono::Duration>,
-    ) -> anyhow::Result<()> {
-        if !msg.is_meta_loaded() {
-            msg.load_meta().await?;
-        }
-        let queue_name = msg.get_queue_name()?;
-        let queue = QueueManager::resolve(&queue_name).await?;
-        let mut queue = queue.lock().await;
-        queue.requeue_message(msg, increment_attempts, delay).await
-    }
-
-    #[instrument(skip(self))]
-    async fn deliver_message(&mut self) -> anyhow::Result<()> {
-        let data;
-        let sender: ReversePath;
-        let recipient: ForwardPath;
-
-        {
-            let msg = self.msg.as_ref().unwrap();
-
-            msg.load_meta_if_needed().await?;
-            msg.load_data_if_needed().await?;
-
-            data = msg.get_data();
-            sender = msg
-                .sender()?
-                .try_into()
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-            recipient = msg
-                .recipient()?
-                .try_into()
-                .map_err(|err| anyhow::anyhow!("{err}"))?;
-        }
-
-        let activity = match Activity::get_opt() {
-            Some(a) => a,
-            None => {
-                return Ok(());
-            }
-        };
-
-        if let Some(throttle) = &self.path_config.max_message_rate {
-            loop {
-                let result = throttle
-                    .throttle(format!("{}-message-rate", self.name))
-                    .await?;
-
-                if let Some(delay) = result.retry_after {
-                    if delay >= self.path_config.client_timeouts.idle_timeout {
-                        self.throttle_ready_queue(delay).await;
-                        return Ok(());
-                    }
-                    tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
-                    let mut shutdown = ShutdownSubcription::get();
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {},
-                        _ = shutdown.shutting_down() => {
-                            anyhow::bail!("shutting down");
-                        }
-                    };
-                } else {
-                    break;
-                }
-            }
-        }
-
-        self.delivered_this_connection += 1;
-        match self
-            .client
-            .as_mut()
-            .unwrap()
-            .send_mail(sender, recipient, &*data)
-            .await
-        {
-            Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
-                // Transient failure
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {response:?}",
-                    self.name,
-                    self.client_address
-                );
-                if let Some(msg) = self.msg.take() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
-                        msg: msg.clone(),
-                        site: &self.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&self.egress_pool),
-                        egress_source: Some(&self.egress_source.name),
-                        relay_disposition: None,
-                    })
-                    .await;
-                    rt_spawn("requeue message".to_string(), move || {
-                        Ok(async move { Self::requeue_message(msg, true, None).await })
-                    })
-                    .await?;
-                }
-                self.metrics.msgs_transfail.inc();
-                self.metrics.global_msgs_transfail.inc();
-            }
-            Err(ClientError::Rejected(response)) => {
-                self.metrics.msgs_fail.inc();
-                self.metrics.global_msgs_fail.inc();
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {response:?}",
-                    self.name,
-                    self.client_address
-                );
-                if let Some(msg) = self.msg.take() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::Bounce,
-                        msg: msg.clone(),
-                        site: &self.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&self.egress_pool),
-                        egress_source: Some(&self.egress_source.name),
-                        relay_disposition: None,
-                    })
-                    .await;
-                    spawn("remove from spool", async move {
-                        SpoolManager::remove_from_spool(*msg.id()).await
-                    })?;
-                }
-            }
-            Err(err) => {
-                // Transient failure; continue with another host
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {err:#}",
-                    self.name,
-                    self.client_address
-                );
-                return Err(err.into());
-            }
-            Ok(response) => {
-                tracing::debug!("Delivered OK! {response:?}");
-                if let Some(msg) = self.msg.take() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::Delivery,
-                        msg: msg.clone(),
-                        site: &self.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&self.egress_pool),
-                        egress_source: Some(&self.egress_source.name),
-                        relay_disposition: None,
-                    })
-                    .await;
-                    spawn("remove from spool", async move {
-                        SpoolManager::remove_from_spool(*msg.id()).await
-                    })?;
-                }
-                self.metrics.msgs_delivered.inc();
-                self.metrics.global_msgs_delivered.inc();
-            }
-        };
-
-        drop(activity);
-
-        Ok(())
-    }
-}
-
-impl Drop for Dispatcher {
+impl<T> Drop for MetricsWrappedConnection<T> {
     fn drop(&mut self) {
-        // Ensure that we re-queue any message that we had popped
-        if let Some(msg) = self.msg.take() {
-            let activity = self.activity.clone();
-            rt_spawn_non_blocking("Dispatcher::drop".to_string(), move || {
-                Ok(async move {
-                    if activity.is_shutting_down() {
-                        Queue::save_if_needed_and_log(&msg).await;
-                    } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
-                        tracing::error!("error requeuing message: {err:#}");
-                    }
-                })
-            })
-            .ok();
-        }
-        if self.client.is_some() {
+        if self.armed {
             self.metrics.connection_gauge.dec();
             self.metrics.global_connection_gauge.dec();
         }
+    }
+}
+
+impl<T> std::ops::Deref for MetricsWrappedConnection<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.client
+    }
+}
+
+impl<T> std::ops::DerefMut for MetricsWrappedConnection<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.client
     }
 }
 
@@ -1155,7 +212,7 @@ impl Drop for Dispatcher {
 /// passes through 0.0, increasing but bounded to connection_limit.
 ///
 /// Visualize on wolframalpha: "plot 32 * (1-exp(-x * 0.023)), x from 0 to 100, y from 0 to 32"
-fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
+pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     let factor = 0.023;
     let goal = (connection_limit as f32) * (1. - (-1.0 * queue_size as f32 * factor).exp());
     goal.ceil() as usize
