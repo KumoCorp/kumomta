@@ -4,6 +4,7 @@ use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::lua_deliver::LuaQueueDispatcher;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager};
 use crate::runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
 use crate::smtp_dispatcher::SmtpDispatcher;
@@ -119,12 +120,14 @@ impl ReadyQueueManager {
             let notify = Arc::new(Notify::new());
             ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {
                 name: name.clone(),
+                queue_name: queue_name.to_string(),
                 ready,
                 mx,
                 notify,
                 connections: vec![],
                 last_change: Instant::now(),
                 path_config,
+                queue_config: queue_config.clone(),
                 egress_source,
                 metrics,
                 activity,
@@ -153,7 +156,7 @@ impl ReadyQueueManager {
                 None => break,
                 Some(queue) => {
                     let mut queue = queue.lock().await;
-                    if queue.reapable() {
+                    if queue.reapable().await {
                         tracing::debug!("reaping site {name}");
                         mgr.queues.remove(&name);
                         crate::metrics_helper::remove_metrics_for_service(&format!(
@@ -181,6 +184,7 @@ impl ReadyQueueHandle {
 
 pub struct ReadyQueue {
     name: String,
+    queue_name: String,
     ready: Arc<StdMutex<VecDeque<Message>>>,
     mx: Option<Arc<MailExchanger>>,
     notify: Arc<Notify>,
@@ -190,6 +194,7 @@ pub struct ReadyQueue {
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
     path_config: EgressPathConfig,
+    queue_config: QueueConfig,
     egress_pool: String,
     egress_source: EgressSource,
 }
@@ -210,14 +215,14 @@ impl ReadyQueue {
         }
     }
 
-    pub fn insert(&mut self, msg: Message) -> Result<(), Message> {
+    pub async fn insert(&mut self, msg: Message) -> Result<(), Message> {
         if crate::memory::low_memory() {
             msg.shrink().ok();
         }
         self.ready.lock().unwrap().push_back(msg);
         self.metrics.ready_count.inc();
         self.notify.notify_waiters();
-        self.maintain();
+        self.maintain().await;
         self.last_change = Instant::now();
 
         Ok(())
@@ -264,7 +269,8 @@ impl ReadyQueue {
         );
     }
 
-    pub fn maintain(&mut self) {
+    #[async_recursion::async_recursion]
+    pub async fn maintain(&mut self) {
         // Prune completed connection tasks
         self.connections.retain(|handle| !handle.is_finished());
 
@@ -293,43 +299,51 @@ impl ReadyQueue {
         for _ in self.connections.len()..ideal {
             // Open a new connection
             let name = self.name.clone();
+            let queue_name = self.queue_name.clone();
             let mx = self.mx.clone();
             let ready = Arc::clone(&self.ready);
             let notify = self.notify.clone();
             let path_config = self.path_config.clone();
+            let queue_config = self.queue_config.clone();
             let metrics = self.metrics.clone();
             let egress_source = self.egress_source.clone();
             let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
 
             tracing::trace!("spawning client for {name}");
-            if let Ok(handle) = spawn(format!("smtp client {name}"), async move {
-                if let Err(err) = Dispatcher::run(
-                    &name,
-                    mx,
-                    ready,
-                    notify,
-                    path_config,
-                    metrics,
-                    consecutive_connection_failures.clone(),
-                    egress_source,
-                    egress_pool,
-                )
-                .await
-                {
-                    tracing::debug!(
-                        "Error in Dispatcher::run for {name}: {err:#} \
+            if let Ok(handle) = rt_spawn(format!("smtp client {name}"), move || {
+                Ok(async move {
+                    if let Err(err) = Dispatcher::run(
+                        &name,
+                        queue_name,
+                        mx,
+                        ready,
+                        notify,
+                        queue_config,
+                        path_config,
+                        metrics,
+                        consecutive_connection_failures.clone(),
+                        egress_source,
+                        egress_pool,
+                    )
+                    .await
+                    {
+                        tracing::debug!(
+                            "Error in Dispatcher::run for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
-                    );
-                }
-            }) {
+                        );
+                    }
+                })
+            })
+            .await
+            {
                 self.connections.push(handle);
             }
         }
     }
 
-    pub fn reapable(&mut self) -> bool {
-        self.maintain();
+    pub async fn reapable(&mut self) -> bool {
+        self.maintain().await;
         let ideal = self.ideal_connection_count();
         ideal == 0
             && self.connections.is_empty()
@@ -338,7 +352,7 @@ impl ReadyQueue {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait QueueDispatcher: Debug + Send {
     async fn deliver_message(
         &mut self,
@@ -354,6 +368,7 @@ pub trait QueueDispatcher: Debug + Send {
 
 pub struct Dispatcher {
     pub name: String,
+    pub queue_name: String,
     pub ready: Arc<StdMutex<VecDeque<Message>>>,
     pub notify: Arc<Notify>,
     pub path_config: EgressPathConfig,
@@ -390,9 +405,11 @@ impl Dispatcher {
     #[instrument(skip(ready, metrics, notify))]
     async fn run(
         name: &str,
+        queue_name: String,
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
+        queue_config: QueueConfig,
         path_config: EgressPathConfig,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
@@ -402,6 +419,7 @@ impl Dispatcher {
         let activity = Activity::get()?;
         let mut dispatcher = Self {
             name: name.to_string(),
+            queue_name,
             ready,
             notify,
             mx,
@@ -415,11 +433,21 @@ impl Dispatcher {
             delivered_this_connection: 0,
         };
 
-        let mut queue_dispatcher: Box<dyn QueueDispatcher> =
-            match SmtpDispatcher::init(&mut dispatcher).await? {
+        let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.protocol {
+            DeliveryProto::Smtp => match SmtpDispatcher::init(&mut dispatcher).await? {
                 Some(disp) => Box::new(disp),
                 None => return Ok(()),
-            };
+            },
+            DeliveryProto::Lua {
+                custom_lua: proto_config,
+            } => {
+                let lua_config = load_config().await?;
+                Box::new(LuaQueueDispatcher::new(lua_config, proto_config.clone()))
+            }
+            DeliveryProto::Maildir { .. } => {
+                anyhow::bail!("Should not reach Dispatcher::run with DeliveryProto::Maildir")
+            }
+        };
 
         dispatcher.obtain_message();
         if dispatcher.msg.is_none() {

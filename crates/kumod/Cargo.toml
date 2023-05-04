@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-channel = "1.8"
+async-recursion = "1.0"
 async-trait = "0.1"
 axum = "0.6"
 axum-client-ip = "0.4"

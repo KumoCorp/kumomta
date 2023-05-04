@@ -34,7 +34,7 @@ lazy_static::lazy_static! {
 pub enum DeliveryProto {
     Smtp,
     Maildir { maildir_path: std::path::PathBuf },
-    Lua(LuaDeliveryProtocol),
+    Lua { custom_lua: LuaDeliveryProtocol },
 }
 
 impl Default for DeliveryProto {
@@ -524,7 +524,7 @@ impl Queue {
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
-            DeliveryProto::Smtp | DeliveryProto::Lua(_) => {
+            DeliveryProto::Smtp | DeliveryProto::Lua { .. } => {
                 let egress_source = self
                     .rr
                     .next()
@@ -540,6 +540,7 @@ impl Queue {
                     Ok(site) => {
                         let mut site = site.lock().await;
                         site.insert(msg)
+                            .await
                             .map_err(|_| anyhow!("no room in ready queue"))
                     }
                     Err(err) => {
@@ -806,7 +807,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                     continue;
                                 }
 
-                                match site.insert(msg.clone()) {
+                                match site.insert(msg.clone()).await {
                                     Ok(_) => {}
                                     Err(_) => loop {
                                         msg.delay_with_jitter(60).await?;

@@ -1,35 +1,75 @@
+use crate::logging::{log_disposition, LogDisposition};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::runtime::{rt_spawn, spawn};
+use crate::smtp_server::RejectError;
+use crate::spool::SpoolManager;
 use async_trait::async_trait;
-use config::{load_config, LuaConfig};
+use config::LuaConfig;
+use kumo_log_types::{RecordType, ResolvedAddress};
+use message::message::QueueNameComponents;
 use message::Message;
+use mlua::{RegistryKey, Value};
+use rfc5321::Response;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use std::net::Ipv4Addr;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct LuaDeliveryProtocol {
     /// The name of an event to fire that will construct
     /// the delivery implementation
     pub constructor: String,
-    /// Additional argument to pass to the constructor event
-    pub constructor_arg: Option<Value>,
 }
 
 #[derive(Debug)]
 pub struct LuaQueueDispatcher {
     lua_config: LuaConfig,
+    proto_config: LuaDeliveryProtocol,
+    connection: Option<RegistryKey>,
+    peer_address: ResolvedAddress,
 }
 
-#[async_trait]
+impl LuaQueueDispatcher {
+    pub fn new(lua_config: LuaConfig, proto_config: LuaDeliveryProtocol) -> Self {
+        let peer_address = ResolvedAddress {
+            name: format!("Lua via {}", proto_config.constructor),
+            addr: Ipv4Addr::UNSPECIFIED.into(),
+        };
+
+        Self {
+            lua_config,
+            proto_config,
+            connection: None,
+            peer_address,
+        }
+    }
+}
+
+#[async_trait(?Send)]
 impl QueueDispatcher for LuaQueueDispatcher {
-    async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
-        todo!();
+    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        if let Some(connection) = self.connection.take() {
+            self.lua_config.remove_registry_value(connection)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        todo!();
+        let components = QueueNameComponents::parse(&dispatcher.queue_name);
+        let connection = self
+            .lua_config
+            .async_call_ctor(
+                self.proto_config.constructor.to_string(),
+                (components.domain, components.tenant, components.campaign),
+            )
+            .await?;
+
+        self.connection.replace(connection);
+        Ok(())
     }
 
-    async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool {
+    async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
         false
     }
 
@@ -38,6 +78,121 @@ impl QueueDispatcher for LuaQueueDispatcher {
         msg: Message,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
-        todo!();
+        let connection = self.connection.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("connection is not set in LuaQueueDispatcher::deliver_message!?")
+        })?;
+
+        let result: anyhow::Result<String> = self
+            .lua_config
+            .with_registry_value(connection, move |connection| {
+                Ok(async move {
+                    match &connection {
+                        Value::Table(tbl) => {
+                            let send_method: mlua::Function = tbl.get("send")?;
+
+                            Ok(send_method.call_async((connection, msg)).await?)
+                        }
+                        _ => anyhow::bail!("invalid connection object"),
+                    }
+                })
+            })
+            .await;
+
+        match result {
+            Err(err) => {
+                if let Some(rejection) = RejectError::from_anyhow(&err) {
+                    let response = Response {
+                        code: rejection.code,
+                        enhanced_code: None,
+                        content: rejection.message.to_string(),
+                        command: None,
+                    };
+
+                    if rejection.code >= 400 && rejection.code < 500 {
+                        // Explicit Transient failure
+                        tracing::debug!(
+                            "failed to send message to {}: {response:?}",
+                            dispatcher.name,
+                        );
+                        if let Some(msg) = dispatcher.msg.take() {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: &dispatcher.name,
+                                peer_address: Some(&self.peer_address),
+                                response,
+                                egress_pool: Some(&dispatcher.egress_pool),
+                                egress_source: Some(&dispatcher.egress_source.name),
+                                relay_disposition: None,
+                            })
+                            .await;
+                            rt_spawn("requeue message".to_string(), move || {
+                                Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
+                            })
+                            .await?;
+                        }
+                        dispatcher.metrics.msgs_transfail.inc();
+                        dispatcher.metrics.global_msgs_transfail.inc();
+                    } else {
+                        dispatcher.metrics.msgs_fail.inc();
+                        dispatcher.metrics.global_msgs_fail.inc();
+                        tracing::debug!(
+                            "failed to send message to {}: {response:?}",
+                            dispatcher.name,
+                        );
+                        if let Some(msg) = dispatcher.msg.take() {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Bounce,
+                                msg: msg.clone(),
+                                site: &dispatcher.name,
+                                peer_address: Some(&self.peer_address),
+                                response,
+                                egress_pool: Some(&dispatcher.egress_pool),
+                                egress_source: Some(&dispatcher.egress_source.name),
+                                relay_disposition: None,
+                            })
+                            .await;
+                            spawn("remove from spool", async move {
+                                SpoolManager::remove_from_spool(*msg.id()).await
+                            })?;
+                        }
+                    }
+                } else {
+                    // unspecified failure
+                    tracing::debug!("failed to send message to {}: {err:#}", dispatcher.name);
+                    return Err(err);
+                }
+            }
+            Ok(response) => {
+                let response = Response {
+                    code: 200,
+                    enhanced_code: None,
+                    content: response,
+                    command: None,
+                };
+
+                tracing::debug!("Delivered OK! {response:?}");
+                if let Some(msg) = dispatcher.msg.take() {
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Delivery,
+                        msg: msg.clone(),
+                        site: &dispatcher.name,
+                        peer_address: Some(&self.peer_address),
+                        response,
+                        egress_pool: Some(&dispatcher.egress_pool),
+                        egress_source: Some(&dispatcher.egress_source.name),
+                        relay_disposition: None,
+                    })
+                    .await;
+                    spawn("remove from spool", async move {
+                        SpoolManager::remove_from_spool(*msg.id()).await
+                    })?;
+                }
+                dispatcher.metrics.msgs_delivered.inc();
+                dispatcher.metrics.global_msgs_delivered.inc();
+            }
+        }
+
+        Ok(())
     }
 }

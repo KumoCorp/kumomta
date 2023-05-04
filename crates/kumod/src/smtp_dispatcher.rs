@@ -104,9 +104,9 @@ impl SmtpDispatcher {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl QueueDispatcher for SmtpDispatcher {
-    async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         if let Some(mut client) = self.client.take() {
             client.send_command(&rfc5321::Command::Quit).await.ok();
             // Close out this dispatcher and let the maintainer spawn
@@ -242,7 +242,7 @@ impl QueueDispatcher for SmtpDispatcher {
         Ok(())
     }
 
-    async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool {
+    async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
         !self.addresses.is_empty()
     }
 

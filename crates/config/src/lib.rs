@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mlua::{FromLuaMulti, Lua, Table, ToLuaMulti, Value};
+use mlua::{FromLuaMulti, Lua, RegistryKey, Table, ToLuaMulti, Value};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -214,6 +214,55 @@ impl LuaConfig {
             Ok(func) => Ok(func.call_async(args.clone()).await?),
             _ => Ok(R::default()),
         }
+    }
+
+    pub fn remove_registry_value(&mut self, value: RegistryKey) -> anyhow::Result<()> {
+        Ok(self
+            .inner
+            .as_mut()
+            .unwrap()
+            .lua
+            .remove_registry_value(value)?)
+    }
+
+    /// Call a constructor registered via `on`. Returns a registry key that can be
+    /// used to reference the returned value again later on this same Lua instance
+    pub async fn async_call_ctor<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+        &'lua mut self,
+        name: S,
+        args: A,
+    ) -> anyhow::Result<RegistryKey> {
+        let name = name.as_ref();
+        let decorated_name = format!("kumomta-on-{}", name);
+
+        let inner = self.inner.as_mut().unwrap();
+
+        let func = inner
+            .lua
+            .named_registry_value::<_, mlua::Function>(&decorated_name)?;
+
+        let value: Value = func.call_async(args.clone()).await?;
+        drop(func);
+
+        Ok(inner.lua.create_registry_value(value)?)
+    }
+
+    /// Operate on an object/value that was previously constructed via
+    /// async_call_ctor.
+    pub async fn with_registry_value<'lua, F, R, FUT>(
+        &'lua mut self,
+        value: &RegistryKey,
+        func: F,
+    ) -> anyhow::Result<R>
+    where
+        R: FromLuaMulti<'lua>,
+        F: FnOnce(Value<'lua>) -> anyhow::Result<FUT>,
+        FUT: std::future::Future<Output = anyhow::Result<R>> + 'lua,
+    {
+        let inner = self.inner.as_mut().unwrap();
+        let value = inner.lua.registry_value(value)?;
+        let future = (func)(value)?;
+        future.await
     }
 
     /// Call a callback registered via `on`.
