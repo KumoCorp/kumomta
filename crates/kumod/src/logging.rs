@@ -1,16 +1,20 @@
+use crate::queue::QueueManager;
+use crate::runtime::rt_spawn_non_blocking;
 use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::Utc;
+use config::load_config;
 use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
-use message::Message;
+use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Source, Template};
 use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
 use serde_json::Value;
+use spool::SpoolId;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -79,6 +83,29 @@ fn default_true() -> bool {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+pub struct LogHookParams {
+    /// Maximum number of outstanding items to be logged before
+    /// the submission will block; helps to avoid runaway issues
+    /// spiralling out of control.
+    #[serde(default = "LogFileParams::default_back_pressure")]
+    pub back_pressure: usize,
+
+    /// List of meta fields to capture in the log
+    #[serde(default)]
+    pub meta: Vec<String>,
+
+    /// List of message headers to capture in the log
+    #[serde(default)]
+    pub headers: Vec<String>,
+
+    #[serde(default)]
+    pub per_record: HashMap<RecordType, LogRecordParams>,
+
+    #[serde(default)]
+    pub deferred_spool: bool,
+}
+
+#[derive(Deserialize, Clone, Debug)]
 pub struct LogFileParams {
     /// Where to place the log files
     pub log_dir: PathBuf,
@@ -141,6 +168,63 @@ pub struct Logger {
 impl Logger {
     fn get_loggers() -> Vec<Arc<Logger>> {
         LOGGER.lock().unwrap().iter().map(Arc::clone).collect()
+    }
+
+    pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
+        let mut source = Source::new();
+
+        for (kind, per_rec) in &params.per_record {
+            if let Some(template_source) = &per_rec.template {
+                source
+                    .add_template(format!("{kind:?}"), template_source)
+                    .with_context(|| {
+                        format!(
+                            "compiling template:\n{template_source}\nfor log record type {kind:?}"
+                        )
+                    })?;
+            }
+        }
+
+        let mut template_engine = Environment::new();
+        template_engine.set_source(source);
+
+        let mut enabled = HashMap::new();
+        for (kind, cfg) in &params.per_record {
+            enabled.insert(*kind, cfg.enable);
+        }
+
+        let headers = params.headers.clone();
+        let meta = params.meta.clone();
+        let (sender, receiver) = async_channel::bounded(params.back_pressure);
+        let thread = std::thread::Builder::new()
+            .name("logger".to_string())
+            .spawn(move || {
+                tracing::debug!("started logger thread");
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .expect("create logger runtime");
+                runtime.block_on(async move {
+                    tracing::debug!("calling state.logger_thread()");
+                    let mut state = LogHookState {
+                        params,
+                        receiver,
+                        template_engine,
+                    };
+                    state.logger_thread().await
+                });
+            })?;
+
+        let logger = Self {
+            sender,
+            thread: Mutex::new(Some(thread)),
+            meta,
+            headers,
+            enabled,
+        };
+
+        LOGGER.lock().unwrap().push(Arc::new(logger));
+        Ok(())
     }
 
     pub fn init(params: LogFileParams) -> anyhow::Result<()> {
@@ -488,6 +572,115 @@ fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+struct LogHookState {
+    params: LogHookParams,
+    receiver: Receiver<LogCommand>,
+    template_engine: Environment<'static>,
+}
+
+impl LogHookState {
+    async fn logger_thread(&mut self) {
+        tracing::debug!("LogHookParams: {:#?}", self.params);
+
+        loop {
+            let cmd = match self.receiver.recv().await {
+                Ok(cmd) => cmd,
+                other => {
+                    tracing::debug!("logging channel closed {other:?}");
+                    return;
+                }
+            };
+            match cmd {
+                LogCommand::Terminate => {
+                    tracing::debug!("LogCommand::Terminate received. Stopping writing logs");
+                    break;
+                }
+                LogCommand::Record(record) => {
+                    if let Err(err) = self.do_record(record) {
+                        tracing::error!("failed to log: {err:#}");
+                    };
+                }
+            }
+        }
+    }
+
+    fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+        tracing::trace!("do_record {record:?}");
+
+        if let Some(classifier) = CLASSIFY.get() {
+            record.bounce_classification = classifier.classify_response(&record.response);
+        }
+
+        let mut record_text = Vec::new();
+
+        if let Some(template) =
+            Self::resolve_template(&self.params, &self.template_engine, record.kind)
+        {
+            template.render_to_write(&record, &mut record_text)?;
+        } else {
+            serde_json::to_writer(&mut record_text, &record).context("serializing record")?;
+        }
+        if record_text.last() != Some(&b'\n') {
+            record_text.push(b'\n');
+        }
+
+        let record_json = serde_json::to_value(&record)?;
+
+        let id = SpoolId::new();
+        let msg = Message::new_dirty(
+            id,
+            EnvelopeAddress::parse(&record.sender)?,
+            EnvelopeAddress::parse(&record.recipient)?,
+            record.meta.clone().into_iter().collect(),
+            Arc::new(record_text.into_boxed_slice()),
+        )?;
+
+        msg.set_meta("log_record", record_json)?;
+        let deferred_spool = self.params.deferred_spool;
+
+        rt_spawn_non_blocking("should_enqueue_log_record".to_string(), move || {
+            Ok(async move {
+                let mut lua_config = load_config().await?;
+                let enqueue: bool = lua_config
+                    .async_call_callback("should_enqueue_log_record", msg.clone())
+                    .await?;
+
+                if enqueue {
+                    let queue_name = msg.get_queue_name()?;
+                    if !deferred_spool {
+                        msg.save().await?;
+                    }
+                    QueueManager::insert(&queue_name, msg).await?;
+                }
+
+                anyhow::Result::<()>::Ok(())
+            })
+        })?;
+
+        Ok(())
+    }
+
+    fn resolve_template<'a>(
+        params: &LogHookParams,
+        template_engine: &'a Environment,
+        kind: RecordType,
+    ) -> Option<Template<'a>> {
+        if let Some(pr) = params.per_record.get(&kind) {
+            if pr.template.is_some() {
+                let label = format!("{kind:?}");
+                return template_engine.get_template(&label).ok();
+            }
+            return None;
+        }
+        if let Some(pr) = params.per_record.get(&RecordType::Any) {
+            if pr.template.is_some() {
+                return template_engine.get_template("Any").ok();
+            }
+        }
+        None
+    }
 }
 
 struct LogThreadState {

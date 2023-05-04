@@ -726,6 +726,10 @@ impl UserData for Message {
             let value = this.get_meta(name).map_err(any_err)?;
             Ok(Some(lua.to_value(&value)?))
         });
+        methods.add_method("get_data", move |lua, this, _: ()| {
+            let data = this.get_data();
+            lua.create_string(&*data)
+        });
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
         methods.add_method("sender", move |_, this, _: ()| {
             Ok(this.sender().map_err(any_err)?)

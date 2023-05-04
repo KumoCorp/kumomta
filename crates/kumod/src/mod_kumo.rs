@@ -2,7 +2,7 @@ use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::http_server::HttpListenerParams;
 use crate::lifecycle::LifeCycle;
-use crate::logging::{ClassifierParams, LogFileParams};
+use crate::logging::{ClassifierParams, LogFileParams, LogHookParams};
 use crate::queue::QueueConfig;
 use crate::runtime::spawn;
 use crate::smtp_server::{EsmtpListenerParams, RejectError};
@@ -46,6 +46,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, params: Value| {
             let params: LogFileParams = lua.from_value(params)?;
             crate::logging::Logger::init(params).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_log_hook",
+        lua.create_function(move |lua, params: Value| {
+            let params: LogHookParams = lua.from_value(params)?;
+            crate::logging::Logger::init_hook(params).map_err(any_err)
         })?,
     )?;
 
