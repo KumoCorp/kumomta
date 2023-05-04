@@ -7,7 +7,7 @@ use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
 use message::Message;
 use minijinja::{Environment, Source, Template};
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
 use serde_json::Value;
@@ -16,12 +16,12 @@ use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use zstd::stream::write::Encoder;
 
-static LOGGER: OnceCell<Logger> = OnceCell::new();
+static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
 static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
 
 #[derive(Deserialize, Clone, Debug)]
@@ -139,8 +139,8 @@ pub struct Logger {
 }
 
 impl Logger {
-    pub fn get() -> Option<&'static Logger> {
-        LOGGER.get()
+    fn get_loggers() -> Vec<Arc<Logger>> {
+        LOGGER.lock().unwrap().iter().map(Arc::clone).collect()
     }
 
     pub fn init(params: LogFileParams) -> anyhow::Result<()> {
@@ -200,9 +200,7 @@ impl Logger {
             enabled,
         };
 
-        LOGGER
-            .set(logger)
-            .map_err(|_| anyhow::anyhow!("logger already initialized"))?;
+        LOGGER.lock().unwrap().push(Arc::new(logger));
         Ok(())
     }
 
@@ -221,7 +219,8 @@ impl Logger {
     }
 
     pub async fn signal_shutdown() {
-        if let Some(logger) = Self::get() {
+        let loggers = Self::get_loggers();
+        for logger in loggers.iter() {
             logger.sender.send(LogCommand::Terminate).await.ok();
             logger
                 .thread
@@ -296,22 +295,29 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         relay_disposition,
     } = args;
 
-    if let Some(logger) = Logger::get() {
-        let mut feedback_report = None;
+    let loggers = Logger::get_loggers();
+    if loggers.is_empty() {
+        return;
+    }
 
-        msg.load_meta_if_needed().await.ok();
+    let mut feedback_report = None;
 
-        if kind == RecordType::Reception {
-            if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
-                if let Ok(Some(report)) = msg.parse_rfc5965() {
-                    feedback_report.replace(report);
-                    kind = RecordType::Feedback;
-                }
+    msg.load_meta_if_needed().await.ok();
+
+    if kind == RecordType::Reception {
+        if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
+            if let Ok(Some(report)) = msg.parse_rfc5965() {
+                feedback_report.replace(report);
+                kind = RecordType::Feedback;
             }
         }
+    }
 
+    let now = Utc::now();
+
+    for logger in loggers.iter() {
         if !logger.record_is_enabled(kind) {
-            return;
+            continue;
         }
 
         let (headers, meta) = logger.extract_fields(&msg).await;
@@ -333,14 +339,14 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 .unwrap_or_else(|err| format!("{err:#}")),
             site: site.to_string(),
             peer_address: peer_address.cloned(),
-            response,
-            timestamp: Utc::now(),
+            response: response.clone(),
+            timestamp: now,
             created: msg.id().created(),
             num_attempts: msg.get_num_attempts(),
             egress_pool: egress_pool.map(|s| s.to_string()),
             egress_source: egress_source.map(|s| s.to_string()),
             bounce_classification: BounceClass::Uncategorized,
-            feedback_report,
+            feedback_report: feedback_report.clone(),
             headers,
             meta,
         };
