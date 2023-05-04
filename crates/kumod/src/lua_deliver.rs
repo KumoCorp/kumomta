@@ -1,7 +1,6 @@
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use async_trait::async_trait;
-use config::load_config;
-use config::LuaConfig;
+use config::{load_config, LuaConfig};
 use message::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

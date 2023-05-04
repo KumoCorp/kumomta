@@ -1,5 +1,6 @@
-use crate::egress_path::{MetricsWrappedConnection, Tls};
-use crate::lifecycle::{ShutdownSubcription};
+use crate::delivery_metrics::MetricsWrappedConnection;
+use crate::egress_path::Tls;
+use crate::lifecycle::ShutdownSubcription;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::runtime::{rt_spawn, spawn};

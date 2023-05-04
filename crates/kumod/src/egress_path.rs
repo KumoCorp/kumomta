@@ -1,9 +1,6 @@
 use cidr_map::{AnyIpCidr, CidrSet};
 use mlua::prelude::*;
-use prometheus::{IntCounter, IntGauge};
-use rfc5321::{
-    SmtpClientTimeouts,
-};
+use rfc5321::SmtpClientTimeouts;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use throttle::ThrottleSpec;
@@ -127,84 +124,6 @@ impl EgressPathConfig {
             AnyIpCidr::from_str("::1").unwrap(),
         ]
         .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct DeliveryMetrics {
-    pub connection_gauge: IntGauge,
-    pub global_connection_gauge: IntGauge,
-    pub connection_total: IntCounter,
-    pub global_connection_total: IntCounter,
-
-    pub ready_count: IntGauge,
-
-    pub msgs_delivered: IntCounter,
-    pub global_msgs_delivered: IntCounter,
-
-    pub msgs_transfail: IntCounter,
-    pub global_msgs_transfail: IntCounter,
-
-    pub msgs_fail: IntCounter,
-    pub global_msgs_fail: IntCounter,
-}
-
-impl DeliveryMetrics {
-    pub fn wrap_connection<T>(&self, client: T) -> MetricsWrappedConnection<T> {
-        self.connection_gauge.inc();
-        self.global_connection_gauge.inc();
-        self.connection_total.inc();
-        self.global_connection_total.inc();
-        MetricsWrappedConnection {
-            client,
-            metrics: self.clone(),
-            armed: true,
-        }
-    }
-}
-
-/// A helper struct to manage the number of connections.
-/// It increments counters when created by DeliveryMetrics::wrap_connection
-/// and decrements them when dropped
-#[derive(Debug)]
-pub struct MetricsWrappedConnection<T> {
-    client: T,
-    metrics: DeliveryMetrics,
-    armed: bool,
-}
-
-impl<T> MetricsWrappedConnection<T> {
-    /// Propagate the count from one type of connection to another
-    pub fn map_connection<O>(mut self, client: O) -> MetricsWrappedConnection<O> {
-        self.armed = false;
-        MetricsWrappedConnection {
-            client,
-            metrics: self.metrics.clone(),
-            armed: true,
-        }
-    }
-
-}
-
-impl<T> Drop for MetricsWrappedConnection<T> {
-    fn drop(&mut self) {
-        if self.armed {
-            self.metrics.connection_gauge.dec();
-            self.metrics.global_connection_gauge.dec();
-        }
-    }
-}
-
-impl<T> std::ops::Deref for MetricsWrappedConnection<T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        &self.client
-    }
-}
-
-impl<T> std::ops::DerefMut for MetricsWrappedConnection<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.client
     }
 }
 

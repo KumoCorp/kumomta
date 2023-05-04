@@ -1,4 +1,5 @@
-use crate::egress_path::{ideal_connection_count, DeliveryMetrics, EgressPathConfig};
+use crate::delivery_metrics::DeliveryMetrics;
+use crate::egress_path::{ideal_connection_count, EgressPathConfig};
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
@@ -45,9 +46,11 @@ impl ReadyQueueManager {
         MANAGER.lock().await
     }
 
-    pub async fn get_opt(queue_name: &str,
-                         queue_config: &QueueConfig,
-                         egress_source: &str) -> Option<ReadyQueueHandle> {
+    pub async fn get_opt(
+        queue_name: &str,
+        queue_config: &QueueConfig,
+        egress_source: &str,
+    ) -> Option<ReadyQueueHandle> {
         let components = QueueNameComponents::parse(queue_name);
 
         let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
@@ -111,27 +114,7 @@ impl ReadyQueueManager {
             })
             .expect("failed to spawn maintainer");
             let service = format!("smtp_client:{name}");
-            let metrics = DeliveryMetrics {
-                connection_gauge: crate::metrics_helper::connection_gauge_for_service(&service),
-                global_connection_gauge: crate::metrics_helper::connection_gauge_for_service(
-                    "smtp_client",
-                ),
-                connection_total: crate::metrics_helper::connection_total_for_service(&service),
-                global_connection_total: crate::metrics_helper::connection_total_for_service(
-                    "smtp_client",
-                ),
-                ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
-                msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
-                global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
-                    "smtp_client",
-                ),
-                msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(&service),
-                global_msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(
-                    "smtp_client",
-                ),
-                msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
-                global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service("smtp_client"),
-            };
+            let metrics = DeliveryMetrics::new(&service, "smtp_client");
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
             let notify = Arc::new(Notify::new());
             ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {

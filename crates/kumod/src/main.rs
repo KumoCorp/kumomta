@@ -36,6 +36,7 @@ static TRACING_FILTER_RELOAD_HANDLE: OnceCell<
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+mod delivery_metrics;
 mod egress_path;
 mod egress_source;
 mod http_server;

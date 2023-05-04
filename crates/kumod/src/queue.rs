@@ -406,7 +406,9 @@ impl Queue {
 
         let sources = self.rr.all_sources();
         for source in &sources {
-            if let Some(site) = ReadyQueueManager::get_opt(&self.name, &self.queue_config, source).await {
+            if let Some(site) =
+                ReadyQueueManager::get_opt(&self.name, &self.queue_config, source).await
+            {
                 site.lock().await.bounce_all(bounce).await;
             }
         }
