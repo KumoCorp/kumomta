@@ -10,7 +10,6 @@ This should me located in a 'smtp_server_message_received' function like this:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-    ...
     msg:set_meta('queue', 'my.smarthost.com')
 end)
 ```
@@ -19,7 +18,6 @@ You can also specify an IP address, but the queue still needs to be a valid doma
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-    ...
     msg:set_meta('queue', '[20.83.209.56]')
 end)
 ```
