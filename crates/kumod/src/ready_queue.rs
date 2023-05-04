@@ -1,5 +1,5 @@
 use crate::delivery_metrics::DeliveryMetrics;
-use crate::egress_path::{ideal_connection_count, EgressPathConfig};
+use crate::egress_path::EgressPathConfig;
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
@@ -728,5 +728,61 @@ impl Dispatcher {
             }
         };
         Ok(self.obtain_message())
+    }
+}
+
+/// Use an exponential decay curve in the increasing form, asymptotic up to connection_limit,
+/// passes through 0.0, increasing but bounded to connection_limit.
+///
+/// Visualize on wolframalpha: "plot 32 * (1-exp(-x * 0.023)), x from 0 to 100, y from 0 to 32"
+pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
+    let factor = 0.023;
+    let goal = (connection_limit as f32) * (1. - (-1.0 * queue_size as f32 * factor).exp());
+    goal.ceil() as usize
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn connection_limit() {
+        let sizes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 32, 64, 128, 256, 400, 512, 1024,
+        ];
+        let max_connections = 32;
+        let targets: Vec<(usize, usize)> = sizes
+            .iter()
+            .map(|&queue_size| {
+                (
+                    queue_size,
+                    ideal_connection_count(queue_size, max_connections),
+                )
+            })
+            .collect();
+        assert_eq!(
+            vec![
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 3),
+                (5, 4),
+                (6, 5),
+                (7, 5),
+                (8, 6),
+                (9, 6),
+                (10, 7),
+                (20, 12),
+                (32, 17),
+                (64, 25),
+                (128, 31),
+                (256, 32),
+                (400, 32),
+                (512, 32),
+                (1024, 32)
+            ],
+            targets
+        );
     }
 }
