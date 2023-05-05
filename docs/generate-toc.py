@@ -230,6 +230,10 @@ TOC = [
                 "reference/kumo.dns",
             ),
             Gen(
+                "module: kumo.http",
+                "reference/kumo.http",
+            ),
+            Gen(
                 "module: sqlite",
                 "reference/sqlite",
             ),
