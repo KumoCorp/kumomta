@@ -68,6 +68,10 @@ local example = {
     'alt3.gmail-smtp-in.l.google.com.',
     'alt4.gmail-smtp-in.l.google.com.',
   },
+
+  -- true if the domain is a literal IPv4 or IPv6 address such as
+  -- `[10.0.0.1]` or `[IPv6:::1]`
+  is_domain_literal = false,
 }
 
 assert(gmail_mx == example)

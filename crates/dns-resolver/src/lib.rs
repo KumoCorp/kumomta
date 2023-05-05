@@ -22,6 +22,7 @@ pub struct MailExchanger {
     pub hosts: Vec<String>,
     pub site_name: String,
     pub by_pref: HashMap<u16, Vec<String>>,
+    pub is_domain_literal: bool,
 }
 
 fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
@@ -58,6 +59,7 @@ impl MailExchanger {
                             hosts: vec![addr.to_string()],
                             site_name: addr.to_string(),
                             by_pref,
+                            is_domain_literal: true,
                         }));
                     }
                     Err(err) => {
@@ -78,6 +80,7 @@ impl MailExchanger {
                         hosts: vec![addr.to_string()],
                         site_name: addr.to_string(),
                         by_pref,
+                        is_domain_literal: true,
                     }));
                 }
                 Err(err) => {
@@ -126,6 +129,7 @@ impl MailExchanger {
             domain_name: name_fq.to_string(),
             site_name,
             by_pref,
+            is_domain_literal: false,
         };
 
         let mx = Arc::new(mx);
@@ -405,6 +409,7 @@ MailExchanger {
             "127.0.0.1",
         ],
     },
+    is_domain_literal: true,
 }
 "#
         );
@@ -435,6 +440,7 @@ MailExchanger {
             "::1",
         ],
     },
+    is_domain_literal: true,
 }
 "#
         );
@@ -465,6 +471,7 @@ MailExchanger {
             "::1",
         ],
     },
+    is_domain_literal: true,
 }
 "#
         );
