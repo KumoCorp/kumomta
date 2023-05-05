@@ -58,6 +58,7 @@ fedora_deps() {
     'git' \
     'make' \
     'openssl-devel' \
+    'pkg-config' \
     'python3' \
     'python3-pip' \
     'rpm-build' \
@@ -76,6 +77,7 @@ suse_deps() {
     'libopenssl-devel' \
     'llvm' \
     'make' \
+    'pkg-config' \
     'python3' \
     'rpm-build' \
     'telnet'
@@ -92,6 +94,7 @@ debian_deps() {
     'g++' \
     'libssl-dev' \
     'lsb-release' \
+    'pkg-config' \
     'python3' \
     'llvm-dev' \
     'libclang-dev' \
