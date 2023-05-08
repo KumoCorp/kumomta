@@ -7,15 +7,16 @@ The following example shows how to send a queued message via custom lua, in this
 ```lua
 kumo.on('make.mailgun', function(domain, tenant, campaign)
   local client = kumo.http.build_client {}
-  local sender = { }
+  local sender = {}
 
   function sender:send(message)
-    local request = client:post 'https://api.mailgun.net/v3/YOUR_DOMAIN_NAME/messages.mime'
+    local request =
+      client:post 'https://api.mailgun.net/v3/YOUR_DOMAIN_NAME/messages.mime'
 
     request:basic_auth('api', 'YOUR_API_KEY')
     request:form_multipart_data {
       to = message:recipient(),
-      message = message:get_data()
+      message = message:get_data(),
     }
 
     -- Make the request
