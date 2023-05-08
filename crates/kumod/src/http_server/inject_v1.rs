@@ -401,6 +401,7 @@ async fn process_recipient<'a>(
     )?;
 
     message.set_meta("http_auth", auth.summarize())?;
+    message.set_meta("reception_protocol", "HTTP")?;
 
     // call callback to assign to queue
     config
@@ -432,6 +433,7 @@ async fn process_recipient<'a>(
             egress_source: None,
             egress_pool: None,
             relay_disposition: None,
+            delivery_protocol: None,
         })
         .await;
         rt_spawn(format!("http inject for {peer_address:?}"), move || {

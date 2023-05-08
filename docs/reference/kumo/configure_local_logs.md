@@ -265,7 +265,21 @@ The log record is a JSON object with the following shape:
 
     // holds the values of the list of message headers from the logger
     // configuration
-    "headers": {}
+    "headers": {},
+
+    // The protocol used to deliver, or attempt to deliver, this message.
+    // May be null or unset for expirations or administrative bounces
+    // or other similar situations.
+    // "ESMTP" for SMTP, "Maildir" for maildir and "Lua" for a lua delivery
+    // mechanism.
+    "delivery_protocol": "ESMTP",
+
+    /// The protocol used to receive the message
+    /// "ESMTP" for SMTP, "HTTP" for the HTTP injection API, "LogRecord"
+    /// for messages captured via `configure_log_hook`.
+    /// This information is also stored in the message meta key named
+    /// "reception_protocol".
+    "reception_protocol": "ESMTP"
 }
 ```
 

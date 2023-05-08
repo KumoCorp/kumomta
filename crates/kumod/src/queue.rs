@@ -452,6 +452,7 @@ impl Queue {
                     egress_pool: self.queue_config.egress_pool.as_deref(),
                     egress_source: None,
                     relay_disposition: None,
+                    delivery_protocol: None,
                 })
                 .await;
                 SpoolManager::remove_from_spool(id).await?;
@@ -562,6 +563,7 @@ impl Queue {
                             egress_pool: None,
                             egress_source: None,
                             relay_disposition: None,
+                            delivery_protocol: None,
                         })
                         .await;
                         anyhow::bail!("failed to resolve {}: {err:#}", self.name);
@@ -609,6 +611,7 @@ impl Queue {
                             egress_pool: None,
                             egress_source: None,
                             relay_disposition: None,
+                            delivery_protocol: Some("Maildir"),
                         })
                         .await;
                         spawn("remove from spool", async move {
@@ -631,6 +634,7 @@ impl Queue {
                             egress_pool: None,
                             egress_source: None,
                             relay_disposition: None,
+                            delivery_protocol: Some("Maildir"),
                         })
                         .await;
                         anyhow::bail!("failed maildir store: {err:#}");
@@ -840,6 +844,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                     egress_pool: None,
                                     egress_source: None,
                                     relay_disposition: None,
+                            delivery_protocol: None,
                                 })
                                 .await;
                                 q.force_into_delayed((*msg).clone()).await?;

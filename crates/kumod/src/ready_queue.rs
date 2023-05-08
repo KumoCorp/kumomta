@@ -380,6 +380,7 @@ pub struct Dispatcher {
     pub egress_pool: String,
     pub delivered_this_connection: usize,
     pub msg: Option<Message>,
+    pub delivery_protocol: String,
 }
 
 impl Drop for Dispatcher {
@@ -417,6 +418,13 @@ impl Dispatcher {
         egress_pool: String,
     ) -> anyhow::Result<()> {
         let activity = Activity::get()?;
+
+        let delivery_protocol = match &queue_config.protocol {
+            DeliveryProto::Smtp => "ESMTP".to_string(),
+            DeliveryProto::Lua{..} => "Lua".to_string(),
+            DeliveryProto::Maildir {..} => "Maildir".to_string(),
+        };
+
         let mut dispatcher = Self {
             name: name.to_string(),
             queue_name,
@@ -431,6 +439,7 @@ impl Dispatcher {
             egress_source,
             egress_pool,
             delivered_this_connection: 0,
+            delivery_protocol,
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.protocol {
@@ -493,6 +502,7 @@ impl Dispatcher {
                             egress_pool: Some(&dispatcher.egress_pool),
                             egress_source: Some(&dispatcher.egress_source.name),
                             relay_disposition: None,
+                            delivery_protocol: Some(&dispatcher.delivery_protocol),
                         })
                         .await;
                     }
@@ -658,6 +668,7 @@ impl Dispatcher {
                                 egress_pool: Some(&egress_pool),
                                 egress_source: Some(&egress_source),
                                 relay_disposition: None,
+                                delivery_protocol: None,
                             })
                             .await;
 

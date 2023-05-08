@@ -365,6 +365,7 @@ pub struct LogDisposition<'a> {
     pub egress_pool: Option<&'a str>,
     pub egress_source: Option<&'a str>,
     pub relay_disposition: Option<RelayDisposition>,
+    pub delivery_protocol: Option<&'a str>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -377,6 +378,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         egress_pool,
         egress_source,
         relay_disposition,
+        delivery_protocol,
     } = args;
 
     let loggers = Logger::get_loggers();
@@ -387,6 +389,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     let mut feedback_report = None;
 
     msg.load_meta_if_needed().await.ok();
+
+    let reception_protocol = msg.get_meta_string("reception_protocol").unwrap_or(None);
 
     if kind == RecordType::Reception {
         if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
@@ -433,6 +437,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             feedback_report: feedback_report.clone(),
             headers,
             meta,
+            delivery_protocol: delivery_protocol.map(|s| s.to_string()),
+            reception_protocol: reception_protocol.clone(),
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -511,6 +517,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             feedback_report: None,
                             headers: HashMap::new(),
                             meta: HashMap::new(),
+                            delivery_protocol: None,
+                            reception_protocol: reception_protocol.clone(),
                         };
 
                         if let Err(err) = logger.log(record).await {
@@ -638,6 +646,7 @@ impl LogHookState {
         )?;
 
         msg.set_meta("log_record", record_json)?;
+        msg.set_meta("reception_protocol", "LogRecord")?;
         let deferred_spool = self.params.deferred_spool;
 
         rt_spawn_non_blocking("should_enqueue_log_record".to_string(), move || {

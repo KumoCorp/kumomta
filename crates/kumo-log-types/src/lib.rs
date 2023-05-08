@@ -80,4 +80,10 @@ pub struct JsonLogRecord {
 
     pub meta: HashMap<String, Value>,
     pub headers: HashMap<String, Value>,
+
+    /// The protocol used to deliver, or attempt to deliver, this message
+    pub delivery_protocol: Option<String>,
+
+    /// The protocol used to receive this message
+    pub reception_protocol: Option<String>,
 }

@@ -289,6 +289,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
+                        delivery_protocol: Some(&dispatcher.delivery_protocol),
                     })
                     .await;
                     rt_spawn("requeue message".to_string(), move || {
@@ -317,6 +318,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
+                        delivery_protocol: Some(&dispatcher.delivery_protocol),
                     })
                     .await;
                     spawn("remove from spool", async move {
@@ -345,6 +347,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
+                        delivery_protocol: Some(&dispatcher.delivery_protocol),
                     })
                     .await;
                     spawn("remove from spool", async move {

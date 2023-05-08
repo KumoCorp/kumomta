@@ -1006,6 +1006,7 @@ impl SmtpServer {
 
                     for recip in state.recipients {
                         let id = SpoolId::new();
+                        let protocol = "ESMTP";
 
                         let mut body = if self.params.trace_headers.received_header {
                             let received = {
@@ -1047,6 +1048,8 @@ impl SmtpServer {
                         if let Some(authn) = &self.authentication_id {
                             message.set_meta("authn_id", json!(authn))?;
                         }
+
+                        message.set_meta("reception_protocol", protocol)?;
 
                         if let Err(rej) = self
                             .call_callback::<(), _, _>(
@@ -1111,6 +1114,7 @@ impl SmtpServer {
                             egress_pool: None,
                             egress_source: None,
                             relay_disposition: None,
+                            delivery_protocol: None,
                         })
                         .await;
                         if queue_name != "null" {
