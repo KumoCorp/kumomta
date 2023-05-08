@@ -62,10 +62,10 @@ is implicitly set to `application/x-www-form-urlencoded`.
 
 ```lua
 local request = kumo.http.build_client({}):post 'https://example.com'
-request:form_url_encoded({
+request:form_url_encoded {
   key = 'value',
-  other_key = 'other_value'
-})
+  other_key = 'other_value',
+}
 ```
 
 ## request:form_multipart_data({PARAMS})
@@ -81,10 +81,10 @@ as `application/octet-stream` in the generated form data.
 
 ```lua
 local request = kumo.http.build_client({}):post 'https://example.com'
-request:form_multipart_data({
+request:form_multipart_data {
   key = 'value',
-  other_key = 'other_value'
-})
+  other_key = 'other_value',
+}
 ```
 
 ## request:send()
