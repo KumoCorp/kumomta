@@ -141,7 +141,7 @@ impl AdminBounceEntry {
             egress_source: None,
             egress_pool: None,
             relay_disposition: None,
-            delivery_protocol:None,
+            delivery_protocol: None,
         })
         .await;
 

@@ -421,8 +421,8 @@ impl Dispatcher {
 
         let delivery_protocol = match &queue_config.protocol {
             DeliveryProto::Smtp => "ESMTP".to_string(),
-            DeliveryProto::Lua{..} => "Lua".to_string(),
-            DeliveryProto::Maildir {..} => "Maildir".to_string(),
+            DeliveryProto::Lua { .. } => "Lua".to_string(),
+            DeliveryProto::Maildir { .. } => "Maildir".to_string(),
         };
 
         let mut dispatcher = Self {

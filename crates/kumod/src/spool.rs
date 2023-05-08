@@ -286,7 +286,7 @@ impl SpoolManager {
                                     egress_pool,
                                     egress_source,
                                     relay_disposition: None,
-                                    delivery_protocol:None,
+                                    delivery_protocol: None,
                                 })
                                 .await;
                                 self.remove_from_spool_impl(id).await?;

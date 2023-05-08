@@ -844,7 +844,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                     egress_pool: None,
                                     egress_source: None,
                                     relay_disposition: None,
-                            delivery_protocol: None,
+                                    delivery_protocol: None,
                                 })
                                 .await;
                                 q.force_into_delayed((*msg).clone()).await?;
