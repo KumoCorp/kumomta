@@ -111,6 +111,60 @@ impl LuaUserData for RequestWrapper {
             Ok(this.clone())
         });
 
+        methods.add_method(
+            "form_url_encoded",
+            |_, this, params: HashMap<String, String>| {
+                this.apply(|b| Ok(b.form(&params)))?;
+                Ok(this.clone())
+            },
+        );
+
+        methods.add_method(
+            "form_multipart_data",
+            |_, this, params: HashMap<String, mlua::String>| {
+
+                // Generate a MIME body from the provided parameters
+                use mail_builder::headers::text::Text;
+                use mail_builder::headers::HeaderType;
+                use mail_builder::mime::MimePart;
+                use mailparse::MailHeaderMap;
+
+                let mut data = MimePart::new_multipart("multipart/form-data", vec![]);
+
+                for (k, v) in params.iter() {
+                    let part = if let Ok(s) = v.to_str() {
+                        MimePart::new_text(s)
+                    } else {
+                        MimePart::new_binary("application/octet-stream", v.as_bytes())
+                    };
+                    data.add_part(part.header(
+                        "Content-Disposition",
+                        HeaderType::Text(Text::new(format!("form-data; name=\"{k}\""))),
+                    ));
+                }
+                let builder = mail_builder::MessageBuilder::new();
+                let builder = builder.body(data);
+                let body = builder.write_to_vec().map_err(any_err)?;
+
+                // Now, parse out the Content-Type header so that we can set that in
+                // the request, and get the generated body with its generated boundary
+                // string into a separate variable so that we can assign it as the body
+                // of the HTTP request.
+
+                let (headers, body_offset) = mailparse::parse_headers(&body).map_err(any_err)?;
+
+                let content_type = headers
+                    .get_first_value("Content-Type")
+                    .ok_or_else(|| mlua::Error::external("missing Content-Type!?".to_string()))?;
+
+                let body = &body[body_offset..];
+
+                this.apply(|b| Ok(b.header("Content-Type", content_type).body(body.to_vec())))?;
+
+                Ok(this.clone())
+            },
+        );
+
         methods.add_async_method("send", |_, this, _: ()| async move {
             let response = this.send().await?;
             let status = response.status();

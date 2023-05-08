@@ -52,6 +52,41 @@ request:body(kumo.json_encode {
 })
 ```
 
+## request:form_url_encoded({PARAMS})
+
+Sets the body of the request to the provided parameters, using the
+`application/x-www-form-urlencoded` encoding scheme. The `Content-Type` header
+is implicitly set to `application/x-www-form-urlencoded`.
+
+`PARAMS` is an object-style table whose values must be UTF-8 strings.
+
+```lua
+local request = kumo.http.build_client({}):post 'https://example.com'
+request:form_url_encoded({
+  key = 'value',
+  other_key = 'other_value'
+})
+```
+
+## request:form_multipart_data({PARAMS})
+
+Sets the body of the request to the provided parameters, using the
+`multipart/form-data` encoding scheme. The `Content-Type` header
+is implicitly set to `multipart/form-data` with the automatically
+determined boundary field.
+
+`PARAMS` is an object-style table whose values should be either
+UTF-8 strings or lua binary strings.  Binary strings are encoded
+as `application/octet-stream` in the generated form data.
+
+```lua
+local request = kumo.http.build_client({}):post 'https://example.com'
+request:form_multipart_data({
+  key = 'value',
+  other_key = 'other_value'
+})
+```
+
 ## request:send()
 
 Sends the request and returns [Response](Response.md) object representing
