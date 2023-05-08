@@ -3,6 +3,7 @@ local kumo = require 'kumo'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
+local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
 
 kumo.on('init', function()
   kumo.start_esmtp_listener {
@@ -15,6 +16,10 @@ kumo.on('init', function()
     max_segment_duration = '1s',
   }
 
+  if WEBHOOK_PORT then
+    kumo.configure_log_hook {}
+  end
+
   kumo.define_spool {
     name = 'data',
     path = TEST_DIR .. '/data-spool',
@@ -26,12 +31,58 @@ kumo.on('init', function()
   }
 end)
 
+if WEBHOOK_PORT then
+  kumo.on('should_enqueue_log_record', function(msg)
+    local log_record = msg:get_meta 'log_record'
+    -- avoid an infinite loop caused by logging that we logged
+    if log_record.queue ~= 'webhook' then
+      msg:set_meta('queue', 'webhook')
+      return true
+    end
+    return false
+  end)
+
+  kumo.on('make.webhook', function(domain, tenant, campaign)
+    local sender = {}
+    local client = kumo.http.build_client {}
+    function sender:send(message)
+      local response = client
+        :post(string.format('http://127.0.0.1:%d/log', WEBHOOK_PORT))
+        :header('Content-Type', 'application/json')
+        :body(message:get_data())
+        :send()
+
+      local disposition = string.format(
+        '%d %s: %s',
+        response:status_code(),
+        response:status_reason(),
+        response:text()
+      )
+
+      if response:status_is_success() then
+        return disposition
+      end
+      kumo.reject(500, disposition)
+    end
+    return sender
+  end)
+end
+
 kumo.on('smtp_server_message_received', function(msg)
   -- Redirect traffic to the sink
   msg:set_meta('queue', 'localhost.')
 end)
 
 kumo.on('get_queue_config', function(domain, tenant, campaign)
+  if domain == 'webhook' then
+    return kumo.make_queue_config {
+      protocol = {
+        custom_lua = {
+          constructor = 'make.webhook',
+        },
+      },
+    }
+  end
   return kumo.make_queue_config {}
 end)
 

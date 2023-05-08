@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod kumod;
+#[cfg(test)]
+mod webhook;
 
 fn main() {
     println!("Run me via `cargo nextest run` or `cargo test`");
@@ -163,6 +165,94 @@ DeliverySummary {
         );
 
         let mut messages = daemon.extract_maildir_messages()?;
+
+        assert_equal!(messages.len(), 1);
+        let parsed = messages[0].parsed()?;
+        println!("headers: {:?}", parsed.headers);
+
+        assert!(parsed.headers.get_first_header("Received").is_some());
+        assert!(parsed.headers.get_first_header("X-KumoRef").is_some());
+        assert_equal!(
+            parsed.headers.get_first_value("From").unwrap(),
+            "<sender@example.com>"
+        );
+        assert_equal!(
+            parsed.headers.get_first_value("To").unwrap(),
+            "<recip@example.com>"
+        );
+        assert_equal!(
+            parsed.headers.get_first_value("Subject").unwrap(),
+            "Hello! This is a test"
+        );
+        assert_equal!(parsed.get_body()?, body);
+
+        Ok(())
+    }
+
+    /// Verify that what we send in transits through and is delivered
+    /// into the maildir at the other end with the same content,
+    /// and that the webhook logging is also used and captures
+    /// the correct amount of records
+    #[tokio::test]
+    async fn end_to_end_with_webhook() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildirAndWebHook::start().await?;
+
+        eprintln!("sending message");
+        let mut client = daemon.with_maildir.smtp_client().await?;
+
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .with_maildir
+            .wait_for_maildir_count(1, Duration::from_secs(10))
+            .await;
+
+        daemon
+            .wait_for_webhook_record_count(2, Duration::from_secs(10))
+            .await;
+
+        daemon.stop().await?;
+        println!("Stopped!");
+
+        let delivery_summary = daemon.with_maildir.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 3,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+        );
+
+        let webhook_summary = daemon.webhook.dump_logs();
+        k9::snapshot!(
+            webhook_summary,
+            "
+Ok(
+    {
+        Reception: 1,
+        Delivery: 1,
+    },
+)
+"
+        );
+
+        let mut messages = daemon.with_maildir.extract_maildir_messages()?;
 
         assert_equal!(messages.len(), 1);
         let parsed = messages[0].parsed()?;

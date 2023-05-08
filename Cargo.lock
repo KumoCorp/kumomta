@@ -1670,6 +1670,8 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "axum-server",
  "k9",
  "kumo-log-types",
  "lipsum",

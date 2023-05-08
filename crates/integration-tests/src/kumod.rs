@@ -1,3 +1,4 @@
+use crate::webhook::WebHookServer;
 use anyhow::Context;
 use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
@@ -343,5 +344,44 @@ impl KumoDaemon {
             } => true,
             _ = tokio::time::sleep(timeout) => false,
         }
+    }
+}
+
+pub struct DaemonWithMaildirAndWebHook {
+    pub with_maildir: DaemonWithMaildir,
+    pub webhook: WebHookServer,
+}
+
+impl DaemonWithMaildirAndWebHook {
+    pub async fn start() -> anyhow::Result<Self> {
+        let webhook = WebHookServer::start().await?;
+        let sink = KumoDaemon::spawn_maildir().await?;
+        let smtp = sink.listener("smtp");
+        let source = KumoDaemon::spawn(KumoArgs {
+            policy_file: "source.lua".to_string(),
+            env: vec![
+                ("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()),
+                (
+                    "KUMOD_WEBHOOK_PORT".to_string(),
+                    webhook.addr.port().to_string(),
+                ),
+            ],
+        })
+        .await?;
+
+        Ok(Self {
+            with_maildir: DaemonWithMaildir { source, sink },
+            webhook,
+        })
+    }
+
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        self.with_maildir.stop_both().await?;
+        self.webhook.shutdown();
+        Ok(())
+    }
+
+    pub async fn wait_for_webhook_record_count(&self, count: usize, timeout: Duration) -> bool {
+        self.webhook.wait_for_record_count(count, timeout).await
     }
 }
