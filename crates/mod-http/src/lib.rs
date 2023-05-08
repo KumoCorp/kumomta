@@ -2,7 +2,7 @@ use config::{any_err, get_or_create_sub_module};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
 use reqwest::header::HeaderMap;
-use reqwest::{Client, ClientBuilder, RequestBuilder, Response, Url};
+use reqwest::{Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -113,7 +113,9 @@ impl LuaUserData for RequestWrapper {
 
         methods.add_async_method("send", |_, this, _: ()| async move {
             let response = this.send().await?;
+            let status = response.status();
             Ok(ResponseWrapper {
+                status,
                 response: Arc::new(Mutex::new(Some(response))),
             })
         });
@@ -124,6 +126,7 @@ impl LuaUserData for RequestWrapper {
 
 #[derive(Clone)]
 struct ResponseWrapper {
+    status: StatusCode,
     response: Arc<Mutex<Option<Response>>>,
 }
 
@@ -167,26 +170,24 @@ impl ResponseWrapper {
 
 impl LuaUserData for ResponseWrapper {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
-        methods.add_method("status_code", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().as_u16()))
-        });
+        methods.add_method("status_code", |_, this, _: ()| Ok(this.status.as_u16()));
         methods.add_method("status_reason", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().canonical_reason()))
+            Ok(this.status.canonical_reason())
         });
         methods.add_method("status_is_informational", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().is_informational()))
+            Ok(this.status.is_informational())
         });
         methods.add_method("status_is_success", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().is_success()))
+            Ok(this.status.is_success())
         });
         methods.add_method("status_is_redirection", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().is_redirection()))
+            Ok(this.status.is_redirection())
         });
         methods.add_method("status_is_client_error", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().is_client_error()))
+            Ok(this.status.is_client_error())
         });
         methods.add_method("status_is_server_error", |_, this, _: ()| {
-            this.with(|response| Ok(response.status().is_server_error()))
+            Ok(this.status.is_server_error())
         });
         methods.add_method("headers", |_, this, _: ()| {
             this.with(|response| Ok(HeaderMapWrapper(response.headers().clone())))
