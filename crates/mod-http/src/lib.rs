@@ -122,7 +122,6 @@ impl LuaUserData for RequestWrapper {
         methods.add_method(
             "form_multipart_data",
             |_, this, params: HashMap<String, mlua::String>| {
-
                 // Generate a MIME body from the provided parameters
                 use mail_builder::headers::text::Text;
                 use mail_builder::headers::HeaderType;
