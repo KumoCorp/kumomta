@@ -6,7 +6,7 @@ If you need to "smarthost" or route messages through another server, you can do 
 msg:set_meta('queue', 'imap.server.hostname')
 ```
 
-This should me located in a 'smtp_server_message_received' function like this:
+This should be located in a 'smtp_server_message_received' function like this:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
