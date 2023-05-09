@@ -5,12 +5,11 @@ Given a [keysource](../keysource.md), load and return the bytes stored in that s
 ## Example of Loading a credential from a vault
 
 ```lua
-
 local request = kumo.http.build_client({}):get 'https://example.com/'
 
 local passwd = kumo.secrets.load {
-    vault_mount = 'secret',
-    vault_path = 'example.com-passwd',
+  vault_mount = 'secret',
+  vault_path = 'example.com-passwd',
 }
 request:basic_auth('username', passwd)
 
