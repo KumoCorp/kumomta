@@ -103,7 +103,11 @@ impl ReadyQueueManager {
                 "get_egress_path_config",
                 (components.domain, egress_source.name.to_string(), site_name),
             )
-            .await?;
+            .await
+            .map_err(|err| {
+                tracing::error!("Error while calling get_egress_path_config: {err:#}");
+                err
+            })?;
 
         let mut manager = Self::get().await;
         let activity = Activity::get()?;
