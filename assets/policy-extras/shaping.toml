@@ -33,14 +33,25 @@ mx_rollup = false
 max_deliveries_per_connection = 100
 connection_limit = 3
 
+# https://sendersupport.olc.protection.outlook.com/pm/
+["protection.outlook.com"]
+max_deliveries_per_connection = 50
+connection_limit = 10
+
+# https://support.google.com/mail/answer/81126
 ["gmail.com"]
-# Setting for gmail would go in here
+max_deliveries_per_connection = 50
+connection_limit = 5
+enable_tls = "Required"
+consecutive_connection_failures_before_delay = 5
 
 # PROVIDED BY YAHOO! DIRECTLY
+# https://senders.yahooinc.com/best-practices
 ["yahoo.com"]
 max_deliveries_per_connection = 20
 
 # PROVIDED BY COMCAST DIRECTLY
+# https://spa.xfinity.com/postmaster
 ["comcast.net"]
 connection_limit = 10
 max_deliveries_per_connection = 250
