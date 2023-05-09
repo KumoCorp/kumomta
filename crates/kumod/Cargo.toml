@@ -68,6 +68,7 @@ throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {version="1.25", features=["full", "tracing"]}
 tokio-rustls = "0.23"
+toml = "0.7"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}

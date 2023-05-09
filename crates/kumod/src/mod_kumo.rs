@@ -145,6 +145,43 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "toml_load",
+        lua.create_async_function(|lua, file_name: String| async move {
+            let data = tokio::fs::read_to_string(&file_name)
+                .await
+                .with_context(|| format!("reading file {file_name}"))
+                .map_err(any_err)?;
+
+            let obj: toml::Value = toml::from_str(&data)
+                .with_context(|| format!("parsing {file_name} as toml"))
+                .map_err(any_err)?;
+            Ok(lua.to_value(&obj))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "toml_parse",
+        lua.create_function(move |lua, toml: String| {
+            let obj: toml::Value = toml::from_str(&toml)
+                .with_context(|| format!("parsing {toml} as toml"))
+                .map_err(any_err)?;
+            Ok(lua.to_value(&obj))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "toml_encode",
+        lua.create_function(move |_lua, value: Value| toml::to_string(&value).map_err(any_err))?,
+    )?;
+
+    kumo_mod.set(
+        "toml_encode_pretty",
+        lua.create_function(move |_lua, value: Value| {
+            toml::to_string_pretty(&value).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "json_load",
         lua.create_async_function(|lua, file_name: String| async move {
             let data = tokio::fs::read(&file_name)
