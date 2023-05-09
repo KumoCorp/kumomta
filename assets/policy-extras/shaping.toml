@@ -34,15 +34,17 @@ max_deliveries_per_connection = 100
 connection_limit = 3
 
 ["gmail.com"]
+# Setting for gmail would go in here
 
 ["comcast.net"]
+# Setting for comcast would go in here
 
 
 # If you want to declare local overrides with settings for your locally defined
 # egress sources, you can syntax like the following; the section is named:
 # [DOMAIN.sources.SOURCE] where both the DOMAIN and the SOURCE need to be quoted
 # with double quotes.
-# If you do want to do this, don't edit this file at /opt/kumomta/share/shaping.toml,
+# If you do want to do this, don't edit this file at /opt/kumomta/share/policy-extras/shaping.toml,
 # but instead create your own copy at `/opt/kumomta/etc/shaping.toml` and provide
 # your overrides there.
 ["example.com".sources."my source name"]
