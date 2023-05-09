@@ -93,6 +93,7 @@ install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 /opt/kumomta/share/bounce_classifier/*.toml
 /opt/kumomta/share/minimal-init.lua
 /opt/kumomta/share/policy-extras/*.lua
+/opt/kumomta/share/policy-extras/*.toml
 /usr/lib/systemd/system/kumomta.service
 EOF
 

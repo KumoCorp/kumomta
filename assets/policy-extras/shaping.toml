@@ -1,0 +1,49 @@
+# This file allows you to declare traffic shaping parameters by domain.
+# Each domain has a section as shown below. The domain name must be enclosed
+# in square-brackets and quotes to be correctly recognized.
+#
+# The default for a domain is to use MX rollup; when this file is loaded,
+# the MX is resolved for the domain and all domains that rollup to that
+# same set of MX records will share those settings.
+# It is an error to list multiple different domains that rollup to the same
+# MX, as that would result in an ambiguous configuration. The error will be
+# noted when the configuration is loaded.
+#
+# If you do not wish to use mx rollup for a domain, you can set
+# `mx_rollup = false` as one of the values in the domain section, as shown
+# in the `example.com` example in this file.
+#
+# If a domain is a NULL MX (such as `example.com`), it cannot be used with
+# mx_rollup, because there are no MX's to roll up into.
+#
+# You may compose multiple shaping files over each other; in that case you
+# have the option of specifying `replace_base = true` in a domain in a
+# later file. That will have the effect of ignoring all previous values
+# for that domain.
+#
+# The acceptable set of values in a domain section are valid parameters to
+# kumo.make_egress_path.
+# <https://docs.kumomta.com/reference/kumo/make_egress_path/>
+#
+# Members of the community are encouraged to share their shaping configuration
+# for various domains; please feel empowered to open a PR!
+
+["example.com"]
+mx_rollup = false
+max_deliveries_per_connection = 100
+connection_limit = 3
+
+["gmail.com"]
+
+["comcast.net"]
+
+
+# If you want to declare local overrides with settings for your locally defined
+# egress sources, you can syntax like the following; the section is named:
+# [DOMAIN.sources.SOURCE] where both the DOMAIN and the SOURCE need to be quoted
+# with double quotes.
+# If you do want to do this, don't edit this file at /opt/kumomta/share/shaping.toml,
+# but instead create your own copy at `/opt/kumomta/etc/shaping.toml` and provide
+# your overrides there.
+["example.com".sources."my source name"]
+connection_limit = 5

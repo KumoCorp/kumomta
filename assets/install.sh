@@ -9,6 +9,7 @@ install -Dsm755 target/release/tailer -t ${PREFIX}/sbin
 install -Dm644 assets/bounce_classifier/* -t ${PREFIX}/share/bounce_classifier
 install -Dm644 assets/init.lua -T ${PREFIX}/share/minimal-init.lua
 install -Dm644 assets/policy-extras/*.lua -t ${PREFIX}/share/policy-extras
+install -Dm644 assets/policy-extras/*.toml -t ${PREFIX}/share/policy-extras
 
 if test "$EUID" -eq 0 && getent passwd kumod >/dev/null && getent group kumod >/dev/null ; then
   for dir in /opt/kumomta/etc /opt/kumomta/etc/policy ; do
