@@ -1,4 +1,6 @@
 use anyhow::anyhow;
+use config::{any_err, get_or_create_sub_module};
+use mlua::{Lua, LuaSerdeExt};
 use serde::Deserialize;
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
@@ -63,4 +65,18 @@ impl KeySource {
             }
         }
     }
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let secrets_mod = get_or_create_sub_module(lua, "secrets")?;
+
+    secrets_mod.set(
+        "load",
+        lua.create_async_function(|lua, source: mlua::Value| async move {
+            let source: KeySource = lua.from_value(source)?;
+            source.get().await.map_err(any_err)
+        })?,
+    )?;
+
+    Ok(())
 }

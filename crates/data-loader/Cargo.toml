@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+config = {path="../config"}
+mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
 tokio = {version="1.25", features=["fs"]}
 vaultrs = "0.6"

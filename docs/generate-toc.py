@@ -237,6 +237,10 @@ TOC = [
                 "reference/kumo.http",
             ),
             Gen(
+                "module: kumo.secrets",
+                "reference/kumo.secrets",
+            ),
+            Gen(
                 "module: sqlite",
                 "reference/sqlite",
             ),

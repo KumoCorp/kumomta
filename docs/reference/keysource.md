@@ -4,6 +4,7 @@ KeySource objects are used in several places:
 
 * Embedded into DKIM signer objects
 * The `tls_certificate` and `tls_key` fields of listeners
+* With the [kumo.secrets.load](kumo.secrets/load.md) function
 
 ## Acceptable Values
 

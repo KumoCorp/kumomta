@@ -941,6 +941,8 @@ name = "data-loader"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "config",
+ "mlua",
  "serde",
  "tokio",
  "vaultrs",

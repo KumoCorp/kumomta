@@ -36,9 +36,15 @@ request:headers {
 Configures the username and optional password that should be used
 to perform HTTP Basic authentication.
 
+Consider using a [keysource](../keysource.md) with
+[kumo.secrets.load](../kumo.secrets/load.md) to retrieve credentials.
+
 ## request:bearer_auth(token)
 
 Configures the token to be used for HTTP Bearer authentication
+
+Consider using a [keysource](../keysource.md) with
+[kumo.secrets.load](../kumo.secrets/load.md) to retrieve credentials.
 
 ## request:body(body)
 
