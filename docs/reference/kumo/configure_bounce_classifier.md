@@ -8,7 +8,7 @@ to respond and react to a delivery failure.
 This function should be called only from inside your [init](../events/init.md)
 event handler.
 
-!!!
+!!! note
     The precise set of classifications are not yet finalized so are
     not reproduced here. They can be found in the `BounceClass` enum
     in `kumomta/crates/bounce-classify/src/lib.rs`
