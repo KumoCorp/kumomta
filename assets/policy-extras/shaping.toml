@@ -36,8 +36,17 @@ connection_limit = 3
 ["gmail.com"]
 # Setting for gmail would go in here
 
+# PROVIDED BY YAHOO! DIRECTLY
+["yahoo.com"]
+max_deliveries_per_connection = 20
+
+# PROVIDED BY COMCAST DIRECTLY
 ["comcast.net"]
-# Setting for comcast would go in here
+connection_limit = 10
+max_deliveries_per_connection = 250
+enable_tls = "Required"
+idle_timeout = "30s"
+consecutive_connection_failures_before_delay = 24
 
 
 # If you want to declare local overrides with settings for your locally defined
