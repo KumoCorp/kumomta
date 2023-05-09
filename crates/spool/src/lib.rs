@@ -23,7 +23,7 @@ pub trait Spool: Send + Sync {
     async fn remove(&self, id: SpoolId) -> anyhow::Result<()>;
 
     /// Write/Replace the data associated with the provided Id
-    async fn store(&self, id: SpoolId, data: &[u8]) -> anyhow::Result<()>;
+    async fn store(&self, id: SpoolId, data: &[u8], force_sync: bool) -> anyhow::Result<()>;
 
     /// Scan the contents of the spool, and emit a SpoolEntry for each item
     /// to the provided channel sender.

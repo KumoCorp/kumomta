@@ -26,6 +26,8 @@ bitflags::bitflags! {
         const DATA_DIRTY = 2;
         /// true if scheduling restrictions are present in the metadata
         const SCHEDULED = 4;
+        /// true if high durability writes should always be used
+        const FORCE_SYNC = 8;
     }
 }
 
@@ -245,6 +247,11 @@ impl Message {
         }
     }
 
+    pub fn set_force_sync(&self, force: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.flags.set(MessageFlags::FORCE_SYNC, force);
+    }
+
     pub fn needs_save(&self) -> bool {
         let inner = self.inner.lock().unwrap();
         inner
@@ -261,12 +268,19 @@ impl Message {
         meta_spool: &(dyn Spool + Send + Sync),
         data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<()> {
+        let force_sync = self
+            .inner
+            .lock()
+            .unwrap()
+            .flags
+            .contains(MessageFlags::FORCE_SYNC);
+
         let data_holder;
         let data_fut = if let Some(data) = self.get_data_if_dirty() {
             anyhow::ensure!(!data.is_empty(), "message data must not be empty");
             data_holder = data;
             data_spool
-                .store(self.id, &data_holder)
+                .store(self.id, &data_holder, force_sync)
                 .map(|_| true)
                 .boxed()
         } else {
@@ -276,7 +290,7 @@ impl Message {
         let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
             meta_holder = serde_json::to_vec(&meta)?;
             meta_spool
-                .store(self.id, &meta_holder)
+                .store(self.id, &meta_holder, force_sync)
                 .map(|_| true)
                 .boxed()
         } else {
@@ -836,6 +850,15 @@ impl UserData for Message {
                 Some(report) => lua.to_value(&report),
                 None => Ok(mlua::Value::Nil),
             }
+        });
+
+        methods.add_async_method("save", |_, this, ()| async move {
+            this.save().await.map_err(any_err)
+        });
+
+        methods.add_method("set_force_sync", move |_, this, force: bool| {
+            this.set_force_sync(force);
+            Ok(())
         });
     }
 }

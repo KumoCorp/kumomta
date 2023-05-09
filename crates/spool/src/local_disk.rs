@@ -88,11 +88,11 @@ impl Spool for LocalDiskSpool {
             .with_context(|| format!("failed to remove {id} from {path:?}"))
     }
 
-    async fn store(&self, id: SpoolId, data: &[u8]) -> anyhow::Result<()> {
+    async fn store(&self, id: SpoolId, data: &[u8], force_sync: bool) -> anyhow::Result<()> {
         let path = self.compute_path(id);
         let new_dir = self.path.join("new");
         let data = data.to_vec();
-        let flush = self.flush;
+        let flush = force_sync || self.flush;
         tokio::task::Builder::new()
             .name("LocalDiskSpool store")
             .spawn_blocking(move || {
@@ -256,7 +256,9 @@ mod test {
         let mut ids = vec![];
         for i in 0..100 {
             let id = SpoolId::new();
-            spool.store(id, format!("I am {i}").as_bytes()).await?;
+            spool
+                .store(id, format!("I am {i}").as_bytes(), false)
+                .await?;
             ids.push(id);
         }
 

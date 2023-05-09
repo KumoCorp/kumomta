@@ -147,8 +147,15 @@ impl Spool for RocksSpool {
             .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
     }
 
-    async fn store(&self, id: SpoolId, data: &[u8]) -> anyhow::Result<()> {
+    async fn store(&self, id: SpoolId, data: &[u8], force_sync: bool) -> anyhow::Result<()> {
         self.db.put(id.as_bytes(), data)?;
+        if force_sync {
+            let db = self.db.clone();
+            tokio::task::Builder::new()
+                .name("rocksdb flush")
+                .spawn_blocking(move || db.flush())?
+                .await??;
+        }
         Ok(())
     }
 
@@ -209,7 +216,9 @@ mod test {
         let mut ids = vec![];
         for i in 0..100 {
             let id = SpoolId::new();
-            spool.store(id, format!("I am {i}").as_bytes()).await?;
+            spool
+                .store(id, format!("I am {i}").as_bytes(), false)
+                .await?;
             ids.push(id);
         }
 
