@@ -99,7 +99,7 @@ impl EgressSource {
 
         let transport_address = ha_proxy_server.unwrap_or(address);
 
-        tracing::info!(
+        tracing::trace!(
             "will connect {address:?} {transport_address:?} {ha_proxy_server:?} {ha_proxy_addr:?}"
         );
 
@@ -126,11 +126,7 @@ impl EgressSource {
             .await
             .with_context(|| format!("connect to {transport_address:?}"))?;
 
-        tracing::info!("made stream");
-
         if let Some(proxy_addr) = ha_proxy_addr {
-            tracing::info!("building header");
-
             let header = Builder::with_addresses(
                 Version::Two | Command::Proxy,
                 Protocol::Stream,
@@ -143,8 +139,6 @@ impl EgressSource {
                      for connection from source:{source_name} to {address:?}"
                 )
             })?;
-
-            tracing::info!("writing header");
 
             stream.write_all(&header).await.with_context(|| {
                 format!(
