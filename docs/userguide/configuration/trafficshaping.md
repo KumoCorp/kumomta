@@ -106,14 +106,23 @@ Because the shaping.toml file is part of the install repository, it should not b
 
 ```lua
 -- load the community shaping.toml + local settings
-kumo.on('get_egress_path_config', shaping:setup({'/opt/kumomta/etc/shaping.json'}))
+kumo.on(
+  'get_egress_path_config',
+  shaping:setup { '/opt/kumomta/etc/shaping.json' }
+)
 ```
 
 You can load multiple override files too if you wish, by adding each file name to that table:
 
 ```lua
 -- load the community shaping.toml + local settings
-kumo.on('get_egress_path_config', shaping:setup({'/opt/kumomta/etc/shaping.toml', '/opt/kumomta/etc/shaping-generated.json'}))
+kumo.on(
+  'get_egress_path_config',
+  shaping:setup {
+    '/opt/kumomta/etc/shaping.toml',
+    '/opt/kumomta/etc/shaping-generated.json',
+  }
+)
 ```
 
 When creating an override file, any settings that overlap with an existing domain definition will append any existing settings in the `shaping.toml` file, replacing any directly overlapping options.
