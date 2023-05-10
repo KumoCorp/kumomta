@@ -1884,6 +1884,7 @@ dependencies = [
  "nix 0.26.2",
  "once_cell",
  "ouroboros",
+ "ppp",
  "prometheus",
  "rand",
  "rcgen",
@@ -2922,6 +2923,15 @@ name = "portable-atomic"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26f6a7b87c2e435a3241addceeeff740ff8b7e76b74c13bf9acb17fa454ea00b"
+
+[[package]]
+name = "ppp"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82d901d7dd743c478e14af9518bdbc33e53e50be56429233f812537f29dbf0d1"
+dependencies = [
+ "thiserror",
+]
 
 [[package]]
 name = "ppv-lite86"

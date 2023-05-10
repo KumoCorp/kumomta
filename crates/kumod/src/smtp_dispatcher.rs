@@ -10,8 +10,7 @@ use async_trait::async_trait;
 use kumo_log_types::ResolvedAddress;
 use message::Message;
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
-use std::net::{IpAddr, SocketAddr};
-use tokio::net::TcpSocket;
+use std::net::SocketAddr;
 use tokio::time::timeout;
 
 #[derive(Debug)]
@@ -160,46 +159,27 @@ impl QueueDispatcher for SmtpDispatcher {
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
         let enable_tls = dispatcher.path_config.enable_tls;
-        let egress_source_name = dispatcher.egress_source.name.to_string();
         let port = dispatcher
             .egress_source
             .remote_port
             .unwrap_or(dispatcher.path_config.smtp_port);
-        let source_address = dispatcher.egress_source.source_address.clone();
         let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
         let mut client = timeout(dispatcher.path_config.client_timeouts.connect_timeout, {
             let address = address.clone();
             let timeouts = dispatcher.path_config.client_timeouts.clone();
+            let egress_source = dispatcher.egress_source.clone();
             async move {
-                let socket = match address.addr {
-                    IpAddr::V4(_) => TcpSocket::new_v4(),
-                    IpAddr::V6(_) => TcpSocket::new_v6(),
-                }
-                .with_context(|| format!("make socket to connect to {address:?} port {port}"))?;
-                if let Some(source) = source_address {
-                    if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                        // Always log failure to bind: it indicates a critical
-                        // misconfiguration issue
-                        let error = format!(
-                            "bind {source:?} for source:{egress_source_name} failed: {err:#} \
-                             while attempting to connect to {address:?} port {port}"
-                        );
-                        tracing::error!("{error}");
-                        anyhow::bail!("{error}");
-                    }
-                }
-                let stream = socket
-                    .connect(SocketAddr::new(address.addr, port))
-                    .await
-                    .with_context(|| format!("connect to {address:?} port {port}"))?;
+                let stream = egress_source
+                    .connect_to(SocketAddr::new(address.addr, port))
+                    .await?;
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
 
                 // Read banner
                 let banner = client.read_response(None).await.context("reading banner")?;
                 if banner.code != 220 {
-                    return Err(ClientError::Rejected(banner).into());
+                    return anyhow::Result::<SmtpClient>::Err(ClientError::Rejected(banner).into());
                 }
 
                 Ok(client)

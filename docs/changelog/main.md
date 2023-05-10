@@ -5,3 +5,4 @@
 * [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) can now be called
   multiple times to configure multiple different logging locations and
   configurations.
+* Added HA Proxy client support. #19

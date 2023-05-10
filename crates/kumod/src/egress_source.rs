@@ -2,8 +2,10 @@ use anyhow::Context;
 use gcd::Gcd;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpSocket, TcpStream};
 
 lazy_static::lazy_static! {
     static ref SOURCES: Mutex<HashMap<String, EgressSource>> = Mutex::new(EgressSource::init_sources());
@@ -22,7 +24,13 @@ pub struct EgressSource {
     /// Override the default destination port number with this value
     /// for deployments that use port mapping
     pub remote_port: Option<u16>,
-    // TODO: ha proxy cluster protocol options to go here
+
+    /// The host:port of the haproxy that should be used
+    pub ha_proxy_server: Option<SocketAddr>,
+
+    /// Ask ha_proxy to bind to this address when it is making
+    /// a connection
+    pub ha_proxy_source_address: Option<IpAddr>,
 }
 
 impl EgressSource {
@@ -39,6 +47,8 @@ impl EgressSource {
             name: "unspecified".to_string(),
             source_address: None,
             remote_port: None,
+            ha_proxy_server: None,
+            ha_proxy_source_address: None,
         };
 
         map.insert(unspec.name.to_string(), unspec);
@@ -51,6 +61,100 @@ impl EgressSource {
             .get(name)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no such source {name}"))
+    }
+
+    pub async fn connect_to(&self, address: SocketAddr) -> anyhow::Result<TcpStream> {
+        use ppp::v2::{Addresses, Builder, Command, IPv4, IPv6, Protocol, Version};
+        let source_name = &self.name;
+
+        let (ha_proxy_server, ha_proxy_addr) =
+            match (self.ha_proxy_server, self.ha_proxy_source_address) {
+                (Some(srv), Some(addr)) => match (addr, address) {
+                    (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => (
+                        Some(srv),
+                        Some(Addresses::IPv4(IPv4::new(
+                            src_ip,
+                            *dest_ip.ip(),
+                            0,
+                            dest_ip.port(),
+                        ))),
+                    ),
+                    (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => (
+                        Some(srv),
+                        Some(Addresses::IPv6(IPv6::new(
+                            src_ip,
+                            *dest_ip.ip(),
+                            0,
+                            dest_ip.port(),
+                        ))),
+                    ),
+                    _ => anyhow::bail!(
+                        "Skipping {source_name} because \
+                         ha_proxy_source_address address family does \
+                         not match the destination address family"
+                    ),
+                },
+                _ => (None, None),
+            };
+
+        let transport_address = ha_proxy_server.unwrap_or(address);
+
+        tracing::info!(
+            "will connect {address:?} {transport_address:?} {ha_proxy_server:?} {ha_proxy_addr:?}"
+        );
+
+        let socket = match transport_address {
+            SocketAddr::V4(_) => TcpSocket::new_v4(),
+            SocketAddr::V6(_) => TcpSocket::new_v6(),
+        }
+        .with_context(|| format!("make socket to connect to {transport_address:?}"))?;
+
+        if let Some(source) = self.source_address {
+            if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
+                // Always log failure to bind: it indicates a critical
+                // misconfiguration issue
+                let error = format!(
+                    "bind {source:?} for source:{source_name} failed: {err:#} \
+                    while attempting to connect to {transport_address:?}"
+                );
+                tracing::error!("{error}");
+                anyhow::bail!("{error}");
+            }
+        }
+        let mut stream = socket
+            .connect(transport_address)
+            .await
+            .with_context(|| format!("connect to {transport_address:?}"))?;
+
+        tracing::info!("made stream");
+
+        if let Some(proxy_addr) = ha_proxy_addr {
+            tracing::info!("building header");
+
+            let header = Builder::with_addresses(
+                Version::Two | Command::Proxy,
+                Protocol::Stream,
+                proxy_addr,
+            )
+            .build()
+            .with_context(|| {
+                format!(
+                    "building ha proxy protocol header \
+                     for connection from source:{source_name} to {address:?}"
+                )
+            })?;
+
+            tracing::info!("writing header");
+
+            stream.write_all(&header).await.with_context(|| {
+                format!(
+                    "sending ha proxy protocol header \
+                     for connection from source:{source_name} to {address:?}"
+                )
+            })?;
+        }
+
+        Ok(stream)
     }
 }
 

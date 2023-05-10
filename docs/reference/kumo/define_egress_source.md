@@ -38,6 +38,7 @@ connection that will be made from this source.
 
 If not specified, the kernel will select the IP address automatically.
 
+
 ```lua
 kumo.on('init', function()
   -- Make a source that will emit from 10.0.0.1
@@ -47,6 +48,11 @@ kumo.on('init', function()
   }
 end)
 ```
+
+!!! note
+    When using HA Proxy, the `source_address` will be used when connecting to the proxy.
+    You should use `ha_proxy_source_address` to specify the actual address to use
+    from the HA Proxy instance to the destination.
 
 ## ehlo_domain
 
@@ -76,4 +82,38 @@ where your network is set to manage the egress address based on port mapping.
 
 This option takes precedence over
 [kumo.make_egress_path().smtp_port](make_egress_path.md#smtp_port).
+
+## ha_proxy_server
+
+Optional string.
+
+If both `ha_proxy_server` and `ha_proxy_source_address` are specified, then
+SMTP connections will be made via an HA Proxy server.
+
+`ha_proxy_server` specifies the address and port of the proxy server.
+
+```lua
+kumo.on('init', function()
+  -- Make a source that will emit from 10.0.0.1, via a proxy server
+  kumo.define_egress_source {
+    name = 'ip-1',
+    ha_proxy_source_address = '10.0.0.1',
+    ha_proxy_server = '10.0.0.1:5000',
+    ehlo_domain = 'mta1.examplecorp.com',
+  }
+end)
+```
+
+## ha_proxy_source_address
+
+Optional string.
+
+Specifies the source address that the HA Proxy server should use when
+initiating a connection.
+
+!!! note
+   The HA Proxy protocol doesn't provide a mechanism for reporting
+   whether binding to this address was successful.  From the perspective
+   of KumoMTA, invalid proxy configuration will appear as a timeout
+   with no additional context.
 
