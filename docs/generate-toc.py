@@ -195,7 +195,7 @@ TOC = [
                         "userguide/operation/httpinjection.md",
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
-                    Page("Publishing Log Events Via Webhooks", "userguide/configuration/webhooks.md"),
+                    Page("Publishing Log Events Via Webhooks", "userguide/operation/webhooks.md"),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],
