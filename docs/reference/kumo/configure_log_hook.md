@@ -8,9 +8,9 @@ that), and passed to the
 
 ```lua
 kumo.on('init', function()
-    kumo.configure_log_hook {
-        headers = { 'Subject', 'X-Customer-ID' },
-    }
+  kumo.configure_log_hook {
+    headers = { 'Subject', 'X-Customer-ID' },
+  }
 end)
 ```
 

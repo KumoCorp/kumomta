@@ -16,9 +16,9 @@ The call to `configure_log_hook` is placed in the init event handler:
 
 ```lua
 kumo.on('init', function()
-    kumo.configure_log_hook {
-        headers = { 'Subject', 'X-Customer-ID' },
-    }
+  kumo.configure_log_hook {
+    headers = { 'Subject', 'X-Customer-ID' },
+  }
 end)
 ```
 
