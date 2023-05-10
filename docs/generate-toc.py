@@ -149,7 +149,6 @@ TOC = [
                         "Configuring SMTP Listeners",
                         "userguide/configuration/smtplisteners.md",
                     ),
-                    Page("Configuring Webhooks", "userguide/configuration/webhooks.md"),
                     Page(
                         "Configuring Inbound and Relay Domains",
                         "userguide/configuration/domains.md",
@@ -196,6 +195,7 @@ TOC = [
                         "userguide/operation/httpinjection.md",
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
+                    Page("Publishing Log Events Via Webhooks", "userguide/configuration/webhooks.md"),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],

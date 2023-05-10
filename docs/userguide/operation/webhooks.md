@@ -1,4 +1,4 @@
-# Configuring Webhooks
+# Publishing Log Events Via Webhooks
 
 While logs are an invaluable resource for monitoring and troubleshooting mail flows, log rotating and parsing adds complexity and latency when the goal is loading the email event data into an existing platform.
 

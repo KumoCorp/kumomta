@@ -14,6 +14,9 @@ kumo.configure_local_logs {
 
 For multiple log files, the `configure_local_logs` function can be called multiple times with different parameters.
 
+!!!note
+    Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
+
 ## OS Considerations
 
 The log directory should be isolated to its own partition, in order to prevent a full log partition from affecting the overall server. For best performance, the log directory should be on a separate disk from the spool. The log partition should be monitored to ensure that the disk does not fill to 100% capacity.
