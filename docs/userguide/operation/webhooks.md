@@ -122,4 +122,7 @@ kumo.on('make.webhook', function(domain, tenant, campaign)
 end)
 ```
 
+!!!warning
+    Storing credentials as hardcoded values in a policy script such as this is not recommended, instead use the built in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
+
 This same methodology could also be used to deliver queued SMTP messages to a third-party API, see the [Routing Messages Via HTTP Request](../policy/http.md) page of the Policy chapter for more information.
