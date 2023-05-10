@@ -1,10 +1,18 @@
 # `kumo.configure_log_hook {PARAMS}`
 
 Configures the lua logging hook. When enabled, each matching log event will
-cause cause new a [Message](../message/index.md) to generated and have its body
+cause cause new a [Message](../message/index.md) to be generated and have its body
 assigned to the log record (or to its template expansion if you have configured
 that), and passed to the
 [should_enqueue_log_record](../events/should_enqueue_log_record.md) event.
+
+```lua
+kumo.on('init', function()
+    kumo.configure_log_hook {
+        headers = { 'Subject', 'X-Customer-ID' },
+    }
+end)
+```
 
 This allows you to utilize KumoMTA's internal queueing to dispatch log events
 to external systems such as webhooks or some external queuing system for
