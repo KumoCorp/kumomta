@@ -6,3 +6,8 @@
   multiple times to configure multiple different logging locations and
   configurations.
 * Added HA Proxy client support. #19
+* Added HTTP delivery support. [#36](https://github.com/KumoCorp/kumomta/issues/36)
+* Added logging for inject and delivery types.
+* Added option to force fsync per-message. [#6](https://github.com/KumoCorp/kumomta/issues/6)
+* Added traffic shaping policy helper. [#43](https://github.com/KumoCorp/kumomta/issues/43)
+* Added webhook support. [#18](https://github.com/KumoCorp/kumomta/issues/18)
