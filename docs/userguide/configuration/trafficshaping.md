@@ -30,14 +30,100 @@ To use the shaping.lua helper, add the following to your init.lua, outside the i
 
 ```lua
 local shaping = require 'policy-extras.shaping'
-kumo.on('get_egress_path_config', shaping:setup_json())
+kumo.on('get_egress_path_config', shaping:setup())
 ```
 
-The shaping.lua policy reads a JSON file, which needs to be written to *`/opt/kumomta/etc/shaping.json`*, and which is structured as follows:
+The shaping.lua policy reads a TOML file that is maintained by the community and included in all repos, also found at [https://github.com/KumoCorp/kumomta/blob/main/assets/policy-extras/shaping.toml](https://github.com/KumoCorp/kumomta/blob/main/assets/policy-extras/shaping.toml), and which is structured as follows:
+
+```toml
+["default"]
+connection_limit = 10
+max_connection_rate = "100/min"
+max_deliveries_per_connection = 100
+max_message_rate = "100/s"
+idle_timeout = "60s"
+tls = "Opportunistic"
+consecutive_connection_failures_before_delay = 100
+
+["example.com"]
+mx_rollup = false
+max_deliveries_per_connection = 100
+connection_limit = 3
+```
+
+As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
+
+The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path.md) page of the Reference Manual.
+
+### MX Rollups and Option Inheritance
+
+By default, shaping.lua treats each domain entry as applying to the site_name for the domain named, and those settings apply to any destination domain that maps to the site. If you need to explicitly override a setting for a destination domain that is not self-hosted but instead part of another site_name, you need to set the `mx_rollup` option to **false** when configuring the domain, as in the example above for *example.com.* If you configure a domain that belongs to another configured site without setting the `mx_rollup` option to **false**, you will cause an error.
+
+Consider the following example, with foo.com being a domain hosted by Yahoo!:
+
+```toml
+["default"]
+connection_limit = 10
+max_connection_rate = "100/min"
+max_deliveries_per_connection = 100
+max_message_rate = "100/s"
+idle_timeout = "60s"
+tls = "Opportunistic"
+consecutive_connection_failures_before_delay = 100
+
+["yahoo.com"]
+max_deliveries_per_connection = 20
+
+["foo.com"]
+mx_rollup = false
+max_deliveries_per_connection = 50
+connection_limit = 3
+
+["foo.com".sources."IP-1"]
+max_deliveries_per_connection = 5
+```
+
+This example would result in the following active settings for mail being sent to foo.com on the IP-1 Egress Source:
+
+```toml
+connection_limit = 3
+max_deliveries_per_connection = 5
+max_connection_rate = "100/min"
+max_message_rate = "100/s"
+```
+
+The *mx_rollup* option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain. The mx_rollup option is true by default and only needs to be specified for domains that override the main site name entry.
+
+While the default max_deliveries_per_connection is 100, it is overridden for yahoo.com (and all domains that share the same site name as the yahoo.com domain) to 20. The foo.com domain is part of the same site name as yahoo.com, but because mx_rollup is set to false the foo.com domain is treated separately and instead is set to 50. Because there is a sources entry for IP-1, the max_deliveries_per_connection is further overridden to 5 for that source's traffic in particular.
+
+### Overriding the shaping.toml File
+
+The `shaping.toml` file provides a community-contributed collection of traffic shaping rules that are useful for new servers, but traffic shaping rules are often configured in the context of the reputation of the various domains and IP addresses in a given environment, making it necessary to customize the rules according to your specific use cases.
+
+In addition, all per-source traffic shaping options must be in a user-defined shaping file since the default shaping.toml file does not suppoort per-source configuration.
+
+Because the shaping.toml file is part of the install repository, it should not be modified. Instead, create a separate file with your own traffic shaping rules in either TOML or JSON formats and pass it as part of the call to `shaping:setup()`:
+
+```lua
+-- load the community shaping.toml + local settings
+kumo.on('get_egress_path_config', shaping:setup({'/opt/kumomta/etc/shaping.json'}))
+```
+
+You can load multiple override files too if you wish, by adding each file name to that table:
+
+```lua
+-- load the community shaping.toml + local settings
+kumo.on('get_egress_path_config', shaping:setup({'/opt/kumomta/etc/shaping.toml', '/opt/kumomta/etc/shaping-generated.json'}))
+```
+
+When creating an override file, any settings that overlap with an existing domain definition will append any existing settings in the `shaping.toml` file, replacing any directly overlapping options.
+
+If you wish to discard all existing options for a domain defined in the shaping.toml file, add the replace_base = true option for that domain. The following example will replace the existing default traffic shaping options, but augment those for the other defined domains:
 
 ```json
 {
     "default": {
+        "replace_base": true
         "connection_limit": 3,
         "max_connection_rate": "100/min",
     },
@@ -61,23 +147,3 @@ The shaping.lua policy reads a JSON file, which needs to be written to *`/opt/ku
     },
 }
 ```
-
-As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
-
-By default, shaping.lua treats each domain entry as applying to the site_name for the domain named, and those settings apply to any destination domain that maps to the site. If you need to explicitly override a setting for a destination domain that is not self-hosted but instead part of another site_name, you need to set the `mx_rollup` option to **false** when configuring the domain, as in the example above for foo.com. If you configure a domain that belongs to another configured site without setting the `mx_rollup` option to **false**, you will cause an error.
-
-In the example above, traffic to foo.com will ultimately be as follows:
-
-```json
-"connection_limit": 3,
-"max_deliveries_per_connection": 5,
-"max_connection_rate": "20/min",
-"max_message_rate": "5/min",
-```
-
-The connection_limit is defined in the default, the max_connection_rate is configured in the default, but is overridden by the yahoo.com site. The max_message_rate is defined in the yahoo.com site, but is in turn overridden by the foo.com domain specific configuration.
-
-
-The *mx_rollup* option indicates whether or not the settings should apply to the domain or to the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain.
-
-The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path.md) page of the Reference Manual.
