@@ -194,6 +194,7 @@ TOC = [
                         "Injecting Messages using HTTP",
                         "userguide/operation/httpinjection.md",
                     ),
+                    Page("Using HAProxy for Delivery", "userguide/operation/haproxy.md"),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page(
                         "Publishing Log Events Via Webhooks",
