@@ -45,3 +45,29 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     },
   }
 end)
+
+function simple_auth_check(user, password)
+  local password_database = {
+    ['scott'] = 'tiger',
+  }
+  if password == '' then
+    return false
+  end
+  return password_database[user] == password
+end
+
+kumo.on('http_server_validate_auth_basic', function(user, password)
+  return simple_auth_check(user, password)
+end)
+
+kumo.on('smtp_server_auth_plain', function(authz, authc, password)
+  print(
+    string.format(
+      "AUTH PLAIN: authz='%s' authc='%s' pass='%s'",
+      authz,
+      authc,
+      password
+    )
+  )
+  return simple_auth_check(authc, password)
+end)

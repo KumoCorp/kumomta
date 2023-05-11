@@ -88,9 +88,21 @@ end)
 
 kumo.on('get_egress_path_config', function(domain, source_name, site_name)
   -- Allow sending to a sink
-  return kumo.make_egress_path {
+  local params = {
     enable_tls = 'OpportunisticInsecure',
     smtp_port = SINK_PORT,
     prohibited_hosts = {},
   }
+
+  local username = os.getenv 'KUMOD_SMTP_AUTH_USERNAME'
+  local password = os.getenv 'KUMOD_SMTP_AUTH_PASSWORD'
+
+  if username and password then
+    params.smtp_auth_plain_username = username
+    params.smtp_auth_plain_password = {
+      key_data = password,
+    }
+  end
+
+  return kumo.make_egress_path(params)
 end)

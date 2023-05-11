@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::process::Stdio;
 use std::time::Duration;
 use tempfile::TempDir;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
 #[derive(Debug, Default, Clone)]
@@ -111,11 +111,23 @@ pub struct DaemonWithMaildir {
 
 impl DaemonWithMaildir {
     pub async fn start() -> anyhow::Result<Self> {
+        Self::start_with_env(vec![]).await
+    }
+
+    pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
         let sink = KumoDaemon::spawn_maildir().await?;
         let smtp = sink.listener("smtp");
+
+        let mut env: Vec<(String, String)> = env
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+
+        env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
+
         let source = KumoDaemon::spawn(KumoArgs {
             policy_file: "source.lua".to_string(),
-            env: vec![("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string())],
+            env,
         })
         .await?;
 
@@ -153,8 +165,7 @@ impl DaemonWithMaildir {
                         }
                     }
 
-
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             } => true,
             _ = tokio::time::sleep(timeout) => false,
@@ -240,7 +251,32 @@ impl KumoDaemon {
 
         // Send stdout to stderr
         let mut stdout = child.stdout.take().unwrap();
-        tokio::spawn(async move { tokio::io::copy(&mut stdout, &mut tokio::io::stderr()).await });
+
+        async fn copy_stream_with_line_prefix<SRC, DEST>(
+            prefix: &str,
+            src: SRC,
+            mut dest: DEST,
+        ) -> std::io::Result<()>
+        where
+            SRC: AsyncRead + Unpin,
+            DEST: AsyncWrite + Unpin,
+        {
+            let mut src = tokio::io::BufReader::new(src);
+            loop {
+                let mut line = String::new();
+                src.read_line(&mut line).await?;
+                if !line.is_empty() {
+                    dest.write_all(format!("{prefix}: {line}").as_bytes())
+                        .await?;
+                }
+            }
+        }
+
+        let stdout_prefix = format!("{} stdout", &args.policy_file);
+        tokio::spawn(async move {
+            copy_stream_with_line_prefix(&stdout_prefix, &mut stdout, &mut tokio::io::stderr())
+                .await
+        });
 
         // Wait until the server initializes, collect the information
         // about the various listeners that it starts
@@ -270,7 +306,11 @@ impl KumoDaemon {
         }
 
         // Now just pipe the output through to the test harness
-        tokio::spawn(async move { tokio::io::copy(&mut stderr, &mut tokio::io::stderr()).await });
+        let stderr_prefix = format!("{} stderr", &args.policy_file);
+        tokio::spawn(async move {
+            copy_stream_with_line_prefix(&stderr_prefix, &mut stderr, &mut tokio::io::stderr())
+                .await
+        });
 
         Ok(Self {
             child,

@@ -189,6 +189,96 @@ DeliverySummary {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn auth_deliver() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start_with_env(vec![
+            ("KUMOD_SMTP_AUTH_USERNAME", "scott"),
+            ("KUMOD_SMTP_AUTH_PASSWORD", "tiger"),
+        ])
+        .await?;
+
+        let mut client = daemon.smtp_client().await?;
+
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_maildir_count(1, Duration::from_secs(10))
+            .await;
+
+        daemon.stop_both().await?;
+        println!("Stopped!");
+
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn auth_deliver_invalid_password() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start_with_env(vec![
+            ("KUMOD_SMTP_AUTH_USERNAME", "scott"),
+            ("KUMOD_SMTP_AUTH_PASSWORD", "incorrect-password"),
+        ])
+        .await?;
+
+        let mut client = daemon.smtp_client().await?;
+
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        println!("Stopped!");
+
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
+
     /// Verify that what we send in transits through and is delivered
     /// into the maildir at the other end with the same content,
     /// and that the webhook logging is also used and captures
