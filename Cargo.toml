@@ -5,6 +5,7 @@ members = [
   "crates/domain-map",
   "crates/integration-tests",
   "crates/kumod",
+  "crates/proxy-server",
   "crates/rfc5321",
   "crates/spool",
   "crates/tailer",

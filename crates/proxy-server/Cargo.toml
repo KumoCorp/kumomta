@@ -1,0 +1,15 @@
+[package]
+name = "proxy-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+clap = {version="4.1", features=["derive"]}
+env_logger = "0.10"
+libc = "0.2"
+log = "0.4"
+socksv5 = {version="0.3", default-features=false, features=["tokio"]}
+tokio = {version="1.25", features=["full", "tracing"]}
