@@ -170,9 +170,13 @@ impl QueueDispatcher for SmtpDispatcher {
             let timeouts = dispatcher.path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
             async move {
-                let stream = egress_source
+                let (stream, source_address) = egress_source
                     .connect_to(SocketAddr::new(address.addr, port))
                     .await?;
+
+                tracing::debug!(
+                    "connected to {address:?} port {port} via source address {source_address:?}"
+                );
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
 

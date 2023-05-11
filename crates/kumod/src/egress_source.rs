@@ -1,6 +1,9 @@
 use anyhow::Context;
 use gcd::Gcd;
 use serde::{Deserialize, Serialize};
+use socksv5::v5::{
+    SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
+};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
@@ -31,6 +34,13 @@ pub struct EgressSource {
     /// Ask ha_proxy to bind to this address when it is making
     /// a connection
     pub ha_proxy_source_address: Option<IpAddr>,
+
+    /// The host:port of the SOCKS5 server that should be used
+    pub socks5_proxy_server: Option<SocketAddr>,
+
+    /// Ask the SOCKS5 proxy to bind to this address when it is making
+    /// a connection
+    pub socks5_proxy_source_address: Option<IpAddr>,
 }
 
 impl EgressSource {
@@ -49,6 +59,8 @@ impl EgressSource {
             remote_port: None,
             ha_proxy_server: None,
             ha_proxy_source_address: None,
+            socks5_proxy_server: None,
+            socks5_proxy_source_address: None,
         };
 
         map.insert(unspec.name.to_string(), unspec);
@@ -63,45 +75,71 @@ impl EgressSource {
             .ok_or_else(|| anyhow::anyhow!("no such source {name}"))
     }
 
-    pub async fn connect_to(&self, address: SocketAddr) -> anyhow::Result<TcpStream> {
-        use ppp::v2::{Addresses, Builder, Command, IPv4, IPv6, Protocol, Version};
+    fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
+        use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
-        let (ha_proxy_server, ha_proxy_addr) =
-            match (self.ha_proxy_server, self.ha_proxy_source_address) {
-                (Some(srv), Some(addr)) => match (addr, address) {
-                    (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => (
-                        Some(srv),
-                        Some(Addresses::IPv4(IPv4::new(
+        match (self.ha_proxy_server, self.ha_proxy_source_address) {
+            (Some(server), Some(source)) => match (source, address) {
+                (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
+                    return Ok(ProxyProto::HA {
+                        server,
+                        source,
+                        addresses: Addresses::IPv4(IPv4::new(
                             src_ip,
                             *dest_ip.ip(),
                             0,
                             dest_ip.port(),
-                        ))),
-                    ),
-                    (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => (
-                        Some(srv),
-                        Some(Addresses::IPv6(IPv6::new(
+                        )),
+                    })
+                }
+                (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
+                    return Ok(ProxyProto::HA {
+                        server,
+                        source,
+                        addresses: Addresses::IPv6(IPv6::new(
                             src_ip,
                             *dest_ip.ip(),
                             0,
                             dest_ip.port(),
-                        ))),
-                    ),
-                    _ => anyhow::bail!(
-                        "Skipping {source_name} because \
-                         ha_proxy_source_address address family does \
-                         not match the destination address family"
-                    ),
-                },
-                _ => (None, None),
-            };
+                        )),
+                    })
+                }
+                _ => anyhow::bail!(
+                    "Skipping {source_name} because \
+                     ha_proxy_source_address address family does \
+                     not match the destination address family"
+                ),
+            },
+            _ => {}
+        };
 
-        let transport_address = ha_proxy_server.unwrap_or(address);
+        match (self.socks5_proxy_server, self.socks5_proxy_source_address) {
+            (Some(server), Some(source)) => match (source, address) {
+                (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {
+                    return Ok(ProxyProto::Socks5 {
+                        server,
+                        source,
+                        destination: address,
+                    })
+                }
+                _ => anyhow::bail!(
+                    "Skipping {source_name} because \
+                     socks5_proxy_source_address address family does \
+                     not match the destination address family"
+                ),
+            },
+            _ => Ok(ProxyProto::None),
+        }
+    }
 
-        tracing::trace!(
-            "will connect {address:?} {transport_address:?} {ha_proxy_server:?} {ha_proxy_addr:?}"
-        );
+    pub async fn connect_to(&self, address: SocketAddr) -> anyhow::Result<(TcpStream, SocketAddr)> {
+        let source_name = &self.name;
+
+        let proxy_proto = self.resolve_proxy_protocol(address)?;
+        let transport_address = proxy_proto.transport_address(address);
+
+        tracing::trace!("will connect {address:?} {transport_address:?} {proxy_proto:?}");
 
         let socket = match transport_address {
             SocketAddr::V4(_) => TcpSocket::new_v4(),
@@ -126,29 +164,11 @@ impl EgressSource {
             .await
             .with_context(|| format!("connect to {transport_address:?}"))?;
 
-        if let Some(proxy_addr) = ha_proxy_addr {
-            let header = Builder::with_addresses(
-                Version::Two | Command::Proxy,
-                Protocol::Stream,
-                proxy_addr,
-            )
-            .build()
-            .with_context(|| {
-                format!(
-                    "building ha proxy protocol header \
-                     for connection from source:{source_name} to {address:?}"
-                )
-            })?;
+        let source_address = proxy_proto
+            .perform_handshake(&mut stream, &source_name)
+            .await?;
 
-            stream.write_all(&header).await.with_context(|| {
-                format!(
-                    "sending ha proxy protocol header \
-                     for connection from source:{source_name} to {address:?}"
-                )
-            })?;
-        }
-
-        Ok(stream)
+        Ok((stream, source_address))
     }
 }
 
@@ -328,5 +348,139 @@ mod test {
         assert_eq!(counts["one"], 50, "one");
         assert_eq!(counts["two"], 20, "two");
         assert_eq!(counts["three"], 30, "three");
+    }
+}
+
+#[derive(Debug)]
+enum ProxyProto {
+    None,
+    HA {
+        server: SocketAddr,
+        addresses: ppp::v2::Addresses,
+        source: IpAddr,
+    },
+    Socks5 {
+        server: SocketAddr,
+        source: IpAddr,
+        destination: SocketAddr,
+    },
+}
+
+impl ProxyProto {
+    fn transport_address(&self, addr: SocketAddr) -> SocketAddr {
+        match self {
+            Self::Socks5 { server, .. } | Self::HA { server, .. } => *server,
+            Self::None => addr,
+        }
+    }
+
+    /// Setup the proxy connection.
+    /// Returns the source address used by the connection;
+    /// this is *probably* the external IP, unless your proxy is also
+    /// behind some kind of NAT or other topology that obscures its
+    /// external IP.
+    async fn perform_handshake(
+        self,
+        mut stream: &mut TcpStream,
+        source_name: &str,
+    ) -> anyhow::Result<SocketAddr> {
+        match self {
+            Self::HA {
+                addresses, source, ..
+            } => {
+                use ppp::v2::{Builder, Command, Protocol, Version};
+                let header = Builder::with_addresses(
+                    Version::Two | Command::Proxy,
+                    Protocol::Stream,
+                    addresses,
+                )
+                .build()
+                .with_context(|| {
+                    format!(
+                        "building ha proxy protocol header \
+                         for connection from source:{source_name} to {self:?}"
+                    )
+                })?;
+
+                stream.write_all(&header).await.with_context(|| {
+                    format!(
+                        "sending ha proxy protocol header \
+                         for connection from source:{source_name} to {self:?}"
+                    )
+                })?;
+                Ok((source, 0).into())
+            }
+            Self::Socks5 {
+                source,
+                destination,
+                ..
+            } => {
+                socksv5::v5::write_handshake(&mut stream, vec![SocksV5AuthMethod::Noauth]).await?;
+                let method = socksv5::v5::read_auth_method(&mut stream).await?;
+                if method != SocksV5AuthMethod::Noauth {
+                    anyhow::bail!("incompatible SOCKS5 authentication {method:?}");
+                }
+
+                let (source_host, source_port) = socket_ip_to_host(source);
+                let (dest_host, dest_port) = socket_addr_to_host(destination);
+
+                socksv5::v5::write_request(
+                    &mut stream,
+                    SocksV5Command::Bind,
+                    source_host,
+                    source_port,
+                )
+                .await?;
+
+                let bind_status = socksv5::v5::read_request_status(&mut stream).await?;
+                match bind_status.status {
+                    SocksV5RequestStatus::Success => {}
+                    _ => anyhow::bail!("failed to bind {source:?} via {self:?}: {bind_status:?}"),
+                }
+
+                socksv5::v5::write_request(
+                    &mut stream,
+                    SocksV5Command::Connect,
+                    dest_host,
+                    dest_port,
+                )
+                .await?;
+
+                let connect_status = socksv5::v5::read_request_status(&mut stream).await?;
+
+                match connect_status.status {
+                    SocksV5RequestStatus::Success => {},
+                    _ => anyhow::bail!("failed to connect {source:?} -> {destination} via {self:?}: {connect_status:?}"),
+                }
+
+                Ok(socks_response_addr(&connect_status)?)
+            }
+            Self::None => Ok(stream.local_addr()?),
+        }
+    }
+}
+
+fn socks_response_addr(response: &SocksV5Response) -> std::io::Result<SocketAddr> {
+    match &response.host {
+        SocksV5Host::Ipv4(ip) => Ok(SocketAddr::new(IpAddr::V4((*ip).into()), response.port)),
+        SocksV5Host::Ipv6(ip) => Ok(SocketAddr::new(IpAddr::V6((*ip).into()), response.port)),
+        SocksV5Host::Domain(_domain) => Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Domain not supported",
+        )),
+    }
+}
+
+fn socket_ip_to_host(addr: IpAddr) -> (SocksV5Host, u16) {
+    match addr {
+        IpAddr::V4(addr) => (SocksV5Host::Ipv4(addr.octets()), 0),
+        IpAddr::V6(addr) => (SocksV5Host::Ipv6(addr.octets()), 0),
+    }
+}
+
+fn socket_addr_to_host(addr: SocketAddr) -> (SocksV5Host, u16) {
+    match addr {
+        SocketAddr::V4(addr) => (SocksV5Host::Ipv4(addr.ip().octets()), addr.port()),
+        SocketAddr::V6(addr) => (SocksV5Host::Ipv6(addr.ip().octets()), addr.port()),
     }
 }
