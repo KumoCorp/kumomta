@@ -3562,6 +3562,7 @@ dependencies = [
 name = "rfc5321"
 version = "0.1.0"
 dependencies = [
+ "base64 0.13.1",
  "humantime-serde",
  "pest",
  "pest_derive",

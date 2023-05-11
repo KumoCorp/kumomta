@@ -193,9 +193,71 @@ the ready queue will be immediately failed with a `550 5.4.4` status.
 
 ## smtp_port
 
-Specified the port to connect to when making an SMTP connection to a destination
+Specifies the port to connect to when making an SMTP connection to a destination
 MX host.
 
 The default is port 25.
 
 See also [kumo.define_egress_source().remote_port](define_egress_source.md#remote_port)
+
+## smtp_auth_plain_username
+
+When set, connecting to the destination requires a successful AUTH PLAIN using the
+specified username.
+
+AUTH PLAIN will only be attempted if TLS is also enabled, unless
+`allow_smtp_auth_plain_without_tls = true`. This is to prevent leaking
+of the credential over an unencrypted link.
+
+```lua
+kumo.on('get_egress_path_config', function(domain, site_name)
+  return kumo.make_egress_path {
+    enable_tls = 'Required',
+    smtp_auth_plain_username = 'scott',
+    -- The password can be any keysource value
+    smtp_auth_plain_password = {
+      key_data = 'tiger',
+    },
+  }
+end)
+```
+
+## smtp_auth_plain_password
+
+Specifies the password that should be used together with `smtp_auth_plain_username`
+when an authenticated SMTP connection is desired.
+
+The value is any [keysource](../keysource.md), which allows for specifying the
+password inline in the configuration file, or managing it via a credential manager
+such as HashiCorp Vault.
+
+```lua
+kumo.on('get_egress_path_config', function(domain, site_name)
+  return kumo.make_egress_path {
+    enable_tls = 'Required',
+    smtp_auth_plain_username = 'scott',
+    -- The password can be any keysource value.
+    -- Here we are loading the credential for the domain
+    -- from HashiCorp vault
+    smtp_auth_plain_password = {
+      vault_mount = 'secret',
+      vault_path = 'smtp-auth/' .. domain,
+    },
+  }
+end)
+```
+
+## allow_smtp_auth_plain_without_tls
+
+Optional boolean. Defaults to `false`.
+
+When `false`, and the connection is not using TLS, SMTP AUTH PLAIN will be
+premptively failed in order to prevent the credential from being passed over
+the network in clear text.
+
+You can set this to `true` to allow sending the credential in clear text.
+
+!!! danger
+   Do not enable this option on an untrusted network, as the credential
+   will then be passed in clear text and visible to anyone else on the
+   network

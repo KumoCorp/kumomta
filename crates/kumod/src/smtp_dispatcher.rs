@@ -194,12 +194,13 @@ impl QueueDispatcher for SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = caps.contains_key("STARTTLS");
-        match (enable_tls, has_tls) {
+        let tls_enabled = match (enable_tls, has_tls) {
             (Tls::Required | Tls::RequiredInsecure, false) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised",);
             }
             (Tls::Disabled, _) | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
                 // Do not use TLS
+                false
             }
             (
                 Tls::Opportunistic
@@ -212,8 +213,33 @@ impl QueueDispatcher for SmtpDispatcher {
                     client.send_command(&rfc5321::Command::Quit).await.ok();
                     anyhow::bail!("TLS handshake failed: {handshake_error}");
                 }
+                true
             }
         };
+
+        if let Some(username) = &dispatcher.path_config.smtp_auth_plain_username {
+            if !tls_enabled && !dispatcher.path_config.allow_smtp_auth_plain_without_tls {
+                anyhow::bail!("TLS is not enabled and AUTH PLAIN is required. Skipping this host");
+            }
+
+            let password = if let Some(pw) = &dispatcher.path_config.smtp_auth_plain_password {
+                Some(
+                    String::from_utf8(
+                        pw.get()
+                            .await
+                            .context("fetching smtp_auth_plain_password")?,
+                    )
+                    .context("smtp_auth_plain_password is not UTF8")?,
+                )
+            } else {
+                None
+            };
+
+            client
+                .auth_plain(username, password.as_deref())
+                .await
+                .with_context(|| format!("authenticating as {username} via SMTP AUTH PLAIN"))?;
+        }
 
         self.client
             .replace(connection_wrapper.map_connection(client));

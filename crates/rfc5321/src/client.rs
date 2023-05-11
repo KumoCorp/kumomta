@@ -384,6 +384,31 @@ impl SmtpClient {
         Ok(&self.capabilities)
     }
 
+    pub async fn auth_plain(
+        &mut self,
+        username: &str,
+        password: Option<&str>,
+    ) -> Result<(), ClientError> {
+        // RFC 4616 says that the format is:
+        // [authzid] NUL authcid NUL passwd
+        let password = password.unwrap_or("");
+        let payload = format!("\x00{username}\x00{password}");
+        let payload = base64::encode(&payload);
+
+        let response = self
+            .send_command(&Command::Auth {
+                sasl_mech: "PLAIN".to_string(),
+                initial_response: Some(payload),
+            })
+            .await?;
+
+        if response.code != 235 {
+            return Err(ClientError::Rejected(response));
+        }
+
+        Ok(())
+    }
+
     /// Attempt TLS handshake.
     /// Returns Err for IO errors.
     /// On completion, return an option that will be:

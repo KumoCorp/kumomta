@@ -1,4 +1,5 @@
 use cidr_map::{AnyIpCidr, CidrSet};
+use data_loader::KeySource;
 use mlua::prelude::*;
 use rfc5321::SmtpClientTimeouts;
 use serde::{Deserialize, Serialize};
@@ -40,7 +41,7 @@ impl Default for Tls {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_connection_limit")]
     pub connection_limit: usize,
@@ -59,6 +60,15 @@ pub struct EgressPathConfig {
 
     #[serde(default = "EgressPathConfig::default_smtp_port")]
     pub smtp_port: u16,
+
+    #[serde(default)]
+    pub smtp_auth_plain_username: Option<String>,
+
+    #[serde(default)]
+    pub smtp_auth_plain_password: Option<KeySource>,
+
+    #[serde(default)]
+    pub allow_smtp_auth_plain_without_tls: bool,
 
     #[serde(default)]
     pub max_message_rate: Option<ThrottleSpec>,
@@ -97,6 +107,9 @@ impl Default for EgressPathConfig {
             prohibited_hosts: Self::default_prohibited_hosts(),
             skip_hosts: CidrSet::default(),
             ehlo_domain: None,
+            allow_smtp_auth_plain_without_tls: false,
+            smtp_auth_plain_username: None,
+            smtp_auth_plain_password: None,
         }
     }
 }
