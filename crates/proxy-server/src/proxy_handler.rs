@@ -5,6 +5,7 @@ use socksv5::v5::{
 use std::net::{IpAddr, SocketAddr};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpSocket, TcpStream};
+use tokio::time::timeout;
 
 /// Given a newly accepted client, perform a SOCKS5 handshake and then
 /// run the proxy logic, passing data from the client through to the
@@ -12,12 +13,17 @@ use tokio::net::{TcpSocket, TcpStream};
 pub async fn handle_proxy_client(
     mut stream: TcpStream,
     peer_address: SocketAddr,
+    timeout_duration: std::time::Duration,
 ) -> anyhow::Result<()> {
     let (mut src_reader, mut src_writer) = stream.split();
+    let mut state = ClientState::None;
 
-    let handshake = socksv5::v5::read_handshake(&mut src_reader)
-        .await
-        .context("reading client handshake")?;
+    let handshake = timeout(timeout_duration, async {
+        socksv5::v5::read_handshake(&mut src_reader)
+            .await
+            .context("reading client handshake")
+    })
+    .await??;
 
     if handshake
         .methods
@@ -28,15 +34,23 @@ pub async fn handle_proxy_client(
         return Err(anyhow::anyhow!("this proxy only supports NOAUTH"));
     }
 
-    socksv5::v5::write_auth_method(&mut src_writer, SocksV5AuthMethod::Noauth).await?;
-
-    let mut state = ClientState::None;
+    timeout(timeout_duration, async {
+        socksv5::v5::write_auth_method(&mut src_writer, SocksV5AuthMethod::Noauth).await
+    })
+    .await??;
 
     loop {
-        let request = socksv5::v5::read_request(&mut src_reader).await?;
+        let request = timeout(timeout_duration, async {
+            socksv5::v5::read_request(&mut src_reader).await
+        })
+        .await??;
         log::trace!("peer={peer_address:?} request: {request:?}");
 
-        let status = match handle_request(request, &mut state).await {
+        let status = match timeout(timeout_duration, async {
+            handle_request(request, &mut state).await
+        })
+        .await?
+        {
             Ok(s) => s,
             Err(err) => RequestStatus::error(err),
         };
@@ -44,8 +58,16 @@ pub async fn handle_proxy_client(
         let is_success = status.status == SocksV5RequestStatus::Success;
         log::trace!("peer={peer_address:?}: status -> {status:?}");
 
-        socksv5::v5::write_request_status(&mut src_writer, status.status, status.host, status.port)
-            .await?;
+        timeout(timeout_duration, async {
+            socksv5::v5::write_request_status(
+                &mut src_writer,
+                status.status,
+                status.host,
+                status.port,
+            )
+            .await
+        })
+        .await??;
 
         if !is_success {
             return Ok(());

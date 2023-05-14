@@ -11,6 +11,9 @@ mod splice_copy;
 pub struct Opt {
     #[arg(long)]
     listen: Vec<String>,
+
+    #[arg(long, default_value = "60")]
+    timeout_seconds: u64,
 }
 
 #[tokio::main]
@@ -23,7 +26,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     for endpoint in &opts.listen {
-        start_listener(endpoint).await?;
+        start_listener(
+            endpoint,
+            std::time::Duration::from_secs(opts.timeout_seconds),
+        )
+        .await?;
     }
 
     tokio::signal::ctrl_c().await?;
@@ -31,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn start_listener(endpoint: &str) -> anyhow::Result<()> {
+async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow::Result<()> {
     let listener = TcpListener::bind(endpoint)
         .await
         .with_context(|| format!("failed to bind to {endpoint}"))?;
@@ -42,9 +49,9 @@ async fn start_listener(endpoint: &str) -> anyhow::Result<()> {
     tokio::spawn(async move {
         loop {
             let (socket, peer_address) = listener.accept().await.context("accepting connection")?;
-            tokio::spawn(
-                async move { proxy_handler::handle_proxy_client(socket, peer_address).await },
-            );
+            tokio::spawn(async move {
+                proxy_handler::handle_proxy_client(socket, peer_address, timeout).await
+            });
         }
 
         #[allow(unreachable_code)]
