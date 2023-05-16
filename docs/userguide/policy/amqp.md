@@ -63,8 +63,7 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
     -- it reached it expiration.
     kumo.reject(500, result.status)
   end
-  return connection
 end)
 ```
 
-See the [AMQP](../../reference/kumo.amqp/) section of the Reference Manual for more information.
+See the [AMQP](../../reference/kumo.amqp/index.md) section of the Reference Manual for more information.
