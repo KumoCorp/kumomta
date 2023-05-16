@@ -43,25 +43,25 @@ The following example sends the content of the log message via AMQP:
 -- It returns a lua connection object that can be used to "send"
 -- messages to their destination.
 kumo.on('make.amqp', function(domain, tenant, campaign)
-    local client = kumo.amqp.build_client 'amqp://localhost'
-    local confirm = client:publish {
-        routing_key = 'logging',
-        payload = message:get_data(),
-        }
-    local result = confirm:wait()
+  local client = kumo.amqp.build_client 'amqp://localhost'
+  local confirm = client:publish {
+    routing_key = 'logging',
+    payload = message:get_data(),
+  }
+  local result = confirm:wait()
 
-    if result.status == 'Ack' then
-      return result.status
-    end
+  if result.status == 'Ack' then
+    return result.status
+  end
 
-    -- Signal that the AMQP request failed.
-    -- In this case the 500 status prevents us from retrying
-    -- the AMQP call again, but you could be more sophisticated
-    -- and analyze the disposition to determine if retrying it
-    -- would be useful and generate a 400 status instead.
-    -- In that case, the message we be retryed later, until
-    -- it reached it expiration.
-    kumo.reject(500, result.status)
+  -- Signal that the AMQP request failed.
+  -- In this case the 500 status prevents us from retrying
+  -- the AMQP call again, but you could be more sophisticated
+  -- and analyze the disposition to determine if retrying it
+  -- would be useful and generate a 400 status instead.
+  -- In that case, the message we be retryed later, until
+  -- it reached it expiration.
+  kumo.reject(500, result.status)
 end)
 ```
 
