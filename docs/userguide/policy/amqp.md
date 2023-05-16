@@ -50,18 +50,11 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
   }
   local result = confirm:wait()
 
-  if result.status == 'Ack' then
-    return result.status
+  if result.status == 'Ack' or result.status == 'NotRequested' then
+    return
   end
-
-  -- Signal that the AMQP request failed.
-  -- In this case the 500 status prevents us from retrying
-  -- the AMQP call again, but you could be more sophisticated
-  -- and analyze the disposition to determine if retrying it
-  -- would be useful and generate a 400 status instead.
-  -- In that case, the message we be retryed later, until
-  -- it reached it expiration.
-  kumo.reject(500, result.status)
+  -- result.status must be `Nack`; log the full result
+  kumo.reject(500, kumo.json_encode(result))
 end)
 ```
 
