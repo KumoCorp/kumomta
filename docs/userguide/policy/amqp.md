@@ -50,7 +50,7 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
         }
     local result = confirm:wait()
 
-    if result.status == 'Ack') then
+    if result.status == 'Ack' then
       return result.status
     end
 
