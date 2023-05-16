@@ -218,6 +218,7 @@ TOC = [
                     Page(
                         "Routing Messages via HTTP Request", "userguide/policy/http.md"
                     ),
+                    Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                 ],
             ),
         ],

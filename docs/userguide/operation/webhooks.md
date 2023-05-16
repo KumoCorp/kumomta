@@ -123,6 +123,8 @@ end)
 ```
 
 !!!warning
-    Storing credentials as hardcoded values in a policy script such as this is not recommended, instead use the built in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
+    Storing credentials as hardcoded values in a policy script such as this is not recommended, instead, use the built-in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
 
-This same methodology could also be used to deliver queued SMTP messages to a third-party API, see the [Routing Messages Via HTTP Request](../policy/http.md) page of the Policy chapter for more information.
+This same methodology could also be used to deliver queued SMTP messages to a third-party API, see the [Routing Messages via HTTP Request](../policy/http.md) page of the Policy chapter for more information.
+
+This same methodology could also be used to deliver log events and queued messages via AMQP, see the [Routing Messages via AMQP](../policy/amqp.md) page of the Policy chapter for more information.
