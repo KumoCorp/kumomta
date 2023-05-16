@@ -1,0 +1,15 @@
+[package]
+name = "mod-amqp"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+config = {path="../config"}
+lapin = "2.1"
+mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+serde = {version="1.0", features=["derive"]}
+tokio-executor-trait = "2.1.0"
+tokio-reactor-trait = "1.1.0"

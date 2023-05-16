@@ -237,6 +237,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         crate::mod_kumo::register,
         data_loader::register,
         message::dkim::register,
+        mod_amqp::register,
         mod_http::register,
         mod_sqlite::register,
         mod_redis::register,
