@@ -21,6 +21,27 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "on",
         lua.create_function(move |lua, (name, func): (String, Function)| {
             let decorated_name = format!("kumomta-on-{}", name);
+
+            let existing: Value = lua.named_registry_value(&decorated_name)?;
+            match existing {
+                Value::Nil => {}
+                Value::Function(func) => {
+                    let info = func.info();
+                    let src = String::from_utf8_lossy(
+                        info.source.as_ref().map(|v| v.as_slice()).unwrap_or(b"?"),
+                    );
+                    let line = info.line_defined;
+                    return Err(mlua::Error::external(format!(
+                        "{name} event already has a handler defined at {src}:{line}"
+                    )));
+                }
+                _ => {
+                    return Err(mlua::Error::external(format!(
+                        "{name} event already has a handler"
+                    )));
+                }
+            }
+
             lua.set_named_registry_value(&decorated_name, func)?;
             Ok(())
         })?,
