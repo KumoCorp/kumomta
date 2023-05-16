@@ -62,7 +62,6 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
     -- In that case, the message we be retryed later, until
     -- it reached it expiration.
     kumo.reject(500, result.status)
-  end
 end)
 ```
 
