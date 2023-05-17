@@ -165,7 +165,7 @@ function mod:setup(extra_files)
 
   local file_names = {
     -- './assets/policy-extras/shaping.toml',
-    '/opt/kumomta/share/shaping.toml',
+    '/opt/kumomta/share/policy-extras/shaping.toml',
   }
   if extra_files then
     for _, filename in ipairs(extra_files) do
