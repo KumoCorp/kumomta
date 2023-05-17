@@ -195,7 +195,7 @@ TOC = [
                         "userguide/operation/httpinjection.md",
                     ),
                     Page(
-                        "Using HAProxy for Delivery", "userguide/operation/haproxy.md"
+                        "Routing Messages Via Proxy Servers", "userguide/operation/proxy.md"
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page(
