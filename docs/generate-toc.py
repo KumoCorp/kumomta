@@ -195,7 +195,8 @@ TOC = [
                         "userguide/operation/httpinjection.md",
                     ),
                     Page(
-                        "Routing Messages Via Proxy Servers", "userguide/operation/proxy.md"
+                        "Routing Messages Via Proxy Servers",
+                        "userguide/operation/proxy.md",
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page(
