@@ -198,6 +198,7 @@ TOC = [
                         "Routing Messages Via Proxy Servers",
                         "userguide/operation/proxy.md",
                     ),
+                    Page("Delivering Messages Using SMTP AUth", "userguide/operation/smtpauth.md"),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page(
                         "Publishing Log Events Via Webhooks",

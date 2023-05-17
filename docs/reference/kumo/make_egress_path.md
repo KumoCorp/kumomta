@@ -258,6 +258,6 @@ the network in clear text.
 You can set this to `true` to allow sending the credential in clear text.
 
 !!! danger
-   Do not enable this option on an untrusted network, as the credential
-   will then be passed in clear text and visible to anyone else on the
-   network
+    Do not enable this option on an untrusted network, as the credential
+    will then be passed in clear text and visible to anyone else on the
+    network
