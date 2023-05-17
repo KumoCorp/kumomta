@@ -43,6 +43,7 @@ kumo.on('init', function()
   }
 end)
 ```
+
 The `source_address` option in the preceding example specifies what IP address
 the KumoMTA server should use for its outbound communications to the SOCKS5 proxy
 server, which is defined by IP and port number in the `socks5_proxy_server` option.
