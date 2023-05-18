@@ -42,7 +42,7 @@ max_connection_rate = "100/min"
 max_deliveries_per_connection = 100
 max_message_rate = "100/s"
 idle_timeout = "60s"
-tls = "Opportunistic"
+enable_tls = "Opportunistic"
 consecutive_connection_failures_before_delay = 100
 
 ["example.com"]
