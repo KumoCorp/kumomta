@@ -35,7 +35,6 @@ using a lua table:
 
 ```lua
 -- Use this to lookup and confirm a user/password credential
--- used with the http endpoint
 kumo.on('smtp_server_auth_plain', function(authz, authc, password)
   local password_database = {
     ['scott'] = 'tiger',
