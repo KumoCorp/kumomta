@@ -281,7 +281,7 @@ pub async fn ipv4_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
         return Ok(value);
     }
 
-    let ipv4_lookup = RESOLVER.ipv4_lookup(key).await?;
+    let ipv4_lookup = RESOLVER.ipv4_lookup(key_fq.clone()).await?;
     let ips = ipv4_lookup
         .as_lookup()
         .record_iter()
@@ -303,7 +303,7 @@ pub async fn ipv6_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
         return Ok(value);
     }
 
-    let ipv6_lookup = RESOLVER.ipv6_lookup(key).await?;
+    let ipv6_lookup = RESOLVER.ipv6_lookup(key_fq.clone()).await?;
     let ips = ipv6_lookup
         .as_lookup()
         .record_iter()
