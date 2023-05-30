@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex as TokioMutex;
 use zstd::stream::write::Encoder;
 
 static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
@@ -159,7 +160,7 @@ enum LogCommand {
 
 pub struct Logger {
     sender: Sender<LogCommand>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: TokioMutex<Option<JoinHandle<()>>>,
     meta: Vec<String>,
     headers: Vec<String>,
     enabled: HashMap<RecordType, bool>,
@@ -217,7 +218,7 @@ impl Logger {
 
         let logger = Self {
             sender,
-            thread: Mutex::new(Some(thread)),
+            thread: TokioMutex::new(Some(thread)),
             meta,
             headers,
             enabled,
@@ -278,7 +279,7 @@ impl Logger {
 
         let logger = Self {
             sender,
-            thread: Mutex::new(Some(thread)),
+            thread: TokioMutex::new(Some(thread)),
             meta,
             headers,
             enabled,
@@ -305,13 +306,16 @@ impl Logger {
     pub async fn signal_shutdown() {
         let loggers = Self::get_loggers();
         for logger in loggers.iter() {
+            tracing::debug!("Terminating a logger");
             logger.sender.send(LogCommand::Terminate).await.ok();
-            logger
+            tracing::debug!("Joining that logger");
+            let res = logger
                 .thread
                 .lock()
-                .unwrap()
+                .await
                 .take()
                 .map(|thread| thread.join());
+            tracing::debug!("Joined -> {res:?}");
         }
     }
 
@@ -548,6 +552,7 @@ impl Drop for OpenedFile {
     fn drop(&mut self) {
         self.file.do_finish().ok();
         mark_path_as_done(&self.name).ok();
+        tracing::debug!("Flushed {:?}", self.name);
     }
 }
 
@@ -740,6 +745,9 @@ impl LogThreadState {
                 }
             }
         }
+
+        tracing::debug!("Clearing any buffered files prior to completion");
+        self.file_map.clear();
     }
 
     fn mark_existing_logs_as_done(&self) {
