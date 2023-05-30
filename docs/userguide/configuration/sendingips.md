@@ -6,7 +6,7 @@ By default, all traffic injected to the KumoMTA server will be delivered using t
 
 In KumoMTA, source IPs are described in an *Egress Source.* And Egress Source represents an object that can be used to send messages, and is not attached to a particular protocol. While the most common use case is an IP address used for SMTP, it could also define a specific outbound port for sending through port-based NAT, or a specific configuration for sending over HTTP.
 
-An Egress Source is defined using the **`kumo.define_egress_source`** function, called during the init event. For more information, see the [define_egress_source](../../reference/kumo/define_egress_source.md) chapter of the Reference Manual.
+An Egress Source is defined using the **`kumo.define_egress_source`** function, called during the init event. For more information, see the [make_egress_source](../../reference/kumo/make_egress_source.md) chapter of the Reference Manual.
 
 By default, the only option required for defining an Egress Source is a name, creating a logical grouping for messages used for queueing but still using the default server IP address:
 
@@ -83,7 +83,7 @@ kumo.on('init', function()
 end)
 ```
 
-For more information, see the [define_egress_pool](../../reference/kumo/define_egress_pool.md) chapter of the Reference Manual.
+For more information, see the [make_egress_pool](../../reference/kumo/make_egress_pool.md) chapter of the Reference Manual.
 
 ## Assigning Messages to Pools
 

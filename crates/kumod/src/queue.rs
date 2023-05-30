@@ -359,7 +359,7 @@ impl Queue {
             )
             .await?;
 
-        let pool = EgressPool::resolve(queue_config.egress_pool.as_deref())?;
+        let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
         let rr = EgressPoolRoundRobin::new(&pool);
 
         let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;

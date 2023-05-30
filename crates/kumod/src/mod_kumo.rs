@@ -150,18 +150,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
-        "define_egress_source",
+        "make_egress_source",
         lua.create_function(move |lua, params: Value| {
             let source: EgressSource = lua.from_value(params)?;
-            source.register();
-            Ok(())
+            Ok(source)
         })?,
     )?;
+
     kumo_mod.set(
-        "define_egress_pool",
+        "make_egress_pool",
         lua.create_function(move |lua, params: Value| {
             let pool: EgressPool = lua.from_value(params)?;
-            pool.register().map_err(any_err)
+            // pool.register().map_err(any_err)
+            Ok(pool)
         })?,
     )?;
 

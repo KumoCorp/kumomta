@@ -80,19 +80,27 @@ kumo.on('init', function()
 
   -- Use shared throttles rather than in-process throttles
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
+end)
 
-  -- Create some example sources
-  local entries = {}
-  for i = 1, 10 do
-    local source_name = 'source' .. tostring(i)
-    kumo.define_egress_source {
-      name = source_name,
+kumo.on('get_egress_pool', function(pool_name)
+  if pool_name == 'pool0' then
+    local entries = {}
+    for i = 1, 10 do
+      local source_name = 'source' .. tostring(i)
+      table.insert(entries, { name = source_name, weight = i * 10 })
+    end
+    return kumo.make_egress_pool {
+      name = 'pool0',
+      entries = entries,
     }
-    table.insert(entries, { name = source_name, weight = i * 10 })
   end
-  kumo.define_egress_pool {
-    name = 'pool0',
-    entries = entries,
+
+  error("I don't know how to configure pool " .. pool_name)
+end)
+
+kumo.on('get_egress_source', function(source_name)
+  return kumo.make_egress_source {
+    name = source_name,
   }
 end)
 

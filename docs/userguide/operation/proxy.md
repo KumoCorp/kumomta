@@ -55,7 +55,7 @@ Each IP address hosted by a SOCKS5 proxy server should be defined as its own
 `egress_source`, IPv4 and IPv6 should be configured as separate sources, but
 can be hosted by the same HAProxy instance(s).
 
-See the [define_egress_source](../../reference/kumo/define_egress_source.md)
+See the [make_egress_source](../../reference/kumo/make_egress_source.md)
 page of the Reference Manual for more information.
 
 ## Using HAProxy for Delivery
@@ -102,7 +102,7 @@ Each IP address hosted by an HAProxy instance should be defined as its own
 `egress_source`, IPv4 and IPv6 should be configured as separate sources, but
 can be hosted by the same HAProxy instance(s).
 
-See the [define_egress_source](../../reference/kumo/define_egress_source.md)
+See the [make_egress_source](../../reference/kumo/make_egress_source.md)
 page of the Reference Manual for more information.
 
 ### HAProxy Server Configuration

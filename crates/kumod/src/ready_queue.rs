@@ -94,9 +94,9 @@ impl ReadyQueueManager {
             .unwrap_or_else(|| components.domain.to_string());
         let name = format!("{egress_source}->{site_name}");
 
-        let egress_source = EgressSource::resolve(egress_source)?;
-
         let mut config = load_config().await?;
+
+        let egress_source = EgressSource::resolve(egress_source, &mut config).await?;
 
         let path_config: EgressPathConfig = config
             .async_call_callback(

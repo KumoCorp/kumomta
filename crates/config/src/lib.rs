@@ -216,6 +216,30 @@ impl LuaConfig {
         }
     }
 
+    pub async fn async_call_callback_non_default<
+        'lua,
+        S: AsRef<str>,
+        A: ToLuaMulti<'lua> + Clone,
+        R: FromLuaMulti<'lua>,
+    >(
+        &'lua mut self,
+        name: S,
+        args: A,
+    ) -> anyhow::Result<R> {
+        let name = name.as_ref();
+        let decorated_name = format!("kumomta-on-{}", name);
+        match self
+            .inner
+            .as_mut()
+            .unwrap()
+            .lua
+            .named_registry_value::<_, mlua::Function>(&decorated_name)
+        {
+            Ok(func) => Ok(func.call_async(args.clone()).await?),
+            _ => anyhow::bail!("invalid return type for {name} event"),
+        }
+    }
+
     pub fn remove_registry_value(&mut self, value: RegistryKey) -> anyhow::Result<()> {
         Ok(self
             .inner

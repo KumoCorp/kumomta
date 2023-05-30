@@ -1,18 +1,21 @@
 use anyhow::Context;
+use config::LuaConfig;
 use gcd::Gcd;
+use lruttl::LruCacheWithTtl;
+use mlua::prelude::LuaUserData;
 use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
-use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpSocket, TcpStream};
 
 lazy_static::lazy_static! {
-    static ref SOURCES: Mutex<HashMap<String, EgressSource>> = Mutex::new(EgressSource::init_sources());
-    static ref POOLS: Mutex<HashMap<String, EgressPool>> = Mutex::new(EgressPool::init_pools());
+    static ref SOURCES: Mutex<LruCacheWithTtl<String, EgressSource>> = Mutex::new(LruCacheWithTtl::new(128));
+    static ref POOLS: Mutex<LruCacheWithTtl<String, EgressPool>> = Mutex::new(LruCacheWithTtl::new(128));
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
@@ -41,38 +44,43 @@ pub struct EgressSource {
     /// Ask the SOCKS5 proxy to bind to this address when it is making
     /// a connection
     pub socks5_proxy_source_address: Option<IpAddr>,
+
+    #[serde(default = "default_ttl", with = "humantime_serde")]
+    pub ttl: Duration,
 }
 
-impl EgressSource {
-    pub fn register(&self) {
-        SOURCES
-            .lock()
-            .unwrap()
-            .insert(self.name.to_string(), self.clone());
-    }
+impl LuaUserData for EgressSource {}
 
-    fn init_sources() -> HashMap<String, Self> {
-        let mut map = HashMap::new();
-        let unspec = Self {
-            name: "unspecified".to_string(),
-            source_address: None,
-            remote_port: None,
-            ha_proxy_server: None,
-            ha_proxy_source_address: None,
-            socks5_proxy_server: None,
-            socks5_proxy_source_address: None,
+impl EgressSource {
+    pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
+        if let Some(source) = SOURCES.lock().unwrap().get(name) {
+            return Ok(source.clone());
+        }
+
+        let source: Self = if name == "unspecified" {
+            Self {
+                name: name.to_string(),
+                ttl: default_ttl(),
+                ha_proxy_server: None,
+                ha_proxy_source_address: None,
+                remote_port: None,
+                socks5_proxy_server: None,
+                socks5_proxy_source_address: None,
+                source_address: None,
+            }
+        } else {
+            config
+                .async_call_callback_non_default("get_egress_source", name.to_string())
+                .await?
         };
 
-        map.insert(unspec.name.to_string(), unspec);
-        map
-    }
-    pub fn resolve(name: &str) -> anyhow::Result<Self> {
-        SOURCES
-            .lock()
-            .unwrap()
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no such source {name}"))
+        SOURCES.lock().unwrap().insert(
+            name.to_string(),
+            source.clone(),
+            Instant::now() + source.ttl,
+        );
+
+        Ok(source)
     }
 
     fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
@@ -201,43 +209,49 @@ pub struct EgressPool {
 
     /// and the sources the constitute this pool
     pub entries: Vec<EgressPoolEntry>,
+
+    #[serde(default = "default_ttl", with = "humantime_serde")]
+    pub ttl: Duration,
 }
 
+impl LuaUserData for EgressPool {}
+
 impl EgressPool {
-    pub fn register(&self) -> anyhow::Result<()> {
-        for entry in &self.entries {
-            EgressSource::resolve(&entry.name)
-                .with_context(|| format!("defining egress pool {}", self.name))?;
-        }
-        POOLS
-            .lock()
-            .unwrap()
-            .insert(self.name.to_string(), self.clone());
-        Ok(())
-    }
-
-    pub fn resolve(name: Option<&str>) -> anyhow::Result<Self> {
+    pub async fn resolve(name: Option<&str>, config: &mut LuaConfig) -> anyhow::Result<Self> {
         let name = name.unwrap_or("unspecified");
-        POOLS
-            .lock()
-            .unwrap()
-            .get(name)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no such pool {name}"))
-    }
 
-    fn init_pools() -> HashMap<String, Self> {
-        let mut map = HashMap::new();
-        let unspec = Self {
-            name: "unspecified".to_string(),
-            entries: vec![EgressPoolEntry {
+        if let Some(pool) = POOLS.lock().unwrap().get(name) {
+            return Ok(pool.clone());
+        }
+
+        let pool: Self = if name == "unspecified" {
+            Self {
                 name: "unspecified".to_string(),
-                weight: 1,
-            }],
+                entries: vec![EgressPoolEntry {
+                    name: "unspecified".to_string(),
+                    weight: 1,
+                }],
+                ttl: default_ttl(),
+            }
+        } else {
+            config
+                .async_call_callback_non_default("get_egress_pool", name.to_string())
+                .await?
         };
 
-        map.insert(unspec.name.to_string(), unspec);
-        map
+        // Validate each of the sources
+        for entry in &pool.entries {
+            EgressSource::resolve(&entry.name, config)
+                .await
+                .with_context(|| format!("resolving egress pool {name}"))?;
+        }
+
+        POOLS
+            .lock()
+            .unwrap()
+            .insert(name.to_string(), pool.clone(), Instant::now() + pool.ttl);
+
+        Ok(pool)
     }
 }
 
@@ -333,6 +347,7 @@ mod test {
                     weight: 3,
                 },
             ],
+            ttl: default_ttl(),
         };
 
         let mut rr = EgressPoolRoundRobin::new(&pool);
@@ -483,4 +498,8 @@ fn socket_addr_to_host(addr: SocketAddr) -> (SocksV5Host, u16) {
         SocketAddr::V4(addr) => (SocksV5Host::Ipv4(addr.ip().octets()), addr.port()),
         SocketAddr::V6(addr) => (SocksV5Host::Ipv6(addr.ip().octets()), addr.port()),
     }
+}
+
+fn default_ttl() -> Duration {
+    Duration::from_secs(60)
 }
