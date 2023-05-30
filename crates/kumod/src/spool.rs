@@ -195,6 +195,7 @@ impl SpoolManager {
         let egress_pool = None;
         let mut spooled_in = 0;
         tracing::debug!("start_spool: waiting for enumeration");
+        let mut config = config::load_config().await?;
         while let Some(entry) = rx.recv().await {
             if activity.is_shutting_down() {
                 break;
@@ -204,6 +205,11 @@ impl SpoolManager {
                 SpoolEntry::Item { id, data } => match Message::new_from_spool(id, data) {
                     Ok(msg) => {
                         spooled_in += 1;
+
+                        config
+                            .async_call_callback("spool_message_enumerated", msg.clone())
+                            .await?;
+
                         match msg.get_queue_name() {
                             Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
                                 Err(err) => {
