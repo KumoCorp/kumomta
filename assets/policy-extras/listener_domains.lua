@@ -51,7 +51,7 @@ relay_from = { '10.0.0.0/24' }
 # listed in this set of domains.
 # Note that "example.com" won't match
 # "*.example.com".
-[#*.example.com#]
+["*.example.com"]
 # You can specify multiple options if you wish
 log_oob = true
 log_arf = true
