@@ -1,6 +1,9 @@
 //! This module provides a simple datastructure that can store
 //! values associated with a domain name style key.
 //! Wildcard keys are supported.
+use config::get_or_create_sub_module;
+use mlua::prelude::LuaUserData;
+use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
@@ -33,6 +36,30 @@ impl<V: Debug + Clone> Debug for Node<V> {
 #[serde(from = "BTreeMap<String, V>", into = "BTreeMap<String,V>")]
 pub struct DomainMap<V: Clone> {
     top: HashMap<String, Node<V>>,
+}
+
+impl<V> LuaUserData for DomainMap<V>
+where
+    V: Clone + Serialize + for<'de> Deserialize<'de>,
+{
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
+            if let Some(value) = this.get(&key) {
+                let value = lua.to_value(value)?;
+                Ok(Some(value))
+            } else {
+                Ok(None)
+            }
+        });
+        methods.add_meta_method_mut(
+            MetaMethod::NewIndex,
+            |lua, this, (key, value): (String, mlua::Value)| {
+                let value: V = lua.from_value(value)?;
+                this.insert(&key, value);
+                Ok(())
+            },
+        );
+    }
 }
 
 impl<V: Debug + Clone> Debug for DomainMap<V> {
@@ -126,6 +153,28 @@ impl<V: Clone> From<DomainMap<V>> for BTreeMap<String, V> {
 
         result
     }
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let dmap_mod = get_or_create_sub_module(lua, "domain_map")?;
+
+    dmap_mod.set(
+        "new",
+        lua.create_function(|lua, value: Option<HashMap<String, mlua::Value>>| {
+            let mut dmap: DomainMap<serde_json::Value> = DomainMap::new();
+
+            if let Some(value) = value {
+                for (k, v) in value {
+                    let v: serde_json::Value = lua.from_value(v)?;
+                    dmap.insert(&k, v);
+                }
+            }
+
+            Ok(dmap)
+        })?,
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]

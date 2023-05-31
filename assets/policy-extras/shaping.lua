@@ -1,24 +1,6 @@
 local mod = {}
 local kumo = require 'kumo'
-
--- Helper function that merges the values from `src` into `dest`
-local function merge_into(src, dest)
-  if src then
-    for k, v in pairs(src) do
-      dest[k] = v
-    end
-  end
-end
-
--- Helper function to return the keys of a object style table as an array style
--- table
-local function table_keys(tbl)
-  local result = {}
-  for k, v in pairs(tbl) do
-    table.insert(result, k)
-  end
-  return result
-end
+local utils = require 'policy_extras.policy_utils'
 
 --[[
 Usage:
@@ -52,13 +34,6 @@ Alternatively, you could use a TOML file instead.
 ]]
 
 function mod:setup(extra_files)
-  local function load_json_or_toml_file(filename)
-    if filename:match '.toml$' then
-      return kumo.toml_load(filename)
-    end
-    return kumo.json_load(filename)
-  end
-
   local function load_shaping_data(file_names)
     local site_to_domains = {}
     local result = {
@@ -66,7 +41,7 @@ function mod:setup(extra_files)
       by_domain = {},
     }
     for _, filename in ipairs(file_names) do
-      local data = load_json_or_toml_file(filename)
+      local data = utils.load_json_or_toml_file(filename)
       -- print('Loaded', kumo.json_encode_pretty(data))
       for domain, config in pairs(data) do
         local entry = {
@@ -111,7 +86,7 @@ function mod:setup(extra_files)
           end
 
           if not replace_base then
-            merge_into(result.by_site[site_name], entry)
+            utils.merge_into(result.by_site[site_name], entry)
           end
 
           result.by_site[site_name] = entry
@@ -121,7 +96,7 @@ function mod:setup(extra_files)
           site_to_domains[site_name] = site_domains
         else
           if not replace_base then
-            merge_into(result.by_domain[domain], entry)
+            utils.merge_into(result.by_domain[domain], entry)
           end
 
           result.by_domain[domain] = entry
@@ -182,25 +157,25 @@ function mod:setup(extra_files)
     local params = {}
 
     -- apply basic/default configuration
-    merge_into((data.by_domain['default'] or {}).params, params)
+    utils.merge_into((data.by_domain['default'] or {}).params, params)
 
     -- then site config
     if by_site then
-      merge_into(by_site.params, params)
+      utils.merge_into(by_site.params, params)
     end
     -- then domain config
     if by_domain then
-      merge_into(by_domain.params, params)
+      utils.merge_into(by_domain.params, params)
     end
 
     -- then source config for the site
     if by_site then
-      merge_into(by_site.sources[egress_source], params)
+      utils.merge_into(by_site.sources[egress_source], params)
     end
 
     -- then source config for the domain
     if by_domain then
-      merge_into(by_domain.sources[egress_source], params)
+      utils.merge_into(by_domain.sources[egress_source], params)
     end
 
     -- print("going to make egress path", kumo.json_encode(params))

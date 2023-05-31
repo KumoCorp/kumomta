@@ -8,10 +8,11 @@ use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
 use config::{load_config, LuaConfig};
 use data_loader::KeySource;
-use domain_map::DomainMap;
 use kumo_log_types::ResolvedAddress;
+use lruttl::LruCacheWithTtl;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
+use mlua::prelude::LuaUserData;
 use mlua::ToLuaMulti;
 use once_cell::sync::{Lazy, OnceCell};
 use prometheus::IntGauge;
@@ -23,8 +24,8 @@ use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -32,6 +33,15 @@ use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument};
 
 static CRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n"));
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct DomainAndListener {
+    pub domain: String,
+    pub listener: String,
+}
+
+static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
+    Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
 
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct EsmtpDomain {
@@ -43,6 +53,15 @@ pub struct EsmtpDomain {
     pub relay_to: bool,
     #[serde(default)]
     pub relay_from: CidrSet,
+
+    #[serde(default = "default_ttl", with = "humantime_serde")]
+    pub ttl: Duration,
+}
+
+impl LuaUserData for EsmtpDomain {}
+
+fn default_ttl() -> Duration {
+    Duration::from_secs(60)
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -109,9 +128,6 @@ pub struct EsmtpListenerParams {
 
     #[serde(default)]
     pub deferred_spool: bool,
-
-    #[serde(default)]
-    pub domains: DomainMap<EsmtpDomain>,
 
     #[serde(default)]
     pub trace_headers: TraceHeaders,
@@ -369,16 +385,47 @@ impl SmtpServer {
         cidr.contains(self.peer_address.ip())
     }
 
-    fn check_relaying(
-        &self,
+    async fn lookup_listener_domain(
+        &mut self,
+        domain_name: &str,
+    ) -> anyhow::Result<Option<EsmtpDomain>> {
+        let key = DomainAndListener {
+            domain: domain_name.to_string(),
+            listener: self.my_address.to_string(),
+        };
+
+        if let Some(opt_dom) = DOMAINS.lock().unwrap().get(&key) {
+            return Ok(opt_dom);
+        }
+
+        let value: Option<EsmtpDomain> = self
+            .config
+            .async_call_callback_non_default_opt(
+                "get_listener_domain",
+                (key.domain.clone(), key.listener.clone()),
+            )
+            .await?;
+
+        DOMAINS.lock().unwrap().insert(
+            key,
+            value.clone(),
+            Instant::now() + value.as_ref().map(|v| v.ttl).unwrap_or_else(default_ttl),
+        );
+
+        Ok(value)
+    }
+
+    async fn check_relaying(
+        &mut self,
         sender: &EnvelopeAddress,
         recipient: &EnvelopeAddress,
-    ) -> RelayDisposition {
+    ) -> anyhow::Result<RelayDisposition> {
         let relay_hosts_allowed = self.peer_in_cidr_list(&self.params.relay_hosts);
 
         let sender_domain = sender.domain();
         let mut relay_from_allowed = false;
-        if let Some(dom) = self.params.domains.get(sender_domain) {
+
+        if let Some(dom) = self.lookup_listener_domain(&sender_domain).await? {
             relay_from_allowed = self.peer_in_cidr_list(&dom.relay_from);
         }
 
@@ -386,7 +433,8 @@ impl SmtpServer {
         let mut relay_to_allowed = None;
         let mut log_arf = false;
         let mut log_oob = false;
-        if let Some(dom) = self.params.domains.get(recipient_domain) {
+
+        if let Some(dom) = self.lookup_listener_domain(&recipient_domain).await? {
             relay_to_allowed.replace(dom.relay_to);
             log_arf = dom.log_arf;
             log_oob = dom.log_oob;
@@ -401,11 +449,11 @@ impl SmtpServer {
             false
         };
 
-        RelayDisposition {
+        Ok(RelayDisposition {
             relay,
             log_arf,
             log_oob,
-        }
+        })
     }
 
     #[instrument(skip(self))]
@@ -887,8 +935,9 @@ impl SmtpServer {
                     parameters: _,
                 }) => {
                     let address = EnvelopeAddress::parse(&address.to_string())?;
-                    let relay_disposition =
-                        self.check_relaying(&self.state.as_ref().unwrap().sender, &address);
+
+                    let sender = self.state.as_ref().unwrap().sender.clone();
+                    let relay_disposition = self.check_relaying(&sender, &address).await?;
 
                     if !relay_disposition.accept_rcpt_to() {
                         self.write_response(
@@ -1089,8 +1138,9 @@ impl SmtpServer {
 
                         let queue_name = message.get_queue_name()?;
 
-                        let relay_disposition =
-                            self.check_relaying(&message.sender()?, &message.recipient()?);
+                        let relay_disposition = self
+                            .check_relaying(&message.sender()?, &message.recipient()?)
+                            .await?;
 
                         if queue_name != "null" {
                             if relay_disposition.relay && !self.params.deferred_spool {

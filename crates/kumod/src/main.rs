@@ -236,6 +236,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     for func in [
         crate::mod_kumo::register,
         data_loader::register,
+        domain_map::register,
         message::dkim::register,
         mod_amqp::register,
         mod_http::register,

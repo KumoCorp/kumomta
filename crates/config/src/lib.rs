@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mlua::{FromLuaMulti, Lua, RegistryKey, Table, ToLuaMulti, Value};
+use mlua::{FromLua, FromLuaMulti, Lua, RegistryKey, Table, ToLuaMulti, Value};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -236,6 +236,38 @@ impl LuaConfig {
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
             Ok(func) => Ok(func.call_async(args.clone()).await?),
+            _ => anyhow::bail!("invalid return type for {name} event"),
+        }
+    }
+
+    pub async fn async_call_callback_non_default_opt<
+        'lua,
+        S: AsRef<str>,
+        A: ToLuaMulti<'lua> + Clone,
+        R: FromLua<'lua>,
+    >(
+        &'lua mut self,
+        name: S,
+        args: A,
+    ) -> anyhow::Result<Option<R>> {
+        let name = name.as_ref();
+        let decorated_name = format!("kumomta-on-{}", name);
+        let lua = self.inner.as_mut().unwrap();
+        let opt_func: mlua::Value = lua.lua.named_registry_value(&decorated_name)?;
+
+        match opt_func {
+            Value::Nil => Ok(None),
+            Value::Function(func) => {
+                let value: Value = func.call_async(args.clone()).await?;
+
+                match value {
+                    Value::Nil => Ok(None),
+                    value => {
+                        let result = R::from_lua(value, &lua.lua)?;
+                        Ok(Some(result))
+                    }
+                }
+            }
             _ => anyhow::bail!("invalid return type for {name} event"),
         }
     }

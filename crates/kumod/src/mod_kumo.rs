@@ -5,7 +5,7 @@ use crate::lifecycle::LifeCycle;
 use crate::logging::{ClassifierParams, LogFileParams, LogHookParams};
 use crate::queue::QueueConfig;
 use crate::runtime::spawn;
-use crate::smtp_server::{EsmtpListenerParams, RejectError};
+use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use anyhow::Context;
 use config::{any_err, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
@@ -130,6 +130,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
             Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "make_listener_domain",
+        lua.create_function(move |lua, params: Value| {
+            let config: EsmtpDomain = lua.from_value(params)?;
+            Ok(config)
         })?,
     )?;
 
