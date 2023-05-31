@@ -4,20 +4,52 @@ local utils = require 'policy-extras.policy_utils'
 
 local function load_data_from_file(file_name, target)
   local data = utils.load_json_or_toml_file(file_name)
-  for key, value in pairs(data) do
-    -- Check that the value is a valid domain spec
-    kumo.make_listener_domain(value)
-    -- Store the original value
-    target[key] = value
+
+  local by_listener = data.listener or {}
+  data.listener = nil
+  for domain, params in pairs(data) do
+    if not by_listener['*'] then
+      by_listener['*'] = {}
+    end
+    by_listener['*'][domain] = params
+  end
+
+  for listener, entries in pairs(by_listener) do
+    for domain, params in pairs(entries) do
+      -- Check that the value is a valid domain spec
+      local status, err = pcall(kumo.make_listener_domain, params)
+      if not status then
+        error(
+          string.format(
+            'while reading %s, listener %s domain %s: %s',
+            file_name,
+            listener,
+            domain,
+            err
+          )
+        )
+      end
+
+      if not target[listener] then
+        target[listener] = {}
+      end
+      if not target[listener][domain] then
+        target[listener][domain] = kumo.domain_map.new()
+      end
+
+      for k, v in pairs(params) do
+        target[listener][domain][k] = v
+      end
+    end
   end
 end
 
 local function load_data(data_files)
-  local dmap = kumo.domain_map.new()
+  local by_listener = {}
   for _, file_name in ipairs(data_files) do
-    load_data_from_file(file_name, dmap)
+    load_data_from_file(file_name, by_listener)
   end
-  return dmap
+  return by_listener
 end
 
 --[[
@@ -63,6 +95,10 @@ relay_to = true
 relay_to = false
 log_arf = false
 log_oob = false
+
+# Define a per-listener configuration
+[listener."127.0.0.1:25"."*.example.com"]
+log_oob = false
 ```
 
 Then in your policy:
@@ -89,9 +125,26 @@ function mod:setup(data_files)
     capacity = 10,
   })
 
-  local function get_listener_domain(domain_name)
-    local dmap = cached_load_data(data_files)
-    return kumo.make_listener_domain(dmap[domain_name])
+  local function lookup(domain_name, listener)
+    local by_listener = cached_load_data(data_files)
+
+    local listener_map = by_listener[listener]
+    if listener_map then
+      local listener_domain = listener_map[domain_name]
+      if listener_domain then
+        return kumo.make_listener_domain(listener_domain)
+      end
+    end
+
+    return nil
+  end
+
+  local function get_listener_domain(domain_name, listener)
+    local result = lookup(domain_name, listener)
+    if result then
+      return result
+    end
+    return lookup(domain_name, '*')
   end
 
   return get_listener_domain

@@ -1,8 +1,12 @@
-# `kumo.on('get_listener_domain', function(domain))`
+# `kumo.on('get_listener_domain', function(domain, listener))`
 
 This event is triggered by the SMTP server to retrieve information about
 either a source or destination domain to help determine whether the message
 should be accepted/logged/relayed.
+
+The *listener* parameter is the listener endpoint on which the message
+is being delivered.  You can use this to vary behavior depending on the
+listener address.
 
 When the SMTP `RCPT TO` command is issued by the client, the destination
 domain is passed as the *domain* parameter to this event.
