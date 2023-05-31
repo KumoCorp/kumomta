@@ -1,6 +1,6 @@
 local mod = {}
 local kumo = require 'kumo'
-local utils = require 'policy_extras.policy_utils'
+local utils = require 'policy-extras.policy_utils'
 
 --[[
 Usage:

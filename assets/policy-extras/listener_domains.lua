@@ -1,6 +1,6 @@
 local mod = {}
 local kumo = require 'kumo'
-local utils = require 'policy_extras.policy_utils'
+local utils = require 'policy-extras.policy_utils'
 
 local function load_data_from_file(file_name, target)
   local data = utils.load_json_or_toml_file(file_name)
