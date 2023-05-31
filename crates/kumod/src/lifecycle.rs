@@ -5,6 +5,7 @@
 use once_cell::sync::OnceCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 
@@ -141,7 +142,14 @@ impl LifeCycle {
     pub async fn wait_for_shutdown(&mut self) {
         // Wait for interrupt
         tracing::debug!("Waiting for interrupt");
+        let mut sig_term =
+            tokio::signal::unix::signal(SignalKind::terminate()).expect("listen for SIGTERM");
+        let mut sig_hup =
+            tokio::signal::unix::signal(SignalKind::hangup()).expect("listen for SIGUP");
+
         tokio::select! {
+            _ = sig_term.recv() => {}
+            _ = sig_hup.recv() => {}
             _ = tokio::signal::ctrl_c() => {}
             _ = self.request_shutdown_rx.recv() => {}
         };
