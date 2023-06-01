@@ -83,31 +83,6 @@ kumo.on('init', function()
 
     -- override the default set of relay hosts
     relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-    -- Configure the domains that are allowed for outbound & inbound relay,
-    -- Out-Of-Band bounces, and Feedback Loop Reports.
-    -- See https://docs.kumomta.com/userguide/configuration/domains/
-    domains = {
-      ['examplecorp.com'] = {
-        -- allow relaying mail from any source, so long as it is
-        -- addressed to examplecorp.com, for inbound mail.
-        relay_to = true,
-      },
-      ['send.examplecorp.com'] = {
-        -- relay to anywhere, so long as the sender domain is
-        -- send.examplecorp.com and the connected peer matches one of the
-        -- listed CIDR blocks, helps prevent abuse by less trusted peers.
-        relay_from = { '10.0.0.0/24' },
-      },
-      ['bounce.examplecorp.com'] = {
-        -- accept and log OOB bounce reports sent to bounce.examplecorp.com
-        log_oob = true,
-      },
-      ['fbl.examplecorp.com'] = {
-        -- accept and log ARF feedback reports sent to fbl.examplecorp.com
-        log_arf = true,
-      },
-    },
   }
 
   -- Add an IPv6 Listener
@@ -116,56 +91,40 @@ kumo.on('init', function()
     relay_hosts = { '::1' },
   }
 
-  -- Configure the sending IP addresses that will be used by KumoMTA to
-  -- connect to remote systems. Note that defining sources and pools does
-  -- nothing without some form of policy in effect to assign messages to
-  -- the source pools you have defined.
-  -- See https://docs.kumomta.com/userguide/configuration/sendingips/
-
-  kumo.define_egress_source {
-    name = 'ip-1',
-    source_address = '10.0.0.1',
-    ehlo_domain = 'mta1.examplecorp.com',
-  }
-
-  kumo.define_egress_source {
-    name = 'ip-2',
-    source_address = '10.0.0.2',
-    ehlo_domain = 'mta2.examplecorp.com',
-  }
-
-  -- IPv6 is also supported.
-  kumo.define_egress_source {
-    name = 'ip-3',
-    source_address = '2001:db8:3333:4444:5555:6666:7777:8888',
-    ehlo_domain = 'mta3.examplecorp.com',
-  }
-
-  kumo.define_egress_pool {
-    name = 'TenantOne',
-    entries = {
-      { name = 'ip-2' },
-      { name = 'ip-3' },
-    },
-  }
-
-  kumo.define_egress_pool {
-    name = 'TenantTwo',
-    entries = {
-      { name = 'ip-1' },
-      { name = 'ip-2' },
-    },
-  }
-
   -- Use shared throttles rather than in-process throttles, do not enable
   -- without first installing and configuring redis.
   -- See https://docs.kumomta.com/reference/kumo/configure_redis_throttles/
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
 end) -- END OF THE INIT EVENT
 
+-- Configure listener domains for relay, oob bounces, and FBLs using the
+-- listener_domains.lua policy helper.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/smtplisteners/
+
+local listener_domains = require 'policy-extras.listener_domains'
+kumo.on('get_listener_domain', listener_domains:setup({'/opt/kumomta/etc/listener_domains.toml'}))
+
+-- Configure traffic shaping using the shaping.lua policy helper.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
+
+local shaping = require 'policy-extras.shaping'
+kumo.on('get_egress_path_config', shaping:setup_json())
+
+-- Configure the sending IP addresses that will be used by KumoMTA to
+-- connect to remote systems using the sources.lua policy helper.
+-- Note that defining sources and pools does nothing without some form of
+-- policy in effect to assign messages to the source pools you have defined.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
+
+local sources = require 'policy-extras.sources'
+sources:setup({'/opt/kumomta/etc/sources.toml'})
+
 -- Configure queue management settings. These are not throttles, but instead
--- how messages flow through the queues. This example assigns pool based
--- on tenant name, and customized message expiry for a specific tenant.
+-- control how messages flow through the queues. This example assigns pool
+-- based on tenant name, and customized message expiry for a specific tenant.
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 
 local TENANT_PARAMS = {
@@ -184,13 +143,6 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   merge_into(TENANT_PARAMS[tenant] or {}, params)
   return kumo.make_queue_config(params)
 end)
-
--- Configure traffic shaping.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
-
-local shaping = require 'policy-extras.shaping'
-kumo.on('get_egress_path_config', shaping:setup_json())
 
 -- Configure DKIM signing. In this case we use a simple approach of a path
 -- defined by tokens, with each domain configured in the definition. This is
