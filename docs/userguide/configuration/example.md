@@ -103,7 +103,10 @@ end) -- END OF THE INIT EVENT
 -- SEE https://docs.kumomta.com/userguide/configuration/smtplisteners/
 
 local listener_domains = require 'policy-extras.listener_domains'
-kumo.on('get_listener_domain', listener_domains:setup({'/opt/kumomta/etc/listener_domains.toml'}))
+kumo.on(
+  'get_listener_domain',
+  listener_domains:setup { '/opt/kumomta/etc/listener_domains.toml' }
+)
 
 -- Configure traffic shaping using the shaping.lua policy helper.
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
@@ -120,7 +123,7 @@ kumo.on('get_egress_path_config', shaping:setup_json())
 -- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
 
 local sources = require 'policy-extras.sources'
-sources:setup({'/opt/kumomta/etc/sources.toml'})
+sources:setup { '/opt/kumomta/etc/sources.toml' }
 
 -- Configure queue management settings. These are not throttles, but instead
 -- control how messages flow through the queues. This example assigns pool

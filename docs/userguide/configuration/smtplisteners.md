@@ -47,7 +47,10 @@ To use the helper, add the following to the top level of your server policy scri
 ```lua
 local listener_domains = require 'policy-extras.listener_domains'
 
-kumo.on('get_listener_domain', listener_domains:setup({'/opt/kumomta/etc/listener_domains.toml'}))
+kumo.on(
+  'get_listener_domain',
+  listener_domains:setup { '/opt/kumomta/etc/listener_domains.toml' }
+)
 ```
 
 Then create a text file at `/opt/kumomta/etc/listener_domains.toml` with the following format:

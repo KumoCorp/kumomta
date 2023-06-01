@@ -11,7 +11,7 @@ To use the `sources.lua` policy helper, add the following to your server policy 
 ```lua
 -- Configure source IPs.
 local sources = require 'policy-extras.sources'
-sources:setup({'/opt/kumomta/etc/sources.toml'})
+sources:setup { '/opt/kumomta/etc/sources.toml' }
 ```
 
 In addition, create a file at `/opt/kumomta/etc/sources.toml` and populate it as follows:
