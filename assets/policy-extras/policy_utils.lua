@@ -1,4 +1,5 @@
 local mod = {}
+local kumo = require 'kumo'
 
 -- Helper function that merges the values from `src` into `dest`
 function mod.merge_into(src, dest)

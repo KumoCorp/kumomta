@@ -104,7 +104,7 @@ log_oob = false
 Then in your policy:
 
 ```
-local listener_domains = require 'policy_extras.listener_domains'
+local listener_domains = require 'policy-extras.listener_domains'
 
 kumo.on('get_listener_domain', listener_domains:setup({'/opt/kumomta/etc/listener_domains.toml'}))
 ```
