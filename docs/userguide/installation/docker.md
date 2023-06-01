@@ -71,7 +71,7 @@ Then clone the repo and run the image builder script:
 ```console
 $ git clone https://github.com/KumoCorp/kumomta.git
 $ cd kumomta
-$ ./docker/kumod/build-docker-image.sh
+$ sudo ./docker/kumod/build-docker-image.sh
 ```
 
 This should result in something roughly like this:
