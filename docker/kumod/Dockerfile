@@ -17,7 +17,9 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # and now build our first-party stuff
 COPY . .
-RUN cargo build --release -p kumod && cargo build --release -p traffic-gen
+RUN cargo build --release -p kumod && \
+  cargo build --release -p traffic-gen && \
+  cargo build --release -p kcli
 
 # Using Ubuntu rather than alpine because rocksdb, a C++ library,
 # is problematic when built with musl.
@@ -31,6 +33,7 @@ FROM ubuntu:latest as runtime
 RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
 RUN apt update && apt install -y libsqlite3-dev
 WORKDIR /opt/kumomta/sbin
+COPY --from=builder /app/target/release/kcli .
 COPY --from=builder /app/target/release/kumod .
 COPY --from=builder /app/target/release/traffic-gen .
 COPY docker/kumod/docker-runner.sh .

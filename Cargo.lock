@@ -2037,6 +2037,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "kcli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "humantime",
+ "kumo-api-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "version-info",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2054,6 +2069,14 @@ checksum = "8367585489f01bc55dd27404dcf56b95e6da061a256a666ab23be9ba96a2e587"
 dependencies = [
  "bitflags",
  "libc",
+]
+
+[[package]]
+name = "kumo-api-types"
+version = "0.1.0"
+dependencies = [
+ "humantime-serde",
+ "serde",
 ]
 
 [[package]]
@@ -2101,6 +2124,7 @@ dependencies = [
  "humantime-serde",
  "json_comments",
  "k9",
+ "kumo-api-types",
  "kumo-log-types",
  "lazy_static",
  "lruttl",

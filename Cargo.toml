@@ -4,6 +4,7 @@ members = [
   "crates/cidr-map",
   "crates/domain-map",
   "crates/integration-tests",
+  "crates/kcli",
   "crates/kumod",
   "crates/proxy-server",
   "crates/rfc5321",

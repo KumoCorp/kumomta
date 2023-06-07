@@ -3,12 +3,12 @@ use crate::http_server::AppError;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use axum::extract::Json;
+use kumo_api_types::{BounceV1Request, BounceV1Response};
 use message::message::QueueNameComponents;
 use message::Message;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 lazy_static::lazy_static! {
     static ref ENTRIES: Mutex<Vec<AdminBounceEntry>> = Mutex::new(vec![]);
@@ -154,41 +154,18 @@ impl AdminBounceEntry {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BounceV1Request {
-    #[serde(default)]
-    pub campaign: Option<String>,
-    #[serde(default)]
-    pub tenant: Option<String>,
-    #[serde(default)]
-    pub domain: Option<String>,
-
-    pub reason: String,
-    #[serde(default = "default_duration", with = "humantime_serde")]
-    pub duration: Duration,
-}
-
-fn default_duration() -> Duration {
-    Duration::from_secs(300)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BounceV1Response {
-    pub bounced: HashMap<String, usize>,
-    pub total_bounced: usize,
-}
-
 pub async fn bounce_v1(
     _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
     Json(request): Json<BounceV1Request>,
 ) -> Result<Json<BounceV1Response>, AppError> {
+    let duration = request.duration();
     let entry = AdminBounceEntry {
         campaign: request.campaign,
         tenant: request.tenant,
         domain: request.domain,
         reason: request.reason,
-        expires: Instant::now() + request.duration,
+        expires: Instant::now() + duration,
         bounced: Arc::new(Mutex::new(HashMap::new())),
     };
 

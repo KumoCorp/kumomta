@@ -257,15 +257,10 @@ async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Va
     Ok(Json(Value::Object(result)))
 }
 
-#[derive(Deserialize, Debug)]
-pub struct SetDiagnosticFilterRequest {
-    pub filter: String,
-}
-
 async fn set_diagnostic_log_filter_v1(
     _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
-    Json(request): Json<SetDiagnosticFilterRequest>,
+    Json(request): Json<kumo_api_types::SetDiagnosticFilterRequest>,
 ) -> Result<(), AppError> {
     crate::set_diagnostic_log_filter(&request.filter)?;
     Ok(())
