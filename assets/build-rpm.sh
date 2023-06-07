@@ -89,6 +89,7 @@ install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 %files
 /opt/kumomta/sbin/kcli
 /opt/kumomta/sbin/kumod
+/opt/kumomta/sbin/proxy-server
 /opt/kumomta/sbin/tailer
 /opt/kumomta/sbin/traffic-gen
 /opt/kumomta/share/bounce_classifier/*.toml

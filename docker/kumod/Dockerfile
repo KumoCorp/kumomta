@@ -19,6 +19,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release -p kumod && \
   cargo build --release -p traffic-gen && \
+  cargo build --release -p proxy-server && \
   cargo build --release -p kcli
 
 # Using Ubuntu rather than alpine because rocksdb, a C++ library,
@@ -35,6 +36,7 @@ RUN apt update && apt install -y libsqlite3-dev
 WORKDIR /opt/kumomta/sbin
 COPY --from=builder /app/target/release/kcli .
 COPY --from=builder /app/target/release/kumod .
+COPY --from=builder /app/target/release/proxy-server .
 COPY --from=builder /app/target/release/traffic-gen .
 COPY docker/kumod/docker-runner.sh .
 WORKDIR /opt/kumomta/bounce_classifier
