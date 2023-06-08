@@ -7,15 +7,16 @@ Replace the domain and selector with your own, then generate signing keys with:
 export DOMAIN=<your_domain>
 export SELECTOR=<your_selector>
 sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -aes-256-cbc
+sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -aes-256-cbc
 ```
 At this point you will need to provide a passkey and verify it manually. This may be needed later if you need to examine the certificate. Then continue with:
 
 ```console
 sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key
-sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
+sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -pubout -outform PEM -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub 
 sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
+NOTE: that the above will generate a 2048bit key pair.  
 
 Now that you have KumoMTA installed, you should test it from the command line of the installed host. This is easy if you installed the basic tools as described earlier.  
 Note that the default SMTP listener is on port 2025, so we have use that in these examples.
