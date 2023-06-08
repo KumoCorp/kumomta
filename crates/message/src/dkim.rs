@@ -156,9 +156,25 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
             let data = String::from_utf8_lossy(&data);
 
+            let mut errors = vec![];
+
             let key = RsaKey::<Sha256>::from_rsa_pem(&data)
-                .or_else(|_| RsaKey::<Sha256>::from_pkcs8_pem(&data))
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
+                .or_else(|err| {
+                    errors.push(format!("from_rsa_pem: {err:#}"));
+                    RsaKey::<Sha256>::from_pkcs8_pem(&data)
+                })
+                .map_err(|err| {
+                    let err = format!("from_pkcs8_pem: {err:#}");
+                    errors.push(err.clone());
+                    if err.contains("TooSmall") {
+                        errors.push(format!(
+                            "Note: This implementation supports \
+                             RSA keys that are 2048 bits or larger; \
+                             smaller sizes are insecure and can be forged"
+                        ));
+                    }
+                    mlua::Error::external(format!("{:?}: {}", params.key, errors.join(", ")))
+                })?;
 
             let signer = params.configure_signer(DkimSigner::from_key(key));
 
@@ -185,9 +201,17 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
 
+            let mut errors = vec![];
+
             let key = Ed25519Key::from_pkcs8_der(&data)
-                .or_else(|_| Ed25519Key::from_pkcs8_maybe_unchecked_der(&data))
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
+                .or_else(|err| {
+                    errors.push(format!("from_pkcs8_der: {err:#}"));
+                    Ed25519Key::from_pkcs8_maybe_unchecked_der(&data)
+                })
+                .map_err(|err| {
+                    errors.push(format!("from_pkcs8_maybe_unchecked_der: {err:#}"));
+                    mlua::Error::external(format!("{:?}: {}", params.key, errors.join(", ")))
+                })?;
 
             let signer = params.configure_signer(DkimSigner::from_key(key));
 
