@@ -44,11 +44,6 @@ mx_rollup = false
 max_deliveries_per_connection = 100
 connection_limit = 3
 
-# https://sendersupport.olc.protection.outlook.com/pm/
-["protection.outlook.com"]
-max_deliveries_per_connection = 50
-connection_limit = 10
-
 # https://support.google.com/mail/answer/81126
 ["gmail.com"]
 max_deliveries_per_connection = 50
