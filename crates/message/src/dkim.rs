@@ -167,10 +167,11 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                     let err = format!("from_pkcs8_pem: {err:#}");
                     errors.push(err.clone());
                     if err.contains("TooSmall") {
+                        // <https://docs.rs/ring/latest/ring/signature/struct.RsaKeyPair.html#method.from_pkcs8>
+                        // Technically 2047 or larger, but recommend 2048 or 3072
                         errors.push(format!(
                             "Note: This implementation supports \
-                             RSA keys that are 2048 bits or larger; \
-                             smaller sizes are insecure and can be forged"
+                             RSA keys that are 2048 bits or larger"
                         ));
                     }
                     mlua::Error::external(format!("{:?}: {}", params.key, errors.join(", ")))
