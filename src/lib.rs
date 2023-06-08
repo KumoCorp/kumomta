@@ -186,7 +186,7 @@ async fn verify_email_header<'a>(
         email,
     )?;
     let computed_headers_hash = hash::compute_headers_hash(
-        logger,
+        Some(logger),
         header_canonicalization_type.clone(),
         &dkim_header.get_required_tag("h"),
         hash_algo.clone(),

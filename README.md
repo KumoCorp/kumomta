@@ -30,10 +30,9 @@ let private_key =
     rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private"))?;
 
 let signer = SignerBuilder::new()
-    .with_signed_headers(&["From", "Subject"])?
+    .with_signed_headers(["From", "Subject"])?
     .with_private_key(private_key)
     .with_selector("2020")
-    .with_logger(&logger)
     .with_signing_domain("example.com")
     .build()?;
 let signature = signer.sign(&email)?;

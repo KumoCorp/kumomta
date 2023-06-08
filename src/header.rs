@@ -67,8 +67,7 @@ impl DKIMHeaderBuilder {
         self
     }
 
-    pub(crate) fn set_signed_headers(self, headers: &[&str]) -> Self {
-        let headers: Vec<String> = headers.iter().map(|h| h.to_lowercase()).collect();
+    pub(crate) fn set_signed_headers(self, headers: &Vec<String>) -> Self {
         let value = headers.join(":");
         self.add_tag("h", &value)
     }
@@ -106,11 +105,15 @@ mod tests {
         assert_eq!(header.raw_bytes, "v=1; a=something;".to_owned());
     }
 
+    fn signed_header_list(headers: &[&str]) -> Vec<String> {
+        headers.into_iter().map(|h| h.to_lowercase()).collect()
+    }
+
     #[test]
     fn test_dkim_header_builder_signed_headers() {
         let header = DKIMHeaderBuilder::new()
             .add_tag("v", "2")
-            .set_signed_headers(&["header1", "header2", "header3"])
+            .set_signed_headers(&signed_header_list(&["header1", "header2", "header3"]))
             .build()
             .unwrap();
         assert_eq!(

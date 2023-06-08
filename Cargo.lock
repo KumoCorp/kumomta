@@ -105,7 +105,7 @@ checksum = "50d30906286121d95be3d479533b458f87493b30a4b5f79a607db8f5d11aa91f"
 
 [[package]]
 name = "cfdkim"
-version = "0.2.6"
+version = "0.3.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",

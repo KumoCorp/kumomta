@@ -9,26 +9,24 @@ use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HEADER};
 
 /// Builder for the Signer
-pub struct SignerBuilder<'a> {
-    signed_headers: Option<&'a [&'a str]>,
+pub struct SignerBuilder {
+    signed_headers: Option<Vec<String>>,
     private_key: Option<DkimPrivateKey>,
-    selector: Option<&'a str>,
-    signing_domain: Option<&'a str>,
+    selector: Option<String>,
+    signing_domain: Option<String>,
     time: Option<chrono::DateTime<chrono::offset::Utc>>,
     header_canonicalization: canonicalization::Type,
     body_canonicalization: canonicalization::Type,
-    logger: Option<&'a slog::Logger>,
     expiry: Option<chrono::Duration>,
 }
 
-impl<'a> SignerBuilder<'a> {
+impl SignerBuilder {
     /// New builder
     pub fn new() -> Self {
         Self {
             signed_headers: None,
             private_key: None,
             selector: None,
-            logger: None,
             signing_domain: None,
             expiry: None,
             time: None,
@@ -40,9 +38,16 @@ impl<'a> SignerBuilder<'a> {
 
     /// Specify headers to be used in the DKIM signature
     /// The From: header is required.
-    pub fn with_signed_headers(mut self, headers: &'a [&'a str]) -> Result<Self, DKIMError> {
-        let from = headers.iter().find(|h| h.to_lowercase() == "from");
-        if from.is_none() {
+    pub fn with_signed_headers(
+        mut self,
+        headers: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, DKIMError> {
+        let headers: Vec<String> = headers
+            .into_iter()
+            .map(|h| h.into().to_lowercase())
+            .collect();
+
+        if !headers.iter().any(|h| h.eq_ignore_ascii_case("from")) {
             return Err(DKIMError::BuilderError("missing From in signed headers"));
         }
 
@@ -57,14 +62,14 @@ impl<'a> SignerBuilder<'a> {
     }
 
     /// Specify the private key used to sign the email
-    pub fn with_selector(mut self, value: &'a str) -> Self {
-        self.selector = Some(value);
+    pub fn with_selector(mut self, value: impl Into<String>) -> Self {
+        self.selector = Some(value.into());
         self
     }
 
     /// Specify for which domain the email should be signed for
-    pub fn with_signing_domain(mut self, value: &'a str) -> Self {
-        self.signing_domain = Some(value);
+    pub fn with_signing_domain(mut self, value: impl Into<String>) -> Self {
+        self.signing_domain = Some(value.into());
         self
     }
 
@@ -77,12 +82,6 @@ impl<'a> SignerBuilder<'a> {
     /// Specify the body canonicalization
     pub fn with_body_canonicalization(mut self, value: canonicalization::Type) -> Self {
         self.body_canonicalization = value;
-        self
-    }
-
-    /// Specify a logger
-    pub fn with_logger(mut self, logger: &'a slog::Logger) -> Self {
-        self.logger = Some(logger);
         self
     }
 
@@ -99,9 +98,9 @@ impl<'a> SignerBuilder<'a> {
     }
 
     /// Build an instance of the Signer
-    /// Must be provided: signed_headers, private_key, selector, logger and
+    /// Must be provided: signed_headers, private_key, selector and
     /// signing_domain.
-    pub fn build(self) -> Result<Signer<'a>, DKIMError> {
+    pub fn build(self) -> Result<Signer, DKIMError> {
         use DKIMError::BuilderError;
 
         let private_key = self
@@ -120,10 +119,9 @@ impl<'a> SignerBuilder<'a> {
             selector: self
                 .selector
                 .ok_or(BuilderError("missing required selector"))?,
-            logger: self.logger.ok_or(BuilderError("missing required logger"))?,
             signing_domain: self
                 .signing_domain
-                .ok_or(BuilderError("missing required logger"))?,
+                .ok_or(BuilderError("missing required signing domain"))?,
             header_canonicalization: self.header_canonicalization,
             body_canonicalization: self.body_canonicalization,
             expiry: self.expiry,
@@ -133,27 +131,26 @@ impl<'a> SignerBuilder<'a> {
     }
 }
 
-impl<'a> Default for SignerBuilder<'a> {
+impl Default for SignerBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub struct Signer<'a> {
-    signed_headers: &'a [&'a str],
+pub struct Signer {
+    signed_headers: Vec<String>,
     private_key: DkimPrivateKey,
-    selector: &'a str,
-    signing_domain: &'a str,
+    selector: String,
+    signing_domain: String,
     header_canonicalization: canonicalization::Type,
     body_canonicalization: canonicalization::Type,
-    logger: &'a slog::Logger,
     expiry: Option<chrono::Duration>,
     hash_algo: hash::HashAlgo,
     time: Option<chrono::DateTime<chrono::offset::Utc>>,
 }
 
 /// DKIM signer. Use the [SignerBuilder] to build an instance.
-impl<'a> Signer<'a> {
+impl Signer {
     /// Sign a message
     /// As specified in <https://datatracker.ietf.org/doc/html/rfc6376#section-5>
     pub fn sign<'b>(&self, email: &'b mailparse::ParsedMail<'b>) -> Result<String, DKIMError> {
@@ -203,8 +200,8 @@ impl<'a> Signer<'a> {
         let mut builder = DKIMHeaderBuilder::new()
             .add_tag("v", "1")
             .add_tag("a", hash_algo)
-            .add_tag("d", self.signing_domain)
-            .add_tag("s", self.selector)
+            .add_tag("d", &self.signing_domain)
+            .add_tag("s", &self.selector)
             .add_tag(
                 "c",
                 &format!(
@@ -214,7 +211,7 @@ impl<'a> Signer<'a> {
                 ),
             )
             .add_tag("bh", body_hash)
-            .set_signed_headers(self.signed_headers);
+            .set_signed_headers(&self.signed_headers);
         if let Some(expiry) = self.expiry {
             builder = builder.set_expiry(expiry)?;
         }
@@ -248,7 +245,7 @@ impl<'a> Signer<'a> {
         let signed_headers = dkim_header.get_required_tag("h");
 
         hash::compute_headers_hash(
-            self.logger,
+            None,
             canonicalization,
             &signed_headers,
             self.hash_algo.clone(),
@@ -265,10 +262,6 @@ mod tests {
     use rsa::pkcs1::DecodeRsaPrivateKey;
     use std::{fs, path::Path};
 
-    fn test_logger() -> slog::Logger {
-        slog::Logger::root(slog::Discard, slog::o!())
-    }
-
     #[test]
     fn test_sign_rsa() {
         let email = mailparse::parse_mail(
@@ -283,15 +276,13 @@ Hello Alice
 
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
-        let logger = test_logger();
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
-            .with_signed_headers(&["From", "Subject"])
+            .with_signed_headers(["From", "Subject"])
             .unwrap()
             .with_private_key(DkimPrivateKey::Rsa(private_key))
             .with_selector("s20")
-            .with_logger(&logger)
             .with_signing_domain("example.com")
             .with_time(time)
             .build()
@@ -330,13 +321,12 @@ Joe."#
             secret: secret_key,
         };
 
-        let logger = test_logger();
         let time = chrono::Utc
             .with_ymd_and_hms(2018, 6, 10, 13, 38, 29)
             .unwrap();
 
         let signer = SignerBuilder::new()
-            .with_signed_headers(&[
+            .with_signed_headers([
                 "From",
                 "To",
                 "Subject",
@@ -351,7 +341,6 @@ Joe."#
             .with_body_canonicalization(canonicalization::Type::Relaxed)
             .with_header_canonicalization(canonicalization::Type::Relaxed)
             .with_selector("brisbane")
-            .with_logger(&logger)
             .with_signing_domain("football.example.com")
             .with_time(time)
             .build()

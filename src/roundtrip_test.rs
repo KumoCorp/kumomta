@@ -31,15 +31,13 @@ mod tests {
 
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
-        let logger = test_logger();
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
-            .with_signed_headers(&["From", "Subject"])
+            .with_signed_headers(["From", "Subject"])
             .unwrap()
             .with_private_key(DkimPrivateKey::Rsa(private_key))
             .with_selector("2022")
-            .with_logger(&logger)
             .with_signing_domain(domain)
             .with_time(time)
             .build()
