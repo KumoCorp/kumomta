@@ -37,32 +37,32 @@ graph TD
 
 ```
 
-## For Sending Servers
-
-### Set up
+### Enabling DKIM signing in KumoMTA
 
 A system administrator with access to manage DNS generates a public/private key pair to use for signing all outgoing messages for the domain (multiple key pairs are allowed). The public key is published in DNS, and the private key is made available to their DKIM-enabled outbound email servers. This is step "1" in the diagram.
 
-### Signing
-
 When an email is sent by an authorized user within the domain, the DKIM-enabled email system uses the stored private key to generate a digital signature of the message. This signature is included in a DKIM-Signature header and prepended to the email. The email is then sent on to the recipient's mail server. This is step "2" in the diagram.
 
-### Enabling DKIM signing in KumoMTA
-
-Generate public and private keys for each signing domain and create the DKIM public key DNS records for those domains.
 
 ### Generating DKIM Keys
 
-The OpenSSL cryptography toolkit can be used to generate RSA keys for DKIM. As an example, the following openssl commands are used to generate public and private keys for the domain example.com with a selector called "default". The files can be stored in any directory such as ~/kumomta/keys/.
+Generate public and private keys for each signing domain and create the DKIM public key DNS records for those domains.
 
+The OpenSSL cryptography toolkit can be used to generate RSA keys for DKIM. As an example, the following openssl commands are used to generate public and private keys for the a domain you choose with a selector you choose. The files can be stored in any directory such as ~/kumomta/keys/, but the default is /opt/kumomta/etc/dkim/.
+
+Replace the domain and selector with your own, then generate signing keys with:
 ```console
 export DOMAIN=<your_domain>
 export SELECTOR=<your_selector>
-mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-openssl genrsa -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
-openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key \
- -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
+sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
+sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:1024 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -aes-256-cbc
+```
+At this point you will need to provide a passkey and verify it manually. This may be needed later if you need to examine the certificate. Then continue with:
 
+```console
+sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key
+sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -pubout -outform PEM
+sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
 
 Any DKIM verification implementations must support key sizes of 512, 768, 1024, 1536, and 2048 bits. A signer may choose to sign messages using any of these sizes and may use a different size for different selectors. Larger key sizes provide greater security but impose higher CPU costs during message signing and verification. It is not recommended to use a key size lower than 1024 unless absolutely necessary. Note that Google _requires_ senders to sign with a 1024 bit or greater key size.
@@ -71,17 +71,17 @@ The resulting public key should look similar to:
 
 ```txt
 -----BEGIN PUBLIC KEY-----
-MIGKSINEN09U6CSqGSIb3DQEBAQUAA4GNADCBiQKBgQCrZXNwzXOk0mRqPcgSUOF
-rg/BZHybpiBoDS/g6IaMjmVwaQf2E72x9yDBTgiUBtDIWN76KQRZJ3Ebfvo+WAHq
-2yz6HKR0XCwMDSE2S3brVe7mbV/GPEvnPEVjbfL4w0tEjahuBN9kty7h07uVQqy1
-Q7jIOnF5fG9AQNd1UyTvd43QAB
------END PUBLIC KEY-------
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDnkmt7Vty2iLsVCpNCx4+tbufL
+xwe+P13AmzYYa9SHIV2Is3G+U4vRlAEg1McK1ssrsjF5GWGSKSeDrYJY06I8ruZS
+CpPIHQo85GAkmGbBPHMhZuk8x5XSgI8VkjAZDbiJAwg1U6MV5deWqrzDC8OJ3+RK
+KPrbKH5ubT9V9pLKawIDAQAB
+-----END PUBLIC KEY-----
 ```
 
-Once the public and private keys have been generated, create a DNS text record for default._domainkey.example.com. The DNS record contains several DKIM "tag=value" pairs and should be similiar to the record shown below:
+Once the public and private keys have been generated, create a DNS text record for <SELECTOR>._domainkey.<DOMAIN> (IE: dkim1024._domainkey.example.com). The DNS record contains several DKIM "tag=value" pairs and should be similiar to the record shown below:
 
 default._domainkey.example.com. 86400 IN TXT
-"v=DKIM1; k=rsa; h=sha256; t=y; p=MHww...QAB"
+"v=DKIM1; k=rsa; h=sha256; t=y; p=MIbBa...DaQAB"
 
 DKIM DNS text record tags are defined below. Do not include the quotes below when including a tag value in the DNS text record.
 
@@ -101,7 +101,7 @@ n= Notes. If specified, the value of this tag is quoted-printable text used as a
 
 ## Implement the signing process
 
-Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.  This is done with Lua in policy.  The simple_policy.lua policy provided with KumoMTA declairs a basic working DKIM signer that you can copy and modify as needed.  This signs a message with RSA256 using a selector "default" on headers 'From', 'To', and 'Subject' using the DKIM key located at example-private-dkim-key.pem.
+Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.  This is done with Lua in policy.  The sample init.lua policy provided with KumoMTA declairs a basic working DKIM signer that you can copy and modify as needed.  This signs a message with RSA256 using a selector "default" on headers 'From', 'To', and 'Subject' using the DKIM key located at example-private-dkim-key.pem. ([More documentation](https://docs.kumomta.com/reference/kumo.dkim/rsa_sha256_signer/))
 
 ```lua
 local signer = kumo.dkim.rsa_sha256_signer {
@@ -112,6 +112,6 @@ local signer = kumo.dkim.rsa_sha256_signer {
 }
 ```
 
-Where you want to enable dkim signing, simple call that signer in policy.
+Where you want to enable dkim signing, simply call that signer in policy.
 
 IE:  `msg:dkim_sign(signer)`
