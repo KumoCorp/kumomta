@@ -8,6 +8,8 @@ on:
       - ".github/workflows/continuous-docker.yml"
       - "**/Cargo.toml"
       - "docker/kumod/Dockerfile"
+      - "assets/policy-extras/**"
+      - "assets/bounce_classifier/**"
     tags:
       # Date based release tag
       - "20*"

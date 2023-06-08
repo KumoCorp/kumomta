@@ -12,6 +12,8 @@ on:
       - "get-deps.sh"
       - "assets/build-rpm.sh"
       - "assets/sign-rpm.sh"
+      - "assets/policy-extras/**"
+      - "assets/bounce_classifier/**"
       - "assets/upload-package.sh"
 
   pull_request:
@@ -23,6 +25,8 @@ on:
       - "get-deps.sh"
       - "assets/build-rpm.sh"
       - "assets/sign-rpm.sh"
+      - "assets/policy-extras/**"
+      - "assets/bounce_classifier/**"
       - "assets/upload-package.sh"
 
 env:

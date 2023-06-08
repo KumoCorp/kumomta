@@ -11,6 +11,8 @@ on:
       - "get-deps.sh"
       - "assets/upload-package.sh"
       - "assets/build-deb.sh"
+      - "assets/policy-extras/**"
+      - "assets/bounce_classifier/**"
       - "**/Cargo.toml"
 
   pull_request:
@@ -21,6 +23,8 @@ on:
       - "get-deps.sh"
       - "assets/upload-package.sh"
       - "assets/build-deb.sh"
+      - "assets/policy-extras/**"
+      - "assets/bounce_classifier/**"
       - "**/Cargo.toml"
 
 env:
