@@ -8,7 +8,6 @@ use config::any_err;
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mail_auth::common::headers::HeaderWriter;
 use mailparse::{MailHeader, MailHeaderMap};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
@@ -664,8 +663,7 @@ impl Message {
 
     pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
         let data = self.get_data();
-        let signature = signer.sign(&data)?;
-        let header = signature.to_header();
+        let header = signer.sign(&data)?;
         self.prepend_header(None, &header);
         Ok(())
     }
