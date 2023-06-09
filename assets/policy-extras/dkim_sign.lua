@@ -174,7 +174,8 @@ local function do_dkim_sign(msg, data)
       params.key = {
         vault_mount = base.vault_mount,
         vault_path = domain_config.filename or string.format(
-          'dkim/%s/%s.key',
+          '%s/%s/%s.key',
+          base.vault_path_prefix or 'dkim',
           params.domain,
           params.selector
         ),
@@ -214,7 +215,8 @@ local function do_dkim_sign(msg, data)
         params.key = {
           vault_mount = base.vault_mount,
           vault_path = sig_config.filename or string.format(
-            'dkim/%s/%s.key',
+            '%s/%s/%s.key',
+            base.vault_path_prefix or 'dkim',
             params.domain,
             params.selector
           ),
