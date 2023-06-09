@@ -159,6 +159,7 @@ local function do_dkim_sign(msg, data)
 
   local signed_domain = false
   local domain_config = data.domain[sender_domain]
+  local base = data.base
 
   if domain_config then
     -- TODO: check DNS to decide whether to try and sign based
