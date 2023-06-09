@@ -39,13 +39,13 @@ additional_signatures = ["MyESPName"]
 selector = "dkim1024"
 
 # The default set of headers to sign if otherwise unspecified
-headers = {"From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"}
+headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
 
 # Domain blocks match based on the sender domain of the
 # incoming message
 [domain."example.com"]
 selector = 'dkim1024'
-headers = {"From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"}
+headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
 algo = "sha256" # or "ed25519". Omit to use the default of "sha256"
 
 # optional overridden filename.
