@@ -54,8 +54,8 @@ filename = "/full/path/to/key."
 
 # TODO: reception-time policy for signing based on DNS.
 policy = "TempFailIfNotInDNS" # Reject
-policy = "SignAlways"         # Sign and relay
-policy = "SignOnlyIfInDNS"    # Don't sign. Allow fallback to additional_signatures
+#policy = "SignAlways"         # Sign and relay
+#policy = "SignOnlyIfInDNS"    # Don't sign. Allow fallback to additional_signatures
 
 # The signature block is independent of the sender domain.
 # They are consulted based on the value of `base.additional_signatures`
@@ -65,7 +65,7 @@ policy = "SignOnlyIfInDNS"    # Don't sign. Allow fallback to additional_signatu
 [signature."MyESPName"]
 # Policy is interpreted differently for these
 policy = "Always" # Always add this signature
-policy = "OnlyIfMissingDomainBlock" # Use this as a fallback
+#policy = "OnlyIfMissingDomainBlock" # Use this as a fallback
 
 # specifies the signing domain for this signature block
 domain = "myesp.com"
@@ -110,14 +110,16 @@ local function load_dkim_data(dkim_data_files)
   end
 
   -- Sanity checks
-  for _, signame in ipairs(data.base.additional_signatures) do
-    if not data.signature[signame] then
-      error(
-        string.format(
-          "dkim policy lists base.additional_signature '%s' but that signature is not defined in any signature block",
-          signame
+  if data.base.additional_signatures then
+    for _, signame in ipairs(data.base.additional_signatures) do
+      if not data.signature[signame] then
+        error(
+          string.format(
+            "dkim policy lists base.additional_signature '%s' but that signature is not defined in any signature block",
+            signame
+          )
         )
-      )
+      end
     end
   end
 
