@@ -55,16 +55,10 @@ Replace the domain and selector with your own, then generate signing keys with:
 export DOMAIN=<your_domain>
 export SELECTOR=<your_selector>
 sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-sudo openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -aes-256-cbc
-```
-At this point you will need to provide a passkey and verify it manually. This may be needed later if you need to examine the certificate. Then continue with:
-
-```console
-sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pem -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key
-sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -pubout -outform PEM -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub
+sudo openssl genrsa -f4 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
+sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -outform PEM -pubout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub
 sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
-NOTE: that the above will generate a 2048 bit key pair.
 
 Any DKIM verification implementations must support key sizes of 512, 768, 1024, 1536, and 2048 bits. A signer may choose to sign messages using any of these sizes and may use a different size for different selectors. Larger key sizes provide greater security but impose higher CPU costs during message signing and verification. It is not recommended to use a key size lower than 1024 unless absolutely necessary. Note that Google _requires_ senders to sign with a 1024 bit or greater key size.
 
