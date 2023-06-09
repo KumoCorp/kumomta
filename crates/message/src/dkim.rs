@@ -77,9 +77,6 @@ pub struct SignerConfig {
     #[serde(default)]
     body_canonicalization: Canon,
 
-    #[serde(default)]
-    use_cf: bool,
-
     key: KeySource,
 
     #[serde(default = "SignerConfig::default_ttl")]
@@ -117,6 +114,44 @@ impl SignerConfig {
         signer = signer.body_canonicalization(self.body_canonicalization.into());
 
         signer
+    }
+
+    fn configure_cfdkim(&self, key: DkimPrivateKey) -> anyhow::Result<cfdkim::Signer> {
+        if self.atps.is_some() {
+            anyhow::bail!("atps is not currently supported for RSA keys");
+        }
+        if self.atpsh.is_some() {
+            anyhow::bail!("atpsh is not currently supported for RSA keys");
+        }
+        if self.agent_user_identifier.is_some() {
+            anyhow::bail!("agent_user_identifier is not currently supported for RSA keys");
+        }
+        if self.body_length {
+            anyhow::bail!("body_length is not currently supported for RSA keys");
+        }
+        if self.reporting {
+            anyhow::bail!("reporting is not currently supported for RSA keys");
+        }
+
+        let mut signer = cfdkim::SignerBuilder::new()
+            .with_signed_headers(&self.headers)
+            .context("configure signed headers")?
+            .with_private_key(key)
+            .with_selector(&self.selector)
+            .with_signing_domain(&self.domain)
+            .with_header_canonicalization(match self.header_canonicalization {
+                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
+                Canon::Simple => cfdkim::canonicalization::Type::Simple,
+            })
+            .with_body_canonicalization(match self.body_canonicalization {
+                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
+                Canon::Simple => cfdkim::canonicalization::Type::Simple,
+            });
+        if let Some(exp) = self.expiration {
+            signer = signer.with_expiry(chrono::Duration::seconds(exp as i64));
+        }
+
+        signer.build().context("build signer")
     }
 }
 
@@ -170,44 +205,14 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
             let data = String::from_utf8_lossy(&data);
 
-            let mut errors = vec![];
+            let key = load_dkim_rsa_key(&data)
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
 
-            let inner;
+            let signer = params
+                .configure_cfdkim(key)
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
-            if params.use_cf {
-                // Verify that we can parse it immediately
-
-                let key_data = CFKeyData::guess_type(&data)
-                    .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
-
-                inner = Arc::new(SignerInner::CFDKIM(CFSigner {
-                    config: params.clone(),
-                    key_data,
-                }));
-            } else {
-                let key = RsaKey::<Sha256>::from_rsa_pem(&data)
-                    .or_else(|err| {
-                        errors.push(format!("from_rsa_pem: {err:#}"));
-                        RsaKey::<Sha256>::from_pkcs8_pem(&data)
-                    })
-                    .map_err(|err| {
-                        let err = format!("from_pkcs8_pem: {err:#}");
-                        errors.push(err.clone());
-                        if err.contains("TooSmall") {
-                            // <https://docs.rs/ring/latest/ring/signature/struct.RsaKeyPair.html#method.from_pkcs8>
-                            // Technically 2047 or larger, but recommend 2048 or 3072
-                            errors.push(format!(
-                                "Note: This implementation supports \
-                             RSA keys that are 2048 bits or larger"
-                            ));
-                        }
-                        mlua::Error::external(format!("{:?}: {}", params.key, errors.join(", ")))
-                    })?;
-
-                let signer = params.configure_signer(DkimSigner::from_key(key));
-
-                inner = Arc::new(SignerInner::RsaSha256(signer));
-            };
+            let inner = Arc::new(SignerInner::CFDKIM(CFSigner { signer }));
 
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
@@ -255,95 +260,41 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-enum CFKeyData {
-    RsaPemPkcs1(String),
-    RsaDerPkcs1(String),
-    RsaPemPkcs8(String),
-    RsaDerPkcs8(String),
-}
+fn load_dkim_rsa_key(data: &str) -> anyhow::Result<DkimPrivateKey> {
+    let mut errors = vec![];
 
-impl CFKeyData {
-    fn guess_type(data: &str) -> anyhow::Result<Self> {
-        let mut errors = vec![];
+    match RsaPrivateKey::from_pkcs1_pem(data) {
+        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
+        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_pem: {err:#}")),
+    };
 
-        match RsaPrivateKey::from_pkcs1_pem(data) {
-            Ok(_) => return Ok(Self::RsaPemPkcs1(data.to_string())),
-            Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_pem: {err:#}")),
-        };
+    match RsaPrivateKey::from_pkcs1_der(data.as_bytes()) {
+        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
+        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_der: {err:#}")),
+    };
 
-        match RsaPrivateKey::from_pkcs1_der(data.as_bytes()) {
-            Ok(_) => return Ok(Self::RsaDerPkcs1(data.to_string())),
-            Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_der: {err:#}")),
-        };
+    match RsaPrivateKey::from_pkcs8_pem(data) {
+        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
+        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_pem: {err:#}")),
+    };
 
-        match RsaPrivateKey::from_pkcs8_pem(data) {
-            Ok(_) => return Ok(Self::RsaPemPkcs8(data.to_string())),
-            Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_pem: {err:#}")),
-        };
+    match RsaPrivateKey::from_pkcs8_der(data.as_bytes()) {
+        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
+        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_der: {err:#}")),
+    };
 
-        match RsaPrivateKey::from_pkcs8_der(data.as_bytes()) {
-            Ok(_) => return Ok(Self::RsaDerPkcs8(data.to_string())),
-            Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_der: {err:#}")),
-        };
-
-        anyhow::bail!("{}", errors.join(", "));
-    }
-
-    fn to_key(&self) -> anyhow::Result<cfdkim::DkimPrivateKey> {
-        match self {
-            Self::RsaPemPkcs1(data) => Ok(DkimPrivateKey::Rsa(
-                RsaPrivateKey::from_pkcs1_pem(&data).context("RsaPrivateKey::from_pkcs1_pem")?,
-            )),
-            Self::RsaDerPkcs1(data) => Ok(DkimPrivateKey::Rsa(
-                RsaPrivateKey::from_pkcs1_der(data.as_bytes())
-                    .context("RsaPrivateKey::from_pkcs1_der")?,
-            )),
-            Self::RsaPemPkcs8(data) => Ok(DkimPrivateKey::Rsa(
-                RsaPrivateKey::from_pkcs8_pem(&data).context("RsaPrivateKey::from_pkcs8_pem")?,
-            )),
-            Self::RsaDerPkcs8(data) => Ok(DkimPrivateKey::Rsa(
-                RsaPrivateKey::from_pkcs8_der(data.as_bytes())
-                    .context("RsaPrivateKey::from_pkcs8_der")?,
-            )),
-        }
-    }
+    anyhow::bail!("{}", errors.join(", "));
 }
 
 pub struct CFSigner {
-    config: SignerConfig,
-    key_data: CFKeyData,
+    signer: cfdkim::Signer,
 }
 
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
-        let key = self.key_data.to_key()?;
-
-        let headers: Vec<&str> = self.config.headers.iter().map(|s| s.as_str()).collect();
-        let logger = slog::Logger::root(slog::Discard, slog::o!());
-        let mut signer = cfdkim::SignerBuilder::new()
-            .with_signed_headers(&headers)
-            .context("configure signed headers")?
-            .with_private_key(key)
-            .with_selector(&self.config.selector)
-            .with_signing_domain(&self.config.domain)
-            .with_logger(&logger)
-            .with_header_canonicalization(match self.config.header_canonicalization {
-                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
-                Canon::Simple => cfdkim::canonicalization::Type::Simple,
-            })
-            .with_body_canonicalization(match self.config.body_canonicalization {
-                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
-                Canon::Simple => cfdkim::canonicalization::Type::Simple,
-            });
-        if let Some(exp) = self.config.expiration {
-            signer = signer.with_expiry(chrono::Duration::seconds(exp as i64));
-        }
-
-        let signer = signer.build().context("build signer")?;
-
         let mail = mailparse::parse_mail(message).context("parsing message")?;
 
-        let dkim_header = signer.sign(&mail)?;
+        let dkim_header = self.signer.sign(&mail)?;
 
         Ok(dkim_header)
     }

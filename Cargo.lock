@@ -663,9 +663,8 @@ dependencies = [
 
 [[package]]
 name = "cfdkim"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc7acbc63ab6ec8fc2a382b46bfe496621db73585e6e9c2be6233b6400f33267"
+version = "0.3.0"
+source = "git+https://github.com/wez/dkim?branch=nolifetime#d97b403bd88050c2b2987622c93d0c6b2391e980"
 dependencies = [
  "base64 0.21.2",
  "chrono",
