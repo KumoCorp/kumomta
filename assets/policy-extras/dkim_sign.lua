@@ -124,7 +124,7 @@ local function load_dkim_data(dkim_data_files)
   end
 
   for domain, params in pairs(data.domain) do
-    if not base.selector and not domain.selector then
+    if not data.base.selector and not domain.selector then
       error(
         string.format(
           "dkim domain '%s' is missing a selector and no default selector is defined in base",
