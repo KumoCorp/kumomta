@@ -3,7 +3,9 @@ use crate::http_server::AppError;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use axum::extract::Json;
-use kumo_api_types::{BounceV1Request, BounceV1Response};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use kumo_api_types::{BounceV1CancelRequest, BounceV1ListEntry, BounceV1Request, BounceV1Response};
 use message::message::QueueNameComponents;
 use message::Message;
 use std::collections::HashMap;
@@ -46,6 +48,13 @@ impl AdminBounceEntry {
         let now = Instant::now();
         entries.retain(|ent| ent.expires > now);
         entries.clone()
+    }
+
+    pub fn remove_by_id(id: &Uuid) -> bool {
+        let mut entries = ENTRIES.lock().unwrap();
+        let len_before = entries.len();
+        entries.retain(|e| e.id != *id);
+        len_before != entries.len()
     }
 
     pub fn add(entry: Self) {
@@ -190,4 +199,44 @@ pub async fn bounce_v1(
         bounced,
         total_bounced,
     }))
+}
+
+pub async fn bounce_v1_list(
+    _: TrustedIpRequired,
+) -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
+    let now = Instant::now();
+    Ok(Json(
+        AdminBounceEntry::get_all()
+            .into_iter()
+            .filter_map(|entry| {
+                entry
+                    .expires
+                    .checked_duration_since(now)
+                    .map(|duration| BounceV1ListEntry {
+                        id: entry.id,
+                        campaign: entry.campaign,
+                        tenant: entry.tenant,
+                        domain: entry.domain,
+                        reason: entry.reason,
+                        duration,
+                    })
+            })
+            .collect(),
+    ))
+}
+
+pub async fn bounce_v1_delete(
+    _: TrustedIpRequired,
+    Json(request): Json<BounceV1CancelRequest>,
+) -> Response {
+    let removed = AdminBounceEntry::remove_by_id(&request.id);
+    if removed {
+        (StatusCode::OK, format!("removed {}", request.id))
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            format!("bounce entry {} not found", request.id),
+        )
+    }
+    .into_response()
 }

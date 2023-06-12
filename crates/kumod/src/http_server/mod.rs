@@ -3,7 +3,7 @@ use anyhow::Context;
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::{AnyIpCidr, CidrSet};
@@ -87,6 +87,11 @@ impl HttpListenerParams {
             .route("/metrics.json", get(report_metrics_json))
             .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
+            .route("/api/admin/bounce/v1", get(admin_bounce_v1::bounce_v1_list))
+            .route(
+                "/api/admin/bounce/v1",
+                delete(admin_bounce_v1::bounce_v1_delete),
+            )
             .route(
                 "/api/admin/set_diagnostic_log_filter/v1",
                 post(set_diagnostic_log_filter_v1),

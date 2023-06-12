@@ -1,6 +1,6 @@
 use clap::Parser;
 use kumo_api_types::{BounceV1Request, BounceV1Response};
-use reqwest::{RequestBuilder, Url};
+use reqwest::Url;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
@@ -48,7 +48,7 @@ pub struct BounceCommand {
 }
 
 impl BounceCommand {
-    pub async fn run(&self, request: RequestBuilder) -> anyhow::Result<()> {
+    pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
         if self.domain.is_none() && self.campaign.is_none() && self.tenant.is_none() {
             if !self.everything {
                 anyhow::bail!(
@@ -58,25 +58,22 @@ impl BounceCommand {
             }
         }
 
-        let result: BounceV1Response = request
-            .json(&BounceV1Request {
+        let result: BounceV1Response = crate::post(
+            endpoint.join("/api/admin/bounce/v1")?,
+            &BounceV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),
-            })
-            .send()
-            .await?
-            .json()
-            .await?;
+            },
+        )
+        .await?
+        .json()
+        .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 
         Ok(())
-    }
-
-    pub fn url(&self, endpoint: Url) -> anyhow::Result<Url> {
-        Ok(endpoint.join("/api/admin/bounce/v1")?)
     }
 }

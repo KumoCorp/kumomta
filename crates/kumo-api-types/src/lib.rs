@@ -42,3 +42,25 @@ pub struct BounceV1Response {
 pub struct SetDiagnosticFilterRequest {
     pub filter: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BounceV1ListEntry {
+    pub id: Uuid,
+
+    #[serde(default)]
+    pub campaign: Option<String>,
+    #[serde(default)]
+    pub tenant: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+
+    pub reason: String,
+
+    #[serde(with = "humantime_serde")]
+    pub duration: Duration,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BounceV1CancelRequest {
+    pub id: Uuid,
+}

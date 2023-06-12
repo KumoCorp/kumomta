@@ -1,7 +1,9 @@
 use clap::Parser;
-use reqwest::{ClientBuilder, RequestBuilder, Url};
+use reqwest::Url;
 
 mod bounce;
+mod bounce_cancel;
+mod bounce_list;
 mod logfilter;
 
 /// KumoMTA CLI.
@@ -21,23 +23,32 @@ struct Opt {
 #[derive(Debug, Parser)]
 enum SubCommand {
     Bounce(bounce::BounceCommand),
+    BounceList(bounce_list::BounceListCommand),
+    BounceCancel(bounce_cancel::BounceCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
 }
 
 impl SubCommand {
-    async fn run(&self, request: RequestBuilder) -> anyhow::Result<()> {
+    async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
         match self {
-            Self::Bounce(cmd) => cmd.run(request).await,
-            Self::SetLogFilter(cmd) => cmd.run(request).await,
+            Self::Bounce(cmd) => cmd.run(endpoint).await,
+            Self::BounceCancel(cmd) => cmd.run(endpoint).await,
+            Self::BounceList(cmd) => cmd.run(endpoint).await,
+            Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
         }
     }
+}
 
-    fn url(&self, endpoint: Url) -> anyhow::Result<Url> {
-        match self {
-            Self::Bounce(cmd) => cmd.url(endpoint),
-            Self::SetLogFilter(cmd) => cmd.url(endpoint),
-        }
-    }
+pub async fn post<T: reqwest::IntoUrl, B: serde::Serialize>(
+    url: T,
+    body: &B,
+) -> reqwest::Result<reqwest::Response> {
+    reqwest::Client::builder()
+        .build()?
+        .post(url)
+        .json(body)
+        .send()
+        .await
 }
 
 #[tokio::main]
@@ -45,9 +56,5 @@ async fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
     let url = Url::parse(&opts.endpoint)?;
-    let url = opts.cmd.url(url)?;
-
-    let client = ClientBuilder::new().build()?.post(url);
-
-    opts.cmd.run(client).await
+    opts.cmd.run(&url).await
 }

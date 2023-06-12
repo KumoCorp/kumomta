@@ -1,6 +1,6 @@
 use clap::Parser;
 use kumo_api_types::SetDiagnosticFilterRequest;
-use reqwest::{RequestBuilder, Url};
+use reqwest::Url;
 
 #[derive(Debug, Parser)]
 /// Changes the diagnostic log filter
@@ -12,13 +12,14 @@ pub struct SetLogFilterCommand {
 }
 
 impl SetLogFilterCommand {
-    pub async fn run(&self, request: RequestBuilder) -> anyhow::Result<()> {
-        let response = request
-            .json(&SetDiagnosticFilterRequest {
+    pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
+        let response = crate::post(
+            endpoint.join("/api/admin/set_diagnostic_log_filter/v1")?,
+            &SetDiagnosticFilterRequest {
                 filter: self.filter.clone(),
-            })
-            .send()
-            .await?;
+            },
+        )
+        .await?;
 
         let status = response.status();
 
@@ -35,9 +36,5 @@ impl SetLogFilterCommand {
         }
 
         Ok(())
-    }
-
-    pub fn url(&self, endpoint: Url) -> anyhow::Result<Url> {
-        Ok(endpoint.join("/api/admin/set_diagnostic_log_filter/v1")?)
     }
 }
