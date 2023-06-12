@@ -106,7 +106,7 @@ function mod:setup(extra_files)
 
     local conflicted = {}
     for site, domains in pairs(site_to_domains) do
-      domains = table_keys(domains)
+      domains = utils.table_keys(domains)
       if #domains > 1 then
         domains = table.concat(domains, ', ')
         table.insert(conflicted, domains)
