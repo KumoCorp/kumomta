@@ -13,8 +13,8 @@ use mail_builder::headers::HeaderType;
 use mail_builder::mime::MimePart;
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
-use ouroboros::self_referencing;
 use rfc5321::Response;
+use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spool::SpoolId;
@@ -97,12 +97,18 @@ pub struct Attachment {
     base64: bool,
 }
 
-#[self_referencing]
+type TemplateList<'a> = Vec<Template<'a>>;
+
+self_cell!(
+    struct CompiledTemplates<'a> {
+        owner: Environment<'a>,
+        #[covariant]
+        dependent: TemplateList,
+    }
+);
+
 struct Compiled<'a> {
-    env: Environment<'a>,
-    #[borrows(env)]
-    #[covariant]
-    templates: Vec<Template<'this>>,
+    env_and_templates: CompiledTemplates<'a>,
     inline: Vec<MimePart<'a>>,
     attached: Vec<MimePart<'a>>,
 }
@@ -135,7 +141,7 @@ impl<'a> Compiled<'a> {
 
         let mut id = 0;
         match content {
-            Content::Rfc822(_) => Ok(self.borrow_templates()[id].render(&subst)?),
+            Content::Rfc822(_) => Ok(self.env_and_templates.borrow_dependent()[id].render(&subst)?),
             Content::Builder {
                 text_body,
                 html_body,
@@ -151,14 +157,14 @@ impl<'a> Compiled<'a> {
 
                 if text_body.is_some() {
                     text.replace(MimePart::new_text(
-                        self.borrow_templates()[id].render(&subst)?,
+                        self.env_and_templates.borrow_dependent()[id].render(&subst)?,
                     ));
                     id += 1;
                 }
 
                 if html_body.is_some() {
                     html.replace(MimePart::new_html(
-                        self.borrow_templates()[id].render(&subst)?,
+                        self.env_and_templates.borrow_dependent()[id].render(&subst)?,
                     ));
                     id += 1;
                 }
@@ -184,16 +190,13 @@ impl<'a> Compiled<'a> {
                 }
 
                 for (name, _value) in headers {
-                    let expanded = self.borrow_templates()[id].render(&subst)?;
+                    let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
                     builder = builder.header(
                         name.to_string(),
                         HeaderType::Text(Text::new(expanded.to_string())),
                     );
                 }
-
-                let attached = self.borrow_attached();
-                let inline = self.borrow_inline();
 
                 let content_node = match (text, html) {
                     (Some(t), Some(h)) => {
@@ -204,19 +207,19 @@ impl<'a> Compiled<'a> {
                     (None, None) => anyhow::bail!("refusing to send an empty message"),
                 };
 
-                let content_node = if !inline.is_empty() {
-                    let mut parts = Vec::with_capacity(inline.len() + 1);
+                let content_node = if !self.inline.is_empty() {
+                    let mut parts = Vec::with_capacity(self.inline.len() + 1);
                     parts.push(content_node);
-                    parts.extend(inline.iter().cloned());
+                    parts.extend(self.inline.iter().cloned());
                     MimePart::new_multipart("multipart/related", parts)
                 } else {
                     content_node
                 };
 
-                let root = if !attached.is_empty() {
-                    let mut parts = Vec::with_capacity(attached.len() + 1);
+                let root = if !self.attached.is_empty() {
+                    let mut parts = Vec::with_capacity(self.attached.len() + 1);
                     parts.push(content_node);
-                    parts.extend(attached.iter().cloned());
+                    parts.extend(self.attached.iter().cloned());
 
                     MimePart::new_multipart("multipart/mixed", parts)
                 } else {
@@ -301,7 +304,7 @@ impl InjectV1Request {
         fn get_templates<'b>(
             env: &'b Environment,
             content: &Content,
-        ) -> anyhow::Result<Vec<Template<'b>>> {
+        ) -> anyhow::Result<TemplateList<'b>> {
             let mut id = 0;
             let mut templates = vec![];
             match content {
@@ -338,13 +341,14 @@ impl InjectV1Request {
 
         let (inline, attached) = self.attachment_data()?;
 
-        Ok(CompiledTryBuilder {
-            env,
+        let env_and_templates =
+            CompiledTemplates::try_new(env, |env: &Environment| get_templates(env, &self.content))?;
+
+        Ok(Compiled {
+            env_and_templates,
             inline,
             attached,
-            templates_builder: |env: &Environment| get_templates(env, &self.content),
-        }
-        .try_build()?)
+        })
     }
 
     fn attachment_data(&self) -> anyhow::Result<(Vec<MimePart>, Vec<MimePart>)> {

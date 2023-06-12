@@ -54,7 +54,6 @@ mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
 nix = {version="0.26", features=["resource"]}
 once_cell = "1.17"
-ouroboros = "0.15"
 ppp = "2.2"
 prometheus = "0.13"
 rand = "0.8"
@@ -64,6 +63,7 @@ rustls = "0.20"
 rustls-pemfile = "1.0"
 serde = {version="1.0", features=["derive"]}
 humantime-serde = "1.1"
+self_cell = "1.0"
 serde_json = "1.0"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 spool = {path="../spool"}
