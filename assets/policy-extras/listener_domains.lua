@@ -34,7 +34,7 @@ local function load_data_from_file(file_name, target)
         target[listener] = {}
       end
       if not target[listener][domain] then
-        target[listener][domain] = kumo.domain_map.new()
+        target[listener][domain] = {}
       end
 
       for k, v in pairs(params) do
@@ -130,6 +130,7 @@ function mod:setup(data_files)
 
     local listener_map = by_listener[listener]
     if listener_map then
+      listener_map = kumo.domain_map.new(listener_map)
       local listener_domain = listener_map[domain_name]
       if listener_domain then
         return kumo.make_listener_domain(listener_domain)
