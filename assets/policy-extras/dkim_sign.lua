@@ -195,44 +195,48 @@ local function do_dkim_sign(msg, data)
     signed_domain = true
   end
 
-  for _, signame in ipairs(base.additional_signatures) do
-    local sig_config = data.signature[signame]
+  if base.additional_signatures then
+    for _, signame in ipairs(base.additional_signatures) do
+      local sig_config = data.signature[signame]
 
-    local need_sign = true
-    if sig_config.policy == 'OnlyIfMissingDomainBlock' and signed_domain then
-      -- Ideally we'd simply "continue" here, but lua doesn't have continue!
-      need_sign = false
-    end
-
-    if need_sign then
-      local params = {
-        domain = sig_config.domain,
-        selector = sig_config.selector or data.base.selector,
-        headers = sig_config.headers or base.headers,
-      }
-
-      if base.vault_mount then
-        params.key = {
-          vault_mount = base.vault_mount,
-          vault_path = sig_config.filename or string.format(
-            '%s/%s/%s.key',
-            base.vault_path_prefix or 'dkim',
-            params.domain,
-            params.selector
-          ),
-        }
-      else
-        params.key = sig_config.filename
-          or string.format(
-            '%s/%s/%s.key',
-            DKIM_PATH,
-            params.domain,
-            params.selector
-          )
+      local need_sign = true
+      if
+        sig_config.policy == 'OnlyIfMissingDomainBlock' and signed_domain
+      then
+        -- Ideally we'd simply "continue" here, but lua doesn't have continue!
+        need_sign = false
       end
 
-      local signer = make_signer(params, sig_config.algo)
-      msg:dkim_sign(signer)
+      if need_sign then
+        local params = {
+          domain = sig_config.domain,
+          selector = sig_config.selector or data.base.selector,
+          headers = sig_config.headers or base.headers,
+        }
+
+        if base.vault_mount then
+          params.key = {
+            vault_mount = base.vault_mount,
+            vault_path = sig_config.filename or string.format(
+              '%s/%s/%s.key',
+              base.vault_path_prefix or 'dkim',
+              params.domain,
+              params.selector
+            ),
+          }
+        else
+          params.key = sig_config.filename
+            or string.format(
+              '%s/%s/%s.key',
+              DKIM_PATH,
+              params.domain,
+              params.selector
+            )
+        end
+
+        local signer = make_signer(params, sig_config.algo)
+        msg:dkim_sign(signer)
+      end
     end
   end
 end
