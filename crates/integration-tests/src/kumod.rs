@@ -334,7 +334,10 @@ impl KumoDaemon {
     }
 
     pub fn listener(&self, service: &str) -> SocketAddr {
-        self.listeners.get(service).copied().unwrap()
+        match self.listeners.get(service) {
+            Some(addr) => *addr,
+            None => panic!("listener service {service} is not defined. Did it fail to start?"),
+        }
     }
 
     pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
