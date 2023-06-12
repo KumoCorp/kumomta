@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BounceV1Request {
@@ -32,6 +33,7 @@ fn default_duration() -> Duration {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BounceV1Response {
+    pub id: Uuid,
     pub bounced: HashMap<String, usize>,
     pub total_bounced: usize,
 }

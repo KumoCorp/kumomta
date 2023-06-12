@@ -2106,6 +2106,7 @@ version = "0.1.0"
 dependencies = [
  "humantime-serde",
  "serde",
+ "uuid",
 ]
 
 [[package]]
@@ -2200,6 +2201,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
  "version-info",
  "webpki-roots",
  "zstd 0.12.3+zstd.1.5.2",
@@ -5073,6 +5075,8 @@ checksum = "345444e32442451b267fc254ae85a209c64be56d2890e601a0c37ff0c3c5ecd2"
 dependencies = [
  "atomic",
  "getrandom 0.2.10",
+ "rand 0.8.5",
+ "serde",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ use message::Message;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use uuid::Uuid;
 
 lazy_static::lazy_static! {
     static ref ENTRIES: Mutex<Vec<AdminBounceEntry>> = Mutex::new(vec![]);
@@ -16,6 +17,7 @@ lazy_static::lazy_static! {
 
 #[derive(Clone, Debug)]
 pub struct AdminBounceEntry {
+    pub id: Uuid,
     pub campaign: Option<String>,
     pub tenant: Option<String>,
     pub domain: Option<String>,
@@ -161,6 +163,7 @@ pub async fn bounce_v1(
 ) -> Result<Json<BounceV1Response>, AppError> {
     let duration = request.duration();
     let entry = AdminBounceEntry {
+        id: Uuid::new_v4(),
         campaign: request.campaign,
         tenant: request.tenant,
         domain: request.domain,
@@ -183,6 +186,7 @@ pub async fn bounce_v1(
     let total_bounced = bounced.values().sum();
 
     Ok(Json(BounceV1Response {
+        id: entry.id,
         bounced,
         total_bounced,
     }))
