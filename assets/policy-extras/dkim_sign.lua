@@ -134,9 +134,6 @@ local function load_dkim_data(dkim_data_files)
     end
   end
 
-  -- Compile the domain map for pattern matching
-  data.domain = kumo.domain_map.new(data.domain)
-
   return data
 end
 
@@ -248,7 +245,10 @@ function mod:setup(dkim_data_files)
   })
 
   local sign_message = function(msg)
-    do_dkim_sign(msg, cached_load_data(dkim_data_files))
+    local data = cached_load_data(dkim_data_files)
+    -- Compile the domain map for pattern matching
+    data.domain = kumo.domain_map.new(data.domain)
+    do_dkim_sign(msg, data)
   end
 
   return sign_message
