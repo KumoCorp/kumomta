@@ -2,6 +2,7 @@ use crate::delivery_metrics::DeliveryMetrics;
 use crate::egress_path::EgressPathConfig;
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
+use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
@@ -45,6 +46,29 @@ impl ReadyQueueManager {
 
     pub async fn get() -> MutexGuard<'static, Self> {
         MANAGER.lock().await
+    }
+
+    pub async fn compute_queue_name(
+        queue_name: &str,
+        queue_config: &QueueConfig,
+        egress_source: &str,
+    ) -> anyhow::Result<String> {
+        let components = QueueNameComponents::parse(queue_name);
+
+        let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
+
+        let mx = if needs_mx {
+            Some(MailExchanger::resolve(components.domain).await?)
+        } else {
+            None
+        };
+
+        let site_name = mx
+            .as_ref()
+            .map(|mx| mx.site_name.to_string())
+            .unwrap_or_else(|| components.domain.to_string());
+        let name = format!("{egress_source}->{site_name}");
+        Ok(name)
     }
 
     pub async fn resolve_by_queue_name(
@@ -215,6 +239,8 @@ impl ReadyQueue {
 
     pub fn ideal_connection_count(&self) -> usize {
         if self.activity.is_shutting_down() {
+            0
+        } else if AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some() {
             0
         } else {
             let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
@@ -519,6 +545,17 @@ impl Dispatcher {
         &mut self,
         queue_dispatcher: &mut dyn QueueDispatcher,
     ) -> anyhow::Result<()> {
+        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+            // Do nothing here; wait_for_message will delay the ready queue,
+            // and the regular cleanup will requeue self.msg
+            tracing::trace!(
+                "{} is suspended until {:?}",
+                self.name,
+                suspend.get_duration()
+            );
+            return Ok(());
+        }
+
         // Process throttling before we acquire the Activity
         // guard, so that a delay due to throttling doesn't result
         // in a delay of shutdown
@@ -591,6 +628,51 @@ impl Dispatcher {
         let queue = QueueManager::resolve(&queue_name).await?;
         let mut queue = queue.lock().await;
         queue.requeue_message(msg, increment_attempts, delay).await
+    }
+
+    #[instrument(skip(msg))]
+    pub async fn reinsert_message(msg: Message) -> anyhow::Result<()> {
+        if !msg.is_meta_loaded() {
+            msg.load_meta().await?;
+        }
+        let queue_name = msg.get_queue_name()?;
+        let queue = QueueManager::resolve(&queue_name).await?;
+        let mut queue = queue.lock().await;
+        queue.insert(msg).await
+    }
+
+    /// Take the contents of the ready queue and reinsert them into
+    /// the corresponding scheduled queue(s) for immediate reconsideration.
+    /// This should cause the message(s) to be picked up by non-suspended
+    /// paths to be delivered without additional delay.
+    /// The insertion logic will take care of logging a transient failure
+    /// if it transpires that no sources are enabled for the message.
+    pub async fn reinsert_ready_queue(&mut self) {
+        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
+        self.metrics.ready_count.set(0);
+        if let Some(msg) = self.msg.take() {
+            msgs.push(msg);
+        }
+        if !msgs.is_empty() {
+            tracing::debug!(
+                "suspend: reinserting ready queue {} - {} messages",
+                self.name,
+                msgs.len()
+            );
+            let activity = self.activity.clone();
+            rt_spawn("reinserting".to_string(), move || {
+                Ok(async move {
+                    for msg in msgs {
+                        if let Err(err) = Self::reinsert_message(msg).await {
+                            tracing::error!("error reinserting message: {err:#}");
+                        }
+                    }
+                    drop(activity);
+                })
+            })
+            .await
+            .expect("failed to spawn reinsertion");
+        }
     }
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
@@ -755,6 +837,17 @@ impl Dispatcher {
                     return Ok(false);
                 }
             }
+        }
+
+        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+            let duration = suspend.get_duration();
+            tracing::trace!(
+                "{} is suspended until {duration:?}, throttling ready queue",
+                self.name,
+            );
+            self.reinsert_ready_queue().await;
+            // Close the connection and stop trying to deliver
+            return Ok(false);
         }
 
         if self.obtain_message().await {

@@ -67,3 +67,82 @@ pub struct BounceV1ListEntry {
 pub struct BounceV1CancelRequest {
     pub id: Uuid,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendV1Request {
+    #[serde(default)]
+    pub campaign: Option<String>,
+    #[serde(default)]
+    pub tenant: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+
+    pub reason: String,
+    #[serde(
+        default,
+        with = "humantime_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration: Option<Duration>,
+}
+
+impl SuspendV1Request {
+    pub fn duration(&self) -> Duration {
+        self.duration.unwrap_or_else(default_duration)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendV1Response {
+    pub id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendV1CancelRequest {
+    pub id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendV1ListEntry {
+    pub id: Uuid,
+
+    #[serde(default)]
+    pub campaign: Option<String>,
+    #[serde(default)]
+    pub tenant: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+
+    pub reason: String,
+
+    #[serde(with = "humantime_serde")]
+    pub duration: Duration,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendReadyQueueV1Request {
+    pub name: String,
+    pub reason: String,
+    #[serde(
+        default,
+        with = "humantime_serde",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration: Option<Duration>,
+}
+
+impl SuspendReadyQueueV1Request {
+    pub fn duration(&self) -> Duration {
+        self.duration.unwrap_or_else(default_duration)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SuspendReadyQueueV1ListEntry {
+    pub id: Uuid,
+    pub name: String,
+    pub reason: String,
+
+    #[serde(with = "humantime_serde")]
+    pub duration: Duration,
+}

@@ -1,3 +1,6 @@
+use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
+use crate::queue::QueueConfig;
+use crate::ready_queue::ReadyQueueManager;
 use anyhow::Context;
 use config::LuaConfig;
 use gcd::Gcd;
@@ -7,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
+use std::cell::RefCell;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -271,59 +275,117 @@ impl EgressPool {
 pub struct EgressPoolRoundRobin {
     pub name: String,
     entries: Vec<EgressPoolEntry>,
-    max_weight: u32,
-    gcd: u32,
 
-    current_index: usize,
-    current_weight: u32,
+    current_index: RefCell<usize>,
+    current_weight: RefCell<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub enum RoundRobinResult {
+    /// Use the source with this name
+    Source(String),
+    /// All pathways are suspended. The smallest time until one
+    /// of them is enabled is this delay
+    Delay(chrono::Duration),
+    /// No sources are configured, or all sources have zero weight
+    NoSources,
 }
 
 impl EgressPoolRoundRobin {
     pub fn new(pool: &EgressPool) -> Self {
         let mut entries = vec![];
-        let mut max_weight = 0;
-        let mut gcd = 0;
 
         for entry in &pool.entries {
             if entry.weight == 0 {
                 continue;
             }
-            max_weight = max_weight.max(entry.weight);
-            gcd = gcd.gcd(entry.weight);
             entries.push(entry.clone());
         }
 
         Self {
             name: pool.name.to_string(),
             entries,
-            max_weight,
-            gcd,
-            current_index: 0,
-            current_weight: 0,
+            current_index: RefCell::new(0),
+            current_weight: RefCell::new(0),
         }
     }
 
-    pub fn next(&mut self) -> Option<String> {
-        if self.entries.is_empty() || self.max_weight == 0 {
+    #[cfg(test)]
+    fn next_ignoring_suspend(&self) -> Option<String> {
+        self.next_impl(&self.entries)
+    }
+
+    fn next_impl(&self, entries: &[EgressPoolEntry]) -> Option<String> {
+        if entries.is_empty() {
             return None;
         }
-        if self.entries.len() == 1 {
-            return self.entries.get(0).map(|entry| entry.name.to_string());
+
+        if entries.len() == 1 {
+            return entries.get(0).map(|entry| entry.name.to_string());
         }
+
+        let mut max_weight = 0;
+        let mut gcd = 0;
+        for entry in entries {
+            max_weight = max_weight.max(entry.weight);
+            gcd = gcd.gcd(entry.weight);
+        }
+
+        if max_weight == 0 {
+            return None;
+        }
+
+        let mut current_index = self.current_index.borrow_mut();
+        let mut current_weight = self.current_weight.borrow_mut();
+
         loop {
-            self.current_index = (self.current_index + 1) % self.entries.len();
-            if self.current_index == 0 {
-                self.current_weight = self.current_weight.saturating_sub(self.gcd);
-                if self.current_weight == 0 {
-                    self.current_weight = self.max_weight;
+            *current_index = (*current_index + 1) % entries.len();
+            if *current_index == 0 {
+                *current_weight = current_weight.saturating_sub(gcd);
+                if *current_weight == 0 {
+                    *current_weight = max_weight;
                 }
             }
 
-            if let Some(entry) = self.entries.get(self.current_index) {
-                if entry.weight >= self.current_weight {
+            if let Some(entry) = entries.get(*current_index) {
+                if entry.weight >= *current_weight {
                     return Some(entry.name.to_string());
                 }
             }
+        }
+    }
+
+    pub async fn next(&self, queue_name: &str, queue_config: &QueueConfig) -> RoundRobinResult {
+        if self.entries.is_empty() {
+            return RoundRobinResult::NoSources;
+        }
+
+        let mut entries = vec![];
+        let mut min_delay = None;
+
+        // filter to non-suspended pathways
+        for entry in &self.entries {
+            if let Ok(path_name) =
+                ReadyQueueManager::compute_queue_name(queue_name, queue_config, &entry.name).await
+            {
+                match AdminSuspendReadyQEntry::get_for_queue_name(&path_name) {
+                    Some(suspend) => {
+                        let duration = suspend.get_duration_chrono();
+                        min_delay.replace(min_delay.unwrap_or(duration).min(duration));
+                    }
+                    None => {
+                        entries.push(entry.clone());
+                    }
+                }
+            }
+        }
+
+        match self.next_impl(&entries) {
+            Some(name) => RoundRobinResult::Source(name),
+            None => match min_delay {
+                Some(duration) => RoundRobinResult::Delay(duration),
+                None => RoundRobinResult::NoSources,
+            },
         }
     }
 }
@@ -354,11 +416,11 @@ mod test {
             ttl: default_ttl(),
         };
 
-        let mut rr = EgressPoolRoundRobin::new(&pool);
+        let rr = EgressPoolRoundRobin::new(&pool);
         let mut counts = HashMap::new();
 
         for _ in 0..100 {
-            let name = rr.next().unwrap();
+            let name = rr.next_ignoring_suspend().unwrap();
             *counts.entry(name).or_insert(0) += 1;
         }
 

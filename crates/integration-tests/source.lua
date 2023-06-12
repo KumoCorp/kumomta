@@ -11,6 +11,10 @@ kumo.on('init', function()
     relay_hosts = { '0.0.0.0/0' },
   }
 
+  kumo.start_http_listener {
+    listen = '127.0.0.1:0',
+  }
+
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
@@ -70,7 +74,7 @@ end
 
 kumo.on('smtp_server_message_received', function(msg)
   -- Redirect traffic to the sink
-  msg:set_meta('queue', 'localhost.')
+  msg:set_meta('queue', 'localhost')
 end)
 
 kumo.on('get_queue_config', function(domain, _tenant, _campaign)

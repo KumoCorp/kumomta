@@ -6,6 +6,12 @@ mod bounce;
 mod bounce_cancel;
 mod bounce_list;
 mod logfilter;
+mod suspend;
+mod suspend_cancel;
+mod suspend_list;
+mod suspend_ready_q;
+mod suspend_ready_q_cancel;
+mod suspend_ready_q_list;
 
 /// KumoMTA CLI.
 ///
@@ -26,6 +32,12 @@ enum SubCommand {
     Bounce(bounce::BounceCommand),
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
+    Suspend(suspend::SuspendCommand),
+    SuspendList(suspend_list::SuspendListCommand),
+    SuspendCancel(suspend_cancel::SuspendCancelCommand),
+    SuspendReadyQ(suspend_ready_q::SuspendReadyQCommand),
+    SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
+    SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
 }
 
@@ -35,6 +47,12 @@ impl SubCommand {
             Self::Bounce(cmd) => cmd.run(endpoint).await,
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
+            Self::Suspend(cmd) => cmd.run(endpoint).await,
+            Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
+            Self::SuspendList(cmd) => cmd.run(endpoint).await,
+            Self::SuspendReadyQ(cmd) => cmd.run(endpoint).await,
+            Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
+            Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
         }
     }

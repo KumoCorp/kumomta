@@ -1,12 +1,13 @@
-use crate::egress_source::{EgressPool, EgressPoolRoundRobin};
+use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
+use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
 use crate::ready_queue::ReadyQueueManager;
 use crate::runtime::{rt_spawn, spawn, spawn_blocking};
 use crate::spool::SpoolManager;
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use chrono::Utc;
 use config::load_config;
 use message::message::QueueNameComponents;
@@ -539,10 +540,65 @@ impl Queue {
         tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
             DeliveryProto::Smtp | DeliveryProto::Lua { .. } => {
-                let egress_source = self
-                    .rr
-                    .next()
-                    .ok_or_else(|| anyhow!("no sources in pool"))?;
+                let egress_source = match self.rr.next(&self.name, &self.queue_config).await {
+                    RoundRobinResult::Source(source) => source,
+                    RoundRobinResult::Delay(duration) => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 451,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!(
+                                    "all possible sources for {} are suspended",
+                                    self.name
+                                ),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                        })
+                        .await;
+                        msg.delay_by_and_jitter(duration).await?;
+                        return self.force_into_delayed(msg).await;
+                    }
+                    RoundRobinResult::NoSources => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 451,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!(
+                                    "no non-zero-weighted sources available for {}",
+                                    self.name
+                                ),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                        })
+                        .await;
+                        return self.force_into_delayed(msg).await;
+                    }
+                };
+
                 match ReadyQueueManager::resolve_by_queue_name(
                     &self.name,
                     &self.queue_config,
@@ -657,42 +713,53 @@ impl Queue {
 
     #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
-        self.last_change = Instant::now();
+        loop {
+            self.last_change = Instant::now();
 
-        tracing::trace!("insert msg {}", msg.id());
-        if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
-            let id = *msg.id();
-            b.log(msg, Some(&self.name)).await;
-            SpoolManager::remove_from_spool(id).await?;
-            return Ok(());
-        }
+            tracing::trace!("insert msg {}", msg.id());
+            if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
+                let id = *msg.id();
+                b.log(msg, Some(&self.name)).await;
+                SpoolManager::remove_from_spool(id).await?;
+                return Ok(());
+            }
 
-        if self.activity.is_shutting_down() {
-            Self::save_if_needed_and_log(&msg).await;
-            drop(msg);
-            return Ok(());
-        }
+            if self.activity.is_shutting_down() {
+                Self::save_if_needed_and_log(&msg).await;
+                drop(msg);
+                return Ok(());
+            }
 
-        match self.insert_delayed(msg.clone()).await? {
-            InsertResult::Delayed => Ok(()),
-            InsertResult::Ready(msg) => {
-                if let Err(err) = self.insert_ready(msg.clone()).await {
-                    tracing::debug!("insert_ready: {err:#}");
-
-                    if err.downcast_ref::<ReadyQueueFull>().is_none() {
-                        // It was a legit error while trying to do something useful
-                        match self.increment_attempts_and_update_delay(msg).await? {
-                            Some(msg) => {
-                                self.force_into_delayed(msg).await?;
-                            }
-                            None => {}
-                        }
-                    } else {
-                        // Queue is full; try again shortly
-                        self.force_into_delayed(msg).await?;
+            match self.insert_delayed(msg.clone()).await? {
+                InsertResult::Delayed => return Ok(()),
+                InsertResult::Ready(msg) => {
+                    // Don't promote to ready queue while suspended
+                    if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
+                        let remaining = suspend.get_duration();
+                        msg.delay_by_and_jitter(remaining).await?;
+                        // Continue and attempt to insert_delayed with
+                        // the adjusted time
+                        continue;
                     }
+
+                    if let Err(err) = self.insert_ready(msg.clone()).await {
+                        tracing::debug!("insert_ready: {err:#}");
+
+                        if err.downcast_ref::<ReadyQueueFull>().is_none() {
+                            // It was a legit error while trying to do something useful
+                            match self.increment_attempts_and_update_delay(msg).await? {
+                                Some(msg) => {
+                                    self.force_into_delayed(msg).await?;
+                                }
+                                None => {}
+                            }
+                        } else {
+                            // Queue is full; try again shortly
+                            self.force_into_delayed(msg).await?;
+                        }
+                    }
+                    return Ok(());
                 }
-                Ok(())
             }
         }
     }

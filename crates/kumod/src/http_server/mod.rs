@@ -16,6 +16,8 @@ use std::sync::Arc;
 pub mod auth;
 
 pub mod admin_bounce_v1;
+pub mod admin_suspend_ready_q_v1;
+pub mod admin_suspend_v1;
 pub mod inject_v1;
 
 use auth::*;
@@ -92,6 +94,21 @@ impl HttpListenerParams {
             .route(
                 "/api/admin/bounce/v1",
                 delete(admin_bounce_v1::bounce_v1_delete),
+            )
+            .route("/api/admin/suspend/v1", post(admin_suspend_v1::suspend))
+            .route("/api/admin/suspend/v1", get(admin_suspend_v1::list))
+            .route("/api/admin/suspend/v1", delete(admin_suspend_v1::delete))
+            .route(
+                "/api/admin/suspend-ready-q/v1",
+                post(admin_suspend_ready_q_v1::suspend),
+            )
+            .route(
+                "/api/admin/suspend-ready-q/v1",
+                get(admin_suspend_ready_q_v1::list),
+            )
+            .route(
+                "/api/admin/suspend-ready-q/v1",
+                delete(admin_suspend_ready_q_v1::delete),
             )
             .route(
                 "/api/admin/set_diagnostic_log_filter/v1",

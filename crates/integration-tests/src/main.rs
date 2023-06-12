@@ -11,7 +11,8 @@ fn main() {
 mod test {
     use super::kumod::*;
     use k9::assert_equal;
-    use kumo_log_types::RecordType::{Bounce, TransientFailure};
+    use kumo_api_types::SuspendV1Response;
+    use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
     use mailparse::MailHeaderMap;
     use rfc5321::*;
     use std::time::Duration;
@@ -48,6 +49,280 @@ DeliverySummary {
         TransientFailure: 1,
     },
     sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn suspend_delivery_ready_q() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let status: SuspendV1Response = daemon
+            .kcli_json([
+                "suspend-ready-q",
+                "--name",
+                "unspecified->localhost",
+                "--reason",
+                "testing",
+            ])
+            .await?;
+        println!("kcli status: {status:?}");
+
+        let response = MailGenParams {
+            recip: Some("allow@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        // Allow a little bit of time for a delivery to go through
+        // if for some reason suspension is broken
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn suspend_delivery_ready_q_and_deliver() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let status: SuspendV1Response = daemon
+            .kcli_json([
+                "suspend-ready-q",
+                "--name",
+                "unspecified->localhost",
+                "--reason",
+                "testing",
+            ])
+            .await?;
+        println!("kcli status: {status:?}");
+
+        let response = MailGenParams {
+            recip: Some("allow@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        // Allow a little bit of time for a delivery to go through
+        // if for some reason suspension is broken
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .kcli(["suspend-ready-q-cancel", "--id", &format!("{}", status.id)])
+            .await?;
+
+        // The suspension can add up to 1 minute of jittered delay
+        // to the original message. To verify that the suspension
+        // has been lifted, we inject a second message.
+        let response = MailGenParams {
+            recip: Some("allow2@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) == 1,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 2,
+        Delivery: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn suspend_delivery_scheduled_q() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let status: SuspendV1Response = daemon
+            .kcli_json(["suspend", "--domain", "localhost", "--reason", "testing"])
+            .await?;
+        println!("kcli status: {status:?}");
+
+        let response = MailGenParams {
+            recip: Some("allow@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        // Allow a little bit of time for a delivery to go through
+        // if for some reason suspension is broken
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn suspend_delivery_scheduled_q_and_deliver() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut client = daemon.smtp_client().await?;
+
+        let status: SuspendV1Response = daemon
+            .kcli_json(["suspend", "--domain", "localhost", "--reason", "testing"])
+            .await?;
+        println!("kcli status: {status:?}");
+
+        let response = MailGenParams {
+            recip: Some("allow@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        // Allow a little bit of time for a delivery to go through
+        // if for some reason suspension is broken
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon
+            .kcli(["suspend-cancel", "--id", &format!("{}", status.id)])
+            .await?;
+
+        // The suspension can add up to 1 minute of jittered delay
+        // to the original message. To verify that the suspension
+        // has been lifted, we inject a second message.
+        // That second message should get delivered, while the first
+        // remains in the queue
+        let response = MailGenParams {
+            recip: Some("allow2@example.com"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        eprintln!("{response:?}");
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&Delivery).copied().unwrap_or(0) == 1,
+                Duration::from_secs(5),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        let delivery_summary = daemon.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 2,
+        Delivery: 1,
+    },
+    sink_counts: {
+        Reception: 1,
+        Delivery: 1,
+    },
 }
 "
         );

@@ -138,6 +138,54 @@ impl DaemonWithMaildir {
         self.source.smtp_client().await
     }
 
+    pub async fn kcli(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<std::process::ExitStatus> {
+        let path = if cfg!(debug_assertions) {
+            "../../target/debug/kcli"
+        } else {
+            "../../target/release/kcli"
+        };
+        let mut cmd = Command::new(path);
+        cmd.args([
+            "--endpoint",
+            &format!("http://{}", self.source.listener("http")),
+        ]);
+        cmd.args(args);
+        let label = format!("{cmd:?}");
+        let status = cmd.status().await?;
+        anyhow::ensure!(status.success(), "{label}: {status:?}");
+        Ok(status)
+    }
+
+    pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
+        &self,
+        args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    ) -> anyhow::Result<R> {
+        let path = if cfg!(debug_assertions) {
+            "../../target/debug/kcli"
+        } else {
+            "../../target/release/kcli"
+        };
+        let mut cmd = Command::new(path);
+        cmd.args([
+            "--endpoint",
+            &format!("http://{}", self.source.listener("http")),
+        ]);
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        let label = format!("{cmd:?}");
+        let child = cmd.spawn()?;
+        let output = child.wait_with_output().await?;
+        anyhow::ensure!(output.status.success(), "{label}: {:?}", output.status);
+        println!(
+            "kcli output is: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        Ok(serde_json::from_slice(&output.stdout)?)
+    }
+
     pub fn extract_maildir_messages(&self) -> anyhow::Result<Vec<MailEntry>> {
         let mut messages = vec![];
         let md = self.sink.maildir();

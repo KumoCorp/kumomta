@@ -186,6 +186,14 @@ impl Message {
         self.set_due(Some(due)).await
     }
 
+    /// Delay by requested duration, and add up to 1 minute of jitter
+    pub async fn delay_by_and_jitter(&self, duration: chrono::Duration) -> anyhow::Result<()> {
+        let scale = rand::random::<f32>();
+        let value = (scale * 60.) as i64;
+        let due = Utc::now() + duration + chrono::Duration::seconds(value);
+        self.set_due(Some(due)).await
+    }
+
     pub async fn set_due(&self, due: Option<DateTime<Utc>>) -> anyhow::Result<()> {
         let due = {
             let mut inner = self.inner.lock().unwrap();
