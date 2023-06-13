@@ -406,6 +406,7 @@ async fn process_recipient<'a>(
 
     message.set_meta("http_auth", auth.summarize())?;
     message.set_meta("reception_protocol", "HTTP")?;
+    message.set_meta("received_from", peer_address.to_string())?;
 
     // call callback to assign to queue
     config

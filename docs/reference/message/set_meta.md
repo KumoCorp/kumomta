@@ -31,3 +31,8 @@ The following meta values have meaning to KumoMTA:
 * `"queue"` - specify the name of the queue to which the message will be queued. Must be a string value.
 * `"tenant"` - specify the name/identifier of the tenant, if any. Must be a string value.
 * `"campaign"` - specify the name/identifier of the campaign. Must be a string value.
+* `"authz_id"` - the authorization id if the message was received via authenticated SMTP
+* `"authn_id"` - the authentication id if the message was received via authenticated SMTP
+* `"reception_protocol"` - `"ESMTP"` or `"HTTP"`
+* `"received_via"` - the address:port of the local machine which received the message. Currently only set for SMTP receptions.
+* `"received_from"` - the address:port of the peer address from which we received the message

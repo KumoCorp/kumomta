@@ -1099,6 +1099,8 @@ impl SmtpServer {
                         }
 
                         message.set_meta("reception_protocol", protocol)?;
+                        message.set_meta("received_via", self.my_address.to_string())?;
+                        message.set_meta("received_from", self.peer_address.to_string())?;
 
                         if let Err(rej) = self
                             .call_callback::<(), _, _>(
