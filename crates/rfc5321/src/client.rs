@@ -191,9 +191,19 @@ impl SmtpClient {
         peer_hostname: H,
         timeouts: SmtpClientTimeouts,
     ) -> Self {
+        let hostname = peer_hostname.as_ref().to_string();
+        let fields: Vec<&str> = hostname.rsplitn(2, ':').collect();
+
+        // Just the hostname, without any :port
+        let hostname = if fields.len() == 2 {
+            fields[1].to_string()
+        } else {
+            hostname
+        };
+
         Self {
             socket: Some(Box::new(stream)),
-            hostname: peer_hostname.as_ref().to_string(),
+            hostname,
             capabilities: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
             timeouts,
