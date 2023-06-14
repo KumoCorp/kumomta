@@ -19,8 +19,8 @@ pub enum HashAlgo {
 }
 
 /// Get the body part of an email
-fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> Result<Vec<u8>, DKIMError> {
-    Ok(bytes::get_all_after(email.raw_bytes, b"\r\n\r\n").to_vec())
+fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> Result<&'a [u8], DKIMError> {
+    Ok(bytes::get_all_after(email.raw_bytes, b"\r\n\r\n"))
 }
 
 fn hash_sha1<T: AsRef<[u8]>>(data: T) -> Vec<u8> {
