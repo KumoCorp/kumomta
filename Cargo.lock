@@ -652,7 +652,7 @@ dependencies = [
 [[package]]
 name = "cfdkim"
 version = "0.3.0"
-source = "git+https://github.com/wez/dkim?branch=nolifetime#d97b403bd88050c2b2987622c93d0c6b2391e980"
+source = "git+https://github.com/wez/dkim?rev=bde03d20364c014fafe7bee2e38984f8cadd3d99#bde03d20364c014fafe7bee2e38984f8cadd3d99"
 dependencies = [
  "base64 0.21.2",
  "chrono",
@@ -660,7 +660,9 @@ dependencies = [
  "futures",
  "indexmap",
  "mailparse",
+ "memchr",
  "nom",
+ "once_cell",
  "quick-error 2.0.1",
  "rsa",
  "sha-1",
