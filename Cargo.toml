@@ -14,6 +14,7 @@ license = "MIT"
 [dependencies]
 ed25519-dalek = "1.0.1"
 mailparse = "0.14"
+memchr = "2.5"
 quick-error = "2.0.1"
 nom = "7.1.0"
 chrono = { version = "0.4.19", default-features = false, features = ["clock", "std"] }

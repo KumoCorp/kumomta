@@ -131,6 +131,7 @@ dependencies = [
  "futures",
  "indexmap",
  "mailparse",
+ "memchr",
  "nom",
  "quick-error 2.0.1",
  "regex",

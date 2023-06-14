@@ -1,4 +1,5 @@
 ///! Various utility functions to operate on bytes
+pub(crate) use memchr::memmem::find;
 
 pub(crate) fn get_all_after<'a>(bytes: &'a [u8], end: &[u8]) -> &'a [u8] {
     if let Some(mut end_index) = find(bytes, end) {
@@ -7,13 +8,6 @@ pub(crate) fn get_all_after<'a>(bytes: &'a [u8], end: &[u8]) -> &'a [u8] {
     } else {
         &[]
     }
-}
-
-/// Find the offset of specific bytes in bytes
-pub(crate) fn find(bytes: &[u8], search: &[u8]) -> Option<usize> {
-    bytes
-        .windows(search.len())
-        .position(|window| window == search)
 }
 
 pub(crate) fn replace(bytes: &mut [u8], from: char, to: char) {
