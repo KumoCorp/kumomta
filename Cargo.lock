@@ -133,6 +133,7 @@ dependencies = [
  "mailparse",
  "memchr",
  "nom",
+ "once_cell",
  "quick-error 2.0.1",
  "regex",
  "rsa",

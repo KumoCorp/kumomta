@@ -1,15 +1,20 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 use base64::engine::general_purpose;
 use base64::Engine;
+use memchr::memmem::Finder;
+use sha1::Digest as _;
+use sha1::Sha1;
+use sha2::Sha256;
 use slog::debug;
 
 use crate::canonicalization::{
-    self, canonicalize_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
+    self, apply_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
     canonicalize_header_simple,
 };
 use crate::header::HEADER;
-use crate::{bytes, DKIMError, DKIMHeader};
+use crate::{DKIMError, DKIMHeader};
 
 #[derive(Debug, Clone)]
 pub enum HashAlgo {
@@ -18,25 +23,85 @@ pub enum HashAlgo {
     Ed25519Sha256,
 }
 
+pub(crate) struct LimitHasher {
+    pub limit: usize,
+    pub hashed: usize,
+    pub hasher: HashImpl,
+}
+
+impl LimitHasher {
+    pub fn hash(&mut self, bytes: &[u8]) {
+        let remain = self.limit - self.hashed;
+        let len = bytes.len().min(remain);
+        self.hasher.hash(&bytes[..len]);
+        self.hashed += len;
+    }
+
+    pub fn finalize(self) -> String {
+        self.hasher.finalize()
+    }
+
+    #[cfg(test)]
+    pub fn finalize_bytes(self) -> Vec<u8> {
+        self.hasher.finalize_bytes()
+    }
+}
+
+pub(crate) enum HashImpl {
+    Sha1(Sha1),
+    Sha256(Sha256),
+    #[cfg(test)]
+    Copy(Vec<u8>),
+}
+
+impl HashImpl {
+    pub fn from_algo(algo: HashAlgo) -> Self {
+        match algo {
+            HashAlgo::RsaSha1 => Self::Sha1(Sha1::new()),
+            HashAlgo::RsaSha256 | HashAlgo::Ed25519Sha256 => Self::Sha256(Sha256::new()),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn copy_data() -> Self {
+        Self::Copy(vec![])
+    }
+
+    pub fn hash(&mut self, bytes: &[u8]) {
+        match self {
+            Self::Sha1(hasher) => hasher.update(bytes),
+            Self::Sha256(hasher) => hasher.update(bytes),
+            #[cfg(test)]
+            Self::Copy(data) => data.extend_from_slice(bytes),
+        }
+    }
+
+    pub fn finalize(self) -> String {
+        match self {
+            Self::Sha1(hasher) => general_purpose::STANDARD.encode(hasher.finalize()),
+            Self::Sha256(hasher) => general_purpose::STANDARD.encode(hasher.finalize()),
+            #[cfg(test)]
+            Self::Copy(data) => String::from_utf8_lossy(&data).into(),
+        }
+    }
+
+    pub fn finalize_bytes(self) -> Vec<u8> {
+        match self {
+            Self::Sha1(hasher) => hasher.finalize().to_vec(),
+            Self::Sha256(hasher) => hasher.finalize().to_vec(),
+            #[cfg(test)]
+            Self::Copy(data) => data,
+        }
+    }
+}
+
 /// Get the body part of an email
-fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> Result<&'a [u8], DKIMError> {
-    Ok(bytes::get_all_after(email.raw_bytes, b"\r\n\r\n"))
-}
-
-fn hash_sha1<T: AsRef<[u8]>>(data: T) -> Vec<u8> {
-    use sha1::{Digest, Sha1};
-
-    let mut hasher = Sha1::new();
-    hasher.update(data);
-    hasher.finalize().to_vec()
-}
-
-fn hash_sha256<T: AsRef<[u8]>>(data: T) -> Vec<u8> {
-    use sha2::{Digest, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    hasher.finalize().to_vec()
+fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> &'a [u8] {
+    static CRLFCRLF: Lazy<Finder> = Lazy::new(|| memchr::memmem::Finder::new("\r\n\r\n"));
+    CRLFCRLF
+        .find(email.raw_bytes)
+        .map(|idx| &email.raw_bytes[idx + 4..])
+        .unwrap_or(b"")
 }
 
 /// Returns the hash of message's body
@@ -47,26 +112,28 @@ pub(crate) fn compute_body_hash<'a>(
     hash_algo: HashAlgo,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<String, DKIMError> {
-    let body = get_body(email)?;
+    let body = get_body(email);
 
-    let mut canonicalized_body = if canonicalization_type == canonicalization::Type::Simple {
-        canonicalize_body_simple(&body)
-    } else {
-        canonicalize_body_relaxed(&body)
-    };
-    if let Some(length) = length {
-        let length = length
+    let limit = if let Some(length) = length {
+        length
             .parse::<usize>()
-            .map_err(|err| DKIMError::SignatureSyntaxError(format!("invalid length: {}", err)))?;
-        canonicalized_body.truncate(length);
+            .map_err(|err| DKIMError::SignatureSyntaxError(format!("invalid length: {}", err)))?
+    } else {
+        usize::MAX
     };
 
-    let hash = match hash_algo {
-        HashAlgo::RsaSha1 => hash_sha1(&canonicalized_body),
-        HashAlgo::RsaSha256 => hash_sha256(&canonicalized_body),
-        HashAlgo::Ed25519Sha256 => hash_sha256(&canonicalized_body),
+    let mut hasher = LimitHasher {
+        hasher: HashImpl::from_algo(hash_algo),
+        limit,
+        hashed: 0,
     };
-    Ok(general_purpose::STANDARD.encode(hash))
+
+    match canonicalization_type {
+        canonicalization::Type::Simple => canonicalize_body_simple(body, &mut hasher),
+        _ => apply_body_relaxed(body, &mut hasher),
+    };
+
+    Ok(hasher.finalize())
 }
 
 fn select_headers<'a>(
@@ -77,22 +144,19 @@ fn select_headers<'a>(
 
     let email_headers = &email.headers;
     let num_headers = email_headers.len();
-    let mut last_index: HashMap<String, usize> = HashMap::new();
+    let mut last_index: HashMap<&str, usize> = HashMap::new();
 
-    'outer: for name in dkim_header
-        .split(':')
-        .map(|h| h.trim().to_ascii_lowercase())
-    {
+    'outer: for name in dkim_header.split(':').map(|h| h.trim()) {
         let index = last_index.get(&name).unwrap_or(&num_headers);
-        for header in email_headers
+        for (header_index, header) in email_headers
             .iter()
             .enumerate()
             .rev()
             .skip(num_headers - index)
         {
-            if header.1.get_key_ref().eq_ignore_ascii_case(&name) {
-                signed_headers.push((header.1.get_key(), header.1.get_value_raw()));
-                last_index.insert(name, header.0);
+            if header.get_key_ref().eq_ignore_ascii_case(&name) {
+                signed_headers.push((header.get_key(), header.get_value_raw()));
+                last_index.insert(name, header_index);
                 continue 'outer;
             }
         }
@@ -112,15 +176,15 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
+    let mut hasher = HashImpl::from_algo(hash_algo);
 
     // Add the headers defined in `h=` in the hash
     for (key, value) in select_headers(headers, email)? {
-        let canonicalized_value = if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(&key, value)
+        if canonicalization_type == canonicalization::Type::Simple {
+            canonicalize_header_simple(&key, value, &mut input);
         } else {
-            canonicalize_header_relaxed(&key, value)
-        };
-        input.extend_from_slice(&canonicalized_value);
+            canonicalize_header_relaxed(&key, value, &mut input);
+        }
     }
 
     // Add the DKIM-Signature header in the hash. Remove the value of the
@@ -128,10 +192,11 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     {
         let sign = dkim_header.get_raw_tag("b").unwrap();
         let value = dkim_header.raw_bytes.replace(&sign, "");
-        let mut canonicalized_value = if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(HEADER, value.as_bytes())
+        let mut canonicalized_value = vec![];
+        if canonicalization_type == canonicalization::Type::Simple {
+            canonicalize_header_simple(HEADER, value.as_bytes(), &mut canonicalized_value);
         } else {
-            canonicalize_header_relaxed(HEADER, value.as_bytes())
+            canonicalize_header_relaxed(HEADER, value.as_bytes(), &mut canonicalized_value);
         };
 
         // remove trailing "\r\n"
@@ -143,11 +208,8 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
         debug!(logger, "headers to hash: {:?}", input);
     }
 
-    let hash = match hash_algo {
-        HashAlgo::RsaSha1 => hash_sha1(&input),
-        HashAlgo::RsaSha256 => hash_sha256(&input),
-        HashAlgo::Ed25519Sha256 => hash_sha256(&input),
-    };
+    hasher.hash(&input);
+    let hash = hasher.finalize_bytes();
     Ok(hash)
 }
 
@@ -411,7 +473,7 @@ Hello Alice
         let email =
             mailparse::parse_mail("Subject: A\r\n\r\nContent\n.hi\n.hello..".as_bytes()).unwrap();
         assert_eq!(
-            String::from_utf8_lossy(&get_body(&email).unwrap()),
+            String::from_utf8_lossy(get_body(&email)),
             "Content\n.hi\n.hello..".to_owned()
         );
     }
