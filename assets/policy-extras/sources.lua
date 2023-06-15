@@ -6,7 +6,10 @@ local function load_data_from_file(file_name, target)
   local data = utils.load_json_or_toml_file(file_name)
 
   for source, params in pairs(data.source) do
-    target.sources[source] = target.sources[source] or {}
+    target.sources[source] = target.sources[source]
+      or {
+        name = source,
+      }
     utils.merge_into(params, target.sources[source])
   end
 
@@ -14,6 +17,7 @@ local function load_data_from_file(file_name, target)
     for pool_source, params in pairs(pool_def) do
       target.pools[pool] = target.pools[pool]
         or {
+          name = pool,
           entries = {},
         }
 
