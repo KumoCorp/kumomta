@@ -1,13 +1,13 @@
 use anyhow::Context;
 use cfdkim::DkimPrivateKey;
-use config::get_or_create_sub_module;
+use config::{from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use lruttl::LruCacheWithTtl;
 use mail_auth::common::crypto::{Ed25519Key, HashAlgorithm, RsaKey, Sha256, SigningKey};
 use mail_auth::common::headers::HeaderWriter;
 use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain};
 use mlua::prelude::LuaUserData;
-use mlua::{Lua, LuaSerdeExt, Value};
+use mlua::{Lua, Value};
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::RsaPrivateKey;
@@ -191,7 +191,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     dkim_mod.set(
         "rsa_sha256_signer",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = lua.from_value(params)?;
+            let params: SignerConfig = from_lua_value(lua, params)?;
 
             if let Some(inner) = SIGNER_CACHE.get(&params) {
                 return Ok(Signer(inner));
@@ -224,7 +224,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     dkim_mod.set(
         "ed25519_signer",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = lua.from_value(params)?;
+            let params: SignerConfig = from_lua_value(lua, params)?;
 
             if let Some(inner) = SIGNER_CACHE.get(&params) {
                 return Ok(Signer(inner));

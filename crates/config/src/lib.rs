@@ -1,5 +1,6 @@
 use anyhow::Context;
-use mlua::{FromLua, FromLuaMulti, Lua, RegistryKey, Table, ToLuaMulti, Value};
+use mlua::{FromLua, FromLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, ToLuaMulti, Value};
+use serde::Serialize;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -393,4 +394,21 @@ pub fn get_or_create_sub_module<'lua>(
 /// Helper for mapping back to lua errors
 pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
     mlua::Error::external(format!("{err:#}"))
+}
+
+/// Convert from a lua value to a deserializable type,
+/// with a slightly more helpful error message in case of failure.
+pub fn from_lua_value<'lua, R>(lua: &'lua Lua, value: mlua::Value<'lua>) -> mlua::Result<R>
+where
+    R: serde::Deserialize<'lua>,
+{
+    let value_cloned = value.clone();
+    lua.from_value(value).map_err(|err| {
+        let mut serializer = serde_json::Serializer::new(Vec::new());
+        let serialized = match value_cloned.serialize(&mut serializer) {
+            Ok(_) => String::from_utf8_lossy(&serializer.into_inner()).to_string(),
+            Err(err) => format!("<unable to encode as json: {err:#}>"),
+        };
+        mlua::Error::external(format!("{err:#}, while processing {serialized}"))
+    })
 }

@@ -1,6 +1,6 @@
-use config::{any_err, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_sub_module};
 use mlua::prelude::LuaUserData;
-use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
+use mlua::{Lua, MetaMethod, UserDataMethods, Value};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
@@ -320,7 +320,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     http_mod.set(
         "build_client",
         lua.create_function(|lua, options: Value| {
-            let options: ClientOptions = lua.from_value(options)?;
+            let options: ClientOptions = from_lua_value(lua, options)?;
             let mut builder = ClientBuilder::new();
 
             if let Some(user_agent) = options.user_agent {

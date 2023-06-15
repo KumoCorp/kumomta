@@ -7,7 +7,7 @@ use crate::queue::QueueConfig;
 use crate::runtime::spawn;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use anyhow::Context;
-use config::{any_err, get_or_create_module};
+use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 use serde::Deserialize;
@@ -57,7 +57,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_bounce_classifier",
         lua.create_function(move |lua, params: Value| {
-            let params: ClassifierParams = lua.from_value(params)?;
+            let params: ClassifierParams = from_lua_value(lua, params)?;
             params.register().map_err(any_err)
         })?,
     )?;
@@ -65,7 +65,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_local_logs",
         lua.create_function(move |lua, params: Value| {
-            let params: LogFileParams = lua.from_value(params)?;
+            let params: LogFileParams = from_lua_value(lua, params)?;
             crate::logging::Logger::init(params).map_err(any_err)
         })?,
     )?;
@@ -73,7 +73,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_log_hook",
         lua.create_function(move |lua, params: Value| {
-            let params: LogHookParams = lua.from_value(params)?;
+            let params: LogHookParams = from_lua_value(lua, params)?;
             crate::logging::Logger::init_hook(params).map_err(any_err)
         })?,
     )?;
@@ -81,7 +81,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: HttpListenerParams = lua.from_value(params)?;
+            let params: HttpListenerParams = from_lua_value(lua, params)?;
             params.start().await.map_err(any_err)?;
             Ok(())
         })?,
@@ -90,7 +90,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "start_esmtp_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: EsmtpListenerParams = lua.from_value(params)?;
+            let params: EsmtpListenerParams = from_lua_value(lua, params)?;
             spawn("start_esmtp_listener", async move {
                 if let Err(err) = params.run().await {
                     tracing::error!("Error in SmtpServer: {err:#}");
@@ -104,7 +104,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "define_spool",
         lua.create_async_function(|lua, params: Value| async move {
-            let params = lua.from_value(params)?;
+            let params = from_lua_value(lua, params)?;
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");
@@ -120,7 +120,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_redis_throttles",
         lua.create_async_function(|lua, params: Value| async move {
-            let key: RedisConnKey = lua.from_value(params)?;
+            let key: RedisConnKey = from_lua_value(lua, params)?;
             let conn = key.open().await.map_err(any_err)?;
             throttle::use_redis(conn).map_err(any_err)
         })?,
@@ -136,7 +136,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_listener_domain",
         lua.create_function(move |lua, params: Value| {
-            let config: EsmtpDomain = lua.from_value(params)?;
+            let config: EsmtpDomain = from_lua_value(lua, params)?;
             Ok(config)
         })?,
     )?;
@@ -144,7 +144,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_egress_path",
         lua.create_function(move |lua, params: Value| {
-            let config: EgressPathConfig = lua.from_value(params)?;
+            let config: EgressPathConfig = from_lua_value(lua, params)?;
             Ok(config)
         })?,
     )?;
@@ -152,7 +152,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_queue_config",
         lua.create_function(move |lua, params: Value| {
-            let config: QueueConfig = lua.from_value(params)?;
+            let config: QueueConfig = from_lua_value(lua, params)?;
             Ok(config)
         })?,
     )?;
@@ -160,7 +160,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_egress_source",
         lua.create_function(move |lua, params: Value| {
-            let source: EgressSource = lua.from_value(params)?;
+            let source: EgressSource = from_lua_value(lua, params)?;
             Ok(source)
         })?,
     )?;
@@ -168,7 +168,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_egress_pool",
         lua.create_function(move |lua, params: Value| {
-            let pool: EgressPool = lua.from_value(params)?;
+            let pool: EgressPool = from_lua_value(lua, params)?;
             // pool.register().map_err(any_err)
             Ok(pool)
         })?,

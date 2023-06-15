@@ -1,7 +1,7 @@
 //! This module provides a simple datastructure that can store
 //! values associated with a domain name style key.
 //! Wildcard keys are supported.
-use config::get_or_create_sub_module;
+use config::{from_lua_value, get_or_create_sub_module};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods};
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,7 @@ where
         methods.add_meta_method_mut(
             MetaMethod::NewIndex,
             |lua, this, (key, value): (String, mlua::Value)| {
-                let value: V = lua.from_value(value)?;
+                let value: V = from_lua_value(lua, value)?;
                 this.insert(&key, value);
                 Ok(())
             },
@@ -165,7 +165,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if let Some(value) = value {
                 for (k, v) in value {
-                    let v: serde_json::Value = lua.from_value(v)?;
+                    let v: serde_json::Value = from_lua_value(lua, v)?;
                     dmap.insert(&k, v);
                 }
             }

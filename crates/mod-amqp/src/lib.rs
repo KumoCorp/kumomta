@@ -1,4 +1,4 @@
-use config::{any_err, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_sub_module};
 use lapin::options::BasicPublishOptions;
 use lapin::publisher_confirm::{Confirmation, PublisherConfirm};
 use lapin::{BasicProperties, Channel, Connection, ConnectionProperties};
@@ -28,7 +28,7 @@ struct AMQPClient {
 impl LuaUserData for AMQPClient {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_async_method("publish", |lua, this, value: Value| async move {
-            let params: PublishParams = lua.from_value(value)?;
+            let params: PublishParams = from_lua_value(lua, value)?;
 
             let confirm = this
                 .channel

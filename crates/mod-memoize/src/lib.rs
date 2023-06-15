@@ -1,4 +1,4 @@
-use config::{any_err, get_or_create_module};
+use config::{any_err, from_lua_value, get_or_create_module};
 use lruttl::LruCacheWithTtl;
 use mlua::{Lua, LuaSerdeExt, MultiValue};
 use once_cell::sync::Lazy;
@@ -38,11 +38,11 @@ fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde
     if values.is_empty() {
         Ok(serde_json::Value::Null)
     } else if values.len() == 1 {
-        lua.from_value(values.pop().unwrap())
+        from_lua_value(lua, values.pop().unwrap())
     } else {
         let mut jvalues = vec![];
         for v in values.into_iter() {
-            jvalues.push(lua.from_value(v)?);
+            jvalues.push(from_lua_value(lua, v)?);
         }
         Ok(serde_json::Value::Array(jvalues))
     }
@@ -54,7 +54,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "memoize",
         lua.create_function(move |lua, (func, params): (mlua::Function, mlua::Value)| {
-            let params: MemoizeParams = lua.from_value(params)?;
+            let params: MemoizeParams = from_lua_value(lua, params)?;
 
             let cache_name = params.name.to_string();
 

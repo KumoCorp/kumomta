@@ -4,7 +4,7 @@ use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use config::any_err;
+use config::{any_err, from_lua_value};
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
@@ -830,7 +830,7 @@ impl UserData for Message {
         );
 
         methods.add_method("set_scheduling", move |lua, this, params: mlua::Value| {
-            let sched: Option<Scheduling> = lua.from_value(params)?;
+            let sched: Option<Scheduling> = from_lua_value(lua, params)?;
             Ok(this.set_scheduling(sched).map_err(any_err)?)
         });
 

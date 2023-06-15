@@ -1,6 +1,6 @@
 use anyhow::Context;
-use config::{any_err, get_or_create_module};
-use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
+use config::{any_err, from_lua_value, get_or_create_module};
+use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
 use once_cell::sync::Lazy;
 use r2d2::{ManageConnection, Pool, PooledConnection};
 use redis::cluster::{ClusterClient, ClusterConnection};
@@ -54,7 +54,7 @@ impl UserData for RedisConnection {
         methods.add_async_method("query", |lua, this, params: MultiValue| async move {
             let mut args = vec![];
             for p in params {
-                args.push(lua.from_value(p)?);
+                args.push(from_lua_value(lua, p)?);
             }
             let cmd = build_cmd(args).map_err(any_err)?;
             let result = this.query(cmd).await.map_err(any_err)?;
@@ -297,7 +297,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     redis_mod.set(
         "open",
         lua.create_async_function(|lua, key: Value| async move {
-            let key: RedisConnKey = lua.from_value(key)?;
+            let key: RedisConnKey = from_lua_value(lua, key)?;
             key.open().await.map_err(any_err)
         })?,
     )?;

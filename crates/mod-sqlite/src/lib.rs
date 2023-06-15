@@ -1,5 +1,5 @@
 use anyhow::Context;
-use config::{any_err, get_or_create_module};
+use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
 use serde_json::{Map, Value as JsonValue};
 use sqlite::{Connection, ConnectionWithFullMutex, ParameterIndex, State, Statement, Type};
@@ -35,13 +35,13 @@ fn params_to_json<'lua>(lua: &'lua Lua, mut params: MultiValue) -> mlua::Result<
             let param = params
                 .pop_front()
                 .expect("we checked and we have at least one");
-            let param: JsonValue = lua.from_value(param)?;
+            let param: JsonValue = from_lua_value(lua, param)?;
             Ok(param)
         }
         _ => {
             let mut result = vec![];
             for p in params {
-                let p: JsonValue = lua.from_value(p)?;
+                let p: JsonValue = from_lua_value(lua, p)?;
                 result.push(p);
             }
             Ok(JsonValue::Array(result))

@@ -863,6 +863,8 @@ dependencies = [
  "lazy_static",
  "metrics",
  "mlua",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
