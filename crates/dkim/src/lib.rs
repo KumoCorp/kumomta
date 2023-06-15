@@ -93,15 +93,15 @@ async fn verify_email_header<'a>(
         parser::parse_canonicalization(dkim_header.get_tag("c"))?;
     let hash_algo = parser::parse_hash_algo(&dkim_header.get_required_tag("a"))?;
     let computed_body_hash = hash::compute_body_hash(
-        body_canonicalization_type.clone(),
+        body_canonicalization_type,
         dkim_header.get_tag("l"),
-        hash_algo.clone(),
+        hash_algo,
         email,
     )?;
     let computed_headers_hash = hash::compute_headers_hash(
-        header_canonicalization_type.clone(),
+        header_canonicalization_type,
         &dkim_header.get_required_tag("h"),
-        hash_algo.clone(),
+        hash_algo,
         dkim_header,
         email,
     )?;

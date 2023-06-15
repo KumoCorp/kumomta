@@ -253,7 +253,7 @@ Hello Alice
         let length = None;
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(canonicalization_type, length.clone(), hash_algo, &email).unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "wpj48VhihzV7I31ZZZUp1UpTyyM="
         );
         let hash_algo = HashAlgo::RsaSha256;
@@ -296,13 +296,7 @@ Hello Alice
         let length = None;
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(
-                canonicalization_type.clone(),
-                length.clone(),
-                hash_algo,
-                &email
-            )
-            .unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "uoq1oCgLlTqpdDX/iUbLy7J1Wic="
         );
         let hash_algo = HashAlgo::RsaSha256;
@@ -320,13 +314,7 @@ Hello Alice
         let length = None;
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(
-                canonicalization_type.clone(),
-                length.clone(),
-                hash_algo,
-                &email
-            )
-            .unwrap(),
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
             "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
         );
         let hash_algo = HashAlgo::RsaSha256;
@@ -352,7 +340,7 @@ Hello Alice
         let headers = "To: Subject".to_owned();
         assert_eq!(
             compute_headers_hash(
-                canonicalization_type.clone(),
+                canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
@@ -397,7 +385,7 @@ Hello Alice
         let headers = "To: Subject".to_owned();
         assert_eq!(
             compute_headers_hash(
-                canonicalization_type.clone(),
+                canonicalization_type,
                 &headers,
                 hash_algo,
                 &dkim_header(),
