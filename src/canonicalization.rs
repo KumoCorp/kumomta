@@ -4,7 +4,7 @@ use crate::hash::LimitHasher;
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Copy)]
 pub enum Type {
     Simple,
     Relaxed,

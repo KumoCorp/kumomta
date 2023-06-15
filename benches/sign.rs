@@ -1,3 +1,4 @@
+use cfdkim::canonicalization::Type;
 use cfdkim::DkimPrivateKey;
 use cfdkim::SignerBuilder;
 use chrono::TimeZone;
@@ -10,6 +11,7 @@ use std::path::Path;
 pub fn criterion_benchmark(c: &mut Criterion) {
     let email_text = r#"Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
+Subject: This is a very good  subject
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed nec odio ipsum. Donec maximus faucibus
 urna sit amet consequat. Ut a metus ante. Morbi iaculis leo at tellus varius ultricies. Sed
@@ -51,29 +53,33 @@ aliquet eu tortor nec hendrerit. Aliquam in arcu ac erat venenatis pretium at si
 ipsum dolor sit a.
         "#;
 
-    let email = mailparse::parse_mail(email_text.as_bytes()).unwrap();
+    for canon in [Type::Simple, Type::Relaxed] {
+        let email = mailparse::parse_mail(email_text.as_bytes()).unwrap();
 
-    let private_key =
-        rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
-    let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+        let private_key =
+            rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
-    let signer = SignerBuilder::new()
-        .with_signed_headers(["From", "Subject"])
-        .unwrap()
-        .with_private_key(DkimPrivateKey::Rsa(private_key))
-        .with_selector("s20")
-        .with_signing_domain("example.com")
-        .with_time(time)
-        .build()
-        .unwrap();
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_body_canonicalization(canon)
+            .with_header_canonicalization(canon)
+            .with_private_key(DkimPrivateKey::Rsa(private_key))
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(time)
+            .build()
+            .unwrap();
 
-    let mut group = c.benchmark_group("signing");
-    group.sampling_mode(SamplingMode::Flat);
-    group.throughput(Throughput::Bytes(email_text.len() as u64));
-    group.bench_function("sign", |b| {
-        b.iter(|| signer.sign(black_box(&email)).unwrap())
-    });
-    group.finish();
+        let mut group = c.benchmark_group("signing");
+        group.sampling_mode(SamplingMode::Flat);
+        group.throughput(Throughput::Bytes(email_text.len() as u64));
+        group.bench_function(&format!("sign {canon:?}"), |b| {
+            b.iter(|| signer.sign(black_box(&email)).unwrap())
+        });
+        group.finish();
+    }
 }
 
 criterion_group!(benches, criterion_benchmark);
