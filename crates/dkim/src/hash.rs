@@ -21,6 +21,16 @@ pub enum HashAlgo {
     Ed25519Sha256,
 }
 
+impl HashAlgo {
+    pub fn algo_name(&self) -> &'static str {
+        match self {
+            Self::RsaSha1 => "rsa-sha1",
+            Self::RsaSha256 => "rsa-sha256",
+            Self::Ed25519Sha256 => "ed25519-sha256",
+        }
+    }
+}
+
 pub(crate) struct LimitHasher {
     pub limit: usize,
     pub hashed: usize,
@@ -187,7 +197,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     // Add the DKIM-Signature header in the hash. Remove the value of the
     // signature (b) first.
     {
-        let sign = dkim_header.get_raw_tag("b").unwrap();
+        let sign = dkim_header.get_required_raw_tag("b");
         let value = dkim_header.raw_bytes.replace(&sign, "");
         let mut canonicalized_value = vec![];
         if canonicalization_type == canonicalization::Type::Simple {

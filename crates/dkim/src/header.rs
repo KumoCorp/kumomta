@@ -97,6 +97,15 @@ impl DKIMHeader {
         }
     }
 
+    pub fn get_required_raw_tag(&self, name: &str) -> &str {
+        // Required tags are guaranteed by the parser to be present so it's safe
+        // to assert and unwrap.
+        match self.get_raw_tag(name) {
+            Some(value) => value,
+            None => panic!("required tag {name} is not present"),
+        }
+    }
+
     fn validate_required_tags(&self) -> Result<(), DKIMError> {
         for required in REQUIRED_TAGS {
             if self.get_tag(required).is_none() {

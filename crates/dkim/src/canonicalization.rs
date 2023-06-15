@@ -9,11 +9,12 @@ pub enum Type {
     Simple,
     Relaxed,
 }
-impl std::string::ToString for Type {
-    fn to_string(&self) -> String {
+
+impl Type {
+    pub fn canon_name(&self) -> &'static str {
         match self {
-            Self::Simple => "simple".to_owned(),
-            Self::Relaxed => "relaxed".to_owned(),
+            Self::Simple => "simple",
+            Self::Relaxed => "relaxed",
         }
     }
 }

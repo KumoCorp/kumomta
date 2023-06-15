@@ -19,7 +19,7 @@ impl DKIMResult {
         DKIMResult {
             value: "pass",
             error: None,
-            domain_used: domain_used.to_string(),
+            domain_used: domain_used.to_string().to_lowercase(),
             header_canonicalization_type: Some(header_canonicalization_type),
             body_canonicalization_type: Some(body_canonicalization_type),
         }
@@ -29,7 +29,7 @@ impl DKIMResult {
         DKIMResult {
             value: "neutral",
             error: None,
-            domain_used: domain_used.to_string(),
+            domain_used: domain_used.to_string().to_lowercase(),
             header_canonicalization_type: None,
             body_canonicalization_type: None,
         }
@@ -39,7 +39,7 @@ impl DKIMResult {
         DKIMResult {
             value: "fail",
             error: Some(reason),
-            domain_used: domain_used.to_string(),
+            domain_used: domain_used.to_string().to_lowercase(),
             header_canonicalization_type: None,
             body_canonicalization_type: None,
         }
@@ -50,8 +50,8 @@ impl DKIMResult {
     }
 
     /// Returns the domain used to pass the DKIM verification
-    pub fn domain_used(&self) -> String {
-        self.domain_used.to_lowercase()
+    pub fn domain_used(&self) -> &str {
+        &self.domain_used
     }
 
     /// Returns the verification result as a summary: fail, neutral or pass.
@@ -61,12 +61,12 @@ impl DKIMResult {
 
     /// Returns the header canocalization type
     pub fn header_canonicalization_type(&self) -> Option<canonicalization::Type> {
-        self.header_canonicalization_type.clone()
+        self.header_canonicalization_type
     }
 
     /// Returns the body canocalization type
     pub fn body_canonicalization_type(&self) -> Option<canonicalization::Type> {
-        self.body_canonicalization_type.clone()
+        self.body_canonicalization_type
     }
 
     /// Similar to `summary` but with detail on fail. Typically used for the

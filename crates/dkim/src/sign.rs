@@ -191,23 +191,18 @@ impl Signer {
 
     fn dkim_header_builder(&self, body_hash: &str) -> Result<DKIMHeaderBuilder, DKIMError> {
         let now = chrono::offset::Utc::now();
-        let hash_algo = match self.hash_algo {
-            hash::HashAlgo::RsaSha1 => "rsa-sha1",
-            hash::HashAlgo::RsaSha256 => "rsa-sha256",
-            hash::HashAlgo::Ed25519Sha256 => "ed25519-sha256",
-        };
 
         let mut builder = DKIMHeaderBuilder::new()
             .add_tag("v", "1")
-            .add_tag("a", hash_algo)
+            .add_tag("a", self.hash_algo.algo_name())
             .add_tag("d", &self.signing_domain)
             .add_tag("s", &self.selector)
             .add_tag(
                 "c",
                 &format!(
                     "{}/{}",
-                    self.header_canonicalization.to_string(),
-                    self.body_canonicalization.to_string()
+                    self.header_canonicalization.canon_name(),
+                    self.body_canonicalization.canon_name()
                 ),
             )
             .add_tag("bh", body_hash)
