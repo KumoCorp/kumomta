@@ -274,7 +274,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     // after waiting for those to idle out, shut down logging
     crate::logging::Logger::signal_shutdown().await;
 
-    println!("Shutdown completed OK!");
+    tracing::info!("Shutdown completed OK!");
 
     if !init_handle.await? {
         anyhow::bail!("Initialization raised an error");

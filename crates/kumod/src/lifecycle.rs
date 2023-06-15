@@ -154,7 +154,7 @@ impl LifeCycle {
             _ = self.request_shutdown_rx.recv() => {}
         };
         tracing::debug!("wait_for_shutdown: shutdown requested!");
-        println!("Shutdown requested, please wait while work is saved");
+        tracing::info!("Shutdown requested, please wait while work is saved");
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
@@ -162,6 +162,15 @@ impl LifeCycle {
         STOPPING.get().map(|s| s.tx.send(()).ok());
         // Wait for all pending activity to finish
         tracing::debug!("Waiting for tasks to wrap up");
-        self.activity_rx.recv().await;
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
+                    tracing::info!("Still waiting for pending activity...");
+                }
+                _ = self.activity_rx.recv() => {
+                    return
+                }
+            }
+        }
     }
 }
