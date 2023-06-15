@@ -1,6 +1,7 @@
 use crate::{parser, DKIMError};
 use indexmap::map::IndexMap;
 use std::io::Write;
+use std::str::FromStr;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
 const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
@@ -82,6 +83,26 @@ impl DKIMHeader {
 
     pub fn get_tag(&self, name: &str) -> Option<&str> {
         self.tags.get(name).map(|v| v.value.as_str())
+    }
+
+    /// Get the named tag.
+    /// Attempt to parse it into an `R`
+    pub fn parse_tag<R>(&self, name: &str) -> Result<Option<R>, DKIMError>
+    where
+        R: FromStr,
+        <R as FromStr>::Err: std::fmt::Display,
+    {
+        match self.get_tag(name) {
+            None => Ok(None),
+            Some(value) => {
+                let value: R = value.parse().map_err(|err| {
+                    DKIMError::SignatureSyntaxError(format!(
+                        "invalid \"{name}\" tag value: {err:#}"
+                    ))
+                })?;
+                Ok(Some(value))
+            }
+        }
     }
 
     pub fn get_raw_tag(&self, name: &str) -> Option<&str> {

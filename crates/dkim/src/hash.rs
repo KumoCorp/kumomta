@@ -99,19 +99,12 @@ impl HashImpl {
 /// https://datatracker.ietf.org/doc/html/rfc6376#section-3.7
 pub(crate) fn compute_body_hash<'a>(
     canonicalization_type: canonicalization::Type,
-    length: Option<&str>,
+    length: Option<usize>,
     hash_algo: HashAlgo,
     email: &'a ParsedEmail<'a>,
 ) -> Result<String, DKIMError> {
     let body = email.get_body_bytes();
-
-    let limit = if let Some(length) = length {
-        length
-            .parse::<usize>()
-            .map_err(|err| DKIMError::SignatureSyntaxError(format!("invalid length: {}", err)))?
-    } else {
-        usize::MAX
-    };
+    let limit = length.unwrap_or(usize::MAX);
 
     let mut hasher = LimitHasher {
         hasher: HashImpl::from_algo(hash_algo),
@@ -260,7 +253,7 @@ Hello Alice
         let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
-        let length = Some("3");
+        let length = Some(3);
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),

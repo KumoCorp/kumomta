@@ -93,7 +93,7 @@ async fn verify_email_header<'a>(
     let hash_algo = parser::parse_hash_algo(&dkim_header.get_required_tag("a"))?;
     let computed_body_hash = hash::compute_body_hash(
         body_canonicalization_type,
-        dkim_header.get_tag("l"),
+        dkim_header.parse_tag("l")?,
         hash_algo,
         email,
     )?;
