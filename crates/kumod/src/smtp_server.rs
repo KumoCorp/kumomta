@@ -298,6 +298,38 @@ impl RejectError {
     }
 }
 
+/// Helper for tracing/printing as human readable text rather than
+/// an array of decimal numbers
+struct DebugPrintBuffer<'a>(&'a [u8]);
+
+impl<'a> std::fmt::Debug for DebugPrintBuffer<'a> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let s = String::from_utf8_lossy(&self.0);
+        write!(fmt, "{} bytes: {s:?}", self.0.len())
+    }
+}
+
+struct DebugabbleReadBuffer(Vec<u8>);
+
+impl std::ops::Deref for DebugabbleReadBuffer {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DebugabbleReadBuffer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::fmt::Debug for DebugabbleReadBuffer {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "DebugabbleReadBuffer({:?})", DebugPrintBuffer(&self.0))
+    }
+}
+
 pub struct SmtpServer {
     socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
@@ -306,7 +338,7 @@ pub struct SmtpServer {
     peer_address: SocketAddr,
     my_address: SocketAddr,
     tls_active: bool,
-    read_buffer: Vec<u8>,
+    read_buffer: DebugabbleReadBuffer,
     params: EsmtpListenerParams,
     shutdown: ShutdownSubcription,
     rcpt_count: usize,
@@ -356,7 +388,7 @@ impl SmtpServer {
             peer_address,
             my_address,
             tls_active: false,
-            read_buffer: Vec::with_capacity(1024),
+            read_buffer: DebugabbleReadBuffer(Vec::with_capacity(1024)),
             params,
             shutdown: ShutdownSubcription::get(),
             rcpt_count: 0,
@@ -493,7 +525,7 @@ impl SmtpServer {
         tracing::trace!("reading data");
 
         static CRLFDOTCRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n.\r\n"));
-        let mut data = vec![0u8; self.params.data_buffer_size];
+        let mut data = DebugabbleReadBuffer(vec![0u8; self.params.data_buffer_size]);
         let mut next_index = 0;
 
         loop {
@@ -515,7 +547,7 @@ impl SmtpServer {
                     return Ok(ReadData::TooLong);
                 }
 
-                tracing::trace!("{data:?}");
+                tracing::trace!("returning ReadData::Data {:?}", DebugPrintBuffer(&data));
                 return Ok(ReadData::Data(data));
             }
 
