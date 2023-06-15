@@ -665,6 +665,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "indexmap",
+ "mail-auth",
  "mailparse",
  "memchr",
  "nom",
