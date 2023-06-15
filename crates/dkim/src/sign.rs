@@ -43,7 +43,7 @@ impl SignerBuilder {
     ) -> Result<Self, DKIMError> {
         let headers: Vec<String> = headers
             .into_iter()
-            .map(|h| h.into().to_lowercase())
+            .map(|h| h.into().to_ascii_lowercase())
             .collect();
 
         if !headers.iter().any(|h| h.eq_ignore_ascii_case("from")) {
@@ -233,11 +233,10 @@ impl Signer {
 
         // For signing the DKIM-Signature header the signature needs to be null
         let dkim_header = dkim_header_builder.add_tag("b", "").build()?;
-        let signed_headers = dkim_header.get_required_tag("h");
 
         hash::compute_headers_hash(
             canonicalization,
-            &signed_headers,
+            &self.signed_headers,
             self.hash_algo,
             &dkim_header,
             email,

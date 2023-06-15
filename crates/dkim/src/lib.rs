@@ -97,9 +97,16 @@ async fn verify_email_header<'a>(
         hash_algo,
         email,
     )?;
+
+    let header_list: Vec<String> = dkim_header
+        .get_required_tag("h")
+        .split(':')
+        .map(|s| s.trim().to_ascii_lowercase())
+        .collect();
+
     let computed_headers_hash = hash::compute_headers_hash(
         header_canonicalization_type,
-        &dkim_header.get_required_tag("h"),
+        &header_list,
         hash_algo,
         dkim_header,
         email,

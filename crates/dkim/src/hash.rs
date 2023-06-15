@@ -117,18 +117,27 @@ pub(crate) fn compute_body_hash<'a>(
     Ok(hasher.finalize())
 }
 
+// Section 5.4.2:
+// Signers wishing to sign multiple instances of such a header field MUST
+// include the header field name multiple times in the "h=" tag of the
+// DKIM-Signature header field and MUST sign such header fields in order
+// from the bottom of the header field block to the top.
 fn select_headers<'a>(
-    dkim_header: &str,
+    header_list: &[String],
     email: &'a ParsedEmail,
-) -> Result<Vec<(String, &'a [u8])>, DKIMError> {
+) -> Result<Vec<(std::borrow::Cow<'a, str>, &'a [u8])>, DKIMError> {
     let mut signed_headers = vec![];
 
     let email_headers = email.get_headers();
     let num_headers = email_headers.len();
-    let mut last_index: HashMap<&str, usize> = HashMap::new();
 
-    'outer: for name in dkim_header.split(':').map(|h| h.trim()) {
-        let index = last_index.get(&name).unwrap_or(&num_headers);
+    // Note: this map only works correctly if the header names are normalized
+    // to lower case.  That happens in SignerBuilder::with_signed_headers
+    // and in verify_email_header().
+    let mut last_index: HashMap<&String, usize> = HashMap::new();
+
+    'outer: for name in header_list {
+        let index = last_index.get(name).unwrap_or(&num_headers);
         for (header_index, header) in email_headers
             .iter()
             .enumerate()
@@ -136,11 +145,16 @@ fn select_headers<'a>(
             .skip(num_headers - index)
         {
             if header.get_key_ref().eq_ignore_ascii_case(&name) {
-                signed_headers.push((header.get_key(), header.get_value_raw()));
+                signed_headers.push((header.get_key_ref(), header.get_value_raw()));
                 last_index.insert(name, header_index);
                 continue 'outer;
             }
         }
+
+        // When computing the signature, the nonexisting header field MUST be
+        // treated as the null string (including the header field name, header
+        // field value, all punctuation, and the trailing CRLF).
+        // -> don't include it in the returned signed_headers.
 
         last_index.insert(name, 0);
     }
@@ -150,7 +164,7 @@ fn select_headers<'a>(
 
 pub(crate) fn compute_headers_hash<'a, 'b>(
     canonicalization_type: canonicalization::Type,
-    headers: &'b str,
+    headers: &[String],
     hash_algo: HashAlgo,
     dkim_header: &'b DKIMHeader,
     email: &'a ParsedEmail<'a>,
@@ -158,7 +172,6 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
-    // Add the headers defined in `h=` in the hash
     for (key, value) in select_headers(headers, email)? {
         canonicalization_type.canon_header_into(&key, value, &mut input);
     }
@@ -315,7 +328,7 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = "To: Subject".to_owned();
+        let headers = vec!["To".to_owned(), "Subject".to_owned()];
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
@@ -360,7 +373,7 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = "To: Subject".to_owned();
+        let headers = vec!["To".to_owned(), "Subject".to_owned()];
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
@@ -404,33 +417,37 @@ Hello Alice
 
     #[test]
     fn test_select_headers() {
-        let dkim_headers1 = ["from", "subject", "to", "from"].join(":");
+        let header_list = vec![
+            "from".to_string(),
+            "subject".to_string(),
+            "to".to_string(),
+            "from".to_string(),
+        ];
         let email1 = ParsedEmail::parse_bytes(
             b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
         )
         .unwrap();
 
-        let result1 = select_headers(&dkim_headers1, &email1).unwrap();
+        let result1 = select_headers(&header_list, &email1).unwrap();
         assert_eq!(
             result1,
             vec![
-                ("from".to_owned(), &b"baz"[..]),
-                ("subject".to_owned(), &b"boring"[..]),
-                ("from".to_owned(), &b"biz"[..]),
+                ("from".into(), &b"baz"[..]),
+                ("subject".into(), &b"boring"[..]),
+                ("from".into(), &b"biz"[..]),
             ]
         );
 
-        let dkim_headers2 = ["from", "subject", "to", "from"].join(":");
         let email2 =
             ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
                 .unwrap();
 
-        let result2 = select_headers(&dkim_headers2, &email2).unwrap();
+        let result2 = select_headers(&header_list, &email2).unwrap();
         assert_eq!(
             result2,
             vec![
-                ("From".to_owned(), &b"biz"[..]),
-                ("Subject".to_owned(), &b"Boring"[..]),
+                ("From".into(), &b"biz"[..]),
+                ("Subject".into(), &b"Boring"[..]),
             ]
         );
     }
