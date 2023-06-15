@@ -1,9 +1,5 @@
-use crate::canonicalization::{
-    self, apply_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
-    canonicalize_header_simple,
-};
 use crate::header::HEADER;
-use crate::{DKIMError, DKIMHeader, ParsedEmail};
+use crate::{canonicalization, DKIMError, DKIMHeader, ParsedEmail};
 use base64::engine::general_purpose;
 use base64::Engine;
 use sha1::{Digest as _, Sha1};
@@ -123,10 +119,7 @@ pub(crate) fn compute_body_hash<'a>(
         hashed: 0,
     };
 
-    match canonicalization_type {
-        canonicalization::Type::Simple => canonicalize_body_simple(body, &mut hasher),
-        _ => apply_body_relaxed(body, &mut hasher),
-    };
+    canonicalization_type.canon_body(body, &mut hasher);
 
     Ok(hasher.finalize())
 }
@@ -174,11 +167,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
 
     // Add the headers defined in `h=` in the hash
     for (key, value) in select_headers(headers, email)? {
-        if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(&key, value, &mut input);
-        } else {
-            canonicalize_header_relaxed(&key, value, &mut input);
-        }
+        canonicalization_type.canon_header_into(&key, value, &mut input);
     }
 
     // Add the DKIM-Signature header in the hash. Remove the value of the
@@ -187,11 +176,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
         let sign = dkim_header.get_required_raw_tag("b");
         let value = dkim_header.raw_bytes.replace(&sign, "");
         let mut canonicalized_value = vec![];
-        if canonicalization_type == canonicalization::Type::Simple {
-            canonicalize_header_simple(HEADER, value.as_bytes(), &mut canonicalized_value);
-        } else {
-            canonicalize_header_relaxed(HEADER, value.as_bytes(), &mut canonicalized_value);
-        };
+        canonicalization_type.canon_header_into(HEADER, value.as_bytes(), &mut canonicalized_value);
 
         // remove trailing "\r\n"
         canonicalized_value.truncate(canonicalized_value.len() - 2);

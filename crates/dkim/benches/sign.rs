@@ -1,5 +1,5 @@
 use cfdkim::canonicalization::Type;
-use cfdkim::{DkimPrivateKey, SignerBuilder};
+use cfdkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use rsa::pkcs1::DecodeRsaPrivateKey;
@@ -48,10 +48,11 @@ suscipit mattis risus non placerat. Sed imperdiet, nisi et laoreet imperdiet, ur
 ante, non ultricies enim lorem cursus ante. Mauris euismod turpis eu tristique lobortis. Mauris
 aliquet eu tortor nec hendrerit. Aliquam in arcu ac erat venenatis pretium at sit amet magna. Lorem
 ipsum dolor sit a.
-        "#;
+        "#
+    .replace("\n", "\r\n");
 
     for canon in [Type::Simple, Type::Relaxed] {
-        let email = mailparse::parse_mail(email_text.as_bytes()).unwrap();
+        let email = ParsedEmail::parse_bytes(email_text.as_bytes()).unwrap();
 
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();

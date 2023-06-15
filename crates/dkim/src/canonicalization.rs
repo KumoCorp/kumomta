@@ -1,5 +1,4 @@
 //! Inspired from https://docs.rs/dkim/latest/src/dkim/canonicalization.rs.html
-use crate::bytes;
 use crate::hash::LimitHasher;
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
@@ -17,6 +16,20 @@ impl Type {
             Self::Relaxed => "relaxed",
         }
     }
+
+    pub(crate) fn canon_body(&self, body: &[u8], hasher: &mut LimitHasher) {
+        match self {
+            Self::Simple => body_simple(body, hasher),
+            Self::Relaxed => body_relaxed(body, hasher),
+        }
+    }
+
+    pub(crate) fn canon_header_into(&self, key: &str, value: &[u8], out: &mut Vec<u8>) {
+        match self {
+            Self::Simple => canonicalize_header_simple(key, value, out),
+            Self::Relaxed => canonicalize_header_relaxed(key, value, out),
+        }
+    }
 }
 
 fn do_body_simple<'a>(mut body: &'a [u8]) -> &'a [u8] {
@@ -32,7 +45,7 @@ fn do_body_simple<'a>(mut body: &'a [u8]) -> &'a [u8] {
 }
 
 /// Canonicalize body using the simple canonicalization algorithm.
-pub(crate) fn canonicalize_body_simple(body: &[u8], hasher: &mut LimitHasher) {
+fn body_simple(body: &[u8], hasher: &mut LimitHasher) {
     let body = do_body_simple(body);
     hasher.hash(body);
 }
@@ -84,7 +97,7 @@ fn iter_lines(haystack: &[u8]) -> IterLines {
 
 /// https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.3
 /// Canonicalize body using the relaxed canonicalization algorithm.
-pub(crate) fn apply_body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
+fn body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
     if body.is_empty() {
         return;
     }
@@ -96,14 +109,7 @@ pub(crate) fn apply_body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
 
     for mut line in iter_lines(body) {
         // Ignore all whitespace at the end of the line
-        while let Some(c) = line.last() {
-            match c {
-                b' ' | b'\t' | b'\r' | b'\n' => {
-                    line = &line[0..line.len() - 1];
-                }
-                _ => break,
-            }
-        }
+        line = trim_ws_end(line);
 
         let mut prior = 0;
         // Reduce all sequences of WSP within a line to a single SP character.
@@ -131,7 +137,7 @@ pub(crate) fn apply_body_relaxed(mut body: &[u8], hasher: &mut LimitHasher) {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.1
-pub(crate) fn canonicalize_header_simple(key: &str, value: &[u8], out: &mut Vec<u8>) {
+fn canonicalize_header_simple(key: &str, value: &[u8], out: &mut Vec<u8>) {
     out.extend_from_slice(key.as_bytes());
     out.extend_from_slice(b": ");
     out.extend_from_slice(value);
@@ -139,43 +145,55 @@ pub(crate) fn canonicalize_header_simple(key: &str, value: &[u8], out: &mut Vec<
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-3.4.2
-pub(crate) fn canonicalize_header_relaxed(key: &str, value: &[u8], out: &mut Vec<u8>) {
+fn canonicalize_header_relaxed(key: &str, value: &[u8], out: &mut Vec<u8>) {
     let key = key.to_lowercase();
     let key = key.trim_end();
 
     out.extend_from_slice(key.as_bytes());
     out.extend_from_slice(b":");
-    out.extend_from_slice(&canonicalize_header_value_relaxed(value));
+
+    let value = trim_ws_start(trim_ws_end(value));
+    let mut space_run = false;
+    for &c in value {
+        match c {
+            b'\r' | b'\n' => {}
+            b' ' | b'\t' => {
+                if space_run {
+                    continue;
+                }
+                space_run = true;
+                out.push(b' ');
+            }
+            _ => {
+                space_run = false;
+                out.push(c);
+            }
+        }
+    }
+
     out.extend_from_slice(b"\r\n");
 }
 
-fn canonicalize_header_value_relaxed(value: &[u8]) -> Vec<u8> {
-    let mut value = value.to_vec();
-    bytes::replace(&mut value, b'\t', b' ');
-    bytes::replace_within_vec(&mut value, b"\r\n", b"");
-
-    while value.ends_with(b" ") {
-        value.remove(value.len() - 1);
-    }
-    while value.starts_with(b" ") {
-        value.remove(0);
-    }
-    let mut previous = false;
-    value.retain(|c| {
-        if *c == b' ' {
-            if previous {
-                false
-            } else {
-                previous = true;
-                true
-            }
-        } else {
-            previous = false;
-            true
+fn trim_ws_start(mut line: &[u8]) -> &[u8] {
+    while let Some(c) = line.first() {
+        match c {
+            b' ' | b'\t' | b'\r' | b'\n' => line = &line[1..],
+            _ => break,
         }
-    });
+    }
+    line
+}
 
-    value
+fn trim_ws_end(mut line: &[u8]) -> &[u8] {
+    while let Some(c) = line.last() {
+        match c {
+            b' ' | b'\t' | b'\r' | b'\n' => {
+                line = &line[0..line.len() - 1];
+            }
+            _ => break,
+        }
+    }
+    line
 }
 
 #[cfg(test)]
@@ -207,7 +225,7 @@ mod tests {
             limit: usize::MAX,
             hashed: 0,
         };
-        apply_body_relaxed(data, &mut hasher);
+        super::body_relaxed(data, &mut hasher);
         hasher.finalize_bytes()
     }
 
@@ -217,7 +235,7 @@ mod tests {
             limit: usize::MAX,
             hashed: 0,
         };
-        canonicalize_body_simple(data, &mut hasher);
+        super::body_simple(data, &mut hasher);
         hasher.finalize_bytes()
     }
 

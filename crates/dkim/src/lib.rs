@@ -13,7 +13,6 @@ use mailparse::MailHeaderMap;
 #[macro_use]
 extern crate quick_error;
 
-mod bytes;
 pub mod canonicalization;
 pub mod dns;
 mod errors;
