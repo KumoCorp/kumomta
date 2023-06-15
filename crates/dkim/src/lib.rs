@@ -49,8 +49,8 @@ pub enum DkimPrivateKey {
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4
 fn verify_signature(
     hash_algo: hash::HashAlgo,
-    header_hash: Vec<u8>,
-    signature: Vec<u8>,
+    header_hash: &[u8],
+    signature: &[u8],
     public_key: DkimPublicKey,
 ) -> Result<bool, DKIMError> {
     Ok(match public_key {
@@ -61,14 +61,14 @@ fn verify_signature(
                     hash::HashAlgo::RsaSha256 => Pkcs1v15Sign::new::<Sha256>(),
                     hash => return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash))),
                 },
-                &header_hash,
-                &signature,
+                header_hash,
+                signature,
             )
             .is_ok(),
         DkimPublicKey::Ed25519(public_key) => public_key
             .verify_strict(
-                &header_hash,
-                &ed25519_dalek::Signature::from_bytes(&signature)
+                header_hash,
+                &ed25519_dalek::Signature::from_bytes(signature)
                     .map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?,
             )
             .is_ok(),
@@ -115,7 +115,7 @@ async fn verify_email_header<'a>(
         .map_err(|err| {
             DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
         })?;
-    if !verify_signature(hash_algo, computed_headers_hash, signature, public_key)? {
+    if !verify_signature(hash_algo, &computed_headers_hash, &signature, public_key)? {
         return Err(DKIMError::SignatureDidNotVerify);
     }
 
