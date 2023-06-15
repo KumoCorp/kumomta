@@ -1,4 +1,5 @@
-use base64::{engine::general_purpose, Engine};
+use base64::engine::general_purpose;
+use base64::Engine;
 use rsa::{pkcs1, pkcs8};
 use slog::{debug, warn};
 use std::collections::HashMap;

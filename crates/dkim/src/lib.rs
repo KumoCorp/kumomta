@@ -3,10 +3,7 @@
 use base64::engine::general_purpose;
 use base64::Engine;
 use indexmap::map::IndexMap;
-use rsa::Pkcs1v15Sign;
-use rsa::PublicKey;
-use rsa::RsaPrivateKey;
-use rsa::RsaPublicKey;
+use rsa::{Pkcs1v15Sign, PublicKey, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
 use slog::debug;
@@ -34,8 +31,7 @@ mod sign;
 
 pub use errors::DKIMError;
 use header::{DKIMHeader, HEADER, REQUIRED_TAGS};
-pub use parser::tag_list as parse_tag_list;
-pub use parser::Tag;
+pub use parser::{tag_list as parse_tag_list, Tag};
 pub use result::DKIMResult;
 pub use sign::{Signer, SignerBuilder};
 

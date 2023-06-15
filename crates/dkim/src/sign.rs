@@ -260,7 +260,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use rsa::pkcs1::DecodeRsaPrivateKey;
-    use std::{fs, path::Path};
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn test_sign_rsa() {

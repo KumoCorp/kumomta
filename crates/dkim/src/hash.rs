@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use base64::engine::general_purpose;
 use base64::Engine;
 use memchr::memmem::Finder;
-use sha1::Digest as _;
-use sha1::Sha1;
+use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
 use slog::debug;
 

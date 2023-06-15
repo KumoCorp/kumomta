@@ -1,13 +1,9 @@
 use crate::{canonicalization, hash, DKIMError};
-use nom::bytes::complete::tag;
-use nom::bytes::complete::take_while1;
+use nom::bytes::complete::{tag, take_while1};
 use nom::character::complete::alpha1;
 use nom::combinator::opt;
 use nom::multi::fold_many0;
-use nom::sequence::delimited;
-use nom::sequence::pair;
-use nom::sequence::preceded;
-use nom::sequence::terminated;
+use nom::sequence::{delimited, pair, preceded, terminated};
 use nom::IResult;
 
 #[derive(Clone, Debug, PartialEq)]
