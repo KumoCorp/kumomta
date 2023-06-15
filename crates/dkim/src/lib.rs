@@ -2,7 +2,7 @@
 
 use base64::engine::general_purpose;
 use base64::Engine;
-use rsa::{Pkcs1v15Sign, PublicKey, RsaPrivateKey, RsaPublicKey};
+use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
 use std::sync::Arc;
