@@ -292,7 +292,8 @@ pub struct CFSigner {
 
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
-        let mail = mailparse::parse_mail(message).context("parsing message")?;
+        let mail = cfdkim::ParsedEmail::parse_bytes(&message)
+            .ok_or_else(|| anyhow::anyhow!("failed to parse message to pass to dkim signer"))?;
 
         let dkim_header = self.signer.sign(&mail)?;
 

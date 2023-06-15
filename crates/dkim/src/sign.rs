@@ -1,12 +1,11 @@
+use crate::header::DKIMHeaderBuilder;
+use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, ParsedEmail, HEADER};
 use base64::engine::general_purpose;
 use base64::Engine;
 use ed25519_dalek::ExpandedSecretKey;
 use rsa::Pkcs1v15Sign;
 use sha1::Sha1;
 use sha2::Sha256;
-
-use crate::header::DKIMHeaderBuilder;
-use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HEADER};
 
 /// Builder for the Signer
 pub struct SignerBuilder {
@@ -153,7 +152,7 @@ pub struct Signer {
 impl Signer {
     /// Sign a message
     /// As specified in <https://datatracker.ietf.org/doc/html/rfc6376#section-5>
-    pub fn sign<'b>(&self, email: &'b mailparse::ParsedMail<'b>) -> Result<String, DKIMError> {
+    pub fn sign<'b>(&self, email: &'b ParsedEmail<'b>) -> Result<String, DKIMError> {
         let body_hash = self.compute_body_hash(email)?;
         let dkim_header_builder = self.dkim_header_builder(&body_hash)?;
 
@@ -219,21 +218,18 @@ impl Signer {
         Ok(builder)
     }
 
-    fn compute_body_hash<'b>(
-        &self,
-        email: &'b mailparse::ParsedMail<'b>,
-    ) -> Result<String, DKIMError> {
+    fn compute_body_hash<'b>(&self, email: &'b ParsedEmail<'b>) -> Result<String, DKIMError> {
         let length = None;
-        let canonicalization = self.body_canonicalization.clone();
-        hash::compute_body_hash(canonicalization, length, self.hash_algo.clone(), email)
+        let canonicalization = self.body_canonicalization;
+        hash::compute_body_hash(canonicalization, length, self.hash_algo, email)
     }
 
     fn compute_header_hash<'b>(
         &self,
-        email: &'b mailparse::ParsedMail<'b>,
+        email: &'b ParsedEmail<'b>,
         dkim_header_builder: DKIMHeaderBuilder,
     ) -> Result<Vec<u8>, DKIMError> {
-        let canonicalization = self.header_canonicalization.clone();
+        let canonicalization = self.header_canonicalization;
 
         // For signing the DKIM-Signature header the signature needs to be null
         let dkim_header = dkim_header_builder.add_tag("b", "").build()?;
@@ -242,7 +238,7 @@ impl Signer {
         hash::compute_headers_hash(
             canonicalization,
             &signed_headers,
-            self.hash_algo.clone(),
+            self.hash_algo,
             &dkim_header,
             email,
         )
@@ -259,15 +255,13 @@ mod tests {
 
     #[test]
     fn test_sign_rsa() {
-        let email = mailparse::parse_mail(
-            r#"Subject: subject
+        let raw_email = r#"Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
         let private_key =
             rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
@@ -284,7 +278,7 @@ Hello Alice
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=frcCV1k9oG9oKj3dpUqdJg1PxRT2RSN/XKdLCPjaYaY=; h=from:subject; t=1609459201; b=ohfeeUk89mJI/nTb8cViCbOY11tYBkj0xecrpXVwPdkvLMYMZemydr01nUuruhrzaqxFcqgjdEB/alen4NygDo3Kj//GsEUksRO13Hi1aW5lfxLj7Ifux96CbKm3EEcI5rD9tXQ0LaW5nYUdqYdFVIgmU/qTtXRenMxesHhggknm1n6x7K4NsqBS+9leidXtKf8hTSCC7f4XMGFe2YQrCKHfYFBb/MTuzCHbF/CgZHKgMhBAYXMkuEwIGjh4xnR256AmJdxHN+JdrWYzkMdRiuDmYvlnUJdPWq0hD3fR1DxS5/YF6hNHMP9b1yM8eiUQVnqrbzR8C5KWJiM8JhaBcg==;")
+        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject; t=1609459201; b=FNNP5LMX1IK5bnUTZOovwYB5TNGBPInKc2fcyCd2r7zWwe1TpvhoOfqC5emuk1BUHsYzZ0uuR6C6/vMFHi6xwuqzOjnMxd+EKHBBP1ONpK4KTU8+kzSCYWHjb3dq1q8EI8wWXqSC942Lj4qZ4A3cwYia5fF2KVJoeY45T4/xS9oZiNYLrVe1Cwak7ms2zmFcc2r6yK5BAxcxRJx6Ez3/1/N0QSidaEY17HOj9R3bVAYPGarG5oS2mAxNK/iVYxCVP43pqrQwYDoxdZR89VcPQAiYZvDJXpkAs2LcUBWqaV3TDT2LLmg0orA/66LI66JYMqZ9JFr6V/+GkxFJBh8enA==;");
     }
 
     #[test]
@@ -301,7 +295,7 @@ We lost the game.  Are you hungry yet?
 
 Joe."#
             .replace('\n', "\r\n");
-        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
         let file_content = fs::read("./test/keys/ed.private").unwrap();
         let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
@@ -342,6 +336,6 @@ Joe."#
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=ed25519-sha256; d=football.example.com; s=brisbane; c=relaxed/relaxed; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; h=from:to:subject:date:message-id:from:subject:date; t=1528637909; b=wITr2H3sBuBfMsnUwlRTO7Oq/C/jd2vubDm50DrXtMFEBLRiz9GfrgCozcg764+gYqWXV3Snd1ynYh8sJ5BXBg==;")
+        assert_eq!(header, "DKIM-Signature: v=1; a=ed25519-sha256; d=football.example.com; s=brisbane; c=relaxed/relaxed; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; h=from:to:subject:date:message-id:from:subject:date; t=1528637909; b=wITr2H3sBuBfMsnUwlRTO7Oq/C/jd2vubDm50DrXtMFEBLRiz9GfrgCozcg764+gYqWXV3Snd1ynYh8sJ5BXBg==;");
     }
 }

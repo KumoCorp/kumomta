@@ -19,6 +19,7 @@ pub mod dns;
 mod errors;
 mod hash;
 mod header;
+mod parsed_email;
 mod parser;
 mod public_key;
 mod result;
@@ -28,6 +29,7 @@ mod sign;
 
 pub use errors::DKIMError;
 use header::{DKIMHeader, HEADER};
+pub use parsed_email::ParsedEmail;
 pub use parser::{tag_list as parse_tag_list, Tag};
 pub use result::DKIMResult;
 pub use sign::{Signer, SignerBuilder};
@@ -78,7 +80,7 @@ fn verify_signature(
 async fn verify_email_header<'a>(
     resolver: Arc<dyn dns::Lookup>,
     dkim_header: &'a DKIMHeader,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail<'a>,
 ) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
     let public_key = public_key::retrieve_public_key(
         Arc::clone(&resolver),
@@ -125,12 +127,12 @@ async fn verify_email_header<'a>(
 /// Run the DKIM verification on the email providing an existing resolver
 pub async fn verify_email_with_resolver<'a>(
     from_domain: &str,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail<'a>,
     resolver: Arc<dyn dns::Lookup>,
 ) -> Result<DKIMResult, DKIMError> {
     let mut last_error = None;
 
-    for h in email.headers.get_all_headers(HEADER) {
+    for h in email.get_headers().get_all_headers(HEADER) {
         let value = String::from_utf8_lossy(h.get_value_raw());
         tracing::debug!("checking signature {:?}", value);
 
@@ -175,7 +177,7 @@ pub async fn verify_email_with_resolver<'a>(
 /// Run the DKIM verification on the email
 pub async fn verify_email<'a>(
     from_domain: &str,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail<'a>,
 ) -> Result<DKIMResult, DKIMError> {
     let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
@@ -329,9 +331,9 @@ We lost the game.  Are you hungry yet?
 Joe."#
             .replace('\n', "\r\n");
 
-        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
         let h = email
-            .headers
+            .get_headers()
             .get_all_headers(HEADER)
             .first()
             .unwrap()
@@ -379,9 +381,9 @@ We lost the game. Are you hungry yet?
 Joe.
 "#
             .replace('\n', "\r\n");
-        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
         let h = email
-            .headers
+            .get_headers()
             .get_all_headers(HEADER)
             .first()
             .unwrap()

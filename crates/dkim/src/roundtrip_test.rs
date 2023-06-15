@@ -1,61 +1,57 @@
-#[cfg(test)]
-mod tests {
-    use crate::{
-        dns, verify_email_with_resolver, DKIMError, DKIMResult, DkimPrivateKey, SignerBuilder,
-    };
-    use chrono::TimeZone;
-    use futures::future::BoxFuture;
-    use regex::Regex;
-    use rsa::pkcs1::DecodeRsaPrivateKey;
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::sync::Arc;
+#![cfg(test)]
+use crate::{
+    dns, verify_email_with_resolver, DKIMError, DKIMResult, DkimPrivateKey, ParsedEmail,
+    SignerBuilder,
+};
+use chrono::TimeZone;
+use futures::future::BoxFuture;
+use regex::Regex;
+use rsa::pkcs1::DecodeRsaPrivateKey;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
 
-    fn dkim_record() -> String {
-        let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
-        let re = Regex::new(r#"".*""#).unwrap();
+fn dkim_record() -> String {
+    let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
+    let re = Regex::new(r#"".*""#).unwrap();
 
-        let mut out = "".to_owned();
-        for m in re.find_iter(&data) {
-            out += &m.as_str().replace('\"', "");
-        }
-        out
+    let mut out = "".to_owned();
+    for m in re.find_iter(&data) {
+        out += &m.as_str().replace('\"', "");
     }
+    out
+}
 
-    fn sign(domain: &str, raw_email: &str) -> String {
-        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+fn sign(domain: &str, raw_email: &str) -> String {
+    let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
-        let private_key =
-            rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
-        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+    let private_key =
+        rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
+    let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
-        let signer = SignerBuilder::new()
-            .with_signed_headers(["From", "Subject"])
-            .unwrap()
-            .with_private_key(DkimPrivateKey::Rsa(private_key))
-            .with_selector("2022")
-            .with_signing_domain(domain)
-            .with_time(time)
-            .build()
-            .unwrap();
-        let header = signer.sign(&email).unwrap();
+    let signer = SignerBuilder::new()
+        .with_signed_headers(["From", "Subject"])
+        .unwrap()
+        .with_private_key(DkimPrivateKey::Rsa(private_key))
+        .with_selector("2022")
+        .with_signing_domain(domain)
+        .with_time(time)
+        .build()
+        .unwrap();
+    let header = signer.sign(&email).unwrap();
 
-        format!("{}\n{}", header, raw_email)
-    }
+    format!("{}\n{}", header, raw_email)
+}
 
-    async fn verify(
-        resolver: Arc<dyn dns::Lookup>,
-        from_domain: &str,
-        raw_email: &str,
-    ) -> DKIMResult {
-        let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
+async fn verify(resolver: Arc<dyn dns::Lookup>, from_domain: &str, raw_email: &str) -> DKIMResult {
+    let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
-        verify_email_with_resolver(from_domain, &email, resolver)
-            .await
-            .unwrap()
-    }
+    verify_email_with_resolver(from_domain, &email, resolver)
+        .await
+        .unwrap()
+}
 
-    macro_rules! map {
+macro_rules! map {
         { $($key:expr => $value:expr),+ } => {
              {
                  let mut m = ::std::collections::HashMap::new();
@@ -67,61 +63,63 @@ mod tests {
          };
     }
 
-    fn test_resolver(db: HashMap<&'static str, String>) -> Arc<dyn dns::Lookup> {
-        struct TestResolver {
-            db: HashMap<&'static str, String>,
-        }
-        impl dns::Lookup for TestResolver {
-            fn lookup_txt<'a>(
-                &'a self,
-                name: &'a str,
-            ) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
-                let res = if let Some(value) = self.db.get(name) {
-                    vec![value.to_string()]
-                } else {
-                    unreachable!("attempted to resolve: {}", name)
-                };
-                Box::pin(async move { Ok(res) })
-            }
-        }
-        Arc::new(TestResolver { db })
+fn test_resolver(db: HashMap<&'static str, String>) -> Arc<dyn dns::Lookup> {
+    struct TestResolver {
+        db: HashMap<&'static str, String>,
     }
+    impl dns::Lookup for TestResolver {
+        fn lookup_txt<'a>(
+            &'a self,
+            name: &'a str,
+        ) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
+            let res = if let Some(value) = self.db.get(name) {
+                vec![value.to_string()]
+            } else {
+                unreachable!("attempted to resolve: {}", name)
+            };
+            Box::pin(async move { Ok(res) })
+        }
+    }
+    Arc::new(TestResolver { db })
+}
 
-    #[tokio::test]
-    async fn test_roundtrip() {
-        let resolver = test_resolver(map! {
-            "2022._domainkey.cloudflare.com" => dkim_record()
-        });
-        let from_domain = "cloudflare.com";
+#[tokio::test]
+async fn test_roundtrip() {
+    let resolver = test_resolver(map! {
+        "2022._domainkey.cloudflare.com" => dkim_record()
+    });
+    let from_domain = "cloudflare.com";
 
-        {
-            let email = r#"Subject: subject
+    {
+        let email = r#"Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
-"#;
+"#
+        .replace("\n", "\r\n");
 
-            let signed_email = sign(from_domain, email);
-            let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
-            assert_eq!(res.with_detail(), "pass")
-        }
+        let signed_email = sign(from_domain, &email);
+        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        assert_eq!(res.with_detail(), "pass")
+    }
 
-        {
-            let email = r#"Subject: subject
+    {
+        let email = r#"Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 .Hello Alice...
 .
 ...
-"#;
+"#
+        .replace("\n", "\r\n");
 
-            let signed_email = sign(from_domain, email);
-            let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
-            assert_eq!(res.with_detail(), "pass")
-        }
+        let signed_email = sign(from_domain, &email);
+        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        assert_eq!(res.with_detail(), "pass")
+    }
 
-        {
-            let email = r#"Subject: subject
+    {
+        let email = r#"Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 Mime-Version: 1.0
 Content-Type: multipart/alternative; boundary=2c637dd08e3ccac9b9425780c2e07981cb322e7feed138813fb1ab054047
@@ -167,11 +165,10 @@ ign=3D"center" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" role=3D"pre=
 sentation" style=3D"width:100%;">
 
 --2c637dd08e3ccac9b9425780c2e07981cb322e7feed138813fb1ab054047--
-"#;
+"#.replace("\n", "\r\n");
 
-            let signed_email = sign(from_domain, email);
-            let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
-            assert_eq!(res.with_detail(), "pass")
-        }
+        let signed_email = sign(from_domain, &email);
+        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        assert_eq!(res.with_detail(), "pass")
     }
 }

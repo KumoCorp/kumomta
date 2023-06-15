@@ -1,20 +1,16 @@
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-
-use base64::engine::general_purpose;
-use base64::Engine;
-use memchr::memmem::Finder;
-use sha1::{Digest as _, Sha1};
-use sha2::Sha256;
-
 use crate::canonicalization::{
     self, apply_body_relaxed, canonicalize_body_simple, canonicalize_header_relaxed,
     canonicalize_header_simple,
 };
 use crate::header::HEADER;
-use crate::{DKIMError, DKIMHeader};
+use crate::{DKIMError, DKIMHeader, ParsedEmail};
+use base64::engine::general_purpose;
+use base64::Engine;
+use sha1::{Digest as _, Sha1};
+use sha2::Sha256;
+use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum HashAlgo {
     RsaSha1,
     RsaSha256,
@@ -103,24 +99,15 @@ impl HashImpl {
     }
 }
 
-/// Get the body part of an email
-fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> &'a [u8] {
-    static CRLFCRLF: Lazy<Finder> = Lazy::new(|| memchr::memmem::Finder::new("\r\n\r\n"));
-    CRLFCRLF
-        .find(email.raw_bytes)
-        .map(|idx| &email.raw_bytes[idx + 4..])
-        .unwrap_or(b"")
-}
-
 /// Returns the hash of message's body
 /// https://datatracker.ietf.org/doc/html/rfc6376#section-3.7
 pub(crate) fn compute_body_hash<'a>(
     canonicalization_type: canonicalization::Type,
     length: Option<&str>,
     hash_algo: HashAlgo,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail<'a>,
 ) -> Result<String, DKIMError> {
-    let body = get_body(email);
+    let body = email.get_body_bytes();
 
     let limit = if let Some(length) = length {
         length
@@ -146,11 +133,11 @@ pub(crate) fn compute_body_hash<'a>(
 
 fn select_headers<'a>(
     dkim_header: &str,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail,
 ) -> Result<Vec<(String, &'a [u8])>, DKIMError> {
     let mut signed_headers = vec![];
 
-    let email_headers = &email.headers;
+    let email_headers = email.get_headers();
     let num_headers = email_headers.len();
     let mut last_index: HashMap<&str, usize> = HashMap::new();
 
@@ -180,7 +167,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     headers: &'b str,
     hash_algo: HashAlgo,
     dkim_header: &'b DKIMHeader,
-    email: &'a mailparse::ParsedMail<'a>,
+    email: &'a ParsedEmail<'a>,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
@@ -228,100 +215,82 @@ mod tests {
 
     #[test]
     fn test_compute_body_hash_simple() {
-        let email = mailparse::parse_mail(
-            r#"To: test@sauleau.com
+        let email = r#"To: test@sauleau.com
 Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let length = None;
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(
-                canonicalization_type.clone(),
-                length.clone(),
-                hash_algo,
-                &email
-            )
-            .unwrap(),
-            "uoq1oCgLlTqpdDX/iUbLy7J1Wic="
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
+            "ya82MJvChLGBNSxeRvrSat5LliQ="
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "frcCV1k9oG9oKj3dpUqdJg1PxRT2RSN/XKdLCPjaYaY="
+            "KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=",
         )
     }
 
     #[test]
     fn test_compute_body_hash_relaxed() {
-        let email = mailparse::parse_mail(
-            r#"To: test@sauleau.com
+        let email = r#"To: test@sauleau.com
 Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = None;
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(
-                canonicalization_type.clone(),
-                length.clone(),
-                hash_algo,
-                &email
-            )
-            .unwrap(),
-            "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
+            compute_body_hash(canonicalization_type, length.clone(), hash_algo, &email).unwrap(),
+            "wpj48VhihzV7I31ZZZUp1UpTyyM="
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+            "1bokzbYiRgXTKMQhrNhLJo1kjDDA1GILbpyTwyNa1uk=",
         )
     }
 
     #[test]
     fn test_compute_body_hash_length() {
-        let email = mailparse::parse_mail(
-            r#"To: test@sauleau.com
+        let email = r#"To: test@sauleau.com
 Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = Some("3");
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(canonicalization_type.clone(), length, hash_algo, &email).unwrap(),
-            "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
+            compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
+            "28LR/tDcN6cK6g83aVjIAu3cBVk="
         );
         let hash_algo = HashAlgo::RsaSha256;
         assert_eq!(
             compute_body_hash(canonicalization_type, length, hash_algo, &email).unwrap(),
-            "47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+            "t4nCTc22jEQ3sEwYa/I5pyB+dXP7GyKnSf4ae42W0pI=",
         )
     }
 
     #[test]
     fn test_compute_body_hash_empty_simple() {
-        let email = mailparse::parse_mail(&[]).unwrap();
+        let email = ParsedEmail::parse_bytes(b"Subject: nothing\r\n\r\n").unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let length = None;
@@ -345,7 +314,7 @@ Hello Alice
 
     #[test]
     fn test_compute_body_hash_empty_relaxed() {
-        let email = mailparse::parse_mail(&[]).unwrap();
+        let email = ParsedEmail::parse_bytes(b"Subject: nothing\r\n\r\n").unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = None;
@@ -369,16 +338,14 @@ Hello Alice
 
     #[test]
     fn test_compute_headers_hash_simple() {
-        let email = mailparse::parse_mail(
-            r#"To: test@sauleau.com
+        let email = r#"To: test@sauleau.com
 Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
@@ -416,16 +383,14 @@ Hello Alice
 
     #[test]
     fn test_compute_headers_hash_relaxed() {
-        let email = mailparse::parse_mail(
-            r#"To: test@sauleau.com
+        let email = r#"To: test@sauleau.com
 Subject: subject
 From: Sven Sauleau <sven@cloudflare.com>
 
 Hello Alice
         "#
-            .as_bytes(),
-        )
-        .unwrap();
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
@@ -463,10 +428,10 @@ Hello Alice
 
     #[test]
     fn test_get_body() {
-        let email =
-            mailparse::parse_mail("Subject: A\r\n\r\nContent\n.hi\n.hello..".as_bytes()).unwrap();
+        let email = ParsedEmail::parse_bytes("Subject: A\r\n\r\nContent\n.hi\n.hello..".as_bytes())
+            .unwrap();
         assert_eq!(
-            String::from_utf8_lossy(get_body(&email)),
+            String::from_utf8_lossy(email.get_body_bytes()),
             "Content\n.hi\n.hello..".to_owned()
         );
     }
@@ -474,7 +439,7 @@ Hello Alice
     #[test]
     fn test_select_headers() {
         let dkim_headers1 = ["from", "subject", "to", "from"].join(":");
-        let email1 = mailparse::parse_mail(
+        let email1 = ParsedEmail::parse_bytes(
             b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
         )
         .unwrap();
@@ -491,7 +456,8 @@ Hello Alice
 
         let dkim_headers2 = ["from", "subject", "to", "from"].join(":");
         let email2 =
-            mailparse::parse_mail(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest").unwrap();
+            ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
+                .unwrap();
 
         let result2 = select_headers(&dkim_headers2, &email2).unwrap();
         assert_eq!(
