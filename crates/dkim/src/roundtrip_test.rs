@@ -11,10 +11,6 @@ mod tests {
     use std::path::Path;
     use std::sync::Arc;
 
-    fn test_logger() -> slog::Logger {
-        slog::Logger::root(slog::Discard, slog::o!())
-    }
-
     fn dkim_record() -> String {
         let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
         let re = Regex::new(r#"".*""#).unwrap();
@@ -52,10 +48,9 @@ mod tests {
         from_domain: &str,
         raw_email: &str,
     ) -> DKIMResult {
-        let logger = test_logger();
         let email = mailparse::parse_mail(raw_email.as_bytes()).unwrap();
 
-        verify_email_with_resolver(&logger, from_domain, &email, resolver)
+        verify_email_with_resolver(from_domain, &email, resolver)
             .await
             .unwrap()
     }

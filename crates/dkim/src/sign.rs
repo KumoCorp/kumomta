@@ -245,7 +245,6 @@ impl Signer {
         let signed_headers = dkim_header.get_required_tag("h");
 
         hash::compute_headers_hash(
-            None,
             canonicalization,
             &signed_headers,
             self.hash_algo.clone(),

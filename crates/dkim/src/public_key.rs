@@ -1,7 +1,6 @@
 use base64::engine::general_purpose;
 use base64::Engine;
 use rsa::{pkcs1, pkcs8};
-use slog::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -12,7 +11,6 @@ const ED25519_KEY_TYPE: &str = "ed25519";
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.2
 pub(crate) async fn retrieve_public_key(
-    logger: &slog::Logger,
     resolver: Arc<dyn dns::Lookup>,
     domain: String,
     subdomain: String,
@@ -22,11 +20,11 @@ pub(crate) async fn retrieve_public_key(
     // TODO: Return multiple keys for when verifiying the signatures. During key
     // rotation they are often multiple keys to consider.
     let txt = res.first().ok_or(DKIMError::NoKeyForSignature)?;
-    debug!(logger, "DKIM TXT: {:?}", txt);
+    tracing::debug!("DKIM TXT: {:?}", txt);
 
     // Parse the tags inside the DKIM TXT DNS record
     let (_, tags) = parser::tag_list(txt).map_err(|err| {
-        warn!(logger, "key syntax error: {}", err);
+        tracing::warn!("key syntax error: {}", err);
         DKIMError::KeySyntaxError
     })?;
 
@@ -95,16 +93,10 @@ mod tests {
             }
         }
         let resolver = Arc::new(TestResolver {});
-        let logger = slog::Logger::root(slog::Discard, slog::o!());
 
-        retrieve_public_key(
-            &logger,
-            resolver,
-            "cloudflare.com".to_string(),
-            "dkim".to_string(),
-        )
-        .await
-        .unwrap();
+        retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -122,16 +114,10 @@ mod tests {
             }
         }
         let resolver = Arc::new(TestResolver {});
-        let logger = slog::Logger::root(slog::Discard, slog::o!());
 
-        let key = retrieve_public_key(
-            &logger,
-            resolver,
-            "cloudflare.com".to_string(),
-            "dkim".to_string(),
-        )
-        .await
-        .unwrap_err();
+        let key = retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+            .await
+            .unwrap_err();
         assert_eq!(key, DKIMError::KeyIncompatibleVersion);
     }
 
@@ -150,16 +136,10 @@ mod tests {
             }
         }
         let resolver = Arc::new(TestResolver {});
-        let logger = slog::Logger::root(slog::Discard, slog::o!());
 
-        let key = retrieve_public_key(
-            &logger,
-            resolver,
-            "cloudflare.com".to_string(),
-            "dkim".to_string(),
-        )
-        .await
-        .unwrap_err();
+        let key = retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+            .await
+            .unwrap_err();
         assert_eq!(key, DKIMError::InappropriateKeyAlgorithm);
     }
 }

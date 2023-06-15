@@ -674,8 +674,8 @@ dependencies = [
  "rsa",
  "sha-1",
  "sha2 0.10.6",
- "slog",
  "tokio",
+ "tracing",
  "trust-dns-resolver",
 ]
 

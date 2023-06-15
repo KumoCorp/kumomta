@@ -6,7 +6,6 @@ use indexmap::map::IndexMap;
 use rsa::{Pkcs1v15Sign, PublicKey, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
-use slog::debug;
 use std::collections::HashSet;
 use std::sync::Arc;
 use trust_dns_resolver::TokioAsyncResolver;
@@ -159,13 +158,11 @@ fn verify_signature(
 }
 
 async fn verify_email_header<'a>(
-    logger: &'a slog::Logger,
     resolver: Arc<dyn dns::Lookup>,
     dkim_header: &'a DKIMHeader,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
     let public_key = public_key::retrieve_public_key(
-        logger,
         Arc::clone(&resolver),
         dkim_header.get_required_tag("d"),
         dkim_header.get_required_tag("s"),
@@ -182,14 +179,13 @@ async fn verify_email_header<'a>(
         email,
     )?;
     let computed_headers_hash = hash::compute_headers_hash(
-        Some(logger),
         header_canonicalization_type.clone(),
         &dkim_header.get_required_tag("h"),
         hash_algo.clone(),
         dkim_header,
         email,
     )?;
-    debug!(logger, "body_hash {:?}", computed_body_hash);
+    tracing::debug!("body_hash {:?}", computed_body_hash);
 
     let header_body_hash = dkim_header.get_required_tag("bh");
     if header_body_hash != computed_body_hash {
@@ -210,7 +206,6 @@ async fn verify_email_header<'a>(
 
 /// Run the DKIM verification on the email providing an existing resolver
 pub async fn verify_email_with_resolver<'a>(
-    logger: &slog::Logger,
     from_domain: &str,
     email: &'a mailparse::ParsedMail<'a>,
     resolver: Arc<dyn dns::Lookup>,
@@ -219,12 +214,12 @@ pub async fn verify_email_with_resolver<'a>(
 
     for h in email.headers.get_all_headers(HEADER) {
         let value = String::from_utf8_lossy(h.get_value_raw());
-        debug!(logger, "checking signature {:?}", value);
+        tracing::debug!("checking signature {:?}", value);
 
         let dkim_header = match validate_header(&value) {
             Ok(v) => v,
             Err(err) => {
-                debug!(logger, "failed to verify: {}", err);
+                tracing::debug!("failed to verify: {}", err);
                 last_error = Some(err);
                 continue;
             }
@@ -236,7 +231,7 @@ pub async fn verify_email_with_resolver<'a>(
             continue;
         }
 
-        match verify_email_header(logger, Arc::clone(&resolver), &dkim_header, email).await {
+        match verify_email_header(Arc::clone(&resolver), &dkim_header, email).await {
             Ok((header_canonicalization_type, body_canonicalization_type)) => {
                 return Ok(DKIMResult::pass(
                     signing_domain,
@@ -245,7 +240,7 @@ pub async fn verify_email_with_resolver<'a>(
                 ))
             }
             Err(err) => {
-                debug!(logger, "failed to verify: {}", err);
+                tracing::debug!("failed to verify: {}", err);
                 last_error = Some(err);
                 continue;
             }
@@ -261,7 +256,6 @@ pub async fn verify_email_with_resolver<'a>(
 
 /// Run the DKIM verification on the email
 pub async fn verify_email<'a>(
-    logger: &slog::Logger,
     from_domain: &str,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<DKIMResult, DKIMError> {
@@ -270,7 +264,7 @@ pub async fn verify_email<'a>(
     })?;
     let resolver = dns::from_tokio_resolver(resolver);
 
-    verify_email_with_resolver(logger, from_domain, email, resolver).await
+    verify_email_with_resolver(from_domain, email, resolver).await
 }
 
 #[cfg(test)]
@@ -429,7 +423,6 @@ Joe."#
         let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
 
         let dkim_verify_result = verify_email_header(
-            &slog::Logger::root(slog::Discard, slog::o!()),
             Arc::clone(&resolver),
             &validate_header(&raw_header_dkim).unwrap(),
             &email,
@@ -480,7 +473,6 @@ Joe.
         let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
 
         let dkim_verify_result = verify_email_header(
-            &slog::Logger::root(slog::Discard, slog::o!()),
             Arc::clone(&resolver),
             &validate_header(&raw_header_rsa).unwrap(),
             &email,
