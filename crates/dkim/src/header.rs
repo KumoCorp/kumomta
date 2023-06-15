@@ -3,15 +3,83 @@ use indexmap::map::IndexMap;
 use std::io::Write;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
-pub(crate) const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
+const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
+const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 
 #[derive(Debug, Clone)]
 pub(crate) struct DKIMHeader {
-    pub tags: IndexMap<String, parser::Tag>,
+    tags: IndexMap<String, parser::Tag>,
     pub raw_bytes: String,
 }
 
 impl DKIMHeader {
+    /// <https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1>
+    pub fn parse(value: &str) -> Result<Self, DKIMError> {
+        let (_, tags) = parser::tag_list(value)
+            .map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?;
+
+        let mut tags_map = IndexMap::new();
+        for tag in &tags {
+            tags_map.insert(tag.name.clone(), tag.clone());
+        }
+        let header = DKIMHeader {
+            tags: tags_map,
+            raw_bytes: value.to_owned(),
+        };
+
+        header.validate_required_tags()?;
+
+        // Check version
+        {
+            let version = header.get_required_tag("v");
+            if version != "1" {
+                return Err(DKIMError::IncompatibleVersion);
+            }
+        }
+
+        // Check that "d=" tag is the same as or a parent domain of the domain part
+        // of the "i=" tag
+        if let Some(user) = header.get_tag("i") {
+            let signing_domain = header.get_required_tag("d");
+            // TODO: naive check, should switch to parsing the domains/email
+            if !user.ends_with(&signing_domain) {
+                return Err(DKIMError::DomainMismatch);
+            }
+        }
+
+        // Check that "h=" tag includes the From header
+        {
+            let value = header.get_required_tag("h");
+            let headers = value.split(':');
+            let headers: Vec<String> = headers.map(|h| h.to_lowercase()).collect();
+            if !headers.contains(&"from".to_string()) {
+                return Err(DKIMError::FromFieldNotSigned);
+            }
+        }
+
+        if let Some(query_method) = header.get_tag("q") {
+            if query_method != "dns/txt" {
+                return Err(DKIMError::UnsupportedQueryMethod);
+            }
+        }
+
+        // Check that "x=" tag isn't expired
+        if let Some(expiration) = header.get_tag("x") {
+            let mut expiration = chrono::NaiveDateTime::from_timestamp_opt(
+                expiration.parse::<i64>().unwrap_or_default(),
+                0,
+            )
+            .ok_or(DKIMError::SignatureExpired)?;
+            expiration += chrono::Duration::minutes(SIGN_EXPIRATION_DRIFT_MINS);
+            let now = chrono::Utc::now().naive_utc();
+            if now > expiration {
+                return Err(DKIMError::SignatureExpired);
+            }
+        }
+
+        Ok(header)
+    }
+
     pub fn get_tag(&self, name: &str) -> Option<&str> {
         self.tags.get(name).map(|v| v.value.as_str())
     }
@@ -27,6 +95,15 @@ impl DKIMHeader {
             Some(value) => value,
             None => panic!("required tag {name} is not present"),
         }
+    }
+
+    fn validate_required_tags(&self) -> Result<(), DKIMError> {
+        for required in REQUIRED_TAGS {
+            if self.get_tag(required).is_none() {
+                return Err(DKIMError::SignatureMissingRequiredTag(required));
+            }
+        }
+        Ok(())
     }
 }
 

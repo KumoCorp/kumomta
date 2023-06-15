@@ -2,11 +2,9 @@
 
 use base64::engine::general_purpose;
 use base64::Engine;
-use indexmap::map::IndexMap;
 use rsa::{Pkcs1v15Sign, PublicKey, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
-use std::collections::HashSet;
 use std::sync::Arc;
 use trust_dns_resolver::TokioAsyncResolver;
 
@@ -29,12 +27,11 @@ mod roundtrip_test;
 mod sign;
 
 pub use errors::DKIMError;
-use header::{DKIMHeader, HEADER, REQUIRED_TAGS};
+use header::{DKIMHeader, HEADER};
 pub use parser::{tag_list as parse_tag_list, Tag};
 pub use result::DKIMResult;
 pub use sign::{Signer, SignerBuilder};
 
-const SIGN_EXPIRATION_DRIFT_MINS: i64 = 15;
 const DNS_NAMESPACE: &str = "_domainkey";
 
 #[derive(Debug)]
@@ -47,85 +44,6 @@ pub(crate) enum DkimPublicKey {
 pub enum DkimPrivateKey {
     Rsa(RsaPrivateKey),
     Ed25519(ed25519_dalek::Keypair),
-}
-
-// https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.1
-fn validate_header(value: &str) -> Result<DKIMHeader, DKIMError> {
-    let (_, tags) =
-        parser::tag_list(value).map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?;
-
-    // Check presence of required tags
-    {
-        let mut tag_names: HashSet<String> = HashSet::new();
-        for tag in &tags {
-            tag_names.insert(tag.name.clone());
-        }
-        for required in REQUIRED_TAGS {
-            if tag_names.get(*required).is_none() {
-                return Err(DKIMError::SignatureMissingRequiredTag(required));
-            }
-        }
-    }
-
-    let mut tags_map = IndexMap::new();
-    for tag in &tags {
-        tags_map.insert(tag.name.clone(), tag.clone());
-    }
-    let header = DKIMHeader {
-        tags: tags_map,
-        raw_bytes: value.to_owned(),
-    };
-    // FIXME: we could get the keys instead of generating tag_names ourselves
-
-    // Check version
-    {
-        let version = header.get_required_tag("v");
-        if version != "1" {
-            return Err(DKIMError::IncompatibleVersion);
-        }
-    }
-
-    // Check that "d=" tag is the same as or a parent domain of the domain part
-    // of the "i=" tag
-    if let Some(user) = header.get_tag("i") {
-        let signing_domain = header.get_required_tag("d");
-        // TODO: naive check, should switch to parsing the domains/email
-        if !user.ends_with(&signing_domain) {
-            return Err(DKIMError::DomainMismatch);
-        }
-    }
-
-    // Check that "h=" tag includes the From header
-    {
-        let value = header.get_required_tag("h");
-        let headers = value.split(':');
-        let headers: Vec<String> = headers.map(|h| h.to_lowercase()).collect();
-        if !headers.contains(&"from".to_string()) {
-            return Err(DKIMError::FromFieldNotSigned);
-        }
-    }
-
-    if let Some(query_method) = header.get_tag("q") {
-        if query_method != "dns/txt" {
-            return Err(DKIMError::UnsupportedQueryMethod);
-        }
-    }
-
-    // Check that "x=" tag isn't expired
-    if let Some(expiration) = header.get_tag("x") {
-        let mut expiration = chrono::NaiveDateTime::from_timestamp_opt(
-            expiration.parse::<i64>().unwrap_or_default(),
-            0,
-        )
-        .ok_or(DKIMError::SignatureExpired)?;
-        expiration += chrono::Duration::minutes(SIGN_EXPIRATION_DRIFT_MINS);
-        let now = chrono::Utc::now().naive_utc();
-        if now > expiration {
-            return Err(DKIMError::SignatureExpired);
-        }
-    }
-
-    Ok(header)
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4
@@ -216,7 +134,7 @@ pub async fn verify_email_with_resolver<'a>(
         let value = String::from_utf8_lossy(h.get_value_raw());
         tracing::debug!("checking signature {:?}", value);
 
-        let dkim_header = match validate_header(&value) {
+        let dkim_header = match DKIMHeader::parse(&value) {
             Ok(v) => v,
             Err(err) => {
                 tracing::debug!("failed to verify: {}", err);
@@ -316,14 +234,14 @@ bh=MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=;
 b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
       VoG4ZHRNiYzR
         "#;
-        validate_header(header).unwrap();
+        DKIMHeader::parse(header).unwrap();
     }
 
     #[test]
     fn test_validate_header_missing_tag() {
         let header = "v=1; a=rsa-sha256; bh=a; b=b";
         assert_eq!(
-            validate_header(header).unwrap_err(),
+            DKIMHeader::parse(header).unwrap_err(),
             DKIMError::SignatureMissingRequiredTag("d")
         );
     }
@@ -333,7 +251,7 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         let header = r#"v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@hein.com; h=headers; bh=hash; b=hash
         "#;
         assert_eq!(
-            validate_header(header).unwrap_err(),
+            DKIMHeader::parse(header).unwrap_err(),
             DKIMError::DomainMismatch
         );
     }
@@ -343,7 +261,7 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         let header = r#"v=3; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=headers; bh=hash; b=hash
         "#;
         assert_eq!(
-            validate_header(header).unwrap_err(),
+            DKIMHeader::parse(header).unwrap_err(),
             DKIMError::IncompatibleVersion
         );
     }
@@ -353,7 +271,7 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         let header = r#"v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=Subject:A:B; bh=hash; b=hash
         "#;
         assert_eq!(
-            validate_header(header).unwrap_err(),
+            DKIMHeader::parse(header).unwrap_err(),
             DKIMError::FromFieldNotSigned
         );
     }
@@ -365,7 +283,7 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
 
         let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.timestamp());
 
-        assert!(validate_header(&header).is_ok());
+        assert!(DKIMHeader::parse(&header).is_ok());
     }
 
     #[test]
@@ -376,7 +294,7 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
         let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.timestamp());
 
         assert_eq!(
-            validate_header(&header).unwrap_err(),
+            DKIMHeader::parse(&header).unwrap_err(),
             DKIMError::SignatureExpired
         );
     }
@@ -424,7 +342,7 @@ Joe."#
 
         let dkim_verify_result = verify_email_header(
             Arc::clone(&resolver),
-            &validate_header(&raw_header_dkim).unwrap(),
+            &DKIMHeader::parse(&raw_header_dkim).unwrap(),
             &email,
         )
         .await;
@@ -474,7 +392,7 @@ Joe.
 
         let dkim_verify_result = verify_email_header(
             Arc::clone(&resolver),
-            &validate_header(&raw_header_rsa).unwrap(),
+            &DKIMHeader::parse(&raw_header_rsa).unwrap(),
             &email,
         )
         .await;
