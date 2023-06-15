@@ -122,12 +122,11 @@ pub(crate) fn compute_body_hash<'a>(
 // include the header field name multiple times in the "h=" tag of the
 // DKIM-Signature header field and MUST sign such header fields in order
 // from the bottom of the header field block to the top.
-fn select_headers<'a>(
+fn select_headers<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
     header_list: &[String],
     email: &'a ParsedEmail,
-) -> Result<Vec<(std::borrow::Cow<'a, str>, &'a [u8])>, DKIMError> {
-    let mut signed_headers = vec![];
-
+    mut apply: F,
+) {
     let email_headers = email.get_headers();
     let num_headers = email_headers.len();
 
@@ -145,7 +144,7 @@ fn select_headers<'a>(
             .skip(num_headers - index)
         {
             if header.get_key_ref().eq_ignore_ascii_case(&name) {
-                signed_headers.push((header.get_key_ref(), header.get_value_raw()));
+                apply(header.get_key_ref(), header.get_value_raw());
                 last_index.insert(name, header_index);
                 continue 'outer;
             }
@@ -158,8 +157,6 @@ fn select_headers<'a>(
 
         last_index.insert(name, 0);
     }
-
-    Ok(signed_headers)
 }
 
 pub(crate) fn compute_headers_hash<'a, 'b>(
@@ -172,9 +169,9 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
-    for (key, value) in select_headers(headers, email)? {
+    select_headers(headers, email, |key, value| {
         canonicalization_type.canon_header_into(&key, value, &mut input);
-    }
+    });
 
     // Add the DKIM-Signature header in the hash. Remove the value of the
     // signature (b) first.
@@ -428,7 +425,18 @@ Hello Alice
         )
         .unwrap();
 
-        let result1 = select_headers(&header_list, &email1).unwrap();
+        fn select_headers<'a>(
+            header_list: &[String],
+            email: &'a ParsedEmail,
+        ) -> Vec<(std::borrow::Cow<'a, str>, &'a [u8])> {
+            let mut result = vec![];
+            super::select_headers(header_list, email, |key, value| {
+                result.push((key, value));
+            });
+            result
+        }
+
+        let result1 = select_headers(&header_list, &email1);
         assert_eq!(
             result1,
             vec![
@@ -442,7 +450,7 @@ Hello Alice
             ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
                 .unwrap();
 
-        let result2 = select_headers(&header_list, &email2).unwrap();
+        let result2 = select_headers(&header_list, &email2);
         assert_eq!(
             result2,
             vec![
