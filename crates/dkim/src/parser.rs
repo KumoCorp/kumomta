@@ -113,20 +113,20 @@ pub(crate) fn parse_hash_algo(value: &str) -> Result<hash::HashAlgo, DKIMError> 
 /// Parses the canonicalization value (passed in c=) and returns canonicalization
 /// for (Header, Body)
 pub(crate) fn parse_canonicalization(
-    value: Option<String>,
+    value: Option<&str>,
 ) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
     use canonicalization::Type::{Relaxed, Simple};
-    if value.is_none() {
-        return Ok((Simple, Simple));
-    }
-    match value.unwrap().as_str() {
-        "simple/simple" => Ok((Simple, Simple)),
-        "relaxed/simple" => Ok((Relaxed, Simple)),
-        "simple/relaxed" => Ok((Simple, Relaxed)),
-        "relaxed/relaxed" => Ok((Relaxed, Relaxed)),
-        "relaxed" => Ok((Relaxed, Simple)),
-        "simple" => Ok((Simple, Simple)),
-        v => Err(DKIMError::UnsupportedCanonicalizationType(v.to_owned())),
+    match value {
+        None => Ok((Simple, Simple)),
+        Some(s) => match s {
+            "simple/simple" => Ok((Simple, Simple)),
+            "relaxed/simple" => Ok((Relaxed, Simple)),
+            "simple/relaxed" => Ok((Simple, Relaxed)),
+            "relaxed/relaxed" => Ok((Relaxed, Relaxed)),
+            "relaxed" => Ok((Relaxed, Simple)),
+            "simple" => Ok((Simple, Simple)),
+            v => Err(DKIMError::UnsupportedCanonicalizationType(v.to_owned())),
+        },
     }
 }
 
@@ -145,11 +145,11 @@ mod tests {
         use canonicalization::Type::{Relaxed, Simple};
 
         assert_eq!(
-            parse_canonicalization(Some("simple".to_string())).unwrap(),
+            parse_canonicalization(Some("simple")).unwrap(),
             (Simple, Simple)
         );
         assert_eq!(
-            parse_canonicalization(Some("relaxed".to_string())).unwrap(),
+            parse_canonicalization(Some("relaxed")).unwrap(),
             (Relaxed, Simple)
         );
     }

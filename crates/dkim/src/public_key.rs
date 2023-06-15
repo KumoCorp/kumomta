@@ -12,8 +12,8 @@ const ED25519_KEY_TYPE: &str = "ed25519";
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.2
 pub(crate) async fn retrieve_public_key(
     resolver: Arc<dyn dns::Lookup>,
-    domain: String,
-    subdomain: String,
+    domain: &str,
+    subdomain: &str,
 ) -> Result<DkimPublicKey, DKIMError> {
     let dns_name = format!("{}.{}.{}", subdomain, DNS_NAMESPACE, domain);
     let res = resolver.lookup_txt(&dns_name).await?;
@@ -94,7 +94,7 @@ mod tests {
         }
         let resolver = Arc::new(TestResolver {});
 
-        retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+        retrieve_public_key(resolver, "cloudflare.com", "dkim")
             .await
             .unwrap();
     }
@@ -115,7 +115,7 @@ mod tests {
         }
         let resolver = Arc::new(TestResolver {});
 
-        let key = retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+        let key = retrieve_public_key(resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::KeyIncompatibleVersion);
@@ -137,7 +137,7 @@ mod tests {
         }
         let resolver = Arc::new(TestResolver {});
 
-        let key = retrieve_public_key(resolver, "cloudflare.com".to_string(), "dkim".to_string())
+        let key = retrieve_public_key(resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::InappropriateKeyAlgorithm);

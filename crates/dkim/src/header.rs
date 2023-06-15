@@ -1,43 +1,49 @@
 use crate::{parser, DKIMError};
 use indexmap::map::IndexMap;
+use std::io::Write;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
 pub(crate) const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
 
 #[derive(Debug, Clone)]
-pub struct DKIMHeader {
-    pub(crate) tags: IndexMap<String, parser::Tag>,
-    pub(crate) raw_bytes: String,
+pub(crate) struct DKIMHeader {
+    pub tags: IndexMap<String, parser::Tag>,
+    pub raw_bytes: String,
 }
 
 impl DKIMHeader {
-    pub(crate) fn get_tag(&self, name: &str) -> Option<String> {
-        self.tags.get(name).map(|v| v.value.clone())
+    pub fn get_tag(&self, name: &str) -> Option<&str> {
+        self.tags.get(name).map(|v| v.value.as_str())
     }
 
-    pub(crate) fn get_raw_tag(&self, name: &str) -> Option<String> {
-        self.tags.get(name).map(|v| v.raw_value.clone())
+    pub fn get_raw_tag(&self, name: &str) -> Option<&str> {
+        self.tags.get(name).map(|v| v.raw_value.as_str())
     }
 
-    pub(crate) fn get_required_tag(&self, name: &str) -> String {
+    pub fn get_required_tag(&self, name: &str) -> &str {
         // Required tags are guaranteed by the parser to be present so it's safe
         // to assert and unwrap.
-        debug_assert!(REQUIRED_TAGS.contains(&name));
-        self.tags.get(name).unwrap().value.clone()
+        match self.get_tag(name) {
+            Some(value) => value,
+            None => panic!("required tag {name} is not present"),
+        }
     }
 }
 
 /// Generate the DKIM-Signature header from the tags
-fn serialize(header: DKIMHeader) -> String {
-    let mut out = "".to_owned();
+fn serialize(header: DKIMHeader) -> Result<String, DKIMError> {
+    let mut out = vec![];
 
     for (key, tag) in &header.tags {
-        out += &format!("{}={};", key, tag.value);
-        out += " ";
+        if !out.is_empty() {
+            out.push(b' ');
+        }
+        write!(&mut out, "{}={};", key, tag.value)
+            .map_err(|err| DKIMError::HeaderSerializeError(format!("while appending: {err:#}")))?;
     }
 
-    out.pop(); // remove trailing whitespace
-    out
+    String::from_utf8(out)
+        .map_err(|err| DKIMError::HeaderSerializeError(format!("converting to string: {err:#}")))
 }
 
 #[derive(Clone)]
@@ -86,7 +92,7 @@ impl DKIMHeaderBuilder {
     }
 
     pub(crate) fn build(mut self) -> Result<DKIMHeader, DKIMError> {
-        self.header.raw_bytes = serialize(self.header.clone());
+        self.header.raw_bytes = serialize(self.header.clone())?;
         Ok(self.header)
     }
 }

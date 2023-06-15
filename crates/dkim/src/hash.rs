@@ -106,7 +106,7 @@ fn get_body<'a>(email: &'a mailparse::ParsedMail<'a>) -> &'a [u8] {
 /// https://datatracker.ietf.org/doc/html/rfc6376#section-3.7
 pub(crate) fn compute_body_hash<'a>(
     canonicalization_type: canonicalization::Type,
-    length: Option<String>,
+    length: Option<&str>,
     hash_algo: HashAlgo,
     email: &'a mailparse::ParsedMail<'a>,
 ) -> Result<String, DKIMError> {
@@ -296,16 +296,10 @@ Hello Alice
         .unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
-        let length = Some("3".to_owned());
+        let length = Some("3");
         let hash_algo = HashAlgo::RsaSha1;
         assert_eq!(
-            compute_body_hash(
-                canonicalization_type.clone(),
-                length.clone(),
-                hash_algo,
-                &email
-            )
-            .unwrap(),
+            compute_body_hash(canonicalization_type.clone(), length, hash_algo, &email).unwrap(),
             "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
         );
         let hash_algo = HashAlgo::RsaSha256;

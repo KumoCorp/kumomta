@@ -12,34 +12,34 @@ pub struct DKIMResult {
 impl DKIMResult {
     /// Constructs a `pass` result
     pub fn pass(
-        domain_used: String,
+        domain_used: &str,
         header_canonicalization_type: canonicalization::Type,
         body_canonicalization_type: canonicalization::Type,
     ) -> Self {
         DKIMResult {
             value: "pass",
             error: None,
-            domain_used,
+            domain_used: domain_used.to_string(),
             header_canonicalization_type: Some(header_canonicalization_type),
             body_canonicalization_type: Some(body_canonicalization_type),
         }
     }
     /// Constructs a `neutral` result
-    pub fn neutral(domain_used: String) -> Self {
+    pub fn neutral(domain_used: &str) -> Self {
         DKIMResult {
             value: "neutral",
             error: None,
-            domain_used,
+            domain_used: domain_used.to_string(),
             header_canonicalization_type: None,
             body_canonicalization_type: None,
         }
     }
     /// Constructs a `fail` result with a reason
-    pub fn fail(reason: DKIMError, domain_used: String) -> Self {
+    pub fn fail(reason: DKIMError, domain_used: &str) -> Self {
         DKIMResult {
             value: "fail",
             error: Some(reason),
-            domain_used,
+            domain_used: domain_used.to_string(),
             header_canonicalization_type: None,
             body_canonicalization_type: None,
         }

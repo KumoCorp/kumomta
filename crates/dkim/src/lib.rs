@@ -248,9 +248,9 @@ pub async fn verify_email_with_resolver<'a>(
     }
 
     if let Some(err) = last_error {
-        Ok(DKIMResult::fail(err, from_domain.to_owned()))
+        Ok(DKIMResult::fail(err, from_domain))
     } else {
-        Ok(DKIMResult::neutral(from_domain.to_owned()))
+        Ok(DKIMResult::neutral(from_domain))
     }
 }
 

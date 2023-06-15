@@ -71,6 +71,9 @@ quick_error! {
         BuilderError(err: &'static str) {
             display("failed to build object: {}", err)
         }
+        HeaderSerializeError(err: String) {
+            display("failed to serialize DKIM header: {err}")
+        }
     }
 }
 
@@ -95,8 +98,11 @@ impl DKIMError {
             | MalformedBody
             | UnsupportedCanonicalizationType(_)
             | UnsupportedHashAlgorithm(_) => Status::Permfail,
-            KeyUnavailable(_) | UnknownInternalError(_) => Status::Tempfail,
-            BuilderError(_) | FailedToSign(_) => unreachable!(),
+            KeyUnavailable(_)
+            | UnknownInternalError(_)
+            | BuilderError(_)
+            | FailedToSign(_)
+            | HeaderSerializeError(_) => Status::Tempfail,
         }
     }
 }
