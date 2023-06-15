@@ -117,51 +117,127 @@ pub(crate) fn compute_body_hash<'a>(
     Ok(hasher.finalize())
 }
 
-// Section 5.4.2:
-// Signers wishing to sign multiple instances of such a header field MUST
-// include the header field name multiple times in the "h=" tag of the
-// DKIM-Signature header field and MUST sign such header fields in order
-// from the bottom of the header field block to the top.
-fn select_headers<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
-    header_list: &[String],
-    email: &'a ParsedEmail,
-    mut apply: F,
-) {
-    let email_headers = email.get_headers();
-    let num_headers = email_headers.len();
+/// Holds a list of header names, normalized to lower case
+pub(crate) enum HeaderList {
+    /// A list of possibly duplicated header names
+    MaybeMultiple(Vec<String>),
+    /// A list of of unique header names
+    Unique(Vec<String>),
+}
 
-    // Note: this map only works correctly if the header names are normalized
-    // to lower case.  That happens in SignerBuilder::with_signed_headers
-    // and in verify_email_header().
-    let mut last_index: HashMap<&String, usize> = HashMap::new();
+impl HeaderList {
+    pub fn as_h_list(&self) -> String {
+        match self {
+            Self::MaybeMultiple(list) | Self::Unique(list) => list.join(":"),
+        }
+    }
 
-    'outer: for name in header_list {
-        let index = last_index.get(name).unwrap_or(&num_headers);
-        for (header_index, header) in email_headers
-            .iter()
-            .enumerate()
-            .rev()
-            .skip(num_headers - index)
-        {
-            if header.get_key_ref().eq_ignore_ascii_case(&name) {
-                apply(header.get_key_ref(), header.get_value_raw());
-                last_index.insert(name, header_index);
-                continue 'outer;
+    /// Build a header list.
+    /// Analyzes the list to determine whether it is a unique list or not
+    pub fn new(list: Vec<String>) -> Self {
+        let normalized: Vec<String> = list.into_iter().map(|s| s.to_ascii_lowercase()).collect();
+
+        let mut all_single = true;
+        for name in &normalized {
+            let n: usize = normalized
+                .iter()
+                .map(|candidate| if candidate == name { 1 } else { 0 })
+                .sum();
+            if n > 1 {
+                all_single = false;
+                break;
             }
         }
 
-        // When computing the signature, the nonexisting header field MUST be
-        // treated as the null string (including the header field name, header
-        // field value, all punctuation, and the trailing CRLF).
-        // -> don't include it in the returned signed_headers.
+        if all_single {
+            Self::Unique(normalized)
+        } else {
+            Self::MaybeMultiple(normalized)
+        }
+    }
 
-        last_index.insert(name, 0);
+    /// Apply `apply` to each header in the provided email that
+    /// matches the headers, follow the order set out in Section 5.4.2
+    fn apply<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
+        &self,
+        email: &'a ParsedEmail,
+        apply: F,
+    ) {
+        match self {
+            Self::MaybeMultiple(list) => Self::apply_multiple(list, email, apply),
+            Self::Unique(list) => Self::apply_unique(list, email, apply),
+        }
+    }
+
+    /// Perform the apply when we know that the list of header names
+    /// are unique.
+    /// We can avoid allocating any additional state for this case.
+    fn apply_unique<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
+        header_list: &[String],
+        email: &'a ParsedEmail,
+        mut apply: F,
+    ) {
+        let email_headers = email.get_headers();
+
+        'outer: for name in header_list {
+            for header in email_headers.iter().rev() {
+                if header.get_key_ref().eq_ignore_ascii_case(&name) {
+                    apply(header.get_key_ref(), header.get_value_raw());
+                    continue 'outer;
+                }
+            }
+        }
+    }
+
+    /// Section 5.4.2:
+    /// Signers wishing to sign multiple instances of such a header field MUST
+    /// include the header field name multiple times in the "h=" tag of the
+    /// DKIM-Signature header field and MUST sign such header fields in order
+    /// from the bottom of the header field block to the top.
+    ///
+    /// To facilitate this, we need to maintain state for each header name
+    /// in the list to ensure that we select the appropriate header in the
+    /// appropriate order.
+    fn apply_multiple<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
+        header_list: &[String],
+        email: &'a ParsedEmail,
+        mut apply: F,
+    ) {
+        let email_headers = email.get_headers();
+        let num_headers = email_headers.len();
+
+        // Note: this map only works correctly if the header names are normalized
+        // to lower case.  That happens in our constructor.
+        let mut last_index: HashMap<&String, usize> = HashMap::new();
+
+        'outer: for name in header_list {
+            let index = last_index.get(name).unwrap_or(&num_headers);
+            for (header_index, header) in email_headers
+                .iter()
+                .enumerate()
+                .rev()
+                .skip(num_headers - index)
+            {
+                if header.get_key_ref().eq_ignore_ascii_case(&name) {
+                    apply(header.get_key_ref(), header.get_value_raw());
+                    last_index.insert(name, header_index);
+                    continue 'outer;
+                }
+            }
+
+            // When computing the signature, the nonexisting header field MUST be
+            // treated as the null string (including the header field name, header
+            // field value, all punctuation, and the trailing CRLF).
+            // -> don't include it in the returned signed_headers.
+
+            last_index.insert(name, 0);
+        }
     }
 }
 
 pub(crate) fn compute_headers_hash<'a, 'b>(
     canonicalization_type: canonicalization::Type,
-    headers: &[String],
+    headers: &HeaderList,
     hash_algo: HashAlgo,
     dkim_header: &'b DKIMHeader,
     email: &'a ParsedEmail<'a>,
@@ -169,7 +245,7 @@ pub(crate) fn compute_headers_hash<'a, 'b>(
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
-    select_headers(headers, email, |key, value| {
+    headers.apply(email, |key, value| {
         canonicalization_type.canon_header_into(&key, value, &mut input);
     });
 
@@ -325,7 +401,7 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = vec!["To".to_owned(), "Subject".to_owned()];
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
@@ -370,7 +446,7 @@ Hello Alice
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
-        let headers = vec!["To".to_owned(), "Subject".to_owned()];
+        let headers = HeaderList::new(vec!["To".to_owned(), "Subject".to_owned()]);
         assert_eq!(
             compute_headers_hash(
                 canonicalization_type,
@@ -412,29 +488,66 @@ Hello Alice
         );
     }
 
+    fn select_headers<'a>(
+        header_list: &HeaderList,
+        email: &'a ParsedEmail,
+    ) -> Vec<(std::borrow::Cow<'a, str>, &'a [u8])> {
+        let mut result = vec![];
+        header_list.apply(email, |key, value| {
+            result.push((key, value));
+        });
+        result
+    }
+
     #[test]
-    fn test_select_headers() {
-        let header_list = vec![
+    fn test_select_headers_unique() {
+        let header_list = HeaderList::new(vec![
             "from".to_string(),
             "subject".to_string(),
             "to".to_string(),
-            "from".to_string(),
-        ];
+        ]);
+
         let email1 = ParsedEmail::parse_bytes(
             b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
         )
         .unwrap();
 
-        fn select_headers<'a>(
-            header_list: &[String],
-            email: &'a ParsedEmail,
-        ) -> Vec<(std::borrow::Cow<'a, str>, &'a [u8])> {
-            let mut result = vec![];
-            super::select_headers(header_list, email, |key, value| {
-                result.push((key, value));
-            });
-            result
-        }
+        let result1 = select_headers(&header_list, &email1);
+        assert_eq!(
+            result1,
+            vec![
+                ("from".into(), &b"baz"[..]),
+                ("subject".into(), &b"boring"[..]),
+            ]
+        );
+
+        let email2 =
+            ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
+                .unwrap();
+
+        let result2 = select_headers(&header_list, &email2);
+        assert_eq!(
+            result2,
+            vec![
+                ("From".into(), &b"biz"[..]),
+                ("Subject".into(), &b"Boring"[..]),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_select_headers_multiple() {
+        let header_list = HeaderList::new(vec![
+            "from".to_string(),
+            "subject".to_string(),
+            "to".to_string(),
+            "from".to_string(),
+        ]);
+
+        let email1 = ParsedEmail::parse_bytes(
+            b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
+        )
+        .unwrap();
 
         let result1 = select_headers(&header_list, &email1);
         assert_eq!(

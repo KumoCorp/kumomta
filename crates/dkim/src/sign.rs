@@ -1,5 +1,5 @@
 use crate::header::DKIMHeaderBuilder;
-use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, ParsedEmail, HEADER};
+use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
 use base64::engine::general_purpose;
 use base64::Engine;
 use ed25519_dalek::ExpandedSecretKey;
@@ -41,10 +41,7 @@ impl SignerBuilder {
         mut self,
         headers: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<Self, DKIMError> {
-        let headers: Vec<String> = headers
-            .into_iter()
-            .map(|h| h.into().to_ascii_lowercase())
-            .collect();
+        let headers: Vec<String> = headers.into_iter().map(Into::into).collect();
 
         if !headers.iter().any(|h| h.eq_ignore_ascii_case("from")) {
             return Err(DKIMError::BuilderError("missing From in signed headers"));
@@ -111,9 +108,10 @@ impl SignerBuilder {
         };
 
         Ok(Signer {
-            signed_headers: self
-                .signed_headers
-                .ok_or(BuilderError("missing required signed headers"))?,
+            signed_headers: HeaderList::new(
+                self.signed_headers
+                    .ok_or(BuilderError("missing required signed headers"))?,
+            ),
             private_key,
             selector: self
                 .selector
@@ -137,7 +135,7 @@ impl Default for SignerBuilder {
 }
 
 pub struct Signer {
-    signed_headers: Vec<String>,
+    signed_headers: HeaderList,
     private_key: DkimPrivateKey,
     selector: String,
     signing_domain: String,

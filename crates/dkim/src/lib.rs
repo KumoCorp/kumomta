@@ -1,5 +1,6 @@
 // Implementation of DKIM: https://datatracker.ietf.org/doc/html/rfc6376
 
+use crate::hash::HeaderList;
 use base64::engine::general_purpose;
 use base64::Engine;
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
@@ -106,7 +107,7 @@ async fn verify_email_header<'a>(
 
     let computed_headers_hash = hash::compute_headers_hash(
         header_canonicalization_type,
-        &header_list,
+        &HeaderList::new(header_list),
         hash_algo,
         dkim_header,
         email,

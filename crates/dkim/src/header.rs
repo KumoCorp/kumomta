@@ -1,4 +1,4 @@
-use crate::{parser, DKIMError};
+use crate::{parser, DKIMError, HeaderList};
 use indexmap::map::IndexMap;
 use std::io::Write;
 use std::str::FromStr;
@@ -180,8 +180,8 @@ impl DKIMHeaderBuilder {
         self
     }
 
-    pub(crate) fn set_signed_headers(self, headers: &Vec<String>) -> Self {
-        let value = headers.join(":");
+    pub(crate) fn set_signed_headers(self, headers: &HeaderList) -> Self {
+        let value = headers.as_h_list();
         self.add_tag("h", &value)
     }
 
@@ -218,8 +218,8 @@ mod tests {
         assert_eq!(header.raw_bytes, "v=1; a=something;".to_owned());
     }
 
-    fn signed_header_list(headers: &[&str]) -> Vec<String> {
-        headers.into_iter().map(|h| h.to_lowercase()).collect()
+    fn signed_header_list(headers: &[&str]) -> HeaderList {
+        HeaderList::new(headers.into_iter().map(|h| h.to_lowercase()).collect())
     }
 
     #[test]
