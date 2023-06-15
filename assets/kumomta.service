@@ -7,6 +7,9 @@ Conflicts=sendmail.service exim.service postfix.service
 Type=simple
 Restart=always
 ExecStart=/opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+# Allow sufficient time to wrap up in-flight tasks and safely
+# write out pending data
+TimeoutStopSec=300
 
 [Install]
 WantedBy=multi-user.target
