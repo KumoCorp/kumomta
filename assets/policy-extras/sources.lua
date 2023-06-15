@@ -94,7 +94,7 @@ function mod:setup(data_files)
 
   kumo.on('get_egress_pool', function(pool_name)
     local data = cached_load_data(data_files)
-    return kumo.make_egress_poll(data.pools[pool_name])
+    return kumo.make_egress_pool(data.pools[pool_name])
   end)
 end
 
