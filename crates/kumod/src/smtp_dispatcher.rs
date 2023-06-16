@@ -194,10 +194,10 @@ impl QueueDispatcher for SmtpDispatcher {
         .with_context(|| connect_context.clone())?;
 
         // Say EHLO
-        let caps = client.ehlo(&ehlo_name).await.context("EHLO")?;
+        let pretls_caps = client.ehlo(&ehlo_name).await.context("EHLO")?;
 
         // Use STARTTLS if available.
-        let has_tls = caps.contains_key("STARTTLS");
+        let has_tls = pretls_caps.contains_key("STARTTLS");
         let tls_enabled = match (enable_tls, has_tls) {
             (Tls::Required | Tls::RequiredInsecure, false) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised",);
@@ -216,6 +216,8 @@ impl QueueDispatcher for SmtpDispatcher {
                 if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
                     client.send_command(&rfc5321::Command::Quit).await.ok();
                     anyhow::bail!("TLS handshake failed: {handshake_error}");
+                } else {
+                    client.ehlo(&ehlo_name).await.context("EHLO")?;
                 }
                 true
             }
