@@ -46,6 +46,8 @@ pub(crate) enum DkimPublicKey {
 pub enum DkimPrivateKey {
     Rsa(RsaPrivateKey),
     Ed25519(ed25519_dalek::Keypair),
+    #[cfg(feature = "openssl")]
+    OpenSSLRsa(openssl::rsa::Rsa<openssl::pkey::Private>),
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4

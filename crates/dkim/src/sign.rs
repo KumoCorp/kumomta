@@ -104,6 +104,8 @@ impl SignerBuilder {
             .ok_or(BuilderError("missing required private key"))?;
         let hash_algo = match private_key {
             DkimPrivateKey::Rsa(_) => hash::HashAlgo::RsaSha256,
+            #[cfg(feature = "openssl")]
+            DkimPrivateKey::OpenSSLRsa(_) => hash::HashAlgo::RsaSha256,
             DkimPrivateKey::Ed25519(_) => hash::HashAlgo::Ed25519Sha256,
         };
 
@@ -175,6 +177,49 @@ impl Signer {
                     .sign(&header_hash, &keypair.public)
                     .to_bytes()
                     .into()
+            }
+            #[cfg(feature = "openssl")]
+            DkimPrivateKey::OpenSSLRsa(private_key) => {
+                use foreign_types::ForeignType;
+
+                let mut siglen = private_key.size();
+                let mut sigbuf = vec![0u8; siglen as usize];
+
+                // We need to grub around a bit to call into RSA_sign:
+                // The higher level wrappers available in the openssl
+                // crate only include EVP_DigestSign which doesn't
+                // accept a pre-calculated digest like we have here.
+
+                let status = unsafe {
+                    openssl_sys::RSA_sign(
+                        match self.hash_algo {
+                            hash::HashAlgo::RsaSha1 => openssl_sys::NID_sha1,
+                            hash::HashAlgo::RsaSha256 => openssl_sys::NID_sha256,
+                            hash => {
+                                return Err(DKIMError::UnsupportedHashAlgorithm(format!(
+                                    "{:?}",
+                                    hash
+                                )))
+                            }
+                        },
+                        header_hash.as_ptr(),
+                        header_hash.len() as _,
+                        // unsafety: sigbuf must be >= siglen in size
+                        sigbuf.as_mut_ptr(),
+                        &mut siglen,
+                        private_key.as_ptr(),
+                    )
+                };
+
+                if status != 1 || siglen == 0 {
+                    return Err(DKIMError::FailedToSign(format!(
+                        "RSA_sign failed status={status} siglen={siglen} {:?}",
+                        openssl::error::Error::get()
+                    )));
+                }
+
+                sigbuf.truncate(siglen as usize);
+                sigbuf
             }
         };
 
@@ -268,6 +313,36 @@ Hello Alice
             .with_signed_headers(["From", "Subject"])
             .unwrap()
             .with_private_key(DkimPrivateKey::Rsa(private_key))
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(time)
+            .build()
+            .unwrap();
+        let header = signer.sign(&email).unwrap();
+
+        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject; t=1609459201; b=FNNP5LMX1IK5bnUTZOovwYB5TNGBPInKc2fcyCd2r7zWwe1TpvhoOfqC5emuk1BUHsYzZ0uuR6C6/vMFHi6xwuqzOjnMxd+EKHBBP1ONpK4KTU8+kzSCYWHjb3dq1q8EI8wWXqSC942Lj4qZ4A3cwYia5fF2KVJoeY45T4/xS9oZiNYLrVe1Cwak7ms2zmFcc2r6yK5BAxcxRJx6Ez3/1/N0QSidaEY17HOj9R3bVAYPGarG5oS2mAxNK/iVYxCVP43pqrQwYDoxdZR89VcPQAiYZvDJXpkAs2LcUBWqaV3TDT2LLmg0orA/66LI66JYMqZ9JFr6V/+GkxFJBh8enA==;");
+    }
+
+    #[cfg(feature = "openssl")]
+    #[test]
+    fn test_sign_rsa_openssl() {
+        let raw_email = r#"Subject: subject
+From: Sven Sauleau <sven@cloudflare.com>
+
+Hello Alice
+        "#
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+
+        let data = std::fs::read("./test/keys/2022.private").unwrap();
+        let pkey = openssl::rsa::Rsa::private_key_from_pem(&data).unwrap();
+
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_private_key(DkimPrivateKey::OpenSSLRsa(pkey))
             .with_selector("s20")
             .with_signing_domain("example.com")
             .with_time(time)

@@ -1,8 +1,8 @@
-use std::time::Instant;
 use cfdkim::canonicalization::Type;
 use cfdkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
 use rsa::pkcs1::DecodeRsaPrivateKey;
+use std::time::Instant;
 
 fn email_text() -> String {
     r#"Subject: subject
@@ -51,7 +51,7 @@ ipsum dolor sit a.
     .replace("\n", "\r\n")
 }
 
-fn main(){
+fn main() {
     let email_text = email_text();
     let email = ParsedEmail::parse_bytes(email_text.as_bytes()).unwrap();
 
@@ -78,5 +78,34 @@ fn main(){
             signer.sign(&email).unwrap();
         }
         println!("{canon:?}: Did {num_iters} iters in {:?}", start.elapsed());
+    }
+
+    #[cfg(feature = "openssl")]
+    for canon in [Type::Simple, Type::Relaxed] {
+        let data = std::fs::read("./crates/dkim/test/keys/2022.private").unwrap();
+        let pkey = openssl::rsa::Rsa::private_key_from_pem(&data).unwrap();
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_body_canonicalization(canon)
+            .with_header_canonicalization(canon)
+            .with_private_key(DkimPrivateKey::OpenSSLRsa(pkey))
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(time)
+            .build()
+            .unwrap();
+
+        let start = Instant::now();
+        let num_iters = 1_000;
+        for _ in 0..num_iters {
+            signer.sign(&email).unwrap();
+        }
+        println!(
+            "openssl {canon:?}: Did {num_iters} iters in {:?}",
+            start.elapsed()
+        );
     }
 }

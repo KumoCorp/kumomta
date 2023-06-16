@@ -80,6 +80,33 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         });
         group.finish();
     }
+
+    #[cfg(feature = "openssl")]
+    for canon in [Type::Simple, Type::Relaxed] {
+        let data = std::fs::read("./test/keys/2022.private").unwrap();
+        let pkey = openssl::rsa::Rsa::private_key_from_pem(&data).unwrap();
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_body_canonicalization(canon)
+            .with_header_canonicalization(canon)
+            .with_private_key(DkimPrivateKey::OpenSSLRsa(pkey))
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(time)
+            .build()
+            .unwrap();
+
+        let mut group = c.benchmark_group("cfdkim openssl signing");
+        group.sampling_mode(SamplingMode::Flat);
+        group.throughput(Throughput::Bytes(email_text.len() as u64));
+        group.bench_function(&format!("sign {canon:?}"), |b| {
+            b.iter(|| signer.sign(black_box(&email)).unwrap())
+        });
+        group.finish();
+    }
 }
 
 pub fn mail_auth_benchmark(c: &mut Criterion) {
