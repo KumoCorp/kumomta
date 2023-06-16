@@ -3,6 +3,7 @@ use mlua::{FromLua, FromLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, ToLuaMul
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -30,12 +31,12 @@ lazy_static::lazy_static! {
     };
 }
 
-/// Maximum age of a lua context before we release it
-const MAX_AGE: Duration = Duration::from_secs(300);
+/// Maximum age of a lua context before we release it, in seconds
+static MAX_AGE: AtomicUsize = AtomicUsize::new(300);
 /// Maximum number of uses of a given lua context before we release it
-const MAX_USE: usize = 1024;
+static MAX_USE: AtomicUsize = AtomicUsize::new(1024);
 /// Maximum number of spare lua contexts to maintain in the pool
-const MAX_SPARE: usize = 128;
+static MAX_SPARE: AtomicUsize = AtomicUsize::new(8192);
 
 pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
 
@@ -58,7 +59,8 @@ impl Pool {
 
     pub fn expire(&mut self) {
         let len_before = self.pool.len();
-        self.pool.retain(|inner| inner.created.elapsed() < MAX_AGE);
+        let max_age = Duration::from_secs(MAX_AGE.load(Ordering::Relaxed) as u64);
+        self.pool.retain(|inner| inner.created.elapsed() < max_age);
         let len_after = self.pool.len();
         let diff = len_before - len_after;
         if diff > 0 {
@@ -67,10 +69,11 @@ impl Pool {
     }
 
     pub fn get(&mut self) -> Option<LuaConfigInner> {
+        let max_age = Duration::from_secs(MAX_AGE.load(Ordering::Relaxed) as u64);
         loop {
             let mut item = self.pool.pop_front()?;
             LUA_SPARE_COUNT.decrement(1.);
-            if item.created.elapsed() > MAX_AGE {
+            if item.created.elapsed() > max_age {
                 continue;
             }
             item.use_count += 1;
@@ -79,10 +82,12 @@ impl Pool {
     }
 
     pub fn put(&mut self, config: LuaConfigInner) {
-        if self.pool.len() + 1 > MAX_SPARE {
+        if self.pool.len() + 1 > MAX_SPARE.load(Ordering::Relaxed) {
             return;
         }
-        if config.created.elapsed() > MAX_AGE || config.use_count + 1 > MAX_USE {
+        if config.created.elapsed() > Duration::from_secs(MAX_AGE.load(Ordering::Relaxed) as u64)
+            || config.use_count + 1 > MAX_USE.load(Ordering::Relaxed)
+        {
             return;
         }
         self.pool.push_back(config);
@@ -114,6 +119,18 @@ impl Drop for LuaConfig {
             POOL.lock().unwrap().put(inner);
         }
     }
+}
+
+pub fn set_max_use(max_use: usize) {
+    MAX_USE.store(max_use, Ordering::Relaxed);
+}
+
+pub fn set_max_spare(max_spare: usize) {
+    MAX_SPARE.store(max_spare, Ordering::Relaxed);
+}
+
+pub fn set_max_age(max_age: usize) {
+    MAX_AGE.store(max_age, Ordering::Relaxed);
 }
 
 pub async fn set_policy_path(path: PathBuf) -> anyhow::Result<()> {

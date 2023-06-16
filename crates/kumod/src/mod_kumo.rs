@@ -48,6 +48,30 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_max_spare_lua_contexts",
+        lua.create_function(move |_, limit: usize| {
+            config::set_max_spare(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_max_lua_context_use_count",
+        lua.create_function(move |_, limit: usize| {
+            config::set_max_use(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_max_lua_context_age",
+        lua.create_function(move |_, limit: usize| {
+            config::set_max_age(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_diagnostic_log_filter",
         lua.create_function(move |_, filter: String| {
             crate::set_diagnostic_log_filter(&filter).map_err(any_err)
