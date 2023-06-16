@@ -5,7 +5,7 @@ local utils = require 'policy-extras.policy_utils'
 local function load_data_from_file(file_name, target)
   local data = utils.load_json_or_toml_file(file_name)
 
-  for source, params in pairs(data.source) do
+  for source, params in pairs(data.source or {}) do
     target.sources[source] = target.sources[source]
       or {
         name = source,
@@ -13,7 +13,7 @@ local function load_data_from_file(file_name, target)
     utils.merge_into(params, target.sources[source])
   end
 
-  for pool, pool_def in pairs(data.pool) do
+  for pool, pool_def in pairs(data.pool or {}) do
     for pool_source, params in pairs(pool_def) do
       target.pools[pool] = target.pools[pool]
         or {
@@ -36,6 +36,8 @@ local function load_data(data_files)
   for _, file_name in ipairs(data_files) do
     load_data_from_file(file_name, target)
   end
+
+  -- print(kumo.json_encode_pretty(target))
 
   return target
 end
@@ -89,12 +91,20 @@ function mod:setup(data_files)
 
   kumo.on('get_egress_source', function(source_name)
     local data = cached_load_data(data_files)
-    return kumo.make_egress_source(data.sources[source_name])
+    local params = data.sources[source_name]
+    --[[
+    print(
+      string.format('source %s: %s', source_name, kumo.json_encode(params))
+    )
+    ]]
+    return kumo.make_egress_source(params)
   end)
 
   kumo.on('get_egress_pool', function(pool_name)
     local data = cached_load_data(data_files)
-    return kumo.make_egress_pool(data.pools[pool_name])
+    local params = data.pools[pool_name]
+    -- print(string.format('pool %s: %s', pool_name, kumo.json_encode(params)))
+    return kumo.make_egress_pool(params)
   end)
 end
 
