@@ -260,6 +260,6 @@ fi
 
 if ! have_command 'rustc'; then
   echo "Rust is not installed!"
-  echo "Please see https://docs.kumomta.com/tutorial/install_from_source/ for installation instructions"
+  echo "Please see https://docs.kumomta.com/userguide/installation/source/ for installation instructions"
   exit 1
 fi
