@@ -274,6 +274,8 @@ impl SmtpClient {
             response_string.push_str(parsed.content);
         }
 
+        tracing::trace!("{command:?} response: {code} {enhanced_code:?} {response_string}");
+
         Ok(Response {
             code,
             content: response_string,
@@ -284,6 +286,7 @@ impl SmtpClient {
 
     pub async fn send_command(&mut self, command: &Command) -> Result<Response, ClientError> {
         let line = command.encode();
+        tracing::trace!("send {line}");
         match self.socket.as_mut() {
             Some(socket) => {
                 socket

@@ -14,4 +14,5 @@ serde = {version="1.0", features=["derive"]}
 thiserror = "1.0"
 tokio = {version="1.25", features=["full"]}
 tokio-rustls = {version="0.23", features=["dangerous_configuration"]}
+tracing = "0.1"
 webpki-roots = "0.22"
