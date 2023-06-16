@@ -74,26 +74,37 @@ function mod:setup(extra_files)
         end
 
         if mx_rollup then
-          local site_name = kumo.dns.lookup_mx(domain).site_name
-
-          if site_name == '' then
-            error(
+          local ok, mxinfo = pcall(kumo.dns.lookup_mx, domain)
+          if not ok then
+            print(
               string.format(
-                'domain %s has a NULL MX and cannot be used with mx_rollup=true',
-                domain
+                'error resolving MX for %s: %s. Ignoring the shaping config for that domain.',
+                domain,
+                mxinfo
               )
             )
+          else
+            local site_name = mxinfo.site_name
+
+            if site_name == '' then
+              print(
+                string.format(
+                  'domain %s has a NULL MX and cannot be used with mx_rollup=true. Ignoring the shaping config for that domain.',
+                  domain
+                )
+              )
+            else
+              if not replace_base then
+                utils.merge_into(result.by_site[site_name], entry)
+              end
+
+              result.by_site[site_name] = entry
+
+              local site_domains = site_to_domains[site_name] or {}
+              site_domains[domain] = true
+              site_to_domains[site_name] = site_domains
+            end
           end
-
-          if not replace_base then
-            utils.merge_into(result.by_site[site_name], entry)
-          end
-
-          result.by_site[site_name] = entry
-
-          local site_domains = site_to_domains[site_name] or {}
-          site_domains[domain] = true
-          site_to_domains[site_name] = site_domains
         else
           if not replace_base then
             utils.merge_into(result.by_domain[domain], entry)
