@@ -1,7 +1,7 @@
+use std::time::Instant;
 use cfdkim::canonicalization::Type;
 use cfdkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use rsa::pkcs1::DecodeRsaPrivateKey;
 
 fn email_text() -> String {
@@ -51,13 +51,13 @@ ipsum dolor sit a.
     .replace("\n", "\r\n")
 }
 
-pub fn criterion_benchmark(c: &mut Criterion) {
+fn main(){
     let email_text = email_text();
     let email = ParsedEmail::parse_bytes(email_text.as_bytes()).unwrap();
 
     for canon in [Type::Simple, Type::Relaxed] {
         let private_key =
-            rsa::RsaPrivateKey::read_pkcs1_pem_file("./test/keys/2022.private").unwrap();
+            rsa::RsaPrivateKey::read_pkcs1_pem_file("crates/dkim/test/keys/2022.private").unwrap();
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
@@ -72,43 +72,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             .build()
             .unwrap();
 
-        let mut group = c.benchmark_group("cfdkim signing");
-        group.sampling_mode(SamplingMode::Flat);
-        group.throughput(Throughput::Bytes(email_text.len() as u64));
-        group.bench_function(&format!("sign {canon:?}"), |b| {
-            b.iter(|| signer.sign(black_box(&email)).unwrap())
-        });
-        group.finish();
+        let start = Instant::now();
+        let num_iters = 1_000;
+        for _ in 0..num_iters {
+            signer.sign(&email).unwrap();
+        }
+        println!("{canon:?}: Did {num_iters} iters in {:?}", start.elapsed());
     }
 }
-
-pub fn mail_auth_benchmark(c: &mut Criterion) {
-    let email_text = email_text();
-
-    use mail_auth::common::crypto::{RsaKey, Sha256};
-    use mail_auth::dkim::{Canonicalization, DkimSigner};
-
-    for canon in [Canonicalization::Simple, Canonicalization::Relaxed] {
-        let key_data = std::fs::read_to_string("./test/keys/2022.private").unwrap();
-        let key = RsaKey::<Sha256>::from_rsa_pem(&key_data).unwrap();
-
-        let signer = DkimSigner::from_key(key)
-            .domain("example.com")
-            .selector("s20")
-            .headers(["From", "Subject"])
-            .header_canonicalization(canon)
-            .body_canonicalization(canon);
-
-        let mut group = c.benchmark_group("mail-auth signing");
-        group.sampling_mode(SamplingMode::Flat);
-        group.throughput(Throughput::Bytes(email_text.len() as u64));
-        group.bench_function(&format!("sign {canon:?}"), |b| {
-            b.iter(|| signer.sign(black_box(email_text.as_bytes())).unwrap())
-        });
-        group.finish();
-    }
-}
-
-criterion_group!(benches, criterion_benchmark);
-criterion_group!(mail_auth, mail_auth_benchmark);
-criterion_main!(benches, mail_auth);
