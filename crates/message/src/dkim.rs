@@ -8,9 +8,6 @@ use mail_auth::common::headers::HeaderWriter;
 use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
-use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::pkcs8::DecodePrivateKey;
-use rsa::RsaPrivateKey;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -203,9 +200,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
 
-            let data = String::from_utf8_lossy(&data);
-
-            let key = load_dkim_rsa_key(&data)
+            let key = DkimPrivateKey::rsa_key(&data)
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
 
             let signer = params
@@ -258,32 +253,6 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         })?,
     )?;
     Ok(())
-}
-
-fn load_dkim_rsa_key(data: &str) -> anyhow::Result<DkimPrivateKey> {
-    let mut errors = vec![];
-
-    match RsaPrivateKey::from_pkcs1_pem(data) {
-        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
-        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_pem: {err:#}")),
-    };
-
-    match RsaPrivateKey::from_pkcs1_der(data.as_bytes()) {
-        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
-        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs1_der: {err:#}")),
-    };
-
-    match RsaPrivateKey::from_pkcs8_pem(data) {
-        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
-        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_pem: {err:#}")),
-    };
-
-    match RsaPrivateKey::from_pkcs8_der(data.as_bytes()) {
-        Ok(key) => return Ok(DkimPrivateKey::Rsa(key)),
-        Err(err) => errors.push(format!("RsaPrivateKey::from_pkcs8_der: {err:#}")),
-    };
-
-    anyhow::bail!("{}", errors.join(", "));
 }
 
 pub struct CFSigner {

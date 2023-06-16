@@ -6,9 +6,7 @@ use crate::{
 use chrono::TimeZone;
 use futures::future::BoxFuture;
 use regex::Regex;
-use rsa::pkcs1::DecodeRsaPrivateKey;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 fn dkim_record() -> String {
@@ -25,14 +23,13 @@ fn dkim_record() -> String {
 fn sign(domain: &str, raw_email: &str) -> String {
     let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
-    let private_key =
-        rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
+    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
     let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
     let signer = SignerBuilder::new()
         .with_signed_headers(["From", "Subject"])
         .unwrap()
-        .with_private_key(DkimPrivateKey::Rsa(private_key))
+        .with_private_key(private_key)
         .with_selector("2022")
         .with_signing_domain(domain)
         .with_time(time)

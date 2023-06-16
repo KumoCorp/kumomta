@@ -291,9 +291,7 @@ impl Signer {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use rsa::pkcs1::DecodeRsaPrivateKey;
     use std::fs;
-    use std::path::Path;
 
     #[test]
     fn test_sign_rsa() {
@@ -305,14 +303,13 @@ Hello Alice
         .replace("\n", "\r\n");
         let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
-        let private_key =
-            rsa::RsaPrivateKey::read_pkcs1_pem_file(Path::new("./test/keys/2022.private")).unwrap();
+        let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
             .with_signed_headers(["From", "Subject"])
             .unwrap()
-            .with_private_key(DkimPrivateKey::Rsa(private_key))
+            .with_private_key(private_key)
             .with_selector("s20")
             .with_signing_domain("example.com")
             .with_time(time)

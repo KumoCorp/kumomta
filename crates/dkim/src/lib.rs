@@ -3,6 +3,8 @@
 use crate::hash::HeaderList;
 use base64::engine::general_purpose;
 use base64::Engine;
+use rsa::pkcs1::DecodeRsaPrivateKey;
+use rsa::pkcs8::DecodePrivateKey;
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
@@ -48,6 +50,62 @@ pub enum DkimPrivateKey {
     Ed25519(ed25519_dalek::Keypair),
     #[cfg(feature = "openssl")]
     OpenSSLRsa(openssl::rsa::Rsa<openssl::pkey::Private>),
+}
+
+impl DkimPrivateKey {
+    /// Parse RSA key data into a DkimPrivateKey
+    pub fn rsa_key(data: &[u8]) -> Result<Self, DKIMError> {
+        let mut errors = vec![];
+
+        #[cfg(feature = "openssl")]
+        {
+            use openssl::rsa::Rsa;
+
+            match Rsa::private_key_from_pem(data) {
+                Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+                Err(err) => errors.push(format!("openssl private_key_from_pem: {err:#}")),
+            };
+            match Rsa::private_key_from_der(data) {
+                Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+                Err(err) => errors.push(format!("openssl private_key_from_der: {err:#}")),
+            };
+        }
+        match RsaPrivateKey::from_pkcs1_der(data) {
+            Ok(key) => return Ok(Self::Rsa(key)),
+            Err(err) => errors.push(format!("from_pkcs1_der: {err:#}")),
+        }
+        match RsaPrivateKey::from_pkcs8_der(data) {
+            Ok(key) => return Ok(Self::Rsa(key)),
+            Err(err) => errors.push(format!("from_pkcs8_der: {err:#}")),
+        }
+
+        match std::str::from_utf8(data) {
+            Ok(s) => {
+                match RsaPrivateKey::from_pkcs1_pem(s) {
+                    Ok(key) => return Ok(Self::Rsa(key)),
+                    Err(err) => errors.push(format!("from_pkcs1_pem: {err:#}")),
+                }
+                match RsaPrivateKey::from_pkcs8_pem(s) {
+                    Ok(key) => return Ok(Self::Rsa(key)),
+                    Err(err) => errors.push(format!("from_pkcs8_pem: {err:#}")),
+                }
+            }
+            Err(err) => errors.push(format!("from_pkcs1_pem: data is not UTF-8: {err:#}")),
+        }
+
+        Err(DKIMError::PrivateKeyLoadError(errors.join(". ")))
+    }
+
+    /// Load RSA key data from a file and parse it into a DkimPrivateKey
+    pub fn rsa_key_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, DKIMError> {
+        let path = path.as_ref();
+        let data = std::fs::read(path).map_err(|err| {
+            DKIMError::PrivateKeyLoadError(format!(
+                "rsa_key_file: failed to read file {path:?}: {err:#}"
+            ))
+        })?;
+        Self::rsa_key(&data)
+    }
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4

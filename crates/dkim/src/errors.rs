@@ -75,6 +75,9 @@ quick_error! {
         HeaderSerializeError(err: String) {
             display("failed to serialize DKIM header: {err}")
         }
+        PrivateKeyLoadError(err: String) {
+            display("failed to load private key: {err}")
+        }
     }
 }
 
@@ -103,6 +106,7 @@ impl DKIMError {
             | UnknownInternalError(_)
             | BuilderError(_)
             | FailedToSign(_)
+            | PrivateKeyLoadError(_)
             | HeaderSerializeError(_) => Status::Tempfail,
         }
     }
