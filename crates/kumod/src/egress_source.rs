@@ -19,6 +19,7 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EgressSource {
     /// Give it a friendly name for use in reporting and referencing
     /// elsewhere in the config
@@ -71,7 +72,8 @@ impl EgressSource {
         } else {
             config
                 .async_call_callback_non_default("get_egress_source", name.to_string())
-                .await?
+                .await
+                .with_context(|| format!("get_egress_source '{name}'"))?
         };
 
         SOURCES.lock().unwrap().insert(
@@ -181,6 +183,7 @@ impl EgressSource {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EgressPoolEntry {
     /// Name of an EgressSource to include in this pool
     pub name: String,
@@ -203,6 +206,7 @@ impl EgressPoolEntry {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EgressPool {
     /// Name of the pool
     pub name: String,
@@ -236,14 +240,15 @@ impl EgressPool {
         } else {
             config
                 .async_call_callback_non_default("get_egress_pool", name.to_string())
-                .await?
+                .await
+                .with_context(|| format!("resolving egress pool '{name}'"))?
         };
 
         // Validate each of the sources
         for entry in &pool.entries {
             EgressSource::resolve(&entry.name, config)
                 .await
-                .with_context(|| format!("resolving egress pool {name}"))?;
+                .with_context(|| format!("resolving egress pool '{name}'"))?;
         }
 
         POOLS

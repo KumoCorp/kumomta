@@ -21,6 +21,7 @@ pub mod inject_v1;
 use auth::*;
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct HttpListenerParams {
     #[serde(default = "HttpListenerParams::default_hostname")]
     pub hostname: String,

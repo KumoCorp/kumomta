@@ -267,6 +267,7 @@ impl Default for SpoolKind {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DefineSpoolParams {
     pub name: String,
     pub path: PathBuf,

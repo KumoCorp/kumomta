@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct LuaDeliveryProtocol {
     /// The name of an event to fire that will construct
     /// the delivery implementation

@@ -13,4 +13,5 @@ mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serializ
 serde = "1.0"
 serde_json = "1.0"
 tokio = {version="1.25", features=["fs"]}
+tracing = "0.1"
 

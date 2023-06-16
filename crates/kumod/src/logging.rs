@@ -30,6 +30,7 @@ static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
 static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ClassifierParams {
     pub files: Vec<String>,
 }
@@ -62,6 +63,7 @@ impl ClassifierParams {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct LogRecordParams {
     #[serde(default)]
     pub suffix: Option<String>,
@@ -84,6 +86,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct LogHookParams {
     /// Maximum number of outstanding items to be logged before
     /// the submission will block; helps to avoid runaway issues
@@ -107,6 +110,7 @@ pub struct LogHookParams {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct LogFileParams {
     /// Where to place the log files
     pub log_dir: PathBuf,

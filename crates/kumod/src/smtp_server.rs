@@ -44,6 +44,7 @@ static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain
     Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
 
 #[derive(Deserialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
 pub struct EsmtpDomain {
     #[serde(default)]
     pub log_oob: bool,
@@ -65,6 +66,7 @@ fn default_ttl() -> Duration {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct TraceHeaders {
     /// Whether to add a Received: header
     #[serde(default = "default_true")]
@@ -111,6 +113,7 @@ fn default_true() -> bool {
 }
 
 #[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct EsmtpListenerParams {
     #[serde(default = "EsmtpListenerParams::default_listen")]
     pub listen: String,
