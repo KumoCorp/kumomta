@@ -25,6 +25,11 @@ pub struct EgressSource {
     /// elsewhere in the config
     pub name: String,
 
+    /// Specify the ehlo domain that should be used when sending from
+    /// this source
+    #[serde(default)]
+    pub ehlo_domain: Option<String>,
+
     /// Bind to this local address prior to issuing a connect(2) syscall
     pub source_address: Option<IpAddr>,
 
@@ -61,6 +66,7 @@ impl EgressSource {
         let source: Self = if name == "unspecified" {
             Self {
                 name: name.to_string(),
+                ehlo_domain: None,
                 ttl: default_ttl(),
                 ha_proxy_server: None,
                 ha_proxy_source_address: None,

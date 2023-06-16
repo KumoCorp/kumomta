@@ -25,10 +25,13 @@ impl SmtpDispatcher {
     pub async fn init(dispatcher: &mut Dispatcher) -> anyhow::Result<Option<Self>> {
         let ehlo_name = match &dispatcher.path_config.ehlo_domain {
             Some(n) => n.to_string(),
-            None => gethostname::gethostname()
-                .to_str()
-                .unwrap_or("[127.0.0.1]")
-                .to_string(),
+            None => match &dispatcher.egress_source.ehlo_domain {
+                Some(n) => n.to_string(),
+                None => gethostname::gethostname()
+                    .to_str()
+                    .unwrap_or("[127.0.0.1]")
+                    .to_string(),
+            },
         };
 
         let mut addresses = dispatcher
