@@ -1,6 +1,9 @@
 # Using <https://github.com/LukeMathWalker/cargo-chef> to help cache
-# the rust dependencies and make rebuilds go faster
-FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+# the rust dependencies and make rebuilds go faster.
+# Note that this layer must broadly match the runtime layer;
+# right now bookworm debian has matching libssl as ubuntu:latest.
+# If that diverges then weird or broken linkage issues will ensue.
+FROM lukemathwalker/cargo-chef:latest-rust-bookworm AS chef
 RUN apt update
 # Needed for building rocksdb
 RUN apt install -y libclang-dev

@@ -13,6 +13,7 @@ license = "MIT"
 
 [features]
 openssl = ["dep:openssl", "dep:openssl-sys", "dep:foreign-types"]
+default = ["openssl"]
 
 [dependencies]
 base64 = "0.21.0"
