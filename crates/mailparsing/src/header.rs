@@ -19,6 +19,13 @@ pub struct Header<'a> {
     conformance: HeaderConformance,
 }
 
+/// Holds the result of parsing a block of headers
+pub struct HeaderParseResult<'a> {
+    pub headers: Vec<Header<'a>>,
+    pub body_offset: usize,
+    pub overall_conformance: HeaderConformance,
+}
+
 impl<'a> Header<'a> {
     pub fn with_name_value<N: Into<SharedString<'a>>, V: Into<SharedString<'a>>>(
         name: N,
@@ -68,10 +75,14 @@ impl<'a> Header<'a> {
         &self.value
     }
 
-    pub fn parse_headers<S: Into<SharedString<'a>>>(header_block: S) -> Result<(Vec<Self>, usize)> {
+    pub fn parse_headers<S: Into<SharedString<'a>>>(
+        header_block: S,
+    ) -> Result<HeaderParseResult<'a>> {
         let header_block = header_block.into();
         let mut headers = vec![];
         let mut idx = 0;
+        let mut overall_conformance = HeaderConformance::default();
+
         while idx < header_block.len() {
             let b = header_block[idx];
             if headers.is_empty() {
@@ -84,6 +95,7 @@ impl<'a> Header<'a> {
             if b == b'\n' {
                 // LF: End of header block
                 idx += 1;
+                overall_conformance.set(HeaderConformance::NON_CANONICAL_LINE_ENDINGS, true);
                 break;
             }
             if b == b'\r' {
@@ -97,6 +109,7 @@ impl<'a> Header<'a> {
                 ));
             }
             let (header, next) = Self::parse(header_block.slice(idx..header_block.len()))?;
+            overall_conformance |= header.conformance;
             headers.push(header);
             debug_assert!(
                 idx != next + idx,
@@ -104,7 +117,11 @@ impl<'a> Header<'a> {
             );
             idx += next;
         }
-        Ok((headers, idx))
+        Ok(HeaderParseResult {
+            headers,
+            body_offset: idx,
+            overall_conformance,
+        })
     }
 
     pub fn parse<S: Into<SharedString<'a>>>(header_block: S) -> Result<(Self, usize)> {
@@ -245,8 +262,20 @@ mod test {
             "I am the body"
         );
 
-        let (headers, body_offset) = Header::parse_headers(message).unwrap();
+        let HeaderParseResult {
+            headers,
+            body_offset,
+            overall_conformance,
+        } = Header::parse_headers(message).unwrap();
         assert_eq!(&message[body_offset..], "I am the body");
+        k9::snapshot!(
+            overall_conformance,
+            "
+HeaderConformance(
+    NON_CANONICAL_LINE_ENDINGS,
+)
+"
+        );
         k9::snapshot!(
             headers,
             r#"

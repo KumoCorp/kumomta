@@ -1,3 +1,4 @@
+use crate::header::{HeaderConformance, HeaderParseResult};
 use crate::{Header, Result, SharedString};
 
 pub struct MimePart<'a> {
@@ -7,16 +8,22 @@ pub struct MimePart<'a> {
     headers: Vec<Header<'a>>,
     /// The index into bytes of the first non-header byte.
     body_offset: usize,
+    overall_conformance: HeaderConformance,
 }
 
 impl<'a> MimePart<'a> {
     pub fn parse<S: Into<SharedString<'a>>>(bytes: S) -> Result<Self> {
         let bytes = bytes.into();
-        let (headers, body_offset) = Header::parse_headers(bytes.clone())?;
+        let HeaderParseResult {
+            headers,
+            body_offset,
+            overall_conformance,
+        } = Header::parse_headers(bytes.clone())?;
         Ok(Self {
             bytes,
             headers,
             body_offset,
+            overall_conformance,
         })
     }
 
