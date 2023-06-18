@@ -1,3 +1,4 @@
+use crate::headermap::HeaderMap;
 use crate::{MailParsingError, Result, SharedString};
 
 bitflags::bitflags! {
@@ -8,7 +9,7 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Header<'a> {
     /// The name portion of the header
     name: SharedString<'a>,
@@ -21,7 +22,7 @@ pub struct Header<'a> {
 
 /// Holds the result of parsing a block of headers
 pub struct HeaderParseResult<'a> {
-    pub headers: Vec<Header<'a>>,
+    pub headers: HeaderMap<'a>,
     pub body_offset: usize,
     pub overall_conformance: HeaderConformance,
 }
@@ -118,7 +119,7 @@ impl<'a> Header<'a> {
             idx += next;
         }
         Ok(HeaderParseResult {
-            headers,
+            headers: HeaderMap::new(headers),
             body_offset: idx,
             overall_conformance,
         })
@@ -279,24 +280,26 @@ HeaderConformance(
         k9::snapshot!(
             headers,
             r#"
-[
-    Header {
-        name: "Subject",
-        value: "hello there",
-        separator: ": ",
-        conformance: HeaderConformance(
-            NON_CANONICAL_LINE_ENDINGS,
-        ),
-    },
-    Header {
-        name: "From",
-        value: "Someone <someone@example.com>",
-        separator: ":  ",
-        conformance: HeaderConformance(
-            NON_CANONICAL_LINE_ENDINGS,
-        ),
-    },
-]
+HeaderMap {
+    headers: [
+        Header {
+            name: "Subject",
+            value: "hello there",
+            separator: ": ",
+            conformance: HeaderConformance(
+                NON_CANONICAL_LINE_ENDINGS,
+            ),
+        },
+        Header {
+            name: "From",
+            value: "Someone <someone@example.com>",
+            separator: ":  ",
+            conformance: HeaderConformance(
+                NON_CANONICAL_LINE_ENDINGS,
+            ),
+        },
+    ],
+}
 "#
         );
     }

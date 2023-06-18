@@ -1,11 +1,12 @@
 use crate::header::{HeaderConformance, HeaderParseResult};
+use crate::headermap::HeaderMap;
 use crate::{Header, Result, SharedString};
 
 pub struct MimePart<'a> {
     /// The bytes that comprise this part, from its beginning to its end
     bytes: SharedString<'a>,
     /// The parsed headers from the start of bytes
-    headers: Vec<Header<'a>>,
+    headers: HeaderMap<'a>,
     /// The index into bytes of the first non-header byte.
     body_offset: usize,
     overall_conformance: HeaderConformance,
