@@ -203,7 +203,7 @@ impl QueueDispatcher for SmtpDispatcher {
         let has_tls = pretls_caps.contains_key("STARTTLS");
         let tls_enabled = match (enable_tls, has_tls) {
             (Tls::Required | Tls::RequiredInsecure, false) => {
-                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised",);
+                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}",);
             }
             (Tls::Disabled, _) | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
                 // Do not use TLS
@@ -218,7 +218,9 @@ impl QueueDispatcher for SmtpDispatcher {
             ) => {
                 if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
                     client.send_command(&rfc5321::Command::Quit).await.ok();
-                    anyhow::bail!("TLS handshake failed: {handshake_error}");
+                    anyhow::bail!(
+                        "TLS handshake failed with {address:?}:{port}: {handshake_error}"
+                    );
                 } else {
                     client.ehlo(&ehlo_name).await.context("EHLO")?;
                 }
@@ -228,7 +230,9 @@ impl QueueDispatcher for SmtpDispatcher {
 
         if let Some(username) = &dispatcher.path_config.smtp_auth_plain_username {
             if !tls_enabled && !dispatcher.path_config.allow_smtp_auth_plain_without_tls {
-                anyhow::bail!("TLS is not enabled and AUTH PLAIN is required. Skipping this host");
+                anyhow::bail!(
+                    "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
+                );
             }
 
             let password = if let Some(pw) = &dispatcher.path_config.smtp_auth_plain_password {
@@ -247,7 +251,11 @@ impl QueueDispatcher for SmtpDispatcher {
             client
                 .auth_plain(username, password.as_deref())
                 .await
-                .with_context(|| format!("authenticating as {username} via SMTP AUTH PLAIN"))?;
+                .with_context(|| {
+                    format!(
+                        "authenticating as {username} via SMTP AUTH PLAIN to {address:?}:{port}"
+                    )
+                })?;
         }
 
         self.client
