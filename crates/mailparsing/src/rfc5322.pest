@@ -1,0 +1,100 @@
+path = { angle_addr | ( cfws? ~ "<" ~ cfws? ~ ">" ~ cfws? ) }
+received_token = { word | angle_addr | addr_spec | domain }
+
+address = { mailbox | group }
+mailbox = { name_addr | addr_spec }
+name_addr = { display_name? ~ angle_addr }
+
+angle_addr = { cfws? ~ "<" ~ addr_spec ~ ">" ~ cfws? | obs_angle_addr }
+obs_angle_addr = { cfws? ~ "<" ~ obs_route ~ addr_spec ~ ">" ~ cfws? }
+
+group = { display_name ~ ":" ~ group_list? ~ ";" ~ cfws? }
+display_name = { phrase }
+
+mailbox_list = { (mailbox ~ ("," ~ mailbox)*) | obs_mbox_list }
+obs_mbox_list = {  ((cfws? ~ ",")* ~ mailbox ~ ("," ~ (mailbox | cfws))*)+ }
+
+address_list = { (address ~ ("," ~ address)*) | obs_addr_list }
+obs_addr_list = {  ((cfws? ~ ",")* ~ address ~ ("," ~ (address | cfws))*)+ }
+
+group_list = { mailbox_list | cfws | obs_group_list }
+obs_group_list = { (cfws? ~ ",")+ ~ cfws? }
+
+addr_spec = { local_part ~ "@" ~ domain }
+
+local_part = { dot_atom | quoted_string | obs_local_part }
+obs_local_part = { word ~ (dot ~ word)* }
+dot = @{ "." }
+
+domain = { dot_atom | domain_literal | obs_domain }
+obs_domain = { atom ~ ( dot ~ atom)* }
+
+domain_literal = { cfws? ~ "[" ~ (fws? ~ dtext)* ~ fws? ~ "]" ~ cfws? }
+
+dtext = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' | obs_dtext }
+obs_dtext = { obs_no_ws_ctl | quoted_pair }
+
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+atext_char = { "!" | "#" | "$" | "%" | "&" | "'" | "*" | "+" | "-" | "/" | "=" |
+          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit }
+
+atext = @{ atext_char+ }
+
+atom = { cfws? ~ atext ~ cfws? }
+dot_atom_text = @{ atext ~ ("." ~ atext)* }
+dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
+specials = { "(" | ")" | "<" | ">" | "[" | "]" | ":" | ";" | "@" | "\\" | "," | "." | "\"" }
+
+qtext = { "\u{21}" | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_qtext }
+obs_qtext = { obs_no_ws_ctl }
+
+qcontent = { qtext | quoted_pair }
+quoted_string = { cfws? ~ "\"" ~ (fws? ~ qcontent)* ~ fws? ~ "\"" ~ cfws? }
+quoted_pair = { ( "\\"  ~ (vchar | wsp)) | obs_qp }
+obs_qp = { "\\" ~ ( "\u{00}" | obs_no_ws_ctl | "\r" | "\n") }
+
+word = { atom | quoted_string }
+
+phrase = { encoded_word+ | word+ | obs_phrase }
+obs_phrase = { word ~ (word | "." | cfws)* }
+
+unstructured = {
+  // This rule always matches; since obs_unstruct is a superset,
+  // and this is an unstructured field anyway, we just use the obsolete
+  // syntax to match the header content
+  // ((fws? ~ vchar)* ~ wsp*) |
+  obs_unstruct
+}
+obs_unstruct = { (( "\r"* ~ "\n"* ~ (obs_utext ~ "\r"* ~ "\n"*)+) | fws)+ }
+obs_utext = { "\u{00}" | obs_no_ws_ctl | vchar }
+
+obs_no_ws_ctl = { '\u{01}'..'\u{08}' | '\u{0b}'..'\u{0c}' | '\u{0d}'..'\u{1f}' | "\u{7f}" }
+obs_ctext = { obs_no_ws_ctl }
+obs_phrase_list = { (phrase | cfws)? ~ ("," ~ (phrase | cfws)?)* }
+obs_route = { obs_domain_list ~ ":" }
+obs_domain_list = { (cfws | ",")* ~ "@" ~ domain ~ ("," ~ cfws? ~ ("@" ~ domain)?)* }
+
+obs_fws = { wsp+ ~ ("\r"? ~ "\n" ~ wsp+)* }
+
+fws = { ((wsp* ~ "\r"? ~ "\n")* ~ wsp+) | obs_fws }
+ctext = { '\u{21}'..'\u{27}' | '\u{2a}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_ctext }
+ccontent = { ctext | quoted_pair | comment | encoded_word }
+comment = { "(" ~ (fws? ~ ccontent)* ~ fws? ~ ")" }
+cfws = { ( (fws? ~ comment)+ ~ fws?) | fws }
+wsp = { " " | "\t" }
+
+vchar = { '\u{21}'..'\u{7e}' }
+
+encoded_word = { "=?" ~ charset ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
+encoded_text = @{ (!( " " | "?") ~ vchar)+ }
+charset = @{ token+ }
+encoding = @{ token+ }
+ctl = { '\u{00}'..'\u{1f}' | "\u{7f}" }
+char = { '\u{01}'..'\u{7f}' }
+token = { !(" " | especials | ctl) ~ char }
+especials = { "(" | ")" | "<" | ">" | "@" | "," | ";" | ":" |
+              "<" | ">" | "/" | "[" | "]" | "?" | "." | "=" }
+
+parse_mailbox_list = _{ SOI ~ mailbox_list ~ EOI }
+parse_mailbox = _{ SOI ~ mailbox ~ EOI }

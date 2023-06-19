@@ -1,5 +1,6 @@
 use crate::headermap::HeaderMap;
-use crate::{MailParsingError, Result, SharedString};
+use crate::rfc5322_parser::Parser;
+use crate::{MailParsingError, Mailbox, MailboxList, Result, SharedString};
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -74,6 +75,20 @@ impl<'a> Header<'a> {
 
     pub fn get_raw_value(&self) -> &str {
         &self.value
+    }
+
+    /// Parse the header into a mailbox-list (as defined in
+    /// RFC 5322), which is how the `From` and `Resent-From`,
+    /// headers are defined.
+    pub fn as_mailbox_list(&self) -> Result<MailboxList> {
+        Parser::parse_mailbox_list_header(self.get_raw_value())
+    }
+
+    /// Parse the header into a mailbox (as defined in
+    /// RFC 5322), which is how the `Sender` and `Resent-Sender`
+    /// headers are defined.
+    pub fn as_mailbox(&self) -> Result<Mailbox> {
+        Parser::parse_mailbox_header(self.get_raw_value())
     }
 
     pub fn parse_headers<S: Into<SharedString<'a>>>(

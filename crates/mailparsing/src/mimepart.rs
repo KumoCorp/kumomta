@@ -28,7 +28,7 @@ impl<'a> MimePart<'a> {
         })
     }
 
-    pub fn headers(&self) -> &Vec<Header> {
+    pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 

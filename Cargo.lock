@@ -2831,7 +2831,12 @@ name = "mailparsing"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.3.3",
+ "charset",
+ "data-encoding",
  "k9",
+ "pest",
+ "pest_derive",
+ "quoted_printable",
  "thiserror",
 ]
 

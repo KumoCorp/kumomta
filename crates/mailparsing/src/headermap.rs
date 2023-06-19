@@ -1,4 +1,4 @@
-use crate::Header;
+use crate::{Header, MailParsingError, Mailbox, MailboxList, Result};
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.
@@ -45,5 +45,33 @@ impl<'a> HeaderMap<'a> {
         self.headers
             .iter()
             .filter(|header| header.get_name().eq_ignore_ascii_case(name))
+    }
+
+    pub fn from(&self) -> Result<Option<MailboxList>> {
+        match self.get_first("From") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_mailbox_list()?)),
+        }
+    }
+
+    pub fn resent_from(&self) -> Result<Option<MailboxList>> {
+        match self.get_first("Resent-From") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_mailbox_list()?)),
+        }
+    }
+
+    pub fn sender(&self) -> Result<Option<Mailbox>> {
+        match self.get_first("Sender") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_mailbox()?)),
+        }
+    }
+
+    pub fn resent_sender(&self) -> Result<Option<Mailbox>> {
+        match self.get_first("Resent-Sender") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_mailbox()?)),
+        }
     }
 }
