@@ -96,6 +96,20 @@ token = { !(" " | especials | ctl) ~ char }
 especials = { "(" | ")" | "<" | ">" | "@" | "," | ";" | ":" |
               "<" | ">" | "/" | "[" | "]" | "?" | "." | "=" }
 
+msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
+
+id_left = { dot_atom_text | obs_id_left }
+obs_id_left = { local_part }
+
+id_right = { dot_atom_text | no_fold_literal | obs_id_right }
+obs_id_right = { domain }
+
+no_fold_literal = { "[" ~ dtext* ~ "]" }
+
+msg_id_list = { msg_id+ }
+
 parse_mailbox_list = _{ SOI ~ mailbox_list ~ EOI }
 parse_mailbox = _{ SOI ~ mailbox ~ EOI }
 parse_address_list = _{ SOI ~ address_list ~ EOI }
+parse_msg_id = _{ SOI ~ msg_id ~ EOI }
+parse_msg_id_list = _{ SOI ~ msg_id_list ~ EOI }

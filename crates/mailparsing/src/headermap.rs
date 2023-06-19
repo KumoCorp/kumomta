@@ -123,4 +123,18 @@ impl<'a> HeaderMap<'a> {
             Some(header) => Ok(Some(header.as_mailbox()?)),
         }
     }
+
+    pub fn message_id(&self) -> Result<Option<String>> {
+        match self.get_first("Message-ID") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_message_id()?)),
+        }
+    }
+
+    pub fn references(&self) -> Result<Option<Vec<String>>> {
+        match self.get_first("References") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_message_id_list()?)),
+        }
+    }
 }

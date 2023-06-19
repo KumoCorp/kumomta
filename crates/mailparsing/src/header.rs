@@ -95,6 +95,14 @@ impl<'a> Header<'a> {
         Parser::parse_address_list_header(self.get_raw_value())
     }
 
+    pub fn as_message_id(&self) -> Result<String> {
+        Parser::parse_msg_id_header(self.get_raw_value())
+    }
+
+    pub fn as_message_id_list(&self) -> Result<Vec<String>> {
+        Parser::parse_msg_id_header_list(self.get_raw_value())
+    }
+
     pub fn parse_headers<S: Into<SharedString<'a>>>(
         header_block: S,
     ) -> Result<HeaderParseResult<'a>> {

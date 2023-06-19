@@ -61,6 +61,88 @@ impl Parser {
         Ok(AddressList(result))
     }
 
+    pub fn parse_msg_id_header(text: &str) -> Result<String> {
+        let pairs = Self::parse(Rule::parse_msg_id, text)
+            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        Self::parse_msg_id(pairs)
+    }
+
+    pub fn parse_msg_id_header_list(text: &str) -> Result<Vec<String>> {
+        let pairs = Self::parse(Rule::parse_msg_id_list, text)
+            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        let mut result = vec![];
+        for p in pairs {
+            result.push(Self::parse_msg_id(p.into_inner())?);
+        }
+        Ok(result)
+    }
+
+    fn parse_msg_id(pairs: Pairs<Rule>) -> Result<String> {
+        let mut result = String::new();
+        for p in pairs {
+            match p.as_rule() {
+                Rule::id_left => {
+                    let content = p.into_inner().next().unwrap();
+                    match content.as_rule() {
+                        Rule::dot_atom_text => {
+                            result += content.as_str();
+                        }
+                        Rule::obs_id_left => {
+                            result +=
+                                &Self::parse_local_part(content.into_inner().next().unwrap())?;
+                        }
+                        rule => {
+                            return Err(MailParsingError::HeaderParse(format!(
+                                "Invalid {rule:?} {content:#?} in parse_msg_id id_left"
+                            )))
+                        }
+                    }
+                }
+                Rule::id_right => {
+                    let content = p.into_inner().next().unwrap();
+                    match content.as_rule() {
+                        Rule::dot_atom_text => {
+                            result.push('@');
+                            result += content.as_str();
+                            return Ok(result);
+                        }
+                        Rule::no_fold_literal => {
+                            result.push('@');
+                            result += &Self::parse_domain_literal(content)?;
+                            return Ok(result);
+                        }
+                        Rule::obs_id_right => {
+                            result.push('@');
+                            result += &Self::parse_domain(content.into_inner().next().unwrap())?;
+                            return Ok(result);
+                        }
+                        rule => {
+                            return Err(MailParsingError::HeaderParse(format!(
+                                "Invalid {rule:?} {content:#?} in parse_msg_id id_left"
+                            )))
+                        }
+                    }
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Invalid {rule:?} {p:#?} in parse_msg_id"
+                    )))
+                }
+            }
+        }
+        Err(MailParsingError::HeaderParse(format!(
+            "Unreachable end of loop in parse_msg_id"
+        )))
+    }
+
     fn parse_address(pairs: Pairs<Rule>) -> Result<Address> {
         for p in pairs {
             match p.as_rule() {
@@ -743,6 +825,48 @@ Some(
             },
         ],
     ),
+)
+"#
+        );
+    }
+
+    #[test]
+    fn message_id() {
+        let message = concat!(
+            "Message-Id: <foo@example.com>\n",
+            "References: <a@example.com> <b@example.com>\n",
+            "  <\"legacy\"@example.com>\n",
+            "  <literal@[127.0.0.1]>\n",
+            "\n\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+        let list = match msg.headers().message_id() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    "foo@example.com",
+)
+"#
+        );
+
+        let list = match msg.headers().references() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    [
+        "a@example.com",
+        "b@example.com",
+        "legacy@example.com",
+        "literal@[127.0.0.1]",
+    ],
 )
 "#
         );
