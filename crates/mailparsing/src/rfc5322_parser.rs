@@ -443,8 +443,11 @@ impl Parser {
         Ok(result)
     }
 
+    // We parse `language` for completeness, but we do not use it
+    #[allow(unused_assignments, unused_variables)]
     fn parse_encoded_word(pair: Pair<Rule>) -> Result<String> {
         let mut charset = String::new();
+        let mut language = String::new();
         let mut encoding = String::new();
         let mut text = String::new();
 
@@ -455,6 +458,9 @@ impl Parser {
                 }
                 Rule::encoding => {
                     encoding = p.as_str().to_string();
+                }
+                Rule::language => {
+                    language = p.as_str().to_string();
                 }
                 Rule::encoded_text => {
                     text = p.as_str().to_string();
@@ -682,7 +688,7 @@ Some(
     fn rfc2047() {
         let message = concat!(
             "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
-            "To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>\n",
+            "To: =?ISO-8859-1*en-us?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>\n",
             "CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>\n",
             "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n",
             "  =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\n",

@@ -86,9 +86,10 @@ wsp = { " " | "\t" }
 
 vchar = { '\u{21}'..'\u{7e}' }
 
-encoded_word = { "=?" ~ charset ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
+encoded_word = { "=?" ~ charset ~ ("*" ~ language)? ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
 encoded_text = @{ (!( " " | "?") ~ vchar)+ }
-charset = @{ token+ }
+language = @{ token+ }
+charset = @{ (!"*" ~ token)+ }
 encoding = @{ token+ }
 ctl = { '\u{00}'..'\u{1f}' | "\u{7f}" }
 char = { '\u{01}'..'\u{7f}' }
