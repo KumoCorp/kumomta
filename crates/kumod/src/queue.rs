@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::instrument;
@@ -329,6 +330,10 @@ mod test {
     }
 }
 
+#[derive(Error, Debug)]
+#[error("The Ready Queue is full")]
+struct ReadyQueueFull;
+
 #[derive(Clone)]
 pub struct QueueHandle(Arc<Mutex<Queue>>);
 
@@ -415,6 +420,50 @@ impl Queue {
         }
     }
 
+    async fn increment_attempts_and_update_delay(
+        &self,
+        msg: Message,
+    ) -> anyhow::Result<Option<Message>> {
+        let id = *msg.id();
+        msg.increment_num_attempts();
+        let delay = self.queue_config.delay_for_attempt(msg.get_num_attempts());
+        let jitter = (rand::random::<f32>() * 60.) - 30.0;
+        let delay = chrono::Duration::seconds(delay.num_seconds() + jitter as i64);
+
+        let now = Utc::now();
+        let max_age = self.queue_config.get_max_age();
+        let age = msg.age(now);
+        let delayed_age = age + delay;
+        if delayed_age > max_age {
+            tracing::debug!("expiring {id} {delayed_age} > {max_age}");
+            log_disposition(LogDisposition {
+                kind: RecordType::Expiration,
+                msg,
+                site: "localhost",
+                peer_address: None,
+                response: Response {
+                    code: 551,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 4,
+                        detail: 7,
+                    }),
+                    content: format!("Next delivery time {delayed_age} > {max_age}"),
+                    command: None,
+                },
+                egress_pool: self.queue_config.egress_pool.as_deref(),
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+            })
+            .await;
+            SpoolManager::remove_from_spool(id).await?;
+            return Ok(None);
+        }
+        msg.delay_by(delay).await?;
+        Ok(Some(msg))
+    }
+
     #[instrument(skip(self, msg))]
     pub async fn requeue_message(
         &mut self,
@@ -422,44 +471,13 @@ impl Queue {
         increment_attempts: bool,
         delay: Option<chrono::Duration>,
     ) -> anyhow::Result<()> {
-        let id = *msg.id();
         if increment_attempts {
-            msg.increment_num_attempts();
-            let delay = self.queue_config.delay_for_attempt(msg.get_num_attempts());
-            let jitter = (rand::random::<f32>() * 60.) - 30.0;
-            let delay = chrono::Duration::seconds(delay.num_seconds() + jitter as i64);
-
-            let now = Utc::now();
-            let max_age = self.queue_config.get_max_age();
-            let age = msg.age(now);
-            let delayed_age = age + delay;
-            if delayed_age > max_age {
-                tracing::debug!("expiring {id} {delayed_age} > {max_age}");
-                log_disposition(LogDisposition {
-                    kind: RecordType::Expiration,
-                    msg,
-                    site: "localhost",
-                    peer_address: None,
-                    response: Response {
-                        code: 551,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
-                            subject: 4,
-                            detail: 7,
-                        }),
-                        content: format!("Next delivery time {delayed_age} > {max_age}"),
-                        command: None,
-                    },
-                    egress_pool: self.queue_config.egress_pool.as_deref(),
-                    egress_source: None,
-                    relay_disposition: None,
-                    delivery_protocol: None,
-                })
-                .await;
-                SpoolManager::remove_from_spool(id).await?;
-                return Ok(());
-            }
-            msg.delay_by(delay).await?;
+            match self.increment_attempts_and_update_delay(msg).await? {
+                Some(msg) => {
+                    return self.insert(msg).await;
+                }
+                None => return Ok(()),
+            };
         } else if let Some(delay) = delay {
             msg.delay_by(delay).await?;
         } else {
@@ -491,12 +509,14 @@ impl Queue {
     async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("force_into_delayed {}", msg.id());
         loop {
-            msg.delay_with_jitter(60).await?;
             match self.insert_delayed(msg.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 // Maybe delay_with_jitter computed an immediate
                 // time? Let's try again
-                InsertResult::Ready(_) => continue,
+                InsertResult::Ready(_) => {
+                    msg.delay_with_jitter(60).await?;
+                    continue;
+                }
             }
         }
     }
@@ -541,9 +561,7 @@ impl Queue {
                 {
                     Ok(site) => {
                         let mut site = site.lock().await;
-                        site.insert(msg)
-                            .await
-                            .map_err(|_| anyhow!("no room in ready queue"))
+                        site.insert(msg).await.map_err(|_| ReadyQueueFull.into())
                     }
                     Err(err) => {
                         log_disposition(LogDisposition {
@@ -668,7 +686,19 @@ impl Queue {
             InsertResult::Ready(msg) => {
                 if let Err(err) = self.insert_ready(msg.clone()).await {
                     tracing::debug!("insert_ready: {err:#}");
-                    self.force_into_delayed(msg).await?;
+
+                    if err.downcast_ref::<ReadyQueueFull>().is_none() {
+                        // It was a legit error while trying to do something useful
+                        match self.increment_attempts_and_update_delay(msg).await? {
+                            Some(msg) => {
+                                self.force_into_delayed(msg).await?;
+                            }
+                            None => {}
+                        }
+                    } else {
+                        // Queue is full; try again shortly
+                        self.force_into_delayed(msg).await?;
+                    }
                 }
                 Ok(())
             }
