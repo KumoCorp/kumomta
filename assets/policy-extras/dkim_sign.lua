@@ -14,7 +14,7 @@ kumo.on('smtp_server_message_received', function(msg)
   dkim_signer(msg)
 end)
 
-kumo.on('http_server_message_received', function(msg)
+kumo.on('http_message_generated', function(msg)
   dkim_signer(msg)
 end)
 
