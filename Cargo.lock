@@ -2280,7 +2280,7 @@ dependencies = [
  "rfc5321",
  "rustls 0.20.8",
  "rustls-pemfile",
- "self_cell 1.0.0",
+ "self_cell",
  "serde",
  "serde_json",
  "socksv5",
@@ -2766,12 +2766,12 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minijinja"
-version = "0.30.7"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2819be6b8bd3236f0fdbf86b1ff2d1f42ef8ef939eed74f6bc3ecf2e6344cd96"
+checksum = "75aa91cba87dcad6af3e53bc7adb9c99755eba2d49b6c5f10dbcc79d4727c1bd"
 dependencies = [
  "memo-map",
- "self_cell 0.10.2",
+ "self_cell",
  "serde",
 ]
 
@@ -4186,12 +4186,6 @@ dependencies = [
  "core-foundation-sys",
  "libc",
 ]
-
-[[package]]
-name = "self_cell"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ef965a420fe14fdac7dd018862966a4c14094f900e1650bbc71ddd7d580c8af"
 
 [[package]]
 name = "self_cell"
