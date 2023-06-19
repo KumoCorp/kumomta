@@ -1,6 +1,6 @@
 use crate::headermap::HeaderMap;
 use crate::rfc5322_parser::Parser;
-use crate::{MailParsingError, Mailbox, MailboxList, Result, SharedString};
+use crate::{AddressList, MailParsingError, Mailbox, MailboxList, Result, SharedString};
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -89,6 +89,10 @@ impl<'a> Header<'a> {
     /// headers are defined.
     pub fn as_mailbox(&self) -> Result<Mailbox> {
         Parser::parse_mailbox_header(self.get_raw_value())
+    }
+
+    pub fn as_address_list(&self) -> Result<AddressList> {
+        Parser::parse_address_list_header(self.get_raw_value())
     }
 
     pub fn parse_headers<S: Into<SharedString<'a>>>(

@@ -25,6 +25,16 @@ impl Parser {
         Ok(MailboxList(result))
     }
 
+    fn parse_mailbox_list(pairs: Pairs<Rule>) -> Result<MailboxList> {
+        let mut result: Vec<Mailbox> = vec![];
+
+        for p in pairs {
+            result.push(Self::parse_mailbox(p.into_inner())?);
+        }
+
+        Ok(MailboxList(result))
+    }
+
     pub fn parse_mailbox_header(text: &str) -> Result<Mailbox> {
         let pairs = Self::parse(Rule::parse_mailbox, text)
             .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
@@ -33,6 +43,80 @@ impl Parser {
             .into_inner();
 
         Self::parse_mailbox(pairs)
+    }
+
+    pub fn parse_address_list_header(text: &str) -> Result<AddressList> {
+        let mut pairs = Self::parse(Rule::parse_address_list, text)
+            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        let mut result: Vec<Address> = vec![];
+
+        while let Some(pair) = pairs.next() {
+            result.push(Self::parse_address(pair.into_inner())?);
+        }
+
+        Ok(AddressList(result))
+    }
+
+    fn parse_address(pairs: Pairs<Rule>) -> Result<Address> {
+        for p in pairs {
+            match p.as_rule() {
+                Rule::mailbox => return Ok(Address::Mailbox(Self::parse_mailbox(p.into_inner())?)),
+                Rule::group => return Self::parse_group(p.into_inner()),
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Expected mailbox or group, but had {rule:?} {p:?}"
+                    )))
+                }
+            };
+        }
+        Err(MailParsingError::HeaderParse(
+            "unreachable end of loop in parse_address".to_string(),
+        ))
+    }
+
+    fn parse_group(pairs: Pairs<Rule>) -> Result<Address> {
+        let mut name = String::new();
+
+        for p in pairs {
+            match p.as_rule() {
+                Rule::display_name => {
+                    name = Self::parse_display_name(p)?;
+                }
+                Rule::cfws => {}
+                Rule::group_list => {
+                    for p in p.into_inner() {
+                        match p.as_rule() {
+                            Rule::mailbox_list => {
+                                return Ok(Address::Group {
+                                    name,
+                                    entries: Self::parse_mailbox_list(p.into_inner())?,
+                                });
+                            }
+                            Rule::obs_group_list | Rule::cfws => {}
+                            rule => {
+                                return Err(MailParsingError::HeaderParse(format!(
+                                    "Unexpected {rule:?} {p:?} in parse_group group_list"
+                                )))
+                            }
+                        }
+                    }
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:?} in parse_group"
+                    )))
+                }
+            };
+        }
+
+        Ok(Address::Group {
+            name,
+            entries: MailboxList(vec![]),
+        })
     }
 
     fn parse_mailbox(pairs: Pairs<Rule>) -> Result<Mailbox> {
@@ -141,7 +225,7 @@ impl Parser {
                 Rule::obs_domain => return Self::parse_obs_domain(p),
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
-                        "Unhandled {rule:?} {p:#?} in parse_domain"
+                        "Unexpected {rule:?} {p:#?} in parse_domain"
                     )))
                 }
             }
@@ -168,7 +252,7 @@ impl Parser {
                 }
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
-                        "Unhandled {rule:?} {p:#?} in parse_domain_literal"
+                        "Unexpected {rule:?} {p:#?} in parse_domain_literal"
                     )))
                 }
             }
@@ -207,6 +291,7 @@ impl Parser {
             match p.as_rule() {
                 Rule::addr_spec => return Self::parse_addr_spec(p),
                 Rule::cfws => {}
+                // FIXME: obs_angle_addr
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
                         "Unhandled {rule:?} {p:#?} in parse_angle_addr"
@@ -337,9 +422,10 @@ impl Parser {
         for p in pair.into_inner() {
             match p.as_rule() {
                 Rule::atext => return Ok(p.as_str().to_string()),
+                Rule::cfws => {}
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
-                        "Unhandled {rule:?} {p:#?} in parse_atom"
+                        "Unexpected {rule:?} {p:#?} in parse_atom"
                     )))
                 }
             }
@@ -355,6 +441,7 @@ impl Parser {
             match p.as_rule() {
                 Rule::word => words.push(Self::parse_word(p)?),
                 Rule::encoded_word => words.push(Self::parse_encoded_word(p)?),
+                // FIXME: obs_phrase
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
                         "Unhandled {rule:?} in parse_phrase"
@@ -397,6 +484,15 @@ impl Parser {
         )))
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Address {
+    Mailbox(Mailbox),
+    Group { name: String, entries: MailboxList },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddressList(Vec<Address>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MailboxList(Vec<Mailbox>);
@@ -502,7 +598,14 @@ Some(
 
     #[test]
     fn rfc2047() {
-        let message = "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n\n\n";
+        let message = concat!(
+            "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
+            "To: =?ISO-8859-1?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>\n",
+            "CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>\n",
+            "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n",
+            "  =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\n",
+            "\n\n"
+        );
         let msg = MimePart::parse(message).unwrap();
         let list = match msg.headers().from() {
             Err(err) => panic!("Doh.\n{err:#}"),
@@ -519,6 +622,124 @@ Some(
                     "Keith Moore",
                 ),
                 address: "moore@cs.utk.edu",
+            },
+        ],
+    ),
+)
+"#
+        );
+
+        let list = match msg.headers().to() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "Keld Jørn Simonsen",
+                    ),
+                    address: "keld@dkuug.dk",
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+
+        let list = match msg.headers().cc() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "André Pirard",
+                    ),
+                    address: "PIRARD@vm1.ulg.ac.be",
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+    }
+
+    #[test]
+    fn group_addresses() {
+        let message = concat!(
+            "To: A Group:Ed Jones <c@a.test>,joe@where.test,John <jdoe@one.test>;\n",
+            "Cc: Undisclosed recipients:;\n",
+            "\n\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+        let list = match msg.headers().to() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Group {
+                name: "A Group",
+                entries: MailboxList(
+                    [
+                        Mailbox {
+                            name: Some(
+                                "Ed Jones",
+                            ),
+                            address: "c@a.test",
+                        },
+                        Mailbox {
+                            name: None,
+                            address: "joe@where.test",
+                        },
+                        Mailbox {
+                            name: Some(
+                                "John",
+                            ),
+                            address: "jdoe@one.test",
+                        },
+                    ],
+                ),
+            },
+        ],
+    ),
+)
+"#
+        );
+
+        let list = match msg.headers().cc() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Group {
+                name: "Undisclosed recipients",
+                entries: MailboxList(
+                    [],
+                ),
             },
         ],
     ),

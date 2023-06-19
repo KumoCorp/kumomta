@@ -1,4 +1,4 @@
-use crate::{Header, MailParsingError, Mailbox, MailboxList, Result};
+use crate::{AddressList, Header, Mailbox, MailboxList, Result};
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.
@@ -51,6 +51,55 @@ impl<'a> HeaderMap<'a> {
         match self.get_first("From") {
             None => Ok(None),
             Some(header) => Ok(Some(header.as_mailbox_list()?)),
+        }
+    }
+
+    pub fn to(&self) -> Result<Option<AddressList>> {
+        match self.get_first("To") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn cc(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Cc") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn bcc(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Bcc") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn resent_to(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Resent-To") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn resent_cc(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Resent-Cc") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn resent_bcc(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Resent-Bcc") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
+        }
+    }
+
+    pub fn reply_to(&self) -> Result<Option<AddressList>> {
+        match self.get_first("Reply-To") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_address_list()?)),
         }
     }
 

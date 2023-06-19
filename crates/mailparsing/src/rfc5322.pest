@@ -18,7 +18,7 @@ address_list = { (address ~ ("," ~ address)*) | obs_addr_list }
 obs_addr_list = {  ((cfws? ~ ",")* ~ address ~ ("," ~ (address | cfws))*)+ }
 
 group_list = { mailbox_list | cfws | obs_group_list }
-obs_group_list = { (cfws? ~ ",")+ ~ cfws? }
+obs_group_list = @{ (cfws? ~ ",")+ ~ cfws? }
 
 addr_spec = { local_part ~ "@" ~ domain }
 
@@ -56,8 +56,8 @@ obs_qp = { "\\" ~ ( "\u{00}" | obs_no_ws_ctl | "\r" | "\n") }
 
 word = { atom | quoted_string }
 
-phrase = { encoded_word+ | word+ | obs_phrase }
-obs_phrase = { word ~ (word | "." | cfws)* }
+phrase = { (encoded_word | word)+ | obs_phrase }
+obs_phrase = { (encoded_word | word) ~ (encoded_word | word | "." | cfws)* }
 
 unstructured = {
   // This rule always matches; since obs_unstruct is a superset,
@@ -98,3 +98,4 @@ especials = { "(" | ")" | "<" | ">" | "@" | "," | ";" | ":" |
 
 parse_mailbox_list = _{ SOI ~ mailbox_list ~ EOI }
 parse_mailbox = _{ SOI ~ mailbox ~ EOI }
+parse_address_list = _{ SOI ~ address_list ~ EOI }
