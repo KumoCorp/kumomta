@@ -66,8 +66,8 @@ unstructured = {
   // ((fws? ~ vchar)* ~ wsp*) |
   obs_unstruct
 }
-obs_unstruct = { (( "\r"* ~ "\n"* ~ (obs_utext ~ "\r"* ~ "\n"*)+) | fws)+ }
-obs_utext = { "\u{00}" | obs_no_ws_ctl | vchar }
+obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }
+obs_utext = @{ "\u{00}" | obs_no_ws_ctl | vchar }
 
 obs_no_ws_ctl = { '\u{01}'..'\u{08}' | '\u{0b}'..'\u{0c}' | '\u{0d}'..'\u{1f}' | "\u{7f}" }
 obs_ctext = { obs_no_ws_ctl }
@@ -114,3 +114,4 @@ parse_mailbox = _{ SOI ~ mailbox ~ EOI }
 parse_address_list = _{ SOI ~ address_list ~ EOI }
 parse_msg_id = _{ SOI ~ msg_id ~ EOI }
 parse_msg_id_list = _{ SOI ~ msg_id_list ~ EOI }
+parse_unstructured = _{ SOI ~ unstructured ~ EOI }

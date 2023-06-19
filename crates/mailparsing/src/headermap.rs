@@ -137,4 +137,18 @@ impl<'a> HeaderMap<'a> {
             Some(header) => Ok(Some(header.as_message_id_list()?)),
         }
     }
+
+    pub fn subject(&self) -> Result<Option<String>> {
+        match self.get_first("Subject") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_unstructured()?)),
+        }
+    }
+
+    pub fn comments(&self) -> Result<Option<String>> {
+        match self.get_first("Comments") {
+            None => Ok(None),
+            Some(header) => Ok(Some(header.as_unstructured()?)),
+        }
+    }
 }

@@ -103,6 +103,10 @@ impl<'a> Header<'a> {
         Parser::parse_msg_id_header_list(self.get_raw_value())
     }
 
+    pub fn as_unstructured(&self) -> Result<String> {
+        Parser::parse_unstructured_header(self.get_raw_value())
+    }
+
     pub fn parse_headers<S: Into<SharedString<'a>>>(
         header_block: S,
     ) -> Result<HeaderParseResult<'a>> {

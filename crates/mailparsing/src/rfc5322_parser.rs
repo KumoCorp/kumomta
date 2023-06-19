@@ -143,6 +143,52 @@ impl Parser {
         )))
     }
 
+    pub fn parse_unstructured_header(text: &str) -> Result<String> {
+        let mut pairs = Self::parse(Rule::parse_unstructured, text)
+            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        Self::parse_unstructured(pairs.next().unwrap().into_inner())
+    }
+
+    fn parse_unstructured(pairs: Pairs<Rule>) -> Result<String> {
+        let mut result = String::new();
+        let mut fws = false;
+
+        for p in pairs {
+            match p.as_rule() {
+                Rule::encoded_word => {
+                    result += &Self::parse_encoded_word(p)?;
+                    // Implicit fws at end of encoded word
+                    fws = true;
+                }
+                Rule::fws | Rule::cfws => {
+                    if !result.is_empty() && !fws {
+                        result.push(' ');
+                    }
+                    fws = true;
+                }
+                Rule::obs_utext => {
+                    result += p.as_str();
+                    fws = false;
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_unstructured"
+                    )))
+                }
+            };
+        }
+
+        if fws {
+            result.pop();
+        }
+
+        Ok(result)
+    }
+
     fn parse_address(pairs: Pairs<Rule>) -> Result<Address> {
         for p in pairs {
             match p.as_rule() {
@@ -690,7 +736,7 @@ Some(
             "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
             "To: =?ISO-8859-1*en-us?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>\n",
             "CC: =?ISO-8859-1?Q?Andr=E9?= Pirard <PIRARD@vm1.ulg.ac.be>\n",
-            "Subject: =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n",
+            "Subject: Hello =?ISO-8859-1?B?SWYgeW91IGNhbiByZWFkIHRoaXMgeW8=?=\n",
             "  =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\n",
             "\n\n"
         );
@@ -761,6 +807,18 @@ Some(
             ),
         ],
     ),
+)
+"#
+        );
+        let list = match msg.headers().subject() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    "Hello If you can read this you understand the example",
 )
 "#
         );
