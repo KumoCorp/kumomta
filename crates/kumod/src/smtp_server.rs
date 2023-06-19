@@ -484,6 +484,14 @@ impl SmtpServer {
             false
         };
 
+        tracing::debug!(
+            "check_relaying: sender={sender_domain} \
+             recip={recipient_domain} relay_to_allowed={relay_to_allowed:?} \
+             relay_hosts_allowed={relay_hosts_allowed} \
+             relay_from_allowed={relay_from_allowed} \
+             -> log_arf={log_arf} log_oob={log_oob} relay={relay}"
+        );
+
         Ok(RelayDisposition {
             relay,
             log_arf,
