@@ -26,7 +26,7 @@ impl DeliveryMetrics {
         self.connection_total.inc();
         self.global_connection_total.inc();
         MetricsWrappedConnection {
-            client,
+            client: Some(client),
             metrics: self.clone(),
             armed: true,
         }
@@ -62,7 +62,7 @@ impl DeliveryMetrics {
 /// and decrements them when dropped
 #[derive(Debug)]
 pub struct MetricsWrappedConnection<T> {
-    client: T,
+    client: Option<T>,
     metrics: DeliveryMetrics,
     armed: bool,
 }
@@ -72,10 +72,19 @@ impl<T> MetricsWrappedConnection<T> {
     pub fn map_connection<O>(mut self, client: O) -> MetricsWrappedConnection<O> {
         self.armed = false;
         MetricsWrappedConnection {
-            client,
+            client: Some(client),
             metrics: self.metrics.clone(),
             armed: true,
         }
+    }
+
+    pub fn take(mut self) -> T {
+        if self.armed {
+            self.metrics.connection_gauge.dec();
+            self.metrics.global_connection_gauge.dec();
+            self.armed = false;
+        }
+        self.client.take().expect("to take only once")
     }
 }
 
@@ -91,12 +100,12 @@ impl<T> Drop for MetricsWrappedConnection<T> {
 impl<T> std::ops::Deref for MetricsWrappedConnection<T> {
     type Target = T;
     fn deref(&self) -> &T {
-        &self.client
+        self.client.as_ref().expect("to be valid")
     }
 }
 
 impl<T> std::ops::DerefMut for MetricsWrappedConnection<T> {
     fn deref_mut(&mut self) -> &mut T {
-        &mut self.client
+        self.client.as_mut().expect("to be valid")
     }
 }

@@ -1,3 +1,4 @@
+use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::{log_disposition, LogDisposition};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::runtime::{rt_spawn, spawn};
@@ -25,7 +26,7 @@ pub struct LuaDeliveryProtocol {
 pub struct LuaQueueDispatcher {
     lua_config: LuaConfig,
     proto_config: LuaDeliveryProtocol,
-    connection: Option<RegistryKey>,
+    connection: Option<MetricsWrappedConnection<RegistryKey>>,
     peer_address: ResolvedAddress,
 }
 
@@ -49,7 +50,7 @@ impl LuaQueueDispatcher {
 impl QueueDispatcher for LuaQueueDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         if let Some(connection) = self.connection.take() {
-            self.lua_config.remove_registry_value(connection)?;
+            self.lua_config.remove_registry_value(connection.take())?;
             Ok(true)
         } else {
             Ok(false)
@@ -57,6 +58,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+        let connection_wrapper = dispatcher.metrics.wrap_connection(());
         let components = QueueNameComponents::parse(&dispatcher.queue_name);
         let connection = self
             .lua_config
@@ -66,7 +68,8 @@ impl QueueDispatcher for LuaQueueDispatcher {
             )
             .await?;
 
-        self.connection.replace(connection);
+        self.connection
+            .replace(connection_wrapper.map_connection(connection));
         Ok(())
     }
 

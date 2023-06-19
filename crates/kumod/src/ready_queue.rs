@@ -487,8 +487,6 @@ impl Dispatcher {
             }
             if let Err(err) = queue_dispatcher.attempt_connection(&mut dispatcher).await {
                 connection_failures.push(format!("{err:#}"));
-                dispatcher.metrics.connection_gauge.dec();
-                dispatcher.metrics.global_connection_gauge.dec();
                 if !queue_dispatcher
                     .have_more_connection_candidates(&mut dispatcher)
                     .await
