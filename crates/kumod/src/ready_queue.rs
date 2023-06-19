@@ -223,7 +223,14 @@ impl ReadyQueue {
         if crate::memory::low_memory() {
             msg.shrink().ok();
         }
-        self.ready.lock().unwrap().push_back(msg);
+        {
+            let mut ready = self.ready.lock().unwrap();
+            if ready.len() + 1 >= self.path_config.max_ready {
+                return Err(msg);
+            }
+            ready.push_back(msg);
+        }
+
         self.metrics.ready_count.inc();
         self.notify.notify_waiters();
         self.maintain().await;
