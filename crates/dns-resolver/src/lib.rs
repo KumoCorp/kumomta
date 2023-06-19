@@ -140,13 +140,13 @@ impl MailExchanger {
         Ok(mx)
     }
 
-    pub async fn resolve_addresses(&self) -> Vec<ResolvedAddress> {
+    pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
         let mut result = vec![];
 
         for mx_host in &self.hosts {
             // '.' is a null mx; skip trying to resolve it
             if mx_host == "." {
-                continue;
+                return ResolvedMxAddresses::NullMx;
             }
 
             // Handle the literal address case
@@ -174,8 +174,14 @@ impl MailExchanger {
             }
         }
         result.reverse();
-        result
+        ResolvedMxAddresses::Addresses(result)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolvedMxAddresses {
+    NullMx,
+    Addresses(Vec<ResolvedAddress>),
 }
 
 struct ByPreference {
@@ -416,12 +422,14 @@ MailExchanger {
         k9::snapshot!(
             v4_loopback.resolve_addresses().await,
             r#"
-[
-    ResolvedAddress {
-        name: "127.0.0.1",
-        addr: 127.0.0.1,
-    },
-]
+Addresses(
+    [
+        ResolvedAddress {
+            name: "127.0.0.1",
+            addr: 127.0.0.1,
+        },
+    ],
+)
 "#
         );
 
@@ -447,12 +455,14 @@ MailExchanger {
         k9::snapshot!(
             v6_loopback_non_conforming.resolve_addresses().await,
             r#"
-[
-    ResolvedAddress {
-        name: "::1",
-        addr: ::1,
-    },
-]
+Addresses(
+    [
+        ResolvedAddress {
+            name: "::1",
+            addr: ::1,
+        },
+    ],
+)
 "#
         );
 
@@ -478,12 +488,14 @@ MailExchanger {
         k9::snapshot!(
             v6_loopback.resolve_addresses().await,
             r#"
-[
-    ResolvedAddress {
-        name: "::1",
-        addr: ::1,
-    },
-]
+Addresses(
+    [
+        ResolvedAddress {
+            name: "::1",
+            addr: ::1,
+        },
+    ],
+)
 "#
         );
     }

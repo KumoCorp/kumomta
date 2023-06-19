@@ -7,6 +7,7 @@ use crate::runtime::{rt_spawn, spawn};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
+use dns_resolver::ResolvedMxAddresses;
 use kumo_log_types::ResolvedAddress;
 use message::Message;
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
@@ -34,7 +35,7 @@ impl SmtpDispatcher {
             },
         };
 
-        let mut addresses = dispatcher
+        let addresses = dispatcher
             .mx
             .as_ref()
             .expect("to have mx when doing smtp")
@@ -42,16 +43,35 @@ impl SmtpDispatcher {
             .await;
         tracing::trace!("mx resolved to {addresses:?}");
 
+        let mut addresses = match addresses {
+            ResolvedMxAddresses::NullMx => {
+                dispatcher
+                    .bulk_ready_queue_operation(Response {
+                        code: 556,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 5,
+                            subject: 1,
+                            detail: 10,
+                        }),
+                        content: "Recipient address has a null MX".to_string(),
+                        command: None,
+                    })
+                    .await;
+                return Ok(None);
+            }
+            ResolvedMxAddresses::Addresses(a) => a,
+        };
+
         if addresses.is_empty() {
             dispatcher
                 .bulk_ready_queue_operation(Response {
-                    code: 556,
+                    code: 451,
                     enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 1,
-                        detail: 10,
+                        class: 4,
+                        subject: 4,
+                        detail: 4,
                     }),
-                    content: "Recipient address has a null MX".to_string(),
+                    content: "MX didn't resolve to any hosts".to_string(),
                     command: None,
                 })
                 .await;
