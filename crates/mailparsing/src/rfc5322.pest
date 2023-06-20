@@ -57,7 +57,7 @@ obs_qp = { "\\" ~ ( "\u{00}" | obs_no_ws_ctl | "\r" | "\n") }
 word = { atom | quoted_string }
 
 phrase = { (encoded_word | word)+ | obs_phrase }
-obs_phrase = { (encoded_word | word) ~ (encoded_word | word | "." | cfws)* }
+obs_phrase = { (encoded_word | word) ~ (encoded_word | word | dot | cfws)* }
 
 unstructured = {
   // This rule always matches; since obs_unstruct is a superset,

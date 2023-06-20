@@ -575,10 +575,42 @@ impl Parser {
             match p.as_rule() {
                 Rule::word => words.push(Self::parse_word(p)?),
                 Rule::encoded_word => words.push(Self::parse_encoded_word(p)?),
-                // FIXME: obs_phrase
+                Rule::obs_phrase => {
+                    words.append(&mut Self::parse_obs_phrase(p)?);
+                }
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
-                        "Unhandled {rule:?} in parse_phrase"
+                        "Unexpected {rule:?} in parse_phrase"
+                    )))
+                }
+            }
+        }
+        Ok(words)
+    }
+
+    fn parse_obs_phrase(pair: Pair<Rule>) -> Result<Vec<String>> {
+        let mut words = vec![];
+        let mut current_word = String::new();
+        for p in pair.into_inner() {
+            match p.as_rule() {
+                Rule::word => {
+                    current_word += &Self::parse_word(p)?;
+                }
+                Rule::encoded_word => {
+                    current_word += &Self::parse_encoded_word(p)?;
+                }
+                Rule::dot => {
+                    current_word.push('.');
+                }
+                Rule::cfws => {
+                    if !current_word.is_empty() {
+                        words.push(current_word.clone());
+                        current_word.clear();
+                    }
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} in parse_obs_phrase"
                     )))
                 }
             }
