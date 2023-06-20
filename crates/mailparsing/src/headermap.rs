@@ -1,4 +1,5 @@
-use crate::{AddressList, Header, Mailbox, MailboxList, Result};
+use crate::{AddressList, Header, Mailbox, MailboxList, Result, SharedString};
+use paste::paste;
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.
@@ -22,12 +23,31 @@ impl<'a> std::ops::DerefMut for HeaderMap<'a> {
     }
 }
 
+pub trait EncodeHeaderValue {
+    fn encode_value(&self) -> SharedString<'static>;
+}
+
 macro_rules! accessor {
     ($func_name:ident, $header_name:literal, $ty:path, $parser:ident) => {
         pub fn $func_name(&self) -> Result<Option<$ty>> {
             match self.get_first($header_name) {
                 None => Ok(None),
                 Some(header) => Ok(Some(header.$parser()?)),
+            }
+        }
+
+        paste! {
+            pub fn [<set_ $func_name>](&'a mut self, v: impl EncodeHeaderValue) {
+                if let Some(idx) = self
+                    .headers
+                    .iter()
+                    .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
+                {
+                    self.headers[idx].assign(v);
+                } else {
+                    self.headers
+                        .push(Header::with_name_value($header_name, v.encode_value()));
+                }
             }
         }
     };

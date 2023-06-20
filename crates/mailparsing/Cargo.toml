@@ -9,9 +9,10 @@ edition = "2021"
 bitflags = "2.3"
 charset = "0.1"
 data-encoding = "2.4"
+paste = "1.0"
 pest = "2.5"
 pest_derive = "2.5"
-quoted_printable = "0.4"
+quoted_printable = "0.5"
 thiserror = "1.0"
 
 [dev-dependencies]

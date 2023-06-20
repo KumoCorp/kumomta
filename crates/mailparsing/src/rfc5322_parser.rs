@@ -1,4 +1,5 @@
-use crate::{MailParsingError, Result};
+use crate::headermap::EncodeHeaderValue;
+use crate::{MailParsingError, Result, SharedString};
 use charset::Charset;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser as _;
@@ -687,6 +688,68 @@ pub struct MailboxList(Vec<Mailbox>);
 pub struct Mailbox {
     pub name: Option<String>,
     pub address: String,
+}
+
+fn qp_encode(s: &str) -> String {
+    let prefix = "=?UTF-8?q?";
+    let suffix = "?=";
+    let limit = 75 - (prefix.len() + suffix.len());
+
+    let s = s.replace(' ', "_");
+
+    let encoded = quoted_printable::encode_with_options(
+        s,
+        quoted_printable::Options::default().line_length_limit(limit),
+    );
+
+    let mut first = "";
+    let mut result = String::with_capacity(encoded.len());
+
+    for line in encoded.lines() {
+        result.push_str(first);
+        result.push_str(prefix);
+        result.push_str(line);
+        result.push_str(suffix);
+        result.push_str("\r\n");
+        first = "\t";
+    }
+    // Remove trailing crlf
+    result.pop();
+    result.pop();
+    result
+}
+
+#[cfg(test)]
+#[test]
+fn test_qp_encode() {
+    k9::snapshot!(qp_encode("hello, I am a line that is this long, or maybe a little bit longer than this, and that should get wrapped by the encoder"));
+}
+
+impl EncodeHeaderValue for Mailbox {
+    fn encode_value(&self) -> SharedString<'static> {
+        match &self.name {
+            Some(name) => {
+                let mut value = String::new();
+
+                if name.chars().all(|c| c.is_ascii()) {
+                    if name.chars().any(|c| c.is_ascii_whitespace() || c == '"') {
+                        value.push_str(&format!("\"{name}\""));
+                    } else {
+                        value.push_str(name);
+                    }
+                } else {
+                    value = qp_encode(name);
+                }
+
+                name.to_string();
+                value.push_str(" <");
+                value.push_str(&self.address);
+                value.push('>');
+                value.into()
+            }
+            None => format!("<{}>", self.address).into(),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use crate::headermap::HeaderMap;
+use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::{AddressList, MailParsingError, Mailbox, MailboxList, Result, SharedString};
 
@@ -41,6 +41,21 @@ impl<'a> Header<'a> {
             separator: ": ".into(),
             conformance: HeaderConformance::default(),
         }
+    }
+
+    pub fn new<N: Into<SharedString<'a>>>(name: N, value: impl EncodeHeaderValue) -> Self {
+        let name = name.into();
+        let value = value.encode_value();
+        Self {
+            name,
+            value,
+            separator: ": ".into(),
+            conformance: HeaderConformance::default(),
+        }
+    }
+
+    pub fn assign(&mut self, v: impl EncodeHeaderValue) {
+        self.value = v.encode_value();
     }
 
     /// Format the header into the provided output stream,
@@ -332,6 +347,49 @@ HeaderMap {
     ],
 }
 "#
+        );
+    }
+
+    #[test]
+    fn assign_mailbox() {
+        let mut sender = Header::with_name_value("Sender", "");
+        sender.assign(Mailbox {
+            name: Some("John Smith".to_string()),
+            address: "john.smith@example.com".to_string(),
+        });
+        assert_eq!(
+            sender.to_header_string(),
+            "Sender: \"John Smith\" <john.smith@example.com>\r\n"
+        );
+    }
+
+    #[test]
+    fn new_mailbox() {
+        let sender = Header::new(
+            "Sender",
+            Mailbox {
+                name: Some("John".to_string()),
+                address: "john.smith@example.com".to_string(),
+            },
+        );
+        assert_eq!(
+            sender.to_header_string(),
+            "Sender: John <john.smith@example.com>\r\n"
+        );
+    }
+
+    #[test]
+    fn new_mailbox_2047() {
+        let sender = Header::new(
+            "Sender",
+            Mailbox {
+                name: Some("André Pirard".to_string()),
+                address: "andre@example.com".to_string(),
+            },
+        );
+        assert_eq!(
+            sender.to_header_string(),
+            "Sender: =?UTF-8?q?Andr=C3=A9_Pirard?= <andre@example.com>\r\n"
         );
     }
 }
