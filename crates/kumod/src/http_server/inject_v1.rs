@@ -381,6 +381,28 @@ impl InjectV1Request {
     }
 }
 
+pub fn normalize_crlf(input: &str) -> String {
+    let mut normalized = String::with_capacity(input.len());
+    let mut prev = ' ';
+    for c in input.chars() {
+        if c == '\r' {
+            normalized.push_str("\r\n");
+            prev = c;
+            continue;
+        }
+        if c == '\n' {
+            if prev != '\r' {
+                normalized.push_str("\r\n");
+            }
+            prev = c;
+            continue;
+        }
+        prev = c;
+        normalized.push(c);
+    }
+    normalized
+}
+
 async fn process_recipient<'a>(
     config: &mut LuaConfig,
     sender: &EnvelopeAddress,
@@ -394,6 +416,11 @@ async fn process_recipient<'a>(
         .with_context(|| format!("recipient email {}", recip.email))?;
 
     let generated = compiled.expand_for_recip(recip, &request.substitutions, &request.content)?;
+
+    // Ensure that there are no bare LF in the message, as that will
+    // confuse SMTP delivery!
+    let normalized = normalize_crlf(&generated);
+
     // build into a Message
     let id = SpoolId::new();
     let message = message::Message::new_dirty(
@@ -401,7 +428,7 @@ async fn process_recipient<'a>(
         sender.clone(),
         recip_addr,
         serde_json::json!({}),
-        Arc::new(generated.into_bytes().into_boxed_slice()),
+        Arc::new(normalized.into_bytes().into_boxed_slice()),
     )?;
 
     message.set_meta("http_auth", auth.summarize())?;
@@ -619,5 +646,13 @@ Some(
         k9::assert_equal!(parsed.html_body_count(), 1);
         k9::assert_equal!(parsed.text_body_count(), 1);
         k9::assert_equal!(parsed.attachment_count(), 1);
+    }
+
+    #[test]
+    fn test_normalize_crlf() {
+        k9::assert_equal!(
+            normalize_crlf("foo\r\nbar\nwoot\rdouble-r\r\rend"),
+            "foo\r\nbar\r\nwoot\r\ndouble-r\r\n\r\nend"
+        );
     }
 }
