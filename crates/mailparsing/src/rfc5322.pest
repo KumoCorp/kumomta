@@ -31,13 +31,13 @@ obs_domain = { atom ~ ( dot ~ atom)* }
 
 domain_literal = { cfws? ~ "[" ~ (fws? ~ dtext)* ~ fws? ~ "]" ~ cfws? }
 
-dtext = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' | obs_dtext }
+dtext = { '\u{21}'..'\u{5a}' | '\u{5e}'..'\u{7e}' | obs_dtext | utf8_non_ascii }
 obs_dtext = { obs_no_ws_ctl | quoted_pair }
 
 alpha = { 'a'..'z' | 'A'..'Z' }
 digit = { '0'..'9' }
 atext_char = { "!" | "#" | "$" | "%" | "&" | "'" | "*" | "+" | "-" | "/" | "=" |
-          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit }
+          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit | utf8_non_ascii }
 
 atext = @{ atext_char+ }
 
@@ -46,7 +46,7 @@ dot_atom_text = @{ atext ~ ("." ~ atext)* }
 dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
 specials = { "(" | ")" | "<" | ">" | "[" | "]" | ":" | ";" | "@" | "\\" | "," | "." | "\"" }
 
-qtext = { "\u{21}" | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_qtext }
+qtext = { "\u{21}" | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_qtext | utf8_non_ascii }
 obs_qtext = { obs_no_ws_ctl }
 
 qcontent = { qtext | quoted_pair }
@@ -78,13 +78,13 @@ obs_domain_list = { (cfws | ",")* ~ "@" ~ domain ~ ("," ~ cfws? ~ ("@" ~ domain)
 obs_fws = { wsp+ ~ ("\r"? ~ "\n" ~ wsp+)* }
 
 fws = { ((wsp* ~ "\r"? ~ "\n")* ~ wsp+) | obs_fws }
-ctext = { '\u{21}'..'\u{27}' | '\u{2a}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_ctext }
+ctext = { '\u{21}'..'\u{27}' | '\u{2a}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | obs_ctext | utf8_non_ascii }
 ccontent = { ctext | quoted_pair | comment | encoded_word }
 comment = { "(" ~ (fws? ~ ccontent)* ~ fws? ~ ")" }
 cfws = { ( (fws? ~ comment)+ ~ fws?) | fws }
 wsp = { " " | "\t" }
 
-vchar = { '\u{21}'..'\u{7e}' }
+vchar = { '\u{21}'..'\u{7e}' | utf8_non_ascii }
 
 encoded_word = { "=?" ~ charset ~ ("*" ~ language)? ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
 encoded_text = @{ (!( " " | "?") ~ vchar)+ }
@@ -108,6 +108,10 @@ obs_id_right = { domain }
 no_fold_literal = { "[" ~ dtext* ~ "]" }
 
 msg_id_list = { msg_id+ }
+
+// RFC6532 defines this in terms of rules that match bytes,
+// but pest operates on codepoints
+utf8_non_ascii = { !'\u{01}'..'\u{7f}' ~ ANY }
 
 parse_mailbox_list = _{ SOI ~ mailbox_list ~ EOI }
 parse_mailbox = _{ SOI ~ mailbox ~ EOI }

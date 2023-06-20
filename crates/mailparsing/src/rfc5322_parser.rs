@@ -731,6 +731,99 @@ Some(
     }
 
     #[test]
+    fn rfc6532() {
+        let message = concat!(
+            "From: Keith Moore <moore@cs.utk.edu>\n",
+            "To: Keld Jørn Simonsen <keld@dkuug.dk>\n",
+            "CC: André Pirard <PIRARD@vm1.ulg.ac.be>\n",
+            "Subject: Hello André\n",
+            "\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+        let list = match msg.headers().from() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    MailboxList(
+        [
+            Mailbox {
+                name: Some(
+                    "Keith Moore",
+                ),
+                address: "moore@cs.utk.edu",
+            },
+        ],
+    ),
+)
+"#
+        );
+
+        let list = match msg.headers().to() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "Keld Jørn Simonsen",
+                    ),
+                    address: "keld@dkuug.dk",
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+
+        let list = match msg.headers().cc() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: Some(
+                        "André Pirard",
+                    ),
+                    address: "PIRARD@vm1.ulg.ac.be",
+                },
+            ),
+        ],
+    ),
+)
+"#
+        );
+        let list = match msg.headers().subject() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(list) => list,
+        };
+        k9::snapshot!(
+            list,
+            r#"
+Some(
+    "Hello André",
+)
+"#
+        );
+    }
+
+    #[test]
     fn rfc2047() {
         let message = concat!(
             "From: =?US-ASCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
