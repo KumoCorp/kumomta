@@ -460,6 +460,7 @@ impl Queue {
             SpoolManager::remove_from_spool(id).await?;
             return Ok(None);
         }
+        tracing::trace!("increment_attempts_and_update_delay: delaying {id} by {delay}");
         msg.delay_by(delay).await?;
         Ok(Some(msg))
     }
@@ -878,7 +879,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                                     delivery_protocol: None,
                                 })
                                 .await;
-                                q.force_into_delayed((*msg).clone()).await?;
+                                q.requeue_message((*msg).clone(), true, None).await?;
                             }
                         }
                     }
