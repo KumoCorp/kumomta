@@ -810,76 +810,28 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 continue;
             }
 
-            let now = Utc::now();
             match q.queue.pop() {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
-                    let max_age = q.queue_config.get_max_age();
                     tracing::trace!("{} msgs are now ready", messages.len());
 
                     for msg in messages {
-                        let egress_source =
-                            q.rr.next().ok_or_else(|| anyhow!("no sources in pool"))?;
+                        let msg = (*msg).clone();
 
-                        match ReadyQueueManager::resolve_by_queue_name(
-                            &q.name,
-                            &q.queue_config,
-                            &egress_source,
-                            &q.rr.name,
-                        )
-                        .await
-                        {
-                            Ok(site) => {
-                                let mut site = site.lock().await;
+                        if let Err(err) = q.insert_ready(msg.clone()).await {
+                            tracing::debug!("insert_ready: {err:#}");
 
-                                let msg = (*msg).clone();
-                                let id = *msg.id();
-
-                                let age = msg.age(now);
-                                if age >= max_age {
-                                    // TODO: log failure due to expiration
-                                    tracing::debug!("expiring {id} {age} > {max_age}");
-                                    SpoolManager::remove_from_spool(id).await?;
-                                    continue;
+                            if err.downcast_ref::<ReadyQueueFull>().is_none() {
+                                // It was a legit error while trying to do something useful
+                                match q.increment_attempts_and_update_delay(msg).await? {
+                                    Some(msg) => {
+                                        q.force_into_delayed(msg).await?;
+                                    }
+                                    None => {}
                                 }
-
-                                match site.insert(msg.clone()).await {
-                                    Ok(_) => {}
-                                    Err(_) => loop {
-                                        msg.delay_with_jitter(60).await?;
-                                        if matches!(
-                                            q.insert_delayed(msg.clone()).await?,
-                                            InsertResult::Delayed
-                                        ) {
-                                            break;
-                                        }
-                                    },
-                                }
-                            }
-                            Err(err) => {
-                                tracing::error!("Failed to resolve {}: {err:#}", q.name);
-                                log_disposition(LogDisposition {
-                                    kind: RecordType::TransientFailure,
-                                    msg: (*msg).clone(),
-                                    site: "",
-                                    peer_address: None,
-                                    response: Response {
-                                        code: 451,
-                                        enhanced_code: Some(EnhancedStatusCode {
-                                            class: 4,
-                                            subject: 4,
-                                            detail: 4,
-                                        }),
-                                        content: format!("failed to resolve {}: {err:#}", q.name),
-                                        command: None,
-                                    },
-                                    egress_pool: None,
-                                    egress_source: None,
-                                    relay_disposition: None,
-                                    delivery_protocol: None,
-                                })
-                                .await;
-                                q.requeue_message((*msg).clone(), true, None).await?;
+                            } else {
+                                // Queue is full; try again shortly
+                                q.force_into_delayed(msg).await?;
                             }
                         }
                     }
