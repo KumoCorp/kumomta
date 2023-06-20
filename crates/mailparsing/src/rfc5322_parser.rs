@@ -419,16 +419,36 @@ impl Parser {
             match p.as_rule() {
                 Rule::addr_spec => return Self::parse_addr_spec(p),
                 Rule::cfws => {}
-                // FIXME: obs_angle_addr
+                Rule::obs_angle_addr => return Self::parse_obs_angle_addr(p),
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
-                        "Unhandled {rule:?} {p:#?} in parse_angle_addr"
+                        "Unexpected {rule:?} {p:#?} in parse_angle_addr"
                     )))
                 }
             }
         }
         Err(MailParsingError::HeaderParse(
             "unreachable end of loop in parse_angle_addr".to_string(),
+        ))
+    }
+
+    fn parse_obs_angle_addr(pair: Pair<Rule>) -> Result<String> {
+        for p in pair.into_inner() {
+            match p.as_rule() {
+                Rule::addr_spec => return Self::parse_addr_spec(p),
+                Rule::cfws => {}
+                Rule::obs_route => {
+                    // We simply ignore this, as the RFC recommends
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_obs_angle_addr"
+                    )))
+                }
+            }
+        }
+        Err(MailParsingError::HeaderParse(
+            "unreachable end of loop in parse_obs_angle_addr".to_string(),
         ))
     }
 
