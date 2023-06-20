@@ -229,21 +229,29 @@ impl QueueDispatcher for SmtpDispatcher {
                 // Do not use TLS
                 false
             }
-            (
-                Tls::Opportunistic
-                | Tls::OpportunisticInsecure
-                | Tls::Required
-                | Tls::RequiredInsecure,
-                true,
-            ) => {
+            (Tls::OpportunisticInsecure, true) => {
+                if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
+                    tracing::debug!(
+                        "TLS handshake with {address:?}:{port} failed: \
+                        {handshake_error}, but continuing in clear text because \
+                        we are in OpportunisticInsecure mode"
+                    );
+                    // We did not enable TLS
+                    false
+                } else {
+                    client.ehlo(&ehlo_name).await.context("EHLO")?;
+                    // TLS is available
+                    true
+                }
+            }
+            (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
                 if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
                     client.send_command(&rfc5321::Command::Quit).await.ok();
                     anyhow::bail!(
-                        "TLS handshake failed with {address:?}:{port}: {handshake_error}"
+                        "TLS handshake with {address:?}:{port} failed: {handshake_error}"
                     );
-                } else {
-                    client.ehlo(&ehlo_name).await.context("EHLO")?;
                 }
+                client.ehlo(&ehlo_name).await.context("EHLO")?;
                 true
             }
         };
