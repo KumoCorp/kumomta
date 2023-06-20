@@ -491,7 +491,7 @@ impl Dispatcher {
                     .have_more_connection_candidates(&mut dispatcher)
                     .await
                 {
-                    if let Some(msg) = dispatcher.msg.take() {
+                    if let Some(msg) = dispatcher.msg.as_ref() {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
