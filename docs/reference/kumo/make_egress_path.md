@@ -176,6 +176,8 @@ If a message is promoted from its delayed queue to the ready queue and it would
 take the size of the ready queue above *max_ready*, the message will be delayed
 by a randomized interval of up to 60 seconds before being considered again.
 
+The default is 1024 messages.
+
 ## prohibited_hosts
 
 A CIDR list of hosts that should be considered "poisonous", for example, because
