@@ -22,6 +22,17 @@ impl<'a> std::ops::DerefMut for HeaderMap<'a> {
     }
 }
 
+macro_rules! accessor {
+    ($func_name:ident, $header_name:literal, $ty:path, $parser:ident) => {
+        pub fn $func_name(&self) -> Result<Option<$ty>> {
+            match self.get_first($header_name) {
+                None => Ok(None),
+                Some(header) => Ok(Some(header.$parser()?)),
+            }
+        }
+    };
+}
+
 impl<'a> HeaderMap<'a> {
     pub fn new(headers: Vec<Header<'a>>) -> Self {
         Self { headers }
@@ -31,8 +42,16 @@ impl<'a> HeaderMap<'a> {
         self.iter_named(name).next()
     }
 
+    pub fn get_first_mut(&'a mut self, name: &str) -> Option<&mut Header<'a>> {
+        self.iter_named_mut(name).next()
+    }
+
     pub fn get_last(&'a self, name: &str) -> Option<&Header<'a>> {
         self.iter_named(name).rev().next()
+    }
+
+    pub fn get_last_mut(&'a mut self, name: &str) -> Option<&mut Header<'a>> {
+        self.iter_named_mut(name).rev().next()
     }
 
     pub fn iter_named<'name>(
@@ -47,108 +66,34 @@ impl<'a> HeaderMap<'a> {
             .filter(|header| header.get_name().eq_ignore_ascii_case(name))
     }
 
-    pub fn from(&self) -> Result<Option<MailboxList>> {
-        match self.get_first("From") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_mailbox_list()?)),
-        }
+    pub fn iter_named_mut<'name>(
+        &'a mut self,
+        name: &'name str,
+    ) -> impl DoubleEndedIterator<Item = &'a mut Header<'a>> + 'name
+    where
+        'a: 'name,
+    {
+        self.headers
+            .iter_mut()
+            .filter(|header| header.get_name().eq_ignore_ascii_case(name))
     }
 
-    pub fn to(&self) -> Result<Option<AddressList>> {
-        match self.get_first("To") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
+    accessor!(from, "From", MailboxList, as_mailbox_list);
+    accessor!(resent_from, "Resent-From", MailboxList, as_mailbox_list);
 
-    pub fn cc(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Cc") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
+    accessor!(to, "To", AddressList, as_address_list);
+    accessor!(cc, "Cc", AddressList, as_address_list);
+    accessor!(bcc, "Bcc", AddressList, as_address_list);
+    accessor!(resent_to, "Resent-To", AddressList, as_address_list);
+    accessor!(resent_cc, "Resent-Cc", AddressList, as_address_list);
+    accessor!(resent_bcc, "Resent-Bcc", AddressList, as_address_list);
 
-    pub fn bcc(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Bcc") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
+    accessor!(sender, "Sender", Mailbox, as_mailbox);
+    accessor!(resent_sender, "Resent-Sender", Mailbox, as_mailbox);
 
-    pub fn resent_to(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Resent-To") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
+    accessor!(message_id, "Message-ID", String, as_message_id);
+    accessor!(references, "References", Vec<String>, as_message_id_list);
 
-    pub fn resent_cc(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Resent-Cc") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
-
-    pub fn resent_bcc(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Resent-Bcc") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
-
-    pub fn reply_to(&self) -> Result<Option<AddressList>> {
-        match self.get_first("Reply-To") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_address_list()?)),
-        }
-    }
-
-    pub fn resent_from(&self) -> Result<Option<MailboxList>> {
-        match self.get_first("Resent-From") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_mailbox_list()?)),
-        }
-    }
-
-    pub fn sender(&self) -> Result<Option<Mailbox>> {
-        match self.get_first("Sender") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_mailbox()?)),
-        }
-    }
-
-    pub fn resent_sender(&self) -> Result<Option<Mailbox>> {
-        match self.get_first("Resent-Sender") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_mailbox()?)),
-        }
-    }
-
-    pub fn message_id(&self) -> Result<Option<String>> {
-        match self.get_first("Message-ID") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_message_id()?)),
-        }
-    }
-
-    pub fn references(&self) -> Result<Option<Vec<String>>> {
-        match self.get_first("References") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_message_id_list()?)),
-        }
-    }
-
-    pub fn subject(&self) -> Result<Option<String>> {
-        match self.get_first("Subject") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_unstructured()?)),
-        }
-    }
-
-    pub fn comments(&self) -> Result<Option<String>> {
-        match self.get_first("Comments") {
-            None => Ok(None),
-            Some(header) => Ok(Some(header.as_unstructured()?)),
-        }
-    }
+    accessor!(subject, "Subject", String, as_unstructured);
+    accessor!(comments, "Comments", String, as_unstructured);
 }
