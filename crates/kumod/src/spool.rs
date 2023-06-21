@@ -1,7 +1,8 @@
-use crate::lifecycle::Activity;
+use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
+use crate::rt_spawn;
 use anyhow::Context;
 use chrono::Utc;
 use message::Message;
@@ -11,7 +12,7 @@ use spool::local_disk::LocalDiskSpool;
 use spool::rocks::RocksSpool;
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -146,102 +147,26 @@ impl SpoolManager {
         Ok(())
     }
 
-    pub async fn start_spool(&self) -> anyhow::Result<()> {
-        let (tx, rx) = flume::bounded(32);
-        {
-            let mut named = self.named.lock().await;
-
-            anyhow::ensure!(!named.is_empty(), "No spools have been defined");
-
-            for (name, spool) in named.iter_mut() {
-                let is_meta = name == "meta";
-
-                match name.as_str() {
-                    "meta" => spool::set_meta_spool(spool.0.spool.clone()),
-                    "data" => spool::set_data_spool(spool.0.spool.clone()),
-                    _ => {}
-                }
-
-                tracing::debug!("starting maintainer for spool {name} is_meta={is_meta}");
-
-                let maintainer = crate::runtime::spawn(format!("maintain spool {name}"), {
-                    let name = name.clone();
-                    let spool = spool.clone();
-                    let tx = if is_meta { Some(tx.clone()) } else { None };
-                    {
-                        async move {
-                            // start enumeration
-                            if let Some(tx) = tx {
-                                if let Err(err) = spool.enumerate(tx) {
-                                    tracing::error!(
-                                        "error during spool enumeration for {name}: {err:#}"
-                                    );
-                                }
-                            }
-
-                            // And maintain it every 10 minutes
-                            loop {
-                                tokio::time::sleep(Duration::from_secs(10 * 60)).await;
-                                if let Err(err) = spool.cleanup().await {
-                                    tracing::error!(
-                                        "error doing spool cleanup for {name}: {err:#}"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                })?;
-                spool.0.maintainer.lock().unwrap().replace(maintainer);
-            }
-        }
-
-        // Ensure that there are no more senders outstanding,
-        // otherwise we'll deadlock ourselves in the loop below
-        drop(tx);
-
-        let activity = Activity::get("spool enumeration".to_string())?;
-        let egress_source = None;
-        let egress_pool = None;
-        let mut spooled_in = 0;
-        tracing::debug!("start_spool: waiting for enumeration");
+    async fn spool_in_thread(
+        &self,
+        rx: flume::Receiver<SpoolEntry>,
+        spooled_in: Arc<AtomicUsize>,
+    ) -> anyhow::Result<()> {
+        let mut shutdown = ShutdownSubcription::get();
         let mut config = config::load_config().await?;
-        let start = Instant::now();
-        let mut last_update = start;
-        let interval = std::time::Duration::from_secs(30);
-
+        let egress_pool = None;
+        let egress_source = None;
         loop {
             let entry = tokio::select! {
-                _ = tokio::time::sleep(interval) => None,
-                entry = rx.recv_async() => {
-                    match entry {
-                        Err(_) => break,
-                        Ok(e) => Some(e),
-                    }
-                }
-            };
+                _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
+                entry = rx.recv_async() => { entry },
+            }?;
 
-            if spooled_in % 10_000 == 0 || last_update.elapsed() > interval {
-                tracing::info!(
-                    "start_spool: still enumerating. {} items in {:?}",
-                    spooled_in,
-                    start.elapsed()
-                );
-                last_update = Instant::now();
-            }
-
-            let entry = match entry {
-                Some(e) => e,
-                None => continue,
-            };
-
-            if activity.is_shutting_down() {
-                break;
-            }
             let now = Utc::now();
             match entry {
                 SpoolEntry::Item { id, data } => match Message::new_from_spool(id, data) {
                     Ok(msg) => {
-                        spooled_in += 1;
+                        spooled_in.fetch_add(1, Ordering::SeqCst);
 
                         config
                             .async_call_callback("spool_message_enumerated", msg.clone())
@@ -348,9 +273,116 @@ impl SpoolManager {
                 }
             }
         }
+    }
+
+    pub async fn start_spool(&self) -> anyhow::Result<()> {
+        let (tx, rx) = flume::bounded(1024);
+        {
+            let mut named = self.named.lock().await;
+
+            anyhow::ensure!(!named.is_empty(), "No spools have been defined");
+
+            for (name, spool) in named.iter_mut() {
+                let is_meta = name == "meta";
+
+                match name.as_str() {
+                    "meta" => spool::set_meta_spool(spool.0.spool.clone()),
+                    "data" => spool::set_data_spool(spool.0.spool.clone()),
+                    _ => {}
+                }
+
+                tracing::debug!("starting maintainer for spool {name} is_meta={is_meta}");
+
+                let maintainer = crate::runtime::spawn(format!("maintain spool {name}"), {
+                    let name = name.clone();
+                    let spool = spool.clone();
+                    let tx = if is_meta { Some(tx.clone()) } else { None };
+                    {
+                        async move {
+                            // start enumeration
+                            if let Some(tx) = tx {
+                                if let Err(err) = spool.enumerate(tx) {
+                                    tracing::error!(
+                                        "error during spool enumeration for {name}: {err:#}"
+                                    );
+                                }
+                            }
+
+                            // And maintain it every 10 minutes
+                            loop {
+                                tokio::time::sleep(Duration::from_secs(10 * 60)).await;
+                                if let Err(err) = spool.cleanup().await {
+                                    tracing::error!(
+                                        "error doing spool cleanup for {name}: {err:#}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                })?;
+                spool.0.maintainer.lock().unwrap().replace(maintainer);
+            }
+        }
+
+        // Ensure that there are no more senders outstanding,
+        // otherwise we'll deadlock ourselves in the loop below
+        drop(tx);
+
+        let activity = Activity::get("spool enumeration".to_string())?;
+        let spooled_in = Arc::new(AtomicUsize::new(0));
+        tracing::debug!("start_spool: waiting for enumeration");
+        let start = Instant::now();
+        let interval = std::time::Duration::from_secs(30);
+
+        let (complete_tx, complete_rx) = flume::bounded(1);
+
+        let n_threads = (std::thread::available_parallelism()?.get() / 2).max(1);
+        tracing::debug!("Using concurrency {n_threads} for spooling in");
+
+        let mut num_tasks = 0;
+        for n in 0..n_threads {
+            let spooled_in = Arc::clone(&spooled_in);
+            let rx = rx.clone();
+            let complete_tx = complete_tx.clone();
+            rt_spawn(format!("spool_in-{n}"), move || {
+                Ok(async move {
+                    let mgr = Self::get().await;
+                    let result = mgr.spool_in_thread(rx, spooled_in).await;
+                    complete_tx.send_async(result).await
+                })
+            })
+            .await?;
+            num_tasks += 1;
+        }
+
+        drop(complete_tx);
+
+        while num_tasks > 0 {
+            tokio::select! {
+                _ = tokio::time::sleep(interval) => {},
+                _ = complete_rx.recv_async() => {
+                    num_tasks -= 1;
+                    continue;
+                }
+            };
+
+            tracing::info!(
+                "start_spool: still enumerating. {} items in {:?}",
+                spooled_in.load(Ordering::SeqCst),
+                start.elapsed()
+            );
+        }
+
         self.spooled_in.store(true, Ordering::SeqCst);
+        let label = if activity.is_shutting_down() {
+            "aborted"
+        } else {
+            "done"
+        };
+        drop(activity);
         tracing::info!(
-            "start_spool: enumeration done, spooled in {spooled_in} msgs over {:?}",
+            "start_spool: enumeration {label}, spooled in {} msgs over {:?}",
+            spooled_in.load(Ordering::SeqCst),
             start.elapsed()
         );
         Ok(())
