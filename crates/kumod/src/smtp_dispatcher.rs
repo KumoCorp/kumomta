@@ -230,7 +230,9 @@ impl QueueDispatcher for SmtpDispatcher {
                 false
             }
             (Tls::OpportunisticInsecure, true) => {
-                if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
+                let enabled = if let Some(handshake_error) =
+                    client.starttls(enable_tls.allow_insecure()).await?
+                {
                     tracing::debug!(
                         "TLS handshake with {address:?}:{port} failed: \
                         {handshake_error}, but continuing in clear text because \
@@ -239,10 +241,15 @@ impl QueueDispatcher for SmtpDispatcher {
                     // We did not enable TLS
                     false
                 } else {
-                    client.ehlo(&ehlo_name).await.context("EHLO")?;
                     // TLS is available
                     true
-                }
+                };
+                // Re-EHLO even if we didn't enable TLS, as some implementations
+                // incorrectly roll over failed TLS into the following command,
+                // and we want to consider those as connection errors rather than
+                // having them show up per-message in MAIL FROM
+                client.ehlo(&ehlo_name).await.context("EHLO")?;
+                enabled
             }
             (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
                 if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
