@@ -47,31 +47,6 @@ impl ReadyQueueManager {
         MANAGER.lock().await
     }
 
-    pub async fn get_opt(
-        queue_name: &str,
-        queue_config: &QueueConfig,
-        egress_source: &str,
-    ) -> Option<ReadyQueueHandle> {
-        let components = QueueNameComponents::parse(queue_name);
-
-        let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
-
-        let mx = if needs_mx {
-            Some(MailExchanger::resolve(components.domain).await.ok()?)
-        } else {
-            None
-        };
-
-        let site_name = mx
-            .as_ref()
-            .map(|mx| mx.site_name.to_string())
-            .unwrap_or_else(|| components.domain.to_string());
-        let name = format!("{egress_source}->{site_name}");
-
-        let manager = Self::get().await;
-        manager.queues.get(&name).cloned()
-    }
-
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         queue_config: &QueueConfig,
@@ -212,16 +187,6 @@ impl ReadyQueue {
     #[allow(unused)]
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
-        let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
-        for msg in msgs {
-            let id = *msg.id();
-            bounce.log(msg, None).await;
-            SpoolManager::remove_from_spool(id).await.ok();
-        }
     }
 
     pub async fn insert(&mut self, msg: Message) -> Result<(), Message> {
@@ -474,7 +439,7 @@ impl Dispatcher {
             }
         };
 
-        dispatcher.obtain_message();
+        dispatcher.obtain_message().await;
         if dispatcher.msg.is_none() {
             // We raced with another dispatcher and there is no
             // more work to be done; no need to open a new connection.
@@ -573,7 +538,7 @@ impl Dispatcher {
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
-                            anyhow::bail!("shutting down");
+                            return Ok(());
                         }
                     };
                 } else {
@@ -739,16 +704,29 @@ impl Dispatcher {
     }
 
     #[instrument(skip(self))]
-    fn obtain_message(&mut self) -> bool {
+    async fn obtain_message(&mut self) -> bool {
         if self.msg.is_some() {
             return true;
         }
-        self.msg = self.ready.lock().unwrap().pop_front();
-        if self.msg.is_some() {
-            self.metrics.ready_count.dec();
-            true
-        } else {
-            false
+        loop {
+            self.msg = self.ready.lock().unwrap().pop_front();
+            if let Some(msg) = &self.msg {
+                self.metrics.ready_count.dec();
+
+                if let Ok(queue_name) = msg.get_queue_name() {
+                    if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
+                        let id = *msg.id();
+                        entry.log(self.msg.take().unwrap(), None).await;
+                        SpoolManager::remove_from_spool(id).await.ok();
+
+                        continue;
+                    }
+                }
+
+                return true;
+            } else {
+                return false;
+            }
         }
     }
 
@@ -779,7 +757,7 @@ impl Dispatcher {
             }
         }
 
-        if self.obtain_message() {
+        if self.obtain_message().await {
             return Ok(true);
         }
 
@@ -794,7 +772,7 @@ impl Dispatcher {
         if self.activity.is_shutting_down() {
             return Ok(false);
         }
-        Ok(self.obtain_message())
+        Ok(self.obtain_message().await)
     }
 }
 

@@ -16,7 +16,7 @@ introspect the system. You must first start the server with tokio tracing
 enabled:
 
 ```
-KUMOD_LOG=tokio=trace,runtime=trace,info cargo run -p kumod -- --policy simple_policy.lua 2>/dev/null
+KUMOD_LOG=tokio=trace,runtime=trace,info cargo run -p kumod -- --tokio-console --policy simple_policy.lua 2>/dev/null
 ```
 
 Note the `2>/dev/null`; that is to prevent tracing log spew from hitting the terminal.

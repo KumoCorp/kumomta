@@ -303,13 +303,6 @@ impl EgressPoolRoundRobin {
         }
     }
 
-    pub fn all_sources(&self) -> Vec<String> {
-        self.entries
-            .iter()
-            .map(|ent| ent.name.to_string())
-            .collect()
-    }
-
     pub fn next(&mut self) -> Option<String> {
         if self.entries.is_empty() || self.max_weight == 0 {
             return None;

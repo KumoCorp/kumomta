@@ -307,4 +307,5 @@ async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
     crate::spool::SpoolManager::get()
         .await
         .new_local_disk(params)
+        .await
 }

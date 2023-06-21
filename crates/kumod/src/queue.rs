@@ -409,15 +409,6 @@ impl Queue {
             bounce.log(msg, Some(&self.name)).await;
             SpoolManager::remove_from_spool(id).await.ok();
         }
-
-        let sources = self.rr.all_sources();
-        for source in &sources {
-            if let Some(site) =
-                ReadyQueueManager::get_opt(&self.name, &self.queue_config, source).await
-            {
-                site.lock().await.bounce_all(bounce).await;
-            }
-        }
     }
 
     async fn increment_attempts_and_update_delay(
