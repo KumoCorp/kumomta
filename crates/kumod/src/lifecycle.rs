@@ -2,24 +2,28 @@
 //! and to shut things down gracefully.
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
-use once_cell::sync::OnceCell;
+use once_cell::sync::{Lazy, OnceCell};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
+use uuid::Uuid;
 
 static ACTIVE: OnceCell<Mutex<Option<Activity>>> = OnceCell::new();
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static STOPPING: OnceCell<ShutdownState> = OnceCell::new();
 
+static ACTIVE_LABELS: Lazy<Mutex<HashMap<Uuid, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any
 /// Activity instances are alive in the program, LifeCycle::wait_for_shutdown
 /// cannot complete.
-#[derive(Clone)]
 pub struct Activity {
-    _tx: MPSCSender<()>,
+    tx: MPSCSender<()>,
+    uuid: Uuid,
 }
 
 impl std::fmt::Debug for Activity {
@@ -28,19 +32,50 @@ impl std::fmt::Debug for Activity {
     }
 }
 
+impl Clone for Activity {
+    fn clone(&self) -> Self {
+        let uuid = Uuid::new_v4();
+        let mut labels = ACTIVE_LABELS.lock().unwrap();
+
+        let label = match labels.get(&self.uuid) {
+            Some(existing) => format!("clone of {existing}"),
+            None => format!("impossible missing label for {}", self.uuid),
+        };
+        labels.insert(uuid, label);
+
+        Activity {
+            tx: self.tx.clone(),
+            uuid,
+        }
+    }
+}
+
+impl Drop for Activity {
+    fn drop(&mut self) {
+        ACTIVE_LABELS.lock().unwrap().remove(&self.uuid);
+    }
+}
+
 impl Activity {
     /// Obtain an Activity instance.
     /// If None is returned then the process is shutting down
     /// and no new activity can be initiated.
-    pub fn get_opt() -> Option<Self> {
-        Some(ACTIVE.get()?.lock().unwrap().as_ref()?.clone())
+    pub fn get_opt(label: String) -> Option<Self> {
+        let uuid = Uuid::new_v4();
+        let active = ACTIVE.get()?.lock().unwrap();
+        let activity = active.as_ref()?;
+        ACTIVE_LABELS.lock().unwrap().insert(uuid, label);
+        Some(Activity {
+            tx: activity.tx.clone(),
+            uuid,
+        })
     }
 
     /// Obtain an Activity instance.
     /// Returns Err if the process is shutting down and no new
     /// activity can be initiated
-    pub fn get() -> anyhow::Result<Self> {
-        Self::get_opt().ok_or_else(|| anyhow::anyhow!("shutting down"))
+    pub fn get(label: String) -> anyhow::Result<Self> {
+        Self::get_opt(label).ok_or_else(|| anyhow::anyhow!("shutting down"))
     }
 
     /// Returns true if the process is shutting down.
@@ -91,8 +126,16 @@ impl LifeCycle {
     /// May be called only once; will panic if called multiple times.
     pub fn new() -> Self {
         let (activity_tx, activity_rx) = tokio::sync::mpsc::channel(1);
+        let uuid = Uuid::new_v4();
+        ACTIVE_LABELS
+            .lock()
+            .unwrap()
+            .insert(uuid, "Root LifeCycle".to_string());
         ACTIVE
-            .set(Mutex::new(Some(Activity { _tx: activity_tx })))
+            .set(Mutex::new(Some(Activity {
+                tx: activity_tx,
+                uuid,
+            })))
             .map_err(|_| ())
             .unwrap();
 
@@ -165,7 +208,11 @@ impl LifeCycle {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(15)) => {
-                    tracing::info!("Still waiting for pending activity...");
+                    let labels = ACTIVE_LABELS.lock().unwrap().clone();
+                    let n = labels.len();
+                    let summary :Vec<&str> = labels.values().map(|s| s.as_str()).take(10).collect();
+                    let summary = summary.join(", ");
+                    tracing::info!("Still waiting for {n} pending activities... {summary}");
                 }
                 _ = self.activity_rx.recv() => {
                     return

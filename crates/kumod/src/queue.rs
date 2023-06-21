@@ -370,7 +370,7 @@ impl Queue {
 
         let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
 
-        let activity = Activity::get()?;
+        let activity = Activity::get(format!("Queue {name}"))?;
 
         let handle = QueueHandle(Arc::new(Mutex::new(Queue {
             name: name.clone(),

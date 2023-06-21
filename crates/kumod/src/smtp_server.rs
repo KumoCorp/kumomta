@@ -524,7 +524,7 @@ impl SmtpServer {
 
     fn check_shutdown(&self) -> bool {
         if self.read_buffer.is_empty() {
-            Activity::get_opt().is_none()
+            Activity::get_opt(format!("SMTP server check_shutdown (transient)")).is_none()
         } else {
             false
         }
@@ -669,7 +669,10 @@ impl SmtpServer {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
-        let _activity = match Activity::get_opt() {
+        let _activity = match Activity::get_opt(format!(
+            "smtp_server process client {:?} -> {:?}",
+            self.peer_address, self.my_address
+        )) {
             None => {
                 // Can't accept any messages while we're shutting down
                 self.write_response(421, format!("4.3.2 {} shutting down", self.params.hostname))

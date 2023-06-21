@@ -110,7 +110,7 @@ impl ReadyQueueManager {
             })?;
 
         let mut manager = Self::get().await;
-        let activity = Activity::get()?;
+        let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
             rt_spawn_non_blocking(format!("maintain {name}"), {
@@ -433,7 +433,7 @@ impl Dispatcher {
         egress_source: EgressSource,
         egress_pool: String,
     ) -> anyhow::Result<()> {
-        let activity = Activity::get()?;
+        let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
         let delivery_protocol = match &queue_config.protocol {
             DeliveryProto::Smtp => "ESMTP".to_string(),
@@ -587,7 +587,10 @@ impl Dispatcher {
         msg.load_meta_if_needed().await?;
         msg.load_data_if_needed().await?;
 
-        let activity = match Activity::get_opt() {
+        let activity = match Activity::get_opt(format!(
+            "ready_queue Dispatcher deliver_message {}",
+            self.name
+        )) {
             Some(a) => a,
             None => {
                 anyhow::bail!("shutting down");

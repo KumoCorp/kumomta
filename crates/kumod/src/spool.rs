@@ -190,7 +190,7 @@ impl SpoolManager {
         // otherwise we'll deadlock ourselves in the loop below
         drop(tx);
 
-        let activity = Activity::get()?;
+        let activity = Activity::get("spool enumeration".to_string())?;
         let egress_source = None;
         let egress_pool = None;
         let mut spooled_in = 0;
