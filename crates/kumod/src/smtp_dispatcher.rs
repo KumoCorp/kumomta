@@ -12,7 +12,6 @@ use kumo_log_types::ResolvedAddress;
 use message::Message;
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
 use std::net::SocketAddr;
-use tokio::time::timeout;
 
 #[derive(Debug)]
 pub struct SmtpDispatcher {
@@ -144,6 +143,8 @@ impl QueueDispatcher for SmtpDispatcher {
             return Ok(());
         }
 
+        let mut shutdown = ShutdownSubcription::get();
+
         if let Some(throttle) = &dispatcher.path_config.max_connection_rate {
             loop {
                 let result = throttle
@@ -159,7 +160,6 @@ impl QueueDispatcher for SmtpDispatcher {
                         "{} throttled connection rate, sleep for {delay:?}",
                         dispatcher.name
                     );
-                    let mut shutdown = ShutdownSubcription::get();
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
@@ -188,7 +188,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .unwrap_or(dispatcher.path_config.smtp_port);
         let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
-        let mut client = timeout(dispatcher.path_config.client_timeouts.connect_timeout, {
+        let make_connection = async {
             let address = address.clone();
             let timeouts = dispatcher.path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
@@ -211,9 +211,17 @@ impl QueueDispatcher for SmtpDispatcher {
 
                 Ok(client)
             }
-        })
+        };
+
+        let connect_timeout = dispatcher.path_config.client_timeouts.connect_timeout;
+        let mut client = tokio::select! {
+            _ = tokio::time::sleep(connect_timeout) => {
+                anyhow::bail!("exceeded timeout of {connect_timeout:?}");
+            },
+            _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
+            client = make_connection => { client },
+        }
         .await
-        .with_context(|| connect_context.clone())?
         .with_context(|| connect_context.clone())?;
 
         // Say EHLO

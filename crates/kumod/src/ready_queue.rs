@@ -169,6 +169,11 @@ impl ReadyQueueManager {
                         break;
                     } else if crate::memory::get_headroom() == 0 {
                         queue.shrink_ready_queue_due_to_low_mem().await;
+                    } else if queue.activity.is_shutting_down() {
+                        let n = queue.connections.len();
+                        tracing::debug!(
+                            "{name}: waiting for {n} connections to closed before reaping"
+                        );
                     }
                 }
             }
@@ -485,6 +490,11 @@ impl Dispatcher {
                 tracing::debug!("{} Idling out connection", dispatcher.name);
                 return Ok(());
             }
+            if dispatcher.activity.is_shutting_down() {
+                tracing::debug!("{} shutting down", dispatcher.name);
+                return Ok(());
+            }
+
             if let Err(err) = queue_dispatcher.attempt_connection(&mut dispatcher).await {
                 connection_failures.push(format!("{err:#}"));
                 if !queue_dispatcher
@@ -544,18 +554,9 @@ impl Dispatcher {
         &mut self,
         queue_dispatcher: &mut dyn QueueDispatcher,
     ) -> anyhow::Result<()> {
-        let msg = self.msg.as_ref().unwrap();
-
-        msg.load_meta_if_needed().await?;
-        msg.load_data_if_needed().await?;
-
-        let activity = match Activity::get_opt() {
-            Some(a) => a,
-            None => {
-                return Ok(());
-            }
-        };
-
+        // Process throttling before we acquire the Activity
+        // guard, so that a delay due to throttling doesn't result
+        // in a delay of shutdown
         if let Some(throttle) = &self.path_config.max_message_rate {
             loop {
                 let result = throttle
@@ -580,6 +581,18 @@ impl Dispatcher {
                 }
             }
         }
+
+        let msg = self.msg.as_ref().unwrap();
+
+        msg.load_meta_if_needed().await?;
+        msg.load_data_if_needed().await?;
+
+        let activity = match Activity::get_opt() {
+            Some(a) => a,
+            None => {
+                anyhow::bail!("shutting down");
+            }
+        };
 
         self.delivered_this_connection += 1;
 
@@ -775,6 +788,9 @@ impl Dispatcher {
                 return Ok(false);
             }
         };
+        if self.activity.is_shutting_down() {
+            return Ok(false);
+        }
         Ok(self.obtain_message())
     }
 }
