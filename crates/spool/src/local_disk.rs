@@ -1,12 +1,12 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use anyhow::Context;
 use async_trait::async_trait;
+use flume::Sender;
 use std::fs::File;
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
-use tokio::sync::mpsc::Sender;
 
 pub struct LocalDiskSpool {
     path: PathBuf,
@@ -133,13 +133,13 @@ impl Spool for LocalDiskSpool {
                         let path = entry.path();
                         if let Some(id) = SpoolId::from_path(&path) {
                             match std::fs::read(&path) {
-                                Ok(data) => sender
-                                    .blocking_send(SpoolEntry::Item { id, data })
-                                    .map_err(|err| {
+                                Ok(data) => {
+                                    sender.send(SpoolEntry::Item { id, data }).map_err(|err| {
                                         anyhow::anyhow!("failed to send data for {id}: {err:#}")
-                                    })?,
+                                    })?
+                                }
                                 Err(err) => sender
-                                    .blocking_send(SpoolEntry::Corrupt {
+                                    .send(SpoolEntry::Corrupt {
                                         id,
                                         error: format!("{err:#}"),
                                     })
@@ -271,11 +271,11 @@ mod test {
 
         {
             // Verify that we can enumerate them
-            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let (tx, rx) = flume::bounded(32);
             spool.enumerate(tx)?;
             let mut count = 0;
 
-            while let Some(item) = rx.recv().await {
+            while let Ok(item) = rx.recv_async().await {
                 match item {
                     SpoolEntry::Item { id, data } => {
                         let i = ids
@@ -314,11 +314,11 @@ mod test {
         // structure
         for _ in 0..2 {
             // Verify that we can enumerate them
-            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let (tx, rx) = flume::bounded(32);
             spool.enumerate(tx)?;
             let mut unexpected = vec![];
 
-            while let Some(item) = rx.recv().await {
+            while let Ok(item) = rx.recv_async().await {
                 match item {
                     SpoolEntry::Item { id, .. } | SpoolEntry::Corrupt { id, .. } => {
                         unexpected.push(id)

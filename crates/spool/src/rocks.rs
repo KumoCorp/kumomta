@@ -1,10 +1,10 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
+use flume::Sender;
 use rocksdb::{DBCompressionType, IteratorMode, LogLevel, Options, DB};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -179,7 +179,7 @@ impl Spool for RocksSpool {
                     let id = SpoolId::from_slice(&key)
                         .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
                     sender
-                        .blocking_send(SpoolEntry::Item {
+                        .send(SpoolEntry::Item {
                             id,
                             data: value.to_vec(),
                         })
@@ -231,11 +231,11 @@ mod test {
 
         {
             // Verify that we can enumerate them
-            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let (tx, rx) = flume::bounded(32);
             spool.enumerate(tx)?;
             let mut count = 0;
 
-            while let Some(item) = rx.recv().await {
+            while let Ok(item) = rx.recv_async().await {
                 match item {
                     SpoolEntry::Item { id, data } => {
                         let i = ids
@@ -270,11 +270,11 @@ mod test {
         // structure
         for _ in 0..2 {
             // Verify that we can enumerate them
-            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let (tx, rx) = flume::bounded(32);
             spool.enumerate(tx)?;
             let mut unexpected = vec![];
 
-            while let Some(item) = rx.recv().await {
+            while let Ok(item) = rx.recv_async().await {
                 match item {
                     SpoolEntry::Item { id, .. } | SpoolEntry::Corrupt { id, .. } => {
                         unexpected.push(id)

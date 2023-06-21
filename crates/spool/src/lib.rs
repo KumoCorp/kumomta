@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use flume::Sender;
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
 
 pub mod local_disk;
 pub mod rocks;

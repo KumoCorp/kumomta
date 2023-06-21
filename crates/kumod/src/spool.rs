@@ -147,7 +147,7 @@ impl SpoolManager {
     }
 
     pub async fn start_spool(&self) -> anyhow::Result<()> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+        let (tx, rx) = flume::bounded(32);
         {
             let mut named = self.named.lock().await;
 
@@ -212,11 +212,11 @@ impl SpoolManager {
         loop {
             let entry = tokio::select! {
                 _ = tokio::time::sleep(interval) => None,
-                entry = rx.recv() => {
-                    if entry.is_none() {
-                        break;
+                entry = rx.recv_async() => {
+                    match entry {
+                        Err(_) => break,
+                        Ok(e) => Some(e),
                     }
-                    entry
                 }
             };
 

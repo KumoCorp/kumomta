@@ -26,6 +26,7 @@ console-subscriber = "0.1"
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver"}
 domain-map = {path="../domain-map"}
+flume = "0.10"
 gcd = "2.3"
 gethostname = "0.4"
 humansize = "2.1" # for printing
