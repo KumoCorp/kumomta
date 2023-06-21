@@ -226,7 +226,7 @@ impl Signer {
         // add the signature into the DKIM header and generate the header
         let dkim_header = dkim_header_builder
             .add_tag("b", &general_purpose::STANDARD.encode(signature))
-            .build()?;
+            .build();
 
         Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
     }
@@ -275,7 +275,7 @@ impl Signer {
         let canonicalization = self.header_canonicalization;
 
         // For signing the DKIM-Signature header the signature needs to be null
-        let dkim_header = dkim_header_builder.add_tag("b", "").build()?;
+        let dkim_header = dkim_header_builder.add_tag("b", "").build();
 
         hash::compute_headers_hash(
             canonicalization,
@@ -317,7 +317,19 @@ Hello Alice
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject; t=1609459201; b=FNNP5LMX1IK5bnUTZOovwYB5TNGBPInKc2fcyCd2r7zWwe1TpvhoOfqC5emuk1BUHsYzZ0uuR6C6/vMFHi6xwuqzOjnMxd+EKHBBP1ONpK4KTU8+kzSCYWHjb3dq1q8EI8wWXqSC942Lj4qZ4A3cwYia5fF2KVJoeY45T4/xS9oZiNYLrVe1Cwak7ms2zmFcc2r6yK5BAxcxRJx6Ez3/1/N0QSidaEY17HOj9R3bVAYPGarG5oS2mAxNK/iVYxCVP43pqrQwYDoxdZR89VcPQAiYZvDJXpkAs2LcUBWqaV3TDT2LLmg0orA/66LI66JYMqZ9JFr6V/+GkxFJBh8enA==;");
+        k9::snapshot!(
+            header,
+            r#"
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
+\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject;\r
+\tt=1609459201;\r
+\tb=VHc8OpeLVbLw9PBWV2gBOQvdp7/YB7j/vFH21ztcdP/eeIgWyAKZUUQvCtNR+JXVmnPBKC2gw\r
+\tSSXSoagRbJuXmalEzA4HdUU1hCyCZtJ61oSWDDakCUY55dWlyNPJdx4IWpRpwAE5vbhi7LEQEZI\r
+\t2z7x22v9Tuobim0/0s8vKQJUWniqcF/0Et7vbq/jUdKNQNdYfsCQP9ZrwswCftfdGtHtfWyadN8\r
+\t/ye0JTvNSgINP+bt5HDUH3/GDHY/kGHdKjY3N9p2eSTqQDDBf5yY7Zj0rBPKN3sGfuzCsEneG3D\r
+\tTil2EYiPHT3/f8cgHBVIHOMQGBLfrbJxvo3XDAPCKZbg==;
+"#
+        );
     }
 
     #[cfg(feature = "openssl")]
@@ -347,7 +359,19 @@ Hello Alice
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple; bh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject; t=1609459201; b=FNNP5LMX1IK5bnUTZOovwYB5TNGBPInKc2fcyCd2r7zWwe1TpvhoOfqC5emuk1BUHsYzZ0uuR6C6/vMFHi6xwuqzOjnMxd+EKHBBP1ONpK4KTU8+kzSCYWHjb3dq1q8EI8wWXqSC942Lj4qZ4A3cwYia5fF2KVJoeY45T4/xS9oZiNYLrVe1Cwak7ms2zmFcc2r6yK5BAxcxRJx6Ez3/1/N0QSidaEY17HOj9R3bVAYPGarG5oS2mAxNK/iVYxCVP43pqrQwYDoxdZR89VcPQAiYZvDJXpkAs2LcUBWqaV3TDT2LLmg0orA/66LI66JYMqZ9JFr6V/+GkxFJBh8enA==;");
+        k9::snapshot!(
+            header,
+            r#"
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
+\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject;\r
+\tt=1609459201;\r
+\tb=VHc8OpeLVbLw9PBWV2gBOQvdp7/YB7j/vFH21ztcdP/eeIgWyAKZUUQvCtNR+JXVmnPBKC2gw\r
+\tSSXSoagRbJuXmalEzA4HdUU1hCyCZtJ61oSWDDakCUY55dWlyNPJdx4IWpRpwAE5vbhi7LEQEZI\r
+\t2z7x22v9Tuobim0/0s8vKQJUWniqcF/0Et7vbq/jUdKNQNdYfsCQP9ZrwswCftfdGtHtfWyadN8\r
+\t/ye0JTvNSgINP+bt5HDUH3/GDHY/kGHdKjY3N9p2eSTqQDDBf5yY7Zj0rBPKN3sGfuzCsEneG3D\r
+\tTil2EYiPHT3/f8cgHBVIHOMQGBLfrbJxvo3XDAPCKZbg==;
+"#
+        );
     }
 
     #[test]
@@ -405,6 +429,15 @@ Joe."#
             .unwrap();
         let header = signer.sign(&email).unwrap();
 
-        assert_eq!(header, "DKIM-Signature: v=1; a=ed25519-sha256; d=football.example.com; s=brisbane; c=relaxed/relaxed; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; h=from:to:subject:date:message-id:from:subject:date; t=1528637909; b=wITr2H3sBuBfMsnUwlRTO7Oq/C/jd2vubDm50DrXtMFEBLRiz9GfrgCozcg764+gYqWXV3Snd1ynYh8sJ5BXBg==;");
+        k9::snapshot!(
+            header,
+            r#"
+DKIM-Signature: v=1; a=ed25519-sha256; d=football.example.com; s=brisbane;\r
+\tc=relaxed/relaxed; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=;\r
+\th=from:to:subject:date:message-id:from:subject:date; t=1528637909;\r
+\tb=wITr2H3sBuBfMsnUwlRTO7Oq/C/jd2vubDm50DrXtMFEBLRiz9GfrgCozcg764+gYqWXV3Snd\r
+\t1ynYh8sJ5BXBg==;
+"#
+        );
     }
 }

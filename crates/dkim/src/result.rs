@@ -1,6 +1,6 @@
 use crate::{canonicalization, DKIMError};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Result of the DKIM verification
 pub struct DKIMResult {
     value: &'static str,

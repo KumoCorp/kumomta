@@ -37,7 +37,7 @@ fn sign(domain: &str, raw_email: &str) -> String {
         .unwrap();
     let header = signer.sign(&email).unwrap();
 
-    format!("{}\n{}", header, raw_email)
+    format!("{}\r\n{}", header, raw_email)
 }
 
 async fn verify(resolver: Arc<dyn dns::Lookup>, from_domain: &str, raw_email: &str) -> DKIMResult {
@@ -96,8 +96,11 @@ Hello Alice
         .replace("\n", "\r\n");
 
         let signed_email = sign(from_domain, &email);
+        eprintln!("input email:\n{email:?}");
+        eprintln!("signed email:\n{signed_email:?}");
         let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
-        assert_eq!(res.with_detail(), "pass")
+        eprintln!("{res:?}");
+        assert_eq!(res.with_detail(), "pass");
     }
 
     {

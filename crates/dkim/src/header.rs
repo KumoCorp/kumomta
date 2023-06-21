@@ -1,6 +1,5 @@
 use crate::{parser, DKIMError, HeaderList};
 use indexmap::map::IndexMap;
-use std::io::Write;
 use std::str::FromStr;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
@@ -138,19 +137,37 @@ impl DKIMHeader {
 }
 
 /// Generate the DKIM-Signature header from the tags
-fn serialize(header: DKIMHeader) -> Result<String, DKIMError> {
-    let mut out = vec![];
+fn serialize(header: DKIMHeader) -> String {
+    let mut out = String::new();
 
     for (key, tag) in &header.tags {
         if !out.is_empty() {
-            out.push(b' ');
+            if key == "b" {
+                // Always emit b on a separate line for the sake of
+                // consistency of the hash, which is generated in two
+                // passes; the first with an empty b value and the second
+                // with it populated.
+                // If we don't push it to the next line, the two passes
+                // may produce inconsistent results as a result of the
+                // textwrap::fill operation and the signature will be invalid
+                out.push_str("\r\n");
+            } else {
+                out.push_str(" ");
+            }
         }
-        write!(&mut out, "{}={};", key, tag.value)
-            .map_err(|err| DKIMError::HeaderSerializeError(format!("while appending: {err:#}")))?;
+        out.push_str(&key);
+        out.push('=');
+        out.push_str(&tag.value);
+        out.push(';');
     }
-
-    String::from_utf8(out)
-        .map_err(|err| DKIMError::HeaderSerializeError(format!("converting to string: {err:#}")))
+    textwrap::fill(
+        &out,
+        textwrap::Options::new(75)
+            .initial_indent("")
+            .line_ending(textwrap::LineEnding::CRLF)
+            .word_separator(textwrap::WordSeparator::AsciiSpace)
+            .subsequent_indent("\t"),
+    )
 }
 
 #[derive(Clone)]
@@ -198,9 +215,9 @@ impl DKIMHeaderBuilder {
         self.add_tag("t", &time.timestamp().to_string())
     }
 
-    pub(crate) fn build(mut self) -> Result<DKIMHeader, DKIMError> {
-        self.header.raw_bytes = serialize(self.header.clone())?;
-        Ok(self.header)
+    pub(crate) fn build(mut self) -> DKIMHeader {
+        self.header.raw_bytes = serialize(self.header.clone());
+        self.header
     }
 }
 
@@ -213,9 +230,8 @@ mod tests {
         let header = DKIMHeaderBuilder::new()
             .add_tag("v", "1")
             .add_tag("a", "something")
-            .build()
-            .unwrap();
-        assert_eq!(header.raw_bytes, "v=1; a=something;".to_owned());
+            .build();
+        k9::snapshot!(header.raw_bytes, "v=1; a=something;");
     }
 
     fn signed_header_list(headers: &[&str]) -> HeaderList {
@@ -227,12 +243,8 @@ mod tests {
         let header = DKIMHeaderBuilder::new()
             .add_tag("v", "2")
             .set_signed_headers(&signed_header_list(&["header1", "header2", "header3"]))
-            .build()
-            .unwrap();
-        assert_eq!(
-            header.raw_bytes,
-            "v=2; h=header1:header2:header3;".to_owned()
-        );
+            .build();
+        k9::snapshot!(header.raw_bytes, "v=2; h=header1:header2:header3;");
     }
 
     #[test]
@@ -245,8 +257,7 @@ mod tests {
             .set_time(time)
             .set_expiry(chrono::Duration::hours(3))
             .unwrap()
-            .build()
-            .unwrap();
-        assert_eq!(header.raw_bytes, "t=1609459201; x=1609470001;".to_owned());
+            .build();
+        k9::snapshot!(header.raw_bytes, "t=1609459201; x=1609470001;");
     }
 }
