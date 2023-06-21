@@ -97,7 +97,7 @@ pub struct Attachment {
     base64: bool,
 }
 
-type TemplateList<'a> = Vec<Template<'a>>;
+type TemplateList<'a> = Vec<Template<'a, 'a>>;
 
 self_cell!(
     struct CompiledTemplates<'a> {
@@ -258,14 +258,13 @@ impl InjectV1Request {
 
     fn compile(&self) -> anyhow::Result<Compiled> {
         let mut env = Environment::new();
-        let mut source = minijinja::Source::new();
         let mut id = 0;
 
         // Pass 1: create the templates
         match &self.content {
             Content::Rfc822(text) => {
                 let name = id.to_string();
-                source.add_template(&name, text)?;
+                env.add_template_owned(name, text)?;
             }
             Content::Builder {
                 text_body: None,
@@ -281,23 +280,21 @@ impl InjectV1Request {
                 if let Some(tb) = text_body {
                     let name = id.to_string();
                     id += 1;
-                    source.add_template(&name, tb)?;
+                    env.add_template_owned(name, tb)?;
                 }
                 if let Some(hb) = html_body {
                     // The filename extension is needed to enable auto-escaping
                     let name = format!("{id}.html");
                     id += 1;
-                    source.add_template(&name, hb)?;
+                    env.add_template_owned(name, hb)?;
                 }
                 for value in headers.values() {
                     let name = id.to_string();
                     id += 1;
-                    source.add_template(&name, value)?;
+                    env.add_template_owned(name, value)?;
                 }
             }
         }
-
-        env.set_source(source);
 
         // Pass 2: retrieve the references
 

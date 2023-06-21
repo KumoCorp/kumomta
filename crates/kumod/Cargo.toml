@@ -45,7 +45,7 @@ message = {path="../message"}
 metrics = "0.20"
 metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
-minijinja = {version="0.34",features=["source"]}
+minijinja = {version="1.0.1",features=["loader"]}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
 mod-dns-resolver = {path="../mod-dns-resolver"}

@@ -9,7 +9,7 @@ use config::load_config;
 use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
 use message::{EnvelopeAddress, Message};
-use minijinja::{Environment, Source, Template};
+use minijinja::{Environment, Template};
 use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
@@ -176,12 +176,12 @@ impl Logger {
     }
 
     pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
-        let mut source = Source::new();
+        let mut template_engine = Environment::new();
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
-                source
-                    .add_template(format!("{kind:?}"), template_source)
+                template_engine
+                    .add_template_owned(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
                         format!(
                             "compiling template:\n{template_source}\nfor log record type {kind:?}"
@@ -189,9 +189,6 @@ impl Logger {
                     })?;
             }
         }
-
-        let mut template_engine = Environment::new();
-        template_engine.set_source(source);
 
         let mut enabled = HashMap::new();
         for (kind, cfg) in &params.per_record {
@@ -233,12 +230,12 @@ impl Logger {
     }
 
     pub fn init(params: LogFileParams) -> anyhow::Result<()> {
-        let mut source = Source::new();
+        let mut template_engine = Environment::new();
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
-                source
-                    .add_template(format!("{kind:?}"), template_source)
+                template_engine
+                    .add_template_owned(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
                         format!(
                             "compiling template:\n{template_source}\nfor log record type {kind:?}"
@@ -246,9 +243,6 @@ impl Logger {
                     })?;
             }
         }
-
-        let mut template_engine = Environment::new();
-        template_engine.set_source(source);
 
         std::fs::create_dir_all(&params.log_dir)
             .with_context(|| format!("creating log directory {}", params.log_dir.display()))?;
@@ -684,7 +678,7 @@ impl LogHookState {
         params: &LogHookParams,
         template_engine: &'a Environment,
         kind: RecordType,
-    ) -> Option<Template<'a>> {
+    ) -> Option<Template<'a, 'a>> {
         if let Some(pr) = params.per_record.get(&kind) {
             if pr.template.is_some() {
                 let label = format!("{kind:?}");
@@ -796,7 +790,7 @@ impl LogThreadState {
         params: &LogFileParams,
         template_engine: &'a Environment,
         kind: RecordType,
-    ) -> Option<Template<'a>> {
+    ) -> Option<Template<'a, 'a>> {
         if let Some(pr) = params.per_record.get(&kind) {
             if pr.template.is_some() {
                 let label = format!("{kind:?}");
