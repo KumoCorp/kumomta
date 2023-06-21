@@ -209,6 +209,8 @@ pub async fn bounce_v1_list(
         AdminBounceEntry::get_all()
             .into_iter()
             .filter_map(|entry| {
+                let bounced = entry.bounced.lock().unwrap().clone();
+                let total_bounced = bounced.values().sum();
                 entry
                     .expires
                     .checked_duration_since(now)
@@ -218,6 +220,8 @@ pub async fn bounce_v1_list(
                         tenant: entry.tenant,
                         domain: entry.domain,
                         reason: entry.reason,
+                        bounced,
+                        total_bounced,
                         duration,
                     })
             })

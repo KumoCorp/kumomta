@@ -58,6 +58,9 @@ pub struct BounceV1ListEntry {
 
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
+
+    pub bounced: HashMap<String, usize>,
+    pub total_bounced: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
