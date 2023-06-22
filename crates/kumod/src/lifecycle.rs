@@ -197,7 +197,13 @@ impl LifeCycle {
             _ = self.request_shutdown_rx.recv() => {}
         };
         tracing::debug!("wait_for_shutdown: shutdown requested!");
-        tracing::info!("Shutdown requested, please wait while work is saved");
+        tracing::info!(
+            "Shutdown requested, please wait while in-flight messages are delivered \
+             (based on your configured smtp client timeout duration) and \
+             deferred spool messages are saved. \
+             Interrupting shutdown may cause loss of message accountability \
+             and/or duplicate delivery so please be patient!"
+        );
         // Signal that we are stopping
         tracing::debug!("Signal tasks that we are stopping");
         SHUTTING_DOWN.store(true, Ordering::SeqCst);
@@ -212,6 +218,11 @@ impl LifeCycle {
                     let n = labels.len();
                     let summary :Vec<&str> = labels.values().map(|s| s.as_str()).take(10).collect();
                     let summary = summary.join(", ");
+                    let summary = if labels.len() > 10 {
+                        format!("{summary} (and {} others)", labels.len() - 10)
+                    } else {
+                        summary
+                    };
                     tracing::info!("Still waiting for {n} pending activities... {summary}");
                 }
                 _ = self.activity_rx.recv() => {
