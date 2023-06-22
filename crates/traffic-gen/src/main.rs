@@ -156,7 +156,8 @@ impl Opt {
             SmtpClient::with_stream(stream, &self.target, SmtpClientTimeouts::default());
 
         // Read banner
-        let banner = client.read_response(None).await?;
+        let connect_timeout = client.timeouts().connect_timeout;
+        let banner = client.read_response(None, connect_timeout).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
 
         // Say EHLO

@@ -344,7 +344,8 @@ impl KumoDaemon {
         let mut client =
             SmtpClient::new(self.listener("smtp"), SmtpClientTimeouts::short_timeouts()).await?;
 
-        let banner = client.read_response(None).await?;
+        let connect_timeout = client.timeouts().connect_timeout;
+        let banner = client.read_response(None, connect_timeout).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
         client.ehlo("localhost").await?;
         Ok(client)

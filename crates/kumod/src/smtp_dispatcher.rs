@@ -204,7 +204,10 @@ impl QueueDispatcher for SmtpDispatcher {
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
 
                 // Read banner
-                let banner = client.read_response(None).await.context("reading banner")?;
+                let banner = client
+                    .read_response(None, timeouts.connect_timeout)
+                    .await
+                    .context("reading banner")?;
                 if banner.code != 220 {
                     return anyhow::Result::<SmtpClient>::Err(ClientError::Rejected(banner).into());
                 }

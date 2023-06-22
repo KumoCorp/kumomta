@@ -419,6 +419,7 @@ impl Command {
         }
     }
 
+    /// Timeouts for reading the response
     pub fn client_timeout(&self, timeouts: &SmtpClientTimeouts) -> Duration {
         match self {
             Self::Helo(_) | Self::Ehlo(_) => timeouts.ehlo_timeout,
@@ -432,6 +433,12 @@ impl Command {
             }
             Self::Auth { .. } => timeouts.auth_timeout,
         }
+    }
+
+    /// Timeouts for writing the request
+    pub fn client_timeout_request(&self, timeouts: &SmtpClientTimeouts) -> Duration {
+        let one_minute = Duration::from_secs(60);
+        self.client_timeout(timeouts).min(one_minute)
     }
 }
 

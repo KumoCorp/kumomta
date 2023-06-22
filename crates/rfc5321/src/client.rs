@@ -210,7 +210,11 @@ impl SmtpClient {
         }
     }
 
-    async fn read_line(&mut self) -> Result<String, ClientError> {
+    pub fn timeouts(&self) -> &SmtpClientTimeouts {
+        &self.timeouts
+    }
+
+    async fn read_line(&mut self, timeout_duration: Duration) -> Result<String, ClientError> {
         let mut too_long = false;
         loop {
             let mut iter = self.read_buffer.iter().enumerate();
@@ -237,7 +241,10 @@ impl SmtpClient {
             // Didn't find a complete line, fill up the rest of the buffer
             let mut data = [0u8; MAX_LINE_LEN];
             let size = match self.socket.as_mut() {
-                Some(s) => s.read(&mut data).await?,
+                Some(s) => match timeout(timeout_duration, s.read(&mut data)).await {
+                    Ok(result) => result?,
+                    Err(_) => return Err(ClientError::TimeOut),
+                },
                 None => return Err(ClientError::NotConnected),
             };
             if size == 0 {
@@ -251,12 +258,13 @@ impl SmtpClient {
     pub async fn read_response(
         &mut self,
         command: Option<String>,
+        timeout_duration: Duration,
     ) -> Result<Response, ClientError> {
         if let Some(sock) = self.socket.as_mut() {
             sock.flush().await?;
         }
 
-        let mut line = self.read_line().await?;
+        let mut line = self.read_line(timeout_duration).await?;
         let mut parsed = parse_response_line(&line)?;
         let code = parsed.code;
         let (enhanced_code, mut response_string) = match parse_enhanced_status_code(parsed.content)
@@ -264,8 +272,10 @@ impl SmtpClient {
             Some((enhanced, content)) => (Some(enhanced), content.to_string()),
             None => (None, parsed.content.to_string()),
         };
+
+        let subsequent_line_timeout_duration = Duration::from_secs(60).min(timeout_duration);
         while !parsed.is_final {
-            line = self.read_line().await?;
+            line = self.read_line(subsequent_line_timeout_duration).await?;
             parsed = parse_response_line(&line)?;
             if parsed.code != code {
                 return Err(ClientError::MalformedResponseLine(line.to_string()));
@@ -289,23 +299,21 @@ impl SmtpClient {
         tracing::trace!("send {line}");
         match self.socket.as_mut() {
             Some(socket) => {
-                socket
-                    .write_all(line.as_bytes())
-                    .await
-                    .map_err(|_| ClientError::NotConnected)?;
+                match timeout(
+                    command.client_timeout_request(&self.timeouts),
+                    socket.write_all(line.as_bytes()),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Err(_) => return Err(ClientError::TimeOut),
+                }
             }
             None => return Err(ClientError::NotConnected),
         };
 
-        match timeout(
-            command.client_timeout(&self.timeouts),
-            self.read_response(Some(line)),
-        )
-        .await
-        {
-            Ok(res) => res,
-            Err(_) => Err(ClientError::TimeOut),
-        }
+        self.read_response(Some(line), command.client_timeout(&self.timeouts))
+            .await
     }
 
     /// Issue a series of commands, and return the responses to
@@ -329,20 +337,27 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let pipeline = self.capabilities.contains_key("PIPELINING");
         let mut results: Vec<Result<Response, ClientError>> = vec![];
-        let mut encoded_commands: Vec<String> = vec![];
+        let mut encoded_commands: Vec<(&Command, String)> = vec![];
+        let mut read_timeout = Duration::ZERO;
 
         for cmd in &commands {
             let line = cmd.encode();
             match self.socket.as_mut() {
                 Some(socket) => {
-                    let res = socket
-                        .write_all(line.as_bytes())
-                        .await
-                        .map_err(|_| ClientError::NotConnected);
+                    let res = match timeout(
+                        cmd.client_timeout_request(&self.timeouts),
+                        socket.write_all(line.as_bytes()),
+                    )
+                    .await
+                    {
+                        Ok(result) => result.map_err(|_| ClientError::NotConnected),
+                        Err(_) => Err(ClientError::TimeOut),
+                    };
                     if let Err(err) = res {
                         results.push(Err(err.into()));
                         return results;
                     }
+                    read_timeout += cmd.client_timeout(&self.timeouts);
                 }
                 None => {
                     results.push(Err(ClientError::NotConnected));
@@ -350,18 +365,24 @@ impl SmtpClient {
                 }
             };
             if pipeline {
-                encoded_commands.push(line);
+                encoded_commands.push((cmd, line));
             } else {
                 // Immediately request the response if the server
                 // doesn't support pipelining
-                results.push(self.read_response(Some(line)).await);
+                results.push(
+                    self.read_response(Some(line), cmd.client_timeout(&self.timeouts))
+                        .await,
+                );
             }
         }
 
         if pipeline {
             // Now read the responses effectively in a batch
-            for line in encoded_commands {
-                results.push(self.read_response(Some(line)).await);
+            for (cmd, line) in encoded_commands {
+                results.push(
+                    self.read_response(Some(line), cmd.client_timeout(&self.timeouts))
+                        .await,
+                );
             }
         }
 
@@ -517,18 +538,28 @@ impl SmtpClient {
                 stuffed.extend_from_slice(line);
             }
             match self.socket.as_mut() {
-                Some(sock) => sock
-                    .write_all(&stuffed)
-                    .await
-                    .map_err(|_| ClientError::NotConnected)?,
+                Some(sock) => match timeout(
+                    Command::Data.client_timeout_request(&self.timeouts),
+                    sock.write_all(&stuffed),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Err(_) => return Err(ClientError::TimeOut),
+                },
                 None => return Err(ClientError::NotConnected),
             }
         } else {
             match self.socket.as_mut() {
-                Some(sock) => sock
-                    .write_all(data)
-                    .await
-                    .map_err(|_| ClientError::NotConnected)?,
+                Some(sock) => match timeout(
+                    Command::Data.client_timeout_request(&self.timeouts),
+                    sock.write_all(data),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Err(_) => return Err(ClientError::TimeOut),
+                },
                 None => return Err(ClientError::NotConnected),
             }
         }
@@ -537,14 +568,24 @@ impl SmtpClient {
         let marker = if needs_newline { "\r\n.\r\n" } else { ".\r\n" };
 
         match self.socket.as_mut() {
-            Some(sock) => sock
-                .write_all(marker.as_bytes())
-                .await
-                .map_err(|_| ClientError::NotConnected)?,
+            Some(sock) => match timeout(
+                Command::Data.client_timeout_request(&self.timeouts),
+                sock.write_all(marker.as_bytes()),
+            )
+            .await
+            {
+                Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                Err(_) => return Err(ClientError::TimeOut),
+            },
             None => return Err(ClientError::NotConnected),
         }
 
-        let resp = self.read_response(Some(".".to_string())).await?;
+        let resp = self
+            .read_response(
+                Some(".".to_string()),
+                Command::Data.client_timeout(&self.timeouts),
+            )
+            .await?;
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
         }
