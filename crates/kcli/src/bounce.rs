@@ -58,7 +58,8 @@ impl BounceCommand {
             }
         }
 
-        let result: BounceV1Response = crate::post(
+        let result: BounceV1Response = crate::request_with_json_response(
+            reqwest::Method::POST,
             endpoint.join("/api/admin/bounce/v1")?,
             &BounceV1Request {
                 campaign: self.campaign.clone(),
@@ -68,8 +69,6 @@ impl BounceCommand {
                 duration: self.duration.clone(),
             },
         )
-        .await?
-        .json()
         .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);

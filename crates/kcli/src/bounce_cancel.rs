@@ -17,19 +17,12 @@ pub struct BounceCancelCommand {
 
 impl BounceCancelCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let response = reqwest::Client::builder()
-            .build()?
-            .delete(endpoint.join("/api/admin/bounce/v1")?)
-            .json(&BounceV1CancelRequest { id: self.id })
-            .send()
-            .await?;
-        let status = response.status();
-
-        let response = response.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("{response}");
-        }
+        let response = crate::request_with_text_response(
+            reqwest::Method::DELETE,
+            endpoint.join("/api/admin/bounce/v1")?,
+            &BounceV1CancelRequest { id: self.id },
+        )
+        .await?;
 
         if !response.is_empty() {
             println!("{response}");

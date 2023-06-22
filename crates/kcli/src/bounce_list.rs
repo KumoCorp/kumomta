@@ -11,10 +11,12 @@ pub struct BounceListCommand {}
 
 impl BounceListCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let result: Vec<BounceV1ListEntry> = reqwest::get(endpoint.join("/api/admin/bounce/v1")?)
-            .await?
-            .json()
-            .await?;
+        let result: Vec<BounceV1ListEntry> = crate::request_with_json_response(
+            reqwest::Method::GET,
+            endpoint.join("/api/admin/bounce/v1")?,
+            &(),
+        )
+        .await?;
 
         println!("{}", serde_json::to_string_pretty(&result)?);
 

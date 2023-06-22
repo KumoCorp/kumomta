@@ -13,21 +13,14 @@ pub struct SetLogFilterCommand {
 
 impl SetLogFilterCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let response = crate::post(
+        let response = crate::request_with_text_response(
+            reqwest::Method::POST,
             endpoint.join("/api/admin/set_diagnostic_log_filter/v1")?,
             &SetDiagnosticFilterRequest {
                 filter: self.filter.clone(),
             },
         )
         .await?;
-
-        let status = response.status();
-
-        let response = response.text().await?;
-
-        if !status.is_success() {
-            anyhow::bail!("{response}");
-        }
 
         if !response.is_empty() {
             println!("{response}");
