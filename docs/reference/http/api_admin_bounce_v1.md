@@ -26,17 +26,17 @@ were bounced:
 
 The following fields are possible in the request:
 
-## domain
+### domain
 
 Optional string. The domain name to match.
 If omitted, any domain will match.
 
-## campaign
+### campaign
 
 Optional string. The campaign name to match.
 If omitted, any campaign will match.
 
-## tenant
+### tenant
 
 Optional string. The tenant to match.
 If omitted, any tenant will match.
@@ -47,11 +47,11 @@ If omitted, any tenant will match.
 
     With great power, comes great responsibility!
 
-## reason
+### reason
 
 Required. Reason to log in the delivery log.
 
-## duration
+### duration
 
 Optional duration string. Defaults to `"5m"`.
 Specifies how long this bounce directive remains active.
@@ -59,3 +59,17 @@ Specifies how long this bounce directive remains active.
 While active, newly injected messages that match the
 bounce criteria will also be bounced.
 
+## Kumo CLI
+
+In addition to making raw API requests, you may use the kumo CLI:
+
+```console
+$ kcli --endpoint http://127.0.0.1:8000 bounce --everything --reason purge
+{
+  "id": "0234c7c9-afd3-49f9-9a4c-a1cc37fcc53b",
+  "bounced": {},
+  "total_bounced": 0
+}
+```
+
+Run `kcli bounce --help` for more informtion.

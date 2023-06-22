@@ -27,3 +27,14 @@ The body of the post request must be a JSON object with a `filter` field:
     "filter": "kumod=trace"
 }
 ```
+
+## Kumo CLI
+
+In addition to making raw API requests, you may use the kumo CLI:
+
+```console
+$ kcli --endpoint http://127.0.0.1:8000 set-log-filter 'kumod=trace'
+OK
+```
+
+Run `kcli set-log-filter --help` for more informtion.
