@@ -581,10 +581,7 @@ impl SmtpClient {
         }
 
         let resp = self
-            .read_response(
-                Some(".".to_string()),
-                Command::Data.client_timeout(&self.timeouts),
-            )
+            .read_response(Some(".".to_string()), self.timeouts.data_dot_timeout)
             .await?;
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
