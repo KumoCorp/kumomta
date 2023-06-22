@@ -186,7 +186,10 @@ TOC = [
                 children=[
                     Page("Starting KumoMTA", "userguide/operation/starting.md"),
                     Page("Getting Server Status", "userguide/operation/status.md"),
-                    Page("Using the kcli Command-Line Client", "userguide/operation/kcli.md"),
+                    Page(
+                        "Using the kcli Command-Line Client",
+                        "userguide/operation/kcli.md",
+                    ),
                     Page(
                         "Injecting Messages using SMTP",
                         "userguide/operation/smtpinjection.md",
