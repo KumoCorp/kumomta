@@ -213,8 +213,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         } else {
             None
         })
-        .with(layer)
-        .with(env_filter)
+        .with(layer.with_filter(env_filter))
         .with(metrics_tracing_context::MetricsLayer::new())
         .init();
 

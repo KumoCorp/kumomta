@@ -12,14 +12,11 @@ KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
 
 You may use
 [tokio-console](https://docs.rs/tokio-console/latest/tokio_console/) to
-introspect the system. You must first start the server with tokio tracing
-enabled:
+introspect the system.
 
 ```
-KUMOD_LOG=tokio=trace,runtime=trace,info cargo run -p kumod -- --tokio-console --policy simple_policy.lua 2>/dev/null
+kumod --tokio-console --policy simple_policy.lua
 ```
-
-Note the `2>/dev/null`; that is to prevent tracing log spew from hitting the terminal.
 
 Then, in another window, run `tokio-console`.
 
