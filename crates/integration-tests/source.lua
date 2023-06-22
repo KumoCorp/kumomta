@@ -42,7 +42,7 @@ if WEBHOOK_PORT then
     return false
   end)
 
-  kumo.on('make.webhook', function(domain, tenant, campaign)
+  kumo.on('make.webhook', function(_domain, _tenant, _campaign)
     local sender = {}
     local client = kumo.http.build_client {}
     function sender:send(message)
@@ -73,7 +73,7 @@ kumo.on('smtp_server_message_received', function(msg)
   msg:set_meta('queue', 'localhost.')
 end)
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   if domain == 'webhook' then
     return kumo.make_queue_config {
       protocol = {
@@ -86,7 +86,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config {}
 end)
 
-kumo.on('get_egress_path_config', function(domain, source_name, site_name)
+kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
   -- Allow sending to a sink
   local params = {
     enable_tls = 'OpportunisticInsecure',

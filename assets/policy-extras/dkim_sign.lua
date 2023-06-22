@@ -123,7 +123,7 @@ local function load_dkim_data(dkim_data_files)
     end
   end
 
-  for domain, params in pairs(data.domain) do
+  for domain, _params in pairs(data.domain) do
     if not data.base.selector and not domain.selector then
       error(
         string.format(

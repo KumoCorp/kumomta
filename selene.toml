@@ -1,0 +1,2 @@
+std = "lua53"
+exclude = ["simple_policy.lua"]

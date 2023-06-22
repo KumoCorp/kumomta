@@ -38,7 +38,7 @@ kumo.on('smtp_server_message_received', function(msg)
   msg:set_meta('queue', 'maildir')
 end)
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(_domain, _tenant, _campaign)
   return kumo.make_queue_config {
     protocol = {
       maildir_path = TEST_DIR .. '/maildir',

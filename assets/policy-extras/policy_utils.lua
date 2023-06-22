@@ -14,7 +14,7 @@ end
 -- table
 function mod.table_keys(tbl)
   local result = {}
-  for k, v in pairs(tbl) do
+  for k, _v in pairs(tbl) do
     table.insert(result, k)
   end
   return result
