@@ -152,7 +152,7 @@ end)
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 
 local dkim_sign = require 'policy-extras.dkim_sign'
-local dkim_signer = dkim_sign:setup({'/opt/kumomta/etc/dkim_data.toml'})
+local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
 
 -- Handle Tenant assignment and calls to sign DKIM.
 
