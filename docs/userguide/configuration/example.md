@@ -147,37 +147,14 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   return kumo.make_queue_config(params)
 end)
 
--- Configure DKIM signing. In this case we use a simple approach of a path
--- defined by tokens, with each domain configured in the definition. This is
--- executed whether the message arrived by SMTP or API.
+-- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 
--- Edit this table to add more signing domains and their selector.
-local DKIM_CONFIG = {
-  ['examplecorp.com'] = 'dkim1024',
-  ['kumocorp.com'] = 's1024',
-}
+local dkim_sign = require 'policy-extras.dkim_sign'
+local dkim_signer = dkim_sign:setup({'/opt/kumomta/etc/dkim_data.toml'})
 
-function dkim_sign(msg)
-  local sender_domain = msg:from_header().domain
-  local selector = DKIM_CONFIG[sender_domain]
-
-  if not selector then
-    return false -- DON'T SIGN WITHOUT A VALID SELECTOR
-  end
-
-  local signer = kumo.dkim.rsa_sha256_signer {
-    domain = sender_domain,
-    selector = selector,
-    headers = { 'From', 'To', 'Subject' },
-    key = string.format(
-      '/opt/kumomta/etc/dkim/%s/%s.key',
-      sender_domain,
-      selector
-    ),
-  }
-  msg:dkim_sign(signer)
-end
+-- Handle Tenant assignment and calls to sign DKIM.
 
 kumo.on('smtp_server_message_received', function(msg)
   -- Assign tenant based on X-Tenant header.
@@ -187,11 +164,11 @@ kumo.on('smtp_server_message_received', function(msg)
   end
 
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
-  dkim_sign(msg)
+  dkim_signer(msg)
 end)
 
 kumo.on('http_message_generated', function(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
-  dkim_sign(msg)
+  dkim_signer(msg)
 end)
 ```

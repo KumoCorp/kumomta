@@ -110,3 +110,79 @@ local signer = kumo.dkim.rsa_sha256_signer {
 Where you want to enable dkim signing, simply call that signer in policy.
 
 IE:  `msg:dkim_sign(signer)`
+
+## Using the dkim_sign.lua Policy Helper
+
+To simplify DKIM configuration using a TOML configuration file, you can use the dkim_sign.lua policy helper.
+
+The policy helper is configured to look for keys under the default path of `/opt/kumomta/etc/dkim/DOMAIN/SELECTOR.key` but can be overridden on a per-domain basis if needed.
+
+To use the policy helper, add the following to your default policy:
+
+```lua
+local dkim_sign = require 'policy-extras.dkim_sign'
+local dkim_signer = dkim_sign:setup({'/opt/kumomta/etc/dkim_data.toml'})
+
+kumo.on('smtp_server_message_received', function(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_signer(msg)
+end)
+
+kumo.on('http_message_generated', function(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_signer(msg)
+end)
+```
+
+The preceding policy example sets up the dkim_sign helper and adds calls for signing to the events that fire for message arrival. The call to the dkim_signer function much be placed last in the events to ensure that no further manipulation of the messages occur after signing.
+
+In addition create and populate the configured dkim_data.toml file, located at *`/opt/kumomta/etc/dkim_data.toml`* in this example.
+
+```toml
+[base]
+# If these are present, we'll use hashicorp vault instead
+# of reading from disk
+vault_mount = "secret"
+vault_path_prefix = "dkim/"
+
+# To do double or triple signing, add each additional
+# signature name to this list and see the `signature."MyESPName"`
+# block below
+additional_signatures = ["MyESPName"]
+
+# Default selector to assume if the domain/signature block
+# doesn't specify one
+selector = "dkim1024"
+
+# The default set of headers to sign if otherwise unspecified
+headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
+
+# Domain blocks match based on the sender domain of the
+# incoming message
+[domain."example.com"]
+selector = 'dkim1024'
+headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
+algo = "sha256" # or "ed25519". Omit to use the default of "sha256"
+
+# optional overridden filename.
+# Default is "/opt/kumomta/etc/dkim/DOMAIN/SELECTOR.key"
+filename = "/full/path/to/key."
+
+# TODO: reception-time policy for signing based on DNS.
+policy = "TempFailIfNotInDNS" # Reject
+#policy = "SignAlways"         # Sign and relay
+#policy = "SignOnlyIfInDNS"    # Don't sign. Allow fallback to additional_signatures
+
+# The signature block is independent of the sender domain.
+# They are consulted based on the value of `base.additional_signatures`
+# above.
+# In addition to the same values that are found in the `domain` block,
+# the following keys are supported
+[signature."MyESPName"]
+# Policy is interpreted differently for these
+policy = "Always" # Always add this signature
+#policy = "OnlyIfMissingDomainBlock" # Use this as a fallback
+
+# specifies the signing domain for this signature block
+domain = "myesp.com"
+```
