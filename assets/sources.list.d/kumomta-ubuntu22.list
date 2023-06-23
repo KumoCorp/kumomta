@@ -1,1 +1,2 @@
 deb [arch=any signed-by=/usr/share/keyrings/kumomta.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-22/ stable main
+deb [arch=any signed-by=/usr/share/keyrings/kumomta.gpg] https://openrepo.kumomta.com/kumomta-ubuntu-22-stable/ stable main
