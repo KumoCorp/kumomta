@@ -281,6 +281,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
+
 fn register_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
