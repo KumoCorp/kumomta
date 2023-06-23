@@ -24,4 +24,3 @@ If you're interesting in contributing/extending KumoMTA, take a look at
 ## Getting Help
 
 Please see [How to Report Bugs or Get Help](https://docs.kumomta.com/userguide/general/report/)
-
