@@ -114,7 +114,7 @@ sed -i '/^Source:/d' pkg/debian/DEBIAN/control  # The `Source:` field needs to b
 echo $deps | sed -e 's/shlibs:Depends=/Depends: /' >> pkg/debian/DEBIAN/control
 cat pkg/debian/DEBIAN/control
 
-debname=${DEB_NAME}.$distro$distver
+debname=${DEB_NAME}.${KUMO_DEB_VERSION}.$distro$distver
 find pkg -ls
 FAKEROOT=fakeroot
 if test "$EUID" -eq 0 ; then
