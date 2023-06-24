@@ -786,7 +786,10 @@ impl Dispatcher {
                 subject: 4,
                 detail: 1,
             }),
-            content: "No answer from any hosts listed in MX".to_string(),
+            content: "bulk delay of ready queue: \
+                too many successive connection failures \
+                where there was no answer from any hosts listed in MX"
+                .to_string(),
             command: None,
         })
         .await;
