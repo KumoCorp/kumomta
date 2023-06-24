@@ -378,6 +378,17 @@ impl EgressPoolRoundRobin {
                         entries.push(entry.clone());
                     }
                 }
+            } else {
+                // Likely a DNS resolution issue that prevented us from computing
+                // the site name to use for the ready queue.
+                // We're not in an appropriate context to handle that issue here,
+                // but the good news is that without a valid site name, there can't
+                // possibly be any suspensions for a ready queue that we can't name
+                // so we can continue to populate the entries and pick one.
+                // The DNS issue will bubble up almost immediately after we return
+                // a source name as our caller will call
+                // ReadyQueueManager::resolve_by_queue_name which will surface it.
+                entries.push(entry.clone());
             }
         }
 
