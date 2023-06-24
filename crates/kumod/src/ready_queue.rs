@@ -516,8 +516,7 @@ impl Dispatcher {
                         })
                         .await;
                         Dispatcher::requeue_message(msg, true, None).await?;
-                        dispatcher.metrics.msgs_transfail.inc();
-                        dispatcher.metrics.global_msgs_transfail.inc();
+                        dispatcher.metrics.inc_transfail();
                     }
 
                     if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
@@ -725,11 +724,9 @@ impl Dispatcher {
             let egress_pool = self.egress_pool.clone();
             let egress_source = self.egress_source.name.clone();
             if response.is_transient() {
-                self.metrics.msgs_transfail.inc_by(msgs.len() as u64);
-                self.metrics.global_msgs_transfail.inc_by(msgs.len() as u64);
+                self.metrics.inc_transfail_by(msgs.len());
             } else {
-                self.metrics.msgs_fail.inc_by(msgs.len() as u64);
-                self.metrics.global_msgs_fail.inc_by(msgs.len() as u64);
+                self.metrics.inc_fail_by(msgs.len());
             }
             rt_spawn(
                 format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),

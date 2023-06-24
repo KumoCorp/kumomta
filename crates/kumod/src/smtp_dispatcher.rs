@@ -377,12 +377,10 @@ impl QueueDispatcher for SmtpDispatcher {
                     })
                     .await?;
                 }
-                dispatcher.metrics.msgs_transfail.inc();
-                dispatcher.metrics.global_msgs_transfail.inc();
+                dispatcher.metrics.inc_transfail();
             }
             Err(ClientError::Rejected(response)) => {
-                dispatcher.metrics.msgs_fail.inc();
-                dispatcher.metrics.global_msgs_fail.inc();
+                dispatcher.metrics.inc_fail();
                 tracing::debug!(
                     "failed to send message to {} {:?}: {response:?}",
                     dispatcher.name,
@@ -434,8 +432,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         SpoolManager::remove_from_spool(*msg.id()).await
                     })?;
                 }
-                dispatcher.metrics.msgs_delivered.inc();
-                dispatcher.metrics.global_msgs_delivered.inc();
+                dispatcher.metrics.inc_delivered();
             }
         };
 

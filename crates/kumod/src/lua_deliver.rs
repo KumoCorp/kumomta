@@ -136,11 +136,9 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             })
                             .await?;
                         }
-                        dispatcher.metrics.msgs_transfail.inc();
-                        dispatcher.metrics.global_msgs_transfail.inc();
+                        dispatcher.metrics.inc_transfail();
                     } else {
-                        dispatcher.metrics.msgs_fail.inc();
-                        dispatcher.metrics.global_msgs_fail.inc();
+                        dispatcher.metrics.inc_fail();
                         tracing::debug!(
                             "failed to send message to {}: {response:?}",
                             dispatcher.name,
@@ -195,8 +193,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                         SpoolManager::remove_from_spool(*msg.id()).await
                     })?;
                 }
-                dispatcher.metrics.msgs_delivered.inc();
-                dispatcher.metrics.global_msgs_delivered.inc();
+                dispatcher.metrics.inc_delivered();
             }
         }
 

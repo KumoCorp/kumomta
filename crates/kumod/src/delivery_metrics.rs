@@ -2,21 +2,21 @@ use prometheus::{IntCounter, IntGauge};
 
 #[derive(Clone, Debug)]
 pub struct DeliveryMetrics {
-    pub connection_gauge: IntGauge,
-    pub global_connection_gauge: IntGauge,
-    pub connection_total: IntCounter,
-    pub global_connection_total: IntCounter,
+    connection_gauge: IntGauge,
+    global_connection_gauge: IntGauge,
+    connection_total: IntCounter,
+    global_connection_total: IntCounter,
 
     pub ready_count: IntGauge,
 
-    pub msgs_delivered: IntCounter,
-    pub global_msgs_delivered: IntCounter,
+    msgs_delivered: IntCounter,
+    global_msgs_delivered: IntCounter,
 
-    pub msgs_transfail: IntCounter,
-    pub global_msgs_transfail: IntCounter,
+    msgs_transfail: IntCounter,
+    global_msgs_transfail: IntCounter,
 
-    pub msgs_fail: IntCounter,
-    pub global_msgs_fail: IntCounter,
+    msgs_fail: IntCounter,
+    global_msgs_fail: IntCounter,
 }
 
 impl DeliveryMetrics {
@@ -54,6 +54,31 @@ impl DeliveryMetrics {
             msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
             global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(service_type),
         }
+    }
+
+    pub fn inc_transfail(&self) {
+        self.msgs_transfail.inc();
+        self.global_msgs_transfail.inc();
+    }
+
+    pub fn inc_transfail_by(&self, amount: usize) {
+        self.msgs_transfail.inc_by(amount as u64);
+        self.global_msgs_transfail.inc_by(amount as u64);
+    }
+
+    pub fn inc_fail(&self) {
+        self.msgs_fail.inc();
+        self.global_msgs_fail.inc();
+    }
+
+    pub fn inc_fail_by(&self, amount: usize) {
+        self.msgs_fail.inc_by(amount as u64);
+        self.global_msgs_fail.inc_by(amount as u64);
+    }
+
+    pub fn inc_delivered(&self) {
+        self.msgs_delivered.inc();
+        self.global_msgs_delivered.inc();
     }
 }
 
