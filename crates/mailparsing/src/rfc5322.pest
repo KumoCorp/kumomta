@@ -69,7 +69,7 @@ unstructured = {
 obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }
 obs_utext = @{ "\u{00}" | obs_no_ws_ctl | vchar }
 
-obs_no_ws_ctl = { '\u{01}'..'\u{08}' | '\u{0b}'..'\u{0c}' | '\u{0d}'..'\u{1f}' | "\u{7f}" }
+obs_no_ws_ctl = { '\u{01}'..'\u{08}' | '\u{0b}'..'\u{0c}' | '\u{0e}'..'\u{1f}' | "\u{7f}" }
 obs_ctext = { obs_no_ws_ctl }
 obs_phrase_list = { (phrase | cfws)? ~ ("," ~ (phrase | cfws)?)* }
 obs_route = { obs_domain_list ~ ":" }

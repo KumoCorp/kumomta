@@ -54,6 +54,58 @@ impl<'a> Header<'a> {
         }
     }
 
+    pub fn new_unstructured<N: Into<SharedString<'a>>, V: Into<SharedString<'a>>>(
+        name: N,
+        value: V,
+    ) -> Self {
+        let name = name.into();
+        let value = value.into();
+
+        let value = if value.chars().all(|c| c.is_ascii()) {
+            textwrap::fill(
+                &value,
+                textwrap::Options::new(75)
+                    .initial_indent("")
+                    .line_ending(textwrap::LineEnding::CRLF)
+                    .word_separator(textwrap::WordSeparator::AsciiSpace)
+                    .subsequent_indent("\t"),
+            )
+        } else {
+            let mut encoded = String::with_capacity(value.len());
+            let mut line_length = 0;
+            let max_length = 75;
+            for word in value.split_ascii_whitespace() {
+                let quoted_word;
+                let word = if word.is_ascii() {
+                    word
+                } else {
+                    quoted_word = crate::rfc5322_parser::qp_encode(word);
+                    &quoted_word
+                };
+
+                if line_length > 0 {
+                    if word.len() < max_length - line_length {
+                        encoded.push(' ');
+                    } else {
+                        encoded.push_str("\r\n\t");
+                        line_length = 0;
+                    }
+                }
+                encoded.push_str(word);
+                line_length += word.len();
+            }
+            encoded
+        }
+        .into();
+
+        Self {
+            name,
+            value,
+            separator: ": ".into(),
+            conformance: HeaderConformance::default(),
+        }
+    }
+
     pub fn assign(&mut self, v: impl EncodeHeaderValue) {
         self.value = v.encode_value();
     }
@@ -418,5 +470,49 @@ Ok(
             sender.to_header_string(),
             "Sender: =?UTF-8?q?Andr=C3=A9_Pirard?= <andre@example.com>\r\n"
         );
+    }
+
+    #[test]
+    fn test_unstructured_encode() {
+        let header = Header::new_unstructured("Subject", "hello there");
+        k9::snapshot!(header.value, "hello there");
+
+        let header = Header::new_unstructured("Subject", "hello \"there\"");
+        k9::snapshot!(header.value, "hello \"there\"");
+
+        let header = Header::new_unstructured("Subject", "hello André Pirard");
+        k9::snapshot!(header.value, "hello =?UTF-8?q?Andr=C3=A9?= Pirard");
+
+        let header = Header::new_unstructured(
+            "Subject",
+            "hello there, this is a \
+            longer header than the standard width and so it should \
+            get wrapped in the produced value",
+        );
+        k9::snapshot!(
+            header.to_header_string(),
+            r#"
+Subject: hello there, this is a longer header than the standard width and so it\r
+\tshould get wrapped in the produced value\r
+
+"#
+        );
+
+        let input_text = "hello there André, this is a longer header \
+                          than the standard width and so it should get \
+                          wrapped in the produced value. Do you hear me \
+                          André? this should get really long!";
+        let header = Header::new_unstructured("Subject", input_text);
+        k9::snapshot!(
+            header.to_header_string(),
+            r#"
+Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the standard width\r
+\tand so it should get wrapped in the produced value. Do you hear me\r
+\t=?UTF-8?q?Andr=C3=A9=3F?= this should get really long!\r
+
+"#
+        );
+
+        k9::assert_equal!(header.as_unstructured().unwrap(), input_text);
     }
 }

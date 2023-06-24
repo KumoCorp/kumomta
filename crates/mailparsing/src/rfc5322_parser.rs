@@ -151,30 +151,39 @@ impl Parser {
             .unwrap()
             .into_inner();
 
+        eprintln!("parse_unstructured_header: {text:?}");
         Self::parse_unstructured(pairs.next().unwrap().into_inner())
     }
 
     fn parse_unstructured(pairs: Pairs<Rule>) -> Result<String> {
-        let mut result = String::new();
-        let mut fws = false;
+        #[derive(Debug)]
+        enum Word {
+            Encoded(String),
+            Text(String),
+            Fws,
+        }
+
+        let mut words: Vec<Word> = vec![];
 
         for p in pairs {
             match p.as_rule() {
                 Rule::encoded_word => {
-                    result += &Self::parse_encoded_word(p)?;
-                    // Implicit fws at end of encoded word
-                    fws = true;
+                    // Fws between encoded words is elided
+                    if words.len() >= 2
+                        && matches!(words.last(), Some(Word::Fws))
+                        && matches!(words[words.len() - 2], Word::Encoded(_))
+                    {
+                        words.pop();
+                    }
+                    words.push(Word::Encoded(Self::parse_encoded_word(p)?));
                 }
                 Rule::fws | Rule::cfws => {
-                    if !result.is_empty() && !fws {
-                        result.push(' ');
-                    }
-                    fws = true;
+                    words.push(Word::Fws);
                 }
-                Rule::obs_utext => {
-                    result += p.as_str();
-                    fws = false;
-                }
+                Rule::obs_utext => match words.last_mut() {
+                    Some(Word::Text(prior)) => prior.push_str(p.as_str()),
+                    _ => words.push(Word::Text(p.as_str().to_string())),
+                },
                 rule => {
                     return Err(MailParsingError::HeaderParse(format!(
                         "Unexpected {rule:?} {p:#?} in parse_unstructured"
@@ -183,10 +192,17 @@ impl Parser {
             };
         }
 
-        if fws {
-            result.pop();
+        let mut result = String::new();
+        for word in &words {
+            match word {
+                Word::Encoded(s) | Word::Text(s) => {
+                    result += s;
+                }
+                Word::Fws => {
+                    result.push(' ');
+                }
+            }
         }
-
         Ok(result)
     }
 
@@ -690,33 +706,74 @@ pub struct Mailbox {
     pub address: String,
 }
 
-fn qp_encode(s: &str) -> String {
-    let prefix = "=?UTF-8?q?";
-    let suffix = "?=";
-    let limit = 75 - (prefix.len() + suffix.len());
+pub(crate) fn qp_encode(s: &str) -> String {
+    let prefix = b"=?UTF-8?q?";
+    let suffix = b"?=";
+    let limit = 74 - (prefix.len() + suffix.len());
 
-    let s = s.replace(' ', "_");
+    static HEX_CHARS: &[u8] = &[
+        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E',
+        b'F',
+    ];
 
-    let encoded = quoted_printable::encode_with_options(
-        s,
-        quoted_printable::Options::default().line_length_limit(limit),
-    );
+    let mut result = Vec::with_capacity(s.len());
 
-    let mut first = "";
-    let mut result = String::with_capacity(encoded.len());
+    result.extend_from_slice(prefix);
+    let mut line_length = 0;
 
-    for line in encoded.lines() {
-        result.push_str(first);
-        result.push_str(prefix);
-        result.push_str(line);
-        result.push_str(suffix);
-        result.push_str("\r\n");
-        first = "\t";
+    enum Byte {
+        Passthru(u8),
+        Encode(u8),
     }
-    // Remove trailing crlf
-    result.pop();
-    result.pop();
-    result
+
+    for c in s.bytes() {
+        let b = if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
+            && c != b'?'
+            && c != b'='
+            && c != b' '
+            && c != b'\t'
+        {
+            Byte::Passthru(c)
+        } else if c == b' ' {
+            Byte::Passthru(b'_')
+        } else {
+            Byte::Encode(c)
+        };
+
+        let need_len = match b {
+            Byte::Passthru(_) => 1,
+            Byte::Encode(_) => 3,
+        };
+
+        if need_len > limit - line_length {
+            // Need to wrap
+            result.extend_from_slice(suffix);
+            result.extend_from_slice(b"\r\n\t");
+            result.extend_from_slice(prefix);
+            line_length = 0;
+        }
+
+        match b {
+            Byte::Passthru(c) => {
+                result.push(c);
+            }
+            Byte::Encode(c) => {
+                result.push(b'=');
+                result.push(HEX_CHARS[(c as usize) >> 4]);
+                result.push(HEX_CHARS[(c as usize) & 0x0f]);
+            }
+        }
+
+        line_length += need_len;
+    }
+
+    if line_length > 0 {
+        result.extend_from_slice(suffix);
+    }
+
+    // Safety: we ensured that everything we output is in the ASCII
+    // range, therefore the string is valid UTF-8
+    unsafe { String::from_utf8_unchecked(result) }
 }
 
 #[cfg(test)]
@@ -729,7 +786,7 @@ fn test_qp_encode() {
     k9::snapshot!(
         encoded,
         r#"
-=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_lo=?=\r
+=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_lo?=\r
 \t=?UTF-8?q?nger_than_this,_and_that_should_get_wrapped_by_the_encoder?=
 "#
     );
@@ -737,7 +794,7 @@ fn test_qp_encode() {
 
 /// Quote input string `s`, using a backslash escape,
 /// any of the characters listed in needs_quote
-fn quote_string(s: &str, needs_quote: &str) -> String {
+pub(crate) fn quote_string(s: &str, needs_quote: &str) -> String {
     if s.chars().any(|c| needs_quote.contains(c)) {
         let mut result = String::with_capacity(s.len() + 4);
         result.push('"');
@@ -774,7 +831,7 @@ impl EncodeHeaderValue for Mailbox {
     fn encode_value(&self) -> SharedString<'static> {
         match &self.name {
             Some(name) => {
-                let mut value = if name.chars().all(|c| c.is_ascii()) {
+                let mut value = if name.is_ascii() {
                     quote_string(name, "\\\"")
                 } else {
                     qp_encode(name)
@@ -790,9 +847,50 @@ impl EncodeHeaderValue for Mailbox {
     }
 }
 
+impl EncodeHeaderValue for MailboxList {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = String::new();
+        for mailbox in &self.0 {
+            if !result.is_empty() {
+                result.push_str(",\r\n\t");
+            }
+            result.push_str(&mailbox.encode_value());
+        }
+        result.into()
+    }
+}
+
+impl EncodeHeaderValue for Address {
+    fn encode_value(&self) -> SharedString<'static> {
+        match self {
+            Self::Mailbox(mbox) => mbox.encode_value(),
+            Self::Group { name, entries } => {
+                let mut result = format!("{name}:");
+                result += &entries.encode_value();
+                result.push(';');
+                result.into()
+            }
+        }
+    }
+}
+
+impl EncodeHeaderValue for AddressList {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = String::new();
+        for address in &self.0 {
+            if !result.is_empty() {
+                result.push_str(",\r\n\t");
+            }
+            result.push_str(&address.encode_value());
+        }
+        result.into()
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::MimePart;
+    use super::*;
+    use crate::{Header, MimePart};
 
     #[test]
     fn mailbox_list_singular() {
@@ -1064,7 +1162,7 @@ Some(
             list,
             r#"
 Some(
-    "Hello If you can read this you understand the example",
+    "Hello If you can read this you understand the example.",
 )
 "#
         );
@@ -1080,39 +1178,50 @@ Some(
         let msg = MimePart::parse(message).unwrap();
         let list = match msg.headers().to() {
             Err(err) => panic!("Doh.\n{err:#}"),
-            Ok(list) => list,
+            Ok(list) => list.unwrap(),
         };
+
+        k9::snapshot!(
+            list.encode_value(),
+            r#"
+A Group:Ed Jones <c@a.test>,\r
+\t<joe@where.test>,\r
+\tJohn <jdoe@one.test>;
+"#
+        );
+
+        let round_trip = Header::new("To", list.clone());
+        k9::assert_equal!(list, round_trip.as_address_list().unwrap());
+
         k9::snapshot!(
             list,
             r#"
-Some(
-    AddressList(
-        [
-            Group {
-                name: "A Group",
-                entries: MailboxList(
-                    [
-                        Mailbox {
-                            name: Some(
-                                "Ed Jones",
-                            ),
-                            address: "c@a.test",
-                        },
-                        Mailbox {
-                            name: None,
-                            address: "joe@where.test",
-                        },
-                        Mailbox {
-                            name: Some(
-                                "John",
-                            ),
-                            address: "jdoe@one.test",
-                        },
-                    ],
-                ),
-            },
-        ],
-    ),
+AddressList(
+    [
+        Group {
+            name: "A Group",
+            entries: MailboxList(
+                [
+                    Mailbox {
+                        name: Some(
+                            "Ed Jones",
+                        ),
+                        address: "c@a.test",
+                    },
+                    Mailbox {
+                        name: None,
+                        address: "joe@where.test",
+                    },
+                    Mailbox {
+                        name: Some(
+                            "John",
+                        ),
+                        address: "jdoe@one.test",
+                    },
+                ],
+            ),
+        },
+    ],
 )
 "#
         );
