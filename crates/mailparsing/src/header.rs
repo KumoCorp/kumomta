@@ -351,6 +351,24 @@ HeaderMap {
     }
 
     #[test]
+    fn as_mailbox() {
+        let sender = Header::with_name_value("Sender", "John Smith <jsmith@example.com>");
+        k9::snapshot!(
+            sender.as_mailbox(),
+            r#"
+Ok(
+    Mailbox {
+        name: Some(
+            "John Smith",
+        ),
+        address: "jsmith@example.com",
+    },
+)
+"#
+        );
+    }
+
+    #[test]
     fn assign_mailbox() {
         let mut sender = Header::with_name_value("Sender", "");
         sender.assign(Mailbox {
@@ -359,7 +377,16 @@ HeaderMap {
         });
         assert_eq!(
             sender.to_header_string(),
-            "Sender: \"John Smith\" <john.smith@example.com>\r\n"
+            "Sender: John Smith <john.smith@example.com>\r\n"
+        );
+
+        sender.assign(Mailbox {
+            name: Some("John \"the smith\" Smith".to_string()),
+            address: "john.smith@example.com".to_string(),
+        });
+        assert_eq!(
+            sender.to_header_string(),
+            "Sender: \"John \\\"the smith\\\" Smith\" <john.smith@example.com>\r\n"
         );
     }
 

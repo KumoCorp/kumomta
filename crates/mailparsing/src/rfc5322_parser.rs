@@ -722,26 +722,64 @@ fn qp_encode(s: &str) -> String {
 #[cfg(test)]
 #[test]
 fn test_qp_encode() {
-    k9::snapshot!(qp_encode("hello, I am a line that is this long, or maybe a little bit longer than this, and that should get wrapped by the encoder"));
+    let encoded = qp_encode(
+        "hello, I am a line that is this long, or maybe a little \
+        bit longer than this, and that should get wrapped by the encoder",
+    );
+    k9::snapshot!(
+        encoded,
+        r#"
+=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_lo=?=\r
+\t=?UTF-8?q?nger_than_this,_and_that_should_get_wrapped_by_the_encoder?=
+"#
+    );
+}
+
+/// Quote input string `s`, using a backslash escape,
+/// any of the characters listed in needs_quote
+fn quote_string(s: &str, needs_quote: &str) -> String {
+    if s.chars().any(|c| needs_quote.contains(c)) {
+        let mut result = String::with_capacity(s.len() + 4);
+        result.push('"');
+        for c in s.chars() {
+            if needs_quote.contains(c) {
+                result.push('\\');
+            }
+            result.push(c);
+        }
+        result.push('"');
+        result
+    } else {
+        s.to_string()
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_quote_string() {
+    let nq = "\\\"";
+    k9::snapshot!(quote_string("hello", nq), "hello");
+    k9::snapshot!(quote_string("hello there", nq), "hello there");
+    k9::snapshot!(
+        quote_string("hello \"there\"", nq),
+        r#""hello \\"there\\"""#
+    );
+    k9::snapshot!(
+        quote_string("hello c:\\backslash", nq),
+        r#""hello c:\\\\backslash""#
+    );
 }
 
 impl EncodeHeaderValue for Mailbox {
     fn encode_value(&self) -> SharedString<'static> {
         match &self.name {
             Some(name) => {
-                let mut value = String::new();
-
-                if name.chars().all(|c| c.is_ascii()) {
-                    if name.chars().any(|c| c.is_ascii_whitespace() || c == '"') {
-                        value.push_str(&format!("\"{name}\""));
-                    } else {
-                        value.push_str(name);
-                    }
+                let mut value = if name.chars().all(|c| c.is_ascii()) {
+                    quote_string(name, "\\\"")
                 } else {
-                    value = qp_encode(name);
-                }
+                    qp_encode(name)
+                };
 
-                name.to_string();
                 value.push_str(" <");
                 value.push_str(&self.address);
                 value.push('>');
