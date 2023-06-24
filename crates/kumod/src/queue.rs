@@ -595,7 +595,7 @@ impl Queue {
                             delivery_protocol: None,
                         })
                         .await;
-                        return self.force_into_delayed(msg).await;
+                        anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
                     }
                 };
 
