@@ -272,6 +272,7 @@ impl EgressPool {
 
 /// Maintains the state to manage Weighted Round Robin
 /// <http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling>
+#[derive(Debug)]
 pub struct EgressPoolRoundRobin {
     pub name: String,
     entries: Vec<EgressPoolEntry>,

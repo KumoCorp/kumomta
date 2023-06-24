@@ -584,8 +584,8 @@ impl Queue {
                                     detail: 4,
                                 }),
                                 content: format!(
-                                    "no non-zero-weighted sources available for {}",
-                                    self.name
+                                    "no non-zero-weighted sources available for {}. {:?}",
+                                    self.name, self.rr,
                                 ),
                                 command: None,
                             },
