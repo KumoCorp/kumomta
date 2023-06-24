@@ -492,7 +492,7 @@ impl Dispatcher {
                     .have_more_connection_candidates(&mut dispatcher)
                     .await
                 {
-                    if let Some(msg) = dispatcher.msg.as_ref() {
+                    if let Some(msg) = dispatcher.msg.take() {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -515,6 +515,7 @@ impl Dispatcher {
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                         })
                         .await;
+                        Dispatcher::requeue_message(msg, true, None).await?;
                     }
 
                     if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
