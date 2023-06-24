@@ -228,7 +228,10 @@ impl QueueDispatcher for SmtpDispatcher {
         .with_context(|| connect_context.clone())?;
 
         // Say EHLO
-        let pretls_caps = client.ehlo(&ehlo_name).await.context("EHLO")?;
+        let pretls_caps = client
+            .ehlo(&ehlo_name)
+            .await
+            .with_context(|| format!("{address:?}:{port}: EHLO after banner"))?;
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
@@ -241,7 +244,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 false
             }
             (Tls::OpportunisticInsecure, true) => {
-                let enabled = if let Some(handshake_error) =
+                let (enabled, label) = if let Some(handshake_error) =
                     client.starttls(enable_tls.allow_insecure()).await?
                 {
                     tracing::debug!(
@@ -250,16 +253,21 @@ impl QueueDispatcher for SmtpDispatcher {
                         we are in OpportunisticInsecure mode"
                     );
                     // We did not enable TLS
-                    false
+                    (false, format!("failed: {handshake_error}"))
                 } else {
                     // TLS is available
-                    true
+                    (true, "OK".to_string())
                 };
                 // Re-EHLO even if we didn't enable TLS, as some implementations
                 // incorrectly roll over failed TLS into the following command,
                 // and we want to consider those as connection errors rather than
                 // having them show up per-message in MAIL FROM
-                client.ehlo(&ehlo_name).await.context("EHLO")?;
+                client.ehlo(&ehlo_name).await.with_context(|| {
+                    format!(
+                        "{address:?}:{port}: EHLO after OpportunisticInsecure \
+                        STARTTLS handshake status: {label}",
+                    )
+                })?;
                 enabled
             }
             (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
@@ -269,7 +277,10 @@ impl QueueDispatcher for SmtpDispatcher {
                         "TLS handshake with {address:?}:{port} failed: {handshake_error}"
                     );
                 }
-                client.ehlo(&ehlo_name).await.context("EHLO")?;
+                client
+                    .ehlo(&ehlo_name)
+                    .await
+                    .with_context(|| format!("{address:?}:{port}: EHLO after STARTTLS"))?;
                 true
             }
         };
