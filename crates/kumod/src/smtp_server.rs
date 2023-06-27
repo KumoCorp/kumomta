@@ -6,14 +6,14 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
-use config::{load_config, LuaConfig};
+use config::{any_err, load_config, LuaConfig};
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
-use mlua::ToLuaMulti;
+use mlua::{LuaSerdeExt, ToLuaMulti, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
 use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
@@ -347,13 +347,13 @@ pub struct SmtpServer {
     rcpt_count: usize,
     authorization_id: Option<String>,
     authentication_id: Option<String>,
+    meta: ConnectionMetaData,
 }
 
 #[derive(Debug)]
 struct TransactionState {
     sender: EnvelopeAddress,
     recipients: Vec<EnvelopeAddress>,
-    meta: serde_json::Value,
 }
 
 pub struct RelayDisposition {
@@ -383,6 +383,12 @@ impl SmtpServer {
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
         let config = load_config().await?;
+
+        let mut meta = ConnectionMetaData::new();
+        meta.set_meta("reception_protocol", "ESMTP");
+        meta.set_meta("received_via", my_address.to_string());
+        meta.set_meta("received_from", peer_address.to_string());
+
         let mut server = SmtpServer {
             socket: Some(socket),
             state: None,
@@ -397,6 +403,7 @@ impl SmtpServer {
             rcpt_count: 0,
             authorization_id: None,
             authentication_id: None,
+            meta,
         };
 
         server.params.connection_gauge().inc();
@@ -437,7 +444,7 @@ impl SmtpServer {
             .config
             .async_call_callback_non_default_opt(
                 "get_listener_domain",
-                (key.domain.clone(), key.listener.clone()),
+                (key.domain.clone(), key.listener.clone(), self.meta.clone()),
             )
             .await?;
 
@@ -881,7 +888,10 @@ impl SmtpServer {
                             let authz = if authz.is_empty() { authc } else { authz };
 
                             match self
-                                .call_callback("smtp_server_auth_plain", (authz, authc, pass))
+                                .call_callback(
+                                    "smtp_server_auth_plain",
+                                    (authz, authc, pass, self.meta.clone()),
+                                )
                                 .await?
                             {
                                 Err(rej) => {
@@ -894,6 +904,9 @@ impl SmtpServer {
                                 Ok(true) => {
                                     self.authorization_id.replace(authz.to_string());
                                     self.authentication_id.replace(authc.to_string());
+                                    self.meta.set_meta("authz_id", authz);
+                                    self.meta.set_meta("authn_id", authc);
+
                                     self.write_response(235, "2.7.0 AUTH OK!").await?;
                                 }
                             }
@@ -909,7 +922,10 @@ impl SmtpServer {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
-                        .call_callback::<(), _, _>("smtp_server_ehlo", domain.clone())
+                        .call_callback::<(), _, _>(
+                            "smtp_server_ehlo",
+                            (domain.clone(), self.meta.clone()),
+                        )
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -938,7 +954,10 @@ impl SmtpServer {
                     let domain = domain.to_string();
 
                     if let Err(rej) = self
-                        .call_callback::<(), _, _>("smtp_server_ehlo", domain.clone())
+                        .call_callback::<(), _, _>(
+                            "smtp_server_ehlo",
+                            (domain.clone(), self.meta.clone()),
+                        )
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -962,7 +981,10 @@ impl SmtpServer {
 
                     let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
-                        .call_callback::<(), _, _>("smtp_server_mail_from", address.clone())
+                        .call_callback::<(), _, _>(
+                            "smtp_server_mail_from",
+                            (address.clone(), self.meta.clone()),
+                        )
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -972,7 +994,6 @@ impl SmtpServer {
                     self.state.replace(TransactionState {
                         sender: address.clone(),
                         recipients: vec![],
-                        meta: serde_json::json!({}),
                     });
                     self.write_response(250, format!("OK {address:?}")).await?;
                 }
@@ -1025,7 +1046,10 @@ impl SmtpServer {
                     }
                     self.rcpt_count += 1;
                     if let Err(rej) = self
-                        .call_callback::<(), _, _>("smtp_server_rcpt_to", address.clone())
+                        .call_callback::<(), _, _>(
+                            "smtp_server_rcpt_to",
+                            (address.clone(), self.meta.clone()),
+                        )
                         .await?
                     {
                         self.write_response(rej.code, rej.message).await?;
@@ -1101,7 +1125,8 @@ impl SmtpServer {
 
                     for recip in state.recipients {
                         let id = SpoolId::new();
-                        let protocol = "ESMTP";
+                        let protocol = "ESMTP"; // FIXME: update SmtpServer ctor if we change this.
+                                                // OR: just read this from self.meta?
 
                         let mut body = if self.params.trace_headers.received_header {
                             let received = {
@@ -1110,7 +1135,6 @@ impl SmtpServer {
                                 let peer_address = self.peer_address.ip();
                                 let my_address = self.my_address.ip();
                                 let hostname = &self.params.hostname;
-                                let protocol = "ESMTP";
                                 let recip = recip.to_string();
                                 format!(
                                     "Received: from {from_domain} ({peer_address})\r\n  \
@@ -1133,25 +1157,14 @@ impl SmtpServer {
                             id,
                             state.sender.clone(),
                             recip,
-                            state.meta.clone(),
+                            self.meta.clone_inner(),
                             Arc::new(body.into_boxed_slice()),
                         )?;
-
-                        if let Some(authz) = &self.authorization_id {
-                            message.set_meta("authz_id", json!(authz))?;
-                        }
-                        if let Some(authn) = &self.authentication_id {
-                            message.set_meta("authn_id", json!(authn))?;
-                        }
-
-                        message.set_meta("reception_protocol", protocol)?;
-                        message.set_meta("received_via", self.my_address.to_string())?;
-                        message.set_meta("received_from", self.peer_address.to_string())?;
 
                         if let Err(rej) = self
                             .call_callback::<(), _, _>(
                                 "smtp_server_message_received",
-                                message.clone(),
+                                (message.clone(), self.meta.clone()),
                             )
                             .await?
                         {
@@ -1254,6 +1267,55 @@ impl SmtpServer {
                 }
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct ConnectionMetaData {
+    map: Arc<Mutex<serde_json::Value>>,
+}
+
+impl ConnectionMetaData {
+    pub fn new() -> Self {
+        Self {
+            map: Arc::new(Mutex::new(json!({}))),
+        }
+    }
+
+    pub fn set_meta<N: Into<String>, V: Into<serde_json::Value>>(&mut self, name: N, value: V) {
+        let mut map = self.map.lock().unwrap();
+        let meta = map.as_object_mut().expect("map is always an object");
+        meta.insert(name.into(), value.into());
+    }
+
+    pub fn get_meta<N: AsRef<str>>(&self, name: N) -> Option<serde_json::Value> {
+        let map = self.map.lock().unwrap();
+        let meta = map.as_object().expect("map is always an object");
+        meta.get(name.as_ref()).cloned()
+    }
+
+    pub fn clone_inner(&self) -> serde_json::Value {
+        self.map.lock().unwrap().clone()
+    }
+}
+
+impl UserData for ConnectionMetaData {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method_mut(
+            "set_meta",
+            move |_, this, (name, value): (String, mlua::Value)| {
+                let value = serde_json::value::to_value(value).map_err(any_err)?;
+                this.set_meta(name, value);
+                Ok(())
+            },
+        );
+
+        methods.add_method("get_meta", move |lua, this, name: String| {
+            match this.get_meta(name) {
+                Some(value) => Ok(lua.to_value(&value)?),
+                None => Ok(mlua::Value::Nil),
+            }
+        });
     }
 }
 
