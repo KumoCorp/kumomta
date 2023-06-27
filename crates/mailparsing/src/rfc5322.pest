@@ -113,9 +113,40 @@ msg_id_list = { msg_id+ }
 // but pest operates on codepoints
 utf8_non_ascii = { !'\u{01}'..'\u{7f}' ~ ANY }
 
+// RFC2045 modified by RFC2231 MIME header fields
+content_type = { cfws? ~ mime_type ~ cfws? ~ "/" ~ cfws? ~ subtype ~
+  cfws? ~ (";"? ~ cfws? ~ parameter ~ cfws?)*
+}
+mime_type = { mime_token }
+subtype = { mime_token }
+mime_charset = { mime_token }
+mime_language = { mime_token }
+parameter = { regular_parameter | extended_parameter }
+regular_parameter = { attribute ~ cfws? ~ "=" ~ cfws? ~ value }
+attribute = { attribute_char+ }
+attribute_char = { !(" " | ctl | tspecials | "*" | "'" | "%") ~ char }
+section = { "*" ~ ASCII_DIGIT+ }
+
+extended_parameter = {
+  (extended_initial_name ~ cfws? ~ "=" ~ cfws? ~ extended_initial_value) 
+//  | (extended_other_names ~ cfws? ~ "=" ~ cfws? ~ extended_other_values)
+}
+extended_initial_name = { attribute ~ section? ~ "*" }
+extended_initial_value = { mime_charset? ~ "'" ~ mime_language? ~ "'" ~ extended_other_values }
+
+extended_other_names = { attribute ~ section ~ "*" }
+extended_other_values = { (ext_octet | attribute_char)* }
+ext_octet = { "%" ~ ASCII_HEX_DIGIT{2} }
+
+value = { mime_token | quoted_string }
+mime_token = { (!(" " | ctl | tspecials) ~ char)+ }
+tspecials = { "(" | ")" | "<" | ">" | "@" | "," | ";" | ":" |
+              "\\" | "\"" | "/" | "[" | "]" | "?" | "=" }
+
 parse_mailbox_list = _{ SOI ~ mailbox_list ~ EOI }
 parse_mailbox = _{ SOI ~ mailbox ~ EOI }
 parse_address_list = _{ SOI ~ address_list ~ EOI }
 parse_msg_id = _{ SOI ~ msg_id ~ EOI }
 parse_msg_id_list = _{ SOI ~ msg_id_list ~ EOI }
 parse_unstructured = _{ SOI ~ unstructured ~ EOI }
+parse_content_type = _{ SOI ~ content_type ~ EOI }

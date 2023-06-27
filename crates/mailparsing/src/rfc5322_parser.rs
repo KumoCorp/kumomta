@@ -144,6 +144,103 @@ impl Parser {
         )))
     }
 
+    pub fn parse_content_type_header(text: &str) -> Result<MimeParameters> {
+        let pairs = Self::parse(Rule::parse_content_type, text)
+            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        Self::parse_content_type(pairs)
+    }
+
+    fn parse_content_type(pairs: Pairs<Rule>) -> Result<MimeParameters> {
+        let mut value = String::new();
+        let mut parameters = vec![];
+
+        for p in pairs {
+            match p.as_rule() {
+                Rule::mime_type => {
+                    value.push_str(p.as_str());
+                    value.push('/');
+                }
+                Rule::subtype => {
+                    value.push_str(p.as_str());
+                }
+                Rule::cfws => {}
+                Rule::parameter => {
+                    parameters.push(Self::parse_parameter(p.into_inner())?);
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_content_type"
+                    )))
+                }
+            }
+        }
+
+        Ok(MimeParameters { value, parameters })
+    }
+
+    fn parse_parameter(pairs: Pairs<Rule>) -> Result<(String, String)> {
+        for p in pairs {
+            match p.as_rule() {
+                Rule::regular_parameter => return Self::parse_regular_parameter(p.into_inner()),
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_parameter"
+                    )))
+                }
+            };
+        }
+        todo!();
+    }
+
+    fn parse_regular_parameter(pairs: Pairs<Rule>) -> Result<(String, String)> {
+        let mut name = String::new();
+
+        for p in pairs {
+            match p.as_rule() {
+                Rule::attribute => {
+                    name = p.as_str().to_string();
+                }
+                Rule::value => {
+                    let value = Self::parse_value(p.into_inner())?;
+                    return Ok((name, value));
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_regular_parameter"
+                    )))
+                }
+            };
+        }
+        Err(MailParsingError::HeaderParse(
+            "unreachable end of loop in parse_regular_parameter".to_string(),
+        ))
+    }
+
+    fn parse_value(pairs: Pairs<Rule>) -> Result<String> {
+        for p in pairs {
+            match p.as_rule() {
+                Rule::mime_token => {
+                    return Ok(p.as_str().to_string());
+                }
+                Rule::quoted_string => {
+                    return Self::parse_quoted_string(p);
+                }
+                rule => {
+                    return Err(MailParsingError::HeaderParse(format!(
+                        "Unexpected {rule:?} {p:#?} in parse_value"
+                    )))
+                }
+            };
+        }
+        Err(MailParsingError::HeaderParse(
+            "unreachable end of loop in parse_value".to_string(),
+        ))
+    }
+
     pub fn parse_unstructured_header(text: &str) -> Result<String> {
         let mut pairs = Self::parse(Rule::parse_unstructured, text)
             .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
@@ -151,7 +248,6 @@ impl Parser {
             .unwrap()
             .into_inner();
 
-        eprintln!("parse_unstructured_header: {text:?}");
         Self::parse_unstructured(pairs.next().unwrap().into_inner())
     }
 
@@ -704,6 +800,23 @@ pub struct MailboxList(Vec<Mailbox>);
 pub struct Mailbox {
     pub name: Option<String>,
     pub address: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MimeParameters {
+    pub value: String,
+    parameters: Vec<(String, String)>,
+}
+
+impl MimeParameters {
+    pub fn get(&self, name: &str) -> Option<&str> {
+        for entry in &self.parameters {
+            if entry.0.eq_ignore_ascii_case(name) {
+                return Some(&entry.1);
+            }
+        }
+        None
+    }
 }
 
 pub(crate) fn qp_encode(s: &str) -> String {
@@ -1290,4 +1403,91 @@ Some(
 "#
         );
     }
+
+    #[test]
+    fn content_type() {
+        let message = "Content-Type: text/plain\n\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        let params = match msg.headers().content_type() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(params) => params,
+        };
+        k9::snapshot!(
+            params,
+            r#"
+Some(
+    MimeParameters {
+        value: "text/plain",
+        parameters: [],
+    },
+)
+"#
+        );
+
+        let message = "Content-Type: text/plain; charset=us-ascii\n\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        let params = match msg.headers().content_type() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(params) => params,
+        };
+        k9::snapshot!(
+            params,
+            r#"
+Some(
+    MimeParameters {
+        value: "text/plain",
+        parameters: [
+            (
+                "charset",
+                "us-ascii",
+            ),
+        ],
+    },
+)
+"#
+        );
+
+        let message = "Content-Type: text/plain; charset=\"us-ascii\"\n\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        let params = match msg.headers().content_type() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(params) => params,
+        };
+        k9::snapshot!(
+            params,
+            r#"
+Some(
+    MimeParameters {
+        value: "text/plain",
+        parameters: [
+            (
+                "charset",
+                "us-ascii",
+            ),
+        ],
+    },
+)
+"#
+        );
+    }
+
+    /*
+    #[test]
+    fn content_type_rfc2231() {
+        let message = concat!(
+            "Content-Type: application/x-stuff;\n",
+            "\ttitle*0*=us-ascii'en'This%20is%20even%20more%20\n",
+            "\ttitle*1*=%2A%2A%2Afun%2A%2A%2A%20\n",
+            "\ttitle*2=\"isn't it!\"\n",
+            "\n\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+        let params = match msg.headers().content_type() {
+            Err(err) => panic!("Doh.\n{err:#}"),
+            Ok(params) => params,
+        };
+        k9::snapshot!(
+            params);
+    }
+    */
 }

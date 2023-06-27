@@ -1,6 +1,8 @@
 use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
-use crate::{AddressList, MailParsingError, Mailbox, MailboxList, Result, SharedString};
+use crate::{
+    AddressList, MailParsingError, Mailbox, MailboxList, MimeParameters, Result, SharedString,
+};
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -142,6 +144,10 @@ impl<'a> Header<'a> {
 
     pub fn get_raw_value(&self) -> &str {
         &self.value
+    }
+
+    pub fn as_content_type(&self) -> Result<MimeParameters> {
+        Parser::parse_content_type_header(self.get_raw_value())
     }
 
     /// Parse the header into a mailbox-list (as defined in

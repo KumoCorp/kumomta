@@ -1,4 +1,4 @@
-use crate::{AddressList, Header, Mailbox, MailboxList, Result, SharedString};
+use crate::{AddressList, Header, Mailbox, MailboxList, MimeParameters, Result, SharedString};
 use paste::paste;
 
 /// Represents an ordered list of headers.
@@ -116,4 +116,11 @@ impl<'a> HeaderMap<'a> {
 
     accessor!(subject, "Subject", String, as_unstructured);
     accessor!(comments, "Comments", String, as_unstructured);
+
+    accessor!(
+        content_type,
+        "Content-Type",
+        MimeParameters,
+        as_content_type
+    );
 }
