@@ -482,10 +482,12 @@ impl SmtpServer {
             log_oob = dom.log_oob;
         }
 
-        let relay = if relay_to_allowed == Some(false) {
-            // Explicitly denied from relaying
-            false
-        } else if relay_hosts_allowed || relay_from_allowed || relay_to_allowed == Some(true) {
+        // Check the rules for relaying-from first; that allows
+        // things like CIDR or explicit SMTP authentication to
+        // take effect for a sender before we consider a "random"
+        // destination domain for which relay_to will likely be
+        // set to false.
+        let relay = if relay_hosts_allowed || relay_from_allowed || relay_to_allowed == Some(true) {
             true
         } else {
             false
