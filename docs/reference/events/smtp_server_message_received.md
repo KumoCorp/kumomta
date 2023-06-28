@@ -1,4 +1,4 @@
-# `kumo.on('smtp_server_message_received', function(message))`
+# `kumo.on('smtp_server_message_received', function(message, conn_meta))`
 
 Called by the ESMTP server after receiving the message data.
 
@@ -9,6 +9,12 @@ will be triggered for each of them.
 The event handler will be passed a [Message](../message/index.md) object.
 The Message will always have a `Received` header prepended that captures trace
 information about the sender.
+
+{{since('dev', indent=True)}}
+    The *conn_meta* parameter represents the connection metadata and
+    can be used to share state between the various SMTP listener
+    event handlers. See [Connection Metadata](../connectionmeta.md)
+    for more information.
 
 This event is the best place to carry out a number of important policy decisions:
 

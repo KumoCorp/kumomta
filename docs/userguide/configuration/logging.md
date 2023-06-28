@@ -49,12 +49,14 @@ kumo.configure_local_logs {
 
 If a non-JSON format is needed for the logs, the *template* option can be used:
 
+{% raw %}
 ```lua
 kumo.configure_local_logs {
   -- ..
   template = [[{{type}} id={{ id }}, from={{ sender }} code={{ code }} age={{ timestamp - created }}]],
 }
 ```
+{% endraw %}
 
 The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
 is used to evalute logging templates.  The full supported syntax is [documented
@@ -64,6 +66,7 @@ here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html). Any key pre
 
 Sometimes it is necessary to configure logging on a more granular basis, especially when using custom log formats. KumoMTA supports this using the *per_record* option:
 
+{% raw %}
 ```lua
 kumo.configure_local_logs {
   per_record = {
@@ -96,5 +99,6 @@ kumo.configure_local_logs {
   },
 }
 ```
+{% endraw %}
 
 This can be used to override paths, disable logs, or customize the format of specific event types.

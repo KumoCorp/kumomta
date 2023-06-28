@@ -45,8 +45,11 @@ plugins:
   - social:
       cards: !ENV [CARDS, false]
   - git-revision-date-localized:
+      enabled: !ENV [CI, false]
       enable_creation_date: true
       type: timeago
+  - macros:
+      module_name: mkdocs_macros
   - exclude:
       glob:
         - "**/_index.md"

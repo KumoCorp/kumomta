@@ -20,3 +20,4 @@ dhat-heap.json
 .vscode/
 **/*.deb
 **/*.rpm
+/__pycache__/

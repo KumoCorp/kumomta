@@ -1,4 +1,4 @@
-# `kumo.on('get_listener_domain', function(domain, listener))`
+# `kumo.on('get_listener_domain', function(domain, listener, conn_meta))`
 
 This event is triggered by the SMTP server to retrieve information about
 either a source or destination domain to help determine whether the message
@@ -10,6 +10,12 @@ listener address.
 
 When the SMTP `RCPT TO` command is issued by the client, the destination
 domain is passed as the *domain* parameter to this event.
+
+{{since('dev', indent=True)}}
+    The *conn_meta* parameter represents the connection metadata and
+    can be used to share state between the various SMTP listener
+    event handlers. See [Connection Metadata](../connectionmeta.md)
+    for more information.
 
 The event is expected to return a listener-domain object constructed
 by a call to [kumo.make_listener_domain](../kumo/make_listener_domain.md),

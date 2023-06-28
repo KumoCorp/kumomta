@@ -282,6 +282,10 @@ TOC = [
                 "reference/addressheader",
             ),
             Page(
+                "object: connectionmeta",
+                "reference/connectionmeta.md",
+            ),
+            Page(
                 "object: keysource",
                 "reference/keysource.md",
             ),

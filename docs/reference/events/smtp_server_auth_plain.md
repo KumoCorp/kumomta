@@ -1,4 +1,4 @@
-# `kumo.on('smtp_server_auth_plain', function(authz, authc, password))`
+# `kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta))`
 
 Called by the ESMTP server in response to the client issuing an `"AUTH PLAIN"`
 authentication attempt.
@@ -16,6 +16,12 @@ The event handler receives the following parameters:
   purposes of validating who the client claims to be.  *authc* is paired
   with the *password* parameter.
 * *password* - the password which belongs to the claimed *authc*
+
+{{since('dev', indent=True)}}
+    The *conn_meta* parameter represents the connection metadata and
+    can be used to share state between the various SMTP listener
+    event handlers. See [Connection Metadata](../connectionmeta.md)
+    for more information.
 
 Note that [PLAIN SASL](https://www.rfc-editor.org/rfc/rfc4616) allows for *authz*
 to be empty.  KumoMTA will assume the same value as *authc* in that case, so

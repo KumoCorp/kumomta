@@ -124,6 +124,7 @@ kumo.configure_local_logs {
 
 Allows configuring per-record type logging.
 
+{% raw %}
 ```lua
 kumo.configure_local_logs {
   per_record = {
@@ -156,6 +157,7 @@ kumo.configure_local_logs {
   },
 }
 ```
+{% endraw %}
 
 The keys of the `per_record` table must correspond to one of the
 record types listed below, or the special `Any` key which can be used
