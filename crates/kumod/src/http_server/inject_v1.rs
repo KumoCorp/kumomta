@@ -175,7 +175,7 @@ impl<'a> Compiled<'a> {
                 ));
 
                 if let Some(from) = from {
-                    builder = builder.to(mail_builder::headers::address::Address::new_address(
+                    builder = builder.from(mail_builder::headers::address::Address::new_address(
                         from.name.as_ref(),
                         &from.email,
                     ));
@@ -656,6 +656,83 @@ Some(
         k9::assert_equal!(parsed.html_body_count(), 1);
         k9::assert_equal!(parsed.text_body_count(), 1);
         k9::assert_equal!(parsed.attachment_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_to_from_builder() {
+        let request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("I am the plain text, {{ name }}. 😀".to_string()),
+                html_body: Some(
+                    "I am the <b>html</b> text, {{ name }}. 👾 <img src=\"cid:my-image\"/>"
+                        .to_string(),
+                ),
+                subject: Some("hello {{ name }}".to_string()),
+                from: Some(FromHeader {
+                    email: "from@example.com".to_string(),
+                    name: Some("Sender Name".to_string()),
+                }),
+                reply_to: None,
+                headers: Default::default(),
+                attachments: vec![],
+            },
+        };
+
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        println!("{generated}");
+        let parsed = mail_parser::Message::parse(&generated.as_bytes()).unwrap();
+        println!("{parsed:?}");
+
+        k9::snapshot!(
+            parsed.header("To"),
+            r#"
+Some(
+    Address(
+        Addr {
+            name: Some(
+                "James Smythe",
+            ),
+            address: Some(
+                "user@example.com",
+            ),
+        },
+    ),
+)
+"#
+        );
+
+        k9::snapshot!(
+            parsed.header("From"),
+            r#"
+Some(
+    Address(
+        Addr {
+            name: Some(
+                "Sender Name",
+            ),
+            address: Some(
+                "from@example.com",
+            ),
+        },
+    ),
+)
+"#
+        );
     }
 
     #[test]
