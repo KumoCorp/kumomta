@@ -1,6 +1,6 @@
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use mlua::prelude::LuaUserData;
-use mlua::{Lua, MetaMethod, UserDataMethods, Value};
+use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
@@ -79,6 +79,12 @@ impl RequestWrapper {
     }
 }
 
+#[derive(Deserialize, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct FilePart {
+    data: String,
+    file_name: String,
+}
+
 impl LuaUserData for RequestWrapper {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("header", |_, this, (key, value): (String, String)| {
@@ -121,25 +127,48 @@ impl LuaUserData for RequestWrapper {
 
         methods.add_method(
             "form_multipart_data",
-            |_, this, params: HashMap<String, mlua::String>| {
+            |lua, this, params: HashMap<String, mlua::Value>| {
                 // Generate a MIME body from the provided parameters
                 use mail_builder::headers::text::Text;
                 use mail_builder::headers::HeaderType;
                 use mail_builder::mime::MimePart;
                 use mailparse::MailHeaderMap;
+                use std::borrow::Cow;
 
                 let mut data = MimePart::new_multipart("multipart/form-data", vec![]);
 
-                for (k, v) in params.iter() {
-                    let part = if let Ok(s) = v.to_str() {
-                        MimePart::new_text(s)
-                    } else {
-                        MimePart::new_binary("application/octet-stream", v.as_bytes())
-                    };
-                    data.add_part(part.header(
-                        "Content-Disposition",
-                        HeaderType::Text(Text::new(format!("form-data; name=\"{k}\""))),
-                    ));
+                for (k, v) in params {
+                    match v {
+                        mlua::Value::String(s) => {
+                            let part = if let Ok(s) = s.to_str() {
+                                MimePart::new_text(Cow::Owned(s.to_string()))
+                            } else {
+                                MimePart::new_binary(
+                                    "application/octet-stream",
+                                    Cow::Owned(s.as_bytes().to_vec()),
+                                )
+                            };
+                            data.add_part(part.header(
+                                "Content-Disposition",
+                                HeaderType::Text(Text::new(format!("form-data; name=\"{k}\""))),
+                            ));
+                        }
+                        _ => {
+                            let file: FilePart = lua.from_value(v.clone())?;
+
+                            let part = MimePart::new_binary(
+                                "application/octet-stream",
+                                file.data.into_bytes(),
+                            );
+                            data.add_part(part.header(
+                                "Content-Disposition",
+                                HeaderType::Text(Text::new(format!(
+                                    "form-data; name=\"{k}\"; filename=\"{}\"",
+                                    file.file_name
+                                ))),
+                            ));
+                        }
+                    }
                 }
                 let builder = mail_builder::MessageBuilder::new();
                 let builder = builder.body(data);
