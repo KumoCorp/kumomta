@@ -189,6 +189,8 @@ impl<'a> Compiled<'a> {
                         ));
                 }
 
+                let mut did_mime_version = false;
+
                 for (name, _value) in headers {
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
@@ -196,6 +198,14 @@ impl<'a> Compiled<'a> {
                         name.to_string(),
                         HeaderType::Text(Text::new(expanded.to_string())),
                     );
+
+                    if name.eq_ignore_ascii_case("MIME-Version") {
+                        did_mime_version = true;
+                    }
+                }
+
+                if !did_mime_version {
+                    builder = builder.header("MIME-Version", HeaderType::Text("1.0".into()));
                 }
 
                 let content_node = match (text, html) {
@@ -623,6 +633,9 @@ This is a test message to James Smythe
         println!("{generated}");
         let parsed = mail_parser::Message::parse(&generated.as_bytes()).unwrap();
         println!("{parsed:?}");
+
+        assert!(parsed.header("MIME-Version").is_some());
+
         k9::snapshot!(
             parsed.body_html(0),
             r#"
