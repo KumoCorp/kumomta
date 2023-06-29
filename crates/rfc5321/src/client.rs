@@ -166,6 +166,19 @@ impl SmtpClientTimeouts {
             auth_timeout: short,
         }
     }
+
+    /// Compute theoretical maximum lifetime of a single message send
+    pub fn total_message_send_duration(&self) -> Duration {
+        self.connect_timeout
+            + self.ehlo_timeout
+            + self.auth_timeout
+            + self.mail_from_timeout
+            + self.rcpt_to_timeout
+            + self.data_timeout
+            + self.data_dot_timeout
+            + self.starttls_timeout
+            + self.idle_timeout
+    }
 }
 
 #[derive(Debug)]

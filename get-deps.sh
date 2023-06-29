@@ -61,6 +61,7 @@ fedora_deps() {
     'pkg-config' \
     'python3' \
     'python3-pip' \
+    'redis' \
     'rpm-build' \
     'rpm-sign' \
     'telnet'
@@ -79,6 +80,7 @@ suse_deps() {
     'make' \
     'pkg-config' \
     'python3' \
+    'redis' \
     'rpm-build' \
     'telnet'
 }
@@ -96,6 +98,7 @@ debian_deps() {
     'lsb-release' \
     'pkg-config' \
     'python3' \
+    'redis' \
     'llvm-dev' \
     'libclang-dev' \
     'clang'

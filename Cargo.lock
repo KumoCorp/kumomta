@@ -2902,6 +2902,7 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
@@ -4698,6 +4699,8 @@ dependencies = [
  "redis-cell-impl",
  "serde",
  "thiserror",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

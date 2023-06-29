@@ -11,6 +11,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use thiserror::Error;
 
+pub mod limit;
+
 static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
 static REDIS: OnceCell<RedisConnection> = OnceCell::new();
 
@@ -22,6 +24,10 @@ pub enum Error {
     AnyHow(#[from] anyhow::Error),
     #[error("{0}")]
     Redis(#[from] RedisError),
+    #[error("TooManyLeases, try again in {0:?}")]
+    TooManyLeases(Duration),
+    #[error("NonExistentLease")]
+    NonExistentLease,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]

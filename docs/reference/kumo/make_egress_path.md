@@ -152,7 +152,10 @@ Optional number.
 If set, no more than this number of messages will be attempted on any
 given connection.
 
-If unset, there is no limit.
+|Version|Default|
+|-------|-------|
+|{{since('dev', inline=True)}}|The default is 1024|
+|Prior versions|The default is unlimited|
 
 ## max_message_rate
 

@@ -77,8 +77,8 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub max_connection_rate: Option<ThrottleSpec>,
 
-    #[serde(default)]
-    pub max_deliveries_per_connection: Option<usize>,
+    #[serde(default = "EgressPathConfig::default_max_deliveries_per_connection")]
+    pub max_deliveries_per_connection: usize,
 
     #[serde(default = "EgressPathConfig::default_prohibited_hosts")]
     pub prohibited_hosts: CidrSet,
@@ -103,7 +103,7 @@ impl Default for EgressPathConfig {
             smtp_port: Self::default_smtp_port(),
             max_message_rate: None,
             max_connection_rate: None,
-            max_deliveries_per_connection: None,
+            max_deliveries_per_connection: Self::default_max_deliveries_per_connection(),
             client_timeouts: SmtpClientTimeouts::default(),
             prohibited_hosts: Self::default_prohibited_hosts(),
             skip_hosts: CidrSet::default(),
@@ -130,6 +130,10 @@ impl EgressPathConfig {
 
     fn default_smtp_port() -> u16 {
         25
+    }
+
+    fn default_max_deliveries_per_connection() -> usize {
+        1024
     }
 
     fn default_prohibited_hosts() -> CidrSet {

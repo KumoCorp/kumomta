@@ -4,12 +4,16 @@ use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
 use once_cell::sync::Lazy;
 use r2d2::{ManageConnection, Pool, PooledConnection};
 use redis::cluster::{ClusterClient, ClusterConnection};
+pub use redis::{
+    cmd, Cmd, FromRedisValue, RedisError, Script, ScriptInvocation, Value as RedisValue,
+};
 use redis::{Client, Connection, ConnectionLike, RedisWrite, ToRedisArgs};
-pub use redis::{Cmd, FromRedisValue, RedisError, Value as RedisValue};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+pub mod test;
 
 static POOLS: Lazy<Mutex<HashMap<RedisConnKey, Pool<ClientWrapper>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
@@ -23,11 +27,27 @@ impl RedisConnection {
         Ok(conn.req_command(cmd)?)
     }
 
+    pub fn invoke_blocking(&self, script: ScriptInvocation<'_>) -> anyhow::Result<RedisValue> {
+        let mut conn = self.0.connect_blocking()?;
+        Ok(script.invoke(&mut conn)?)
+    }
+
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
         let me = self.clone();
         tokio::task::Builder::new()
             .name("redis query")
             .spawn_blocking(move || me.query_blocking(&cmd))?
+            .await?
+    }
+
+    pub async fn invoke_script(
+        &self,
+        script: ScriptInvocation<'static>,
+    ) -> anyhow::Result<RedisValue> {
+        let me = self.clone();
+        tokio::task::Builder::new()
+            .name("redis script invocation")
+            .spawn_blocking(move || me.invoke_blocking(script))?
             .await?
     }
 }
