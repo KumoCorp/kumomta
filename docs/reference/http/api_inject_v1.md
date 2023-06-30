@@ -72,29 +72,29 @@ demonstrated below.
                 "content_id": "my-image",
                 // optional file name. If specified, will be added to the
                 // MIME headers for the attachment.
-                "file_name": "pixel.gif",
+                "file_name": "pixel.gif"
             }
         ],
         // Controls the From: header
         "from": {
             "email": "someone@example.com",
-            "name": "Someone",
+            "name": "Someone"
         },
         // Controls the Subject: header
         "subject": "This is the subject",
         // Controls the Reply-To: header
         "reply_to": {
             "email": "help@example.com",
-            "name": "Help",
+            "name": "Help"
         },
         // Specify arbitrary additional headers
         "headers": {
-            "X-Something": "Something!",
+            "X-Something": "Something!"
         }
     },
     "recipients": [
         {
-            "email": "recipient@example.com",
+            "email": "recipient@example.com"
         }
     ]
 }
