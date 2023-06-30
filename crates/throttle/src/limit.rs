@@ -390,10 +390,7 @@ mod test {
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        lease1
-            .extend_memory(Duration::from_secs(6))
-            .await
-            .unwrap();
+        lease1.extend_memory(Duration::from_secs(6)).await.unwrap();
 
         // Wait for original lease duration to expire
         tokio::time::sleep(limit.duration + limit.duration).await;
