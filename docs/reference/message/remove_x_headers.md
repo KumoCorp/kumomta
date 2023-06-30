@@ -33,7 +33,7 @@ The body
 but calling:
 
 ```lua
-message:import_x_headers { 'x-campaign-id' }
+message:remove_x_headers { 'x-campaign-id' }
 ```
 
 will result in the body changing to:
