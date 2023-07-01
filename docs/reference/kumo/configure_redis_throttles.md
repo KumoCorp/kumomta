@@ -13,7 +13,11 @@ event handler.
 
 ```lua
 kumo.on('init', function()
-  -- Use shared throttles rather than in-process throttles
+  -- Use shared throttles and connection limits rather than in-process throttles
   kumo.configure_redis_throttles { node = 'redis://my-redis-host/' }
 end)
 ```
+
+{{since('dev', indent=True)}}
+    Enabling redis throttles now also enables redis-based shared
+    connection limits.
