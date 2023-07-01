@@ -26,10 +26,10 @@ jobs:
     steps:
     - name: "Update APT"
       shell: bash
-      run: "apt update"
+      run: "sudo apt update"
     - name: "Install more deps"
       shell: bash
-      run: "apt-get install -y redis"
+      run: "sudo apt-get install -y redis"
     - uses: actions/checkout@v3
     - uses: Swatinem/rust-cache@v2
       with:
