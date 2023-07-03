@@ -79,7 +79,9 @@ impl RedisServer {
             }
             eprintln!("{}", line.trim());
 
-            if line.contains("Server initialized") {
+            if line.contains("Server initialized")
+                || line.contains("The server is now ready to accept connections on port")
+            {
                 break;
             }
         }
