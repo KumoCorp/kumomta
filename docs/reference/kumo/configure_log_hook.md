@@ -9,6 +9,11 @@ that), and passed to the
 ```lua
 kumo.on('init', function()
   kumo.configure_log_hook {
+    -- name will be passed to should_enqueue_log_record as the hook_name
+    -- parameter so that you can reason about different instances of the
+    -- log hook in the case where you are sending data to multiple
+    -- different places.
+    name = 'webhook',
     headers = { 'Subject', 'X-Customer-ID' },
   }
 end)
@@ -30,6 +35,15 @@ information here, this section links to those options:
 * [per_record](configure_local_logs.md#per_record)
 
 In addition, the following options are supported:
+
+## name
+
+{{since('dev', indent=True)}}
+
+    Required string naming the hook.
+
+    The name will be passed as the *hook_name* parameter to the
+    [should_enqueue_log_record](../events/should_enqueue_log_record.md) event.
 
 ## deferred_spool
 

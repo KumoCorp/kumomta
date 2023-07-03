@@ -88,6 +88,9 @@ fn default_true() -> bool {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct LogHookParams {
+    /// The unique name to identify this instance of the log hook
+    pub name: String,
+
     /// Maximum number of outstanding items to be logged before
     /// the submission will block; helps to avoid runaway issues
     /// spiralling out of control.
@@ -651,12 +654,13 @@ impl LogHookState {
         msg.set_meta("log_record", record_json)?;
         msg.set_meta("reception_protocol", "LogRecord")?;
         let deferred_spool = self.params.deferred_spool;
+        let name = self.params.name.clone();
 
         rt_spawn_non_blocking("should_enqueue_log_record".to_string(), move || {
             Ok(async move {
                 let mut lua_config = load_config().await?;
                 let enqueue: bool = lua_config
-                    .async_call_callback("should_enqueue_log_record", msg.clone())
+                    .async_call_callback("should_enqueue_log_record", (msg.clone(), name))
                     .await?;
 
                 if enqueue {

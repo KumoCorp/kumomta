@@ -12,9 +12,11 @@ def define_env(env):
         scope = "section"
         expanded = ""
         expander = "???"
+        rule = ""
         if indent:
             scope = "outlined box"
             expander = "!!!"
+            rule = "    <hr/>"
 
         if vers == "dev":
             first_line = "*Since: Dev Builds Only*"
@@ -42,5 +44,5 @@ def define_env(env):
         return f"""
 {expander}{expanded} info "{first_line}"
 {blurb}
-    <hr/>
+{rule}
 """

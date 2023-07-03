@@ -1,8 +1,14 @@
-# `kumo.on('should_enqueue_log_record', function(message))`
+# `kumo.on('should_enqueue_log_record', function(message, hook_name))`
 
 This event is triggered when
 [kumo.configure_log_hook](../kumo/configure_log_hook.md) has been used to
 enable it.
+
+{{since('dev', indent=True)}}
+    The *hook_name* parameter was added. It corresponds to the name field
+    that was passed to `kumo.configure_log_hook` and is present to allow
+    you to decide whether a given message should get queued for a given
+    hook instance.
 
 When enabled, each log record will generate a new
 [Message](../message/index.md) object with the following attributes:
@@ -23,7 +29,7 @@ a boolean value that indicates whether the log message should be queued and acte
 (return true), or whether the log message should be discarded.
 
 ```lua
-kumo.on('should_enqueue_log_record', function(msg)
+kumo.on('should_enqueue_log_record', function(msg, hook_name)
   local log_record = msg:get_meta 'log_record'
   -- avoid an infinite loop caused by logging that we logged that we logged...
   -- Check the log record: if the record was destined for the webhook queue

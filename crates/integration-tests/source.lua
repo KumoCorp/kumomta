@@ -21,7 +21,9 @@ kumo.on('init', function()
   }
 
   if WEBHOOK_PORT then
-    kumo.configure_log_hook {}
+    kumo.configure_log_hook {
+      name = 'webhook',
+    }
   end
 
   kumo.define_spool {

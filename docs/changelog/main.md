@@ -1,6 +1,11 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* [kumo.configure_log_hook](../reference/kumo/configure_log_hook.md) now requires
+  a name field to be set to identify which instance of a log hook is being considered
+  by the [should_enqueue_log_record](../events/should_enqueue_log_record.md) event.
+  This change is to support distributing logs to the traffic shaping automation
+  service in addition to feeding them into your own reporting infrastructure.
 
 ## Other Changes and Enhancements
 * Calling
