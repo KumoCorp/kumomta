@@ -15,5 +15,8 @@
   `max_deliveries_per_connection` now defaults to `1024` rather than unlimited.
   Specifying unlimited deliveries is no longer supported as part of shared
   connection limit lease fairness. #41
+* Added
+  [message:remove_all_named_headers](../reference/message/remove_all_named_headers.md).
+  Thanks to @postmastery! #70
 
 ## Fixes
