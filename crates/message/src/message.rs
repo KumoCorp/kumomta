@@ -827,12 +827,9 @@ impl UserData for Message {
                     .map_err(any_err)?)
             },
         );
-        methods.add_method(
-            "remove_all_named_header",
-            move |_, this, name: String| {
-                Ok(this.remove_all_named_header(&name).map_err(any_err)?)
-            },
-        );
+        methods.add_method("remove_all_named_header", move |_, this, name: String| {
+            Ok(this.remove_all_named_header(&name).map_err(any_err)?)
+        });
 
         methods.add_method(
             "import_scheduling_header",
