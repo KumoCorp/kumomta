@@ -665,7 +665,7 @@ impl Message {
         })
     }
 
-    pub fn remove_all_named_header(&self, name: &str) -> anyhow::Result<()> {
+    pub fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
         self.retain_headers(|hdr| !hdr.get_key_ref().eq_ignore_ascii_case(name))
     }
 
@@ -684,7 +684,7 @@ impl Message {
             self.set_scheduling(Some(sched))?;
 
             if remove {
-                self.remove_all_named_header(header_name)?;
+                self.remove_all_named_headers(header_name)?;
             }
         }
 
@@ -827,8 +827,8 @@ impl UserData for Message {
                     .map_err(any_err)?)
             },
         );
-        methods.add_method("remove_all_named_header", move |_, this, name: String| {
-            Ok(this.remove_all_named_header(&name).map_err(any_err)?)
+        methods.add_method("remove_all_named_headers", move |_, this, name: String| {
+            Ok(this.remove_all_named_headers(&name).map_err(any_err)?)
         });
 
         methods.add_method(
@@ -1088,7 +1088,7 @@ mod test {
     #[test]
     fn remove_all() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
-        msg.remove_all_named_header("X-header").unwrap();
+        msg.remove_all_named_headers("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nSubject: Hello\r\nFrom : Someone\r\n\r\nBody"
