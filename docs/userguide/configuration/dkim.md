@@ -62,11 +62,11 @@ This example shows the same process for Ed25519 keys:
 Replace the domain and selector with your own, then generate signing keys with:
 ```console
 export DOMAIN=<your_domain>
-export SELECTOR=<your_selector>
+export SELECTOR=<your_ed_selector>
 sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-sudo openssl genpkey -algorithm ed25519 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key
-sudo openssl pkey -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -pubout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub
-sudo openssl asn1parse -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub -offset 12 -noout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.p64 | openssl base64
+sudo openssl genpkey -algorithm ed25519 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.key
+sudo openssl pkey -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.key -pubout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.pub
+sudo openssl asn1parse -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.pub -offset 12 -noout -out /opt/kumomta/e -noout -out /dev/stdout | openssl base64 >/opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.p64
 sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
 
