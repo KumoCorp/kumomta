@@ -6,11 +6,6 @@ DomainKeys Identified Mail (DKIM) is a mechanism that allows verification of the
 
 The 2011 DKIM specification is located here: [rfc6376](https://datatracker.ietf.org/doc/html/rfc6376). 
 
-The 2018 update reguarding ed25519-sha256 signing algorythm is here: [rfc8463](https://datatracker.ietf.org/doc/html/rfc8463) 
-
-According to the most recent 2018 update, "Signers SHOULD implement and verifiers MUST implement the Ed25519-SHA256 algorithm."
-[rfc8463 section 5](https://datatracker.ietf.org/doc/html/rfc8463#section-5)
-
 This diagram gives a graphical view of how DKIM works.
 
 ```mermaid
@@ -57,20 +52,6 @@ sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -outform PEM -p
 sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
 
-This example shows the same process for Ed25519 keys:
-
-Replace the domain and selector with your own, then generate signing keys with:
-```console
-export DOMAIN=<your_domain>
-export SELECTOR=<your_ed_selector>
-sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
-sudo openssl genpkey -algorithm ed25519 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.key
-sudo openssl pkey -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.key -pubout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.pub
-sudo openssl asn1parse -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.pub -offset 12 -noout -out /opt/kumomta/e -noout -out /dev/stdout | openssl base64 >/opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.ed.p64
-sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
-```
-
-
 Any DKIM verification implementations must support key sizes of 512, 768, 1024, 1536, and 2048 bits. A signer may choose to sign messages using any of these sizes and may use a different size for different selectors. Larger key sizes provide greater security but impose higher CPU costs during message signing and verification. It is not recommended to use a key size lower than 1024 unless absolutely necessary. Note that Google _requires_ senders to sign with a 1024 bit or greater key size.
 
 The resulting RSA public key should look similar to:
@@ -84,12 +65,6 @@ KPrbKH5ubT9V9pLKawIDAQAB
 -----END PUBLIC KEY-----
 ```
 
-The resulting ed25519 p64 (base64 encoded public key) should look similar to the one below.  Notice there is no ASN.1 structure around the key.  Use this exactly as it is in the "p" setting in DNS.
-
-```txt
-8IGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDDVCpNKu=
-```
-
 Once the public and private keys have been generated, create a DNS text record for <SELECTOR>._domainkey.<DOMAIN> (IE: dkim1024._domainkey.example.com). The DNS record contains several DKIM "tag=value" pairs and should be similiar to the record shown below:
 
 for RSA256:
@@ -97,11 +72,6 @@ for RSA256:
 default._domainkey.example.com. 86400 IN TXT
 "v=DKIM1; k=rsa; h=sha256; p=MIbBa...DaQAB"
 
-or for ed25519:
-default._domainkey.example.com. 86400 IN TXT
-"v=DKIM1; k=ed25519; p=8IbBa...DaKu="
-
-NOTE: If you plan to use ed25519 keys, plan to double sign messages as many ISPs still are not actively verifying ed25519 signatures.
 
 DKIM DNS text record tags are defined below. Do not include the quotes below when including a tag value in the DNS text record.
 
