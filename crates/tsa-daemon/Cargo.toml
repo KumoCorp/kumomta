@@ -1,0 +1,19 @@
+[package]
+name = "tsa-daemon"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.6"
+axum-client-ip = "0.4"
+axum-server = {version="0.4", features=["tls-rustls"]}
+chrono = {version="0.4", default-features=false, features=["serde"]}
+clap = {version="4.1", features=["derive"]}
+tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
+tikv-jemallocator = "0.5"
+tokio = {version="1.25", features=["full", "tracing"]}
+tokio-rustls = "0.23"
+toml = "0.7"

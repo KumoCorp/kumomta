@@ -13,6 +13,7 @@ members = [
   "crates/timeq",
   "crates/throttle",
   "crates/traffic-gen",
+  "crates/tsa-daemon",
   "crates/version-info",
 ]
 resolver = "2"

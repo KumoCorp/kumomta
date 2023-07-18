@@ -5202,6 +5202,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3528ecfd12c466c6f163363caf2d02a71161dd5e1cc6ae7b34207ea2d42d81ed"
 
 [[package]]
+name = "tsa-daemon"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-client-ip",
+ "axum-server",
+ "chrono",
+ "clap 4.3.10",
+ "tikv-jemalloc-sys",
+ "tikv-jemallocator",
+ "tokio",
+ "tokio-rustls 0.23.4",
+ "toml",
+]
+
+[[package]]
 name = "typenum"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
