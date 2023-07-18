@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use spool::SpoolId;
 use std::collections::HashMap;
 use std::time::Duration;
+use url::Url;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -145,4 +147,36 @@ pub struct SuspendReadyQueueV1ListEntry {
 
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InspectMessageV1Request {
+    pub id: SpoolId,
+    #[serde(default)]
+    pub want_body: bool,
+}
+
+impl InspectMessageV1Request {
+    pub fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("id", &self.id.to_string());
+        if self.want_body {
+            query.append_pair("want_body", "true");
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InspectMessageV1Response {
+    pub id: SpoolId,
+    pub message: MessageInformation,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageInformation {
+    pub sender: String,
+    pub recipient: String,
+    pub meta: serde_json::Value,
+    #[serde(default)]
+    pub data: Option<String>,
 }

@@ -16,6 +16,7 @@ use std::sync::Arc;
 pub mod auth;
 
 pub mod admin_bounce_v1;
+pub mod admin_inspect_message;
 pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
 pub mod inject_v1;
@@ -113,6 +114,10 @@ impl HttpListenerParams {
             .route(
                 "/api/admin/set_diagnostic_log_filter/v1",
                 post(set_diagnostic_log_filter_v1),
+            )
+            .route(
+                "/api/admin/inspect-message/v1",
+                get(admin_inspect_message::inspect_v1),
             )
             // Require that all requests be authenticated as either coming
             // from a trusted IP address, or with an authorization header

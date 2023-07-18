@@ -1,4 +1,5 @@
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -17,12 +18,34 @@ fn get_mac_address() -> [u8; 6] {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub struct SpoolId(Uuid);
 
 impl std::fmt::Display for SpoolId {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         self.0.simple().fmt(fmt)
+    }
+}
+
+impl From<Uuid> for SpoolId {
+    fn from(uuid: Uuid) -> Self {
+        Self(uuid)
+    }
+}
+
+impl From<SpoolId> for String {
+    fn from(id: SpoolId) -> String {
+        id.to_string()
+    }
+}
+
+impl TryFrom<String> for SpoolId {
+    type Error = uuid::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        let uuid = Uuid::parse_str(&s)?;
+        Ok(Self(uuid))
     }
 }
 

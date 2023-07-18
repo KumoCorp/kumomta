@@ -141,6 +141,12 @@ impl Message {
         })
     }
 
+    pub async fn new_with_id(id: SpoolId) -> anyhow::Result<Self> {
+        let meta_spool = get_meta_spool();
+        let data = meta_spool.load(id).await?;
+        Self::new_from_spool(id, data)
+    }
+
     pub fn get_num_attempts(&self) -> u16 {
         let inner = self.inner.lock().unwrap();
         inner.num_attempts

@@ -5,6 +5,7 @@ use reqwest::Url;
 mod bounce;
 mod bounce_cancel;
 mod bounce_list;
+mod inspect_message;
 mod logfilter;
 mod suspend;
 mod suspend_cancel;
@@ -39,6 +40,7 @@ enum SubCommand {
     SuspendReadyQList(suspend_ready_q_list::SuspendReadyQListCommand),
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
+    InspectMessage(inspect_message::InspectMessageCommand),
 }
 
 impl SubCommand {
@@ -54,6 +56,7 @@ impl SubCommand {
             Self::SuspendReadyQCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
+            Self::InspectMessage(cmd) => cmd.run(endpoint).await,
         }
     }
 }
