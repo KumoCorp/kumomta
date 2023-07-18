@@ -1267,6 +1267,7 @@ impl SmtpServer {
                     self.write_response(502, format!("5.5.1 Command unimplemented"))
                         .await?;
                 }
+                Ok(Command::DataDot) => unreachable!(),
             }
         }
     }

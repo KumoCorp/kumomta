@@ -352,6 +352,7 @@ pub enum Command {
         parameters: Vec<EsmtpParameter>,
     },
     Data,
+    DataDot,
     Rset,
     Quit,
     Vrfy(String),
@@ -399,6 +400,7 @@ impl Command {
                 format!("RCPT TO:<{}>{params}\r\n", address.to_string())
             }
             Self::Data => "DATA\r\n".to_string(),
+            Self::DataDot => ".\r\n".to_string(),
             Self::Rset => "RSET\r\n".to_string(),
             Self::Quit => "QUIT\r\n".to_string(),
             Self::StartTls => "STARTTLS\r\n".to_string(),
@@ -426,6 +428,7 @@ impl Command {
             Self::MailFrom { .. } => timeouts.mail_from_timeout,
             Self::RcptTo { .. } => timeouts.rcpt_to_timeout,
             Self::Data { .. } => timeouts.data_timeout,
+            Self::DataDot => timeouts.data_dot_timeout,
             Self::Rset => timeouts.rset_timeout,
             Self::StartTls => timeouts.starttls_timeout,
             Self::Quit | Self::Vrfy(_) | Self::Expn(_) | Self::Help(_) | Self::Noop(_) => {

@@ -31,8 +31,18 @@ pub enum ClientError {
     Rejected(Response),
     #[error("invalid DNS name: {0}")]
     InvalidDnsName(#[from] tokio_rustls::rustls::client::InvalidDnsNameError),
-    #[error("Timed Out waiting for response")]
-    TimeOut,
+    #[error("Timed Out waiting {duration:?} for response to {command:?}")]
+    TimeOutResponse {
+        command: Option<Command>,
+        duration: Duration,
+    },
+    #[error("Timed Out writing {duration:?} {command:?}")]
+    TimeOutRequest {
+        command: Command,
+        duration: Duration,
+    },
+    #[error("Timed Out sending message payload data")]
+    TimeOutData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +237,11 @@ impl SmtpClient {
         &self.timeouts
     }
 
-    async fn read_line(&mut self, timeout_duration: Duration) -> Result<String, ClientError> {
+    async fn read_line(
+        &mut self,
+        timeout_duration: Duration,
+        cmd: Option<&Command>,
+    ) -> Result<String, ClientError> {
         let mut too_long = false;
         loop {
             let mut iter = self.read_buffer.iter().enumerate();
@@ -256,7 +270,12 @@ impl SmtpClient {
             let size = match self.socket.as_mut() {
                 Some(s) => match timeout(timeout_duration, s.read(&mut data)).await {
                     Ok(result) => result?,
-                    Err(_) => return Err(ClientError::TimeOut),
+                    Err(_) => {
+                        return Err(ClientError::TimeOutResponse {
+                            command: cmd.cloned(),
+                            duration: timeout_duration,
+                        })
+                    }
                 },
                 None => return Err(ClientError::NotConnected),
             };
@@ -270,14 +289,14 @@ impl SmtpClient {
 
     pub async fn read_response(
         &mut self,
-        command: Option<String>,
+        command: Option<&Command>,
         timeout_duration: Duration,
     ) -> Result<Response, ClientError> {
         if let Some(sock) = self.socket.as_mut() {
             sock.flush().await?;
         }
 
-        let mut line = self.read_line(timeout_duration).await?;
+        let mut line = self.read_line(timeout_duration, command).await?;
         let mut parsed = parse_response_line(&line)?;
         let code = parsed.code;
         let (enhanced_code, mut response_string) = match parse_enhanced_status_code(parsed.content)
@@ -288,7 +307,9 @@ impl SmtpClient {
 
         let subsequent_line_timeout_duration = Duration::from_secs(60).min(timeout_duration);
         while !parsed.is_final {
-            line = self.read_line(subsequent_line_timeout_duration).await?;
+            line = self
+                .read_line(subsequent_line_timeout_duration, command)
+                .await?;
             parsed = parse_response_line(&line)?;
             if parsed.code != code {
                 return Err(ClientError::MalformedResponseLine(line.to_string()));
@@ -303,7 +324,7 @@ impl SmtpClient {
             code,
             content: response_string,
             enhanced_code,
-            command,
+            command: command.map(|cmd| cmd.encode()),
         })
     }
 
@@ -319,13 +340,18 @@ impl SmtpClient {
                 .await
                 {
                     Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOut),
+                    Err(_) => {
+                        return Err(ClientError::TimeOutRequest {
+                            command: command.clone(),
+                            duration: command.client_timeout_request(&self.timeouts),
+                        })
+                    }
                 }
             }
             None => return Err(ClientError::NotConnected),
         };
 
-        self.read_response(Some(line), command.client_timeout(&self.timeouts))
+        self.read_response(Some(command), command.client_timeout(&self.timeouts))
             .await
     }
 
@@ -350,7 +376,6 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let pipeline = self.capabilities.contains_key("PIPELINING");
         let mut results: Vec<Result<Response, ClientError>> = vec![];
-        let mut encoded_commands: Vec<(&Command, String)> = vec![];
         let mut read_timeout = Duration::ZERO;
 
         for cmd in &commands {
@@ -364,7 +389,10 @@ impl SmtpClient {
                     .await
                     {
                         Ok(result) => result.map_err(|_| ClientError::NotConnected),
-                        Err(_) => Err(ClientError::TimeOut),
+                        Err(_) => Err(ClientError::TimeOutRequest {
+                            command: cmd.clone(),
+                            duration: cmd.client_timeout_request(&self.timeouts),
+                        }),
                     };
                     if let Err(err) = res {
                         results.push(Err(err.into()));
@@ -377,13 +405,11 @@ impl SmtpClient {
                     return results;
                 }
             };
-            if pipeline {
-                encoded_commands.push((cmd, line));
-            } else {
+            if !pipeline {
                 // Immediately request the response if the server
                 // doesn't support pipelining
                 results.push(
-                    self.read_response(Some(line), cmd.client_timeout(&self.timeouts))
+                    self.read_response(Some(cmd), cmd.client_timeout(&self.timeouts))
                         .await,
                 );
             }
@@ -391,9 +417,9 @@ impl SmtpClient {
 
         if pipeline {
             // Now read the responses effectively in a batch
-            for (cmd, line) in encoded_commands {
+            for cmd in &commands {
                 results.push(
-                    self.read_response(Some(line), cmd.client_timeout(&self.timeouts))
+                    self.read_response(Some(cmd), cmd.client_timeout(&self.timeouts))
                         .await,
                 );
             }
@@ -558,7 +584,7 @@ impl SmtpClient {
                 .await
                 {
                     Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOut),
+                    Err(_) => return Err(ClientError::TimeOutData),
                 },
                 None => return Err(ClientError::NotConnected),
             }
@@ -571,7 +597,7 @@ impl SmtpClient {
                 .await
                 {
                     Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOut),
+                    Err(_) => return Err(ClientError::TimeOutData),
                 },
                 None => return Err(ClientError::NotConnected),
             }
@@ -588,13 +614,19 @@ impl SmtpClient {
             .await
             {
                 Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                Err(_) => return Err(ClientError::TimeOut),
+                Err(_) => {
+                    return Err(ClientError::TimeOutRequest {
+                        command: Command::Data,
+                        duration: Command::Data.client_timeout_request(&self.timeouts),
+                    })
+                }
             },
             None => return Err(ClientError::NotConnected),
         }
 
+        let data_dot = Command::DataDot;
         let resp = self
-            .read_response(Some(".".to_string()), self.timeouts.data_dot_timeout)
+            .read_response(Some(&data_dot), data_dot.client_timeout(&self.timeouts))
             .await?;
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
