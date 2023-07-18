@@ -714,13 +714,13 @@ impl LogThreadState {
 
         loop {
             let deadline = self.get_deadline();
-            tracing::debug!("waiting until {deadline:?} for log");
+            tracing::debug!("waiting until deadline={deadline:?} for a log record");
 
             let cmd = if let Some(deadline) = deadline {
                 tokio::select! {
                     cmd = self.receiver.recv() => cmd,
                     _ = tokio::time::sleep_until(deadline.into()) => {
-                        tracing::debug!("deadline reached, running expiration");
+                        tracing::debug!("deadline reached, running expiration for this segment");
                         self.expire();
                         continue;
                     }
