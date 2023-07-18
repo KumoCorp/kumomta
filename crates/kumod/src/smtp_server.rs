@@ -694,7 +694,7 @@ impl SmtpServer {
             // Using too much memory
             self.write_response(
                 421,
-                format!("{} 4.3.2 load shedding. Try later", self.params.hostname),
+                format!("4.3.2 {} load shedding. Try later", self.params.hostname),
             )
             .await?;
             return Ok(());
@@ -705,7 +705,10 @@ impl SmtpServer {
             // else we risk re-injecting messages received during enumeration.
             self.write_response(
                 421,
-                format!("{} 4.3.2 Hold on just a moment!", self.params.hostname),
+                format!(
+                    "4.3.2 {} waiting for spool enumeration. Try later",
+                    self.params.hostname
+                ),
             )
             .await?;
             return Ok(());
