@@ -1,11 +1,11 @@
 use crate::http_server::AppState;
-use crate::runtime::rt_spawn;
 use axum::async_trait;
 use axum::extract::{FromRequestParts, State};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use config::load_config;
+use kumo_server_runtime::rt_spawn;
 use std::net::{IpAddr, SocketAddr};
 
 /// Represents some authenticated identity.

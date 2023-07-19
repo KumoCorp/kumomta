@@ -293,7 +293,7 @@ impl SpoolManager {
 
                 tracing::debug!("starting maintainer for spool {name} is_meta={is_meta}");
 
-                let maintainer = crate::runtime::spawn(format!("maintain spool {name}"), {
+                let maintainer = kumo_server_runtime::spawn(format!("maintain spool {name}"), {
                     let name = name.clone();
                     let spool = spool.clone();
                     let tx = if is_meta { Some(tx.clone()) } else { None };

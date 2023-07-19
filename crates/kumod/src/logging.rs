@@ -1,5 +1,4 @@
 use crate::queue::QueueManager;
-use crate::runtime::rt_spawn_non_blocking;
 use crate::smtp_server::RelayDisposition;
 use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
@@ -8,6 +7,7 @@ use chrono::Utc;
 use config::load_config;
 use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
+use kumo_server_runtime::rt_spawn_non_blocking;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use once_cell::sync::{Lazy, OnceCell};

@@ -1,12 +1,12 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::{log_disposition, LogDisposition};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
-use crate::runtime::{rt_spawn, spawn};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use async_trait::async_trait;
 use config::LuaConfig;
 use kumo_log_types::{RecordType, ResolvedAddress};
+use kumo_server_runtime::{rt_spawn, spawn};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::{RegistryKey, Value};

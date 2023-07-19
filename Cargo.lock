@@ -2268,6 +2268,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-server-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "kumo-server-memory",
+ "lazy_static",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "kumod"
 version = "0.1.0"
 dependencies = [
@@ -2302,6 +2314,7 @@ dependencies = [
  "kumo-log-types",
  "kumo-server-common",
  "kumo-server-memory",
+ "kumo-server-runtime",
  "lazy_static",
  "lruttl",
  "mail-auth",

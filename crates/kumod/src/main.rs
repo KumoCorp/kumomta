@@ -1,8 +1,8 @@
 use crate::lifecycle::LifeCycle;
-use crate::runtime::rt_spawn;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::{Parser, ValueEnum};
+use kumo_server_runtime::rt_spawn;
 use metrics_prometheus::recorder::Layer as _;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::sys::signal::{kill, SIGQUIT};
@@ -47,7 +47,6 @@ mod metrics_helper;
 mod mod_kumo;
 mod queue;
 mod ready_queue;
-mod runtime;
 mod smtp_dispatcher;
 mod smtp_server;
 mod spool;
