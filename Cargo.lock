@@ -2252,6 +2252,17 @@ name = "kumo-server-common"
 version = "0.1.0"
 
 [[package]]
+name = "kumo-server-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "once_cell",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "kumo-server-memory"
 version = "0.1.0"
 dependencies = [
@@ -2313,6 +2324,7 @@ dependencies = [
  "kumo-api-types",
  "kumo-log-types",
  "kumo-server-common",
+ "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
  "lazy_static",

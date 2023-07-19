@@ -1,7 +1,7 @@
-use crate::lifecycle::LifeCycle;
 use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::{Parser, ValueEnum};
+use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::rt_spawn;
 use metrics_prometheus::recorder::Layer as _;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
@@ -36,7 +36,6 @@ mod delivery_metrics;
 mod egress_path;
 mod egress_source;
 mod http_server;
-mod lifecycle;
 mod logging;
 mod lua_deliver;
 mod metrics_helper;

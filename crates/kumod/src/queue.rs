@@ -1,7 +1,6 @@
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
-use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
 use crate::ready_queue::ReadyQueueManager;
@@ -9,6 +8,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::Utc;
 use config::load_config;
+use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{rt_spawn, spawn, spawn_blocking};
 use message::message::QueueNameComponents;
 use message::Message;

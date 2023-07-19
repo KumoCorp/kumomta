@@ -1,10 +1,10 @@
-use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use crate::rt_spawn;
 use anyhow::Context;
 use chrono::Utc;
+use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use message::Message;
 use once_cell::sync::Lazy;
 use rfc5321::{EnhancedStatusCode, Response};

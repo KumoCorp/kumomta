@@ -1,12 +1,12 @@
 use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::http_server::HttpListenerParams;
-use crate::lifecycle::LifeCycle;
 use crate::logging::{ClassifierParams, LogFileParams, LogHookParams};
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
+use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::spawn;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;

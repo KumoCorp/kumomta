@@ -1,4 +1,3 @@
-use crate::lifecycle::{Activity, ShutdownSubcription};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
@@ -8,6 +7,7 @@ use cidr_map::{AnyIpCidr, CidrSet};
 use config::{any_err, load_config, LuaConfig};
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
+use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{rt_spawn, spawn_local};
 use lruttl::LruCacheWithTtl;
 use memchr::memmem::Finder;
