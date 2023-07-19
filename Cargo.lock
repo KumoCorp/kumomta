@@ -2248,6 +2248,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-server-common"
+version = "0.1.0"
+
+[[package]]
+name = "kumo-server-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cgroups-rs",
+ "humansize",
+ "lazy_static",
+ "metrics",
+ "nix 0.26.2",
+ "tikv-jemalloc-sys",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "kumod"
 version = "0.1.0"
 dependencies = [
@@ -2280,6 +2300,8 @@ dependencies = [
  "k9",
  "kumo-api-types",
  "kumo-log-types",
+ "kumo-server-common",
+ "kumo-server-memory",
  "lazy_static",
  "lruttl",
  "mail-auth",

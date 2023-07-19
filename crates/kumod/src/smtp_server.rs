@@ -690,7 +690,7 @@ impl SmtpServer {
             }
             Some(a) => a,
         };
-        if crate::memory::get_headroom() == 0 {
+        if kumo_server_memory::get_headroom() == 0 {
             // Using too much memory
             self.write_response(
                 421,

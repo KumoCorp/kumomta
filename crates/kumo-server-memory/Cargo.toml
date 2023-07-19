@@ -1,0 +1,18 @@
+[package]
+name = "kumo-server-memory"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+cgroups-rs = "0.3"
+humansize = "2.1" # for printing
+lazy_static = "1.4"
+metrics = "0.20"
+nix = {version="0.26", features=["resource"]}
+tikv-jemallocator = "0.5"
+tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
+tokio = {version="1.25", features=["full", "tracing"]}
+tracing = "0.1"

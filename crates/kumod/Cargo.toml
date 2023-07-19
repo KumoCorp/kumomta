@@ -35,6 +35,8 @@ tikv-jemallocator = "0.5"
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
+kumo-server-common = {path="../kumo-server-common"}
+kumo-server-memory = {path="../kumo-server-memory"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 mail-auth = "0.3"

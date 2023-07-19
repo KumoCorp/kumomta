@@ -14,6 +14,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::load_config;
 use dns_resolver::MailExchanger;
+use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -145,7 +146,7 @@ impl ReadyQueueManager {
     async fn maintainer_task(name: String) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
         let mut interval = Duration::from_secs(60);
-        let mut memory = crate::memory::subscribe_to_memory_status_changes();
+        let mut memory = subscribe_to_memory_status_changes();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(interval) => {},
@@ -167,7 +168,7 @@ impl ReadyQueueManager {
                             "smtp_client:{name}"
                         ));
                         break;
-                    } else if crate::memory::get_headroom() == 0 {
+                    } else if get_headroom() == 0 {
                         queue.shrink_ready_queue_due_to_low_mem().await;
                     } else if queue.activity.is_shutting_down() {
                         let n = queue.connections.len();
@@ -215,7 +216,7 @@ impl ReadyQueue {
     }
 
     pub async fn insert(&mut self, msg: Message) -> Result<(), Message> {
-        if crate::memory::low_memory() {
+        if low_memory() {
             msg.shrink().ok();
         }
         {
@@ -245,7 +246,7 @@ impl ReadyQueue {
             0
         } else {
             let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
-            if n > 0 && crate::memory::get_headroom() == 0 {
+            if n > 0 && get_headroom() == 0 {
                 n.min(2)
             } else {
                 n

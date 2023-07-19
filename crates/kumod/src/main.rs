@@ -43,7 +43,6 @@ mod http_server;
 mod lifecycle;
 mod logging;
 mod lua_deliver;
-mod memory;
 mod metrics_helper;
 mod mod_kumo;
 mod queue;
@@ -163,7 +162,7 @@ fn main() -> anyhow::Result<()> {
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .on_thread_park(|| crate::memory::purge_thread_cache())
+        .on_thread_park(|| kumo_server_memory::purge_thread_cache())
         .build()
         .unwrap()
         .block_on(async move { run(opts).await })
@@ -230,7 +229,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             .layer(metrics_prometheus::Recorder::builder().build()),
     ))?;
 
-    crate::memory::setup_memory_limit()?;
+    kumo_server_memory::setup_memory_limit()?;
 
     for func in [
         crate::mod_kumo::register,

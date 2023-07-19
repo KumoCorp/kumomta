@@ -827,7 +827,7 @@ impl QueueManager {
 async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
     let mut sleep_duration = Duration::from_secs(60);
     let mut shutdown = ShutdownSubcription::get();
-    let mut memory = crate::memory::subscribe_to_memory_status_changes();
+    let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
 
     loop {
         tokio::select! {
