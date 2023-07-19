@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct DaysOfWeek: u8 {
         const MON = 1;
         const TUE = 2;

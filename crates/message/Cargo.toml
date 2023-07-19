@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 base64 = "0.13"
-bitflags = "1.3"
+bitflags = "2.3"
 cfdkim = {path="../dkim"}
 config = {path="../config"}
 chrono = {version="0.4", default-features=false, features=["serde", "clock"]}

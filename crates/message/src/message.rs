@@ -18,6 +18,7 @@ use std::time::Duration;
 use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
 
 bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct MessageFlags: u8 {
         /// true if Metadata needs to be saved
         const META_DIRTY = 1;
