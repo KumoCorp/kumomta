@@ -4,12 +4,13 @@ use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::Utc;
-use config::load_config;
+use config::{any_err, from_lua_value, get_or_create_module, load_config};
 use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
 use kumo_server_runtime::rt_spawn_non_blocking;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
+use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
@@ -893,4 +894,34 @@ impl LogThreadState {
 
         Ok(())
     }
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let kumo_mod = get_or_create_module(lua, "kumo")?;
+
+    kumo_mod.set(
+        "configure_bounce_classifier",
+        lua.create_function(move |lua, params: LuaValue| {
+            let params: ClassifierParams = from_lua_value(lua, params)?;
+            params.register().map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_local_logs",
+        lua.create_function(move |lua, params: LuaValue| {
+            let params: LogFileParams = from_lua_value(lua, params)?;
+            Logger::init(params).map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "configure_log_hook",
+        lua.create_function(move |lua, params: LuaValue| {
+            let params: LogHookParams = from_lua_value(lua, params)?;
+            Logger::init_hook(params).map_err(any_err)
+        })?,
+    )?;
+
+    Ok(())
 }

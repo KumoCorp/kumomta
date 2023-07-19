@@ -1,7 +1,6 @@
 use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::http_server::HttpListenerParams;
-use crate::logging::{ClassifierParams, LogFileParams, LogHookParams};
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use anyhow::Context;
@@ -71,30 +70,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "set_diagnostic_log_filter",
         lua.create_function(move |_, filter: String| {
             crate::set_diagnostic_log_filter(&filter).map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "configure_bounce_classifier",
-        lua.create_function(move |lua, params: Value| {
-            let params: ClassifierParams = from_lua_value(lua, params)?;
-            params.register().map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "configure_local_logs",
-        lua.create_function(move |lua, params: Value| {
-            let params: LogFileParams = from_lua_value(lua, params)?;
-            crate::logging::Logger::init(params).map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "configure_log_hook",
-        lua.create_function(move |lua, params: Value| {
-            let params: LogHookParams = from_lua_value(lua, params)?;
-            crate::logging::Logger::init_hook(params).map_err(any_err)
         })?,
     )?;
 
