@@ -810,9 +810,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.3.15"
+version = "4.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f644d0dac522c8b05ddc39aaaccc5b136d5dc4ff216610c5641e3be5becf56c"
+checksum = "5b0827b011f6f8ab38590295339817b0d26f344aa4932c3ced71b45b0c54b4a9"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -821,9 +821,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.3.15"
+version = "4.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af410122b9778e024f9e0fb35682cc09cc3f85cad5e8d3ba8f47a9702df6e73d"
+checksum = "9441b403be87be858db6a23edb493e7f694761acdc3343d5a0fcaafd304cbc9e"
 dependencies = [
  "anstream",
  "anstyle",
@@ -2075,7 +2075,7 @@ dependencies = [
  "tempfile",
  "textwrap 0.16.0",
  "tokio",
- "zstd 0.12.3+zstd.1.5.2",
+ "zstd 0.12.4",
 ]
 
 [[package]]
@@ -2189,7 +2189,7 @@ name = "kcli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap 4.3.15",
+ "clap 4.3.17",
  "humantime",
  "kumo-api-types",
  "reqwest",
@@ -2265,7 +2265,7 @@ dependencies = [
  "cgroups-rs",
  "chrono",
  "cidr-map",
- "clap 4.3.15",
+ "clap 4.3.17",
  "config",
  "console-subscriber",
  "data-loader",
@@ -2328,7 +2328,7 @@ dependencies = [
  "uuid",
  "version-info",
  "webpki-roots",
- "zstd 0.12.3+zstd.1.5.2",
+ "zstd 0.12.4",
 ]
 
 [[package]]
@@ -3604,7 +3604,7 @@ name = "proxy-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap 4.3.15",
+ "clap 4.3.17",
  "env_logger",
  "libc",
  "log",
@@ -4629,14 +4629,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "camino",
- "clap 4.3.15",
+ "clap 4.3.17",
  "filenamegen",
  "memchr",
  "notify",
  "serde",
  "serde_json",
  "thiserror",
- "zstd-safe 6.0.5+zstd.1.5.4",
+ "zstd-safe 6.0.6",
 ]
 
 [[package]]
@@ -5127,7 +5127,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "clap 4.3.15",
+ "clap 4.3.17",
  "futures",
  "humanize-rs",
  "humansize",
@@ -5757,11 +5757,11 @@ dependencies = [
 
 [[package]]
 name = "zstd"
-version = "0.12.3+zstd.1.5.2"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76eea132fb024e0e13fd9c2f5d5d595d8a967aa72382ac2f9d39fcc95afd0806"
+checksum = "1a27595e173641171fc74a1232b7b1c7a7cb6e18222c11e9dfb9888fa424c53c"
 dependencies = [
- "zstd-safe 6.0.5+zstd.1.5.4",
+ "zstd-safe 6.0.6",
 ]
 
 [[package]]
@@ -5776,9 +5776,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "6.0.5+zstd.1.5.4"
+version = "6.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56d9e60b4b1758206c238a10165fbcae3ca37b01744e394c463463f6529d23b"
+checksum = "ee98ffd0b48ee95e6c5168188e44a54550b1564d9d530ee21d5f0eaed1069581"
 dependencies = [
  "libc",
  "zstd-sys",
