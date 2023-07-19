@@ -6,13 +6,9 @@ use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
-use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::spawn;
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
-use serde::Deserialize;
-use spool::rocks::RocksSpoolParams;
-use std::path::PathBuf;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
@@ -122,22 +118,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             })
             .map_err(any_err)?;
             Ok(())
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "define_spool",
-        lua.create_async_function(|lua, params: Value| async move {
-            let params = from_lua_value(lua, params)?;
-            spawn("define_spool", async move {
-                if let Err(err) = define_spool(params).await {
-                    tracing::error!("Error in spool: {err:#}");
-                    LifeCycle::request_shutdown().await;
-                }
-            })
-            .map_err(any_err)?
-            .await
-            .map_err(any_err)
         })?,
     )?;
 
@@ -277,35 +257,4 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub enum SpoolKind {
-    LocalDisk,
-    RocksDB,
-}
-impl Default for SpoolKind {
-    fn default() -> Self {
-        Self::LocalDisk
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DefineSpoolParams {
-    pub name: String,
-    pub path: PathBuf,
-    #[serde(default)]
-    pub kind: SpoolKind,
-    #[serde(default)]
-    pub flush: bool,
-    #[serde(default)]
-    pub rocks_params: Option<RocksSpoolParams>,
-}
-
-async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
-    crate::spool::SpoolManager::get()
-        .await
-        .new_local_disk(params)
-        .await
 }

@@ -1,17 +1,21 @@
 use crate::logging::{log_disposition, LogDisposition, RecordType};
-use crate::mod_kumo::{DefineSpoolParams, SpoolKind};
 use crate::queue::QueueManager;
 use crate::rt_spawn;
 use anyhow::Context;
 use chrono::Utc;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use config::{any_err, from_lua_value, get_or_create_module};
+use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_runtime::spawn;
 use message::Message;
+use mlua::{Lua, Value};
 use once_cell::sync::Lazy;
 use rfc5321::{EnhancedStatusCode, Response};
+use serde::Deserialize;
 use spool::local_disk::LocalDiskSpool;
-use spool::rocks::RocksSpool;
+use spool::rocks::{RocksSpool, RocksSpoolParams};
 use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
@@ -51,6 +55,57 @@ impl Drop for Spool {
 }
 
 impl Spool {}
+
+#[derive(Deserialize)]
+pub enum SpoolKind {
+    LocalDisk,
+    RocksDB,
+}
+impl Default for SpoolKind {
+    fn default() -> Self {
+        Self::LocalDisk
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DefineSpoolParams {
+    pub name: String,
+    pub path: PathBuf,
+    #[serde(default)]
+    pub kind: SpoolKind,
+    #[serde(default)]
+    pub flush: bool,
+    #[serde(default)]
+    pub rocks_params: Option<RocksSpoolParams>,
+}
+
+async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
+    crate::spool::SpoolManager::get()
+        .await
+        .new_local_disk(params)
+        .await
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let kumo_mod = get_or_create_module(lua, "kumo")?;
+    kumo_mod.set(
+        "define_spool",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params = from_lua_value(lua, params)?;
+            spawn("define_spool", async move {
+                if let Err(err) = define_spool(params).await {
+                    tracing::error!("Error in spool: {err:#}");
+                    LifeCycle::request_shutdown().await;
+                }
+            })
+            .map_err(any_err)?
+            .await
+            .map_err(any_err)
+        })?,
+    )?;
+    Ok(())
+}
 
 pub struct SpoolManager {
     named: Mutex<HashMap<String, SpoolHandle>>,
