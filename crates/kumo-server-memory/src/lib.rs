@@ -11,7 +11,11 @@ use nix::unistd::{sysconf, SysconfVar};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
+use tikv_jemallocator::Jemalloc;
 use tokio::sync::watch::Receiver;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 lazy_static::lazy_static! {
     static ref OVER_LIMIT_COUNT: metrics::Counter = {

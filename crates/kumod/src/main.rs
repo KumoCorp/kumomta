@@ -9,7 +9,6 @@ use nix::sys::signal::{kill, SIGQUIT};
 use nix::unistd::{Pid, Uid, User};
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
-use tikv_jemallocator::Jemalloc;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
@@ -32,9 +31,6 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 static TRACING_FILTER_RELOAD_HANDLE: OnceCell<
     Box<dyn Fn(&str) -> anyhow::Result<()> + Send + Sync>,
 > = OnceCell::new();
-
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
 
 mod delivery_metrics;
 mod egress_path;
