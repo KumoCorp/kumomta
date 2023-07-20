@@ -3,6 +3,8 @@ use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 
+pub mod diagnostic_logging;
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     for func in [
         mod_redis::register,
@@ -46,6 +48,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             lua.set_named_registry_value(&decorated_name, func)?;
             Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_diagnostic_log_filter",
+        lua.create_function(move |_, filter: String| {
+            diagnostic_logging::set_diagnostic_log_filter(&filter).map_err(any_err)
         })?,
     )?;
 

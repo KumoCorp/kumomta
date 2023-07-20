@@ -11,13 +11,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
     kumo_mod.set(
-        "set_diagnostic_log_filter",
-        lua.create_function(move |_, filter: String| {
-            crate::set_diagnostic_log_filter(&filter).map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = from_lua_value(lua, params)?;

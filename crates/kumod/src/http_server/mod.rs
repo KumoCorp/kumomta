@@ -7,6 +7,7 @@ use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
+use kumo_server_common::diagnostic_logging::set_diagnostic_log_filter;
 use kumo_server_runtime::spawn;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
@@ -290,6 +291,6 @@ async fn set_diagnostic_log_filter_v1(
     // Note: Json<> must be last in the param list
     Json(request): Json<kumo_api_types::SetDiagnosticFilterRequest>,
 ) -> Result<(), AppError> {
-    crate::set_diagnostic_log_filter(&request.filter)?;
+    set_diagnostic_log_filter(&request.filter)?;
     Ok(())
 }
