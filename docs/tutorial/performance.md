@@ -65,7 +65,8 @@ The test utilized the included traffic-gen utility described above.
 
 **NOTE** that these numbers are NOT guaranteed and are for informational purposes only. Your results may vary considerably.
 
-In July 2023 another round of testing was done with more detailed results.  those results are shown in the table below and were documented in the blog post "How we built the most performant Message Transfer Agent on the planet"
+In July 2023 another round of testing was done with more detailed results.  those results are shown in the table below and were documented in the blog post "[How we built the most performant Message Transfer Agent on the planet](https://kumomta.com/blog/building-the-fastest-mta-on-the-planet)"
+
 ![PerformanceTestData](https://docs.kumomta.com/assets/images/Performance_testing_kumomta_public.png)
 
 ## Now What?
