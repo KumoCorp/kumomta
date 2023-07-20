@@ -226,18 +226,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     kumo_server_memory::setup_memory_limit()?;
 
     for func in [
+        kumo_server_common::register,
         crate::mod_kumo::register,
         crate::spool::register,
         crate::logging::register,
-        data_loader::register,
-        domain_map::register,
         message::dkim::register,
-        mod_amqp::register,
-        mod_http::register,
-        mod_sqlite::register,
-        mod_redis::register,
-        mod_dns_resolver::register,
-        mod_memoize::register,
     ] {
         config::register(func);
     }

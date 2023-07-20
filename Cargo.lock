@@ -2250,6 +2250,24 @@ dependencies = [
 [[package]]
 name = "kumo-server-common"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "data-loader",
+ "domain-map",
+ "json_comments",
+ "mlua",
+ "mod-amqp",
+ "mod-dns-resolver",
+ "mod-http",
+ "mod-memoize",
+ "mod-redis",
+ "mod-sqlite",
+ "serde_json",
+ "throttle",
+ "tokio",
+ "toml",
+]
 
 [[package]]
 name = "kumo-server-lifecycle"
@@ -2313,13 +2331,11 @@ dependencies = [
  "console-subscriber",
  "data-loader",
  "dns-resolver",
- "domain-map",
  "flume",
  "gcd",
  "gethostname 0.4.3",
  "humansize",
  "humantime-serde",
- "json_comments",
  "k9",
  "kumo-api-types",
  "kumo-log-types",
@@ -2341,12 +2357,6 @@ dependencies = [
  "metrics-tracing-context",
  "minijinja",
  "mlua",
- "mod-amqp",
- "mod-dns-resolver",
- "mod-http",
- "mod-memoize",
- "mod-redis",
- "mod-sqlite",
  "nix 0.26.2",
  "once_cell",
  "ppp",
@@ -2366,7 +2376,6 @@ dependencies = [
  "timeq",
  "tokio",
  "tokio-rustls 0.23.4",
- "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

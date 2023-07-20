@@ -25,12 +25,10 @@ config = {path="../config"}
 console-subscriber = "0.1"
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver"}
-domain-map = {path="../domain-map"}
 flume = "0.10"
 gcd = "2.3"
 gethostname = "0.4"
 humansize = "2.1" # for printing
-json_comments = "0.2"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
@@ -49,12 +47,6 @@ metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
 minijinja = {version="1.0.1",features=["loader"]}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
-mod-amqp = {path="../mod-amqp"}
-mod-dns-resolver = {path="../mod-dns-resolver"}
-mod-http = {path="../mod-http"}
-mod-memoize = {path="../mod-memoize"}
-mod-redis = {path="../mod-redis"}
-mod-sqlite = {path="../mod-sqlite"}
 nix = {version="0.26", features=["resource"]}
 once_cell = "1.17"
 ppp = "2.2"
@@ -75,7 +67,6 @@ throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {version="1.25", features=["full", "tracing"]}
 tokio-rustls = "0.23"
-toml = "0.7"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
