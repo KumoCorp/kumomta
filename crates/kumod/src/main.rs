@@ -5,8 +5,7 @@ use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_runtime::rt_spawn;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
-use nix::sys::signal::{kill, SIGQUIT};
-use nix::unistd::{Pid, Uid, User};
+use nix::unistd::{Uid, User};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -121,7 +120,7 @@ fn main() -> anyhow::Result<()> {
     let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;
 
-    register_panic_hook();
+    kumo_server_common::panic::register_panic_hook();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -165,30 +164,4 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     }
     .run(perform_init, crate::logging::Logger::signal_shutdown)
     .await
-}
-
-fn register_panic_hook() {
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let payload = info.payload();
-        let payload = payload.downcast_ref::<&str>().unwrap_or(&"!?");
-        let bt = backtrace::Backtrace::new();
-        if let Some(loc) = info.location() {
-            tracing::error!(
-                "panic at {}:{}:{} - {}\n{:?}",
-                loc.file(),
-                loc.line(),
-                loc.column(),
-                payload,
-                bt
-            );
-        } else {
-            tracing::error!("panic - {}\n{:?}", payload, bt);
-        }
-
-        default_hook(info);
-
-        // Request a core dump
-        kill(Pid::this(), SIGQUIT).ok();
-    }));
 }

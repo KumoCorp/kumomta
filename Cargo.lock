@@ -2258,6 +2258,7 @@ name = "kumo-server-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "backtrace",
  "clap 4.3.17",
  "config",
  "console-subscriber",
@@ -2277,6 +2278,7 @@ dependencies = [
  "mod-memoize",
  "mod-redis",
  "mod-sqlite",
+ "nix 0.26.2",
  "once_cell",
  "rcgen",
  "rustls 0.20.8",
@@ -2340,7 +2342,6 @@ dependencies = [
  "axum",
  "axum-client-ip",
  "axum-server",
- "backtrace",
  "base64 0.13.1",
  "bounce-classify",
  "caps",
@@ -5278,11 +5279,15 @@ dependencies = [
  "axum-server",
  "chrono",
  "clap 4.3.17",
+ "config",
+ "kumo-server-common",
+ "kumo-server-memory",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
  "tokio-rustls 0.23.4",
  "toml",
+ "version-info",
 ]
 
 [[package]]

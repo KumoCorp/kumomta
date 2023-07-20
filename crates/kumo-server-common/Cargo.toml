@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+backtrace = "0.3"
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
 console-subscriber = "0.1"
@@ -26,6 +27,7 @@ mod-http = {path="../mod-http"}
 mod-memoize = {path="../mod-memoize"}
 mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
+nix = "0.26"
 once_cell = "1.17"
 rcgen = "0.10"
 rustls = "0.20"
