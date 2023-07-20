@@ -22,7 +22,6 @@ mod ready_queue;
 mod smtp_dispatcher;
 mod smtp_server;
 mod spool;
-mod tls_helpers;
 
 /// KumoMTA Daemon.
 ///

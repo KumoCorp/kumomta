@@ -154,7 +154,7 @@ impl HttpListenerParams {
     }
 
     async fn tls_config(&self) -> anyhow::Result<RustlsConfig> {
-        let config = crate::tls_helpers::make_server_config(
+        let config = kumo_server_common::tls_helpers::make_server_config(
             &self.hostname,
             &self.tls_private_key,
             &self.tls_certificate,
