@@ -285,7 +285,7 @@ impl KumoDaemon {
 
         let mut child = Command::new(&path)
             .args(["--policy", &args.policy_file, "--user", &user.name])
-            .env("KUMOD_LOG", "kumod=trace")
+            .env("KUMOD_LOG", "kumod=trace,kumo_server_common=info")
             .env("KUMOD_TEST_DIR", dir.path())
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())

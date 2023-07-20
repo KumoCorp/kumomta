@@ -2258,6 +2258,9 @@ dependencies = [
  "data-loader",
  "domain-map",
  "json_comments",
+ "kumo-server-lifecycle",
+ "kumo-server-memory",
+ "kumo-server-runtime",
  "metrics",
  "metrics-prometheus",
  "metrics-tracing-context",
@@ -2276,6 +2279,7 @@ dependencies = [
  "throttle",
  "tokio",
  "toml",
+ "tracing",
  "tracing-appender",
  "tracing-subscriber",
 ]

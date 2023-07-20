@@ -18,9 +18,11 @@ use serde_json::Value;
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::fs::File;
+use std::future::Future;
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -305,20 +307,22 @@ impl Logger {
         Ok(self.sender.send(LogCommand::Record(record)).await?)
     }
 
-    pub async fn signal_shutdown() {
-        let loggers = Self::get_loggers();
-        for logger in loggers.iter() {
-            tracing::debug!("Terminating a logger");
-            logger.sender.send(LogCommand::Terminate).await.ok();
-            tracing::debug!("Joining that logger");
-            let res = logger
-                .thread
-                .lock()
-                .await
-                .take()
-                .map(|thread| thread.join());
-            tracing::debug!("Joined -> {res:?}");
-        }
+    pub fn signal_shutdown() -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(async move {
+            let loggers = Self::get_loggers();
+            for logger in loggers.iter() {
+                tracing::debug!("Terminating a logger");
+                logger.sender.send(LogCommand::Terminate).await.ok();
+                tracing::debug!("Joining that logger");
+                let res = logger
+                    .thread
+                    .lock()
+                    .await
+                    .take()
+                    .map(|thread| thread.join());
+                tracing::debug!("Joined -> {res:?}");
+            }
+        })
     }
 
     pub async fn extract_fields(

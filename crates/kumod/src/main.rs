@@ -2,12 +2,14 @@ use anyhow::Context;
 use caps::{CapSet, Capability, CapsHashSet};
 use clap::Parser;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
-use kumo_server_lifecycle::LifeCycle;
+use kumo_server_common::start::StartConfig;
 use kumo_server_runtime::rt_spawn;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::sys::signal::{kill, SIGQUIT};
 use nix::unistd::{Pid, Uid, User};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 
 mod delivery_metrics;
 mod egress_path;
@@ -129,67 +131,40 @@ fn main() -> anyhow::Result<()> {
         .block_on(async move { run(opts).await })
 }
 
-async fn perform_init() -> anyhow::Result<()> {
-    let mut config = config::load_config().await?;
-    config.async_call_callback("init", ()).await?;
+fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
+    Box::pin(async move {
+        let mut config = config::load_config().await?;
+        config.async_call_callback("init", ()).await?;
 
-    crate::spool::SpoolManager::get().await.start_spool().await
+        crate::spool::SpoolManager::get()
+            .await
+            .start_spool()
+            .await?;
+
+        Ok(())
+    })
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
-    LoggingConfig {
-        log_dir: opts.diag_log_dir.clone(),
-        diag_format: opts.diag_format,
-        tokio_console: opts.tokio_console,
-        filter_env_var: "KUMOD_LOG",
-        default_filter: "kumod=info",
+    StartConfig {
+        logging: LoggingConfig {
+            log_dir: opts.diag_log_dir.clone(),
+            diag_format: opts.diag_format,
+            tokio_console: opts.tokio_console,
+            filter_env_var: "KUMOD_LOG",
+            default_filter: "kumod=info,kumo_server_common=info",
+        },
+        lua_funcs: &[
+            kumo_server_common::register,
+            crate::mod_kumo::register,
+            crate::spool::register,
+            crate::logging::register,
+            message::dkim::register,
+        ],
+        policy: &opts.policy,
     }
-    .init()?;
-
-    kumo_server_memory::setup_memory_limit()?;
-
-    for func in [
-        kumo_server_common::register,
-        crate::mod_kumo::register,
-        crate::spool::register,
-        crate::logging::register,
-        message::dkim::register,
-    ] {
-        config::register(func);
-    }
-
-    config::set_policy_path(opts.policy.clone()).await?;
-
-    let mut life_cycle = LifeCycle::new();
-
-    let init_handle = rt_spawn("initialize".to_string(), move || {
-        Ok(async move {
-            let mut ok = true;
-            if let Err(err) = perform_init().await {
-                tracing::error!("problem initializing: {err:#}");
-                LifeCycle::request_shutdown().await;
-                ok = false;
-            }
-            // This log line is depended upon by the integration
-            // test harness. Do not change or remove it without
-            // making appropriate adjustments over there!
-            tracing::info!("initialization complete");
-            ok
-        })
-    })
-    .await?;
-
-    life_cycle.wait_for_shutdown().await;
-
-    // after waiting for those to idle out, shut down logging
-    crate::logging::Logger::signal_shutdown().await;
-
-    tracing::info!("Shutdown completed OK!");
-
-    if !init_handle.await? {
-        anyhow::bail!("Initialization raised an error");
-    }
-    Ok(())
+    .run(perform_init, crate::logging::Logger::signal_shutdown)
+    .await
 }
 
 fn register_panic_hook() {

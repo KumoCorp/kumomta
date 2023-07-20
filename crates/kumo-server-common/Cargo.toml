@@ -13,6 +13,9 @@ console-subscriber = "0.1"
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
 json_comments = "0.2"
+kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
+kumo-server-memory = {path="../kumo-server-memory"}
+kumo-server-runtime = {path="../kumo-server-runtime"}
 metrics = "0.20"
 metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
@@ -31,5 +34,6 @@ serde_json = "1.0"
 throttle = {path="../throttle"}
 tokio = {version="1.25", features=["full", "tracing"]}
 toml = "0.7"
+tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}

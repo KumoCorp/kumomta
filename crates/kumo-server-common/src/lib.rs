@@ -4,6 +4,7 @@ use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 
 pub mod diagnostic_logging;
+pub mod start;
 pub mod tls_helpers;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
