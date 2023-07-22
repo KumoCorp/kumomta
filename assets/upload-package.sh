@@ -11,6 +11,7 @@ case "$REPO" in
   "rockylinux:8") REPO="kumomta-rockylinux-8" ;;
   "rockylinux:9") REPO="kumomta-rockylinux-9" ;;
   "centos:7") REPO="kumomta-centos-7" ;;
+  "mcr.microsoft.com/cbl-mariner/base/core:2.0") REPO="kumomta-mariner-2" ;;
 esac
 
 [[ "${REF_TYPE}" == "tag" ]] && REPO="${REPO}-stable"

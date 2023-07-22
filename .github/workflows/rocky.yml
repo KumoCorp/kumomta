@@ -1,4 +1,4 @@
-name: Rocky
+name: Rocky and Mariner
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        container: ["rockylinux:8", "rockylinux:9"]
+        container: ["rockylinux:8", "rockylinux:9", "mcr.microsoft.com/cbl-mariner/base/core:2.0"]
     container:
       image: ${{ matrix.container }}
       options: --privileged
