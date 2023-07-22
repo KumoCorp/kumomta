@@ -67,6 +67,44 @@ fedora_deps() {
     'telnet'
 }
 
+mariner_deps() {
+  if have_command 'dnf'; then
+    YUM="$SUDO dnf"
+  elif have_command 'yum'; then
+    YUM="$SUDO yum"
+  else
+    echo "No idea what package manager to use, sorry! (perhaps 'dnf' or 'yum' is not in \$PATH?)"
+    return 1
+  fi
+  # perl stuff moved around in different versions of the distro.
+  # Make a soft attempt under this name.
+  $YUM install -y 'perl-FindBin' 'perl-File-Compare' || true
+  if ! have_command 'curl' ; then
+    # Some systems have curl-minimal which won't tolerate us
+    # trying to install curl, so only try to install if we
+    # don't have it already
+    $YUM install -y 'curl'
+  fi
+  $YUM install -y \
+    'binutils' \
+    'ca-certificates' \
+    'clang-devel' \
+    'gcc' \
+    'gcc-c++' \
+    'glibc-devel' \
+    'git' \
+    'kernel-devel' \
+    'kernel-headers' \
+    'make' \
+    'openssl-devel' \
+    'pkg-config' \
+    'python3' \
+    'python3-pip' \
+    'redis' \
+    'rpm-build' \
+    'rpm-sign'
+}
+
 suse_deps() {
   ZYPPER="$SUDO zypper"
   $ZYPPER install -yl \
@@ -235,6 +273,9 @@ case $ID in
   ;;
   solus)
     solus_deps
+  ;;
+  mariner)
+    mariner_deps
   ;;
   *)
     echo "Couldn't find OS by ID, found ID: $ID"
