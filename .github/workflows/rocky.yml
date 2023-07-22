@@ -46,7 +46,8 @@ jobs:
     steps:
     - name: "Install git"
       shell: bash
-      run: "dnf install -y git"
+      # Mariner uses yum rather than dnf
+      run: "dnf install -y git || yum install -y git"
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3
