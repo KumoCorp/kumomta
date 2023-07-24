@@ -10,6 +10,7 @@ So far we've run non-production tests on the following systems:
 * Debian (11)
 * Ubuntu (18, 20, 22, 20.04ARM (aarch64) )
 * OpenSuse Leap (15.4)
+* Azure Linux (CBL-Mariner2)
 * Amazon Linux 2
 * Kali (2003.1)
 * CentOS 7
