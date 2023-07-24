@@ -1,9 +1,9 @@
 use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
-use crate::http_server::HttpListenerParams;
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
+use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_runtime::spawn;
 use mlua::{Lua, Value};
 
@@ -14,7 +14,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = from_lua_value(lua, params)?;
-            params.start().await.map_err(any_err)?;
+            params
+                .start(crate::http_server::make_router())
+                .await
+                .map_err(any_err)?;
             Ok(())
         })?,
     )?;

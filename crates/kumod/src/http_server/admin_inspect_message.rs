@@ -1,7 +1,7 @@
-use crate::http_server::auth::TrustedIpRequired;
-use crate::http_server::AppError;
 use axum::extract::{Json, Query};
 use kumo_api_types::{InspectMessageV1Request, InspectMessageV1Response, MessageInformation};
+use kumo_server_common::http_server::auth::TrustedIpRequired;
+use kumo_server_common::http_server::AppError;
 use message::Message;
 
 pub async fn inspect_v1(

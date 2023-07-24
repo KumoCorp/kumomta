@@ -1,11 +1,11 @@
-use crate::http_server::auth::TrustedIpRequired;
-use crate::http_server::AppError;
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use kumo_api_types::{
     SuspendV1CancelRequest, SuspendV1ListEntry, SuspendV1Request, SuspendV1Response,
 };
+use kumo_server_common::http_server::auth::TrustedIpRequired;
+use kumo_server_common::http_server::AppError;
 use message::message::QueueNameComponents;
 use std::sync::Mutex;
 use std::time::Instant;

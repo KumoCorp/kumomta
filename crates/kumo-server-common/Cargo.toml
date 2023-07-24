@@ -7,13 +7,20 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+axum = "0.6"
+axum-client-ip = "0.4"
+axum-server = {version="0.4", features=["tls-rustls"]}
 backtrace = "0.3"
+base64 = "0.13"
+cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
 console-subscriber = "0.1"
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
+gethostname = "0.4"
 json_comments = "0.2"
+kumo-api-types = {path="../kumo-api-types"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
@@ -29,9 +36,11 @@ mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
 nix = "0.26"
 once_cell = "1.17"
+prometheus = "0.13"
 rcgen = "0.10"
 rustls = "0.20"
 rustls-pemfile = "1.0"
+serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 throttle = {path="../throttle"}
 tokio = {version="1.25", features=["full", "tracing"]}
