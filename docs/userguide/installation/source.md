@@ -67,12 +67,20 @@ $ rustc -V
 With all the dependencies available, the actual build process is very simple:
 
 ```console
-$ cd kumomta
 $ cargo build --release
 ```
 
 This will build everything, leaving the binaries in the `target/release`
 directory in the repo.
+
+## Installing your build
+There are a few helpers included that can build out the recommended directory structure. 
+
+```console
+$ assets/build-rpm.sh
+$ assets/install.sh /opt/kumomta
+```
+A minimal policy is included in /opt/kumomta/share/minimal-init.lua that you can just copy to /opt/kumomta/etc/policy/init.lua.  This is VERY minimal and you shoud definitely edit or create your own (see below)
 
 
 ## Creating the initial config
@@ -100,11 +108,6 @@ You can add debugging output by adjusting the `KUMOD_LOG` environment variable.
 For exampe, setting `KUMOD_LOG=kumod=trace` in the environment will run with
 very verbose logging.
 
-## Installing your build
-
-```console
-$ assets/install.sh /opt/kumomta
-```
 
 ## Staying up to date
 
