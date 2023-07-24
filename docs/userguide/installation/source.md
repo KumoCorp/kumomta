@@ -103,7 +103,7 @@ very verbose logging.
 ## Installing your build
 
 ```console
-$ sudo assets/install.sh /opt/kumomta
+$ assets/install.sh /opt/kumomta
 ```
 
 ## Staying up to date
