@@ -95,10 +95,15 @@ The config is written in Lua and should live in /opt/kumomta/etc/policy. It **MU
 
 ## Running from your source directory
 
-This command will bring `kumod` up to date (in case you made changes), and then launch it:
+This command will bring `kumod` up to date (in case you made changes), and then try to launch it:
 
 ```console
-$ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy /opt/kumomta/etc/policy/init.lua --user kumod
+$ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy /opt/kumomta/etc/policy/init.lua
+```
+
+You can run as root using port 25 with this:
+```
+ sudo KUMOD_LOG=kumod=debug /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/sink.lua --user kumod&
 ```
 
 In the above you are telling Cargo to run the Rust compiler to build an
