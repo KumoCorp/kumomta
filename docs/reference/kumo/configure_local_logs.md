@@ -276,12 +276,16 @@ The log record is a JSON object with the following shape:
     // mechanism.
     "delivery_protocol": "ESMTP",
 
-    /// The protocol used to receive the message
-    /// "ESMTP" for SMTP, "HTTP" for the HTTP injection API, "LogRecord"
-    /// for messages captured via `configure_log_hook`.
-    /// This information is also stored in the message meta key named
-    /// "reception_protocol".
-    "reception_protocol": "ESMTP"
+    // The protocol used to receive the message
+    // "ESMTP" for SMTP, "HTTP" for the HTTP injection API, "LogRecord"
+    // for messages captured via `configure_log_hook`.
+    // This information is also stored in the message meta key named
+    // "reception_protocol".
+    "reception_protocol": "ESMTP",
+
+    // The node uuid. This identifies the node independently from its
+    // IP address or other characteristics present in this log record.
+    "nodeid": "557f3ad4-2c8c-11ee-976e-782d7e12e173"
 }
 ```
 

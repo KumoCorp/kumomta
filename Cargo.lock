@@ -2251,6 +2251,7 @@ dependencies = [
  "rfc5321",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

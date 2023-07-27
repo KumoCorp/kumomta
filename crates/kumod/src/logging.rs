@@ -412,6 +412,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     }
 
     let now = Utc::now();
+    let nodeid = kumo_server_common::nodeid::NodeId::get().uuid;
 
     for logger in loggers.iter() {
         if !logger.record_is_enabled(kind) {
@@ -449,6 +450,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             meta,
             delivery_protocol: delivery_protocol.map(|s| s.to_string()),
             reception_protocol: reception_protocol.clone(),
+            nodeid,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -529,6 +531,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             meta: HashMap::new(),
                             delivery_protocol: None,
                             reception_protocol: reception_protocol.clone(),
+                            nodeid,
                         };
 
                         if let Err(err) = logger.log(record).await {

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use uuid::Uuid;
 
 pub mod rfc3464;
 pub mod rfc5965;
@@ -86,4 +87,7 @@ pub struct JsonLogRecord {
 
     /// The protocol used to receive this message
     pub reception_protocol: Option<String>,
+
+    /// The id of the node on which the event occurred
+    pub nodeid: Uuid,
 }
