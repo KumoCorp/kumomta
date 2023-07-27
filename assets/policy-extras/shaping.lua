@@ -34,7 +34,88 @@ Alternatively, you could use a TOML file instead.
 ]]
 
 function mod:setup(extra_files)
-  local function load_shaping_data(file_names)
+  self:setup_with_automation {
+    extra_files = extra_files,
+    publish = {},
+    subscribe = {},
+  }
+end
+
+local function process_shaping_data(data, filename, site_to_domains, result)
+  for domain, config in pairs(data) do
+    local entry = {
+      sources = {},
+      params = {},
+    }
+
+    local mx_rollup = true
+    if config.mx_rollup ~= nil then
+      mx_rollup = config.mx_rollup
+    end
+    local replace_base = false
+    if config.replace_base ~= nil then
+      replace_base = config.replace_base
+    end
+
+    config.mx_rollup = nil
+    config.replace_base = nil
+
+    if domain == 'default' then
+      mx_rollup = false
+    end
+
+    for k, v in pairs(config) do
+      if k == 'sources' then
+        entry.sources = v
+      else
+        entry.params[k] = v
+      end
+    end
+
+    if mx_rollup then
+      local ok, mxinfo = pcall(kumo.dns.lookup_mx, domain)
+      if not ok then
+        print(
+          string.format(
+            'error resolving MX for %s: %s. Ignoring the shaping config for that domain.',
+            domain,
+            mxinfo
+          )
+        )
+      else
+        local site_name = mxinfo.site_name
+
+        if site_name == '' then
+          print(
+            string.format(
+              'domain %s has a NULL MX and cannot be used with mx_rollup=true. Ignoring the shaping config for that domain.',
+              domain
+            )
+          )
+        else
+          if not replace_base then
+            utils.merge_into(result.by_site[site_name], entry)
+          end
+
+          result.by_site[site_name] = entry
+
+          local site_domains = site_to_domains[site_name] or {}
+          site_domains[domain] = true
+          site_to_domains[site_name] = site_domains
+        end
+      end
+    else
+      if not replace_base then
+        utils.merge_into(result.by_domain[domain], entry)
+      end
+
+      result.by_domain[domain] = entry
+    end
+  end
+end
+
+function mod:setup_with_automation(options)
+  local function load_shaping_data(file_names, subscribe)
     local site_to_domains = {}
     local result = {
       by_site = {},
@@ -43,77 +124,11 @@ function mod:setup(extra_files)
     for _, filename in ipairs(file_names) do
       local data = utils.load_json_or_toml_file(filename)
       -- print('Loaded', kumo.json_encode_pretty(data))
-      for domain, config in pairs(data) do
-        local entry = {
-          sources = {},
-          params = {},
-        }
-
-        local mx_rollup = true
-        if config.mx_rollup ~= nil then
-          mx_rollup = config.mx_rollup
-        end
-        local replace_base = false
-        if config.replace_base ~= nil then
-          replace_base = config.replace_base
-        end
-
-        config.mx_rollup = nil
-        config.replace_base = nil
-
-        if domain == 'default' then
-          mx_rollup = false
-        end
-
-        for k, v in pairs(config) do
-          if k == 'sources' then
-            entry.sources = v
-          else
-            entry.params[k] = v
-          end
-        end
-
-        if mx_rollup then
-          local ok, mxinfo = pcall(kumo.dns.lookup_mx, domain)
-          if not ok then
-            print(
-              string.format(
-                'error resolving MX for %s: %s. Ignoring the shaping config for that domain.',
-                domain,
-                mxinfo
-              )
-            )
-          else
-            local site_name = mxinfo.site_name
-
-            if site_name == '' then
-              print(
-                string.format(
-                  'domain %s has a NULL MX and cannot be used with mx_rollup=true. Ignoring the shaping config for that domain.',
-                  domain
-                )
-              )
-            else
-              if not replace_base then
-                utils.merge_into(result.by_site[site_name], entry)
-              end
-
-              result.by_site[site_name] = entry
-
-              local site_domains = site_to_domains[site_name] or {}
-              site_domains[domain] = true
-              site_to_domains[site_name] = site_domains
-            end
-          end
-        else
-          if not replace_base then
-            utils.merge_into(result.by_domain[domain], entry)
-          end
-
-          result.by_domain[domain] = entry
-        end
-      end
+      process_shaping_data(data, filename, site_to_domains, result)
     end
+
+    -- TODO: load data from options.subscribe and pass it to
+    -- process_shaping_data()
 
     local conflicted = {}
     for site, domains in pairs(site_to_domains) do
@@ -153,14 +168,14 @@ function mod:setup(extra_files)
     -- './assets/policy-extras/shaping.toml',
     '/opt/kumomta/share/policy-extras/shaping.toml',
   }
-  if extra_files then
+  if options.extra_files then
     for _, filename in ipairs(extra_files) do
       table.insert(file_names, filename)
     end
   end
 
   local function get_egress_path_config(domain, egress_source, site_name)
-    local data = cached_load_data(file_names)
+    local data = cached_load_data(file_names, options.subscribe)
 
     local by_site = data.by_site[site_name]
     local by_domain = data.by_domain[domain]
