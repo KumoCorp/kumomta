@@ -5,6 +5,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
+mod http_server;
+mod mod_auto;
+
 /// KumoMTA Traffic Shaping Automation Daemon.
 ///
 /// Full docs available at: <https://docs.kumomta.com>
@@ -69,7 +72,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             filter_env_var: "KUMO_TSA_LOG",
             default_filter: "tsa_daemon=info,kumo_server_common=info",
         },
-        lua_funcs: &[kumo_server_common::register],
+        lua_funcs: &[kumo_server_common::register, mod_auto::register],
         policy: &opts.policy,
     }
     .run(perform_init, signal_shutdown)

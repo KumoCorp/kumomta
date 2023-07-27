@@ -284,7 +284,7 @@ function mod:setup_with_automation(options)
   local function setup_publish()
     for _, params in pairs(publish) do
       kumo.configure_log_hook {
-        name = hook_name,
+        name = params.hook_name,
       }
     end
   end
@@ -330,7 +330,7 @@ function mod:setup_with_automation(options)
       return should_enq(publish, msg, hook_name)
     end,
     setup_publish = setup_publish,
-    get_queue_cfg = function(domain, tenant, campaign)
+    get_queue_config = function(domain, tenant, campaign)
       return get_queue_cfg(publish, domain, tenant, campaign)
     end,
   }

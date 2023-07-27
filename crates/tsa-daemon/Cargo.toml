@@ -13,11 +13,15 @@ axum-server = {version="0.4", features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
+kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-memory = {path="../kumo-server-memory"}
+kumo-server-runtime = {path="../kumo-server-runtime"}
+mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 tikv-jemallocator = "0.5"
 tokio = {version="1.25", features=["full", "tracing"]}
 tokio-rustls = "0.23"
 toml = "0.7"
+tracing = "0.1"
 version-info = {path="../version-info"}

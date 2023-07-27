@@ -1,0 +1,21 @@
+use config::{any_err, from_lua_value, get_or_create_module};
+use kumo_server_common::http_server::HttpListenerParams;
+use mlua::{Lua, Value};
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let kumo_mod = get_or_create_module(lua, "tsa")?;
+
+    kumo_mod.set(
+        "start_http_listener",
+        lua.create_async_function(|lua, params: Value| async move {
+            let params: HttpListenerParams = from_lua_value(lua, params)?;
+            params
+                .start(crate::http_server::make_router())
+                .await
+                .map_err(any_err)?;
+            Ok(())
+        })?,
+    )?;
+
+    Ok(())
+}

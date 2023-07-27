@@ -5293,13 +5293,17 @@ dependencies = [
  "chrono",
  "clap 4.3.17",
  "config",
+ "kumo-log-types",
  "kumo-server-common",
  "kumo-server-memory",
+ "kumo-server-runtime",
+ "mlua",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
  "tokio-rustls 0.23.4",
  "toml",
+ "tracing",
  "version-info",
 ]
 
