@@ -132,6 +132,8 @@ fn main() -> anyhow::Result<()> {
 
 fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
     Box::pin(async move {
+        let nodeid = kumo_server_common::nodeid::NodeId::get();
+        tracing::info!("NodeId is {nodeid}");
         let mut config = config::load_config().await?;
         config.async_call_callback("init", ()).await?;
 

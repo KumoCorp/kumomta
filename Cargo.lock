@@ -2275,6 +2275,8 @@ dependencies = [
  "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
+ "libc",
+ "mac_address",
  "metrics",
  "metrics-prometheus",
  "metrics-tracing-context",
@@ -2299,6 +2301,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

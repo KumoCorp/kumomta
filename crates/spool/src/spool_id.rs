@@ -11,8 +11,12 @@ fn get_mac_address() -> [u8; 6] {
     match mac_address::get_mac_address() {
         Ok(Some(addr)) => addr.bytes(),
         _ => {
-            let mut mac = [0u8; 6];
-            getrandom::getrandom(&mut mac).ok();
+            // Fall back to gethostid, which is not great, but
+            // likely better than just random numbers
+            let host_id = unsafe { libc::gethostid() }.to_le_bytes();
+            let mac: [u8; 6] = [
+                host_id[0], host_id[1], host_id[2], host_id[3], host_id[4], host_id[5],
+            ];
             mac
         }
     }
