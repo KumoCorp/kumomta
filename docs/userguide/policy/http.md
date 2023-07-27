@@ -12,11 +12,6 @@ kumo.on('make.mailgun', function(domain, tenant, campaign)
   local client = kumo.http.build_client {}
   local sender = {}
 
-  -- Mailgun requires a file upload to use the messages.mime method
-  local fh = assert(io.open('/tmp/mime.msg', 'wb'))
-  local t = fh:write(tostring(message:get_data()))
-  fh:close()
-
   function sender:send(message)
     local request =
       client:post 'https://api.mailgun.net/v3/YOUR_DOMAIN_NAME/messages.mime'
@@ -26,7 +21,7 @@ kumo.on('make.mailgun', function(domain, tenant, campaign)
       to = message:recipient().email,
       message = {
         data = message:get_data(),
-        file_name = '/tmp/mime.msg',
+        file_name = 'mime.msg',
       },
     }
 
