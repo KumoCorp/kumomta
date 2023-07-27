@@ -34,11 +34,11 @@ Alternatively, you could use a TOML file instead.
 ]]
 
 function mod:setup(extra_files)
-  self:setup_with_automation {
+  return self:setup_with_automation({
     extra_files = extra_files,
     publish = {},
     subscribe = {},
-  }
+  }).get_egress_path_config
 end
 
 local function process_shaping_data(data, filename, site_to_domains, result)
@@ -114,50 +114,135 @@ local function process_shaping_data(data, filename, site_to_domains, result)
   end
 end
 
-function mod:setup_with_automation(options)
-  local function load_shaping_data(file_names, subscribe)
-    local site_to_domains = {}
-    local result = {
-      by_site = {},
-      by_domain = {},
-    }
-    for _, filename in ipairs(file_names) do
-      local data = utils.load_json_or_toml_file(filename)
-      -- print('Loaded', kumo.json_encode_pretty(data))
-      process_shaping_data(data, filename, site_to_domains, result)
-    end
-
-    -- TODO: load data from options.subscribe and pass it to
-    -- process_shaping_data()
-
-    local conflicted = {}
-    for site, domains in pairs(site_to_domains) do
-      domains = utils.table_keys(domains)
-      if #domains > 1 then
-        domains = table.concat(domains, ', ')
-        table.insert(conflicted, domains)
-        print(
-          'Multiple domains rollup to the same site: '
-            .. site
-            .. ' -> '
-            .. domains
-        )
-      end
-    end
-
-    if #conflicted > 0 then
-      -- This will generate a transient failure for every message
-      -- until the issue is resolved
-      error(
-        'multiple conflicting rollup domains '
-          .. table.concat(conflicted, ' ')
-      )
-    end
-
-    -- print('Computed', kumo.json_encode_pretty(result))
-    return result
+local function load_shaping_data(file_names, subscribe)
+  local site_to_domains = {}
+  local result = {
+    by_site = {},
+    by_domain = {},
+  }
+  for _, filename in ipairs(file_names) do
+    local data = utils.load_json_or_toml_file(filename)
+    -- print('Loaded', kumo.json_encode_pretty(data))
+    process_shaping_data(data, filename, site_to_domains, result)
   end
 
+  -- TODO: load data from options.subscribe and pass it to
+  -- process_shaping_data()
+
+  local conflicted = {}
+  for site, domains in pairs(site_to_domains) do
+    domains = utils.table_keys(domains)
+    if #domains > 1 then
+      domains = table.concat(domains, ', ')
+      table.insert(conflicted, domains)
+      print(
+        'Multiple domains rollup to the same site: '
+          .. site
+          .. ' -> '
+          .. domains
+      )
+    end
+  end
+
+  if #conflicted > 0 then
+    -- This will generate a transient failure for every message
+    -- until the issue is resolved
+    error(
+      'multiple conflicting rollup domains ' .. table.concat(conflicted, ' ')
+    )
+  end
+
+  -- print('Computed', kumo.json_encode_pretty(result))
+  return result
+end
+
+local function should_enq(publish, msg, hook_name)
+  local params = publish[hook_name]
+  if not params then
+    -- User defined log hook that is not part of shaping.lua
+    return false
+  end
+
+  local log_record = msg:get_meta 'log_record'
+
+  -- We only want to log if the event isn't one of our
+  -- publishing events
+  for name, _ in pairs(publish) do
+    if name == log_record.queue then
+      -- It's one of our log hooks; don't queue this one
+      return false
+    end
+  end
+
+  -- It was not destined to any of our hooks, so we can safely
+  -- queue this one without triggering a cycle
+  msg:set_meta('queue', hook_name)
+  return true
+end
+
+local function construct_publisher(publish, domain)
+  local connection = {}
+  local client = kumo.http.build_client {}
+  function connection:send(message)
+    local response = client
+      :post(string.format('%s/publish_log_v1', publish.endpoint))
+      :header('Content-Type', 'application/json')
+      :body(message:get_data())
+      :send()
+
+    local disposition = string.format(
+      '%d %s: %s',
+      response:status_code(),
+      response:status_reason(),
+      response:text()
+    )
+
+    if response:status_is_success() then
+      return disposition
+    end
+
+    -- retry later
+    kumo.reject(400, disposition)
+  end
+  return connection
+end
+
+local function get_queue_cfg(publish, domain, tenant, campaign)
+  for _, data in pairs(publish) do
+    if data.hook_name == domain then
+      return kumo.make_queue_config {
+        protocol = {
+          custom_lua = {
+            constructor = data.constructor,
+          },
+        },
+      }
+    end
+  end
+end
+
+--[[
+local shaper = shaping:setup_with_automation {
+  publish = {"http://10.0.0.1:8008"},
+  subscribe = {"http://10.0.0.1:8008"},
+}
+
+kumo.on('init', function()
+  shaper.setup_publish()
+end)
+
+kumo.on('get_egress_path_config', shaper.get_egress_path_config)
+kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  local cfg = shaper.get_queue_config(domain, tenant, campaign)
+  if cfg then
+    return cfg
+  end
+
+  -- Do your normal queue config handling here
+end)
+]]
+function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = '5 minutes',
@@ -171,6 +256,36 @@ function mod:setup_with_automation(options)
   if options.extra_files then
     for _, filename in ipairs(extra_files) do
       table.insert(file_names, filename)
+    end
+  end
+
+  local publish = {}
+  for _, destination in ipairs(options.publish) do
+    -- Generate the hook name and constructor name and
+    -- keep that info in a more structured form
+    local hook_name = string.format('%s.tsa.kumomta', destination)
+    local constructor = string.format('make.%s', hook_name)
+
+    publish[hook_name] = {
+      endpoint = destination,
+      hook_name = hook_name,
+      constructor = constructor,
+    }
+
+    -- Since we own naming the constructor events, we can make
+    -- them unique without fear of colliding with user-provided
+    -- events, so we can simply bind the event handlers here
+    -- without returning them to the caller to deal with
+    kumo.on(constructor, function(domain, _tenant, _campaign)
+      return construct_publisher(publish[hook_name], domain)
+    end)
+  end
+
+  local function setup_publish()
+    for _, params in pairs(publish) do
+      kumo.configure_log_hook {
+        name = hook_name,
+      }
     end
   end
 
@@ -209,7 +324,16 @@ function mod:setup_with_automation(options)
     return kumo.make_egress_path(params)
   end
 
-  return get_egress_path_config
+  return {
+    get_egress_path_config = get_egress_path_config,
+    should_enqueue_log_record = function(msg, hook_name)
+      return should_enq(publish, msg, hook_name)
+    end,
+    setup_publish = setup_publish,
+    get_queue_cfg = function(domain, tenant, campaign)
+      return get_queue_cfg(publish, domain, tenant, campaign)
+    end,
+  }
 end
 
 return mod
