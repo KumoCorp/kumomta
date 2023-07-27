@@ -412,7 +412,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     }
 
     let now = Utc::now();
-    let nodeid = kumo_server_common::nodeid::NodeId::get().uuid;
+    let nodeid = kumo_server_common::nodeid::NodeId::get_uuid();
 
     for logger in loggers.iter() {
         if !logger.record_is_enabled(kind) {

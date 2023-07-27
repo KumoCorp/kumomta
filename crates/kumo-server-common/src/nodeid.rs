@@ -60,8 +60,14 @@ impl std::fmt::Display for NodeId {
 }
 
 impl NodeId {
+    /// Get the NodeId
     pub fn get() -> Self {
         (*NODEID).clone()
+    }
+
+    /// Retrieve just the uuid
+    pub fn get_uuid() -> Uuid {
+        NODEID.uuid
     }
 
     /// Raises an error if we don't have a persistent unique node id
