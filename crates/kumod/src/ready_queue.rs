@@ -1,5 +1,4 @@
 use crate::delivery_metrics::DeliveryMetrics;
-use crate::egress_path::EgressPathConfig;
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
@@ -12,6 +11,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::load_config;
 use dns_resolver::MailExchanger;
+use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
 use kumo_server_runtime::{rt_spawn, rt_spawn_non_blocking, spawn};

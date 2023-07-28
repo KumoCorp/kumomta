@@ -5,6 +5,9 @@ use std::time::Duration;
 use url::Url;
 use uuid::Uuid;
 
+pub mod egress_path;
+pub mod shaping;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BounceV1Request {
     #[serde(default)]

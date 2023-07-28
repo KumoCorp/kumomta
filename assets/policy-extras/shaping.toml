@@ -58,6 +58,12 @@ consecutive_connection_failures_before_delay = 5
 ["yahoo.com"]
 max_deliveries_per_connection = 20
 
+[["yahoo.com".automation]]
+domain = "yahoo.com"
+regex = "\\[TS04\\]"
+action = "Suspend"
+duration = "2 hours"
+
 # PROVIDED BY COMCAST DIRECTLY
 # https://spa.xfinity.com/postmaster
 ["comcast.net"]

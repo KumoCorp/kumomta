@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 
 mod delivery_metrics;
-mod egress_path;
 mod egress_source;
 mod http_server;
 mod logging;

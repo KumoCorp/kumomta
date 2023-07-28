@@ -1,11 +1,11 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
-use crate::egress_path::Tls;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use dns_resolver::ResolvedMxAddresses;
+use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::{rt_spawn, spawn};

@@ -1,8 +1,8 @@
-use crate::egress_path::EgressPathConfig;
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::queue::QueueConfig;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
+use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_runtime::spawn;
 use mlua::{Lua, Value};

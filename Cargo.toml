@@ -14,6 +14,7 @@ members = [
   "crates/throttle",
   "crates/traffic-gen",
   "crates/tsa-daemon",
+  "crates/validate-shaping",
   "crates/version-info",
 ]
 resolver = "2"

@@ -1,0 +1,12 @@
+[package]
+name = "validate-shaping"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+clap = {version="4.1", features=["derive"]}
+kumo-api-types = {path="../kumo-api-types"}
+tokio = {version="1.25", features=["full"]}
