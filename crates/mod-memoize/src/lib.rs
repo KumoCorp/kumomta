@@ -1,6 +1,6 @@
 use config::{any_err, from_lua_value, get_or_create_module};
 use lruttl::LruCacheWithTtl;
-use mlua::{Function, Lua, LuaSerdeExt, MultiValue, ToLua, UserData, UserDataMethods};
+use mlua::{FromLua, Function, Lua, LuaSerdeExt, MultiValue, ToLua, UserData, UserDataMethods};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -55,14 +55,30 @@ pub struct MemoizeParams {
     pub name: String,
 }
 
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub enum MapKey {
+    Integer(mlua::Integer),
+    String(Vec<u8>),
+}
+
+impl MapKey {
+    pub fn as_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+        match self {
+            Self::Integer(j) => Ok(mlua::Value::Integer(*j)),
+            Self::String(b) => Ok(mlua::Value::String(lua.create_string(b)?)),
+        }
+    }
+}
+
 #[derive(Clone)]
-enum CacheValue {
+pub enum CacheValue {
+    Table(HashMap<MapKey, CacheValue>),
     Json(serde_json::Value),
     Memoized(Memoized),
 }
 
-impl CacheValue {
-    fn from_value(lua: &Lua, value: mlua::Value) -> mlua::Result<Self> {
+impl<'lua> FromLua<'lua> for CacheValue {
+    fn from_lua(value: mlua::Value<'lua>, lua: &'lua Lua) -> mlua::Result<Self> {
         match value {
             mlua::Value::UserData(ud) => {
                 let mt = ud.get_metatable()?;
@@ -70,14 +86,48 @@ impl CacheValue {
                 let m: Memoized = func.call(mlua::Value::UserData(ud))?;
                 Ok(Self::Memoized(m))
             }
+            mlua::Value::Table(tbl) => {
+                let mut map = HashMap::new();
+                for pair in tbl.pairs::<mlua::Value, mlua::Value>() {
+                    let (key, value) = pair?;
+                    let key = match key {
+                        mlua::Value::Integer(n) => MapKey::Integer(n),
+                        mlua::Value::String(n) => MapKey::String(n.as_bytes().to_vec()),
+                        _ => {
+                            return Err(anyhow::anyhow!(
+                                "table key {key:?} cannot be used as a key in a memoizable table"
+                            ))
+                            .map_err(any_err)
+                        }
+                    };
+                    let value = CacheValue::from_lua(value, lua)?;
+                    map.insert(key, value);
+                }
+                Ok(Self::Table(map))
+            }
             _ => Ok(Self::Json(from_lua_value(lua, value)?)),
         }
     }
+}
 
-    fn to_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+impl<'lua> ToLua<'lua> for CacheValue {
+    fn to_lua(self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+        self.as_lua(lua)
+    }
+}
+
+impl CacheValue {
+    pub fn as_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
         match self {
             Self::Json(j) => lua.to_value(j),
             Self::Memoized(m) => (m.to_value)(lua),
+            Self::Table(m) => {
+                let result = lua.create_table()?;
+                for (k, v) in m {
+                    result.set(k.as_lua(lua)?, v.as_lua(lua)?)?;
+                }
+                Ok(mlua::Value::Table(result))
+            }
         }
     }
 }
@@ -93,11 +143,11 @@ impl CacheEntry {
     fn to_value<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
         match self {
             Self::Null => Ok(mlua::Value::Nil),
-            Self::Single(value) => value.to_lua(lua),
+            Self::Single(value) => value.as_lua(lua),
             Self::Multi(values) => {
                 let mut result = vec![];
                 for v in values {
-                    result.push(v.to_lua(lua)?);
+                    result.push(v.as_lua(lua)?);
                 }
                 result.to_lua(lua)
             }
@@ -109,14 +159,14 @@ impl CacheEntry {
         if values.is_empty() {
             Ok(Self::Null)
         } else if values.len() == 1 {
-            Ok(Self::Single(CacheValue::from_value(
-                lua,
+            Ok(Self::Single(CacheValue::from_lua(
                 values.pop().unwrap(),
+                lua,
             )?))
         } else {
             let mut cvalues = vec![];
             for v in values.into_iter() {
-                cvalues.push(CacheValue::from_value(lua, v)?);
+                cvalues.push(CacheValue::from_lua(v, lua)?);
             }
             Ok(Self::Multi(cvalues))
         }

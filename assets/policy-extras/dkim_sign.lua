@@ -123,16 +123,19 @@ local function load_dkim_data(dkim_data_files)
     end
   end
 
-  for domain, _params in pairs(data.domain) do
+  for domain_name, domain in pairs(data.domain) do
     if not data.base.selector and not domain.selector then
       error(
         string.format(
           "dkim domain '%s' is missing a selector and no default selector is defined in base",
-          domain
+          domain_name
         )
       )
     end
   end
+
+  -- Compile the domain map for pattern matching
+  data.domain = kumo.domain_map.new(data.domain)
 
   return data
 end
@@ -250,8 +253,6 @@ function mod:setup(dkim_data_files)
 
   local sign_message = function(msg)
     local data = cached_load_data(dkim_data_files)
-    -- Compile the domain map for pattern matching
-    data.domain = kumo.domain_map.new(data.domain)
     do_dkim_sign(msg, data)
   end
 

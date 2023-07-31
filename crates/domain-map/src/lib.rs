@@ -1,9 +1,10 @@
 //! This module provides a simple datastructure that can store
 //! values associated with a domain name style key.
 //! Wildcard keys are supported.
-use config::{from_lua_value, get_or_create_sub_module};
+use config::get_or_create_sub_module;
 use mlua::prelude::LuaUserData;
-use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods};
+use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
+use mod_memoize::CacheValue;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
@@ -38,14 +39,12 @@ pub struct DomainMap<V: Clone> {
     top: HashMap<String, Node<V>>,
 }
 
-impl<V> LuaUserData for DomainMap<V>
-where
-    V: Clone + Serialize + for<'de> Deserialize<'de>,
-{
+impl LuaUserData for DomainMap<CacheValue> {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        mod_memoize::Memoized::impl_memoize(methods);
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
             if let Some(value) = this.get(&key) {
-                let value = lua.to_value(value)?;
+                let value = value.as_lua(lua)?;
                 Ok(Some(value))
             } else {
                 Ok(None)
@@ -54,7 +53,7 @@ where
         methods.add_meta_method_mut(
             MetaMethod::NewIndex,
             |lua, this, (key, value): (String, mlua::Value)| {
-                let value: V = from_lua_value(lua, value)?;
+                let value = CacheValue::from_lua(value, lua)?;
                 this.insert(&key, value);
                 Ok(())
             },
@@ -161,11 +160,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     dmap_mod.set(
         "new",
         lua.create_function(|lua, value: Option<HashMap<String, mlua::Value>>| {
-            let mut dmap: DomainMap<serde_json::Value> = DomainMap::new();
+            let mut dmap: DomainMap<mod_memoize::CacheValue> = DomainMap::new();
 
             if let Some(value) = value {
                 for (k, v) in value {
-                    let v: serde_json::Value = from_lua_value(lua, v)?;
+                    let v = CacheValue::from_lua(v, lua)?;
                     dmap.insert(&k, v);
                 }
             }

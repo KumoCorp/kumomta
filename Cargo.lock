@@ -1315,6 +1315,7 @@ dependencies = [
  "config",
  "k9",
  "mlua",
+ "mod-memoize",
  "serde",
  "serde_json",
 ]
