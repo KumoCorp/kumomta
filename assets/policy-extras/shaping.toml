@@ -59,7 +59,6 @@ consecutive_connection_failures_before_delay = 5
 max_deliveries_per_connection = 20
 
 [["yahoo.com".automation]]
-domain = "yahoo.com"
 regex = "\\[TS04\\]"
 action = "Suspend"
 duration = "2 hours"

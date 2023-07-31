@@ -1,6 +1,8 @@
 use crate::egress_path::EgressPathConfig;
 use anyhow::Context;
 use dns_resolver::MailExchanger;
+use mlua::prelude::LuaUserData;
+use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,15 +39,13 @@ impl std::hash::Hash for Regex {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Hash)]
+#[derive(Deserialize, Serialize, Debug, Hash, Clone)]
 pub enum Action {
     Suspend,
 }
 
-#[derive(Deserialize, Serialize, Debug, Hash)]
+#[derive(Deserialize, Serialize, Debug, Hash, Clone)]
 pub struct Rule {
-    pub domain: String,
-
     #[serde(default)]
     pub mx_rollup: bool,
 
@@ -59,8 +59,8 @@ pub struct Rule {
 
 #[derive(Debug)]
 pub struct Shaping {
-    pub by_site: HashMap<String, MergedEntry>,
-    pub by_domain: HashMap<String, MergedEntry>,
+    by_site: HashMap<String, PartialEntry>,
+    by_domain: HashMap<String, PartialEntry>,
     pub warnings: Vec<String>,
 }
 
@@ -157,29 +157,77 @@ impl Shaping {
             );
         }
 
-        let mut merged_site = HashMap::new();
-        for (site, partial) in by_site {
-            merged_site.insert(
-                site.clone(),
-                partial.finish().with_context(|| format!("site: {site}"))?,
-            );
+        for (site, partial) in &by_site {
+            partial
+                .clone()
+                .finish()
+                .with_context(|| format!("site: {site}"))?;
         }
 
-        let mut merged_domain = HashMap::new();
-        for (domain, partial) in by_domain {
-            merged_domain.insert(
-                domain.clone(),
-                partial
-                    .finish()
-                    .with_context(|| format!("domain: {domain}"))?,
-            );
+        for (domain, partial) in &by_domain {
+            partial
+                .clone()
+                .finish()
+                .with_context(|| format!("domain: {domain}"))?;
         }
 
         Ok(Self {
-            by_site: merged_site,
-            by_domain: merged_domain,
+            by_site,
+            by_domain,
             warnings,
         })
+    }
+
+    fn get_egress_path_config(
+        &self,
+        domain: &str,
+        egress_source: &str,
+        site_name: &str,
+    ) -> PartialEntry {
+        let mut params = PartialEntry::default();
+
+        // Apply basic/default configuration
+        if let Some(default) = self.by_domain.get("default") {
+            params.merge_from(default.clone());
+        }
+
+        // Then site config
+        if let Some(by_site) = self.by_site.get(site_name) {
+            params.merge_from(by_site.clone());
+        }
+
+        // Then domain config
+        if let Some(by_domain) = self.by_domain.get(domain) {
+            params.merge_from(by_domain.clone());
+        }
+
+        // Then source config for the site
+        if let Some(by_site) = self.by_site.get(site_name) {
+            if let Some(source) = by_site.sources.get(egress_source) {
+                toml_table_merge_from(&mut params.params, &source);
+            }
+        }
+
+        // Then source config for the domain
+        if let Some(by_domain) = self.by_domain.get(domain) {
+            if let Some(source) = by_domain.sources.get(egress_source) {
+                toml_table_merge_from(&mut params.params, &source);
+            }
+        }
+
+        params
+    }
+}
+
+impl LuaUserData for Shaping {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_method(
+            "get_egress_path_config",
+            move |lua, this, (domain, egress_source, site_name): (String, String, String)| {
+                let params = this.get_egress_path_config(&domain, &egress_source, &site_name);
+                lua.to_value(&params.params)
+            },
+        );
     }
 }
 
@@ -190,7 +238,7 @@ pub struct MergedEntry {
     pub automation: Vec<Rule>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, Default)]
 struct PartialEntry {
     #[serde(skip)]
     pub domain_name: Option<String>,
@@ -211,6 +259,12 @@ struct PartialEntry {
     pub sources: HashMap<String, toml::Table>,
 }
 
+fn toml_table_merge_from(tbl: &mut toml::Table, source: &toml::Table) {
+    for (k, v) in source {
+        tbl.insert(k.clone(), v.clone());
+    }
+}
+
 impl PartialEntry {
     fn merge_from(&mut self, mut other: Self) {
         if other.replace_base {
@@ -218,16 +272,12 @@ impl PartialEntry {
             self.automation = other.automation;
             self.sources = other.sources;
         } else {
-            for (k, v) in other.params {
-                self.params.insert(k, v);
-            }
+            toml_table_merge_from(&mut self.params, &other.params);
 
             for (source, tbl) in other.sources {
                 match self.sources.get_mut(&source) {
                     Some(existing) => {
-                        for (k, v) in tbl {
-                            existing.insert(k, v);
-                        }
+                        toml_table_merge_from(existing, &tbl);
                     }
                     None => {
                         self.sources.insert(source, tbl);
@@ -269,4 +319,350 @@ impl PartialEntry {
 
 fn default_true() -> bool {
     true
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_defaults() {
+        let shaping = Shaping::merge_files(&["../../assets/policy-extras/shaping.toml".into()])
+            .await
+            .unwrap();
+
+        let default = shaping
+            .get_egress_path_config("invalid.domain", "invalid.source", "invalid.site")
+            .finish()
+            .unwrap();
+        k9::snapshot!(
+            default,
+            "
+MergedEntry {
+    params: EgressPathConfig {
+        connection_limit: 10,
+        enable_tls: Opportunistic,
+        client_timeouts: SmtpClientTimeouts {
+            connect_timeout: 60s,
+            ehlo_timeout: 300s,
+            mail_from_timeout: 300s,
+            rcpt_to_timeout: 300s,
+            data_timeout: 30s,
+            data_dot_timeout: 60s,
+            rset_timeout: 5s,
+            idle_timeout: 60s,
+            starttls_timeout: 5s,
+            auth_timeout: 60s,
+        },
+        max_ready: 1024,
+        consecutive_connection_failures_before_delay: 100,
+        smtp_port: 25,
+        smtp_auth_plain_username: None,
+        smtp_auth_plain_password: None,
+        allow_smtp_auth_plain_without_tls: false,
+        max_message_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 1,
+                max_burst: None,
+            },
+        ),
+        max_connection_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 60,
+                max_burst: None,
+            },
+        ),
+        max_deliveries_per_connection: 100,
+        prohibited_hosts: CidrSet(
+            CidrMap {
+                root: Some(
+                    InnerNode(
+                        InnerNode {
+                            key: Any,
+                            children: Children {
+                                left: Leaf(
+                                    Leaf {
+                                        key: V4(
+                                            127.0.0.0/8,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                                right: Leaf(
+                                    Leaf {
+                                        key: V6(
+                                            ::1/128,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                ),
+            },
+        ),
+        skip_hosts: CidrSet(
+            CidrMap {
+                root: None,
+            },
+        ),
+        ehlo_domain: None,
+    },
+    sources: {},
+    automation: [],
+}
+"
+        );
+
+        let example_com = shaping
+            .get_egress_path_config("example.com", "invalid.source", "invalid.site")
+            .finish()
+            .unwrap();
+        k9::snapshot!(
+            example_com,
+            r#"
+MergedEntry {
+    params: EgressPathConfig {
+        connection_limit: 3,
+        enable_tls: Opportunistic,
+        client_timeouts: SmtpClientTimeouts {
+            connect_timeout: 60s,
+            ehlo_timeout: 300s,
+            mail_from_timeout: 300s,
+            rcpt_to_timeout: 300s,
+            data_timeout: 30s,
+            data_dot_timeout: 60s,
+            rset_timeout: 5s,
+            idle_timeout: 60s,
+            starttls_timeout: 5s,
+            auth_timeout: 60s,
+        },
+        max_ready: 1024,
+        consecutive_connection_failures_before_delay: 100,
+        smtp_port: 25,
+        smtp_auth_plain_username: None,
+        smtp_auth_plain_password: None,
+        allow_smtp_auth_plain_without_tls: false,
+        max_message_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 1,
+                max_burst: None,
+            },
+        ),
+        max_connection_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 60,
+                max_burst: None,
+            },
+        ),
+        max_deliveries_per_connection: 100,
+        prohibited_hosts: CidrSet(
+            CidrMap {
+                root: Some(
+                    InnerNode(
+                        InnerNode {
+                            key: Any,
+                            children: Children {
+                                left: Leaf(
+                                    Leaf {
+                                        key: V4(
+                                            127.0.0.0/8,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                                right: Leaf(
+                                    Leaf {
+                                        key: V6(
+                                            ::1/128,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                ),
+            },
+        ),
+        skip_hosts: CidrSet(
+            CidrMap {
+                root: None,
+            },
+        ),
+        ehlo_domain: None,
+    },
+    sources: {
+        "my source name": EgressPathConfig {
+            connection_limit: 5,
+            enable_tls: Opportunistic,
+            client_timeouts: SmtpClientTimeouts {
+                connect_timeout: 60s,
+                ehlo_timeout: 300s,
+                mail_from_timeout: 300s,
+                rcpt_to_timeout: 300s,
+                data_timeout: 300s,
+                data_dot_timeout: 300s,
+                rset_timeout: 5s,
+                idle_timeout: 5s,
+                starttls_timeout: 5s,
+                auth_timeout: 60s,
+            },
+            max_ready: 1024,
+            consecutive_connection_failures_before_delay: 100,
+            smtp_port: 25,
+            smtp_auth_plain_username: None,
+            smtp_auth_plain_password: None,
+            allow_smtp_auth_plain_without_tls: false,
+            max_message_rate: None,
+            max_connection_rate: None,
+            max_deliveries_per_connection: 1024,
+            prohibited_hosts: CidrSet(
+                CidrMap {
+                    root: Some(
+                        InnerNode(
+                            InnerNode {
+                                key: Any,
+                                children: Children {
+                                    left: Leaf(
+                                        Leaf {
+                                            key: V4(
+                                                127.0.0.0/8,
+                                            ),
+                                            value: (),
+                                        },
+                                    ),
+                                    right: Leaf(
+                                        Leaf {
+                                            key: V6(
+                                                ::1/128,
+                                            ),
+                                            value: (),
+                                        },
+                                    ),
+                                },
+                            },
+                        ),
+                    ),
+                },
+            ),
+            skip_hosts: CidrSet(
+                CidrMap {
+                    root: None,
+                },
+            ),
+            ehlo_domain: None,
+        },
+    },
+    automation: [],
+}
+"#
+        );
+
+        // The site name here will need to be updated if yahoo changes
+        // their MX records
+        let yahoo_com = shaping
+            .get_egress_path_config(
+                "yahoo.com",
+                "invalid.source",
+                "(mta5|mta6|mta7).am0.yahoodns.net",
+            )
+            .finish()
+            .unwrap();
+        k9::snapshot!(
+            yahoo_com,
+            r#"
+MergedEntry {
+    params: EgressPathConfig {
+        connection_limit: 10,
+        enable_tls: Opportunistic,
+        client_timeouts: SmtpClientTimeouts {
+            connect_timeout: 60s,
+            ehlo_timeout: 300s,
+            mail_from_timeout: 300s,
+            rcpt_to_timeout: 300s,
+            data_timeout: 30s,
+            data_dot_timeout: 60s,
+            rset_timeout: 5s,
+            idle_timeout: 60s,
+            starttls_timeout: 5s,
+            auth_timeout: 60s,
+        },
+        max_ready: 1024,
+        consecutive_connection_failures_before_delay: 100,
+        smtp_port: 25,
+        smtp_auth_plain_username: None,
+        smtp_auth_plain_password: None,
+        allow_smtp_auth_plain_without_tls: false,
+        max_message_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 1,
+                max_burst: None,
+            },
+        ),
+        max_connection_rate: Some(
+            ThrottleSpec {
+                limit: 100,
+                period: 60,
+                max_burst: None,
+            },
+        ),
+        max_deliveries_per_connection: 20,
+        prohibited_hosts: CidrSet(
+            CidrMap {
+                root: Some(
+                    InnerNode(
+                        InnerNode {
+                            key: Any,
+                            children: Children {
+                                left: Leaf(
+                                    Leaf {
+                                        key: V4(
+                                            127.0.0.0/8,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                                right: Leaf(
+                                    Leaf {
+                                        key: V6(
+                                            ::1/128,
+                                        ),
+                                        value: (),
+                                    },
+                                ),
+                            },
+                        },
+                    ),
+                ),
+            },
+        ),
+        skip_hosts: CidrSet(
+            CidrMap {
+                root: None,
+            },
+        ),
+        ehlo_domain: None,
+    },
+    sources: {},
+    automation: [
+        Rule {
+            mx_rollup: false,
+            regex: Regex(
+                \[TS04\],
+            ),
+            action: Suspend,
+            duration: 7200s,
+        },
+    ],
+}
+"#
+        );
+    }
 }
