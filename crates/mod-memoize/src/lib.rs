@@ -15,17 +15,72 @@ pub struct MemoizeParams {
     pub name: String,
 }
 
+#[derive(Clone)]
+enum CacheValue {
+    Json(serde_json::Value),
+}
+
+impl CacheValue {
+    fn from_value(lua: &Lua, value: mlua::Value) -> mlua::Result<Self> {
+        Ok(Self::Json(from_lua_value(lua, value)?))
+    }
+}
+
+#[derive(Clone)]
+enum CacheEntry {
+    Null,
+    Single(CacheValue),
+    Multi(Vec<CacheValue>),
+}
+
+impl CacheEntry {
+    fn to_value<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+        match self {
+            Self::Null => Ok(mlua::Value::Nil),
+            Self::Single(CacheValue::Json(value)) => lua.to_value(value),
+            Self::Multi(values) => {
+                let mut result = vec![];
+                for v in values {
+                    match v {
+                        CacheValue::Json(j) => {
+                            result.push(j.clone());
+                        }
+                    }
+                }
+                let result = serde_json::Value::Array(result);
+                lua.to_value(&result)
+            }
+        }
+    }
+
+    fn from_multi_value(lua: &Lua, multi: MultiValue) -> mlua::Result<Self> {
+        let mut values = multi.into_vec();
+        if values.is_empty() {
+            Ok(Self::Null)
+        } else if values.len() == 1 {
+            Ok(Self::Single(CacheValue::from_value(
+                lua,
+                values.pop().unwrap(),
+            )?))
+        } else {
+            let mut cvalues = vec![];
+            for v in values.into_iter() {
+                cvalues.push(CacheValue::from_value(lua, v)?);
+            }
+            Ok(Self::Multi(cvalues))
+        }
+    }
+}
+
 struct MemoizeCache {
     params: MemoizeParams,
-    cache: Arc<LruCacheWithTtl<String, serde_json::Value>>,
+    cache: Arc<LruCacheWithTtl<String, CacheEntry>>,
 }
 
 static CACHES: Lazy<Mutex<HashMap<String, MemoizeCache>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn get_cache_by_name(
-    name: &str,
-) -> Option<(Arc<LruCacheWithTtl<String, serde_json::Value>>, Duration)> {
+fn get_cache_by_name(name: &str) -> Option<(Arc<LruCacheWithTtl<String, CacheEntry>>, Duration)> {
     CACHES
         .lock()
         .unwrap()
@@ -87,13 +142,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         .map_err(any_err)?;
 
                     if let Some(value) = cache.get(&key) {
-                        return Ok(lua.to_value(&value)?);
+                        return Ok(value.to_value(lua)?);
                     }
 
                     let result: MultiValue = (func?).call_async(params).await?;
 
-                    let value = multi_value_to_json_value(lua, result.clone())?;
-                    let return_value = lua.to_value(&value)?;
+                    let value = CacheEntry::from_multi_value(lua, result.clone())?;
+                    let return_value = value.to_value(lua)?;
 
                     cache.insert(key, value, Instant::now() + ttl);
 
@@ -104,4 +159,65 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_memoize() {
+        let lua = Lua::new();
+        register(&lua).unwrap();
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+
+        let globals = lua.globals();
+        let counter = Arc::clone(&call_count);
+        globals
+            .set(
+                "do_thing",
+                lua.create_function(move |_lua, _: ()| {
+                    let count = counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(count)
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        let result: usize = lua
+            .load(
+                r#"
+            local kumo = require 'kumo';
+            -- make cached_do_thing a global for use in the expiry test below
+            cached_do_thing = kumo.memoize(do_thing, {
+                ttl = "1s",
+                capacity = 4,
+                name = "test_memoize_do_thing",
+            })
+            return cached_do_thing() + cached_do_thing() + cached_do_thing()
+        "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(result, 0);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        // And confirm that expiry works
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
+        let result: usize = lua
+            .load(
+                r#"
+            return cached_do_thing()
+        "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(result, 1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
 }
