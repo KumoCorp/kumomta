@@ -18,7 +18,7 @@ async fn main() {
 
     match Shaping::merge_files(&opts.files).await {
         Ok(merged) => {
-            for warn in &merged.warnings {
+            for warn in merged.get_warnings() {
                 eprintln!("{warn}");
                 failed = true;
             }

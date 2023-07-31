@@ -2263,6 +2263,7 @@ dependencies = [
  "humantime-serde",
  "k9",
  "mlua",
+ "mod-memoize",
  "rfc5321",
  "serde",
  "serde_json",

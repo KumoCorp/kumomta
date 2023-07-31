@@ -6,6 +6,7 @@ use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -58,10 +59,57 @@ pub struct Rule {
 }
 
 #[derive(Debug)]
-pub struct Shaping {
+struct ShapingInner {
     by_site: HashMap<String, PartialEntry>,
     by_domain: HashMap<String, PartialEntry>,
-    pub warnings: Vec<String>,
+    warnings: Vec<String>,
+}
+
+impl ShapingInner {
+    pub fn get_egress_path_config(
+        &self,
+        domain: &str,
+        egress_source: &str,
+        site_name: &str,
+    ) -> PartialEntry {
+        let mut params = PartialEntry::default();
+
+        // Apply basic/default configuration
+        if let Some(default) = self.by_domain.get("default") {
+            params.merge_from(default.clone());
+        }
+
+        // Then site config
+        if let Some(by_site) = self.by_site.get(site_name) {
+            params.merge_from(by_site.clone());
+        }
+
+        // Then domain config
+        if let Some(by_domain) = self.by_domain.get(domain) {
+            params.merge_from(by_domain.clone());
+        }
+
+        // Then source config for the site
+        if let Some(by_site) = self.by_site.get(site_name) {
+            if let Some(source) = by_site.sources.get(egress_source) {
+                toml_table_merge_from(&mut params.params, &source);
+            }
+        }
+
+        // Then source config for the domain
+        if let Some(by_domain) = self.by_domain.get(domain) {
+            if let Some(source) = by_domain.sources.get(egress_source) {
+                toml_table_merge_from(&mut params.params, &source);
+            }
+        }
+
+        params
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Shaping {
+    inner: Arc<ShapingInner>,
 }
 
 impl Shaping {
@@ -172,9 +220,11 @@ impl Shaping {
         }
 
         Ok(Self {
-            by_site,
-            by_domain,
-            warnings,
+            inner: Arc::new(ShapingInner {
+                by_site,
+                by_domain,
+                warnings,
+            }),
         })
     }
 
@@ -184,43 +234,18 @@ impl Shaping {
         egress_source: &str,
         site_name: &str,
     ) -> PartialEntry {
-        let mut params = PartialEntry::default();
+        self.inner
+            .get_egress_path_config(domain, egress_source, site_name)
+    }
 
-        // Apply basic/default configuration
-        if let Some(default) = self.by_domain.get("default") {
-            params.merge_from(default.clone());
-        }
-
-        // Then site config
-        if let Some(by_site) = self.by_site.get(site_name) {
-            params.merge_from(by_site.clone());
-        }
-
-        // Then domain config
-        if let Some(by_domain) = self.by_domain.get(domain) {
-            params.merge_from(by_domain.clone());
-        }
-
-        // Then source config for the site
-        if let Some(by_site) = self.by_site.get(site_name) {
-            if let Some(source) = by_site.sources.get(egress_source) {
-                toml_table_merge_from(&mut params.params, &source);
-            }
-        }
-
-        // Then source config for the domain
-        if let Some(by_domain) = self.by_domain.get(domain) {
-            if let Some(source) = by_domain.sources.get(egress_source) {
-                toml_table_merge_from(&mut params.params, &source);
-            }
-        }
-
-        params
+    pub fn get_warnings(&self) -> &[String] {
+        &self.inner.warnings
     }
 }
 
 impl LuaUserData for Shaping {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        mod_memoize::Memoized::impl_memoize(methods);
         methods.add_method(
             "get_egress_path_config",
             move |lua, this, (domain, egress_source, site_name): (String, String, String)| {
