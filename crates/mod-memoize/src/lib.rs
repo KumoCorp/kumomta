@@ -1,11 +1,51 @@
 use config::{any_err, from_lua_value, get_or_create_module};
 use lruttl::LruCacheWithTtl;
-use mlua::{Lua, LuaSerdeExt, MultiValue};
+use mlua::{Function, Lua, LuaSerdeExt, MultiValue, ToLua, UserData, UserDataMethods};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Memoized is a helper type that allows native Rust types to be captured
+/// in memoization caches.
+/// Unfortunately, we cannot automatically make that work for all UserData
+/// that are exported to lua, but we can make it simple for a type to opt-in
+/// to that behavior.
+///
+/// When you impl UserData for your type, you can call
+/// `Memoized::impl_memoize(methods)` from your add_methods impl.
+/// That will add a metamethod to your UserData type that will clone your
+/// value and wrap it into a Memoized wrapper.
+///
+/// Since Clone is used, it is recommended that you use an Arc inside your
+/// type to avoid making large or expensive clones.
+#[derive(Clone)]
+pub struct Memoized {
+    pub to_value: Arc<dyn Fn(&Lua) -> mlua::Result<mlua::Value> + Send + Sync>,
+}
+
+impl Memoized {
+    /// Call this from your `UserData::add_methods` implementation to
+    /// enable memoization for your UserData type
+    pub fn impl_memoize<'lua, T, M>(methods: &mut M)
+    where
+        T: UserData + Send + Sync + Clone + 'static,
+        M: UserDataMethods<'lua, T>,
+    {
+        methods.add_meta_method(
+            "__memoize",
+            move |_lua, this, _: ()| -> mlua::Result<Memoized> {
+                let this = this.clone();
+                Ok(Memoized {
+                    to_value: Arc::new(move |lua| this.clone().to_lua(lua)),
+                })
+            },
+        );
+    }
+}
+
+impl UserData for Memoized {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MemoizeParams {
@@ -18,11 +58,27 @@ pub struct MemoizeParams {
 #[derive(Clone)]
 enum CacheValue {
     Json(serde_json::Value),
+    Memoized(Memoized),
 }
 
 impl CacheValue {
     fn from_value(lua: &Lua, value: mlua::Value) -> mlua::Result<Self> {
-        Ok(Self::Json(from_lua_value(lua, value)?))
+        match value {
+            mlua::Value::UserData(ud) => {
+                let mt = ud.get_metatable()?;
+                let func: Function = mt.get("__memoize")?;
+                let m: Memoized = func.call(mlua::Value::UserData(ud))?;
+                Ok(Self::Memoized(m))
+            }
+            _ => Ok(Self::Json(from_lua_value(lua, value)?)),
+        }
+    }
+
+    fn to_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+        match self {
+            Self::Json(j) => lua.to_value(j),
+            Self::Memoized(m) => (m.to_value)(lua),
+        }
     }
 }
 
@@ -37,18 +93,13 @@ impl CacheEntry {
     fn to_value<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
         match self {
             Self::Null => Ok(mlua::Value::Nil),
-            Self::Single(CacheValue::Json(value)) => lua.to_value(value),
+            Self::Single(value) => value.to_lua(lua),
             Self::Multi(values) => {
                 let mut result = vec![];
                 for v in values {
-                    match v {
-                        CacheValue::Json(j) => {
-                            result.push(j.clone());
-                        }
-                    }
+                    result.push(v.to_lua(lua)?);
                 }
-                let result = serde_json::Value::Array(result);
-                lua.to_value(&result)
+                result.to_lua(lua)
             }
         }
     }
@@ -164,6 +215,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use mlua::UserDataMethods;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -219,5 +271,58 @@ mod test {
 
         assert_eq!(result, 1);
         assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_memoize_rust() {
+        let lua = Lua::new();
+        register(&lua).unwrap();
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+
+        #[derive(Clone)]
+        struct Foo {
+            value: usize,
+        }
+
+        impl UserData for Foo {
+            fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+                Memoized::impl_memoize(methods);
+                methods.add_method("get_value", move |_lua, this, _: ()| Ok(this.value));
+            }
+        }
+
+        let globals = lua.globals();
+        let counter = Arc::clone(&call_count);
+        globals
+            .set(
+                "make_foo",
+                lua.create_function(move |_lua, _: ()| {
+                    let count = counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(Foo { value: count })
+                })
+                .unwrap(),
+            )
+            .unwrap();
+
+        let result: usize = lua
+            .load(
+                r#"
+            local kumo = require 'kumo';
+            local cached_make_foo = kumo.memoize(make_foo, {
+                ttl = "1s",
+                capacity = 4,
+                name = "test_memoize_make_foo",
+            })
+            return cached_make_foo():get_value() +
+                   cached_make_foo():get_value() +
+                   cached_make_foo():get_value()
+        "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(result, 0);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
 }
