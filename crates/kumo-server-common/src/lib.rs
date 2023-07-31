@@ -20,6 +20,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_sqlite::register,
         mod_dns_resolver::register,
         mod_memoize::register,
+        kumo_api_types::shaping::register,
     ] {
         func(lua)?;
     }

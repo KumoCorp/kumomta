@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 cidr-map = {path="../cidr-map"}
+config = {path="../config"}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver"}
 fancy-regex = "0.11"

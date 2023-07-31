@@ -1,5 +1,6 @@
 use crate::egress_path::EgressPathConfig;
 use anyhow::Context;
+use config::any_err;
 use dns_resolver::MailExchanger;
 use mlua::prelude::LuaUserData;
 use mlua::{LuaSerdeExt, UserDataMethods};
@@ -253,6 +254,10 @@ impl LuaUserData for Shaping {
                 lua.to_value(&params.params)
             },
         );
+        methods.add_method("get_warnings", move |_lua, this, ()| {
+            let warnings: Vec<String> = this.get_warnings().iter().map(|s| s.to_string()).collect();
+            Ok(warnings)
+        });
     }
 }
 
@@ -344,6 +349,21 @@ impl PartialEntry {
 
 fn default_true() -> bool {
     true
+}
+
+pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
+    let shaping_mod = config::get_or_create_sub_module(lua, "shaping")?;
+
+    shaping_mod.set(
+        "load",
+        lua.create_async_function(move |_lua, paths: Vec<String>| async move {
+            let paths: Vec<PathBuf> = paths.into_iter().map(|p| p.into()).collect();
+            let shaping = Shaping::merge_files(&paths).await.map_err(any_err)?;
+            Ok(shaping)
+        })?,
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]

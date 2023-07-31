@@ -2257,6 +2257,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cidr-map",
+ "config",
  "data-loader",
  "dns-resolver",
  "fancy-regex",
