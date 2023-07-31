@@ -49,7 +49,14 @@ local function load_data(data_files)
   for _, file_name in ipairs(data_files) do
     load_data_from_file(file_name, by_listener)
   end
-  return by_listener
+
+  -- and compile the domain lookups
+  local compiled = {}
+  for listener, mapping in pairs(by_listener) do
+    compiled[listener] = kumo.domain_map.new(mapping)
+  end
+
+  return compiled
 end
 
 --[[
@@ -75,7 +82,7 @@ log_arf = true
 ["send.example.com"]
 # relay to anywhere, so long as the sender domain is send.example.com
 # and the connected peer matches one of the listed CIDR blocks
-relay_from = { '10.0.0.0/24' }
+relay_from = [ '10.0.0.0/24' ]
 
 # wildcards are permitted. This will match
 # <anything>.example.com that doesn't have
@@ -130,7 +137,6 @@ function mod:setup(data_files)
 
     local listener_map = by_listener[listener]
     if listener_map then
-      listener_map = kumo.domain_map.new(listener_map)
       local listener_domain = listener_map[domain_name]
       if listener_domain then
         return kumo.make_listener_domain(listener_domain)
