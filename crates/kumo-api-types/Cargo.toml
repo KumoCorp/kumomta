@@ -13,6 +13,7 @@ data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver"}
 fancy-regex = "0.11"
 humantime-serde = "1.1"
+kumo-log-types = {path="../kumo-log-types"}
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-memoize = {path="../mod-memoize"}
 rfc5321 = {path="../rfc5321"}

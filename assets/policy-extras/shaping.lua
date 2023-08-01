@@ -182,6 +182,14 @@ function mod:setup_with_automation(options)
     for _, params in pairs(publish) do
       kumo.configure_log_hook {
         name = params.hook_name,
+        per_record = {
+          -- Don't feed reception data to the daemon; we're
+          -- only interested in data that flows back to us
+          -- from after the point of reception
+          Reception = {
+            enable = false,
+          },
+        },
       }
     end
   end

@@ -2,6 +2,7 @@ use crate::egress_path::EgressPathConfig;
 use anyhow::Context;
 use config::any_err;
 use dns_resolver::MailExchanger;
+use kumo_log_types::JsonLogRecord;
 use mlua::prelude::LuaUserData;
 use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
@@ -48,15 +49,18 @@ pub enum Action {
 
 #[derive(Deserialize, Serialize, Debug, Hash, Clone)]
 pub struct Rule {
-    #[serde(default)]
-    pub mx_rollup: bool,
-
     pub regex: Regex,
 
     pub action: Action,
 
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
+}
+
+impl Rule {
+    pub fn matches(&self, response: &str) -> bool {
+        self.regex.is_match(response).unwrap_or(false)
+    }
 }
 
 #[derive(Debug)]
@@ -105,6 +109,39 @@ impl ShapingInner {
         }
 
         params
+    }
+
+    pub fn match_rules(&self, record: &JsonLogRecord, domain: &str, site_name: &str) -> Vec<Rule> {
+        let mut result = vec![];
+        let response = record.response.to_single_line();
+
+        if let Some(default) = self.by_domain.get("default") {
+            for rule in &default.automation {
+                if rule.matches(&response) {
+                    result.push(rule.clone());
+                }
+            }
+        }
+
+        // Then site config
+        if let Some(by_site) = self.by_site.get(site_name) {
+            for rule in &by_site.automation {
+                if rule.matches(&response) {
+                    result.push(rule.clone());
+                }
+            }
+        }
+
+        // Then domain config
+        if let Some(by_domain) = self.by_domain.get(domain) {
+            for rule in &by_domain.automation {
+                if rule.matches(&response) {
+                    result.push(rule.clone());
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -241,6 +278,10 @@ impl Shaping {
 
     pub fn get_warnings(&self) -> &[String] {
         &self.inner.warnings
+    }
+
+    pub fn match_rules(&self, record: &JsonLogRecord, domain: &str, site_name: &str) -> Vec<Rule> {
+        self.inner.match_rules(record, domain, site_name)
     }
 }
 
@@ -698,7 +739,6 @@ MergedEntry {
     sources: {},
     automation: [
         Rule {
-            mx_rollup: false,
             regex: Regex(
                 \[TS04\],
             ),
