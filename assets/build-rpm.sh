@@ -92,6 +92,8 @@ install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 /opt/kumomta/sbin/proxy-server
 /opt/kumomta/sbin/tailer
 /opt/kumomta/sbin/traffic-gen
+/opt/kumomta/sbin/tsa-daemon
+/opt/kumomta/sbin/validate-shaping
 /opt/kumomta/share/bounce_classifier/*.toml
 /opt/kumomta/share/minimal-init.lua
 /opt/kumomta/share/policy-extras/*.lua
