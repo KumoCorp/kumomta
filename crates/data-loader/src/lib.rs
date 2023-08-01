@@ -94,6 +94,7 @@ mod test {
     use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt};
     use tokio::process::{Child, Command};
     use tokio::time::timeout;
+    use vaultrs::client::Client;
 
     /// Ask the kernel to assign a free port.
     /// We pass this to sshd and tell it to listen on that port.
@@ -128,6 +129,8 @@ mod test {
         }
 
         async fn spawn_with_port(port: u16) -> anyhow::Result<Self> {
+            eprintln!("Trying to start vault on port {port}");
+
             let mut daemon = Command::new("vault")
                 .args([
                     "server",
@@ -153,7 +156,25 @@ mod test {
                     .await
             });
 
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            let mut ok = false;
+            for _ in 0..25 {
+                let client = VaultClient::new(
+                    VaultClientSettingsBuilder::default()
+                        .address(format!("http://127.0.0.1:{port}"))
+                        .token(KEY)
+                        .build()?,
+                )?;
+                let status = client.status().await;
+                eprintln!("checking status: {status:?}");
+                if let Ok(vaultrs::sys::ServerStatus::OK) = status {
+                    ok = true;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            anyhow::ensure!(ok, "server didn't startup successfully");
+
             if let Ok(Some(status)) = daemon.try_wait() {
                 anyhow::bail!("daemon exited already: {status:?}");
             }
@@ -244,11 +265,9 @@ mod test {
 
     #[tokio::test]
     async fn test_vault() -> anyhow::Result<()> {
-        /*
         if which::which("vault").is_err() {
             return Ok(());
         }
-        */
         let vault = VaultServer::spawn().await?;
 
         vault
