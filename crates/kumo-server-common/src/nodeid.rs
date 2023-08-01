@@ -113,7 +113,10 @@ impl NodeId {
 
                         match std::fs::write(&uuid_path, format!("{uuid}")) {
                             Ok(_) => uuid,
-                            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                            Err(err)
+                                if err.kind() == std::io::ErrorKind::PermissionDenied
+                                    || err.kind() == std::io::ErrorKind::NotFound =>
+                            {
                                 let err =
                                     format!("Failed to write node id to {uuid_path:?}: {err:#}");
                                 tracing::debug!(
