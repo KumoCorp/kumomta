@@ -1204,6 +1204,7 @@ dependencies = [
  "config",
  "mlua",
  "serde",
+ "serde_json",
  "tokio",
  "vaultrs",
 ]
