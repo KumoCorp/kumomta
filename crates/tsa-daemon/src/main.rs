@@ -1,4 +1,6 @@
+use anyhow::Context;
 use clap::Parser;
+use kumo_api_types::shaping::Shaping;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use std::future::Future;
@@ -51,7 +53,18 @@ fn main() -> anyhow::Result<()> {
 fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
     Box::pin(async move {
         let mut config = config::load_config().await?;
-        config.async_call_callback("tsa_init", ()).await?;
+
+        // Explicitly load the shaping config now to catch silly
+        // mistakes before we start up the listeners
+        let _shaping: Shaping = config
+            .async_call_callback_non_default("tsa_load_shaping_data", ())
+            .await
+            .context("in tsa_load_shaping_data event")?;
+
+        config
+            .async_call_callback("tsa_init", ())
+            .await
+            .context("in tsa_init event")?;
 
         // TODO: start something else here?
 
