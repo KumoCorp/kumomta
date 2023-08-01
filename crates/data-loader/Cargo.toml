@@ -16,3 +16,4 @@ vaultrs = "0.6"
 
 [dev-dependencies]
 tokio = {version="1.25", features=["fs", "io-std", "process", "macros"]}
+which = "4.4"

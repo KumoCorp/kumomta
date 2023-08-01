@@ -244,6 +244,11 @@ mod test {
 
     #[tokio::test]
     async fn test_vault() -> anyhow::Result<()> {
+        /*
+        if which::which("vault").is_err() {
+            return Ok(());
+        }
+        */
         let vault = VaultServer::spawn().await?;
 
         vault

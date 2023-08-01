@@ -48,6 +48,11 @@ jobs:
       shell: bash
       # Mariner uses yum rather than dnf
       run: "dnf install -y git || yum install -y git"
+    - name: "Install Hashicorp Vault"
+      run: |
+        dnf install -y yum-utils || yum install -y yum-utils
+        yum-config-manager --add-repo https://rpm.releases.hashicorp.com/RHEL/hashicorp.repo
+        dnf install -y vault || yum install -y vault
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3

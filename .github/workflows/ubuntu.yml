@@ -59,6 +59,13 @@ jobs:
     - name: "Update APT"
       shell: bash
       run: "apt update"
+    - name: "Install Hashicorp Vault"
+      run: |
+        apt-get install -y gpg
+        curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --yes --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
+        apt update
+        apt install -y vault
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
     - uses: actions/checkout@v3

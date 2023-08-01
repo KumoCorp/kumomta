@@ -1207,6 +1207,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "vaultrs",
+ "which",
 ]
 
 [[package]]
