@@ -30,7 +30,7 @@ pub enum Error {
     NonExistentLease,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[serde(try_from = "String")]
 pub struct ThrottleSpec {
     pub limit: u64,

@@ -7,9 +7,11 @@ use mlua::prelude::LuaUserData;
 use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use throttle::ThrottleSpec;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(try_from = "String", into = "String")]
@@ -42,9 +44,151 @@ impl std::hash::Hash for Regex {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Hash, Clone)]
+/// toml::Value is not Hash because it may contain floating
+/// point numbers, which are problematic from a Ord and Eq
+/// perspective. We're okay with skirting around that for
+/// our purposes here, so we implement our own hashable
+/// wrapper around the toml value.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(from = "toml::Value", into = "toml::Value")]
+pub struct HashableTomlValue {
+    value: toml::Value,
+}
+
+impl From<toml::Value> for HashableTomlValue {
+    fn from(value: toml::Value) -> Self {
+        Self { value }
+    }
+}
+
+impl From<HashableTomlValue> for toml::Value {
+    fn from(value: HashableTomlValue) -> toml::Value {
+        value.value
+    }
+}
+
+impl std::ops::Deref for HashableTomlValue {
+    type Target = toml::Value;
+    fn deref(&self) -> &toml::Value {
+        &self.value
+    }
+}
+
+fn hash_toml<H>(value: &toml::Value, h: &mut H)
+where
+    H: Hasher,
+{
+    match value {
+        toml::Value::Boolean(v) => v.hash(h),
+        toml::Value::Datetime(v) => {
+            if let Some(d) = &v.date {
+                d.year.hash(h);
+                d.month.hash(h);
+                d.day.hash(h);
+            }
+            if let Some(t) = &v.time {
+                t.hour.hash(h);
+                t.minute.hash(h);
+                t.second.hash(h);
+                t.nanosecond.hash(h);
+            }
+            if let Some(toml::value::Offset::Custom { minutes }) = &v.offset {
+                minutes.hash(h);
+            }
+        }
+        toml::Value::String(v) => v.hash(h),
+        toml::Value::Integer(v) => v.hash(h),
+        toml::Value::Float(v) => v.to_ne_bytes().hash(h),
+        toml::Value::Array(a) => {
+            for v in a.iter() {
+                hash_toml(v, h);
+            }
+        }
+        toml::Value::Table(m) => {
+            for (k, v) in m.iter() {
+                k.hash(h);
+                hash_toml(v, h);
+            }
+        }
+    }
+}
+
+impl Hash for HashableTomlValue {
+    fn hash<H>(&self, h: &mut H)
+    where
+        H: Hasher,
+    {
+        hash_toml(&self.value, h);
+    }
+}
+
+/// Represents an individual EgressPathConfig field name and value.
+/// It only allows deserializing from valid EgressPathConfig field + values.
+#[derive(Deserialize, Serialize, Debug, Clone, Hash)]
+#[serde(
+    try_from = "EgressPathConfigValueUnchecked",
+    into = "EgressPathConfigValueUnchecked"
+)]
+pub struct EgressPathConfigValue {
+    pub name: String,
+    pub value: HashableTomlValue,
+}
+
+/// This is the type that we actually use to deserialize EgressPathConfigValue items.
+/// It doesn't care about validity; it is used solely to tell serde what shape of
+/// data to expect.
+/// The validation is performed by the TryFrom impl that is used to convert to the
+/// checked form below.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+struct EgressPathConfigValueUnchecked {
+    pub name: String,
+    pub value: toml::Value,
+}
+
+impl TryFrom<EgressPathConfigValueUnchecked> for EgressPathConfigValue {
+    type Error = anyhow::Error;
+    fn try_from(config: EgressPathConfigValueUnchecked) -> anyhow::Result<EgressPathConfigValue> {
+        let mut map = toml::map::Map::new();
+        map.insert(config.name.clone(), config.value.clone());
+        let table = toml::Value::Table(map);
+
+        // Attempt to deserialize as EgressPathConfig.
+        // If it fails, then the field name/value are invalid
+        EgressPathConfig::deserialize(table)?;
+
+        // If we reach this point, we can pass along the name/value
+        Ok(EgressPathConfigValue {
+            name: config.name,
+            value: HashableTomlValue {
+                value: config.value,
+            },
+        })
+    }
+}
+
+impl From<EgressPathConfigValue> for EgressPathConfigValueUnchecked {
+    fn from(config: EgressPathConfigValue) -> EgressPathConfigValueUnchecked {
+        EgressPathConfigValueUnchecked {
+            name: config.name,
+            value: config.value.value,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Hash)]
 pub enum Action {
     Suspend,
+    SetConfig(EgressPathConfigValue),
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
+pub enum Trigger {
+    /// Trigger on the first match, immediately
+    #[default]
+    Immediate,
+    /// Trigger when a certain number of matches occur
+    /// over a certain time period.
+    Threshold(ThrottleSpec),
 }
 
 #[derive(Deserialize, Serialize, Debug, Hash, Clone)]
@@ -52,6 +196,9 @@ pub struct Rule {
     pub regex: Regex,
 
     pub action: Action,
+
+    #[serde(default)]
+    pub trigger: Trigger,
 
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
@@ -743,6 +890,7 @@ MergedEntry {
                 \[TS04\],
             ),
             action: Suspend,
+            trigger: Immediate,
             duration: 7200s,
         },
     ],
