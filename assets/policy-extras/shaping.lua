@@ -151,7 +151,7 @@ function mod:setup_with_automation(options)
     '/opt/kumomta/share/policy-extras/shaping.toml',
   }
   if options.extra_files then
-    for _, filename in ipairs(extra_files) do
+    for _, filename in ipairs(options.extra_files) do
       table.insert(file_names, filename)
     end
   end
