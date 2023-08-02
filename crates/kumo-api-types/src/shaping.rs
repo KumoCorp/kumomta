@@ -202,11 +202,20 @@ pub struct Rule {
 
     #[serde(with = "humantime_serde")]
     pub duration: Duration,
+
+    #[serde(skip)]
+    pub was_rollup: bool,
 }
 
 impl Rule {
     pub fn matches(&self, response: &str) -> bool {
         self.regex.is_match(response).unwrap_or(false)
+    }
+
+    pub fn clone_and_set_rollup(&self) -> Self {
+        let mut result = self.clone();
+        result.was_rollup = true;
+        result
     }
 }
 
@@ -274,7 +283,7 @@ impl ShapingInner {
         if let Some(by_site) = self.by_site.get(site_name) {
             for rule in &by_site.automation {
                 if rule.matches(&response) {
-                    result.push(rule.clone());
+                    result.push(rule.clone_and_set_rollup());
                 }
             }
         }
@@ -892,6 +901,7 @@ MergedEntry {
             action: Suspend,
             trigger: Immediate,
             duration: 7200s,
+            was_rollup: false,
         },
     ],
 }

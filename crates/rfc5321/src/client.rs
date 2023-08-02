@@ -636,7 +636,7 @@ impl SmtpClient {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy, Hash)]
 pub struct EnhancedStatusCode {
     pub class: u8,
     pub subject: u16,
@@ -667,7 +667,7 @@ fn parse_enhanced_status_code(line: &str) -> Option<(EnhancedStatusCode, &str)> 
     ))
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Hash)]
 pub struct Response {
     pub code: u16,
     pub enhanced_code: Option<EnhancedStatusCode>,

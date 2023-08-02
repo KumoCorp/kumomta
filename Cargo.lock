@@ -1836,6 +1836,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "443144c8cdadd93ebf52ddb4056d257f5b52c04d3c804e657d19eb73fc33668b"
 
 [[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+
+[[package]]
 name = "hierarchical_hash_wheel_timer"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4661,9 +4667,9 @@ dependencies = [
 
 [[package]]
 name = "sqlite"
-version = "0.30.5"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ecc4cead695dcc5c878c707fdd03f4599f6dc9fe27849646590e2291f506ed1"
+checksum = "f3ddda64c469a257a3b31298805427784d992c226c94b81003f96e8b122286ad"
 dependencies = [
  "libc",
  "sqlite3-sys",
@@ -5337,14 +5343,19 @@ dependencies = [
  "clap 4.3.17",
  "config",
  "dns-resolver",
+ "hex",
  "kumo-api-types",
  "kumo-log-types",
  "kumo-server-common",
  "kumo-server-memory",
  "kumo-server-runtime",
  "mlua",
+ "once_cell",
  "rfc5321",
  "serde",
+ "serde_json",
+ "sha2 0.10.7",
+ "sqlite",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
