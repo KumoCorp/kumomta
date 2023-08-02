@@ -39,6 +39,16 @@ pub enum DeliveryProto {
     Lua { custom_lua: LuaDeliveryProtocol },
 }
 
+impl DeliveryProto {
+    pub fn ready_queue_name(&self) -> String {
+        match self {
+            Self::Smtp => "smtp".to_string(),
+            Self::Maildir { maildir_path } => format!("maildir:{}", maildir_path.display()),
+            Self::Lua { custom_lua } => format!("lua:{}", custom_lua.constructor),
+        }
+    }
+}
+
 impl Default for DeliveryProto {
     fn default() -> Self {
         Self::Smtp

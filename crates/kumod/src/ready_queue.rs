@@ -89,11 +89,24 @@ impl ReadyQueueManager {
             None
         };
 
+        // Note well! The ready queue name is based on the perspective of the
+        // receiver, combining our source (which they see) with the unique
+        // name of the destination (which we compute from the MX site name).
+        // For custom protocols where we don't have an MX record and thus no
+        // site name, we simply use the domain; we do not include the campaign
+        // or tenant because those have no bearing from the perspective of
+        // the recipient.
         let site_name = mx
             .as_ref()
             .map(|mx| mx.site_name.to_string())
             .unwrap_or_else(|| components.domain.to_string());
-        let name = format!("{egress_source}->{site_name}");
+        // Factor in the delivery protocol so that we don't falsely share
+        // different custom protocols when someone is using eg: just the
+        // tenant or campaign to vary the protocol.
+        let name = format!(
+            "{egress_source}->{site_name}@{}",
+            queue_config.protocol.ready_queue_name()
+        );
 
         let mut config = load_config().await?;
 
