@@ -18,7 +18,12 @@
 * Added
   [message:remove_all_named_headers](../reference/message/remove_all_named_headers.md).
   Thanks to @postmastery! #70
+* Ready queue names now factor in the delivery protocol, making it easier to vary
+  the protocol by eg: *tenant* or *campaign* while keeping the domain the same.
+  You will notice a suffix like `@smtp` on the end of queue names in metrics
+  and in the `site_name` field of log records as a result of this change.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into
   a byte array.
+
