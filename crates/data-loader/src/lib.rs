@@ -34,7 +34,7 @@ impl KeySource {
                     Some(a) => a.to_string(),
                     None => std::env::var("VAULT_ADDR").map_err(|err| {
                         anyhow!(
-                            "address was not specified and $VAULT_ADDR is not set/usable: {err:#}"
+                            "vault_address was not specified and $VAULT_ADDR is not set/usable: {self:?} {err:#}"
                         )
                     })?,
                 };
@@ -42,7 +42,7 @@ impl KeySource {
                     Some(a) => a.to_string(),
                     None => std::env::var("VAULT_TOKEN").map_err(|err| {
                         anyhow!(
-                            "address was not specified and $VAULT_TOKEN is not set/usable: {err:#}"
+                            "vault_token was not specified and $VAULT_TOKEN is not set/usable: {self:?} {err:#}"
                         )
                     })?,
                 };
@@ -62,7 +62,9 @@ impl KeySource {
                 let entry: Entry = vaultrs::kv2::read(&client, vault_mount, vault_path)
                     .await
                     .with_context(|| {
-                        format!("kv2::read vault_mount={vault_mount}, vault_path={vault_path}")
+                        format!(
+                            "kv2::read vault_mount={vault_mount}, vault_path={vault_path} {self:?}"
+                        )
                     })?;
 
                 Ok(entry.key.into())
@@ -78,7 +80,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "load",
         lua.create_async_function(|lua, source: mlua::Value| async move {
             let source: KeySource = from_lua_value(lua, source)?;
-            source.get().await.map_err(any_err)
+            lua.create_string(&source.get().await.map_err(any_err)?)
         })?,
     )?;
 
@@ -126,6 +128,10 @@ mod test {
                 }
             }
             anyhow::bail!("failed to spawn vault: {}", errors.join(". "));
+        }
+
+        pub fn address(&self) -> String {
+            format!("http://127.0.0.1:{}", self.port)
         }
 
         async fn spawn_with_port(port: u16) -> anyhow::Result<Self> {
@@ -287,7 +293,31 @@ mod test {
         let source = vault.make_source("foo");
         let data = source.get().await?;
 
-        assert_eq!(data, b"bar",);
+        assert_eq!(data, b"bar");
+
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals().set("ADDR", vault.address())?;
+        lua.globals().set("KEY", KEY)?;
+        let pw: String = lua
+            .load(
+                r#"
+            local kumo = require 'kumo';
+            print("ADDR", ADDR)
+            print("KEY", KEY)
+            return kumo.secrets.load {
+                vault_path = "foo",
+                vault_address = ADDR,
+                vault_mount = "secret",
+                vault_token = KEY,
+            }
+            "#,
+            )
+            .eval_async()
+            .await
+            .unwrap();
+
+        assert_eq!(pw, "bar");
 
         Ok(())
     }
