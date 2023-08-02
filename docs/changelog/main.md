@@ -20,3 +20,5 @@
   Thanks to @postmastery! #70
 
 ## Fixes
+* Loading secrets from HashiCorp Vault failed to parse underlying json data into
+  a byte array.
