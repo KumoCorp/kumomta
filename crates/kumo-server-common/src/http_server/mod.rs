@@ -132,6 +132,7 @@ impl HttpListenerParams {
     }
 }
 
+#[derive(Debug)]
 pub struct AppError(anyhow::Error);
 
 // Tell axum how to convert `AppError` into a response.

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Rule, Shaping, Trigger};
@@ -10,9 +10,11 @@ use kumo_server_runtime::rt_spawn;
 use once_cell::sync::Lazy;
 use rfc5321::ForwardPath;
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use sqlite::{Connection, ConnectionWithFullMutex};
 use std::hash::Hash;
+use toml_edit::{value, Value as TomlValue};
 
 static HISTORY: Lazy<ConnectionWithFullMutex> = Lazy::new(|| open_history_db().unwrap());
 
@@ -24,7 +26,7 @@ fn open_history_db() -> anyhow::Result<ConnectionWithFullMutex> {
 CREATE TABLE IF NOT EXISTS event_history (
     rule_hash text,
     record_hash text,
-    ts DATETIME,
+    ts int,
     PRIMARY KEY (rule_hash, record_hash)
 );
 
@@ -57,7 +59,9 @@ CREATE TABLE IF NOT EXISTS config (
 }
 
 pub fn make_router() -> Router {
-    Router::new().route("/publish_log_v1", post(publish_log_v1))
+    Router::new()
+        .route("/publish_log_v1", post(publish_log_v1))
+        .route("/get_config_v1", get(get_config_v1))
 }
 
 fn create_config(
@@ -79,18 +83,20 @@ fn create_config(
 
     let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
 
-    upsert.bind(("hash", rule_hash))?;
-    upsert.bind(("site", record.site.as_str()))?;
-    upsert.bind(("domain", domain))?;
-    upsert.bind(("mx_rollup", if rule.was_rollup { 1 } else { 0 }))?;
-    upsert.bind(("source", source))?;
-    upsert.bind(("name", config.name.as_str()))?;
+    upsert.bind(("$hash", rule_hash))?;
+    upsert.bind(("$site", record.site.as_str()))?;
+    upsert.bind(("$domain", domain))?;
+    upsert.bind(("$mx_rollup", if rule.was_rollup { 1 } else { 0 }))?;
+    upsert.bind(("$source", source))?;
+    upsert.bind(("$name", config.name.as_str()))?;
     let value = serde_json::to_string(&config.value)?;
-    upsert.bind(("value", value.as_str()))?;
+    upsert.bind(("$value", value.as_str()))?;
 
     let reason = format!("automation rule: {}", rule.regex.to_string());
-    upsert.bind(("reason", reason.as_str()))?;
-    upsert.bind(("expires", expires.as_str()))?;
+    upsert.bind(("$reason", reason.as_str()))?;
+    upsert.bind(("$expires", expires.as_str()))?;
+
+    upsert.next()?;
 
     Ok(())
 }
@@ -107,13 +113,15 @@ fn create_suspension(rule_hash: &str, rule: &Rule, record: &JsonLogRecord) -> an
 
     let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
 
-    upsert.bind(("hash", rule_hash))?;
-    upsert.bind(("site", record.site.as_str()))?;
+    upsert.bind(("$hash", rule_hash))?;
+    upsert.bind(("$site", record.site.as_str()))?;
 
     let reason = format!("automation rule: {}", rule.regex.to_string());
 
-    upsert.bind(("reason", reason.as_str()))?;
-    upsert.bind(("expires", expires.as_str()))?;
+    upsert.bind(("$reason", reason.as_str()))?;
+    upsert.bind(("$expires", expires.as_str()))?;
+
+    upsert.next()?;
 
     Ok(())
 }
@@ -303,4 +311,104 @@ async fn publish_log_v1(
     })
     .await?;
     rx.await?
+}
+
+fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
+    use toml_edit::Formatted;
+    Ok(match item_value {
+        JsonValue::Bool(b) => TomlValue::Boolean(Formatted::new(*b)),
+        JsonValue::String(s) => TomlValue::String(Formatted::new(s.to_string())),
+        JsonValue::Array(a) => {
+            let mut res = toml_edit::Array::new();
+            for item in a {
+                res.push(json_to_toml_value(&item)?);
+            }
+            TomlValue::Array(res)
+        }
+        JsonValue::Object(o) => {
+            let mut tbl = toml_edit::InlineTable::new();
+            for (k, v) in o.iter() {
+                tbl.insert(k, json_to_toml_value(v)?);
+            }
+            TomlValue::InlineTable(tbl)
+        }
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                TomlValue::Integer(Formatted::new(i))
+            } else if let Some(f) = n.as_f64() {
+                TomlValue::Float(Formatted::new(f))
+            } else {
+                anyhow::bail!("impossible number value {n:?}");
+            }
+        }
+        JsonValue::Null => anyhow::bail!("impossible value {item_value:?}"),
+    })
+}
+
+async fn do_get_config() -> anyhow::Result<String> {
+    use toml_edit::Item;
+    let mut doc = toml_edit::Document::new();
+
+    let mut stmt = HISTORY.prepare(
+        "SELECT * from config where
+                                   unixepoch(expires) - unixepoch() > 0
+                                   order by expires, domain, source, name",
+    )?;
+    let mut num_entries = 0;
+    while let Ok(sqlite::State::Row) = stmt.next() {
+        num_entries += 1;
+        let reason: String = stmt.read("reason")?;
+        let domain: String = stmt.read("domain")?;
+        let mx_rollup: i64 = stmt.read("mx_rollup")?;
+        let source: String = stmt.read("source")?;
+        let name: String = stmt.read("name")?;
+        let config_value: String = stmt.read("value")?;
+        let expires: String = stmt.read("expires")?;
+
+        let config_value = serde_json::from_str(&config_value)?;
+        let config_value = json_to_toml_value(&config_value)?;
+
+        let domain_entry = doc
+            .entry(&domain)
+            .or_insert_with(|| {
+                let tbl = toml_edit::Table::new();
+                Item::Table(tbl)
+            })
+            .as_table_mut()
+            .unwrap();
+        let sources = domain_entry
+            .entry("sources")
+            .or_insert_with(|| {
+                let tbl = toml_edit::Table::new();
+                Item::Table(tbl)
+            })
+            .as_table_mut()
+            .unwrap();
+        let source_entry = sources
+            .entry(&source)
+            .or_insert_with(|| {
+                let mut tbl = toml_edit::Table::new();
+                tbl["mx_rollup"] = value(mx_rollup != 0);
+                Item::Table(tbl)
+            })
+            .as_table_mut()
+            .unwrap();
+
+        let item = Item::Value(config_value);
+        source_entry.insert(&name, item);
+
+        if let Some(decor) = source_entry.key_decor_mut(&name) {
+            decor.set_prefix(format!("# reason: {reason}\n# expires: {expires}\n"));
+        }
+    }
+
+    Ok(format!(
+        "# Generated by tsa-daemon\n# Number of entries: {num_entries}\n\n{}",
+        doc.to_string()
+    ))
+}
+
+async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
+    let result = do_get_config().await?;
+    Ok(result)
 }

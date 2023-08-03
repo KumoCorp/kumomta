@@ -5361,6 +5361,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.23.4",
  "toml",
+ "toml_edit",
  "tracing",
  "version-info",
 ]
