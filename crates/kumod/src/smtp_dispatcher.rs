@@ -23,7 +23,8 @@ pub struct SmtpDispatcher {
 
 impl SmtpDispatcher {
     pub async fn init(dispatcher: &mut Dispatcher) -> anyhow::Result<Option<Self>> {
-        let ehlo_name = match &dispatcher.path_config.ehlo_domain {
+        let path_config = dispatcher.path_config.borrow().clone();
+        let ehlo_name = match &path_config.ehlo_domain {
             Some(n) => n.to_string(),
             None => match &dispatcher.egress_source.ehlo_domain {
                 Some(n) => n.to_string(),
@@ -78,7 +79,7 @@ impl SmtpDispatcher {
         }
 
         for addr in &addresses {
-            if dispatcher.path_config.prohibited_hosts.contains(addr.addr) {
+            if path_config.prohibited_hosts.contains(addr.addr) {
                 dispatcher
                     .bulk_ready_queue_operation(Response {
                         code: 550,
@@ -89,7 +90,7 @@ impl SmtpDispatcher {
                         }),
                         content: format!(
                             "{addr:?} is on the list of prohibited_hosts {:?}",
-                            dispatcher.path_config.prohibited_hosts
+                            path_config.prohibited_hosts
                         ),
                         command: None,
                     })
@@ -98,7 +99,7 @@ impl SmtpDispatcher {
             }
         }
 
-        addresses.retain(|addr| !dispatcher.path_config.skip_hosts.contains(addr.addr));
+        addresses.retain(|addr| !path_config.skip_hosts.contains(addr.addr));
 
         if addresses.is_empty() {
             dispatcher
@@ -145,14 +146,15 @@ impl QueueDispatcher for SmtpDispatcher {
 
         let mut shutdown = ShutdownSubcription::get();
 
-        if let Some(throttle) = &dispatcher.path_config.max_connection_rate {
+        let path_config = dispatcher.path_config.borrow().clone();
+        if let Some(throttle) = path_config.max_connection_rate {
             loop {
                 let result = throttle
                     .throttle(format!("{}-connection-rate", dispatcher.name))
                     .await?;
 
                 if let Some(delay) = result.retry_after {
-                    if delay >= dispatcher.path_config.client_timeouts.idle_timeout {
+                    if delay >= path_config.client_timeouts.idle_timeout {
                         dispatcher.throttle_ready_queue(delay).await;
                         anyhow::bail!("connection rate throttled for {delay:?}");
                     }
@@ -181,16 +183,16 @@ impl QueueDispatcher for SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let enable_tls = dispatcher.path_config.enable_tls;
+        let enable_tls = dispatcher.path_config.borrow().enable_tls;
         let port = dispatcher
             .egress_source
             .remote_port
-            .unwrap_or(dispatcher.path_config.smtp_port);
+            .unwrap_or(dispatcher.path_config.borrow().smtp_port);
         let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
         let make_connection = async {
             let address = address.clone();
-            let timeouts = dispatcher.path_config.client_timeouts.clone();
+            let timeouts = dispatcher.path_config.borrow().client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
             async move {
                 let (stream, source_address) = egress_source
@@ -216,7 +218,11 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         };
 
-        let connect_timeout = dispatcher.path_config.client_timeouts.connect_timeout;
+        let connect_timeout = dispatcher
+            .path_config
+            .borrow()
+            .client_timeouts
+            .connect_timeout;
         let mut client = tokio::select! {
             _ = tokio::time::sleep(connect_timeout) => {
                 anyhow::bail!("exceeded timeout of {connect_timeout:?}");
@@ -285,25 +291,31 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         };
 
-        if let Some(username) = &dispatcher.path_config.smtp_auth_plain_username {
-            if !tls_enabled && !dispatcher.path_config.allow_smtp_auth_plain_without_tls {
+        if let Some(username) = &dispatcher.path_config.borrow().smtp_auth_plain_username {
+            if !tls_enabled
+                && !dispatcher
+                    .path_config
+                    .borrow()
+                    .allow_smtp_auth_plain_without_tls
+            {
                 anyhow::bail!(
                     "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
                 );
             }
 
-            let password = if let Some(pw) = &dispatcher.path_config.smtp_auth_plain_password {
-                Some(
-                    String::from_utf8(
-                        pw.get()
-                            .await
-                            .context("fetching smtp_auth_plain_password")?,
+            let password =
+                if let Some(pw) = &dispatcher.path_config.borrow().smtp_auth_plain_password {
+                    Some(
+                        String::from_utf8(
+                            pw.get()
+                                .await
+                                .context("fetching smtp_auth_plain_password")?,
+                        )
+                        .context("smtp_auth_plain_password is not UTF8")?,
                     )
-                    .context("smtp_auth_plain_password is not UTF8")?,
-                )
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
 
             client
                 .auth_plain(username, password.as_deref())

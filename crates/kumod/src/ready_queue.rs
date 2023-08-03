@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use config::load_config;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::EgressPathConfig;
+use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
 use kumo_server_runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
@@ -73,12 +74,16 @@ impl ReadyQueueManager {
         Ok(name)
     }
 
-    pub async fn resolve_by_queue_name(
+    async fn compute_config(
         queue_name: &str,
         queue_config: &QueueConfig,
         egress_source: &str,
-        egress_pool: &str,
-    ) -> anyhow::Result<ReadyQueueHandle> {
+    ) -> anyhow::Result<(
+        String,
+        EgressPathConfig,
+        EgressSource,
+        Option<Arc<MailExchanger>>,
+    )> {
         let components = QueueNameComponents::parse(queue_name);
 
         let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
@@ -123,6 +128,18 @@ impl ReadyQueueManager {
                 err
             })?;
 
+        Ok((name, path_config, egress_source, mx))
+    }
+
+    pub async fn resolve_by_queue_name(
+        queue_name: &str,
+        queue_config: &QueueConfig,
+        egress_source: &str,
+        egress_pool: &str,
+    ) -> anyhow::Result<ReadyQueueHandle> {
+        let (name, path_config, egress_source, mx) =
+            Self::compute_config(queue_name, queue_config, egress_source).await?;
+
         let mut manager = Self::get().await;
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
@@ -144,7 +161,7 @@ impl ReadyQueueManager {
                 notify,
                 connections: vec![],
                 last_change: Instant::now(),
-                path_config,
+                path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
                 egress_source,
                 metrics,
@@ -161,8 +178,11 @@ impl ReadyQueueManager {
         let mut interval = Duration::from_secs(60);
         let mut memory = subscribe_to_memory_status_changes();
         loop {
+            let mut refresh_config = false;
             tokio::select! {
-                _ = tokio::time::sleep(interval) => {},
+                _ = tokio::time::sleep(interval) => {
+                    refresh_config = true;
+                },
                 _ = shutdown.shutting_down() => {
                     interval = Duration::from_secs(1);
                 },
@@ -174,6 +194,27 @@ impl ReadyQueueManager {
                 None => break,
                 Some(queue) => {
                     let mut queue = queue.lock().await;
+
+                    if refresh_config && !queue.activity.is_shutting_down() {
+                        match Self::compute_config(
+                            &queue.queue_name,
+                            &queue.queue_config,
+                            &queue.egress_source.name,
+                        )
+                        .await
+                        {
+                            Ok((_name, path_config, _egress_source, _mx)) => {
+                                tracing::trace!("{name}: refreshed get_egress_path_config");
+                                queue.path_config.update(path_config);
+                            }
+                            Err(err) => {
+                                tracing::error!(
+                                    "{name}: refreshing get_egress_path_config: {err:#}"
+                                );
+                            }
+                        }
+                    }
+
                     if queue.reapable().await {
                         tracing::debug!("reaping site {name}");
                         mgr.queues.remove(&name);
@@ -216,7 +257,7 @@ pub struct ReadyQueue {
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
-    path_config: EgressPathConfig,
+    path_config: ConfigHandle<EgressPathConfig>,
     queue_config: QueueConfig,
     egress_pool: String,
     egress_source: EgressSource,
@@ -234,7 +275,7 @@ impl ReadyQueue {
         }
         {
             let mut ready = self.ready.lock().unwrap();
-            if ready.len() + 1 >= self.path_config.max_ready {
+            if ready.len() + 1 >= self.path_config.borrow().max_ready {
                 return Err(msg);
             }
             ready.push_back(msg);
@@ -255,12 +296,15 @@ impl ReadyQueue {
     pub fn ideal_connection_count(&self) -> usize {
         if self.activity.is_shutting_down() {
             0
-        } else if self.path_config.suspended
+        } else if self.path_config.borrow().suspended
             || AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some()
         {
             0
         } else {
-            let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
+            let n = ideal_connection_count(
+                self.ready_count(),
+                self.path_config.borrow().connection_limit,
+            );
             if n > 0 && get_headroom() == 0 {
                 n.min(2)
             } else {
@@ -320,9 +364,9 @@ impl ReadyQueue {
         // TODO: throttle rate at which connections are opened
         let ideal = self.ideal_connection_count();
 
-        let timeouts = &self.path_config.client_timeouts;
+        let timeouts = self.path_config.borrow().client_timeouts.clone();
         let limit = LimitSpec {
-            limit: self.path_config.connection_limit,
+            limit: self.path_config.borrow().connection_limit,
             duration: timeouts.total_message_send_duration(),
         };
 
@@ -406,7 +450,7 @@ pub struct Dispatcher {
     pub queue_name: String,
     pub ready: Arc<StdMutex<VecDeque<Message>>>,
     pub notify: Arc<Notify>,
-    pub path_config: EgressPathConfig,
+    pub path_config: ConfigHandle<EgressPathConfig>,
     pub mx: Option<Arc<MailExchanger>>,
     pub metrics: DeliveryMetrics,
     pub shutting_down: ShutdownSubcription,
@@ -447,7 +491,7 @@ impl Dispatcher {
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
         queue_config: QueueConfig,
-        path_config: EgressPathConfig,
+        path_config: ConfigHandle<EgressPathConfig>,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
         egress_source: EgressSource,
@@ -556,6 +600,7 @@ impl Dispatcher {
                     if consecutive_connection_failures.fetch_add(1, Ordering::SeqCst)
                         > dispatcher
                             .path_config
+                            .borrow()
                             .consecutive_connection_failures_before_delay
                     {
                         dispatcher.delay_ready_queue().await;
@@ -592,7 +637,7 @@ impl Dispatcher {
             );
             return Ok(());
         }
-        if self.path_config.suspended {
+        if self.path_config.borrow().suspended {
             tracing::trace!("{} is suspended by configuration", self.name);
             return Ok(());
         }
@@ -600,14 +645,15 @@ impl Dispatcher {
         // Process throttling before we acquire the Activity
         // guard, so that a delay due to throttling doesn't result
         // in a delay of shutdown
-        if let Some(throttle) = &self.path_config.max_message_rate {
+        let path_config = self.path_config.borrow().clone();
+        if let Some(throttle) = &path_config.max_message_rate {
             loop {
                 let result = throttle
                     .throttle(format!("{}-message-rate", self.name))
                     .await?;
 
                 if let Some(delay) = result.retry_after {
-                    if delay >= self.path_config.client_timeouts.idle_timeout {
+                    if delay >= path_config.client_timeouts.idle_timeout {
                         self.throttle_ready_queue(delay).await;
                         return Ok(());
                     }
@@ -873,11 +919,12 @@ impl Dispatcher {
             return Ok(false);
         }
 
-        if self.delivered_this_connection >= self.path_config.max_deliveries_per_connection {
+        if self.delivered_this_connection >= self.path_config.borrow().max_deliveries_per_connection
+        {
             tracing::trace!(
                 "Sent {} and limit is {}, close and make a new connection",
                 self.delivered_this_connection,
-                self.path_config.max_deliveries_per_connection,
+                self.path_config.borrow().max_deliveries_per_connection,
             );
             let closed = queue_dispatcher.close_connection(self).await?;
             if closed {
@@ -897,7 +944,7 @@ impl Dispatcher {
             // Close the connection and stop trying to deliver
             return Ok(false);
         }
-        if self.path_config.suspended {
+        if self.path_config.borrow().suspended {
             tracing::trace!(
                 "{} is suspended by configuration, throttling ready queue",
                 self.name,
@@ -911,6 +958,7 @@ impl Dispatcher {
             .lease
             .extend(
                 self.path_config
+                    .borrow()
                     .client_timeouts
                     .total_message_send_duration(),
             )
@@ -928,7 +976,7 @@ impl Dispatcher {
             return Ok(true);
         }
 
-        let idle_timeout = self.path_config.client_timeouts.idle_timeout;
+        let idle_timeout = self.path_config.borrow().client_timeouts.idle_timeout;
         tokio::select! {
             _ = tokio::time::sleep(idle_timeout) => {},
             _ = self.notify.notified() => {}

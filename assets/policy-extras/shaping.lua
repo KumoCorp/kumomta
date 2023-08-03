@@ -142,7 +142,7 @@ end)
 function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
-    ttl = '5 minutes',
+    ttl = '1 minute',
     capacity = 10,
   })
 

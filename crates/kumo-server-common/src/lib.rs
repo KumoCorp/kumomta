@@ -3,6 +3,7 @@ use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 
+pub mod config_handle;
 pub mod diagnostic_logging;
 pub mod http_server;
 pub mod nodeid;
