@@ -16,7 +16,7 @@ local cached_load_shaping_data = kumo.memoize(kumo.shaping.load, {
 
 kumo.on('tsa_load_shaping_data', function()
   local shaping = cached_load_shaping_data {
-    'assets/policy-extras/shaping.toml',
+    '/opt/kumomta/share/policy-extras/shaping.toml',
   }
   return shaping
 end)

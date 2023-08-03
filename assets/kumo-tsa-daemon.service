@@ -1,0 +1,14 @@
+[Unit]
+Description=KumoMTA Traffic Shaping Automation service
+After=syslog.target network.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/opt/kumomta/sbin/tsa-daemon --policy /opt/kumomta/etc/policy/tsa_init.lua
+User=kumod
+
+[Install]
+WantedBy=multi-user.target
+
+

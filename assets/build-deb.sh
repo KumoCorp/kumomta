@@ -37,6 +37,7 @@ EOF
 ./assets/install.sh pkg/debian/opt/kumomta
 
 install -Dm644 ./assets/kumomta.service -t pkg/debian/usr/lib/systemd/system
+install -Dm644 ./assets/kumo-tsa-daemon.service -t pkg/debian/usr/lib/systemd/system
 
 cat > pkg/debian/DEBIAN/preinst <<EOF
 #!/bin/sh
@@ -66,9 +67,14 @@ if [ "\$1" = "configure" ]; then
       # Create initial policy script
       cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua
     fi
+    if [ ! -f "/opt/kumomta/etc/policy/tsa_init.lua" ] ; then
+      # Create initial policy script
+      cp /opt/kumomta/share/minimal-tsa_init.lua /opt/kumomta/etc/policy/tsa_init.lua
+    fi
 
     if [ -x "/usr/bin/deb-systemd-helper" ]; then
       deb-systemd-helper enable kumomta.service >/dev/null
+      deb-systemd-helper enable kumo-tsa-daemon.service >/dev/null
     fi
 fi
 exit 0
@@ -84,6 +90,7 @@ fi
 if [ "\$1" = "remove" ]; then
     if [ -x "/usr/bin/deb-systemd-helper" ]; then
         deb-systemd-helper mask kumomta.service >/dev/null
+        deb-systemd-helper mask kumo-tsa-daemon.service >/dev/null
     fi
 fi
 
@@ -91,6 +98,9 @@ if [ "\$1" = "purge" ]; then
      if [ -x "/usr/bin/deb-systemd-helper" ]; then
         deb-systemd-helper purge kumomta.service >/dev/null
         deb-systemd-helper unmask kumomta.service >/dev/null
+
+        deb-systemd-helper purge kumo-tsa-daemon.service >/dev/null
+        deb-systemd-helper unmask kumo-tsa-daemon.service >/dev/null
     fi
 fi
 exit 0
@@ -102,6 +112,7 @@ cat > pkg/debian/DEBIAN/prerm <<EOF
 set -e
 if [ -d /run/systemd/system ]; then
     deb-systemd-helper stop kumomta.service >/dev/null
+    deb-systemd-helper stop kumo-tsa-daemon.service >/dev/null
 fi
 exit 0
 EOF

@@ -43,24 +43,28 @@ if [ ! -f "/opt/kumomta/etc/policy/init.lua" ] ; then
   # Create initial policy script
   cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua
 fi
+if [ ! -f "/opt/kumomta/etc/policy/tsa_init.lua" ] ; then
+  # Create initial policy script
+  cp /opt/kumomta/share/minimal-tsa_init.lua /opt/kumomta/etc/policy/tsa_init.lua
+fi
 
 if [ \$1 -eq 1 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
     # Initial installation
-    /usr/lib/systemd/systemd-update-helper install-system-units kumomta.service || :
+    /usr/lib/systemd/systemd-update-helper install-system-units kumomta.service kumo-tsa-daemon.service || :
 fi
 
 %preun
 
 if [ \$1 -eq 0 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
     # Package removal, not upgrade
-    /usr/lib/systemd/systemd-update-helper remove-system-units kumomta.service || :
+    /usr/lib/systemd/systemd-update-helper remove-system-units kumomta.service kumo-tsa-daemon.service || :
 fi
 
 %postun
 
 if [ \$1 -ge 1 ] && [ -x "/usr/lib/systemd/systemd-update-helper" ]; then
     # Package upgrade, not uninstall
-    /usr/lib/systemd/systemd-update-helper mark-restart-system-units kumomta.service || :
+    /usr/lib/systemd/systemd-update-helper mark-restart-system-units kumomta.service kumo-tsa-daemon.service || :
 fi
 
 %pre
@@ -85,6 +89,7 @@ cd ${HERE}
 ./assets/install.sh %{buildroot}/opt/kumomta
 mkdir -p %{buildroot}/usr/lib/systemd/system
 install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
+install -Dm644 ./assets/kumo-tsa-daemon.service -t %{buildroot}/usr/lib/systemd/system
 
 %files
 /opt/kumomta/sbin/kcli
@@ -96,9 +101,11 @@ install -Dm644 ./assets/kumomta.service -t %{buildroot}/usr/lib/systemd/system
 /opt/kumomta/sbin/validate-shaping
 /opt/kumomta/share/bounce_classifier/*.toml
 /opt/kumomta/share/minimal-init.lua
+/opt/kumomta/share/minimal-tsa_init.lua
 /opt/kumomta/share/policy-extras/*.lua
 /opt/kumomta/share/policy-extras/*.toml
 /usr/lib/systemd/system/kumomta.service
+/usr/lib/systemd/system/kumo-tsa-daemon.service
 EOF
 
 /usr/bin/rpmbuild -bb $spec --verbose
