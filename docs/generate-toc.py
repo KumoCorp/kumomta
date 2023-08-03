@@ -91,6 +91,7 @@ TOC = [
             Page("Checking Logs", "tutorial/checking_logs.md"),
             Page("Performance tuning", "tutorial/performance.md"),
             Page("Lua Resources", "tutorial/lua_resources.md"),
+            Page("Working with Vault", "tutorial/using_vault.md"),
         ],
     ),
     Page(

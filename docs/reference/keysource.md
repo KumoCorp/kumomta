@@ -74,6 +74,9 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 
     -- Specify how to reach the vault; if you omit these,
     -- values will be read from $VAULT_ADDR and $VAULT_TOKEN
+    -- Note that these environment vars must be accessible
+    -- by the kumod user.  If using systemd, edit the systemd
+    -- service file. [Look here](docs/tutorial/using_vault/) for more information
 
     -- vault_address = "http://127.0.0.1:8200"
     -- vault_token = "hvs.TOKENTOKENTOKEN"
