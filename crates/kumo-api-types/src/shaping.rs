@@ -652,6 +652,7 @@ MergedEntry {
             },
         ),
         ehlo_domain: None,
+        suspended: false,
     },
     sources: {},
     automation: [],
@@ -738,6 +739,7 @@ MergedEntry {
             },
         ),
         ehlo_domain: None,
+        suspended: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -799,6 +801,7 @@ MergedEntry {
                 },
             ),
             ehlo_domain: None,
+            suspended: false,
         },
     },
     automation: [],
@@ -891,6 +894,7 @@ MergedEntry {
             },
         ),
         ehlo_domain: None,
+        suspended: false,
     },
     sources: {},
     automation: [

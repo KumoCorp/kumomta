@@ -88,6 +88,9 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     pub ehlo_domain: Option<String>,
+
+    #[serde(default)]
+    pub suspended: bool,
 }
 
 impl LuaUserData for EgressPathConfig {}
@@ -111,6 +114,7 @@ impl Default for EgressPathConfig {
             allow_smtp_auth_plain_without_tls: false,
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
+            suspended: false,
         }
     }
 }

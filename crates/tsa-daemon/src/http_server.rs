@@ -30,14 +30,6 @@ CREATE TABLE IF NOT EXISTS event_history (
     PRIMARY KEY (rule_hash, record_hash)
 );
 
-CREATE TABLE IF NOT EXISTS suspensions (
-    rule_hash text,
-    site_name text,
-    reason text,
-    expires DATETIME,
-    PRIMARY KEY (rule_hash, site_name)
-);
-
 CREATE TABLE IF NOT EXISTS config (
     rule_hash text,
     site_name text,
@@ -93,31 +85,6 @@ fn create_config(
     upsert.bind(("$value", value.as_str()))?;
 
     let reason = format!("automation rule: {}", rule.regex.to_string());
-    upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires.as_str()))?;
-
-    upsert.next()?;
-
-    Ok(())
-}
-
-fn create_suspension(rule_hash: &str, rule: &Rule, record: &JsonLogRecord) -> anyhow::Result<()> {
-    let mut upsert = HISTORY.prepare(
-        "INSERT INTO suspensions
-                 (rule_hash, site_name, reason, expires)
-                 VALUES
-                 ($hash, $site, $reason, $expires)
-                 ON CONFLICT (rule_hash, site_name)
-                 DO UPDATE SET expires=$expires, reason=$reason",
-    )?;
-
-    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
-
-    upsert.bind(("$hash", rule_hash))?;
-    upsert.bind(("$site", record.site.as_str()))?;
-
-    let reason = format!("automation rule: {}", rule.regex.to_string());
-
     upsert.bind(("$reason", reason.as_str()))?;
     upsert.bind(("$expires", expires.as_str()))?;
 
@@ -243,7 +210,17 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
         if triggered {
             match &m.action {
                 Action::Suspend => {
-                    create_suspension(&rule_hash, m, &record)?;
+                    create_config(
+                        &rule_hash,
+                        m,
+                        &record,
+                        &EgressPathConfigValue {
+                            name: "suspended".to_string(),
+                            value: toml::Value::Boolean(true).into(),
+                        },
+                        &domain,
+                        &source,
+                    )?;
                 }
                 Action::SetConfig(config) => {
                     create_config(&rule_hash, m, &record, config, &domain, &source)?;

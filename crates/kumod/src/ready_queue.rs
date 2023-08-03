@@ -255,7 +255,9 @@ impl ReadyQueue {
     pub fn ideal_connection_count(&self) -> usize {
         if self.activity.is_shutting_down() {
             0
-        } else if AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some() {
+        } else if self.path_config.suspended
+            || AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some()
+        {
             0
         } else {
             let n = ideal_connection_count(self.ready_count(), self.path_config.connection_limit);
@@ -590,6 +592,10 @@ impl Dispatcher {
             );
             return Ok(());
         }
+        if self.path_config.suspended {
+            tracing::trace!("{} is suspended by configuration", self.name);
+            return Ok(());
+        }
 
         // Process throttling before we acquire the Activity
         // guard, so that a delay due to throttling doesn't result
@@ -885,6 +891,15 @@ impl Dispatcher {
             let duration = suspend.get_duration();
             tracing::trace!(
                 "{} is suspended until {duration:?}, throttling ready queue",
+                self.name,
+            );
+            self.reinsert_ready_queue().await;
+            // Close the connection and stop trying to deliver
+            return Ok(false);
+        }
+        if self.path_config.suspended {
+            tracing::trace!(
+                "{} is suspended by configuration, throttling ready queue",
                 self.name,
             );
             self.reinsert_ready_queue().await;
