@@ -82,14 +82,16 @@ impl<T: Clone> ConfigHandle<T> {
 
     /// Updates the upstream, shared value.
     /// Other config handles will notice the change when borrow() is subsequently called.
-    pub fn update(&self, new_value: T) {
+    pub fn update(&self, new_value: T) -> usize {
         let mut upstream = self.inner.config.lock().unwrap();
 
         *upstream = new_value;
         self.inner.generation.fetch_add(1, Ordering::SeqCst);
 
         *self.config.borrow_mut() = upstream.clone();
-        *self.generation.borrow_mut() = self.inner.generation.load(Ordering::SeqCst);
+        let generation = self.inner.generation.load(Ordering::SeqCst);
+        *self.generation.borrow_mut() = generation;
+        generation
     }
 
     /// Borrows the local copy of the config for read.

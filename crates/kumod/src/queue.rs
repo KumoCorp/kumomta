@@ -634,7 +634,7 @@ impl Queue {
                                     subject: 4,
                                     detail: 4,
                                 }),
-                                content: format!("failed to resolve {}: {err:#}", self.name),
+                                content: format!("failed to resolve queue {}: {err:#}", self.name),
                                 command: None,
                             },
                             egress_pool: None,
@@ -643,7 +643,7 @@ impl Queue {
                             delivery_protocol: None,
                         })
                         .await;
-                        anyhow::bail!("failed to resolve {}: {err:#}", self.name);
+                        anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
                     }
                 }
             }

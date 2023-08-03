@@ -8,7 +8,6 @@ use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use throttle::ThrottleSpec;
@@ -274,7 +273,13 @@ impl ShapingInner {
         if let Some(default) = self.by_domain.get("default") {
             for rule in &default.automation {
                 if rule.matches(&response) {
-                    result.push(rule.clone());
+                    // For automation under `default`, we always
+                    // assume that mx_rollup should be true.
+                    // If you somehow have a domain where that isn't
+                    // true, you should avoid using `default` for
+                    // automation.  Honestly, it's best to avoid
+                    // using `default` for automation.
+                    result.push(rule.clone_and_set_rollup());
                 }
             }
         }
@@ -307,23 +312,30 @@ pub struct Shaping {
 }
 
 impl Shaping {
-    fn load_from_file(path: &Path) -> anyhow::Result<HashMap<String, PartialEntry>> {
-        let data = std::fs::read_to_string(path)
-            .with_context(|| format!("loading data from file {}", path.display()))?;
-
-        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-            toml::from_str(&data)
-                .with_context(|| format!("parsing toml from file {}", path.display()))
+    async fn load_from_file(path: &str) -> anyhow::Result<HashMap<String, PartialEntry>> {
+        let data: String = if path.starts_with("http://") || path.starts_with("https://") {
+            reqwest::get(path)
+                .await
+                .with_context(|| format!("making HTTP request to {path}"))?
+                .text()
+                .await
+                .with_context(|| format!("reading text from {path}"))?
         } else {
-            serde_json::from_str(&data)
-                .with_context(|| format!("parsing json from file {}", path.display()))
+            std::fs::read_to_string(path)
+                .with_context(|| format!("loading data from file {path}"))?
+        };
+
+        if path.ends_with(".toml") {
+            toml::from_str(&data).with_context(|| format!("parsing toml from file {path}"))
+        } else {
+            serde_json::from_str(&data).with_context(|| format!("parsing json from file {path}"))
         }
     }
 
-    pub async fn merge_files(files: &[PathBuf]) -> anyhow::Result<Self> {
+    pub async fn merge_files(files: &[String]) -> anyhow::Result<Self> {
         let mut loaded = vec![];
         for p in files {
-            loaded.push(Self::load_from_file(p)?);
+            loaded.push(Self::load_from_file(p).await?);
         }
 
         let mut site_to_domains: HashMap<String, HashSet<String>> = HashMap::new();
@@ -554,7 +566,6 @@ pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
     shaping_mod.set(
         "load",
         lua.create_async_function(move |_lua, paths: Vec<String>| async move {
-            let paths: Vec<PathBuf> = paths.into_iter().map(|p| p.into()).collect();
             let shaping = Shaping::merge_files(&paths).await.map_err(any_err)?;
             Ok(shaping)
         })?,

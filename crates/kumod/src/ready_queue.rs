@@ -140,6 +140,10 @@ impl ReadyQueueManager {
         let (name, path_config, egress_source, mx) =
             Self::compute_config(queue_name, queue_config, egress_source).await?;
 
+        if path_config.suspended {
+            anyhow::bail!("get_egress_path_config has suspended=true for {name}");
+        }
+
         let mut manager = Self::get().await;
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
@@ -204,8 +208,18 @@ impl ReadyQueueManager {
                         .await
                         {
                             Ok((_name, path_config, _egress_source, _mx)) => {
-                                tracing::trace!("{name}: refreshed get_egress_path_config");
-                                queue.path_config.update(path_config);
+                                // TODO: ideally we'd impl PartialEq for path_config
+                                // and its recursive types, but that is currently
+                                // non-trivial, so we do a gross debug repr comparison
+                                // to avoid inflating the generation count and falsely
+                                // waking up tasks
+                                if format!("{path_config:?}")
+                                    != format!("{:?}", queue.path_config.borrow())
+                                {
+                                    let generation = queue.path_config.update(path_config);
+                                    tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
+                                    queue.notify.notify_waiters();
+                                }
                             }
                             Err(err) => {
                                 tracing::error!(
@@ -341,6 +355,12 @@ impl ReadyQueue {
     pub async fn maintain(&mut self) {
         // Prune completed connection tasks
         self.connections.retain(|handle| !handle.is_finished());
+        tracing::trace!(
+            "maintain {}: there are now {} connections, suspended={}",
+            self.name,
+            self.connections.len(),
+            self.path_config.borrow().suspended
+        );
 
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.

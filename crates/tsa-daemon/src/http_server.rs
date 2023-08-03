@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS config (
 pub fn make_router() -> Router {
     Router::new()
         .route("/publish_log_v1", post(publish_log_v1))
-        .route("/get_config_v1", get(get_config_v1))
+        .route("/get_config_v1/shaping.toml", get(get_config_v1))
 }
 
 fn create_config(
@@ -348,7 +348,8 @@ async fn do_get_config() -> anyhow::Result<String> {
         let domain_entry = doc
             .entry(&domain)
             .or_insert_with(|| {
-                let tbl = toml_edit::Table::new();
+                let mut tbl = toml_edit::Table::new();
+                tbl["mx_rollup"] = value(mx_rollup != 0);
                 Item::Table(tbl)
             })
             .as_table_mut()
@@ -364,8 +365,7 @@ async fn do_get_config() -> anyhow::Result<String> {
         let source_entry = sources
             .entry(&source)
             .or_insert_with(|| {
-                let mut tbl = toml_edit::Table::new();
-                tbl["mx_rollup"] = value(mx_rollup != 0);
+                let tbl = toml_edit::Table::new();
                 Item::Table(tbl)
             })
             .as_table_mut()

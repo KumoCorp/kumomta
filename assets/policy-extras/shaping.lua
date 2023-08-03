@@ -41,9 +41,8 @@ function mod:setup(extra_files)
   }).get_egress_path_config
 end
 
-local function load_shaping_data(file_names, subscribe)
-  -- TODO: add subscribe to file_names list and teach
-  -- shaping.load how to load from URL(s)
+local function load_shaping_data(file_names)
+  -- print('Loading shaping data from ', kumo.json_encode(file_names))
   local result = kumo.shaping.load(file_names)
   local warnings = result:get_warnings()
   for _, warn in ipairs(warnings) do
@@ -153,6 +152,14 @@ function mod:setup_with_automation(options)
   if options.extra_files then
     for _, filename in ipairs(options.extra_files) do
       table.insert(file_names, filename)
+    end
+  end
+  if options.subscribe then
+    for _, url in ipairs(options.subscribe) do
+      table.insert(
+        file_names,
+        string.format('%s/get_config_v1/shaping.toml', url)
+      )
     end
   end
 

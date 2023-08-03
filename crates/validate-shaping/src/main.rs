@@ -1,6 +1,5 @@
 use clap::Parser;
 use kumo_api_types::shaping::Shaping;
-use std::path::PathBuf;
 
 /// KumoMTA shaping configuration validator
 ///
@@ -8,7 +7,7 @@ use std::path::PathBuf;
 #[derive(Debug, Parser)]
 #[command(about)]
 struct Opt {
-    files: Vec<PathBuf>,
+    files: Vec<String>,
 }
 
 #[tokio::main]

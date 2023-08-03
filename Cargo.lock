@@ -2275,6 +2275,7 @@ dependencies = [
  "kumo-log-types",
  "mlua",
  "mod-memoize",
+ "reqwest",
  "rfc5321",
  "serde",
  "serde_json",
