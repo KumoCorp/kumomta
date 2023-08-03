@@ -138,7 +138,7 @@ fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
 }
 
 async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
-    tracing::info!("got record: {record:?}");
+    tracing::trace!("got record: {record:?}");
 
     // Extract the domain from the recipient.
     let recipient = ForwardPath::try_from(record.recipient.as_str())
@@ -187,9 +187,6 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
         let m_hash = match_hash(m);
 
         let rule_hash = format!("{store_key}-{m_hash}");
-        // Add record to history: INSERT INTO history (key,
-
-        tracing::info!("Matched: {m:?}  hash={rule_hash}");
 
         let triggered = match m.trigger {
             Trigger::Immediate => true,
@@ -202,8 +199,6 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
                 count >= spec.limit
             }
         };
-
-        tracing::info!("triggered={triggered}");
 
         // To enact the action, we need to generate (or update) a row
         // in the db with its effects and its expiry
