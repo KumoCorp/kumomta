@@ -267,12 +267,20 @@ TOC = [
                 "reference/kumo.secrets",
             ),
             Gen(
-                "module: sqlite",
-                "reference/sqlite",
+                "module: kumo.shaping",
+                "reference/kumo.shaping",
             ),
             Gen(
                 "module: redis",
                 "reference/redis",
+            ),
+            Gen(
+                "module: sqlite",
+                "reference/sqlite",
+            ),
+            Gen(
+                "module: tsa",
+                "reference/tsa",
             ),
             Gen(
                 "object: address",
