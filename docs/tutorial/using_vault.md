@@ -63,7 +63,7 @@ When done, it should look something like this:
  WantedBy=multi-user.target
 ```
 
-Save the file, then reload with `sudo systemctl daemon-reload` and the changes shoudl be immediate.
+Save the file, then reload with `sudo systemctl daemon-reload` and the changes should be immediate.
 
 
 ## Storing secrets for later use
