@@ -14,13 +14,17 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use sqlite::{Connection, ConnectionWithFullMutex};
 use std::hash::Hash;
+use std::sync::Mutex;
 use toml_edit::{value, Value as TomlValue};
 
+pub static DB_PATH: Lazy<Mutex<String>> =
+    Lazy::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
 static HISTORY: Lazy<ConnectionWithFullMutex> = Lazy::new(|| open_history_db().unwrap());
 
 fn open_history_db() -> anyhow::Result<ConnectionWithFullMutex> {
-    // TODO: make path configurable
-    let db = Connection::open_with_full_mutex(":memory:")?;
+    let path = DB_PATH.lock().unwrap().clone();
+    let db = Connection::open_with_full_mutex(&path)
+        .with_context(|| format!("opening TSA database {path}"))?;
 
     let query = r#"
 CREATE TABLE IF NOT EXISTS event_history (

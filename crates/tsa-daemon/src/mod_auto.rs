@@ -3,9 +3,9 @@ use kumo_server_common::http_server::HttpListenerParams;
 use mlua::{Lua, Value};
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
-    let kumo_mod = get_or_create_module(lua, "tsa")?;
+    let tsa_mod = get_or_create_module(lua, "tsa")?;
 
-    kumo_mod.set(
+    tsa_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = from_lua_value(lua, params)?;
@@ -13,6 +13,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .start(crate::http_server::make_router())
                 .await
                 .map_err(any_err)?;
+            Ok(())
+        })?,
+    )?;
+
+    tsa_mod.set(
+        "configure_tsa_db_path",
+        lua.create_function(|_lua, file_name: String| {
+            *crate::http_server::DB_PATH.lock().unwrap() = file_name;
             Ok(())
         })?,
     )?;
