@@ -23,21 +23,27 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 
 To modify the systemd service file, use the built in edit command in systemctl.  The [man page is here](https://man7.org/linux/man-pages/man1/systemctl.1.html), but Digital Ocean has a really good [tutorial](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units) that explains it in plain english.
 
-The short version is that you can use `systemctl edit` to edit the file and add "Environment" values under the [Service] section so that those values will be available when the system service daemon starts KumoMTA. The example below modified the FULL service config.  you can remove the --full option to only modify a snippet as well.
+The short version is that you can use `systemctl edit` to edit the file and add
+"Environment" values under the `[Service]` section so that those values will be
+available when the system service daemon starts KumoMTA. The example below
+modified the FULL service config.  you can remove the --full option to only
+modify a snippet as well.
 
 ```bash
 sudo systemctl edit --full kumomta.service
 ```
 
-You should ignore (leave it alone) everything except the [Service] section.  At the bottom of that section, add 2 lines:
-```bash
+You should ignore (leave it alone) everything except the `[Service]` section.
+At the bottom of that section, add 2 lines:
+
+```
  Environment=VAULT_ADDR='http://<YOUR_SERVER_LOCATION>:8200'
  Environment=VAULT_TOKEN='<YOUR_ACCESS_TOKEN>'
-``` 
+```
 
 When done, it should look something like this: 
 
-```bash
+```
  [Unit]
  Description=KumoMTA SMTP service
  After=syslog.target network.target
