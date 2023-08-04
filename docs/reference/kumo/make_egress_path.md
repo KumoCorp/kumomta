@@ -280,3 +280,14 @@ You can set this to `true` to allow sending the credential in clear text.
     Do not enable this option on an untrusted network, as the credential
     will then be passed in clear text and visible to anyone else on the
     network
+
+## suspended
+
+{{since('dev')}}
+
+Optional boolean. Defaults to `false`.
+
+When set to `true`, this pathway will not be used to send mail.
+
+This option is present primarily to facilitate traffic shaping automation.
+

@@ -345,6 +345,10 @@ mod test {
 #[error("The Ready Queue is full")]
 struct ReadyQueueFull;
 
+#[derive(Error, Debug)]
+#[error("The Ready Queue is suspend by configuration")]
+pub struct ReadyQueueSuspended;
+
 #[derive(Clone)]
 pub struct QueueHandle(Arc<Mutex<Queue>>);
 
@@ -550,100 +554,126 @@ impl Queue {
         tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
             DeliveryProto::Smtp | DeliveryProto::Lua { .. } => {
-                let egress_source = match self.rr.next(&self.name, &self.queue_config).await {
-                    RoundRobinResult::Source(source) => source,
-                    RoundRobinResult::Delay(duration) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 451,
-                                enhanced_code: Some(EnhancedStatusCode {
-                                    class: 4,
-                                    subject: 4,
-                                    detail: 4,
-                                }),
-                                content: format!(
-                                    "all possible sources for {} are suspended",
-                                    self.name
-                                ),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: None,
-                        })
-                        .await;
-                        msg.delay_by_and_jitter(duration).await?;
-                        return self.force_into_delayed(msg).await;
-                    }
-                    RoundRobinResult::NoSources => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 451,
-                                enhanced_code: Some(EnhancedStatusCode {
-                                    class: 4,
-                                    subject: 4,
-                                    detail: 4,
-                                }),
-                                content: format!(
-                                    "no non-zero-weighted sources available for {}. {:?}",
-                                    self.name, self.rr,
-                                ),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: None,
-                        })
-                        .await;
-                        anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
-                    }
-                };
+                // rr_attempts is a bit gross; ideally rr.next would know how
+                // to inspect the egress_path.suspended configuration and reflect
+                // that in the RoundRobinResult, but it doesn't have a reference
+                // to an nexisting configuration to inspect.  We could potentially
+                // dynamically create an AdminSuspendReadyQEntry when resolving the
+                // configuration in ReadyQueueManager::compute_config, but that
+                // doesn't have a Duration that it can use for that record.
+                // So for the moment, we're going to make a number of attempts
+                // to figure out the source.
+                let mut rr_attempts = self.rr.len();
+                loop {
+                    rr_attempts -= 1;
 
-                match ReadyQueueManager::resolve_by_queue_name(
-                    &self.name,
-                    &self.queue_config,
-                    &egress_source,
-                    &self.rr.name,
-                )
-                .await
-                {
-                    Ok(site) => {
-                        let mut site = site.lock().await;
-                        site.insert(msg).await.map_err(|_| ReadyQueueFull.into())
-                    }
-                    Err(err) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 451,
-                                enhanced_code: Some(EnhancedStatusCode {
-                                    class: 4,
-                                    subject: 4,
-                                    detail: 4,
-                                }),
-                                content: format!("failed to resolve queue {}: {err:#}", self.name),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: None,
-                        })
-                        .await;
-                        anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
+                    let egress_source = match self.rr.next(&self.name, &self.queue_config).await {
+                        RoundRobinResult::Source(source) => source,
+                        RoundRobinResult::Delay(duration) => {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 451,
+                                    enhanced_code: Some(EnhancedStatusCode {
+                                        class: 4,
+                                        subject: 4,
+                                        detail: 4,
+                                    }),
+                                    content: format!(
+                                        "all possible sources for {} are suspended",
+                                        self.name
+                                    ),
+                                    command: None,
+                                },
+                                egress_pool: None,
+                                egress_source: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                            })
+                            .await;
+                            msg.delay_by_and_jitter(duration).await?;
+                            return self.force_into_delayed(msg).await;
+                        }
+                        RoundRobinResult::NoSources => {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 451,
+                                    enhanced_code: Some(EnhancedStatusCode {
+                                        class: 4,
+                                        subject: 4,
+                                        detail: 4,
+                                    }),
+                                    content: format!(
+                                        "no non-zero-weighted sources available for {}. {:?}",
+                                        self.name, self.rr,
+                                    ),
+                                    command: None,
+                                },
+                                egress_pool: None,
+                                egress_source: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                            })
+                            .await;
+                            anyhow::bail!(
+                                "no non-zero-weighted sources available for {}",
+                                self.name
+                            );
+                        }
+                    };
+
+                    match ReadyQueueManager::resolve_by_queue_name(
+                        &self.name,
+                        &self.queue_config,
+                        &egress_source,
+                        &self.rr.name,
+                    )
+                    .await
+                    {
+                        Ok(site) => {
+                            let mut site = site.lock().await;
+                            return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
+                        }
+                        Err(err) => {
+                            if err.downcast_ref::<ReadyQueueSuspended>().is_some()
+                                && rr_attempts > 0
+                            {
+                                continue;
+                            }
+
+                            log_disposition(LogDisposition {
+                                kind: RecordType::TransientFailure,
+                                msg: msg.clone(),
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 451,
+                                    enhanced_code: Some(EnhancedStatusCode {
+                                        class: 4,
+                                        subject: 4,
+                                        detail: 4,
+                                    }),
+                                    content: format!(
+                                        "failed to resolve queue {}: {err:#}",
+                                        self.name
+                                    ),
+                                    command: None,
+                                },
+                                egress_pool: None,
+                                egress_source: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                            })
+                            .await;
+                            anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
+                        }
                     }
                 }
             }

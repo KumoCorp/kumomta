@@ -4,7 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
-use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager};
+use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, ReadyQueueSuspended};
 use crate::smtp_dispatcher::SmtpDispatcher;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -141,7 +141,7 @@ impl ReadyQueueManager {
             Self::compute_config(queue_name, queue_config, egress_source).await?;
 
         if path_config.suspended {
-            anyhow::bail!("get_egress_path_config has suspended=true for {name}");
+            return Err(ReadyQueueSuspended.into());
         }
 
         let mut manager = Self::get().await;
