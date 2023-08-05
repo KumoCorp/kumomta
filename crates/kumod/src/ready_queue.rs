@@ -294,9 +294,9 @@ impl ReadyQueue {
                 return Err(msg);
             }
             ready.push_back(msg);
+            self.metrics.ready_count.inc();
         }
 
-        self.metrics.ready_count.inc();
         self.notify.notify_waiters();
         self.maintain().await;
         self.last_change = Instant::now();
@@ -306,6 +306,16 @@ impl ReadyQueue {
 
     pub fn ready_count(&self) -> usize {
         self.ready.lock().unwrap().len()
+    }
+
+    fn take_ready_queue(
+        ready: &Arc<StdMutex<VecDeque<Message>>>,
+        metrics: &DeliveryMetrics,
+    ) -> Vec<Message> {
+        let mut locked = ready.lock().unwrap();
+        let messages: Vec<Message> = locked.drain(..).collect();
+        metrics.ready_count.sub(messages.len() as i64);
+        messages
     }
 
     pub fn ideal_connection_count(&self) -> usize {
@@ -365,8 +375,7 @@ impl ReadyQueue {
 
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.
-            let msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-            self.metrics.ready_count.set(0);
+            let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
@@ -756,8 +765,7 @@ impl Dispatcher {
     /// The insertion logic will take care of logging a transient failure
     /// if it transpires that no sources are enabled for the message.
     pub async fn reinsert_ready_queue(&mut self) {
-        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
+        let mut msgs = self.take_ready_queue();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -784,8 +792,7 @@ impl Dispatcher {
     }
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
-        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
+        let mut msgs = self.take_ready_queue();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -817,10 +824,13 @@ impl Dispatcher {
         }
     }
 
+    fn take_ready_queue(&self) -> Vec<Message> {
+        ReadyQueue::take_ready_queue(&self.ready, &self.metrics)
+    }
+
     #[instrument(skip(self))]
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
-        let mut msgs: Vec<Message> = self.ready.lock().unwrap().drain(..).collect();
-        self.metrics.ready_count.set(0);
+        let mut msgs = self.take_ready_queue();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
