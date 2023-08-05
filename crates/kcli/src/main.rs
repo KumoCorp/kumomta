@@ -20,9 +20,12 @@ mod suspend_ready_q_list;
 #[derive(Debug, Parser)]
 #[command(about, version=version_info::kumo_version())]
 struct Opt {
-    /// URL to reach the KumoMTA HTTP API
+    /// URL to reach the KumoMTA HTTP API.
+    /// You may set KUMO_KCLI_ENDPOINT in the environment to
+    /// specify this without explicitly using --endpoint.
+    /// If not specified, http://127.0.0.1:8000 will be assumed.
     #[arg(long)]
-    endpoint: String,
+    endpoint: Option<String>,
 
     #[command(subcommand)]
     cmd: SubCommand,
@@ -162,6 +165,11 @@ pub async fn request_with_json_response<
 async fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
-    let url = Url::parse(&opts.endpoint)?;
+    let endpoint = opts
+        .endpoint
+        .or_else(|| std::env::var("KUMO_KCLI_ENDPOINT").ok())
+        .unwrap_or_else(|| "http://127.0.0.1:8000".to_string());
+
+    let url = Url::parse(&endpoint)?;
     opts.cmd.run(&url).await
 }
