@@ -40,11 +40,20 @@ pub enum DeliveryProto {
 }
 
 impl DeliveryProto {
-    pub fn ready_queue_name(&self) -> String {
+    pub fn metrics_protocol_name(&self) -> &'static str {
         match self {
-            Self::Smtp => "smtp".to_string(),
-            Self::Maildir { maildir_path } => format!("maildir:{}", maildir_path.display()),
-            Self::Lua { custom_lua } => format!("lua:{}", custom_lua.constructor),
+            Self::Smtp => "smtp_client",
+            Self::Maildir { .. } => "maildir",
+            Self::Lua { .. } => "lua",
+        }
+    }
+
+    pub fn ready_queue_name(&self) -> String {
+        let proto_name = self.metrics_protocol_name();
+        match self {
+            Self::Smtp => proto_name.to_string(),
+            Self::Maildir { maildir_path } => format!("{proto_name}:{}", maildir_path.display()),
+            Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
         }
     }
 }

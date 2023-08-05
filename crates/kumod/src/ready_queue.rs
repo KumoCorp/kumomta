@@ -153,8 +153,9 @@ impl ReadyQueueManager {
                 move || Ok(async move { Self::maintainer_task(name).await })
             })
             .expect("failed to spawn maintainer");
-            let service = format!("smtp_client:{name}");
-            let metrics = DeliveryMetrics::new(&service, "smtp_client");
+            let proto = queue_config.protocol.metrics_protocol_name();
+            let service = format!("{proto}:{name}");
+            let metrics = DeliveryMetrics::new(&service, &proto);
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
             let notify = Arc::new(Notify::new());
             ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {
