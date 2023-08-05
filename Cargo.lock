@@ -2270,6 +2270,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap 4.3.17",
+ "dns-resolver",
  "humantime",
  "kumo-api-types",
  "reqwest",

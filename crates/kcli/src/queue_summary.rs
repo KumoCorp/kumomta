@@ -1,4 +1,5 @@
 use clap::Parser;
+use dns_resolver::MailExchanger;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -49,6 +50,10 @@ pub struct QueueSummaryCommand {
     /// Instead of ordering by name, order by volume, descending
     #[arg(long)]
     by_volume: bool,
+
+    /// Filter queues to those associated with a DNS domain
+    #[arg(long)]
+    domain: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -250,6 +255,32 @@ impl QueueSummaryCommand {
             });
         } else {
             scheduled_metrics.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+
+        if let Some(domain) = &self.domain {
+            let mx = MailExchanger::resolve(domain).await?;
+
+            // Include all ready queues for the same site
+            ready_metrics.retain(|m| m.site_name() == mx.site_name);
+
+            // Resolve the sites of all the scheduled queue domains
+            let mut domain_to_site = HashMap::new();
+            for m in &scheduled_metrics {
+                if let Ok(mx) = MailExchanger::resolve(&m.name).await {
+                    domain_to_site.insert(m.name.to_string(), mx.site_name.to_string());
+                }
+            }
+
+            // Include all the scheduled queues that either directly match
+            // the requested domain name, or which have the same site name
+            // as the requested domain name
+            scheduled_metrics.retain(|m| {
+                m.name == *domain
+                    || domain_to_site
+                        .get(&m.name)
+                        .map(|s| *s == mx.site_name)
+                        .unwrap_or(false)
+            });
         }
 
         if let Some(limit) = self.limit {
