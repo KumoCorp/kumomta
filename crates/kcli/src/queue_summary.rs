@@ -1,5 +1,6 @@
 use clap::Parser;
 use dns_resolver::MailExchanger;
+use lexicmp::natural_lexical_cmp;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -228,11 +229,11 @@ impl QueueSummaryCommand {
 
         if self.by_volume {
             ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
-                Ordering::Equal => a.name.cmp(&b.name),
+                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
                 ordering => ordering,
             });
         } else {
-            ready_metrics.sort_by(|a, b| a.name.cmp(&b.name));
+            ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
         }
 
         let mut scheduled_metrics = HashMap::new();
@@ -250,11 +251,11 @@ impl QueueSummaryCommand {
 
         if self.by_volume {
             scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
-                Ordering::Equal => a.name.cmp(&b.name),
+                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
                 ordering => ordering,
             });
         } else {
-            scheduled_metrics.sort_by(|a, b| a.name.cmp(&b.name));
+            scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
         }
 
         if let Some(domain) = &self.domain {

@@ -10,6 +10,7 @@ anyhow = "1.0"
 clap = {version="4.1", features=["derive"]}
 dns-resolver = {path="../dns-resolver"}
 humantime = "2.1"
+lexicmp = "0.1"
 kumo-api-types = {path="../kumo-api-types"}
 reqwest = {version="0.11", default-features=false, features=["json", "rustls-tls"]}
 serde = {version="1.0", features=["derive"]}
