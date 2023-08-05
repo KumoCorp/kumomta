@@ -7,6 +7,7 @@ mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
 mod logfilter;
+mod queue_summary;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -44,6 +45,7 @@ enum SubCommand {
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    QueueSummary(queue_summary::QueueSummaryCommand),
 }
 
 impl SubCommand {
@@ -60,6 +62,7 @@ impl SubCommand {
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::QueueSummary(cmd) => cmd.run(endpoint).await,
         }
     }
 }
