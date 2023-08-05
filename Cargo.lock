@@ -2277,6 +2277,7 @@ dependencies = [
  "anyhow",
  "clap 4.3.17",
  "dns-resolver",
+ "futures",
  "humantime",
  "kumo-api-types",
  "lexicmp",

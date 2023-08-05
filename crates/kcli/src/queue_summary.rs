@@ -265,10 +265,15 @@ impl QueueSummaryCommand {
             ready_metrics.retain(|m| m.site_name() == mx.site_name);
 
             // Resolve the sites of all the scheduled queue domains
-            let mut domain_to_site = HashMap::new();
+            let mut futures = vec![];
             for m in &scheduled_metrics {
-                if let Ok(mx) = MailExchanger::resolve(&m.name).await {
-                    domain_to_site.insert(m.name.to_string(), mx.site_name.to_string());
+                futures.push(MailExchanger::resolve(&m.name));
+            }
+
+            let mut domain_to_site = HashMap::new();
+            for res in futures::future::join_all(futures).await {
+                if let Ok(mx) = res {
+                    domain_to_site.insert(mx.domain_name.to_string(), mx.site_name.to_string());
                 }
             }
 
