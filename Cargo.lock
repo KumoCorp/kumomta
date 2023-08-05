@@ -2281,6 +2281,7 @@ dependencies = [
  "humantime",
  "kumo-api-types",
  "lexicmp",
+ "message",
  "reqwest",
  "serde",
  "serde_json",

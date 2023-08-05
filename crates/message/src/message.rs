@@ -904,6 +904,7 @@ impl TimerEntryWithDelay for Message {
     }
 }
 
+#[derive(Debug)]
 pub struct QueueNameComponents<'a> {
     pub campaign: Option<&'a str>,
     pub tenant: Option<&'a str>,
