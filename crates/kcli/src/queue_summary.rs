@@ -355,7 +355,7 @@ impl QueueSummaryCommand {
         let mut ready_rows = vec![];
         for m in &ready_metrics {
             let paused = suspended_sites.iter().any(|s| s.name == m.name);
-            let status = if paused { "⏸️" } else { "" };
+            let status = if paused { "🛑" } else { "" };
 
             ready_rows.push(vec![
                 m.site_name().to_string(),
@@ -399,7 +399,7 @@ impl QueueSummaryCommand {
             let status = if bounced {
                 "🗑️"
             } else if paused {
-                "⏸️"
+                "🛑"
             } else {
                 ""
             };
