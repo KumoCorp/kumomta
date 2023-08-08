@@ -963,6 +963,89 @@ fn no_fold_literal(input: Span) -> IResult<Span, String> {
     )(input)
 }
 
+// obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }
+#[tracable_parser]
+fn unstructured(input: Span) -> IResult<Span, String> {
+    #[derive(Debug)]
+    enum Word {
+        Encoded(String),
+        UText(char),
+        Fws,
+    }
+
+    let (loc, words) = context(
+        "unstructured",
+        many1(alt((
+            preceded(
+                map(take_while(|c| c == '\r' || c == '\n'), |_| Word::Fws),
+                terminated(
+                    alt((
+                        map(encoded_word, |w| Word::Encoded(w)),
+                        map(obs_utext, |c| Word::UText(c)),
+                    )),
+                    map(take_while(|c| c == '\r' || c == '\n'), |_| Word::Fws),
+                ),
+            ),
+            map(fws, |_| Word::Fws),
+        ))),
+    )(input)?;
+
+    #[derive(Debug)]
+    enum ProcessedWord {
+        Encoded(String),
+        Text(String),
+        Fws,
+    }
+    let mut processed = vec![];
+    for w in words {
+        match w {
+            Word::Encoded(p) => {
+                if processed.len() >= 2
+                    && matches!(processed.last(), Some(ProcessedWord::Fws))
+                    && matches!(processed[processed.len() - 2], ProcessedWord::Encoded(_))
+                {
+                    // Fws between encoded words is elided
+                    processed.pop();
+                }
+                processed.push(ProcessedWord::Encoded(p));
+            }
+            Word::Fws => {
+                // Collapse runs of Fws/newline to a single Fws
+                if !matches!(processed.last(), Some(ProcessedWord::Fws)) {
+                    processed.push(ProcessedWord::Fws);
+                }
+            }
+            Word::UText(c) => match processed.last_mut() {
+                Some(ProcessedWord::Text(prior)) => prior.push(c),
+                _ => processed.push(ProcessedWord::Text(c.to_string())),
+            },
+        }
+    }
+
+    let mut result = String::new();
+    for word in processed {
+        match word {
+            ProcessedWord::Encoded(s) | ProcessedWord::Text(s) => {
+                result.push_str(&s);
+            }
+            ProcessedWord::Fws => {
+                result.push(' ');
+            }
+        }
+    }
+
+    Ok((loc, result))
+}
+
+// obs_utext = @{ "\u{00}" | obs_no_ws_ctl | vchar }
+#[tracable_parser]
+fn obs_utext(input: Span) -> IResult<Span, char> {
+    context(
+        "obs_utext",
+        satisfy(|c| c == '\u{00}' || is_obs_no_ws_ctl(c) || is_vchar(c)),
+    )(input)
+}
+
 #[derive(Parser)]
 #[grammar = "rfc5322.pest"]
 pub struct Parser;
@@ -1086,64 +1169,7 @@ impl Parser {
     }
 
     pub fn parse_unstructured_header(text: &str) -> Result<String> {
-        let mut pairs = Self::parse(Rule::parse_unstructured, text)
-            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
-            .next()
-            .unwrap()
-            .into_inner();
-
-        Self::parse_unstructured(pairs.next().unwrap().into_inner())
-    }
-
-    fn parse_unstructured(pairs: Pairs<Rule>) -> Result<String> {
-        #[derive(Debug)]
-        enum Word {
-            Encoded(String),
-            Text(String),
-            Fws,
-        }
-
-        let mut words: Vec<Word> = vec![];
-
-        for p in pairs {
-            match p.as_rule() {
-                Rule::encoded_word => {
-                    // Fws between encoded words is elided
-                    if words.len() >= 2
-                        && matches!(words.last(), Some(Word::Fws))
-                        && matches!(words[words.len() - 2], Word::Encoded(_))
-                    {
-                        words.pop();
-                    }
-                    words.push(Word::Encoded(Self::parse_encoded_word(p)?));
-                }
-                Rule::fws | Rule::cfws => {
-                    words.push(Word::Fws);
-                }
-                Rule::obs_utext => match words.last_mut() {
-                    Some(Word::Text(prior)) => prior.push_str(p.as_str()),
-                    _ => words.push(Word::Text(p.as_str().to_string())),
-                },
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_unstructured"
-                    )))
-                }
-            };
-        }
-
-        let mut result = String::new();
-        for word in &words {
-            match word {
-                Word::Encoded(s) | Word::Text(s) => {
-                    result += s;
-                }
-                Word::Fws => {
-                    result.push(' ');
-                }
-            }
-        }
-        Ok(result)
+        parse_with(text, unstructured)
     }
 
     fn parse_quoted_string(pair: Pair<Rule>) -> Result<String> {
@@ -1184,69 +1210,6 @@ impl Parser {
         }
 
         Ok(result)
-    }
-
-    // We parse `language` for completeness, but we do not use it
-    #[allow(unused_assignments, unused_variables)]
-    fn parse_encoded_word(pair: Pair<Rule>) -> Result<String> {
-        let mut charset = String::new();
-        let mut language = String::new();
-        let mut encoding = String::new();
-        let mut text = String::new();
-
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::charset => {
-                    charset = p.as_str().to_string();
-                }
-                Rule::encoding => {
-                    encoding = p.as_str().to_string();
-                }
-                Rule::language => {
-                    language = p.as_str().to_string();
-                }
-                Rule::encoded_text => {
-                    text = p.as_str().to_string();
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_encoded_word"
-                    )))
-                }
-            }
-        }
-
-        let bytes = match encoding.as_str() {
-            "B" | "b" => data_encoding::BASE64_MIME
-                .decode(text.as_bytes())
-                .map_err(|err| {
-                    MailParsingError::HeaderParse(format!(
-                        "Invalid base64 encoding: {err:#} {text:?}"
-                    ))
-                })?,
-            "Q" | "q" => quoted_printable::decode(
-                text.replace("_", " "),
-                quoted_printable::ParseMode::Robust,
-            )
-            .map_err(|err| {
-                MailParsingError::HeaderParse(format!(
-                    "Invalid quoted printable encoding: {err:#} {text:?}"
-                ))
-            })?,
-            _ => {
-                return Err(MailParsingError::HeaderParse(format!(
-                    "Invalid encoding {encoding} in parse_encoded_word"
-                )))
-            }
-        };
-
-        let charset = Charset::for_label_no_replacement(charset.as_bytes()).ok_or_else(|| {
-            MailParsingError::HeaderParse(format!("unsupported charset: {charset:?}"))
-        })?;
-
-        let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
-
-        Ok(decoded.into())
     }
 }
 
