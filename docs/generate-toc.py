@@ -179,6 +179,10 @@ TOC = [
                         "Configuring Traffic Shaping",
                         "userguide/configuration/trafficshaping.md",
                     ),
+                    Page(
+                        "Configuring Traffic Shaping Automation",
+                        "userguide/configuration/trafficshapingautomation.md",
+                    ),
                     Page("Configuring DKIM Signing", "userguide/configuration/dkim.md"),
                 ],
             ),

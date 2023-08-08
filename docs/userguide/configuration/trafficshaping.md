@@ -156,3 +156,7 @@ If you wish to discard all existing options for a domain defined in the shaping.
     },
 }
 ```
+
+## Automating Traffic Shaping
+
+This section has covered how to configure traffic shaping in a static manner, but many traffic shaping decisions require real-time adjustments. See the [Configuring Traffic Shaping Automation](./trafficshapingautomation.md) page for more information.
