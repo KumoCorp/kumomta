@@ -41,14 +41,19 @@ local cached_load_shaping_data = kumo.memoize(kumo.shaping.load, {
 
 kumo.on('tsa_load_shaping_data', function()
   local shaping = cached_load_shaping_data {
+    -- This is the default file used by the shaping helper
+    -- in KumoMTA, which references the community shaping rules
     '/opt/kumomta/share/policy-extras/shaping.toml',
+
+    -- and maybe you have your own rules
+    '/opt/kumomta/policy/shaping.toml',
   }
   return shaping
 end)
 ```
 
 !!!note
-    Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create a custom file in the same format and add its path to the `cached_load_shaping_data` call as an additional entry in the list.
+    Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create the `/opt/kumomta/policy/shaping.toml` file as listed above and populate it with your own override rules.
 
 ## Changes to the `init.lua` File
 
@@ -119,6 +124,8 @@ duration = "2 hours"
 ```
 
 The TSA daemon has two actions: temporary suspension of traffic to the triggering combination of egress source and site name, and adjustment of the traffic shaping rules to the triggering combination of egress source and site name.
+
+For more information, see the [Traffic Shaping Automation Rules](../../reference/kumo.shaping/load.md#traffic-shaping-automation-rules) page in the Reference Manual.
 
 ## Monitoring the TSA Daemon
 
