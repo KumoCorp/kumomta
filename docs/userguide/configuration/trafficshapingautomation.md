@@ -1,7 +1,6 @@
 # Configuring Traffic Shaping Automation
 
-!!!Warning
-    The current version of Traffic Shaping Automation is only available in the development releases of KumoMTA and is considered beta functionality at this time.
+{{since('dev')}}
 
 Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA), via a daemon that monitors responses from the MBPs and adjusts traffic shaping rules on a granular level to ensure compliance with the guidelines of the MBPs in realtime.
 
@@ -48,7 +47,8 @@ kumo.on('tsa_load_shaping_data', function()
 end)
 ```
 
-This file does not require editing for most use cases.
+!!!note
+    Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create a custom file in the same format and add its path to the `cached_load_shaping_data` call as an additional entry in the list.
 
 ## Changes to the `init.lua` File
 
@@ -65,7 +65,7 @@ local shaper = shaping:setup_with_automation {
 }
 ```
 
-This section enabled communication with the TSA daemon.
+This section enabled communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively.
 
 Next, the following should be added within the `kumo.on('init', function()` block:
 
@@ -75,6 +75,23 @@ shaper.setup_publish()
 ```
 
 This enables the logging required by the TSA daemon.
+
+Finally, the following must be added outside the init event to enable the TSA manipulations:
+
+```lua
+-- Attach various hooks to the shaper
+kumo.on('get_egress_path_config', shaper.get_egress_path_config)
+kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  local cfg = shaper.get_queue_config(domain, tenant, campaign)
+  if cfg then
+    return cfg
+  end
+
+  -- Do your normal queue config handling here
+  return kumo.make_queue_config {}
+end)
+```
 
 ## Changes to the `shaping.toml` File
 
