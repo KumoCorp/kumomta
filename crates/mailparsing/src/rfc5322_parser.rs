@@ -2,7 +2,7 @@ use crate::headermap::EncodeHeaderValue;
 use crate::{MailParsingError, Result, SharedString};
 use charset::Charset;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while1};
+use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::complete::{char, satisfy};
 use nom::combinator::{all_consuming, map, opt, recognize};
 use nom::error::{context, ContextError, VerboseError};
@@ -661,18 +661,12 @@ fn domain_literal(input: Span) -> IResult<Span, String> {
 }
 
 // dot_atom_text = @{ atext ~ ("." ~ atext)* }
-// dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
 #[tracable_parser]
-fn dot_atom(input: Span) -> IResult<Span, String> {
+fn dot_atom_text(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)) = context(
-        "dot_atom",
-        delimited(
-            opt(cfws),
-            tuple((atext, many0(preceded(char('.'), atext)))),
-            opt(cfws),
-        ),
+        "dot_atom_text",
+        tuple((atext, many0(preceded(char('.'), atext)))),
     )(input)?;
-
     let mut result = String::new();
     result.push_str(&a);
     for item in b {
@@ -681,6 +675,12 @@ fn dot_atom(input: Span) -> IResult<Span, String> {
     }
 
     Ok((loc, result))
+}
+
+// dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
+#[tracable_parser]
+fn dot_atom(input: Span) -> IResult<Span, String> {
+    context("dot_atom", delimited(opt(cfws), dot_atom_text, opt(cfws)))(input)
 }
 
 #[cfg(test)]
@@ -916,6 +916,53 @@ fn qcontent(input: Span) -> IResult<Span, char> {
     context("qcontent", alt((satisfy(is_qtext), quoted_pair)))(input)
 }
 
+// msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
+#[tracable_parser]
+fn msg_id(input: Span) -> IResult<Span, String> {
+    let (loc, (left, _, right)) = context(
+        "msg_id",
+        delimited(
+            preceded(opt(cfws), char('<')),
+            tuple((id_left, char('@'), id_right)),
+            preceded(char('>'), opt(cfws)),
+        ),
+    )(input)?;
+
+    Ok((loc, format!("{left}@{right}")))
+}
+
+// msg_id_list = { msg_id+ }
+#[tracable_parser]
+fn msg_id_list(input: Span) -> IResult<Span, Vec<String>> {
+    context("msg_id_list", many1(msg_id))(input)
+}
+
+// id_left = { dot_atom_text | obs_id_left }
+// obs_id_left = { local_part }
+#[tracable_parser]
+fn id_left(input: Span) -> IResult<Span, String> {
+    context("id_left", alt((dot_atom_text, local_part)))(input)
+}
+
+// id_right = { dot_atom_text | no_fold_literal | obs_id_right }
+// obs_id_right = { domain }
+#[tracable_parser]
+fn id_right(input: Span) -> IResult<Span, String> {
+    context("id_right", alt((dot_atom_text, no_fold_literal, domain)))(input)
+}
+
+// no_fold_literal = { "[" ~ dtext* ~ "]" }
+#[tracable_parser]
+fn no_fold_literal(input: Span) -> IResult<Span, String> {
+    context(
+        "no_fold_literal",
+        map(
+            recognize(tuple((tag("["), take_while(is_dtext), tag("]")))),
+            |s: Span| s.to_string(),
+        ),
+    )(input)
+}
+
 #[derive(Parser)]
 #[grammar = "rfc5322.pest"]
 pub struct Parser;
@@ -923,16 +970,6 @@ pub struct Parser;
 impl Parser {
     pub fn parse_mailbox_list_header(text: &str) -> Result<MailboxList> {
         parse_with(text, mailbox_list)
-    }
-
-    fn parse_mailbox_list(pairs: Pairs<Rule>) -> Result<MailboxList> {
-        let mut result: Vec<Mailbox> = vec![];
-
-        for p in pairs {
-            result.push(Self::parse_mailbox(p.into_inner())?);
-        }
-
-        Ok(MailboxList(result))
     }
 
     pub fn parse_mailbox_header(text: &str) -> Result<Mailbox> {
@@ -944,85 +981,11 @@ impl Parser {
     }
 
     pub fn parse_msg_id_header(text: &str) -> Result<String> {
-        let pairs = Self::parse(Rule::parse_msg_id, text)
-            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
-            .next()
-            .unwrap()
-            .into_inner();
-
-        Self::parse_msg_id(pairs)
+        parse_with(text, msg_id)
     }
 
     pub fn parse_msg_id_header_list(text: &str) -> Result<Vec<String>> {
-        let pairs = Self::parse(Rule::parse_msg_id_list, text)
-            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
-            .next()
-            .unwrap()
-            .into_inner();
-
-        let mut result = vec![];
-        for p in pairs {
-            result.push(Self::parse_msg_id(p.into_inner())?);
-        }
-        Ok(result)
-    }
-
-    fn parse_msg_id(pairs: Pairs<Rule>) -> Result<String> {
-        let mut result = String::new();
-        for p in pairs {
-            match p.as_rule() {
-                Rule::id_left => {
-                    let content = p.into_inner().next().unwrap();
-                    match content.as_rule() {
-                        Rule::dot_atom_text => {
-                            result += content.as_str();
-                        }
-                        Rule::obs_id_left => {
-                            result +=
-                                &Self::parse_local_part(content.into_inner().next().unwrap())?;
-                        }
-                        rule => {
-                            return Err(MailParsingError::HeaderParse(format!(
-                                "Invalid {rule:?} {content:#?} in parse_msg_id id_left"
-                            )))
-                        }
-                    }
-                }
-                Rule::id_right => {
-                    let content = p.into_inner().next().unwrap();
-                    match content.as_rule() {
-                        Rule::dot_atom_text => {
-                            result.push('@');
-                            result += content.as_str();
-                            return Ok(result);
-                        }
-                        Rule::no_fold_literal => {
-                            result.push('@');
-                            result += &Self::parse_domain_literal(content)?;
-                            return Ok(result);
-                        }
-                        Rule::obs_id_right => {
-                            result.push('@');
-                            result += &Self::parse_domain(content.into_inner().next().unwrap())?;
-                            return Ok(result);
-                        }
-                        rule => {
-                            return Err(MailParsingError::HeaderParse(format!(
-                                "Invalid {rule:?} {content:#?} in parse_msg_id id_left"
-                            )))
-                        }
-                    }
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_msg_id"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(format!(
-            "Unreachable end of loop in parse_msg_id"
-        )))
+        parse_with(text, msg_id_list)
     }
 
     pub fn parse_content_type_header(text: &str) -> Result<MimeParameters> {
@@ -1183,286 +1146,6 @@ impl Parser {
         Ok(result)
     }
 
-    fn parse_address(pairs: Pairs<Rule>) -> Result<Address> {
-        for p in pairs {
-            match p.as_rule() {
-                Rule::mailbox => return Ok(Address::Mailbox(Self::parse_mailbox(p.into_inner())?)),
-                Rule::group => return Self::parse_group(p.into_inner()),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Expected mailbox or group, but had {rule:?} {p:?}"
-                    )))
-                }
-            };
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_address".to_string(),
-        ))
-    }
-
-    fn parse_group(pairs: Pairs<Rule>) -> Result<Address> {
-        let mut name = String::new();
-
-        for p in pairs {
-            match p.as_rule() {
-                Rule::display_name => {
-                    name = Self::parse_display_name(p)?;
-                }
-                Rule::cfws => {}
-                Rule::group_list => {
-                    for p in p.into_inner() {
-                        match p.as_rule() {
-                            Rule::mailbox_list => {
-                                return Ok(Address::Group {
-                                    name,
-                                    entries: Self::parse_mailbox_list(p.into_inner())?,
-                                });
-                            }
-                            Rule::obs_group_list | Rule::cfws => {}
-                            rule => {
-                                return Err(MailParsingError::HeaderParse(format!(
-                                    "Unexpected {rule:?} {p:?} in parse_group group_list"
-                                )))
-                            }
-                        }
-                    }
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:?} in parse_group"
-                    )))
-                }
-            };
-        }
-
-        Ok(Address::Group {
-            name,
-            entries: MailboxList(vec![]),
-        })
-    }
-
-    fn parse_mailbox(pairs: Pairs<Rule>) -> Result<Mailbox> {
-        for p in pairs {
-            match p.as_rule() {
-                Rule::name_addr => return Self::parse_name_addr(p),
-                Rule::addr_spec => {
-                    return Ok(Mailbox {
-                        name: None,
-                        address: Self::parse_addr_spec(p)?,
-                    })
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Expected name_addr or addr_spec, but had {rule:?} {p:?}"
-                    )))
-                }
-            };
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_mailbox".to_string(),
-        ))
-    }
-
-    fn parse_dot_atom(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::cfws => {}
-                Rule::dot_atom_text => return Ok(p.as_str().to_string()),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "invalid {rule:?} {p:#?} in parse_dot_atom"
-                    )))
-                }
-            }
-        }
-
-        Err(MailParsingError::HeaderParse(format!(
-            "Unreachable end of loop in parse_dot_atom"
-        )))
-    }
-
-    fn parse_local_part(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::dot_atom => return Self::parse_dot_atom(p),
-                Rule::quoted_string => return Self::parse_quoted_string(p),
-                Rule::obs_local_part => return Self::parse_obs_local_part(p),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_local_part"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(format!(
-            "Unreachable end of loop in parse_local_part"
-        )))
-    }
-
-    fn parse_obs_local_part(pair: Pair<Rule>) -> Result<String> {
-        let mut result = String::new();
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::word => {
-                    result += &Self::parse_word(p)?;
-                }
-                Rule::dot => {
-                    result += p.as_str();
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_obs_local_part"
-                    )))
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    fn parse_obs_domain(pair: Pair<Rule>) -> Result<String> {
-        let mut result = String::new();
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::atom => {
-                    result += &Self::parse_atom(p)?;
-                }
-                Rule::dot => {
-                    result += p.as_str();
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_obs_domain"
-                    )))
-                }
-            }
-        }
-        Ok(result)
-    }
-
-    fn parse_domain(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::dot_atom => return Self::parse_dot_atom(p),
-                Rule::domain_literal => return Self::parse_domain_literal(p),
-                Rule::obs_domain => return Self::parse_obs_domain(p),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_domain"
-                    )))
-                }
-            }
-        }
-
-        Err(MailParsingError::HeaderParse(format!(
-            "Unreachable end of loop in parse_domain"
-        )))
-    }
-
-    fn parse_domain_literal(pair: Pair<Rule>) -> Result<String> {
-        let mut result = "[".to_string();
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::fws | Rule::cfws => {}
-                Rule::dtext => {
-                    let dtext = p.as_str();
-                    if dtext.len() == 2 {
-                        // Must be quoted_pair
-                        result.push_str(&dtext[1..]);
-                    } else {
-                        result.push_str(dtext);
-                    }
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_domain_literal"
-                    )))
-                }
-            }
-        }
-
-        result.push(']');
-
-        Ok(result)
-    }
-
-    fn parse_addr_spec(pair: Pair<Rule>) -> Result<String> {
-        let mut result = String::new();
-
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::local_part => {
-                    result = Self::parse_local_part(p)?;
-                    result.push('@');
-                }
-                Rule::domain => {
-                    result += &Self::parse_domain(p)?;
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_addr_spec"
-                    )))
-                }
-            }
-        }
-
-        Ok(result)
-    }
-
-    fn parse_angle_addr(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::addr_spec => return Self::parse_addr_spec(p),
-                Rule::cfws => {}
-                Rule::obs_angle_addr => return Self::parse_obs_angle_addr(p),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_angle_addr"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_angle_addr".to_string(),
-        ))
-    }
-
-    fn parse_obs_angle_addr(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::addr_spec => return Self::parse_addr_spec(p),
-                Rule::cfws => {}
-                Rule::obs_route => {
-                    // We simply ignore this, as the RFC recommends
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_obs_angle_addr"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_obs_angle_addr".to_string(),
-        ))
-    }
-
-    fn parse_word(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::atom => return Self::parse_atom(p),
-                Rule::quoted_string => return Self::parse_quoted_string(p),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_word"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_word".to_string(),
-        ))
-    }
-
     fn parse_quoted_string(pair: Pair<Rule>) -> Result<String> {
         let mut result = String::new();
         let mut fws = false;
@@ -1564,104 +1247,6 @@ impl Parser {
         let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
 
         Ok(decoded.into())
-    }
-
-    fn parse_atom(pair: Pair<Rule>) -> Result<String> {
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::atext => return Ok(p.as_str().to_string()),
-                Rule::cfws => {}
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_atom"
-                    )))
-                }
-            }
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_atom".to_string(),
-        ))
-    }
-
-    fn parse_phrase(pair: Pair<Rule>) -> Result<Vec<String>> {
-        let mut words = vec![];
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::word => words.push(Self::parse_word(p)?),
-                Rule::encoded_word => words.push(Self::parse_encoded_word(p)?),
-                Rule::obs_phrase => {
-                    words.append(&mut Self::parse_obs_phrase(p)?);
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} in parse_phrase"
-                    )))
-                }
-            }
-        }
-        Ok(words)
-    }
-
-    fn parse_obs_phrase(pair: Pair<Rule>) -> Result<Vec<String>> {
-        let mut words = vec![];
-        let mut current_word = String::new();
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::word => {
-                    current_word += &Self::parse_word(p)?;
-                }
-                Rule::encoded_word => {
-                    current_word += &Self::parse_encoded_word(p)?;
-                }
-                Rule::dot => {
-                    current_word.push('.');
-                }
-                Rule::cfws => {
-                    if !current_word.is_empty() {
-                        words.push(current_word.clone());
-                        current_word.clear();
-                    }
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} in parse_obs_phrase"
-                    )))
-                }
-            }
-        }
-        Ok(words)
-    }
-
-    fn parse_display_name(pair: Pair<Rule>) -> Result<String> {
-        let words = Self::parse_phrase(pair.into_inner().next().unwrap())?;
-        Ok(words.join(" "))
-    }
-
-    fn parse_name_addr(name_addr: Pair<Rule>) -> Result<Mailbox> {
-        let name_addr = name_addr.into_inner();
-        let mut name = None;
-
-        for p in name_addr {
-            match p.as_rule() {
-                Rule::display_name => {
-                    name.replace(Self::parse_display_name(p)?);
-                    //name.replace(Self::text_ignoring_cfws(p, true)?);
-                }
-                Rule::angle_addr => {
-                    let address = Self::parse_angle_addr(p)?;
-                    return Ok(Mailbox { name, address });
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "parse_name_addr: invalid {rule:?} for {p:?}"
-                    )))
-                }
-            };
-        }
-
-        Err(MailParsingError::HeaderParse(format!(
-            "Unreachable end of loop in parse_name_addr"
-        )))
     }
 }
 
