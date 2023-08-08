@@ -151,16 +151,17 @@ fn is_vchar(c: char) -> bool {
     (u >= 0x21 && u <= 0x7e) || is_utf8_non_ascii(c)
 }
 
+fn is_atext(c: char) -> bool {
+    match c {
+        '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '/' | '=' | '?' | '^' | '_'
+        | '`' | '{' | '|' | '}' | '~' => true,
+        c => c.is_ascii_alphanumeric() || is_utf8_non_ascii(c),
+    }
+}
+
 #[tracable_parser]
 fn atext(input: Span) -> IResult<Span, Span> {
-    context(
-        "atext",
-        take_while1(|c| match c {
-            '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | '-' | '/' | '=' | '?' | '^' | '_'
-            | '`' | '{' | '|' | '}' | '~' => true,
-            c => c.is_ascii_alphanumeric() || is_utf8_non_ascii(c),
-        }),
-    )(input)
+    context("atext", take_while1(is_atext))(input)
 }
 
 fn is_obs_no_ws_ctl(c: char) -> bool {
@@ -278,12 +279,12 @@ fn mailbox(input: Span) -> IResult<Span, Mailbox> {
     if let Ok(res) = name_addr(input) {
         Ok(res)
     } else {
-        let (loc, aspec) = context("mailbox", addr_spec)(input)?;
+        let (loc, address) = context("mailbox", addr_spec)(input)?;
         Ok((
             loc,
             Mailbox {
                 name: None,
-                address: format!("{}@{}", aspec.local_part, aspec.domain), // FIXME
+                address,
             },
         ))
     }
@@ -385,14 +386,12 @@ fn obs_group_list(input: Span) -> IResult<Span, MailboxList> {
 // name_addr = { display_name? ~ angle_addr }
 #[tracable_parser]
 fn name_addr(input: Span) -> IResult<Span, Mailbox> {
-    let (loc, (name, aspec)) = context("name_addr", tuple((opt(display_name), angle_addr)))(input)?;
-    Ok((
-        loc,
-        Mailbox {
-            name,
-            address: format!("{}@{}", aspec.local_part, aspec.domain), // FIXME
-        },
-    ))
+    context(
+        "name_addr",
+        map(tuple((opt(display_name), angle_addr)), |(name, address)| {
+            Mailbox { name, address }
+        }),
+    )(input)
 }
 
 // display_name = { phrase }
@@ -1219,6 +1218,43 @@ pub struct AddrSpec {
     pub domain: String,
 }
 
+impl AddrSpec {
+    pub fn new(local_part: &str, domain: &str) -> Self {
+        Self {
+            local_part: local_part.to_string(),
+            domain: domain.to_string(),
+        }
+    }
+}
+
+impl EncodeHeaderValue for AddrSpec {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = String::new();
+
+        let needs_quoting = !self.local_part.chars().all(|c| is_atext(c) || c == '.');
+        if needs_quoting {
+            result.push('"');
+            // RFC5321 4.1.2 qtextSMTP:
+            // within a quoted string, any ASCII graphic or space is permitted without
+            // blackslash-quoting except double-quote and the backslash itself.
+
+            for c in self.local_part.chars() {
+                if c == '"' || c == '\\' {
+                    result.push('\\');
+                }
+                result.push(c);
+            }
+            result.push('"');
+        } else {
+            result.push_str(&self.local_part);
+        }
+        result.push('@');
+        result.push_str(&self.domain);
+
+        result.into()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Address {
     Mailbox(Mailbox),
@@ -1234,7 +1270,7 @@ pub struct MailboxList(Vec<Mailbox>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mailbox {
     pub name: Option<String>,
-    pub address: String, // FIXME: AddrSpec
+    pub address: AddrSpec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1386,11 +1422,11 @@ impl EncodeHeaderValue for Mailbox {
                 };
 
                 value.push_str(" <");
-                value.push_str(&self.address);
+                value.push_str(&self.address.encode_value());
                 value.push('>');
                 value.into()
             }
-            None => format!("<{}>", self.address).into(),
+            None => format!("<{}>", self.address.encode_value()).into(),
         }
     }
 }
@@ -1464,17 +1500,26 @@ Some(
                 name: Some(
                     "Someone",
                 ),
-                address: "someone@example.com",
+                address: AddrSpec {
+                    local_part: "someone",
+                    domain: "example.com",
+                },
             },
             Mailbox {
                 name: None,
-                address: "other@example.com",
+                address: AddrSpec {
+                    local_part: "other",
+                    domain: "example.com",
+                },
             },
             Mailbox {
                 name: Some(
                     "John "Smith" More Quotes",
                 ),
-                address: "someone@crazy.example.com",
+                address: AddrSpec {
+                    local_part: "someone",
+                    domain: "crazy.example.com",
+                },
             },
         ],
     ),
@@ -1497,7 +1542,10 @@ Some(
 Some(
     Mailbox {
         name: None,
-        address: "someone@[127.0.0.1]",
+        address: AddrSpec {
+            local_part: "someone",
+            domain: "[127.0.0.1]",
+        },
     },
 )
 "#
@@ -1520,7 +1568,10 @@ Some(
         [
             Mailbox {
                 name: None,
-                address: "someone@[127.0.0.1]",
+                address: AddrSpec {
+                    local_part: "someone",
+                    domain: "[127.0.0.1]",
+                },
             },
         ],
     ),
@@ -1553,7 +1604,10 @@ Some(
                 name: Some(
                     "Keith Moore",
                 ),
-                address: "moore@cs.utk.edu",
+                address: AddrSpec {
+                    local_part: "moore",
+                    domain: "cs.utk.edu",
+                },
             },
         ],
     ),
@@ -1576,7 +1630,10 @@ Some(
                     name: Some(
                         "Keld Jørn Simonsen",
                     ),
-                    address: "keld@dkuug.dk",
+                    address: AddrSpec {
+                        local_part: "keld",
+                        domain: "dkuug.dk",
+                    },
                 },
             ),
         ],
@@ -1600,7 +1657,10 @@ Some(
                     name: Some(
                         "André Pirard",
                     ),
-                    address: "PIRARD@vm1.ulg.ac.be",
+                    address: AddrSpec {
+                        local_part: "PIRARD",
+                        domain: "vm1.ulg.ac.be",
+                    },
                 },
             ),
         ],
@@ -1647,7 +1707,10 @@ Some(
                 name: Some(
                     "Keith Moore",
                 ),
-                address: "moore@cs.utk.edu",
+                address: AddrSpec {
+                    local_part: "moore",
+                    domain: "cs.utk.edu",
+                },
             },
         ],
     ),
@@ -1670,7 +1733,10 @@ Some(
                     name: Some(
                         "Keld Jørn Simonsen",
                     ),
-                    address: "keld@dkuug.dk",
+                    address: AddrSpec {
+                        local_part: "keld",
+                        domain: "dkuug.dk",
+                    },
                 },
             ),
         ],
@@ -1694,7 +1760,10 @@ Some(
                     name: Some(
                         "André Pirard",
                     ),
-                    address: "PIRARD@vm1.ulg.ac.be",
+                    address: AddrSpec {
+                        local_part: "PIRARD",
+                        domain: "vm1.ulg.ac.be",
+                    },
                 },
             ),
         ],
@@ -1754,17 +1823,26 @@ AddressList(
                         name: Some(
                             "Ed Jones",
                         ),
-                        address: "c@a.test",
+                        address: AddrSpec {
+                            local_part: "c",
+                            domain: "a.test",
+                        },
                     },
                     Mailbox {
                         name: None,
-                        address: "joe@where.test",
+                        address: AddrSpec {
+                            local_part: "joe",
+                            domain: "where.test",
+                        },
                     },
                     Mailbox {
                         name: Some(
                             "John",
                         ),
-                        address: "jdoe@one.test",
+                        address: AddrSpec {
+                            local_part: "jdoe",
+                            domain: "one.test",
+                        },
                     },
                 ],
             ),

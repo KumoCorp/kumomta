@@ -344,6 +344,7 @@ impl<'a> Header<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::AddrSpec;
 
     fn assert_static_lifetime(_header: Header<'static>) {
         assert!(true, "I wouldn't compile if this wasn't true");
@@ -419,7 +420,10 @@ Ok(
         name: Some(
             "John Smith",
         ),
-        address: "jsmith@example.com",
+        address: AddrSpec {
+            local_part: "jsmith",
+            domain: "example.com",
+        },
     },
 )
 "#
@@ -431,7 +435,7 @@ Ok(
         let mut sender = Header::with_name_value("Sender", "");
         sender.assign(Mailbox {
             name: Some("John Smith".to_string()),
-            address: "john.smith@example.com".to_string(),
+            address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
             sender.to_header_string(),
@@ -440,7 +444,7 @@ Ok(
 
         sender.assign(Mailbox {
             name: Some("John \"the smith\" Smith".to_string()),
-            address: "john.smith@example.com".to_string(),
+            address: AddrSpec::new("john.smith", "example.com"),
         });
         assert_eq!(
             sender.to_header_string(),
@@ -454,12 +458,24 @@ Ok(
             "Sender",
             Mailbox {
                 name: Some("John".to_string()),
-                address: "john.smith@example.com".to_string(),
+                address: AddrSpec::new("john.smith", "example.com"),
             },
         );
         assert_eq!(
             sender.to_header_string(),
             "Sender: John <john.smith@example.com>\r\n"
+        );
+
+        let sender = Header::new(
+            "Sender",
+            Mailbox {
+                name: Some("John".to_string()),
+                address: AddrSpec::new("john smith", "example.com"),
+            },
+        );
+        assert_eq!(
+            sender.to_header_string(),
+            "Sender: John <\"john smith\"@example.com>\r\n"
         );
     }
 
@@ -469,7 +485,7 @@ Ok(
             "Sender",
             Mailbox {
                 name: Some("André Pirard".to_string()),
-                address: "andre@example.com".to_string(),
+                address: AddrSpec::new("andre", "example.com"),
             },
         );
         assert_eq!(
