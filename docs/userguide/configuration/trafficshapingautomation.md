@@ -71,7 +71,7 @@ Next, the following should be added within the `kumo.on('init', function()` bloc
 
 ```lua
 -- Configure publishing of logs to automation daemon
-  shaper.setup_publish()
+shaper.setup_publish()
 ```
 
 This enables the logging required by the TSA daemon.
