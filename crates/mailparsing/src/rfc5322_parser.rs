@@ -10,9 +10,6 @@ use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
 use nom_locate::LocatedSpan;
 use nom_tracable::{tracable_parser, TracableInfo};
-use pest::iterators::{Pair, Pairs};
-use pest::Parser as _;
-use pest_derive::*;
 
 pub(crate) type Span<'a> = LocatedSpan<&'a str, TracableInfo>;
 type IResult<'a, A, B> = nom::IResult<A, B, VerboseError<Span<'a>>>;
@@ -44,6 +41,18 @@ impl MailParsingError {
                     let line_number = span.location_line();
                     let line = std::str::from_utf8(span.get_line_beginning())
                         .unwrap_or("<INVALID: line slice is not utf8!>");
+                    // Remap \t in particular, because it can render as multiple
+                    // columns and defeat the column number calculation provided
+                    // by the Span type
+                    let line: String = line
+                        .chars()
+                        .map(|c| match c {
+                            '\t' => '\u{2409}',
+                            '\r' => '\u{240d}',
+                            '\n' => '\u{240a}',
+                            _ => c,
+                        })
+                        .collect();
                     let column = span.get_utf8_column();
 
                     match kind {
@@ -198,6 +207,21 @@ fn is_qtext(c: char) -> bool {
     match c {
         '\u{21}' | '\u{23}'..='\u{5b}' | '\u{5d}'..='\u{7e}' => true,
         c => is_obs_no_ws_ctl(c) || is_utf8_non_ascii(c),
+    }
+}
+
+fn is_tspecial(c: char) -> bool {
+    match c {
+        '(' | ')' | '<' | '>' | '@' | ',' | ';' | ':' | '\\' | '"' | '/' | '[' | ']' | '?'
+        | '=' => true,
+        _ => false,
+    }
+}
+
+fn is_attribute_char(c: char) -> bool {
+    match c {
+        ' ' | '*' | '\'' | '%' => false,
+        _ => is_char(c) && !is_ctl(c) && !is_tspecial(c),
     }
 }
 
@@ -847,12 +871,6 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
     Ok((loc, decoded.to_string()))
 }
 
-// token = { !(" " | especials | ctl) ~ char }
-#[tracable_parser]
-fn token(input: Span) -> IResult<Span, char> {
-    context("token", satisfy(is_token))(input)
-}
-
 // charset = @{ (!"*" ~ token)+ }
 #[tracable_parser]
 fn charset(input: Span) -> IResult<Span, Span> {
@@ -1045,8 +1063,201 @@ fn obs_utext(input: Span) -> IResult<Span, char> {
     )(input)
 }
 
-#[derive(Parser)]
-#[grammar = "rfc5322.pest"]
+fn is_mime_token(c: char) -> bool {
+    is_char(c) && c != ' ' && !is_ctl(c) && !is_tspecial(c)
+}
+
+// mime_token = { (!(" " | ctl | tspecials) ~ char)+ }
+#[tracable_parser]
+fn mime_token(input: Span) -> IResult<Span, Span> {
+    context("mime_token", take_while1(is_mime_token))(input)
+}
+
+// RFC2045 modified by RFC2231 MIME header fields
+// content_type = { cfws? ~ mime_type ~ cfws? ~ "/" ~ cfws? ~ subtype ~
+//  cfws? ~ (";"? ~ cfws? ~ parameter ~ cfws?)*
+// }
+#[tracable_parser]
+fn content_type(input: Span) -> IResult<Span, MimeParameters> {
+    let (loc, (mime_type, _, _, _, mime_subtype, _, parameters)) = context(
+        "content_type",
+        preceded(
+            opt(cfws),
+            tuple((
+                mime_token,
+                opt(cfws),
+                char('/'),
+                opt(cfws),
+                mime_token,
+                opt(cfws),
+                many0(preceded(
+                    // Note that RFC 2231 is a bit of a mess, showing examples
+                    // without `;` as a separator in the original text, but
+                    // in the errata from several years later, corrects those
+                    // to show the `;`.
+                    // In the meantime, there are implementations that assume
+                    // that the `;` is optional, so we therefore allow them
+                    // to be optional here in our implementation
+                    preceded(opt(char(';')), opt(cfws)),
+                    terminated(parameter, opt(cfws)),
+                )),
+            )),
+        ),
+    )(input)?;
+
+    let value = format!("{mime_type}/{mime_subtype}");
+    Ok((loc, MimeParameters { value, parameters }))
+}
+
+// parameter = { regular_parameter | extended_parameter }
+#[tracable_parser]
+fn parameter(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "parameter",
+        alt((
+            regular_parameter,
+            extended_param_with_charset,
+            extended_param_no_charset,
+        )),
+    )(input)
+}
+
+#[tracable_parser]
+fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "extended_param_with_charset",
+        map(
+            tuple((
+                attribute,
+                opt(section),
+                char('*'),
+                opt(cfws),
+                char('='),
+                opt(cfws),
+                opt(mime_charset),
+                char('\''),
+                opt(mime_language),
+                char('\''),
+                map(
+                    recognize(many0(alt((ext_octet, take_while1(is_attribute_char))))),
+                    |s: Span| s.to_string(),
+                ),
+            )),
+            |(name, section, _, _, _, _, mime_charset, _, mime_language, _, value)| MimeParameter {
+                name: name.to_string(),
+                section,
+                mime_charset: mime_charset.map(|s| s.to_string()),
+                mime_language: mime_language.map(|s| s.to_string()),
+                uses_encoding: true,
+                value,
+            },
+        ),
+    )(input)
+}
+
+#[tracable_parser]
+fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "extended_param_no_charset",
+        map(
+            tuple((
+                attribute,
+                opt(section),
+                opt(char('*')),
+                opt(cfws),
+                char('='),
+                opt(cfws),
+                alt((
+                    quoted_string,
+                    map(
+                        recognize(many0(alt((ext_octet, take_while1(is_attribute_char))))),
+                        |s: Span| s.to_string(),
+                    ),
+                )),
+            )),
+            |(name, section, star, _, _, _, value)| MimeParameter {
+                name: name.to_string(),
+                section,
+                mime_charset: None,
+                mime_language: None,
+                uses_encoding: star.is_some(),
+                value,
+            },
+        ),
+    )(input)
+}
+
+#[tracable_parser]
+fn mime_charset(input: Span) -> IResult<Span, Span> {
+    context(
+        "mime_charset",
+        take_while1(|c| is_mime_token(c) && c != '\''),
+    )(input)
+}
+
+#[tracable_parser]
+fn mime_language(input: Span) -> IResult<Span, Span> {
+    context(
+        "mime_language",
+        take_while1(|c| is_mime_token(c) && c != '\''),
+    )(input)
+}
+
+#[tracable_parser]
+fn ext_octet(input: Span) -> IResult<Span, Span> {
+    context(
+        "ext_octet",
+        recognize(tuple((
+            char('%'),
+            satisfy(|c| c.is_ascii_hexdigit()),
+            satisfy(|c| c.is_ascii_hexdigit()),
+        ))),
+    )(input)
+}
+
+// section = { "*" ~ ASCII_DIGIT+ }
+#[tracable_parser]
+fn section(input: Span) -> IResult<Span, u32> {
+    context(
+        "section",
+        preceded(char('*'), nom::character::complete::u32),
+    )(input)
+}
+
+// regular_parameter = { attribute ~ cfws? ~ "=" ~ cfws? ~ value }
+#[tracable_parser]
+fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "regular_parameter",
+        map(
+            tuple((attribute, opt(cfws), char('='), opt(cfws), value)),
+            |(name, _, _, _, value)| MimeParameter {
+                name: name.to_string(),
+                value: value,
+                section: None,
+                uses_encoding: false,
+                mime_charset: None,
+                mime_language: None,
+            },
+        ),
+    )(input)
+}
+
+// attribute = { attribute_char+ }
+// attribute_char = { !(" " | ctl | tspecials | "*" | "'" | "%") ~ char }
+#[tracable_parser]
+fn attribute(input: Span) -> IResult<Span, Span> {
+    context("attribute", take_while1(is_attribute_char))(input)
+}
+
+#[tracable_parser]
+fn value(input: Span) -> IResult<Span, String> {
+    context(
+        "value",
+        alt((map(mime_token, |s: Span| s.to_string()), quoted_string)),
+    )(input)
+}
+
 pub struct Parser;
 
 impl Parser {
@@ -1071,144 +1282,11 @@ impl Parser {
     }
 
     pub fn parse_content_type_header(text: &str) -> Result<MimeParameters> {
-        let pairs = Self::parse(Rule::parse_content_type, text)
-            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
-            .next()
-            .unwrap()
-            .into_inner();
-
-        Self::parse_content_type(pairs)
-    }
-
-    fn parse_content_type(pairs: Pairs<Rule>) -> Result<MimeParameters> {
-        let mut value = String::new();
-        let mut parameters = vec![];
-
-        for p in pairs {
-            match p.as_rule() {
-                Rule::mime_type => {
-                    value.push_str(p.as_str());
-                    value.push('/');
-                }
-                Rule::subtype => {
-                    value.push_str(p.as_str());
-                }
-                Rule::cfws => {}
-                Rule::parameter => {
-                    parameters.push(Self::parse_parameter(p.into_inner())?);
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_content_type"
-                    )))
-                }
-            }
-        }
-
-        Ok(MimeParameters { value, parameters })
-    }
-
-    fn parse_parameter(pairs: Pairs<Rule>) -> Result<(String, String)> {
-        for p in pairs {
-            match p.as_rule() {
-                Rule::regular_parameter => return Self::parse_regular_parameter(p.into_inner()),
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_parameter"
-                    )))
-                }
-            };
-        }
-        todo!();
-    }
-
-    fn parse_regular_parameter(pairs: Pairs<Rule>) -> Result<(String, String)> {
-        let mut name = String::new();
-
-        for p in pairs {
-            match p.as_rule() {
-                Rule::attribute => {
-                    name = p.as_str().to_string();
-                }
-                Rule::value => {
-                    let value = Self::parse_value(p.into_inner())?;
-                    return Ok((name, value));
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_regular_parameter"
-                    )))
-                }
-            };
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_regular_parameter".to_string(),
-        ))
-    }
-
-    fn parse_value(pairs: Pairs<Rule>) -> Result<String> {
-        for p in pairs {
-            match p.as_rule() {
-                Rule::mime_token => {
-                    return Ok(p.as_str().to_string());
-                }
-                Rule::quoted_string => {
-                    return Self::parse_quoted_string(p);
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Unexpected {rule:?} {p:#?} in parse_value"
-                    )))
-                }
-            };
-        }
-        Err(MailParsingError::HeaderParse(
-            "unreachable end of loop in parse_value".to_string(),
-        ))
+        parse_with(text, content_type)
     }
 
     pub fn parse_unstructured_header(text: &str) -> Result<String> {
         parse_with(text, unstructured)
-    }
-
-    fn parse_quoted_string(pair: Pair<Rule>) -> Result<String> {
-        let mut result = String::new();
-        let mut fws = false;
-
-        for p in pair.into_inner() {
-            match p.as_rule() {
-                Rule::fws | Rule::cfws => {
-                    if !result.is_empty() && !fws {
-                        result.push(' ');
-                    }
-                    fws = true;
-                }
-                Rule::qcontent => {
-                    fws = false;
-                    let content = p.into_inner().next().unwrap();
-                    match content.as_rule() {
-                        Rule::qtext => result.push_str(content.as_str()),
-                        Rule::quoted_pair => result.push_str(&content.as_str()[1..]),
-                        rule => {
-                            return Err(MailParsingError::HeaderParse(format!(
-                                "Invalid {rule:?} {content:#?} in parse_quoted_string qcontent"
-                            )))
-                        }
-                    }
-                }
-                rule => {
-                    return Err(MailParsingError::HeaderParse(format!(
-                        "Invalid {rule:?} {p:#?} in parse_quoted_string"
-                    )))
-                }
-            }
-        }
-
-        if fws {
-            result.pop();
-        }
-
-        Ok(result)
     }
 }
 
@@ -1274,19 +1352,105 @@ pub struct Mailbox {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct MimeParameter {
+    pub name: String,
+    pub section: Option<u32>,
+    pub mime_charset: Option<String>,
+    pub mime_language: Option<String>,
+    pub uses_encoding: bool,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MimeParameters {
     pub value: String,
-    parameters: Vec<(String, String)>,
+    parameters: Vec<MimeParameter>,
 }
 
 impl MimeParameters {
-    pub fn get(&self, name: &str) -> Option<&str> {
-        for entry in &self.parameters {
-            if entry.0.eq_ignore_ascii_case(name) {
-                return Some(&entry.1);
+    /// Retrieve the value for a named parameter.
+    /// This method will attempt to decode any %-encoded values
+    /// per RFC 2231 and combine multi-element fields into a single
+    /// contiguous value.
+    /// Invalid charsets and encoding will be silently ignored.
+    pub fn get(&self, name: &str) -> String {
+        let mut elements: Vec<_> = self
+            .parameters
+            .iter()
+            .filter(|p| p.name.eq_ignore_ascii_case(name))
+            .collect();
+        elements.sort_by(|a, b| a.section.cmp(&b.section));
+
+        let mut mime_charset = None;
+        let mut result = String::new();
+
+        for ele in elements {
+            if let Some(cset) = ele.mime_charset.as_deref() {
+                mime_charset = Charset::for_label_no_replacement(cset.as_bytes());
+            }
+
+            if let Some((charset, true)) =
+                mime_charset.as_ref().map(|cset| (cset, ele.uses_encoding))
+            {
+                let mut chars = ele.value.chars();
+                let mut bytes: Vec<u8> = vec![];
+
+                fn char_to_bytes(c: char, bytes: &mut Vec<u8>) {
+                    let mut buf = [0u8; 8];
+                    let s = c.encode_utf8(&mut buf);
+                    for b in s.bytes() {
+                        bytes.push(b);
+                    }
+                }
+
+                'next_char: while let Some(c) = chars.next() {
+                    match c {
+                        '%' => {
+                            let mut value = 0u8;
+                            for _ in 0..2 {
+                                match chars.next() {
+                                    Some(n) => match n {
+                                        '0'..='9' => {
+                                            value = value << 4;
+                                            value = value | (n as u32 as u8 - b'0');
+                                        }
+                                        'a'..='f' => {
+                                            value = value << 4;
+                                            value = value | (n as u32 as u8 - b'a') + 10;
+                                        }
+                                        'A'..='F' => {
+                                            value = value << 4;
+                                            value = value | (n as u32 as u8 - b'A') + 10;
+                                        }
+                                        _ => {
+                                            char_to_bytes('%', &mut bytes);
+                                            char_to_bytes(n, &mut bytes);
+                                            break 'next_char;
+                                        }
+                                    },
+                                    None => {
+                                        char_to_bytes('%', &mut bytes);
+                                        break 'next_char;
+                                    }
+                                }
+                            }
+
+                            bytes.push(value);
+                        }
+                        c => {
+                            char_to_bytes(c, &mut bytes);
+                        }
+                    }
+                }
+
+                let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
+                result.push_str(&decoded);
+            } else {
+                result.push_str(&ele.value);
             }
         }
-        None
+
+        result
     }
 }
 
@@ -1941,22 +2105,26 @@ Some(
         let msg = MimePart::parse(message).unwrap();
         let params = match msg.headers().content_type() {
             Err(err) => panic!("Doh.\n{err:#}"),
-            Ok(params) => params,
+            Ok(params) => params.unwrap(),
         };
+
+        k9::snapshot!(params.get("charset"), "us-ascii");
         k9::snapshot!(
             params,
             r#"
-Some(
-    MimeParameters {
-        value: "text/plain",
-        parameters: [
-            (
-                "charset",
-                "us-ascii",
-            ),
-        ],
-    },
-)
+MimeParameters {
+    value: "text/plain",
+    parameters: [
+        MimeParameter {
+            name: "charset",
+            section: None,
+            mime_charset: None,
+            mime_language: None,
+            uses_encoding: false,
+            value: "us-ascii",
+        },
+    ],
+}
 "#
         );
 
@@ -1973,10 +2141,14 @@ Some(
     MimeParameters {
         value: "text/plain",
         parameters: [
-            (
-                "charset",
-                "us-ascii",
-            ),
+            MimeParameter {
+                name: "charset",
+                section: None,
+                mime_charset: None,
+                mime_language: None,
+                uses_encoding: false,
+                value: "us-ascii",
+            },
         ],
     },
 )
@@ -1984,23 +2156,70 @@ Some(
         );
     }
 
-    /*
     #[test]
     fn content_type_rfc2231() {
+        // This example is taken from the errata for rfc2231.
+        // <https://www.rfc-editor.org/errata/eid590>
         let message = concat!(
             "Content-Type: application/x-stuff;\n",
-            "\ttitle*0*=us-ascii'en'This%20is%20even%20more%20\n",
-            "\ttitle*1*=%2A%2A%2Afun%2A%2A%2A%20\n",
+            "\ttitle*0*=us-ascii'en'This%20is%20even%20more%20;\n",
+            "\ttitle*1*=%2A%2A%2Afun%2A%2A%2A%20;\n",
             "\ttitle*2=\"isn't it!\"\n",
             "\n\n\n"
         );
         let msg = MimePart::parse(message).unwrap();
         let params = match msg.headers().content_type() {
             Err(err) => panic!("Doh.\n{err:#}"),
-            Ok(params) => params,
+            Ok(params) => params.unwrap(),
         };
         k9::snapshot!(
-            params);
+            params.get("title"),
+            r#"This is even more ***fun*** isn't it!"#
+        );
+
+        k9::snapshot!(
+            params,
+            r#"
+MimeParameters {
+    value: "application/x-stuff",
+    parameters: [
+        MimeParameter {
+            name: "title",
+            section: Some(
+                0,
+            ),
+            mime_charset: Some(
+                "us-ascii",
+            ),
+            mime_language: Some(
+                "en",
+            ),
+            uses_encoding: true,
+            value: "This%20is%20even%20more%20",
+        },
+        MimeParameter {
+            name: "title",
+            section: Some(
+                1,
+            ),
+            mime_charset: None,
+            mime_language: None,
+            uses_encoding: true,
+            value: "%2A%2A%2Afun%2A%2A%2A%20",
+        },
+        MimeParameter {
+            name: "title",
+            section: Some(
+                2,
+            ),
+            mime_charset: None,
+            mime_language: None,
+            uses_encoding: false,
+            value: "isn't it!",
+        },
+    ],
+}
+"#
+        );
     }
-    */
 }
