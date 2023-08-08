@@ -289,6 +289,99 @@ fn mailbox(input: Span) -> IResult<Span, Mailbox> {
     }
 }
 
+// address_list = { (address ~ ("," ~ address)*) | obs_addr_list }
+#[tracable_parser]
+fn address_list(input: Span) -> IResult<Span, AddressList> {
+    context(
+        "address_list",
+        alt((
+            map(separated_list1(char(','), address), AddressList),
+            obs_address_list,
+        )),
+    )(input)
+}
+
+// obs_addr_list = {  ((cfws? ~ ",")* ~ address ~ ("," ~ (address | cfws))*)+ }
+#[tracable_parser]
+fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
+    let (loc, entries) = context(
+        "obs_address_list",
+        many1(preceded(
+            many0(preceded(opt(cfws), char(','))),
+            tuple((
+                address,
+                many0(preceded(
+                    char(','),
+                    alt((map(address, |m| Some(m)), map(cfws, |_| None))),
+                )),
+            )),
+        )),
+    )(input)?;
+
+    let mut result: Vec<Address> = vec![];
+
+    for (first, boxes) in entries {
+        result.push(first);
+        for b in boxes {
+            if let Some(m) = b {
+                result.push(m);
+            }
+        }
+    }
+
+    Ok((loc, AddressList(result)))
+}
+
+// address = { mailbox | group }
+#[tracable_parser]
+fn address(input: Span) -> IResult<Span, Address> {
+    context("address", alt((map(mailbox, Address::Mailbox), group)))(input)
+}
+
+// group = { display_name ~ ":" ~ group_list? ~ ";" ~ cfws? }
+#[tracable_parser]
+fn group(input: Span) -> IResult<Span, Address> {
+    let (loc, (name, _, group_list, _)) = context(
+        "group",
+        terminated(
+            tuple((display_name, char(':'), opt(group_list), char(';'))),
+            opt(cfws),
+        ),
+    )(input)?;
+    Ok((
+        loc,
+        Address::Group {
+            name,
+            entries: group_list.unwrap_or_else(|| MailboxList(vec![])),
+        },
+    ))
+}
+
+// group_list = { mailbox_list | cfws | obs_group_list }
+#[tracable_parser]
+fn group_list(input: Span) -> IResult<Span, MailboxList> {
+    context(
+        "group_list",
+        alt((
+            mailbox_list,
+            map(cfws, |_| MailboxList(vec![])),
+            obs_group_list,
+        )),
+    )(input)
+}
+
+// obs_group_list = @{ (cfws? ~ ",")+ ~ cfws? }
+#[tracable_parser]
+fn obs_group_list(input: Span) -> IResult<Span, MailboxList> {
+    context(
+        "obs_group_list",
+        map(
+            terminated(many1(preceded(opt(cfws), char(','))), opt(cfws)),
+            |_| MailboxList(vec![]),
+        ),
+    )(input)
+}
+
 // name_addr = { display_name? ~ angle_addr }
 #[tracable_parser]
 fn name_addr(input: Span) -> IResult<Span, Mailbox> {
@@ -847,19 +940,7 @@ impl Parser {
     }
 
     pub fn parse_address_list_header(text: &str) -> Result<AddressList> {
-        let mut pairs = Self::parse(Rule::parse_address_list, text)
-            .map_err(|err| MailParsingError::HeaderParse(format!("{err:#}")))?
-            .next()
-            .unwrap()
-            .into_inner();
-
-        let mut result: Vec<Address> = vec![];
-
-        while let Some(pair) = pairs.next() {
-            result.push(Self::parse_address(pair.into_inner())?);
-        }
-
-        Ok(AddressList(result))
+        parse_with(text, address_list)
     }
 
     pub fn parse_msg_id_header(text: &str) -> Result<String> {
