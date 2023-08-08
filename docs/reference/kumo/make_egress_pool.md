@@ -32,14 +32,14 @@ local SOURCE_TO_IP = {
 
 function setup_pools()
   return {
-    kumo.make_egress_pool {
+    ['BestReputation'] = kumo.make_egress_pool {
       name = 'BestReputation',
       entries = {
         { name = 'ip-1' },
       },
     },
 
-    kumo.make_egress_pool {
+    ['MediumReputation'] = kumo.make_egress_pool {
       name = 'MediumReputation',
       entries = {
         { name = 'ip-2', weight = 2 },
