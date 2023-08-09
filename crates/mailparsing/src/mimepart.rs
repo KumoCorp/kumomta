@@ -30,7 +30,6 @@ struct Rfc2045Info {
     encoding: ContentTransferEncoding,
     charset: Charset,
     content_type: Option<MimeParameters>,
-    content_transfer_encoding: Option<MimeParameters>,
     is_text: bool,
     is_multipart: bool,
 }
@@ -73,7 +72,6 @@ impl Rfc2045Info {
             encoding,
             charset,
             content_type,
-            content_transfer_encoding,
             is_text,
             is_multipart,
         })
@@ -81,6 +79,7 @@ impl Rfc2045Info {
 }
 
 impl<'a> MimePart<'a> {
+    /// Parse some data into a tree of MimeParts
     pub fn parse<S: Into<SharedString<'a>>>(bytes: S) -> Result<Self> {
         let bytes = bytes.into();
         Self::parse_impl(bytes, true)
@@ -149,18 +148,32 @@ impl<'a> MimePart<'a> {
         Ok(())
     }
 
+    /// Obtain a reference to the child parts
     pub fn child_parts(&self) -> &[Self] {
         &self.parts
     }
 
+    /// Obtain a mutable reference to the child parts
+    pub fn child_parts_mut(&mut self) -> &mut Vec<Self> {
+        &mut self.parts
+    }
+
+    /// Obtains a reference to the headers
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
+    /// Obtain a mutable reference to the headers
+    pub fn headers_mut(&'a mut self) -> &'a mut HeaderMap {
+        &mut self.headers
+    }
+
+    /// Get the raw, transfer-encoded body
     pub fn raw_body(&self) -> SharedString {
         self.bytes.slice(self.body_offset..self.body_len)
     }
 
+    /// Decode transfer decoding and return the body
     pub fn body(&self) -> Result<DecodedBody> {
         let info = Rfc2045Info::new(&self.headers, false)?;
 
