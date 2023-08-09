@@ -150,6 +150,10 @@ impl<'a> Header<'a> {
         Parser::parse_content_transfer_encoding_header(self.get_raw_value())
     }
 
+    pub fn as_content_disposition(&self) -> Result<MimeParameters> {
+        Parser::parse_content_transfer_encoding_header(self.get_raw_value())
+    }
+
     pub fn as_content_type(&self) -> Result<MimeParameters> {
         Parser::parse_content_type_header(self.get_raw_value())
     }

@@ -123,6 +123,12 @@ impl<'a> HeaderMap<'a> {
         as_content_transfer_encoding
     );
     accessor!(mime_version, "Mime-Version", String, as_unstructured);
+    accessor!(
+        content_disposition,
+        "Content-Disposition",
+        MimeParameters,
+        as_content_disposition
+    );
 
     accessor!(
         content_type,
