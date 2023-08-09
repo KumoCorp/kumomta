@@ -1107,6 +1107,39 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
     Ok((loc, MimeParameters { value, parameters }))
 }
 
+#[tracable_parser]
+fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
+    let (loc, (value, _, parameters)) = context(
+        "content_type",
+        preceded(
+            opt(cfws),
+            tuple((
+                mime_token,
+                opt(cfws),
+                many0(preceded(
+                    // Note that RFC 2231 is a bit of a mess, showing examples
+                    // without `;` as a separator in the original text, but
+                    // in the errata from several years later, corrects those
+                    // to show the `;`.
+                    // In the meantime, there are implementations that assume
+                    // that the `;` is optional, so we therefore allow them
+                    // to be optional here in our implementation
+                    preceded(opt(char(';')), opt(cfws)),
+                    terminated(parameter, opt(cfws)),
+                )),
+            )),
+        ),
+    )(input)?;
+
+    Ok((
+        loc,
+        MimeParameters {
+            value: value.to_string(),
+            parameters,
+        },
+    ))
+}
+
 // parameter = { regular_parameter | extended_parameter }
 #[tracable_parser]
 fn parameter(input: Span) -> IResult<Span, MimeParameter> {
@@ -1283,6 +1316,10 @@ impl Parser {
         parse_with(text, content_type)
     }
 
+    pub fn parse_content_transfer_encoding_header(text: &str) -> Result<MimeParameters> {
+        parse_with(text, content_transfer_encoding)
+    }
+
     pub fn parse_unstructured_header(text: &str) -> Result<String> {
         parse_with(text, unstructured)
     }
@@ -1371,12 +1408,15 @@ impl MimeParameters {
     /// per RFC 2231 and combine multi-element fields into a single
     /// contiguous value.
     /// Invalid charsets and encoding will be silently ignored.
-    pub fn get(&self, name: &str) -> String {
+    pub fn get(&self, name: &str) -> Option<String> {
         let mut elements: Vec<_> = self
             .parameters
             .iter()
             .filter(|p| p.name.eq_ignore_ascii_case(name))
             .collect();
+        if elements.is_empty() {
+            return None;
+        }
         elements.sort_by(|a, b| a.section.cmp(&b.section));
 
         let mut mime_charset = None;
@@ -1448,7 +1488,7 @@ impl MimeParameters {
             }
         }
 
-        result
+        Some(result)
     }
 
     /// Remove the named parameter
@@ -1469,6 +1509,14 @@ impl MimeParameters {
             uses_encoding: false,
         });
     }
+
+    pub fn is_multipart(&self) -> bool {
+        self.value.starts_with("message/") || self.value.starts_with("multipart/")
+    }
+
+    pub fn is_text(&self) -> bool {
+        self.value.starts_with("text/")
+    }
 }
 
 impl EncodeHeaderValue for MimeParameters {
@@ -1479,7 +1527,7 @@ impl EncodeHeaderValue for MimeParameters {
         names.dedup();
 
         for name in names {
-            let value = self.get(name);
+            let value = self.get(name).expect("name to be present");
 
             let needs_encoding = value.chars().any(|c| !is_mime_token(c) || !c.is_ascii());
             // Prefer to use quoted_string representation when possible, as it doesn't
@@ -2247,7 +2295,14 @@ Some(
             Ok(params) => params.unwrap(),
         };
 
-        k9::snapshot!(params.get("charset"), "us-ascii");
+        k9::snapshot!(
+            params.get("charset"),
+            r#"
+Some(
+    "us-ascii",
+)
+"#
+        );
         k9::snapshot!(
             params,
             r#"
@@ -2313,7 +2368,14 @@ Some(
         };
 
         let original_title = params.get("title");
-        k9::snapshot!(&original_title, r#"This is even more ***fun*** isn't it!"#);
+        k9::snapshot!(
+            &original_title,
+            r#"
+Some(
+    "This is even more ***fun*** isn't it!",
+)
+"#
+        );
 
         k9::snapshot!(
             &params,

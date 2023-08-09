@@ -116,6 +116,13 @@ impl<'a> HeaderMap<'a> {
 
     accessor!(subject, "Subject", String, as_unstructured);
     accessor!(comments, "Comments", String, as_unstructured);
+    accessor!(
+        content_transfer_encoding,
+        "Content-Transfer-Encoding",
+        MimeParameters,
+        as_content_transfer_encoding
+    );
+    accessor!(mime_version, "Mime-Version", String, as_unstructured);
 
     accessor!(
         content_type,
