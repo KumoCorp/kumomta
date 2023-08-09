@@ -1,6 +1,6 @@
 use crate::header::{HeaderConformance, HeaderParseResult};
 use crate::headermap::HeaderMap;
-use crate::{Header, MailParsingError, Result, SharedString};
+use crate::{Header, MailParsingError, MimeParameters, Result, SharedString};
 use charset::Charset;
 use std::str::FromStr;
 
@@ -12,6 +12,71 @@ pub struct MimePart<'a> {
     /// The index into bytes of the first non-header byte.
     body_offset: usize,
     overall_conformance: HeaderConformance,
+}
+
+struct Rfc2045Info {
+    encoding: ContentTransferEncoding,
+    charset: Charset,
+    content_type: Option<MimeParameters>,
+    content_transfer_encoding: Option<MimeParameters>,
+    is_text: bool,
+    is_multipart: bool,
+}
+
+impl Rfc2045Info {
+    fn new(headers: &HeaderMap) -> Result<Self> {
+        if let Some(v) = headers.mime_version()? {
+            if v != "1.0" {
+                return Err(MailParsingError::UnknownMimeVersion(v));
+            }
+
+            let content_transfer_encoding = headers.content_transfer_encoding()?;
+
+            let encoding = match &content_transfer_encoding {
+                Some(cte) => ContentTransferEncoding::from_str(&cte.value)?,
+                None => ContentTransferEncoding::SevenBit,
+            };
+
+            let content_type = headers.content_type()?;
+            let charset = if let Some(ct) = &content_type {
+                ct.get("charset")
+            } else {
+                None
+            };
+            let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
+
+            let charset =
+                Charset::for_label_no_replacement(charset.as_bytes()).ok_or_else(|| {
+                    MailParsingError::BodyParse(format!("unsupported charset {charset}"))
+                })?;
+
+            let (is_text, is_multipart) = if let Some(ct) = &content_type {
+                (ct.is_text(), ct.is_multipart())
+            } else {
+                (true, false)
+            };
+
+            Ok(Self {
+                encoding,
+                charset,
+                content_type,
+                content_transfer_encoding,
+                is_text,
+                is_multipart,
+            })
+        } else {
+            // Just assume text/plain, us-ascii
+            Ok(Self {
+                encoding: ContentTransferEncoding::SevenBit,
+                charset: Charset::for_label_no_replacement(b"us-ascii")
+                    .expect("ASCII to be available"),
+                content_type: None,
+                content_transfer_encoding: None,
+                is_text: true,
+                is_multipart: false,
+            })
+        }
+    }
 }
 
 impl<'a> MimePart<'a> {
@@ -40,65 +105,42 @@ impl<'a> MimePart<'a> {
     }
 
     pub fn body(&self) -> Result<DecodedBody> {
-        if let Some(v) = self.headers.mime_version()? {
-            if v != "1.0" {
-                return Err(MailParsingError::UnknownMimeVersion(v));
+        let info = Rfc2045Info::new(&self.headers)?;
+
+        let bytes = match info.encoding {
+            ContentTransferEncoding::Base64 => data_encoding::BASE64_MIME
+                .decode(self.raw_body().as_bytes())
+                .map_err(|err| MailParsingError::BodyParse(format!("base64 decode: {err:#}")))?,
+            ContentTransferEncoding::QuotedPrintable => quoted_printable::decode(
+                self.raw_body().as_bytes(),
+                quoted_printable::ParseMode::Robust,
+            )
+            .map_err(|err| {
+                MailParsingError::BodyParse(format!("quoted printable decode: {err:#}"))
+            })?,
+            ContentTransferEncoding::SevenBit
+            | ContentTransferEncoding::EightBit
+            | ContentTransferEncoding::Binary
+                if info.is_text =>
+            {
+                return Ok(DecodedBody::Text(self.raw_body()));
             }
-
-            let cte = match self.headers.content_transfer_encoding()? {
-                Some(cte) => ContentTransferEncoding::from_str(&cte.value)?,
-                None => ContentTransferEncoding::SevenBit,
-            };
-
-            eprintln!("cte: {cte:?}");
-
-            let bytes = match cte {
-                ContentTransferEncoding::Base64 => data_encoding::BASE64_MIME
-                    .decode(self.raw_body().as_bytes())
-                    .map_err(|err| {
-                        MailParsingError::BodyParse(format!("base64 decode: {err:#}"))
-                    })?,
-                ContentTransferEncoding::QuotedPrintable => quoted_printable::decode(
-                    self.raw_body().as_bytes(),
-                    quoted_printable::ParseMode::Robust,
-                )
-                .map_err(|err| {
-                    MailParsingError::BodyParse(format!("quoted printable decode: {err:#}"))
-                })?,
-                ContentTransferEncoding::SevenBit
-                | ContentTransferEncoding::EightBit
-                | ContentTransferEncoding::Binary => self.raw_body().as_bytes().to_vec(),
-            };
-
-            let ct = self.headers.content_type()?;
-            let charset = if let Some(ct) = &ct {
-                ct.get("charset")
-            } else {
-                None
-            };
-            let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
-
-            let charset =
-                Charset::for_label_no_replacement(charset.as_bytes()).ok_or_else(|| {
-                    MailParsingError::BodyParse(format!("unsupported charset {charset}"))
-                })?;
-
-            let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
-
-            let is_text = if let Some(ct) = &ct {
-                ct.is_text()
-            } else {
-                true
-            };
-
-            if is_text {
-                Ok(DecodedBody::Text(decoded.to_string().into()))
-            } else {
-                Ok(DecodedBody::Binary(decoded.as_bytes().to_vec()))
+            ContentTransferEncoding::SevenBit | ContentTransferEncoding::EightBit => {
+                let mut bytes = self.raw_body().as_bytes().to_vec();
+                bytes.retain(|&b| b != b'\r' && b != b'\n');
+                return Ok(DecodedBody::Binary(bytes));
             }
+            ContentTransferEncoding::Binary => {
+                return Ok(DecodedBody::Binary(self.raw_body().as_bytes().to_vec()))
+            }
+        };
+
+        let (decoded, _malformed) = info.charset.decode_without_bom_handling(&bytes);
+
+        if info.is_text {
+            Ok(DecodedBody::Text(decoded.to_string().into()))
         } else {
-            // Just assume text/plain, us-ascii
-            Ok(DecodedBody::Text(self.raw_body()))
+            Ok(DecodedBody::Binary(decoded.as_bytes().to_vec()))
         }
     }
 }
