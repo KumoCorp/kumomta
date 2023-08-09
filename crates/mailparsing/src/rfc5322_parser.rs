@@ -810,20 +810,18 @@ fn ccontent(input: Span) -> IResult<Span, Span> {
     )(input)
 }
 
+fn is_quoted_pair(c: char) -> bool {
+    match c {
+        '\u{00}' | '\r' | '\n' | ' ' => true,
+        c => is_obs_no_ws_ctl(c) || is_vchar(c),
+    }
+}
+
 // quoted_pair = { ( "\\"  ~ (vchar | wsp)) | obs_qp }
 // obs_qp = { "\\" ~ ( "\u{00}" | obs_no_ws_ctl | "\r" | "\n") }
 #[tracable_parser]
 fn quoted_pair(input: Span) -> IResult<Span, char> {
-    context(
-        "quoted_pair",
-        preceded(
-            char('\\'),
-            satisfy(|c| match c {
-                '\u{00}' | '\r' | '\n' | ' ' => true,
-                c => is_obs_no_ws_ctl(c) || is_vchar(c),
-            }),
-        ),
-    )(input)
+    context("quoted_pair", preceded(char('\\'), satisfy(is_quoted_pair)))(input)
 }
 
 // encoded_word = { "=?" ~ charset ~ ("*" ~ language)? ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
@@ -1452,17 +1450,158 @@ impl MimeParameters {
 
         result
     }
+
+    /// Remove the named parameter
+    pub fn remove(&mut self, name: &str) {
+        self.parameters
+            .retain(|p| !p.name.eq_ignore_ascii_case(name));
+    }
+
+    pub fn set(&mut self, name: &str, value: &str) {
+        self.remove(name);
+
+        self.parameters.push(MimeParameter {
+            name: name.to_string(),
+            value: value.to_string(),
+            section: None,
+            mime_charset: None,
+            mime_language: None,
+            uses_encoding: false,
+        });
+    }
 }
+
+impl EncodeHeaderValue for MimeParameters {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = self.value.to_string();
+        let mut names: Vec<&str> = self.parameters.iter().map(|p| p.name.as_str()).collect();
+        names.sort();
+        names.dedup();
+
+        for name in names {
+            let value = self.get(name);
+
+            let needs_encoding = value.chars().any(|c| !is_mime_token(c) || !c.is_ascii());
+            // Prefer to use quoted_string representation when possible, as it doesn't
+            // require any RFC 2231 encoding
+            let use_quoted_string = value
+                .chars()
+                .all(|c| (is_qtext(c) || is_quoted_pair(c)) && c.is_ascii());
+
+            let mut params = vec![];
+            let mut chars = value.chars().peekable();
+            while chars.peek().is_some() {
+                let count = params.len();
+                let is_first = count == 0;
+                let prefix = if use_quoted_string {
+                    "\""
+                } else if is_first && needs_encoding {
+                    "UTF-8''"
+                } else {
+                    ""
+                };
+                let limit = 74 - (name.len() + 4 + prefix.len());
+
+                let mut encoded = String::new();
+
+                while encoded.len() < limit {
+                    let c = match chars.next() {
+                        Some(c) => c,
+                        None => break,
+                    };
+
+                    if use_quoted_string {
+                        if c == '"' || c == '\\' {
+                            encoded.push('\\');
+                        }
+                        encoded.push(c);
+                    } else if is_mime_token(c) && (!needs_encoding || c != '%') {
+                        encoded.push(c);
+                    } else {
+                        let mut buf = [0u8; 8];
+                        let s = c.encode_utf8(&mut buf);
+                        for b in s.bytes() {
+                            encoded.push('%');
+                            encoded.push(HEX_CHARS[(b as usize) >> 4] as char);
+                            encoded.push(HEX_CHARS[(b as usize) & 0x0f] as char);
+                        }
+                    }
+                }
+
+                if use_quoted_string {
+                    encoded.push('"');
+                }
+
+                params.push(MimeParameter {
+                    name: name.to_string(),
+                    section: Some(count as u32),
+                    mime_charset: if is_first {
+                        Some("UTF-8".to_string())
+                    } else {
+                        None
+                    },
+                    mime_language: None,
+                    uses_encoding: needs_encoding,
+                    value: encoded,
+                })
+            }
+            if params.len() == 1 {
+                params.last_mut().map(|p| p.section = None);
+            }
+            for p in params {
+                result.push_str(";\r\n\t");
+                let charset_tick = if !use_quoted_string
+                    && (p.mime_charset.is_some() || p.mime_language.is_some())
+                {
+                    "'"
+                } else {
+                    ""
+                };
+                let lang_tick = if !use_quoted_string
+                    && (p.mime_language.is_some() || p.mime_charset.is_some())
+                {
+                    "'"
+                } else {
+                    ""
+                };
+
+                let section = p
+                    .section
+                    .map(|s| format!("*{s}"))
+                    .unwrap_or_else(|| String::new());
+
+                let uses_encoding = if !use_quoted_string && p.uses_encoding {
+                    "*"
+                } else {
+                    ""
+                };
+                let charset = if use_quoted_string {
+                    "\""
+                } else {
+                    p.mime_charset.as_deref().unwrap_or("")
+                };
+                let lang = p.mime_language.as_deref().unwrap_or("");
+
+                let line = format!(
+                    "{name}{section}{uses_encoding}={charset}{charset_tick}{lang}{lang_tick}{value}",
+                    name = &p.name,
+                    value = &p.value
+                );
+                result.push_str(&line);
+            }
+        }
+        result.into()
+    }
+}
+
+static HEX_CHARS: &[u8] = &[
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F',
+];
 
 pub(crate) fn qp_encode(s: &str) -> String {
     let prefix = b"=?UTF-8?q?";
     let suffix = b"?=";
     let limit = 74 - (prefix.len() + suffix.len());
-
-    static HEX_CHARS: &[u8] = &[
-        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E',
-        b'F',
-    ];
 
     let mut result = Vec::with_capacity(s.len());
 
@@ -2168,17 +2307,16 @@ Some(
             "\n\n\n"
         );
         let msg = MimePart::parse(message).unwrap();
-        let params = match msg.headers().content_type() {
+        let mut params = match msg.headers().content_type() {
             Err(err) => panic!("Doh.\n{err:#}"),
             Ok(params) => params.unwrap(),
         };
-        k9::snapshot!(
-            params.get("title"),
-            r#"This is even more ***fun*** isn't it!"#
-        );
+
+        let original_title = params.get("title");
+        k9::snapshot!(&original_title, r#"This is even more ***fun*** isn't it!"#);
 
         k9::snapshot!(
-            params,
+            &params,
             r#"
 MimeParameters {
     value: "application/x-stuff",
@@ -2219,6 +2357,54 @@ MimeParameters {
         },
     ],
 }
+"#
+        );
+
+        k9::snapshot!(
+            params.encode_value(),
+            r#"
+application/x-stuff;\r
+\ttitle="This is even more ***fun*** isn't it!"
+"#
+        );
+
+        params.set("foo", "bar 💩");
+
+        params.set(
+            "long",
+            "this is some text that should wrap because \
+                it should be a good bit longer than our target maximum \
+                length for this sort of thing, and hopefully we see at \
+                least three lines produced as a result of setting \
+                this value in this way",
+        );
+
+        params.set(
+            "longernnamethananyoneshouldreallyuse",
+            "this is some text that should wrap because \
+                it should be a good bit longer than our target maximum \
+                length for this sort of thing, and hopefully we see at \
+                least three lines produced as a result of setting \
+                this value in this way",
+        );
+
+        k9::snapshot!(
+            params.encode_value(),
+            r#"
+application/x-stuff;\r
+\tfoo*=UTF-8''bar%20%F0%9F%92%A9;\r
+\tlong*0="this is some text that should wrap because it should be a good bi";\r
+\tlong*1="t longer than our target maximum length for this sort of thing, a";\r
+\tlong*2="nd hopefully we see at least three lines produced as a result of ";\r
+\tlong*3="setting this value in this way";\r
+\tlongernnamethananyoneshouldreallyuse*0="this is some text that should wra";\r
+\tlongernnamethananyoneshouldreallyuse*1="p because it should be a good bit";\r
+\tlongernnamethananyoneshouldreallyuse*2=" longer than our target maximum l";\r
+\tlongernnamethananyoneshouldreallyuse*3="ength for this sort of thing, and";\r
+\tlongernnamethananyoneshouldreallyuse*4=" hopefully we see at least three ";\r
+\tlongernnamethananyoneshouldreallyuse*5="lines produced as a result of set";\r
+\tlongernnamethananyoneshouldreallyuse*6="ting this value in this way";\r
+\ttitle="This is even more ***fun*** isn't it!"
 "#
         );
     }
