@@ -27,4 +27,14 @@ function mod.load_json_or_toml_file(filename)
   return kumo.json_load(filename)
 end
 
+-- Returns true if the string `s` starts with the string `text`
+function mod.starts_with(s, text)
+  return string.sub(s, 1, #text) == text
+end
+
+-- Returns true if the string `s` ends with the string `text`
+function mod.ends_with(s, text)
+  return string.sub(s, -#text) == text
+end
+
 return mod
