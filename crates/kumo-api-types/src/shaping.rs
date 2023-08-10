@@ -1,7 +1,7 @@
 use crate::egress_path::EgressPathConfig;
 use anyhow::Context;
 use config::any_err;
-use dns_resolver::MailExchanger;
+use dns_resolver::{fully_qualify, MailExchanger};
 use kumo_log_types::JsonLogRecord;
 use mlua::prelude::LuaUserData;
 use mlua::{LuaSerdeExt, UserDataMethods};
@@ -350,6 +350,18 @@ impl Shaping {
                 let mx_rollup = if domain == "default" {
                     false
                 } else {
+                    if let Ok(name) = fully_qualify(&domain) {
+                        if name.num_labels() == 1 {
+                            warnings.push(format!(
+                                "Entry for domain '{domain}' consists of a \
+                                 single DNS label. Domain names in TOML sections \
+                                 need to be quoted like '[\"{domain}.com\"]` otherwise \
+                                 the '.' will create a nested table rather than being \
+                                 added to the domain name."
+                            ));
+                        }
+                    }
+
                     partial.mx_rollup
                 };
 

@@ -25,7 +25,7 @@ pub struct MailExchanger {
     pub is_domain_literal: bool,
 }
 
-fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
+pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
     let mut name = Name::from_str_relaxed(domain_name)?.to_lowercase();
 
     // Treat it as fully qualified
