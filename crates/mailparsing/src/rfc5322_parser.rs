@@ -5,18 +5,85 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while, take_while1};
 use nom::character::complete::{char, satisfy};
 use nom::combinator::{all_consuming, map, opt, recognize};
-use nom::error::{context, ContextError, VerboseError};
+use nom::error::{context, ContextError, ErrorKind};
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
 use nom_locate::LocatedSpan;
-use nom_tracable::{tracable_parser, TracableInfo};
+use std::fmt::Debug;
 
-pub(crate) type Span<'a> = LocatedSpan<&'a str, TracableInfo>;
-type IResult<'a, A, B> = nom::IResult<A, B, VerboseError<Span<'a>>>;
+#[derive(Debug)]
+pub enum ParseErrorKind {
+    Context(&'static str),
+    Char(char),
+    Nom(ErrorKind),
+    External { kind: ErrorKind, reason: String },
+}
+
+#[derive(Debug)]
+pub struct ParseError<I: Debug> {
+    pub errors: Vec<(I, ParseErrorKind)>,
+}
+
+impl<I: Debug> ContextError<I> for ParseError<I> {
+    fn add_context(input: I, ctx: &'static str, mut other: Self) -> Self {
+        other.errors.push((input, ParseErrorKind::Context(ctx)));
+        other
+    }
+}
+
+impl<I: Debug> nom::error::ParseError<I> for ParseError<I> {
+    fn from_error_kind(input: I, kind: ErrorKind) -> Self {
+        Self {
+            errors: vec![(input, ParseErrorKind::Nom(kind))],
+        }
+    }
+
+    fn append(input: I, kind: ErrorKind, mut other: Self) -> Self {
+        other.errors.push((input, ParseErrorKind::Nom(kind)));
+        other
+    }
+
+    fn from_char(input: I, c: char) -> Self {
+        Self {
+            errors: vec![(input, ParseErrorKind::Char(c))],
+        }
+    }
+}
+
+impl<I: Debug, E: std::fmt::Display> nom::error::FromExternalError<I, E> for ParseError<I> {
+    fn from_external_error(input: I, kind: ErrorKind, err: E) -> Self {
+        Self {
+            errors: vec![(
+                input,
+                ParseErrorKind::External {
+                    kind,
+                    reason: format!("{err:#}"),
+                },
+            )],
+        }
+    }
+}
+
+fn make_context_error<'a, S: Into<String>>(
+    input: Span<'a>,
+    reason: S,
+) -> nom::Err<ParseError<Span<'a>>> {
+    nom::Err::Error(ParseError {
+        errors: vec![(
+            input,
+            ParseErrorKind::External {
+                kind: nom::error::ErrorKind::Fail,
+                reason: reason.into(),
+            },
+        )],
+    })
+}
+
+pub(crate) type Span<'a> = LocatedSpan<&'a str>;
+type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
 
 impl MailParsingError {
-    pub fn from_nom(input: Span, err: nom::Err<VerboseError<Span<'_>>>) -> Self {
-        use nom::error::VerboseErrorKind;
+    pub fn from_nom(input: Span, err: nom::Err<ParseError<Span<'_>>>) -> Self {
         use std::fmt::Write;
         match err {
             nom::Err::Error(e) => {
@@ -24,13 +91,16 @@ impl MailParsingError {
                 for (i, (span, kind)) in e.errors.iter().enumerate() {
                     if input.is_empty() {
                         match kind {
-                            VerboseErrorKind::Char(c) => {
+                            ParseErrorKind::Char(c) => {
                                 write!(&mut result, "{i}: expected '{c}', got empty input\n\n")
                             }
-                            VerboseErrorKind::Context(s) => {
+                            ParseErrorKind::Context(s) => {
                                 write!(&mut result, "{i}: in {s}, got empty input\n\n")
                             }
-                            VerboseErrorKind::Nom(e) => {
+                            ParseErrorKind::External { kind, reason } => {
+                                write!(&mut result, "{i}: {reason} {kind:?}, got empty input\n\n")
+                            }
+                            ParseErrorKind::Nom(e) => {
                                 write!(&mut result, "{i}: in {e:?}, got empty input\n\n")
                             }
                         }
@@ -54,45 +124,54 @@ impl MailParsingError {
                         })
                         .collect();
                     let column = span.get_utf8_column();
+                    let mut caret = " ".repeat(column.saturating_sub(1));
+                    caret.push('^');
+                    for _ in 1..span.fragment().len() {
+                        caret.push('_')
+                    }
 
                     match kind {
-                        VerboseErrorKind::Char(expected) => {
+                        ParseErrorKind::Char(expected) => {
                             if let Some(actual) = span.fragment().chars().next() {
                                 write!(
                                     &mut result,
                                     "{i}: at line {line_number}:\n\
                                     {line}\n\
-                                    {caret:>column$}\n\
+                                    {caret}\n\
                                     expected '{expected}', found {actual}\n\n",
-                                    caret = '^',
                                 )
                             } else {
                                 write!(
                                     &mut result,
                                     "{i}: at line {line_number}:\n\
                                     {line}\n\
-                                    {caret:>column$}\n\
+                                    {caret}\n\
                                     expected '{expected}', got end of input\n\n",
-                                    caret = '^',
                                 )
                             }
                         }
-                        VerboseErrorKind::Context(context) => {
+                        ParseErrorKind::Context(context) => {
                             write!(
                                 &mut result,
                                 "{i}: at line {line_number}, in {context}:\n\
                                 {line}\n\
-                                {caret:>column$}\n\n",
-                                caret = '^',
+                                {caret}\n\n",
                             )
                         }
-                        VerboseErrorKind::Nom(nom_err) => {
+                        ParseErrorKind::External { kind, reason } => {
+                            write!(
+                                &mut result,
+                                "{i}: at line {line_number}, {reason} {kind:?}:\n\
+                                {line}\n\
+                                {caret}\n\n",
+                            )
+                        }
+                        ParseErrorKind::Nom(nom_err) => {
                             write!(
                                 &mut result,
                                 "{i}: at line {line_number}, in {nom_err:?}:\n\
                                 {line}\n\
-                                {caret:>column$}\n\n",
-                                caret = '^',
+                                {caret}\n\n",
                             )
                         }
                     }
@@ -105,21 +184,8 @@ impl MailParsingError {
     }
 }
 
-fn make_context_error<'a>(
-    input: Span<'a>,
-    context: &'static str,
-) -> nom::Err<VerboseError<Span<'a>>> {
-    let err = nom::error::make_error(input, nom::error::ErrorKind::Fail);
-
-    nom::Err::Error(VerboseError::add_context(input, context, err))
-}
-
 fn make_span(s: &str) -> Span {
-    let info = TracableInfo::new()
-        .forward(true)
-        .backward(true)
-        .parser_width(42);
-    LocatedSpan::new_extra(s, info)
+    LocatedSpan::new(s)
 }
 
 fn is_utf8_non_ascii(c: char) -> bool {
@@ -168,7 +234,6 @@ fn is_atext(c: char) -> bool {
     }
 }
 
-#[tracable_parser]
 fn atext(input: Span) -> IResult<Span, Span> {
     context("atext", take_while1(is_atext))(input)
 }
@@ -225,18 +290,15 @@ fn is_attribute_char(c: char) -> bool {
     }
 }
 
-#[tracable_parser]
 fn wsp(input: Span) -> IResult<Span, Span> {
     context("wsp", take_while1(|c| c == ' ' || c == '\t'))(input)
 }
 
-#[tracable_parser]
 fn newline(input: Span) -> IResult<Span, Span> {
     context("newline", recognize(preceded(opt(char('\r')), char('\n'))))(input)
 }
 
 // fws = { ((wsp* ~ "\r"? ~ "\n")* ~ wsp+) | obs_fws }
-#[tracable_parser]
 fn fws(input: Span) -> IResult<Span, Span> {
     context(
         "fws",
@@ -248,7 +310,6 @@ fn fws(input: Span) -> IResult<Span, Span> {
 }
 
 // obs_fws = { wsp+ ~ ("\r"? ~ "\n" ~ wsp+)* }
-#[tracable_parser]
 fn obs_fws(input: Span) -> IResult<Span, Span> {
     context(
         "obs_fws",
@@ -257,7 +318,6 @@ fn obs_fws(input: Span) -> IResult<Span, Span> {
 }
 
 // mailbox_list = { (mailbox ~ ("," ~ mailbox)*) | obs_mbox_list }
-#[tracable_parser]
 fn mailbox_list(input: Span) -> IResult<Span, MailboxList> {
     let (loc, mailboxes) = context(
         "mailbox_list",
@@ -267,7 +327,6 @@ fn mailbox_list(input: Span) -> IResult<Span, MailboxList> {
 }
 
 // obs_mbox_list = {  ((cfws? ~ ",")* ~ mailbox ~ ("," ~ (mailbox | cfws))*)+ }
-#[tracable_parser]
 fn obs_mbox_list(input: Span) -> IResult<Span, Vec<Mailbox>> {
     let (loc, entries) = context(
         "obs_mbox_list",
@@ -298,7 +357,6 @@ fn obs_mbox_list(input: Span) -> IResult<Span, Vec<Mailbox>> {
 }
 
 // mailbox = { name_addr | addr_spec }
-#[tracable_parser]
 fn mailbox(input: Span) -> IResult<Span, Mailbox> {
     if let Ok(res) = name_addr(input) {
         Ok(res)
@@ -315,7 +373,6 @@ fn mailbox(input: Span) -> IResult<Span, Mailbox> {
 }
 
 // address_list = { (address ~ ("," ~ address)*) | obs_addr_list }
-#[tracable_parser]
 fn address_list(input: Span) -> IResult<Span, AddressList> {
     context(
         "address_list",
@@ -327,7 +384,6 @@ fn address_list(input: Span) -> IResult<Span, AddressList> {
 }
 
 // obs_addr_list = {  ((cfws? ~ ",")* ~ address ~ ("," ~ (address | cfws))*)+ }
-#[tracable_parser]
 fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
     let (loc, entries) = context(
         "obs_address_list",
@@ -358,13 +414,11 @@ fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
 }
 
 // address = { mailbox | group }
-#[tracable_parser]
 fn address(input: Span) -> IResult<Span, Address> {
     context("address", alt((map(mailbox, Address::Mailbox), group)))(input)
 }
 
 // group = { display_name ~ ":" ~ group_list? ~ ";" ~ cfws? }
-#[tracable_parser]
 fn group(input: Span) -> IResult<Span, Address> {
     let (loc, (name, _, group_list, _)) = context(
         "group",
@@ -383,7 +437,6 @@ fn group(input: Span) -> IResult<Span, Address> {
 }
 
 // group_list = { mailbox_list | cfws | obs_group_list }
-#[tracable_parser]
 fn group_list(input: Span) -> IResult<Span, MailboxList> {
     context(
         "group_list",
@@ -396,7 +449,6 @@ fn group_list(input: Span) -> IResult<Span, MailboxList> {
 }
 
 // obs_group_list = @{ (cfws? ~ ",")+ ~ cfws? }
-#[tracable_parser]
 fn obs_group_list(input: Span) -> IResult<Span, MailboxList> {
     context(
         "obs_group_list",
@@ -408,7 +460,6 @@ fn obs_group_list(input: Span) -> IResult<Span, MailboxList> {
 }
 
 // name_addr = { display_name? ~ angle_addr }
-#[tracable_parser]
 fn name_addr(input: Span) -> IResult<Span, Mailbox> {
     context(
         "name_addr",
@@ -419,14 +470,12 @@ fn name_addr(input: Span) -> IResult<Span, Mailbox> {
 }
 
 // display_name = { phrase }
-#[tracable_parser]
 fn display_name(input: Span) -> IResult<Span, String> {
     context("display_name", phrase)(input)
 }
 
 // phrase = { (encoded_word | word)+ | obs_phrase }
 // obs_phrase = { (encoded_word | word) ~ (encoded_word | word | dot | cfws)* }
-#[tracable_parser]
 fn phrase(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)): (Span, (String, Vec<Option<String>>)) = context(
         "phrase",
@@ -452,7 +501,6 @@ fn phrase(input: Span) -> IResult<Span, String> {
 }
 
 // angle_addr = { cfws? ~ "<" ~ addr_spec ~ ">" ~ cfws? | obs_angle_addr }
-#[tracable_parser]
 fn angle_addr(input: Span) -> IResult<Span, AddrSpec> {
     context(
         "angle_addr",
@@ -467,7 +515,6 @@ fn angle_addr(input: Span) -> IResult<Span, AddrSpec> {
     )(input)
 }
 
-#[tracable_parser]
 // obs_angle_addr = { cfws? ~ "<" ~ obs_route ~ addr_spec ~ ">" ~ cfws? }
 fn obs_angle_addr(input: Span) -> IResult<Span, AddrSpec> {
     context(
@@ -482,7 +529,6 @@ fn obs_angle_addr(input: Span) -> IResult<Span, AddrSpec> {
 
 // obs_route = { obs_domain_list ~ ":" }
 // obs_domain_list = { (cfws | ",")* ~ "@" ~ domain ~ ("," ~ cfws? ~ ("@" ~ domain)?)* }
-#[tracable_parser]
 fn obs_route(input: Span) -> IResult<Span, Span> {
     context(
         "obs_route",
@@ -503,7 +549,6 @@ fn obs_route(input: Span) -> IResult<Span, Span> {
 }
 
 // addr_spec = { local_part ~ "@" ~ domain }
-#[tracable_parser]
 fn addr_spec(input: Span) -> IResult<Span, AddrSpec> {
     let (loc, (local_part, domain)) =
         context("addr_spec", separated_pair(local_part, char('@'), domain))(input)?;
@@ -554,12 +599,12 @@ Err(
     HeaderParse(
         "0: at line 1:
 "darth".vader@a.galaxy.far.far.away
-       ^
+       ^___________________________
 expected '@', found .
 
 1: at line 1, in addr_spec:
 "darth".vader@a.galaxy.far.far.away
-^
+^__________________________________
 
 ",
     ),
@@ -604,7 +649,6 @@ fn word(input: Span) -> IResult<Span, String> {
 }
 
 // obs_local_part = { word ~ (dot ~ word)* }
-#[tracable_parser]
 fn obs_local_part(input: Span) -> IResult<Span, String> {
     let (loc, (word, dotted_words)) = context(
         "obs_local_part",
@@ -622,19 +666,16 @@ fn obs_local_part(input: Span) -> IResult<Span, String> {
 }
 
 // local_part = { dot_atom | quoted_string | obs_local_part }
-#[tracable_parser]
 fn local_part(input: Span) -> IResult<Span, String> {
     context("local_part", alt((dot_atom, quoted_string, obs_local_part)))(input)
 }
 
 // domain = { dot_atom | domain_literal | obs_domain }
-#[tracable_parser]
 fn domain(input: Span) -> IResult<Span, String> {
     context("domain", alt((dot_atom, domain_literal, obs_domain)))(input)
 }
 
 // obs_domain = { atom ~ ( dot ~ atom)* }
-#[tracable_parser]
 fn obs_domain(input: Span) -> IResult<Span, String> {
     let (loc, (atom, dotted_atoms)) =
         context("obs_domain", tuple((atom, many0(tuple((char('.'), atom))))))(input)?;
@@ -650,7 +691,6 @@ fn obs_domain(input: Span) -> IResult<Span, String> {
 }
 
 // domain_literal = { cfws? ~ "[" ~ (fws? ~ dtext)* ~ fws? ~ "]" ~ cfws? }
-#[tracable_parser]
 fn domain_literal(input: Span) -> IResult<Span, String> {
     let (loc, (bits, trailer)) = context(
         "domain_literal",
@@ -684,7 +724,6 @@ fn domain_literal(input: Span) -> IResult<Span, String> {
 }
 
 // dot_atom_text = @{ atext ~ ("." ~ atext)* }
-#[tracable_parser]
 fn dot_atom_text(input: Span) -> IResult<Span, String> {
     let (loc, (a, b)) = context(
         "dot_atom_text",
@@ -701,7 +740,6 @@ fn dot_atom_text(input: Span) -> IResult<Span, String> {
 }
 
 // dot_atom = { cfws? ~ dot_atom_text ~ cfws? }
-#[tracable_parser]
 fn dot_atom(input: Span) -> IResult<Span, String> {
     context("dot_atom", delimited(opt(cfws), dot_atom_text, opt(cfws)))(input)
 }
@@ -753,7 +791,6 @@ Ok(
 }
 
 // cfws = { ( (fws? ~ comment)+ ~ fws?) | fws }
-#[tracable_parser]
 fn cfws(input: Span) -> IResult<Span, Span> {
     context(
         "cfws",
@@ -765,7 +802,6 @@ fn cfws(input: Span) -> IResult<Span, Span> {
 }
 
 // comment = { "(" ~ (fws? ~ ccontent)* ~ fws? ~ ")" }
-#[tracable_parser]
 fn comment(input: Span) -> IResult<Span, Span> {
     context(
         "comment",
@@ -789,7 +825,7 @@ Ok(
         offset: 0,
         line: 1,
         fragment: "(wat)",
-        extra: TracableInfo,
+        extra: (),
     },
 )
 "#
@@ -797,7 +833,6 @@ Ok(
 }
 
 // ccontent = { ctext | quoted_pair | comment | encoded_word }
-#[tracable_parser]
 fn ccontent(input: Span) -> IResult<Span, Span> {
     context(
         "ccontent",
@@ -819,13 +854,11 @@ fn is_quoted_pair(c: char) -> bool {
 
 // quoted_pair = { ( "\\"  ~ (vchar | wsp)) | obs_qp }
 // obs_qp = { "\\" ~ ( "\u{00}" | obs_no_ws_ctl | "\r" | "\n") }
-#[tracable_parser]
 fn quoted_pair(input: Span) -> IResult<Span, char> {
     context("quoted_pair", preceded(char('\\'), satisfy(is_quoted_pair)))(input)
 }
 
 // encoded_word = { "=?" ~ charset ~ ("*" ~ language)? ~ "?" ~ encoding ~ "?" ~ encoded_text ~ "?=" }
-#[tracable_parser]
 fn encoded_word(input: Span) -> IResult<Span, String> {
     let (loc, (charset, _language, _, encoding, _, text)) = context(
         "encoded_word",
@@ -846,23 +879,37 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
     let bytes = match *encoding.fragment() {
         "B" | "b" => data_encoding::BASE64_MIME
             .decode(text.as_bytes())
-            .map_err(|_err| make_context_error(input, "encoded_word: base64 decode failed"))?,
+            .map_err(|err| {
+                make_context_error(
+                    input,
+                    format!("encoded_word: base64 decode failed: {err:#}"),
+                )
+            })?,
         "Q" | "q" => {
             quoted_printable::decode(text.replace("_", " "), quoted_printable::ParseMode::Robust)
-                .map_err(|_err| {
-                    make_context_error(input, "encoded_word: quoted printable decode failed")
+                .map_err(|err| {
+                    make_context_error(
+                        input,
+                        format!("encoded_word: quoted printable decode failed: {err:#}"),
+                    )
                 })?
         }
-        _ => {
+        encoding => {
             return Err(make_context_error(
                 input,
-                "encoded_word: invalid encoding, expected one of b, B, q or Q",
+                format!(
+                    "encoded_word: invalid encoding '{encoding}', expected one of b, B, q or Q"
+                ),
             ));
         }
     };
 
-    let charset = Charset::for_label_no_replacement(charset.as_bytes())
-        .ok_or_else(|| make_context_error(input, "encoded_word: unsupported charset"))?;
+    let charset = Charset::for_label_no_replacement(charset.as_bytes()).ok_or_else(|| {
+        make_context_error(
+            input,
+            format!("encoded_word: unsupported charset '{charset}'"),
+        )
+    })?;
 
     let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
 
@@ -870,25 +917,21 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
 }
 
 // charset = @{ (!"*" ~ token)+ }
-#[tracable_parser]
 fn charset(input: Span) -> IResult<Span, Span> {
     context("charset", take_while1(|c| c != '*' && is_token(c)))(input)
 }
 
 // language = @{ token+ }
-#[tracable_parser]
 fn language(input: Span) -> IResult<Span, Span> {
     context("language", take_while1(|c| c != '*' && is_token(c)))(input)
 }
 
 // encoding = @{ token+ }
-#[tracable_parser]
 fn encoding(input: Span) -> IResult<Span, Span> {
     context("encoding", take_while1(|c| c != '*' && is_token(c)))(input)
 }
 
 // encoded_text = @{ (!( " " | "?") ~ vchar)+ }
-#[tracable_parser]
 fn encoded_text(input: Span) -> IResult<Span, Span> {
     context(
         "encoded_text",
@@ -897,7 +940,6 @@ fn encoded_text(input: Span) -> IResult<Span, Span> {
 }
 
 // quoted_string = { cfws? ~ "\"" ~ (fws? ~ qcontent)* ~ fws? ~ "\"" ~ cfws? }
-#[tracable_parser]
 fn quoted_string(input: Span) -> IResult<Span, String> {
     let (loc, (bits, trailer)) = context(
         "quoted_string",
@@ -926,13 +968,11 @@ fn quoted_string(input: Span) -> IResult<Span, String> {
 }
 
 // qcontent = { qtext | quoted_pair }
-#[tracable_parser]
 fn qcontent(input: Span) -> IResult<Span, char> {
     context("qcontent", alt((satisfy(is_qtext), quoted_pair)))(input)
 }
 
 // msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
-#[tracable_parser]
 fn msg_id(input: Span) -> IResult<Span, String> {
     let (loc, (left, _, right)) = context(
         "msg_id",
@@ -947,27 +987,23 @@ fn msg_id(input: Span) -> IResult<Span, String> {
 }
 
 // msg_id_list = { msg_id+ }
-#[tracable_parser]
 fn msg_id_list(input: Span) -> IResult<Span, Vec<String>> {
     context("msg_id_list", many1(msg_id))(input)
 }
 
 // id_left = { dot_atom_text | obs_id_left }
 // obs_id_left = { local_part }
-#[tracable_parser]
 fn id_left(input: Span) -> IResult<Span, String> {
     context("id_left", alt((dot_atom_text, local_part)))(input)
 }
 
 // id_right = { dot_atom_text | no_fold_literal | obs_id_right }
 // obs_id_right = { domain }
-#[tracable_parser]
 fn id_right(input: Span) -> IResult<Span, String> {
     context("id_right", alt((dot_atom_text, no_fold_literal, domain)))(input)
 }
 
 // no_fold_literal = { "[" ~ dtext* ~ "]" }
-#[tracable_parser]
 fn no_fold_literal(input: Span) -> IResult<Span, String> {
     context(
         "no_fold_literal",
@@ -979,7 +1015,6 @@ fn no_fold_literal(input: Span) -> IResult<Span, String> {
 }
 
 // obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }
-#[tracable_parser]
 fn unstructured(input: Span) -> IResult<Span, String> {
     #[derive(Debug)]
     enum Word {
@@ -1053,7 +1088,6 @@ fn unstructured(input: Span) -> IResult<Span, String> {
 }
 
 // obs_utext = @{ "\u{00}" | obs_no_ws_ctl | vchar }
-#[tracable_parser]
 fn obs_utext(input: Span) -> IResult<Span, char> {
     context(
         "obs_utext",
@@ -1066,7 +1100,6 @@ fn is_mime_token(c: char) -> bool {
 }
 
 // mime_token = { (!(" " | ctl | tspecials) ~ char)+ }
-#[tracable_parser]
 fn mime_token(input: Span) -> IResult<Span, Span> {
     context("mime_token", take_while1(is_mime_token))(input)
 }
@@ -1075,7 +1108,6 @@ fn mime_token(input: Span) -> IResult<Span, Span> {
 // content_type = { cfws? ~ mime_type ~ cfws? ~ "/" ~ cfws? ~ subtype ~
 //  cfws? ~ (";"? ~ cfws? ~ parameter ~ cfws?)*
 // }
-#[tracable_parser]
 fn content_type(input: Span) -> IResult<Span, MimeParameters> {
     let (loc, (mime_type, _, _, _, mime_subtype, _, parameters)) = context(
         "content_type",
@@ -1107,7 +1139,6 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
     Ok((loc, MimeParameters { value, parameters }))
 }
 
-#[tracable_parser]
 fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
     let (loc, (value, _, parameters)) = context(
         "content_type",
@@ -1141,7 +1172,6 @@ fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
 }
 
 // parameter = { regular_parameter | extended_parameter }
-#[tracable_parser]
 fn parameter(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "parameter",
@@ -1153,7 +1183,6 @@ fn parameter(input: Span) -> IResult<Span, MimeParameter> {
     )(input)
 }
 
-#[tracable_parser]
 fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "extended_param_with_charset",
@@ -1186,7 +1215,6 @@ fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
     )(input)
 }
 
-#[tracable_parser]
 fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "extended_param_no_charset",
@@ -1218,7 +1246,6 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
     )(input)
 }
 
-#[tracable_parser]
 fn mime_charset(input: Span) -> IResult<Span, Span> {
     context(
         "mime_charset",
@@ -1226,7 +1253,6 @@ fn mime_charset(input: Span) -> IResult<Span, Span> {
     )(input)
 }
 
-#[tracable_parser]
 fn mime_language(input: Span) -> IResult<Span, Span> {
     context(
         "mime_language",
@@ -1234,7 +1260,6 @@ fn mime_language(input: Span) -> IResult<Span, Span> {
     )(input)
 }
 
-#[tracable_parser]
 fn ext_octet(input: Span) -> IResult<Span, Span> {
     context(
         "ext_octet",
@@ -1247,7 +1272,6 @@ fn ext_octet(input: Span) -> IResult<Span, Span> {
 }
 
 // section = { "*" ~ ASCII_DIGIT+ }
-#[tracable_parser]
 fn section(input: Span) -> IResult<Span, u32> {
     context(
         "section",
@@ -1256,7 +1280,6 @@ fn section(input: Span) -> IResult<Span, u32> {
 }
 
 // regular_parameter = { attribute ~ cfws? ~ "=" ~ cfws? ~ value }
-#[tracable_parser]
 fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "regular_parameter",
@@ -1276,12 +1299,10 @@ fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
 
 // attribute = { attribute_char+ }
 // attribute_char = { !(" " | ctl | tspecials | "*" | "'" | "%") ~ char }
-#[tracable_parser]
 fn attribute(input: Span) -> IResult<Span, Span> {
     context("attribute", take_while1(is_attribute_char))(input)
 }
 
-#[tracable_parser]
 fn value(input: Span) -> IResult<Span, String> {
     context(
         "value",
@@ -1880,6 +1901,34 @@ Some(
     }
 
     #[test]
+    fn docomo_non_compliant_localpart() {
+        let message = "Sender: hello..there@docomo.ne.jp\n\n\n";
+        let msg = MimePart::parse(message).unwrap();
+        let err = msg.headers().sender().unwrap_err();
+        k9::snapshot!(
+            err,
+            r#"
+HeaderParse(
+    "0: at line 1:
+hello..there@docomo.ne.jp
+     ^___________________
+expected '@', found .
+
+1: at line 1, in addr_spec:
+hello..there@docomo.ne.jp
+^________________________
+
+2: at line 1, in mailbox:
+hello..there@docomo.ne.jp
+^________________________
+
+",
+)
+"#
+        );
+    }
+
+    #[test]
     fn sender() {
         let message = "Sender: someone@[127.0.0.1]\n\n\n";
         let msg = MimePart::parse(message).unwrap();
@@ -2030,6 +2079,46 @@ Some(
     "Hello André",
 )
 "#
+        );
+    }
+
+    #[test]
+    fn rfc2047_bogus() {
+        let message = concat!(
+            "From: =?US-OSCII?Q?Keith_Moore?= <moore@cs.utk.edu>\n",
+            "To: =?ISO-8859-1*en-us?Q?Keld_J=F8rn_Simonsen?= <keld@dkuug.dk>\n",
+            "CC: =?ISO-8859-1?Q?Andr=E?= Pirard <PIRARD@vm1.ulg.ac.be>\n",
+            "Subject: Hello =?ISO-8859-1?B?SWYgeW91IGNhb!ByZWFkIHRoaXMgeW8=?=\n",
+            "  =?ISO-8859-2?B?dSB1bmRlcnN0YW5kIHRoZSBleGFtcGxlLg==?=\n",
+            "\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+
+        // Invalid charset causes encoded_word to fail and we will instead match
+        // obs_utext and return it as it was
+        k9::assert_equal!(
+            msg.headers().from().unwrap().unwrap().0[0]
+                .name
+                .as_ref()
+                .unwrap(),
+            "=?US-OSCII?Q?Keith_Moore?="
+        );
+
+        match &msg.headers().cc().unwrap().unwrap().0[0] {
+            Address::Mailbox(mbox) => {
+                // 'Andr=E9?=' is in the non-bogus example below, but above we
+                // broke it as 'Andr=E?=', and instead of triggering a qp decode
+                // error, it is passed through here as-is
+                k9::assert_equal!(mbox.name.as_ref().unwrap(), "Andr=E Pirard");
+            }
+            wat => panic!("should not have {wat:?}"),
+        }
+
+        // The invalid base64 (an I was replaced by an !) is interpreted as obs_utext
+        // and passed through to us
+        k9::assert_equal!(
+            msg.headers().subject().unwrap().unwrap(),
+            "Hello =?ISO-8859-1?B?SWYgeW91IGNhb!ByZWFkIHRoaXMgeW8=?= u understand the example."
         );
     }
 
