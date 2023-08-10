@@ -64,7 +64,7 @@ DeliverySummary {
             .kcli_json([
                 "suspend-ready-q",
                 "--name",
-                "unspecified->localhost",
+                "unspecified->mx_list:localhost@smtp_client",
                 "--reason",
                 "testing",
             ])
@@ -122,7 +122,7 @@ DeliverySummary {
             .kcli_json([
                 "suspend-ready-q",
                 "--name",
-                "unspecified->localhost",
+                "unspecified->mx_list:localhost@smtp_client",
                 "--reason",
                 "testing",
             ])
@@ -204,7 +204,7 @@ DeliverySummary {
         let mut client = daemon.smtp_client().await?;
 
         let status: SuspendV1Response = daemon
-            .kcli_json(["suspend", "--domain", "localhost", "--reason", "testing"])
+            .kcli_json(["suspend", "--domain", "example.com", "--reason", "testing"])
             .await?;
         println!("kcli status: {status:?}");
 
@@ -255,7 +255,7 @@ DeliverySummary {
         let mut client = daemon.smtp_client().await?;
 
         let status: SuspendV1Response = daemon
-            .kcli_json(["suspend", "--domain", "localhost", "--reason", "testing"])
+            .kcli_json(["suspend", "--domain", "example.com", "--reason", "testing"])
             .await?;
         println!("kcli status: {status:?}");
 

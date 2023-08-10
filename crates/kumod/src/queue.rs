@@ -4,6 +4,7 @@ use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
 use crate::ready_queue::ReadyQueueManager;
+use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::Utc;
@@ -34,7 +35,7 @@ lazy_static::lazy_static! {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum DeliveryProto {
-    Smtp,
+    Smtp { smtp: SmtpProtocol },
     Maildir { maildir_path: std::path::PathBuf },
     Lua { custom_lua: LuaDeliveryProtocol },
 }
@@ -42,7 +43,7 @@ pub enum DeliveryProto {
 impl DeliveryProto {
     pub fn metrics_protocol_name(&self) -> &'static str {
         match self {
-            Self::Smtp => "smtp_client",
+            Self::Smtp { .. } => "smtp_client",
             Self::Maildir { .. } => "maildir",
             Self::Lua { .. } => "lua",
         }
@@ -51,7 +52,7 @@ impl DeliveryProto {
     pub fn ready_queue_name(&self) -> String {
         let proto_name = self.metrics_protocol_name();
         match self {
-            Self::Smtp => proto_name.to_string(),
+            Self::Smtp { .. } => proto_name.to_string(),
             Self::Maildir { maildir_path } => format!("{proto_name}:{}", maildir_path.display()),
             Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
         }
@@ -60,7 +61,9 @@ impl DeliveryProto {
 
 impl Default for DeliveryProto {
     fn default() -> Self {
-        Self::Smtp
+        Self::Smtp {
+            smtp: SmtpProtocol::default(),
+        }
     }
 }
 
@@ -562,7 +565,7 @@ impl Queue {
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
         match &self.queue_config.protocol {
-            DeliveryProto::Smtp | DeliveryProto::Lua { .. } => {
+            DeliveryProto::Smtp { .. } | DeliveryProto::Lua { .. } => {
                 // rr_attempts is a bit gross; ideally rr.next would know how
                 // to inspect the egress_path.suspended configuration and reflect
                 // that in the RoundRobinResult, but it doesn't have a reference

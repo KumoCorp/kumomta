@@ -4,14 +4,21 @@ use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
-use dns_resolver::ResolvedMxAddresses;
+use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::{rt_spawn, spawn};
 use message::Message;
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct SmtpProtocol {
+    #[serde(default)]
+    pub mx_list: Vec<String>,
+}
 
 #[derive(Debug)]
 pub struct SmtpDispatcher {
@@ -22,7 +29,10 @@ pub struct SmtpDispatcher {
 }
 
 impl SmtpDispatcher {
-    pub async fn init(dispatcher: &mut Dispatcher) -> anyhow::Result<Option<Self>> {
+    pub async fn init(
+        dispatcher: &mut Dispatcher,
+        proto_config: &SmtpProtocol,
+    ) -> anyhow::Result<Option<Self>> {
         let path_config = dispatcher.path_config.borrow().clone();
         let ehlo_name = match &path_config.ehlo_domain {
             Some(n) => n.to_string(),
@@ -35,12 +45,20 @@ impl SmtpDispatcher {
             },
         };
 
-        let addresses = dispatcher
-            .mx
-            .as_ref()
-            .expect("to have mx when doing smtp")
-            .resolve_addresses()
-            .await;
+        let addresses = if proto_config.mx_list.is_empty() {
+            dispatcher
+                .mx
+                .as_ref()
+                .expect("to have mx when doing smtp")
+                .resolve_addresses()
+                .await
+        } else {
+            let mut addresses = vec![];
+            for a in proto_config.mx_list.iter() {
+                addresses.append(&mut resolve_a_or_aaaa(a).await?);
+            }
+            ResolvedMxAddresses::Addresses(addresses)
+        };
         tracing::trace!("mx resolved to {addresses:?}");
 
         let mut addresses = match addresses {

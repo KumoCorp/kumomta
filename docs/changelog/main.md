@@ -22,6 +22,8 @@
   the protocol by eg: *tenant* or *campaign* while keeping the domain the same.
   You will notice a suffix like `@smtp` on the end of queue names in metrics
   and in the `site_name` field of log records as a result of this change.
+* It is now more convenient to do smart hosting using the new smtp protocol `mx_list`
+  in [kumo.make_queue_config](../reference/kumo/make_queue_config.md).
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

@@ -34,6 +34,65 @@ fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
     Ok(name)
 }
 
+pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
+    if domain_name.starts_with('[') {
+        // It's a literal address, no DNS lookup necessary
+
+        if !domain_name.ends_with(']') {
+            anyhow::bail!(
+                "domain_name `{domain_name}` is a malformed literal \
+                     domain with no trailing `]`"
+            );
+        }
+
+        let lowered = domain_name.to_ascii_lowercase();
+        let literal = &lowered[1..lowered.len() - 1];
+
+        if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
+            match v6_literal.parse::<Ipv6Addr>() {
+                Ok(addr) => {
+                    return Ok(vec![ResolvedAddress {
+                        name: domain_name.to_string(),
+                        addr: std::net::IpAddr::V6(addr),
+                    }]);
+                }
+                Err(err) => {
+                    anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
+                }
+            }
+        }
+
+        // Try to interpret the literal as either an IPv4 or IPv6 address.
+        // Note that RFC5321 doesn't actually permit using an untagged
+        // IPv6 address, so this is non-conforming behavior.
+        match literal.parse::<IpAddr>() {
+            Ok(addr) => {
+                return Ok(vec![ResolvedAddress {
+                    name: domain_name.to_string(),
+                    addr,
+                }]);
+            }
+            Err(err) => {
+                anyhow::bail!("invalid address: `{literal}`: {err:#}");
+            }
+        }
+    }
+
+    match ip_lookup(domain_name).await {
+        Ok((addrs, _expires)) => {
+            let addrs = addrs
+                .iter()
+                .map(|&addr| ResolvedAddress {
+                    name: domain_name.to_string(),
+                    addr,
+                })
+                .collect();
+            Ok(addrs)
+        }
+        Err(err) => anyhow::bail!("{err:#}"),
+    }
+}
+
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
         if domain_name.starts_with('[') {

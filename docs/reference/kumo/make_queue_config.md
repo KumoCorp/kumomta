@@ -60,6 +60,33 @@ domain associated with the queue, but you can also configure delivering
 to a local [maildir](http://www.courier-mta.org/maildir.html), or using
 custom lua code to process a message
 
+### Example of smart-hosting with the SMTP protocol
+
+{{since('dev')}}
+
+Rather than relying on MX resolution, you can provide an explicit list
+of MX host names or IP addresses to which the queue should deliver.
+The addresses will be tried in the order specified.
+
+```lua
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  if domain == 'smarthost.example.com' then
+    -- Relay via some other internal infrastructure.
+    -- Enclose IP (or IPv6) addresses in `[]`.
+    -- Otherwise the name will be resolved for A and AAAA records
+    return kumo.make_queue_config {
+      protocol = {
+        smtp = {
+          mx_list = { 'smart.host.local', '[10.0.0.1]' },
+        },
+      },
+    }
+  end
+  -- Otherwise, just use the defaults
+  return kumo.make_queue_config {}
+end)
+```
+
 ### Example of using the Maildir protocol
 
 ```lua

@@ -74,10 +74,7 @@ if WEBHOOK_PORT then
   end)
 end
 
-kumo.on('smtp_server_message_received', function(msg)
-  -- Redirect traffic to the sink
-  msg:set_meta('queue', 'localhost')
-end)
+kumo.on('smtp_server_message_received', function(msg) end)
 
 kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   if domain == 'webhook' then
@@ -89,7 +86,14 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
       },
     }
   end
-  return kumo.make_queue_config {}
+  return kumo.make_queue_config {
+    protocol = {
+      -- Redirect traffic to the sink
+      smtp = {
+        mx_list = { 'localhost' },
+      },
+    },
+  }
 end)
 
 kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)

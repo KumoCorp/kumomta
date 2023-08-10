@@ -1,6 +1,6 @@
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::queue::QueueConfig;
-use crate::ready_queue::ReadyQueueManager;
+use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::LuaConfig;
 use gcd::Gcd;
@@ -370,7 +370,9 @@ impl EgressPoolRoundRobin {
 
         // filter to non-suspended pathways
         for entry in &self.entries {
-            if let Ok(path_name) =
+            if let Ok(ReadyQueueName {
+                name: path_name, ..
+            }) =
                 ReadyQueueManager::compute_queue_name(queue_name, queue_config, &entry.name).await
             {
                 match AdminSuspendReadyQEntry::get_for_queue_name(&path_name) {

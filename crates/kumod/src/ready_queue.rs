@@ -33,6 +33,20 @@ lazy_static::lazy_static! {
     static ref MANAGER: Mutex<ReadyQueueManager> = Mutex::new(ReadyQueueManager::new());
 }
 
+pub struct ReadyQueueName {
+    pub name: String,
+    pub site_name: String,
+    pub mx: Option<Arc<MailExchanger>>,
+}
+
+pub struct ReadyQueueConfig {
+    pub name: String,
+    pub site_name: String,
+    pub path_config: EgressPathConfig,
+    pub egress_source: EgressSource,
+    pub mx: Option<Arc<MailExchanger>>,
+}
+
 #[derive(Default)]
 pub struct ReadyQueueManager {
     queues: HashMap<String, ReadyQueueHandle>,
@@ -55,44 +69,9 @@ impl ReadyQueueManager {
         queue_name: &str,
         queue_config: &QueueConfig,
         egress_source: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<ReadyQueueName> {
         let components = QueueNameComponents::parse(queue_name);
-
-        let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
-
-        let mx = if needs_mx {
-            Some(MailExchanger::resolve(components.domain).await?)
-        } else {
-            None
-        };
-
-        let site_name = mx
-            .as_ref()
-            .map(|mx| mx.site_name.to_string())
-            .unwrap_or_else(|| components.domain.to_string());
-        let name = format!("{egress_source}->{site_name}");
-        Ok(name)
-    }
-
-    async fn compute_config(
-        queue_name: &str,
-        queue_config: &QueueConfig,
-        egress_source: &str,
-    ) -> anyhow::Result<(
-        String,
-        EgressPathConfig,
-        EgressSource,
-        Option<Arc<MailExchanger>>,
-    )> {
-        let components = QueueNameComponents::parse(queue_name);
-
-        let needs_mx = matches!(&queue_config.protocol, DeliveryProto::Smtp);
-
-        let mx = if needs_mx {
-            Some(MailExchanger::resolve(components.domain).await?)
-        } else {
-            None
-        };
+        let mut mx = None;
 
         // Note well! The ready queue name is based on the perspective of the
         // receiver, combining our source (which they see) with the unique
@@ -101,10 +80,18 @@ impl ReadyQueueManager {
         // site name, we simply use the domain; we do not include the campaign
         // or tenant because those have no bearing from the perspective of
         // the recipient.
-        let site_name = mx
-            .as_ref()
-            .map(|mx| mx.site_name.to_string())
-            .unwrap_or_else(|| components.domain.to_string());
+        let site_name = match &queue_config.protocol {
+            DeliveryProto::Smtp { smtp } => {
+                if smtp.mx_list.is_empty() {
+                    mx.replace(MailExchanger::resolve(components.domain).await?);
+                    mx.as_ref().unwrap().site_name.to_string()
+                } else {
+                    format!("mx_list:{}", smtp.mx_list.join(","))
+                }
+            }
+            _ => components.domain.to_string(),
+        };
+
         // Factor in the delivery protocol so that we don't falsely share
         // different custom protocols when someone is using eg: just the
         // tenant or campaign to vary the protocol.
@@ -113,6 +100,26 @@ impl ReadyQueueManager {
             queue_config.protocol.ready_queue_name()
         );
 
+        Ok(ReadyQueueName {
+            name,
+            site_name,
+            mx,
+        })
+    }
+
+    async fn compute_config(
+        queue_name: &str,
+        queue_config: &QueueConfig,
+        egress_source: &str,
+    ) -> anyhow::Result<ReadyQueueConfig> {
+        let ReadyQueueName {
+            name,
+            site_name,
+            mx,
+        } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
+
+        let components = QueueNameComponents::parse(queue_name);
+
         let mut config = load_config().await?;
 
         let egress_source = EgressSource::resolve(egress_source, &mut config).await?;
@@ -120,7 +127,11 @@ impl ReadyQueueManager {
         let path_config: EgressPathConfig = config
             .async_call_callback(
                 "get_egress_path_config",
-                (components.domain, egress_source.name.to_string(), site_name),
+                (
+                    components.domain,
+                    egress_source.name.to_string(),
+                    site_name.clone(),
+                ),
             )
             .await
             .map_err(|err| {
@@ -128,7 +139,13 @@ impl ReadyQueueManager {
                 err
             })?;
 
-        Ok((name, path_config, egress_source, mx))
+        Ok(ReadyQueueConfig {
+            name,
+            site_name,
+            path_config,
+            egress_source,
+            mx,
+        })
     }
 
     pub async fn resolve_by_queue_name(
@@ -137,8 +154,13 @@ impl ReadyQueueManager {
         egress_source: &str,
         egress_pool: &str,
     ) -> anyhow::Result<ReadyQueueHandle> {
-        let (name, path_config, egress_source, mx) =
-            Self::compute_config(queue_name, queue_config, egress_source).await?;
+        let ReadyQueueConfig {
+            name,
+            site_name: _,
+            path_config,
+            egress_source,
+            mx,
+        } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
         if path_config.suspended {
             return Err(ReadyQueueSuspended.into());
@@ -208,7 +230,7 @@ impl ReadyQueueManager {
                         )
                         .await
                         {
-                            Ok((_name, path_config, _egress_source, _mx)) => {
+                            Ok(ReadyQueueConfig { path_config, .. }) => {
                                 // TODO: ideally we'd impl PartialEq for path_config
                                 // and its recursive types, but that is currently
                                 // non-trivial, so we do a gross debug repr comparison
@@ -531,7 +553,7 @@ impl Dispatcher {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
         let delivery_protocol = match &queue_config.protocol {
-            DeliveryProto::Smtp => "ESMTP".to_string(),
+            DeliveryProto::Smtp { .. } => "ESMTP".to_string(),
             DeliveryProto::Lua { .. } => "Lua".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
         };
@@ -555,10 +577,12 @@ impl Dispatcher {
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.protocol {
-            DeliveryProto::Smtp => match SmtpDispatcher::init(&mut dispatcher).await? {
-                Some(disp) => Box::new(disp),
-                None => return Ok(()),
-            },
+            DeliveryProto::Smtp { smtp } => {
+                match SmtpDispatcher::init(&mut dispatcher, smtp).await? {
+                    Some(disp) => Box::new(disp),
+                    None => return Ok(()),
+                }
+            }
             DeliveryProto::Lua {
                 custom_lua: proto_config,
             } => {
