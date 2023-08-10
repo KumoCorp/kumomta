@@ -36,3 +36,4 @@ The following meta values have meaning to KumoMTA:
 * `"reception_protocol"` - `"ESMTP"` or `"HTTP"`
 * `"received_via"` - the address:port of the local machine which received the message. Currently only set for SMTP receptions.
 * `"received_from"` - the address:port of the peer address from which we received the message
+* `"routing_domain"` - {{since('dev', inline=True)}}. Overrides the domain of the recipient domain for routing purposes.

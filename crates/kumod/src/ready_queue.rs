@@ -73,6 +73,11 @@ impl ReadyQueueManager {
         let components = QueueNameComponents::parse(queue_name);
         let mut mx = None;
 
+        let routing_domain = components
+            .routing_domain
+            .as_deref()
+            .unwrap_or(&components.domain);
+
         // Note well! The ready queue name is based on the perspective of the
         // receiver, combining our source (which they see) with the unique
         // name of the destination (which we compute from the MX site name).
@@ -83,13 +88,13 @@ impl ReadyQueueManager {
         let site_name = match &queue_config.protocol {
             DeliveryProto::Smtp { smtp } => {
                 if smtp.mx_list.is_empty() {
-                    mx.replace(MailExchanger::resolve(components.domain).await?);
+                    mx.replace(MailExchanger::resolve(routing_domain).await?);
                     mx.as_ref().unwrap().site_name.to_string()
                 } else {
                     format!("mx_list:{}", smtp.mx_list.join(","))
                 }
             }
-            _ => components.domain.to_string(),
+            _ => routing_domain.to_string(),
         };
 
         // Factor in the delivery protocol so that we don't falsely share
@@ -119,6 +124,10 @@ impl ReadyQueueManager {
         } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
 
         let components = QueueNameComponents::parse(queue_name);
+        let routing_domain = components
+            .routing_domain
+            .as_deref()
+            .unwrap_or(&components.domain);
 
         let mut config = load_config().await?;
 
@@ -128,7 +137,7 @@ impl ReadyQueueManager {
             .async_call_callback(
                 "get_egress_path_config",
                 (
-                    components.domain,
+                    routing_domain,
                     egress_source.name.to_string(),
                     site_name.clone(),
                 ),

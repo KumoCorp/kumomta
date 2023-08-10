@@ -127,6 +127,7 @@ end)
 kumo.on('smtp_server_message_received', function(msg)
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
   -- print(msg:get_meta 'authn_id')
+  -- msg:set_meta('routing_domain', 'outlook.com')
 
   -- Import scheduling information from X-Schedule and
   -- then remove that header from the message
@@ -156,29 +157,34 @@ end)
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used when making outbound
 -- connections
-kumo.on('get_egress_path_config', function(domain, site_name)
-  return kumo.make_egress_path {
-    enable_tls = 'OpportunisticInsecure',
-    -- max_message_rate = '5/min',
-    idle_timeout = '5s',
-    data_timeout = '10s',
-    data_dot_timeout = '15s',
-    connection_limit = 1024,
-    -- max_deliveries_per_connection = 5,
+kumo.on(
+  'get_egress_path_config',
+  function(routing_domain, egress_source, site_name)
+    print('get_egress_path_config', routing_domain, egress_source, site_name)
+    return kumo.make_egress_path {
+      enable_tls = 'OpportunisticInsecure',
+      -- max_message_rate = '5/min',
+      idle_timeout = '5s',
+      data_timeout = '10s',
+      data_dot_timeout = '15s',
+      connection_limit = 1024,
+      -- max_deliveries_per_connection = 5,
 
-    -- hosts that we should consider to be poison because
-    -- they are a mail loop. The default for this is
-    -- { "127.0.0.0/8", "::1" }, but it is emptied out
-    -- in this config because we're using this to test
-    -- with fake domains that explicitly return loopback
-    -- addresses!
-    prohibited_hosts = {},
-  }
-end)
+      -- hosts that we should consider to be poison because
+      -- they are a mail loop. The default for this is
+      -- { "127.0.0.0/8", "::1" }, but it is emptied out
+      -- in this config because we're using this to test
+      -- with fake domains that explicitly return loopback
+      -- addresses!
+      prohibited_hosts = {},
+    }
+  end
+)
 
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used for managing a queue.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
+  print('get_queue_config', domain, tenant, campaign)
   if domain == 'maildir.example.com' then
     -- Store this domain into a maildir, rather than attempting
     -- to deliver via SMTP

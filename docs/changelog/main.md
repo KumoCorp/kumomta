@@ -24,6 +24,9 @@
   and in the `site_name` field of log records as a result of this change.
 * It is now more convenient to do smart hosting using the new smtp protocol `mx_list`
   in [kumo.make_queue_config](../reference/kumo/make_queue_config.md).
+* Introduced new `routing_domain` meta value (see [predefined
+  values](../reference/message/set_meta.md)) which allows you to override the recipient
+  domain for routing/delivery, without blending scheduled queues.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

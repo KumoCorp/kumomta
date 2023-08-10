@@ -9,17 +9,24 @@ some metadata associated with the message:
 * `campaign` - a sender-provided label that can be used to logically group a set
   of related messages, perhaps generated from the same campaign.
 * destination domain - the site where the email will be routed
+* `routing_domain` - {{since('dev', inline=True)}} overrides the destination domain
+  for routing purposes.
 
 These three pieces of information are combined to produce the name of the queue
 in the form `campaign:tenant@domain`. You don't need to explicitly assign
 a campaign or a tenant. The queue name will be formed based on what is set:
 
-|tenant set?|campaign set?|Resulting queue name      |
-|-----------|-------------|--------------------------|
-| yes       | yes         | `campaign:tenant@domain` |
-| yes       | no          | `tenant@domain`          |
-| no        | yes         | `campaign:@domain`       |
-| no        | no          | `domain`                 |
+|`tenant` set?|`campaign` set?|`routing_domain` set?|Resulting queue name                     |
+|-----------|-----------------|---------------------|-----------------------------------------|
+| yes       | yes             |no                   | `campaign:tenant@domain`                |
+| yes       | yes             |yes                  | `campaign:tenant@domain!routing_domain` |
+| yes       | no              |no                   | `tenant@domain`                         |
+| yes       | no              |yes                  | `tenant@domain!routing_domain`          |
+| no        | yes             |no                   | `campaign:@domain`                      |
+| no        | yes             |yes                  | `campaign:@domain!routing_domain`       |
+| no        | no              |no                   | `domain`                                |
+| no        | no              |yes                  | `domain!routing_domain`                 |
+
 
 At reception, in your
 [smtp_server_message_received](events/smtp_server_message_received.md) event,
