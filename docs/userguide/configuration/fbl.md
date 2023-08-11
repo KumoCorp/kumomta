@@ -1,14 +1,27 @@
 # Configuring Feedback Loop Processing
 
-Feedback Loops are provided by several mailbox providers, including AOL, Hotmail, Comcast, and Yahoo! as a method for informing senders regarding which messages are receiving spam complaints.
+Feedback Loops are provided by several mailbox providers, including AOL,
+Hotmail, Comcast, and Yahoo! as a method for informing senders regarding which
+messages are receiving spam complaints.
 
-The mailbox providers send registered senders formatted abuse report messages to a pre-configured address in ARF format, but those messages typically do not include information that can help senders suppress future sends to the recipient that reported the message. KumoMTA can not only process and log ARF messages, but it can also inject tracking headers into the message that it can later decode to preserve recipient data needed for unsubscribing recipients that have reported messages as spam.
+The mailbox providers send registered senders formatted abuse report messages
+to a pre-configured address in ARF format, but those messages typically do not
+include information that can help senders suppress future sends to the
+recipient that reported the message. KumoMTA can not only process and log ARF
+messages, but it can also inject tracking headers into the message that it can
+later decode to preserve recipient data needed for unsubscribing recipients
+that have reported messages as spam.
 
-For more information on Feedback Loops and how to apply for them, see [https://www.emailfeedbackloops.com/](https://www.emailfeedbackloops.com/).
+For more information on Feedback Loops and how to apply for them, see
+[https://www.emailfeedbackloops.com/](https://www.emailfeedbackloops.com/).
 
 ## Configuring Tracking Headers
 
-By default, KumoMTA will include a supplemental tracking header that will be extracted as part of the ARF message processing. This setting is controlled by the *supplemental_header* option in the **kumo.start_esmtp_listener** function. Additional metadata can be preserved by listing the metadata keys desired in the *include_meta_names* argument.
+By default, KumoMTA will include a supplemental tracking header that will be
+extracted as part of the ARF message processing. This setting is controlled by
+the *supplemental_header* option in the **kumo.start_esmtp_listener** function.
+Additional metadata can be preserved by listing the metadata keys desired in
+the *include_meta_names* argument.
 
 ```lua
 kumo.start_esmtp_listener {
@@ -25,11 +38,17 @@ kumo.start_esmtp_listener {
 }
 ```
 
-See the trace headers section of the [start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#trace_headers) section of the reference manual for more information.
+See the trace headers section of the
+[start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#trace_headers)
+section of the reference manual for more information.
 
 ## Configuring ARF Domains
 
-For KumoMTA to process inbound messages as ARF, the inbound receiving domain must be configured as a candidate for ARF processing. This is done as part of [Configuring Inbound and Relay Domains](./domains.md) in the [start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#domains) function call:
+For KumoMTA to process inbound messages as ARF, the inbound receiving domain
+must be configured as a candidate for ARF processing. This is done as part of
+[Configuring Inbound and Relay Domains](./domains.md) in the
+[start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#domains)
+function call:
 
 ```lua
 kumo.start_esmtp_listener {
@@ -50,11 +69,16 @@ kumo.start_esmtp_listener {
 }
 ```
 
-The preceding example designates that messages injected from remote hosts destined for fbl.examplecorp.com will be accepted and then processed as ARF abuse report messages.
+The preceding example designates that messages injected from remote hosts
+destined for fbl.examplecorp.com will be accepted and then processed as ARF
+abuse report messages.
 
 ## Message Disposition After Processing
 
-For most use cases, the desired outcome after a message is processed is to discard the message, but in some cases it can be desirable to forward the message for further processing or storage, especially during testing and migration.
+For most use cases, the desired outcome after a message is processed is to
+discard the message, but in some cases it can be desirable to forward the
+message for further processing or storage, especially during testing and
+migration.
 
 To queue a message after processing, add `relay_to = true` to the domain configuration:
 
@@ -78,7 +102,11 @@ kumo.start_esmtp_listener {
 }
 ```
 
-In addition, it should be noted that the MX record for your domain will still be pointed at the KumoMTA instance, which means that in order to avoid a mail loop you will need to configure routing for the domain to specify where the message should be relayed to from the KumoMTA instance, by overriding the destination queue for the message in the *smtp_server_message_received* event:
+In addition, it should be noted that the MX record for your domain will still
+be pointed at the KumoMTA instance, which means that in order to avoid a mail
+loop you will need to configure routing for the domain to specify where the
+message should be relayed to from the KumoMTA instance, by overriding the
+destination queue for the message in the *smtp_server_message_received* event:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
@@ -90,7 +118,9 @@ end)
 
 ## FBL Message Logs
 
-All feedback loop messages are logged to the destination configured in the [configure_local_logs](../../reference/kumo/configure_local_logs.md) function, using the `Feedback` type.
+All feedback loop messages are logged to the destination configured in the
+[configure_local_logs](../../reference/kumo/configure_local_logs.md) function,
+using the `Feedback` type.
 
 The format of a Feedback loop message log entry is as follows:
 
