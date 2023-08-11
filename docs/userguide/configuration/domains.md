@@ -101,7 +101,7 @@ log_arf = true
 ["send.example.com"]
 # relay to anywhere, so long as the sender domain is send.example.com
 # and the connected peer matches one of the listed CIDR blocks
-relay_from = { '10.0.0.0/24' }
+relay_from = [ '10.0.0.0/24' ]
 
 ["auth-send.example.com"]
 # relay to anywhere, so long as the sender domain is auth-send.example.com
