@@ -1,7 +1,6 @@
 local kumo = require 'kumo'
 
 local shaping = require 'policy-extras.shaping'
-local rollup = require 'policy-extras.rollup'
 
 -- Called on startup to initialize the system
 kumo.on('init', function()
@@ -129,10 +128,6 @@ kumo.on('smtp_server_message_received', function(msg)
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
   -- print(msg:get_meta 'authn_id')
   -- msg:set_meta('routing_domain', 'outlook.com')
-
-  rollup.reroute_based_on_mx_host_suffix(msg, {
-    ['.olc.protection.outlook.com.'] = 'outlook.com',
-  })
 
   -- Import scheduling information from X-Schedule and
   -- then remove that header from the message
