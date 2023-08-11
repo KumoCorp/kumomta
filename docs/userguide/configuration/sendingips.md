@@ -55,7 +55,21 @@ weight = 1
 
 The sources you define can include any options listed for the [make_egress_source](../../reference/kumo/make_egress_source.md) function.
 
-## Making an Egress Source
+## Assigning Messages to Pools
+
+It's not enough to simply create an Egress Source and assign it to an Egress
+Pool, the server requires explicit logic to know which message is assigned to
+which Egress Pool.
+
+This logic occurs in the events related to queue management, see the [Queue
+Management](./queuemanagement.md#configuring-egress-pool-assignment) chapter
+for more information.
+
+## Making an Egress Source without the helper
+
+!!!note
+    Most users will be satisfied with using the policy helper shown above.
+    This section and the remainder of this page is for more advanced users.
 
 In KumoMTA, source IPs are described in an *Egress Source.* And Egress Source
 represents an object that can be used to send messages and is not attached to a
@@ -122,7 +136,11 @@ kumo.on('get_egress_source', function(source_name)
 end)
 ```
 
-## Making an Egress Pool
+## Making an Egress Pool without the helper
+
+!!!note
+    Most users will be satisfied with using the policy helper shown above.
+    This section and the remainder of this page is for more advanced users.
 
 Messages cannot be assigned directly to an Egress Source, but are instead
 assigned to an Egress Pool. An Egress Pool contains one or more Egress Sources,
@@ -192,12 +210,3 @@ For more information, see the
 [make_egress_pool](../../reference/kumo/make_egress_pool.md) chapter of the
 Reference Manual.
 
-## Assigning Messages to Pools
-
-It's not enough to simply create an Egress Source and assign it to an Egress
-Pool, the server requires explicit logic to know which message is assigned to
-which Egress Pool.
-
-This logic occurs in the events related to queue management, see the [Queue
-Management](./queuemanagement.md#configuring-egress-pool-assignment) chapter
-for more information.
