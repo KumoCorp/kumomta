@@ -1,4 +1,4 @@
-# `kumo.dns.resolve_mx(DOMAIN)`
+# `kumo.dns.lookup_mx(DOMAIN)`
 
 Resolve the MX information for the requested `DOMAIN`.
 
@@ -30,7 +30,7 @@ gmail.com.              1620    IN      MX      20 alt2.gmail-smtp-in.l.google.c
 
 ```lua
 -- Query the gmail mx
-local gmail_mx = kumo.dns.resolve_mx 'gmail.com'
+local gmail_mx = kumo.dns.lookup_mx 'gmail.com'
 
 -- This is what we expect it to look like
 local example = {
