@@ -16,7 +16,11 @@ local function load_data_from_file(file_name, target)
 
   for listener, entries in pairs(by_listener) do
     for domain, params in pairs(entries) do
-      -- Check that the value is a valid domain spec
+      -- Check that the value is a valid domain spec.
+      -- Do a little dance because relay_from_authz is not
+      -- part of the core functionality
+      local relay_from_authz = params.relay_from_authz
+      params.relay_from_authz = nil
       local status, err = pcall(kumo.make_listener_domain, params)
       if not status then
         error(
@@ -29,6 +33,7 @@ local function load_data_from_file(file_name, target)
           )
         )
       end
+      params.relay_from_authz = relay_from_authz
 
       if not target[listener] then
         target[listener] = {}
@@ -84,6 +89,12 @@ log_arf = true
 # and the connected peer matches one of the listed CIDR blocks
 relay_from = [ '10.0.0.0/24' ]
 
+["auth-send.example.com"]
+# relay to anywhere, so long as the sender domain is auth-send.example.com
+# and the connected peer has authenticated as any of the authorization identities
+# listed below using SMTP AUTH
+relay_from_authz = [ 'username1', 'username2' ]
+
 # wildcards are permitted. This will match
 # <anything>.example.com that doesn't have
 # another non-wildcard entry explicitly
@@ -132,13 +143,33 @@ function mod:setup(data_files)
     capacity = 10,
   })
 
-  local function lookup(domain_name, listener)
+  local function lookup(domain_name, listener, conn_meta)
     local by_listener = cached_load_data(data_files)
 
     local listener_map = by_listener[listener]
     if listener_map then
       local listener_domain = listener_map[domain_name]
       if listener_domain then
+        local relay_from_authz = listener_domain.relay_from_authz
+        -- Don't try and pass relay_from_authz into make_listener_domain
+        listener_domain.relay_from_authz = nil
+
+        if
+          relay_from_authz
+          and utils.table_contains(
+            relay_from_authz,
+            conn_meta:get_meta 'authz_id'
+          )
+        then
+          if not listener_domain.relay_from then
+            listener_domain.relay_from = {}
+          end
+          -- Add the peer to the relay_from list
+          local peer_ip, _peer_port =
+            utils.split_ip_port(conn_meta:get_meta 'received_from')
+          table.insert(listener_domain.relay_from, peer_ip)
+        end
+
         return kumo.make_listener_domain(listener_domain)
       end
     end
@@ -146,12 +177,12 @@ function mod:setup(data_files)
     return nil
   end
 
-  local function get_listener_domain(domain_name, listener)
-    local result = lookup(domain_name, listener)
+  local function get_listener_domain(domain_name, listener, conn_meta)
+    local result = lookup(domain_name, listener, conn_meta)
     if result then
       return result
     end
-    return lookup(domain_name, '*')
+    return lookup(domain_name, '*', conn_meta)
   end
 
   return get_listener_domain

@@ -29,6 +29,9 @@
   domain for routing/delivery, without blending scheduled queues.
 * New [kumo.cidr.make_map](../reference/kumo.cidr/make_map.md) function for
   building CIDR lookup tables/mappings.
+* The [listener_domains](../userguide/configuration/domains.md) now supports
+  `relay_from_authz` to allow listing out authorization identities for which
+  relaying from a particular sending domain is permitted.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

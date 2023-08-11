@@ -103,6 +103,12 @@ log_arf = true
 # and the connected peer matches one of the listed CIDR blocks
 relay_from = { '10.0.0.0/24' }
 
+["auth-send.example.com"]
+# relay to anywhere, so long as the sender domain is auth-send.example.com
+# and the connected peer has authenticated as any of the authorization identities
+# listed below using SMTP AUTH
+relay_from_authz = [ 'username1', 'username2' ]
+
 # wildcards are permitted. This will match
 # <anything>.example.com that doesn't have
 # another non-wildcard entry explicitly
