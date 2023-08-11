@@ -90,25 +90,15 @@ session. See
 for more information.
 
 The KumoMTA server can process these MDN messages, but must be configured to
-know which domains are candidates for OOB bounce processing:
+know which domains are candidates for OOB bounce processing.  This is most
+simply accomplished using the [listener domains policy
+helper](domains.md#using-the-listener_domainslua-policy-helper), with a snippet
+like this:
 
-```lua
-kumo.start_esmtp_listener {
-  listen = '0.0.0.0:25',
-
-  -- override the default set of relay hosts
-  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-  -- Configure the domains that are allowed for outbound & inbound relay,
-  -- Out-Of-Band bounces, and Feedback Loop Reports.
-  -- See https://docs.kumomta.com/userguide/configuration/domains/
-  domains = {
-    ['bounce.examplecorp.com'] = {
-      -- accept and log ARF feedback reports sent to fbl.examplecorp.com
-      log_oob = true,
-    },
-  },
-}
+```toml
+["bounce.examplecorp.com"]
+# accept and log OOB messages send to bounce.examplecorp.com
+log_oob = true
 ```
 
 ## OOB Message Disposition After Processing
@@ -118,26 +108,14 @@ discard the message, but in some cases it can be desirable to forward the
 message for further processing or storage, especially during testing and
 migration.
 
-To queue a message after processing, add `relay_to = true` to the domain configuration:
+To queue a message after processing, add `relay_to = true` to the listener
+domain configuration:
 
-```lua
-kumo.start_esmtp_listener {
-  listen = '0.0.0.0:25',
-
-  -- override the default set of relay hosts
-  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-  -- Configure the domains that are allowed for outbound & inbound relay,
-  -- Out-Of-Band bounces, and Feedback Loop Reports.
-  -- See https://docs.kumomta.com/userguide/configuration/domains/
-  domains = {
-    ['bounce.examplecorp.com'] = {
-      -- accept and log ARF feedback reports sent to fbl.examplecorp.com
-      log_oob = true,
-      relay_to = true,
-    },
-  },
-}
+```toml
+["bounce.examplecorp.com"]
+# accept and log OOB messages send to bounce.examplecorp.com
+log_oob = true
+relay_to = true
 ```
 
 In addition, it should be noted that the MX record for your domain will still
@@ -147,8 +125,13 @@ message should be relayed to from the KumoMTA instance:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-  if msg:recipient():domain() == 'bounce.examplecorp.com' then
-    msg:set_queue '[192.168.1.100]'
+  if msg:recipient().domain == 'bounce.examplecorp.com' then
+    -- Re-route the message to the intended destination
+    msg:set_meta('routing_domain', '[192.168.1.100]')
+
+    -- In earlier versions of KumoMTA, you need to set the queue
+    -- this way instead
+    -- msg:set_meta('queue', '[192.168.1.100]')
   end
 end)
 ```
