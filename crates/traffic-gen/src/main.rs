@@ -20,7 +20,7 @@ struct Opt {
     /// All generated mail will have this domain appended.
     /// The default is an MX that routes to a loopback address.
     #[arg(long, default_value = "mx-sink.wezfurlong.org")]
-    domain: String,
+    domain_suffix: String,
 
     /// The target host to which mail will be submitted
     #[arg(long, default_value = "127.0.0.1:2025")]
@@ -51,6 +51,11 @@ struct Opt {
     #[arg(skip)]
     body_file_content: OnceCell<String>,
 
+    /// Include this domain in the list of domains for which mail
+    /// will be generated.
+    #[arg(long)]
+    domain: Option<Vec<String>>,
+
     /// When generating the body, use at least this
     /// many bytes of nonsense words
     #[arg(long, default_value = "1024")]
@@ -61,14 +66,26 @@ struct Opt {
 }
 
 impl Opt {
+    fn pick_a_domain(&self) -> String {
+        let number: usize = rand::random();
+        let domain = match &self.domain {
+            Some(domains) => domains[number % domains.len()].as_str(),
+            None => DOMAINS[number % DOMAINS.len()],
+        };
+        if self.domain_suffix.is_empty() {
+            return domain.to_string();
+        }
+        format!("{domain}.{}", self.domain_suffix)
+    }
+
     fn generate_sender(&self) -> String {
-        format!("noreply@{}", self.domain)
+        format!("noreply@{}", self.pick_a_domain())
     }
 
     fn generate_recipient(&self) -> String {
         let number: usize = rand::random();
-        let domain = DOMAINS[number % DOMAINS.len()];
-        format!("user-{number}@{domain}.{}", self.domain)
+        let domain = self.pick_a_domain();
+        format!("user-{number}@{domain}")
     }
 
     fn load_body_file(&self) -> anyhow::Result<()> {
@@ -161,7 +178,7 @@ impl Opt {
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
 
         // Say EHLO
-        let caps = client.ehlo(&self.domain).await?;
+        let caps = client.ehlo(&self.pick_a_domain()).await?;
 
         if self.starttls && caps.contains_key("STARTTLS") {
             client.starttls(true).await?;
