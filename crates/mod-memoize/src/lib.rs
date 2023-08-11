@@ -25,6 +25,12 @@ pub struct Memoized {
     pub to_value: Arc<dyn Fn(&Lua) -> mlua::Result<mlua::Value> + Send + Sync>,
 }
 
+impl PartialEq for Memoized {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.to_value, &other.to_value)
+    }
+}
+
 impl Memoized {
     /// Call this from your `UserData::add_methods` implementation to
     /// enable memoization for your UserData type
@@ -70,7 +76,7 @@ impl MapKey {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum CacheValue {
     Table(HashMap<MapKey, CacheValue>),
     Json(serde_json::Value),

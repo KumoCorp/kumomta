@@ -6,7 +6,13 @@
 // radix tree.
 use bitstring::BitString;
 pub use cidr::{AnyIpCidr, IpCidr};
+use config::{any_err, get_or_create_sub_module};
+use mlua::prelude::LuaUserData;
+use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
+use mod_memoize::CacheValue;
+use std::collections::HashMap;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct CidrMap<V>
@@ -206,7 +212,7 @@ where
 
     fn insert(&mut self, key: AnyIpCidr, value: V)
     where
-        V: Clone + Eq,
+        V: Clone + PartialEq,
     {
         let (self_key_len, shared_prefix_len) = {
             let key_ref = self.key();
@@ -280,7 +286,7 @@ where
 
     fn compress(&mut self)
     where
-        V: Eq,
+        V: PartialEq,
     {
         let self_key_len = self.key().len();
 
@@ -341,6 +347,10 @@ where
 
     pub fn get_prefix_match(&self, ip: IpAddr) -> Option<&V> {
         let key: AnyIpCidr = IpCidr::new_host(ip).into();
+        self.get_prefix_match_cidr(&key)
+    }
+
+    pub fn get_prefix_match_cidr(&self, key: &AnyIpCidr) -> Option<&V> {
         let node = self.root.as_ref()?;
         Self::find_item(node, &key)
     }
@@ -380,7 +390,7 @@ where
     /// mappings.
     pub fn insert(&mut self, key: AnyIpCidr, value: V)
     where
-        V: Clone + Eq,
+        V: Clone + PartialEq,
     {
         match self.root {
             None => {
@@ -523,6 +533,70 @@ impl<V: Clone> Into<Vec<(AnyIpCidr, V)>> for CidrMap<V> {
         }
         result
     }
+}
+
+impl LuaUserData for CidrMap<CacheValue> {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        mod_memoize::Memoized::impl_memoize(methods);
+        methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
+            let key = parse_cidr_from_ip_and_or_port(&key)?;
+            if let Some(value) = this.get_prefix_match_cidr(&key) {
+                let value = value.as_lua(lua)?;
+                Ok(Some(value))
+            } else {
+                Ok(None)
+            }
+        });
+        methods.add_meta_method_mut(
+            MetaMethod::NewIndex,
+            |lua, this, (key, value): (String, mlua::Value)| {
+                let key = parse_cidr_from_ip_and_or_port(&key)?;
+                let value = CacheValue::from_lua(value, lua)?;
+                this.insert(key, value);
+                Ok(())
+            },
+        );
+    }
+}
+
+fn parse_cidr_from_ip_and_or_port(s: &str) -> mlua::Result<AnyIpCidr> {
+    match AnyIpCidr::from_str(s) {
+        Ok(c) => Ok(c),
+        Err(err) => {
+            if s.starts_with('[') {
+                if let Some((ip, _port)) = s[1..].split_once(']') {
+                    return AnyIpCidr::from_str(ip).map_err(any_err);
+                }
+            }
+            if let Some((ip, _port)) = s.rsplit_once(':') {
+                return AnyIpCidr::from_str(ip).map_err(any_err);
+            }
+            Err(err).map_err(any_err)
+        }
+    }
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let cidr_mod = get_or_create_sub_module(lua, "cidr")?;
+
+    cidr_mod.set(
+        "make_map",
+        lua.create_function(|lua, value: Option<HashMap<String, mlua::Value>>| {
+            let mut cmap: CidrMap<mod_memoize::CacheValue> = CidrMap::new();
+
+            if let Some(value) = value {
+                for (k, v) in value {
+                    let k = parse_cidr_from_ip_and_or_port(&k)?;
+                    let v = CacheValue::from_lua(v, lua)?;
+                    cmap.insert(k, v);
+                }
+            }
+
+            Ok(cmap)
+        })?,
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]

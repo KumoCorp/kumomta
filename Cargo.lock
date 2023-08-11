@@ -800,9 +800,13 @@ dependencies = [
 name = "cidr-map"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bitstring",
  "cidr",
+ "config",
  "k9",
+ "mlua",
+ "mod-memoize",
  "serde",
 ]
 

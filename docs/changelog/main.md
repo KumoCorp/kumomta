@@ -27,6 +27,8 @@
 * Introduced new `routing_domain` meta value (see [predefined
   values](../reference/message/set_meta.md)) which allows you to override the recipient
   domain for routing/delivery, without blending scheduled queues.
+* New [kumo.cidr.make_map](../reference/kumo.cidr/make_map.md) function for
+  building CIDR lookup tables/mappings.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into
