@@ -539,7 +539,7 @@ impl LuaUserData for CidrMap<CacheValue> {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
-            let key = parse_cidr_from_ip_and_or_port(&key)?;
+            let key = parse_cidr_from_ip_and_or_port(&key).map_err(any_err)?;
             if let Some(value) = this.get_prefix_match_cidr(&key) {
                 let value = value.as_lua(lua)?;
                 Ok(Some(value))
@@ -550,7 +550,7 @@ impl LuaUserData for CidrMap<CacheValue> {
         methods.add_meta_method_mut(
             MetaMethod::NewIndex,
             |lua, this, (key, value): (String, mlua::Value)| {
-                let key = parse_cidr_from_ip_and_or_port(&key)?;
+                let key = parse_cidr_from_ip_and_or_port(&key).map_err(any_err)?;
                 let value = CacheValue::from_lua(value, lua)?;
                 this.insert(key, value);
                 Ok(())
@@ -559,19 +559,29 @@ impl LuaUserData for CidrMap<CacheValue> {
     }
 }
 
-fn parse_cidr_from_ip_and_or_port(s: &str) -> mlua::Result<AnyIpCidr> {
+fn parse_cidr_from_ip_and_or_port(s: &str) -> anyhow::Result<AnyIpCidr> {
     match AnyIpCidr::from_str(s) {
         Ok(c) => Ok(c),
         Err(err) => {
             if s.starts_with('[') {
                 if let Some((ip, _port)) = s[1..].split_once(']') {
-                    return AnyIpCidr::from_str(ip).map_err(any_err);
+                    return AnyIpCidr::from_str(ip).map_err(|err| {
+                        anyhow::anyhow!(
+                            "failed to parse '{ip}', the \
+                             []-enclosed portion of '{s}', as an IP address: {err:#}"
+                        )
+                    });
                 }
             }
             if let Some((ip, _port)) = s.rsplit_once(':') {
-                return AnyIpCidr::from_str(ip).map_err(any_err);
+                return AnyIpCidr::from_str(ip).map_err(|err| {
+                    anyhow::anyhow!(
+                        "failed to parse '{ip}', the \
+                         :-delimited portion of '{s}', as an IP address: {err:#}"
+                    )
+                });
             }
-            Err(err).map_err(any_err)
+            anyhow::bail!("failed to parse '{s}' as CIDR notation: {err:#}");
         }
     }
 }
@@ -586,7 +596,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             if let Some(value) = value {
                 for (k, v) in value {
-                    let k = parse_cidr_from_ip_and_or_port(&k)?;
+                    let k = parse_cidr_from_ip_and_or_port(&k).map_err(any_err)?;
                     let v = CacheValue::from_lua(v, lua)?;
                     cmap.insert(k, v);
                 }
