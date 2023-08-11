@@ -314,12 +314,27 @@ pub struct Shaping {
 impl Shaping {
     async fn load_from_file(path: &str) -> anyhow::Result<HashMap<String, PartialEntry>> {
         let data: String = if path.starts_with("http://") || path.starts_with("https://") {
-            reqwest::get(path)
-                .await
-                .with_context(|| format!("making HTTP request to {path}"))?
-                .text()
-                .await
-                .with_context(|| format!("reading text from {path}"))?
+            // To facilitate startup ordering races, and listing multiple subscription
+            // host replicas and allowing one or more of them to be temporarily down,
+            // we allow the http request to fail.
+            // We'll log the error message but consider it to be an empty map
+
+            async fn http_get(url: &str) -> anyhow::Result<String> {
+                reqwest::get(url)
+                    .await
+                    .with_context(|| format!("making HTTP request to {url}"))?
+                    .text()
+                    .await
+                    .with_context(|| format!("reading text from {url}"))
+            }
+
+            match http_get(path).await {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::error!("{err:#}. Ignoring this shaping source for now");
+                    return Ok(HashMap::new());
+                }
+            }
         } else {
             std::fs::read_to_string(path)
                 .with_context(|| format!("loading data from file {path}"))?

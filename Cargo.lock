@@ -2338,6 +2338,7 @@ dependencies = [
  "throttle",
  "tokio",
  "toml",
+ "tracing",
  "url",
  "uuid",
 ]
