@@ -45,28 +45,15 @@ section of the reference manual for more information.
 ## Configuring ARF Domains
 
 For KumoMTA to process inbound messages as ARF, the inbound receiving domain
-must be configured as a candidate for ARF processing. This is done as part of
-[Configuring Inbound and Relay Domains](./domains.md) in the
-[start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#domains)
-function call:
+must be configured as a candidate for ARF processing.  This is most
+simply accomplished using the [listener domains policy
+helper](domains.md#using-the-listener_domainslua-policy-helper), with a snippet
+like this:
 
-```lua
-kumo.start_esmtp_listener {
-  listen = '0.0.0.0:25',
-
-  -- override the default set of relay hosts
-  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-  -- Configure the domains that are allowed for outbound & inbound relay,
-  -- Out-Of-Band bounces, and Feedback Loop Reports.
-  -- See https://docs.kumomta.com/userguide/configuration/domains/
-  domains = {
-    ['fbl.examplecorp.com'] = {
-      -- accept and log ARF feedback reports sent to fbl.examplecorp.com
-      log_arf = true,
-    },
-  },
-}
+```toml
+["fbl.examplecorp.com"]
+# accept and log ARF feedback reports sent to fbl.examplecorp.com
+log_arf = true
 ```
 
 The preceding example designates that messages injected from remote hosts
@@ -80,26 +67,14 @@ discard the message, but in some cases it can be desirable to forward the
 message for further processing or storage, especially during testing and
 migration.
 
-To queue a message after processing, add `relay_to = true` to the domain configuration:
+To queue a message after processing, add `relay_to = true` to the domain
+configuration:
 
-```lua
-kumo.start_esmtp_listener {
-  listen = '0.0.0.0:25',
-
-  -- override the default set of relay hosts
-  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
-
-  -- Configure the domains that are allowed for outbound & inbound relay,
-  -- Out-Of-Band bounces, and Feedback Loop Reports.
-  -- See https://docs.kumomta.com/userguide/configuration/domains/
-  domains = {
-    ['fbl.examplecorp.com'] = {
-      -- accept and log ARF feedback reports sent to fbl.examplecorp.com
-      log_arf = true,
-      relay_to = true,
-    },
-  },
-}
+```toml
+["fbl.examplecorp.com"]
+# accept and log ARF feedback reports sent to fbl.examplecorp.com
+log_arf = true
+relay_to = true
 ```
 
 In addition, it should be noted that the MX record for your domain will still
@@ -111,7 +86,12 @@ destination queue for the message in the *smtp_server_message_received* event:
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
   if msg:recipient():domain() == 'fbl.examplecorp.com' then
-    msg:set_queue '[192.168.1.100]'
+    -- Re-route the message to the intended destination
+    msg:set_meta('routing_domain', '[192.168.1.100]')
+
+    -- In earlier versions of KumoMTA, you need to set the queue
+    -- this way instead
+    -- msg:set_meta('queue', '[192.168.1.100]')
   end
 end)
 ```
