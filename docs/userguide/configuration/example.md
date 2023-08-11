@@ -1,10 +1,16 @@
 # An Example Configuration
 
-A default policy file is not published with KumoMTA to prevent the average installation from having an excess of commented-out boilerplate from filling production configurations.
+A default policy file is not published with KumoMTA to prevent the average
+installation from having an excess of commented-out boilerplate from filling
+production configurations.
 
-The following serves as an example of a complete base policy for a functional installation that addresses common use cases for a typical installation. This is not intended as a copy/paste policy file, but as an example to direct new users in developing their server policy file.
+The following serves as an example of a complete base policy for a functional
+installation that addresses common use cases for a typical installation. This
+is not intended as a copy/paste policy file, but as an example to direct new
+users in developing their server policy file.
 
-The content of this example will be detailed in the following sections of this chapter, links will be in the comments of the example policy.
+The content of this example will be detailed in the following sections of this
+chapter, links will be in the comments of the example policy.
 
 ## The Example Server Policy
 
@@ -18,6 +24,7 @@ The content of this example will be detailed in the following sections of this c
 -- This require statement is needed in any script passed to KumoMTA.
 -- Includes from this policy script will not need this declared again.
 local kumo = require 'kumo'
+local utils = require 'policy-extras.policy_utils'
 
 -- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A SERVER RESTART WHEN CHANGED.
 kumo.on('init', function()
@@ -143,7 +150,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     max_retry_interval = '100 minutes',
     egress_pool = tenant,
   }
-  merge_into(TENANT_PARAMS[tenant] or {}, params)
+  utils.merge_into(TENANT_PARAMS[tenant] or {}, params)
   return kumo.make_queue_config(params)
 end)
 
