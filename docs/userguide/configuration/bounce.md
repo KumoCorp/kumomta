@@ -1,6 +1,7 @@
 # Configuring Bounce Classification
 
-By default, the logs will contain extensive information on the responses provided by a remote host during a delivery attempt:
+By default, the logs will contain extensive information on the responses
+provided by a remote host during a delivery attempt:
 
 ```json
 // The response from the peer, if applicable
@@ -28,7 +29,11 @@ By default, the logs will contain extensive information on the responses provide
 },
 ```
 
-This information includes the [IANA Status Codes](https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml) provided by the remote host, but there are a large number of codes that can be interpreted in a variety of ways, and many mailbox providers use status codes differently.
+This information includes the [IANA Status
+Codes](https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml)
+provided by the remote host, but there are a large number of codes that can be
+interpreted in a variety of ways, and many mailbox providers use status codes
+differently.
 
 To make it easier to handle bounces, the Bounce Classifier can be configured:
 
@@ -45,7 +50,8 @@ kumo.on('init', function()
 end)
 ```
 
-Once configured, the Bounce Classifier will populate the *bounce_classification* field in the logs with the applicable category.
+Once configured, the Bounce Classifier will populate the
+*bounce_classification* field in the logs with the applicable category.
 
 An example of classification rules:
 
@@ -62,15 +68,29 @@ BadDomain = [
 ]
 ```
 
-Users can create their own classification rules file by copying the default file, editing it, and adding the path to their custom rules file to the *files* option in the **kumo.configure_bounce_classifier** function call. Each defined rules file will be merged into the full ruleset.
+Users can create their own classification rules file by copying the default
+file, editing it, and adding the path to their custom rules file to the *files*
+option in the **kumo.configure_bounce_classifier** function call. Each defined
+rules file will be merged into the full ruleset.
 
-For additional information, see the [reference manual page on bounce classification](../../reference/kumo/configure_bounce_classifier.md).
+For additional information, see the [reference manual page on bounce
+classification](../../reference/kumo/configure_bounce_classifier.md).
 
 ## Configuring Out-Of-Band Bounce Processing
 
-Not all bounces occur while the server is connected to the remote host. It is not uncommon for a remote host to accept a message, perform further processing, and then determine that the message should be rejected. This can be because of user validation, AntiVirus/AntiSpam processing, or other post-connection logic. When a remote host rejects a message after accepting it, RFCs require that a Message Disposition Notification (MDN) message be sent to the return path address of the message specified in the MAIL FROM command during the relay session. See [https://en.wikipedia.org/wiki/Bounce_message](https://en.wikipedia.org/wiki/Bounce_message) for more information.
+Not all bounces occur while the server is connected to the remote host. It is
+not uncommon for a remote host to accept a message, perform further processing,
+and then determine that the message should be rejected. This can be because of
+user validation, AntiVirus/AntiSpam processing, or other post-connection logic.
+When a remote host rejects a message after accepting it, RFCs require that a
+Message Disposition Notification (MDN) message be sent to the return path
+address of the message specified in the MAIL FROM command during the relay
+session. See
+[https://en.wikipedia.org/wiki/Bounce_message](https://en.wikipedia.org/wiki/Bounce_message)
+for more information.
 
-The KumoMTA server can process these MDN messages, but must be configured to know which domains are candidates for OOB bounce processing:
+The KumoMTA server can process these MDN messages, but must be configured to
+know which domains are candidates for OOB bounce processing:
 
 ```lua
 kumo.start_esmtp_listener {
@@ -93,7 +113,10 @@ kumo.start_esmtp_listener {
 
 ## OOB Message Disposition After Processing
 
-For most use cases, the desired outcome after a DSN message is processed is to discard the message, but in some cases it can be desirable to forward the message for further processing or storage, especially during testing and migration.
+For most use cases, the desired outcome after a DSN message is processed is to
+discard the message, but in some cases it can be desirable to forward the
+message for further processing or storage, especially during testing and
+migration.
 
 To queue a message after processing, add `relay_to = true` to the domain configuration:
 
@@ -117,7 +140,10 @@ kumo.start_esmtp_listener {
 }
 ```
 
-In addition, it should be noted that the MX record for your domain will still be pointed at the KumoMTA instance, which means that in order to avoid a mail loop you will need to configure routing for the domain to specify where the message should be relayed to from the KumoMTA instance:
+In addition, it should be noted that the MX record for your domain will still
+be pointed at the KumoMTA instance, which means that in order to avoid a mail
+loop you will need to configure routing for the domain to specify where the
+message should be relayed to from the KumoMTA instance:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
