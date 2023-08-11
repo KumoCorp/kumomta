@@ -1,11 +1,14 @@
 # Getting Server Status
 
 Once KumoMTA is installed, you can check on the server status with systemctl.
+
 ```console
-sudo systemctl status kumomta
+$ sudo systemctl status kumomta
 ```
+
 The result should look something like this:
-```console
+
+```
  kumomta.service - KumoMTA SMTP service
      Loaded: loaded (/lib/systemd/system/kumomta.service; enabled; vendor preset: enabled)
      Active: active (running) since Thu 2023-04-27 22:59:06 MST; 10h ago
@@ -24,33 +27,40 @@ Apr 27 22:59:06 kdev2.kumomta.com kumod[17912]: 2023-04-28T05:59:06.472008Z  INF
 Apr 27 22:59:06 kdev2.kumomta.com kumod[17912]: 2023-04-28T05:59:06.475882Z  INFO localset-2 kumod: initialization complete
 ```
 
-The above is from a newer installation, but the log will grow.  If you are debugging an older install, `journalctl -r -n 10 -u kumomta.service` will show the last 10 lines (-n 10) in reverse order (-r).  `man journalctl` is your friend.
+The above is from a newer installation, but the log will grow.  If you are
+debugging an older install, `journalctl -r -n 10 -u kumomta.service` will show
+the last 10 lines (`-n 10`) in reverse order (`-r`).  `man journalctl` is your
+friend.
 
+If you need to find the installed version, you can run:
 
-If you need to find the installed version, you can run `sudo /opt/kumomta/sbin/kumod --version`.  This will be important if you ever need to reach out for support.
+```console
+$ /opt/kumomta/sbin/kumod --version
+```
 
+This will be important if you ever need to reach out for support.
 
-If you have configured an HTTP listener, you can access server metrics with `curl -i 'http://localhost:8000/metrics'`. That will show a long form of the server metrics with detailed comments.  If you want just the data in a nice JSON format, use `curl -i 'http://localhost:8000/metrics.json`.
+If you have configured an HTTP listener, you can access server metrics with:
 
-Metrics available are:
+```console
+$ curl -i 'http://localhost:8000/metrics'
+```
 
-* connection_count: number of active connections
+That will show a long form of the server metrics with detailed comments.
 
-`connection_count{service="esmtp_listener"} 0`
-* lua_count: the number of lua contexts currently alive
+If you want just the data in a nice JSON format, use:
 
-`lua_count 0`
-* lua_load_count: how many times the policy lua script has been loaded into a new context
+```console
+$ curl -i 'http://localhost:8000/metrics.json'
+```
 
-`lua_load_count 1`
-* lua_spare_count: the number of lua contexts available for reuse in the pool
+Metrics available include the following at the time of writing, and will
+increase as we build out the product:
 
-`lua_spare_count 0`
-* memory_limit: soft memory limit measured in bytes
-
-`memory_limit 12583633920`
-* memory_usage: number of bytes of used memory
-
-`memory_usage 277835776`
-
+  * `connection_count`: number of active connections
+  * `lua_count`: the number of lua contexts currently alive
+  * `lua_load_count`: how many times the policy lua script has been loaded into a new context
+  * `lua_spare_count`: the number of lua contexts available for reuse in the pool
+  * `memory_limit`: soft memory limit measured in bytes
+  * `memory_usage`: number of bytes of used memory
 

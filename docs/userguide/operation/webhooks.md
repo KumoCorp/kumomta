@@ -1,16 +1,29 @@
 # Publishing Log Events Via Webhooks
 
-While logs are an invaluable resource for monitoring and troubleshooting mail flows, log rotating and parsing adds complexity and latency when the goal is loading the email event data into an existing platform.
+While logs are an invaluable resource for monitoring and troubleshooting mail
+flows, log rotating and parsing adds complexity and latency when the goal is
+loading the email event data into an existing platform.
 
-Webhooks are ideal for near real-time integration into existing platforms, providing the ability to send message events to a user-defined HTTP endpoint, with queuing out of the box to ensure durability in the event of an error on the part of the HTTP receiving service.
+Webhooks are ideal for near real-time integration into existing platforms,
+providing the ability to send message events to a user-defined HTTP endpoint,
+with queuing out of the box to ensure durability in the event of an error on
+the part of the HTTP receiving service.
 
-Webhooks are implemented in KumoMTA by triggering a Lua hook on log events that allows for a policy script to load the log events into their own message queue within the KumoMTA queueing structure like any other message, ensuring durability and performance for queued log events.
+Webhooks are implemented in KumoMTA by triggering a Lua hook on log events that
+allows for a policy script to load the log events into their own message queue
+within the KumoMTA queueing structure like any other message, ensuring
+durability and performance for queued log events.
 
-Webhook events are moved through the queues like SMTP messages, and when they enter the Ready Queue they are set to deliver via an arbitrary Lua event rather than SMTP, with the Lua script configured to issue an HTTP request to the destination server.
+Webhook events are moved through the queues like SMTP messages, and when they
+enter the Ready Queue they are set to deliver via an arbitrary Lua event rather
+than SMTP, with the Lua script configured to issue an HTTP request to the
+destination server.
 
 ## Configuring a Log Hook
 
-The first step in setting up Webhooks is to turn on the log hook. This adds a Lua event for every log entry so that a script can be implemented to selectively queue the event data:
+The first step in setting up Webhooks is to turn on the log hook. This adds a
+Lua event for every log entry so that a script can be implemented to
+selectively queue the event data:
 
 The call to `configure_log_hook` is placed in the init event handler:
 
@@ -23,15 +36,25 @@ kumo.on('init', function()
 end)
 ```
 
-The configure_log_hook function can take similar parameters to the configure_local_logs function with regards to additional data and formatting, see the [configure_log_hook](https://docs.kumomta.com/reference/kumo/configure_log_hook/) page of the Reference manual for more information.
+The `configure_log_hook` function can take similar parameters to the
+`configure_local_logs` function with regards to additional data and formatting,
+see the
+[configure_log_hook](../../reference/kumo/configure_log_hook.md)
+page of the Reference manual for more information.
 
 ## Handling Log Hook Messages
 
-With the configure_log_hook call added to the init event, the KumoMTA server creates a new message object for each log entry, specially formatted to contain the log record as the message body.
+With the `configure_log_hook` call added to the init event, the KumoMTA server
+creates a new message object for each log entry, specially formatted to contain
+the log record as the message body.
 
-The message will be passed as a `should_enqueue_log_record` event, which is where we can add logic to process the message and queue it for later delivery.
+The message will be passed to the
+[should_enqueue_log_record](../../reference/events/should_enqueue_log_record.md)
+event, which is where we can add logic to process the message and queue it for
+later delivery.
 
-The following example shows how to handle the event, and how to avoid a loop that can occur if the webhook log events are in turn processed as webhooks:
+The following example shows how to handle the event, and how to avoid a loop
+that can occur if the webhook log events are in turn processed as webhooks:
 
 ```lua
 kumo.on('should_enqueue_log_record', function(msg)
@@ -49,11 +72,21 @@ kumo.on('should_enqueue_log_record', function(msg)
 end)
 ```
 
-The preceding example assigns the messages to a queue named `webhook` if the message is not already associated with that queue (a record of a webhook delivery event), and otherwise returns false, indicating that the record should not be queued. See the [should_enqueue_log_record](https://docs.kumomta.com/reference/events/should_enqueue_log_record/) page of the Reference Manual for more information.
+The preceding example assigns the messages to a queue named `webhook` if the
+message is not already associated with that queue (a record of a webhook
+delivery event), and otherwise returns false, indicating that the record should
+not be queued. See the
+[should_enqueue_log_record](../../reference/events/should_enqueue_log_record.md)
+page of the Reference Manual for more information.
 
 ## Configuring A Queue Handler for Webhooks
 
-When a message is ready to be queued, the `get_queue_config` event is fired, at which point we can specify the protocol of the queue, in this case `custom_lua`. In the example below, we check whether the message is queued to the `webhook` queue and act accordingly:
+When a message is ready to be queued, the
+[get_queue_config](../../reference/events/get_queue_config.md) event is fired,
+at which point we can specify the protocol of the queue, in this case
+`custom_lua`. In the example below, we check whether the message is queued to
+the `webhook` queue and act accordingly:
+
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign)
@@ -76,13 +109,18 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
 end)
 ```
 
-For more information on configuring protocols, see the [get_queue_config](../../reference/kumo/make_queue_config.md) section of the Reference Manual.
+For more information on configuring protocols, see the
+[get_queue_config](../../reference/kumo/make_queue_config.md) section of the
+Reference Manual.
 
 ## Sending Messages via HTTP
 
-With the custom_lua protocol defined and a custom event trigger declared, the next step is to catch the `make.webhook` event with code that sends the message contents over HTTP.
+With the `custom_lua` protocol defined and a custom event trigger declared, the
+next step is to catch the `make.webhook` event with code that sends the message
+contents over HTTP.
 
-The following example sends the content of the webhook queued message over HTTP to a configured host as a POST:
+The following example sends the content of the webhook queued message over HTTP
+to a configured host as a POST:
 
 ```lua
 -- This is a user-defined event that matches up to the custom_lua
@@ -124,8 +162,14 @@ end)
 ```
 
 !!!warning
-    Storing credentials as hardcoded values in a policy script such as this is not recommended, instead, use the built-in Secrets Load function. See [https://docs.kumomta.com/reference/kumo.secrets/load/](https://docs.kumomta.com/reference/kumo.secrets/load/).
+    Storing credentials as hardcoded values in a policy script such as this is
+    not recommended, instead, use the built-in Secrets Load function. See
+    [kumo.secrets/load/](../..//reference/kumo.secrets/load.md).
 
-This same methodology could also be used to deliver queued SMTP messages to a third-party API, see the [Routing Messages via HTTP Request](../policy/http.md) page of the Policy chapter for more information.
+This same methodology could also be used to deliver queued SMTP messages to a
+third-party API, see the [Routing Messages via HTTP Request](../policy/http.md)
+page of the Policy chapter for more information.
 
-This same methodology could also be used to deliver log events and queued messages via AMQP, see the [Routing Messages via AMQP](../policy/amqp.md) page of the Policy chapter for more information.
+This same methodology could also be used to deliver log events and queued
+messages via AMQP, see the [Routing Messages via AMQP](../policy/amqp.md) page
+of the Policy chapter for more information.
