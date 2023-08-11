@@ -209,7 +209,7 @@ TOC = [
                         "userguide/operation/proxy.md",
                     ),
                     Page(
-                        "Delivering Messages Using SMTP AUth",
+                        "Delivering Messages Using SMTP Auth",
                         "userguide/operation/smtpauth.md",
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
