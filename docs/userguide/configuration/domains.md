@@ -33,7 +33,7 @@ message.
 To apply policy based on the domain, the `make_listener_domain` function is used:
 
 ```lua
-kumo.on('get_listener_domain', function(domain, conn_meta)
+kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   if domain == 'example.com' then
     return kumo.make_listener_domain {
       relay_to = true,
