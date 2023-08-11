@@ -23,6 +23,7 @@ pub struct AdminBounceEntry {
     pub campaign: Option<String>,
     pub tenant: Option<String>,
     pub domain: Option<String>,
+    pub routing_domain: Option<String>,
     pub reason: String,
     pub expires: Instant,
     pub bounced: Arc<Mutex<HashMap<String, usize>>>,
@@ -67,7 +68,8 @@ impl AdminBounceEntry {
             ent.expires > now
                 && !(ent.campaign == entry.campaign
                     && ent.tenant == entry.tenant
-                    && ent.domain == entry.domain)
+                    && ent.domain == entry.domain
+                    && ent.routing_domain == entry.routing_domain)
         });
 
         entries.push(entry);
@@ -78,6 +80,7 @@ impl AdminBounceEntry {
         campaign: Option<&str>,
         tenant: Option<&str>,
         domain: Option<&str>,
+        routing_domain: Option<&str>,
     ) -> bool {
         if !match_criteria(campaign, self.campaign.as_deref()) {
             return false;
@@ -88,6 +91,9 @@ impl AdminBounceEntry {
         if !match_criteria(domain, self.domain.as_deref()) {
             return false;
         }
+        if !match_criteria(routing_domain, self.routing_domain.as_deref()) {
+            return false;
+        }
         true
     }
 
@@ -95,9 +101,10 @@ impl AdminBounceEntry {
         campaign: Option<&str>,
         tenant: Option<&str>,
         domain: Option<&str>,
+        routing_domain: Option<&str>,
     ) -> Vec<Self> {
         let mut entries = Self::get_all();
-        entries.retain(|ent| ent.matches(campaign, tenant, domain));
+        entries.retain(|ent| ent.matches(campaign, tenant, domain, routing_domain));
         entries
     }
 
@@ -107,6 +114,7 @@ impl AdminBounceEntry {
             components.campaign,
             components.tenant,
             Some(components.domain),
+            components.routing_domain,
         );
         entries.pop()
     }
@@ -119,6 +127,7 @@ impl AdminBounceEntry {
                 components.campaign,
                 components.tenant,
                 Some(components.domain),
+                components.routing_domain,
             )
         });
         names
@@ -176,6 +185,7 @@ pub async fn bounce_v1(
         campaign: request.campaign,
         tenant: request.tenant,
         domain: request.domain,
+        routing_domain: request.routing_domain,
         reason: request.reason,
         expires: Instant::now() + duration,
         bounced: Arc::new(Mutex::new(HashMap::new())),
@@ -219,6 +229,7 @@ pub async fn bounce_v1_list(
                         campaign: entry.campaign,
                         tenant: entry.tenant,
                         domain: entry.domain,
+                        routing_domain: entry.routing_domain,
                         reason: entry.reason,
                         bounced,
                         total_bounced,

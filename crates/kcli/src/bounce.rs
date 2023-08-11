@@ -23,6 +23,11 @@ pub struct BounceCommand {
     #[arg(long)]
     domain: Option<String>,
 
+    /// The routing_domain name to match.
+    /// If omitted, any routing domain will match!
+    #[arg(long)]
+    routing_domain: Option<String>,
+
     /// The campaign name to match.
     /// If omitted, any campaigns will match!
     #[arg(long)]
@@ -49,10 +54,14 @@ pub struct BounceCommand {
 
 impl BounceCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        if self.domain.is_none() && self.campaign.is_none() && self.tenant.is_none() {
+        if self.domain.is_none()
+            && self.campaign.is_none()
+            && self.tenant.is_none()
+            && self.routing_domain.is_none()
+        {
             if !self.everything {
                 anyhow::bail!(
-                    "No domain, campaign or tenant was specified. \
+                    "No domain, routing_domain, campaign or tenant was specified. \
                      Use --everything if you intend to purge all queues"
                 );
             }
@@ -64,6 +73,7 @@ impl BounceCommand {
             &BounceV1Request {
                 campaign: self.campaign.clone(),
                 domain: self.domain.clone(),
+                routing_domain: self.routing_domain.clone(),
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),

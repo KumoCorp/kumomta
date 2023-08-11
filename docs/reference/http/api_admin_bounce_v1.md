@@ -31,6 +31,12 @@ The following fields are possible in the request:
 Optional string. The domain name to match.
 If omitted, any domain will match.
 
+### routing_domain
+
+{{since('dev', indent=True)}}
+    Optional string. The routing_domain name to match.
+    If omitted, any routing_domain will match.
+
 ### campaign
 
 Optional string. The campaign name to match.

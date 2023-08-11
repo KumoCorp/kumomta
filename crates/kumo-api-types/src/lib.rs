@@ -16,6 +16,8 @@ pub struct BounceV1Request {
     pub tenant: Option<String>,
     #[serde(default)]
     pub domain: Option<String>,
+    #[serde(default)]
+    pub routing_domain: Option<String>,
 
     pub reason: String,
     #[serde(
@@ -58,6 +60,8 @@ pub struct BounceV1ListEntry {
     pub tenant: Option<String>,
     #[serde(default)]
     pub domain: Option<String>,
+    #[serde(default)]
+    pub routing_domain: Option<String>,
 
     pub reason: String,
 
