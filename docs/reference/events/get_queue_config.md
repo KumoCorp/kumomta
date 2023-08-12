@@ -10,11 +10,14 @@ The parameters correspond to the `domain`, `tenant`, `campaign` and `routing_dom
 fields from the *scheduled queue* name, as discussed in [Queues](../queues.md).
 
 ```lua
-kumo.on('get_queue_config', function(domain_name, tenant, campaign, routing_domain)
-  return kumo.make_queue_config {
-    max_retry_interval = '20 minutes',
-  }
-end)
+kumo.on(
+  'get_queue_config',
+  function(domain_name, tenant, campaign, routing_domain)
+    return kumo.make_queue_config {
+      max_retry_interval = '20 minutes',
+    }
+  end
+)
 ```
 
 See also [kumo.make_queue_config](../kumo/make_queue_config.md).
