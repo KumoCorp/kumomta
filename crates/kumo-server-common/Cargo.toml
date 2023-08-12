@@ -31,6 +31,7 @@ metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
 mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
+mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-http = {path="../mod-http"}
 mod-memoize = {path="../mod-memoize"}

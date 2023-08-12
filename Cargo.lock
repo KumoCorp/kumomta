@@ -2388,6 +2388,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-digest",
  "mod-dns-resolver",
  "mod-http",
  "mod-memoize",
@@ -3078,6 +3079,18 @@ dependencies = [
  "serde",
  "tokio-executor-trait",
  "tokio-reactor-trait",
+]
+
+[[package]]
+name = "mod-digest"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "data-encoding",
+ "mlua",
+ "ring",
+ "serde_json",
 ]
 
 [[package]]

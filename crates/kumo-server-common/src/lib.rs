@@ -15,6 +15,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     for func in [
         mod_redis::register,
         data_loader::register,
+        mod_digest::register,
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,

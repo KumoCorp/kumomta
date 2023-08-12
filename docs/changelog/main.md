@@ -33,6 +33,8 @@
   helper](../userguide/configuration/domains.md#using-the-listener_domainslua-policy-helper)
   now supports `relay_from_authz` to allow listing out authorization identities
   for which relaying from a particular sending domain is permitted.
+* The [kumo.digest](../reference/kumo.digest/index.md) module for computing SHA
+  digests of strings and other data.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

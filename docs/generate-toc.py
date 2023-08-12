@@ -252,6 +252,10 @@ TOC = [
                 "reference/kumo.amqp",
             ),
             Gen(
+                "module: kumo.digest",
+                "reference/kumo.digest",
+            ),
+            Gen(
                 "module: kumo.dkim",
                 "reference/kumo.dkim",
             ),
