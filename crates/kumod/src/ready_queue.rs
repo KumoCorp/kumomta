@@ -67,7 +67,7 @@ impl ReadyQueueManager {
 
     pub async fn compute_queue_name(
         queue_name: &str,
-        queue_config: &QueueConfig,
+        queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
     ) -> anyhow::Result<ReadyQueueName> {
         let components = QueueNameComponents::parse(queue_name);
@@ -85,7 +85,7 @@ impl ReadyQueueManager {
         // site name, we simply use the domain; we do not include the campaign
         // or tenant because those have no bearing from the perspective of
         // the recipient.
-        let site_name = match &queue_config.protocol {
+        let site_name = match &queue_config.borrow().protocol {
             DeliveryProto::Smtp { smtp } => {
                 if smtp.mx_list.is_empty() {
                     mx.replace(MailExchanger::resolve(routing_domain).await?);
@@ -102,7 +102,7 @@ impl ReadyQueueManager {
         // tenant or campaign to vary the protocol.
         let name = format!(
             "{egress_source}->{site_name}@{}",
-            queue_config.protocol.ready_queue_name()
+            queue_config.borrow().protocol.ready_queue_name()
         );
 
         Ok(ReadyQueueName {
@@ -114,7 +114,7 @@ impl ReadyQueueManager {
 
     async fn compute_config(
         queue_name: &str,
-        queue_config: &QueueConfig,
+        queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
     ) -> anyhow::Result<ReadyQueueConfig> {
         let ReadyQueueName {
@@ -159,7 +159,7 @@ impl ReadyQueueManager {
 
     pub async fn resolve_by_queue_name(
         queue_name: &str,
-        queue_config: &QueueConfig,
+        queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
         egress_pool: &str,
     ) -> anyhow::Result<ReadyQueueHandle> {
@@ -184,7 +184,7 @@ impl ReadyQueueManager {
                 move || Ok(async move { Self::maintainer_task(name).await })
             })
             .expect("failed to spawn maintainer");
-            let proto = queue_config.protocol.metrics_protocol_name();
+            let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
@@ -304,7 +304,7 @@ pub struct ReadyQueue {
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
     path_config: ConfigHandle<EgressPathConfig>,
-    queue_config: QueueConfig,
+    queue_config: ConfigHandle<QueueConfig>,
     egress_pool: String,
     egress_source: EgressSource,
 }
@@ -551,7 +551,7 @@ impl Dispatcher {
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
-        queue_config: QueueConfig,
+        queue_config: ConfigHandle<QueueConfig>,
         path_config: ConfigHandle<EgressPathConfig>,
         metrics: DeliveryMetrics,
         consecutive_connection_failures: Arc<AtomicUsize>,
@@ -561,7 +561,7 @@ impl Dispatcher {
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
-        let delivery_protocol = match &queue_config.protocol {
+        let delivery_protocol = match &queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. } => "ESMTP".to_string(),
             DeliveryProto::Lua { .. } => "Lua".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
@@ -585,7 +585,7 @@ impl Dispatcher {
             lease,
         };
 
-        let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.protocol {
+        let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
             DeliveryProto::Smtp { smtp } => {
                 match SmtpDispatcher::init(&mut dispatcher, smtp).await? {
                     Some(disp) => Box::new(disp),

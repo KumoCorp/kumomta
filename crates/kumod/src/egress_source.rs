@@ -4,6 +4,7 @@ use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::LuaConfig;
 use gcd::Gcd;
+use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use serde::{Deserialize, Serialize};
@@ -360,7 +361,11 @@ impl EgressPoolRoundRobin {
         }
     }
 
-    pub async fn next(&self, queue_name: &str, queue_config: &QueueConfig) -> RoundRobinResult {
+    pub async fn next(
+        &self,
+        queue_name: &str,
+        queue_config: &ConfigHandle<QueueConfig>,
+    ) -> RoundRobinResult {
         if self.entries.is_empty() {
             return RoundRobinResult::NoSources;
         }

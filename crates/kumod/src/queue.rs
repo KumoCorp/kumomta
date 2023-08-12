@@ -8,7 +8,8 @@ use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::Utc;
-use config::load_config;
+use config::{load_config, LuaConfig};
+use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{rt_spawn, spawn, spawn_blocking};
 use message::message::QueueNameComponents;
@@ -374,23 +375,36 @@ pub struct Queue {
     name: String,
     queue: TimeQ<Message>,
     last_change: Instant,
-    queue_config: QueueConfig,
+    queue_config: ConfigHandle<QueueConfig>,
     delayed_gauge: IntGauge,
     activity: Activity,
     rr: EgressPoolRoundRobin,
 }
 
 impl Queue {
-    pub async fn new(name: String) -> anyhow::Result<QueueHandle> {
-        let mut config = load_config().await?;
-
+    async fn call_get_queue_config(
+        name: &str,
+        config: &mut LuaConfig,
+    ) -> anyhow::Result<QueueConfig> {
         let components = QueueNameComponents::parse(&name);
         let queue_config: QueueConfig = config
             .async_call_callback(
                 "get_queue_config",
-                (components.domain, components.tenant, components.campaign),
+                (
+                    components.domain,
+                    components.tenant,
+                    components.campaign,
+                    components.routing_domain,
+                ),
             )
             .await?;
+
+        Ok(queue_config)
+    }
+
+    pub async fn new(name: String) -> anyhow::Result<QueueHandle> {
+        let mut config = load_config().await?;
+        let queue_config = Self::call_get_queue_config(&name, &mut config).await?;
 
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
         let rr = EgressPoolRoundRobin::new(&pool);
@@ -403,7 +417,7 @@ impl Queue {
             name: name.clone(),
             queue: TimeQ::new(),
             last_change: Instant::now(),
-            queue_config,
+            queue_config: ConfigHandle::new(queue_config),
             delayed_gauge,
             activity,
             rr,
@@ -444,12 +458,15 @@ impl Queue {
     ) -> anyhow::Result<Option<Message>> {
         let id = *msg.id();
         msg.increment_num_attempts();
-        let delay = self.queue_config.delay_for_attempt(msg.get_num_attempts());
+        let delay = self
+            .queue_config
+            .borrow()
+            .delay_for_attempt(msg.get_num_attempts());
         let jitter = (rand::random::<f32>() * 60.) - 30.0;
         let delay = chrono::Duration::seconds(delay.num_seconds() + jitter as i64);
 
         let now = Utc::now();
-        let max_age = self.queue_config.get_max_age();
+        let max_age = self.queue_config.borrow().get_max_age();
         let age = msg.age(now);
         let delayed_age = age + delay;
         if delayed_age > max_age {
@@ -469,7 +486,7 @@ impl Queue {
                     content: format!("Next delivery time {delayed_age} > {max_age}"),
                     command: None,
                 },
-                egress_pool: self.queue_config.egress_pool.as_deref(),
+                egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
                 egress_source: None,
                 relay_disposition: None,
                 delivery_protocol: None,
@@ -564,7 +581,13 @@ impl Queue {
     #[instrument(skip(self, msg))]
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
-        match &self.queue_config.protocol {
+
+        let protocol = {
+            let config = self.queue_config.borrow();
+            config.protocol.clone()
+        };
+
+        match protocol {
             DeliveryProto::Smtp { .. } | DeliveryProto::Lua { .. } => {
                 // rr_attempts is a bit gross; ideally rr.next would know how
                 // to inspect the egress_path.suspended configuration and reflect
@@ -816,7 +839,7 @@ impl Queue {
         }
     }
 
-    pub fn get_config(&self) -> &QueueConfig {
+    pub fn get_config(&self) -> &ConfigHandle<QueueConfig> {
         &self.queue_config
     }
 }
@@ -880,6 +903,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
     let mut sleep_duration = Duration::from_secs(60);
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
+    let mut last_config_refresh = Instant::now();
 
     loop {
         tokio::select! {
@@ -918,6 +942,17 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                     return Ok(());
                 }
                 continue;
+            }
+
+            if last_config_refresh.elapsed() >= Duration::from_secs(60) {
+                last_config_refresh = Instant::now();
+                if let Ok(mut config) = load_config().await {
+                    if let Ok(queue_config) =
+                        Queue::call_get_queue_config(&q.name, &mut config).await
+                    {
+                        q.queue_config.update(queue_config);
+                    }
+                }
             }
 
             match q.queue.pop() {

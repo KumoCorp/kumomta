@@ -238,12 +238,15 @@ impl SpoolManager {
                                     let mut queue = queue.lock().await;
 
                                     let queue_config = queue.get_config();
-                                    let max_age = queue_config.get_max_age();
+                                    let max_age = queue_config.borrow().get_max_age();
                                     let age = msg.age(now);
-                                    let num_attempts = queue_config.infer_num_attempts(age);
+                                    let num_attempts =
+                                        queue_config.borrow().infer_num_attempts(age);
                                     msg.set_num_attempts(num_attempts);
 
-                                    match queue_config.compute_delay_based_on_age(num_attempts, age)
+                                    match queue_config
+                                        .borrow()
+                                        .compute_delay_based_on_age(num_attempts, age)
                                     {
                                         None => {
                                             tracing::debug!("expiring {id} {age} > {max_age}");
