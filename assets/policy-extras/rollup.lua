@@ -56,7 +56,6 @@ function mod.apply_ip_rollup_to_queue_config(domain, routing_domain, params)
         mx_list = mx_list,
       },
     }
-    print('Applied rollup', kumo.json_encode(params))
   end
 end
 
