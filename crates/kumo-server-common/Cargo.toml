@@ -33,6 +33,7 @@ mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serializ
 mod-amqp = {path="../mod-amqp"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
+mod-encode = {path="../mod-encode"}
 mod-http = {path="../mod-http"}
 mod-memoize = {path="../mod-memoize"}
 mod-redis = {path="../mod-redis"}

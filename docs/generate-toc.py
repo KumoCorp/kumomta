@@ -264,6 +264,10 @@ TOC = [
                 "reference/kumo.dns",
             ),
             Gen(
+                "module: kumo.encode",
+                "reference/kumo.encode",
+            ),
+            Gen(
                 "module: kumo.cidr",
                 "reference/kumo.cidr",
             ),

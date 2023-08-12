@@ -2390,6 +2390,7 @@ dependencies = [
  "mod-amqp",
  "mod-digest",
  "mod-dns-resolver",
+ "mod-encode",
  "mod-http",
  "mod-memoize",
  "mod-redis",
@@ -3100,6 +3101,16 @@ dependencies = [
  "anyhow",
  "config",
  "dns-resolver",
+ "mlua",
+]
+
+[[package]]
+name = "mod-encode"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "data-encoding",
  "mlua",
 ]
 

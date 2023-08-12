@@ -35,6 +35,8 @@
   for which relaying from a particular sending domain is permitted.
 * The [kumo.digest](../reference/kumo.digest/index.md) module for computing SHA
   digests of strings and other data.
+* The [kumo.encode](../reference/kumo.encode/index.md) module for encoding/decoding
+  base32, base64 and hex strings.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

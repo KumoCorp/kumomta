@@ -1,0 +1,12 @@
+[package]
+name = "mod-encode"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0"
+config = {path="../config"}
+data-encoding = "2.4"
+mlua = {version="0.8", features=["serialize"]}
