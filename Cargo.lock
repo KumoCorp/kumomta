@@ -2282,6 +2282,7 @@ name = "kcli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "cidr-map",
  "clap 4.3.17",
  "dns-resolver",
@@ -2325,6 +2326,7 @@ name = "kumo-api-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "cidr-map",
  "config",
  "data-loader",

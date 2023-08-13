@@ -1,4 +1,5 @@
 use anyhow::Context;
+use chrono::{DateTime, Duration, Utc};
 use cidr_map::{AnyIpCidr, CidrSet};
 use clap::Parser;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
@@ -53,7 +54,12 @@ impl TraceSmtpServerCommand {
             source_addr,
         })?))?;
 
-        let mut meta_by_conn = HashMap::new();
+        struct ConnState {
+            meta: serde_json::Value,
+            opened: DateTime<Utc>,
+        }
+
+        let mut meta_by_conn: HashMap<String, ConnState> = HashMap::new();
 
         fn conn_key(meta: &serde_json::Value) -> anyhow::Result<String> {
             let from = meta
@@ -76,59 +82,72 @@ impl TraceSmtpServerCommand {
                     let event: TraceSmtpV1Event = serde_json::from_str(&s)?;
 
                     let key = conn_key(&event.conn_meta)?;
+                    let delta = meta_by_conn
+                        .get(&key)
+                        .map(|m| event.when - m.opened)
+                        .unwrap_or_else(Duration::zero);
+                    let delta = delta.to_std().unwrap();
+                    let delta = format!("{delta: >5.0?}");
 
                     match event.payload {
                         TraceSmtpV1Payload::Connected => {
-                            meta_by_conn.insert(key.clone(), event.conn_meta.clone());
+                            meta_by_conn.insert(
+                                key.clone(),
+                                ConnState {
+                                    meta: event.conn_meta.clone(),
+                                    opened: event.when,
+                                },
+                            );
                             println!(
-                                "[{key}] === Connected {}",
+                                "[{key}] {delta} === Connected {} {}",
+                                event.when,
                                 serde_json::to_string(&event.conn_meta)?
                             );
                         }
                         TraceSmtpV1Payload::Closed => {
                             meta_by_conn.remove(&key);
-                            println!("[{key}] === Closed");
+                            println!("[{key}] {delta} === Closed");
                         }
                         TraceSmtpV1Payload::Read(data) => {
                             for line in data.lines() {
-                                println!("[{key}]  -> {}", line.escape_debug());
+                                println!("[{key}] {delta}  -> {}", line.escape_debug());
                             }
                         }
                         TraceSmtpV1Payload::Write(data) => {
                             for line in data.lines() {
-                                println!("[{key}] <-  {}", line.escape_debug());
+                                println!("[{key}] {delta} <-  {}", line.escape_debug());
                             }
                         }
                         TraceSmtpV1Payload::Diagnostic { level, message } => {
-                            println!("[{key}] === {level}: {message}");
+                            println!("[{key}] {delta} === {level}: {message}");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
                             result: None,
                             error: Some(error),
                         } => {
-                            println!("[{key}] === {name}: Error: {error}");
+                            println!("[{key}] {delta} === {name}: Error: {error}");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
                             result: Some(s),
                             error: None,
                         } => {
-                            println!("[{key}] === {name}: Ok: {s:?}");
+                            println!("[{key}] {delta} === {name}: Ok: {s:?}");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
                             result: None,
                             error: None,
                         } => {
-                            println!("[{key}] === {name}: Ok");
+                            println!("[{key}] {delta} === {name}: Ok");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
                             result,
                             error,
                         } => {
-                            println!("[{key}] === {name}: Impossible success {result:?} and error: {error:?}");
+                            println!("[{key}] {delta} === {name}: Impossible success {result:?} and error: {error:?}");
                         }
                         TraceSmtpV1Payload::MessageDisposition {
                             relay,
@@ -140,22 +159,24 @@ impl TraceSmtpServerCommand {
                             recipient,
                             id,
                         } => {
-                            println!("[{key}] === Message from={sender} to={recipient} id={id}");
-                            println!("[{key}] === Message queue={queue} relay={relay} log_arf={log_arf} log_oob={log_oob}");
                             println!(
-                                "[{key}] === Message meta: {}",
+                                "[{key}] {delta} === Message from={sender} to={recipient} id={id}"
+                            );
+                            println!("[{key}] {delta} === Message queue={queue} relay={relay} log_arf={log_arf} log_oob={log_oob}");
+                            println!(
+                                "[{key}] {delta} === Message meta: {}",
                                 serde_json::to_string(&meta)?
                             );
                         }
                     }
 
                     if let Some(prior) = meta_by_conn.get_mut(&key) {
-                        if *prior != event.conn_meta {
+                        if prior.meta != event.conn_meta {
                             println!(
-                                "[{key}] === conn_meta updated to {}",
+                                "[{key}] {delta} === conn_meta updated to {}",
                                 serde_json::to_string(&event.conn_meta)?
                             );
-                            *prior = event.conn_meta;
+                            prior.meta = event.conn_meta;
                         }
                     }
                 }

@@ -414,6 +414,7 @@ impl SmtpServer {
         SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
             conn_meta: server.meta.clone_inner(),
             payload: SmtpServerTraceEventPayload::Connected,
+            when: Utc::now(),
         });
 
         if let Err(err) = server.process().await {
@@ -433,6 +434,7 @@ impl SmtpServer {
         SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
             conn_meta: server.meta.clone_inner(),
             payload: SmtpServerTraceEventPayload::Closed,
+            when: Utc::now(),
         });
 
         Ok(())
@@ -472,6 +474,7 @@ impl SmtpServer {
                         result: serde_json::to_value(&v).ok(),
                         error: None,
                     },
+                    when: Utc::now(),
                 });
                 v
             }
@@ -483,6 +486,7 @@ impl SmtpServer {
                         result: None,
                         error: Some(format!("{err:#}")),
                     },
+                    when: Utc::now(),
                 });
                 return Err(err);
             }
@@ -564,6 +568,7 @@ impl SmtpServer {
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
                     payload: SmtpServerTraceEventPayload::Write(text.clone()),
+                    when: Utc::now(),
                 });
 
                 tracing::trace!("writing response line: {text}");
@@ -606,6 +611,7 @@ impl SmtpServer {
                             level: Level::ERROR,
                             message: "Data too big".to_string(),
                         },
+                        when: Utc::now(),
                     });
                     return Ok(ReadData::TooBig);
                 }
@@ -623,6 +629,7 @@ impl SmtpServer {
                             level: Level::ERROR,
                             message: "Line too long".to_string(),
                         },
+                        when: Utc::now(),
                     });
                     return Ok(ReadData::TooLong);
                 }
@@ -654,7 +661,8 @@ impl SmtpServer {
                                 payload: SmtpServerTraceEventPayload::Diagnostic {
                                     level: Level::ERROR,
                                     message: format!("error reading: {err:#}"),
-                                }
+                                },
+                                when: Utc::now(),
                             });
                             return Ok(ReadData::Disconnected);
                         }
@@ -665,6 +673,7 @@ impl SmtpServer {
                                     level: Level::ERROR,
                                     message: "Peer Disconnected".to_string(),
                                 },
+                                when: Utc::now(),
                             });
                             return Ok(ReadData::Disconnected);
                         }
@@ -672,6 +681,7 @@ impl SmtpServer {
                             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                                 conn_meta: self.meta.clone_inner(),
                                 payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                                when: Utc::now(),
                             });
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
@@ -699,6 +709,7 @@ impl SmtpServer {
                             level: Level::ERROR,
                             message: "Line too long".to_string(),
                         },
+                        when: Utc::now(),
                     });
                     return Ok(ReadLine::TooLong);
                 }
@@ -730,7 +741,8 @@ impl SmtpServer {
                                 payload: SmtpServerTraceEventPayload::Diagnostic {
                                     level: Level::ERROR,
                                     message: format!("error reading: {err:#}"),
-                                }
+                                },
+                                when: Utc::now(),
                             });
                             return Ok(ReadLine::Disconnected);
                         }
@@ -741,6 +753,7 @@ impl SmtpServer {
                                     level: Level::ERROR,
                                     message: "Peer Disconnected".to_string(),
                                 },
+                                when: Utc::now(),
                             });
                             return Ok(ReadLine::Disconnected);
                         }
@@ -748,6 +761,7 @@ impl SmtpServer {
                             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                                 conn_meta: self.meta.clone_inner(),
                                 payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                                when: Utc::now(),
                             });
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
@@ -778,6 +792,7 @@ impl SmtpServer {
                         result: serde_json::to_value(&r).ok(),
                         error: None,
                     },
+                    when: Utc::now(),
                 });
 
                 Ok(Ok(r))
@@ -790,6 +805,7 @@ impl SmtpServer {
                         result: None,
                         error: Some(format!("{err:#}")),
                     },
+                    when: Utc::now(),
                 });
                 if let Some(rej) = RejectError::from_anyhow(&err) {
                     Ok(Err(rej))
@@ -1350,6 +1366,7 @@ impl SmtpServer {
                                     .expect("have recipient"),
                                 id: *message.id(),
                             },
+                            when: Utc::now(),
                         });
 
                         if queue_name != "null" {

@@ -1,5 +1,6 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
+use chrono::{DateTime, Utc};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use once_cell::sync::Lazy;
@@ -17,6 +18,7 @@ pub struct SmtpServerTraceManager {
 pub struct SmtpServerTraceEvent {
     pub conn_meta: serde_json::Value,
     pub payload: SmtpServerTraceEventPayload,
+    pub when: DateTime<Utc>,
 }
 
 impl SmtpServerTraceEvent {
@@ -24,6 +26,7 @@ impl SmtpServerTraceEvent {
         TraceSmtpV1Event {
             conn_meta: self.conn_meta,
             payload: self.payload.to_v1(),
+            when: self.when,
         }
     }
 }

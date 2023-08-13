@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use serde::{Deserialize, Serialize};
 use spool::SpoolId;
@@ -199,6 +200,7 @@ pub struct TraceSmtpV1Request {
 pub struct TraceSmtpV1Event {
     pub conn_meta: serde_json::Value,
     pub payload: TraceSmtpV1Payload,
+    pub when: DateTime<Utc>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
