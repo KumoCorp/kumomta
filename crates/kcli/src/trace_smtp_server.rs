@@ -94,15 +94,11 @@ impl TraceSmtpServerCommand {
                             meta_by_conn.insert(
                                 key.clone(),
                                 ConnState {
-                                    meta: event.conn_meta.clone(),
+                                    meta: serde_json::json!({}),
                                     opened: event.when,
                                 },
                             );
-                            println!(
-                                "[{key}] {delta} === Connected {} {}",
-                                event.when,
-                                serde_json::to_string(&event.conn_meta)?
-                            );
+                            println!("[{key}] {delta} === Connected {}", event.when,);
                         }
                         TraceSmtpV1Payload::Closed => {
                             meta_by_conn.remove(&key);
@@ -160,22 +156,72 @@ impl TraceSmtpServerCommand {
                             id,
                         } => {
                             println!(
-                                "[{key}] {delta} === Message from={sender} to={recipient} id={id}"
+                                "[{key}] {delta} === Message from=<{sender}> to=<{recipient}> id={id}"
                             );
                             println!("[{key}] {delta} === Message queue={queue} relay={relay} log_arf={log_arf} log_oob={log_oob}");
-                            println!(
-                                "[{key}] {delta} === Message meta: {}",
-                                serde_json::to_string(&meta)?
-                            );
+                            match meta {
+                                serde_json::Value::Object(obj) => {
+                                    for (meta_key, value) in obj {
+                                        println!(
+                                            "[{key}] {delta} === Message meta: {meta_key}={}",
+                                            serde_json::to_string(&value)?
+                                        );
+                                    }
+                                }
+                                _ => {
+                                    println!(
+                                        "[{key}] {delta} === Message meta: {}",
+                                        serde_json::to_string(&meta)?
+                                    );
+                                }
+                            }
                         }
                     }
 
                     if let Some(prior) = meta_by_conn.get_mut(&key) {
                         if prior.meta != event.conn_meta {
-                            println!(
-                                "[{key}] {delta} === conn_meta updated to {}",
-                                serde_json::to_string(&event.conn_meta)?
-                            );
+                            // Diff the values
+
+                            match (&prior.meta, &event.conn_meta) {
+                                (
+                                    serde_json::Value::Object(prior),
+                                    serde_json::Value::Object(new),
+                                ) => {
+                                    for (meta_key, prior_value) in prior.iter() {
+                                        match new.get(meta_key) {
+                                            Some(value) if value != prior_value => {
+                                                println!(
+                                                    "[{key}] {delta} === conn_meta {meta_key}={}",
+                                                    serde_json::to_string(value)?
+                                                );
+                                            }
+                                            Some(_) => {
+                                                // Unchanged
+                                            }
+                                            None => {
+                                                println!(
+                                                    "[{key}] {delta} === conn_meta deleted {meta_key}",
+                                                );
+                                            }
+                                        }
+                                    }
+                                    for (meta_key, value) in new.iter() {
+                                        if !prior.contains_key(meta_key) {
+                                            println!(
+                                                "[{key}] {delta} === conn_meta {meta_key}={}",
+                                                serde_json::to_string(value)?
+                                            );
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    println!(
+                                        "[{key}] {delta} === conn_meta updated to {}",
+                                        serde_json::to_string(&event.conn_meta)?
+                                    );
+                                }
+                            }
+
                             prior.meta = event.conn_meta;
                         }
                     }
