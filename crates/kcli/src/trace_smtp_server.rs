@@ -1,12 +1,21 @@
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
 use cidr_map::{AnyIpCidr, CidrSet};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use reqwest::Url;
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::str::FromStr;
 use tungstenite::{connect, Message};
+
+#[derive(ValueEnum, Default, Debug, Clone, Copy)]
+pub enum ColorMode {
+    #[default]
+    Tty,
+    Yes,
+    No,
+}
 
 /// Trace incoming connections made to the SMTP service.
 ///
@@ -29,6 +38,10 @@ pub struct TraceSmtpServerCommand {
     /// Eg: --source 10.0.0.1 --source 192.168.1.0/24
     #[arg(long)]
     pub source: Vec<String>,
+
+    /// Whether to colorize the output
+    #[arg(long, default_value = "tty")]
+    pub color: ColorMode,
 }
 
 impl TraceSmtpServerCommand {
@@ -75,6 +88,17 @@ impl TraceSmtpServerCommand {
             Ok(format!("{from}->{via}"))
         }
 
+        let color = match self.color {
+            ColorMode::Tty => std::io::stdout().is_terminal(),
+            ColorMode::Yes => true,
+            ColorMode::No => false,
+        };
+
+        let cyan = if color { "\u{1b}[36m" } else { "" };
+        let green = if color { "\u{1b}[32m" } else { "" };
+        let red = if color { "\u{1b}[31m" } else { "" };
+        let normal = if color { "\u{1b}[0m" } else { "" };
+
         loop {
             let msg = socket.read()?;
             match msg {
@@ -106,23 +130,30 @@ impl TraceSmtpServerCommand {
                         }
                         TraceSmtpV1Payload::Read(data) => {
                             for line in data.lines() {
-                                println!("[{key}] {delta}  -> {}", line.escape_debug());
+                                println!(
+                                    "[{key}] {delta} {green} -> {}{normal}",
+                                    line.escape_debug()
+                                );
                             }
                         }
                         TraceSmtpV1Payload::Write(data) => {
                             for line in data.lines() {
-                                println!("[{key}] {delta} <-  {}", line.escape_debug());
+                                println!(
+                                    "[{key}] {delta} {cyan}<-  {}{normal}",
+                                    line.escape_debug()
+                                );
                             }
                         }
                         TraceSmtpV1Payload::Diagnostic { level, message } => {
-                            println!("[{key}] {delta} === {level}: {message}");
+                            let level_color = if level == "ERROR" { red } else { normal };
+                            println!("[{key}] {delta} === {level_color}{level}: {message}{normal}");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
                             result: None,
                             error: Some(error),
                         } => {
-                            println!("[{key}] {delta} === {name}: Error: {error}");
+                            println!("[{key}] {delta} === {name}: {red}Error: {error}{normal}");
                         }
                         TraceSmtpV1Payload::Callback {
                             name,
@@ -143,7 +174,10 @@ impl TraceSmtpServerCommand {
                             result,
                             error,
                         } => {
-                            println!("[{key}] {delta} === {name}: Impossible success {result:?} and error: {error:?}");
+                            println!(
+                                "[{key}] {delta} === {name}: Impossible success \
+                                 {result:?} and {red}error: {error:?}{normal}"
+                            );
                         }
                         TraceSmtpV1Payload::MessageDisposition {
                             relay,
@@ -158,7 +192,10 @@ impl TraceSmtpServerCommand {
                             println!(
                                 "[{key}] {delta} === Message from=<{sender}> to=<{recipient}> id={id}"
                             );
-                            println!("[{key}] {delta} === Message queue={queue} relay={relay} log_arf={log_arf} log_oob={log_oob}");
+                            println!(
+                                "[{key}] {delta} === Message queue={queue} relay={relay} \
+                                 log_arf={log_arf} log_oob={log_oob}"
+                            );
                             match meta {
                                 serde_json::Value::Object(obj) => {
                                     for (meta_key, value) in obj {
