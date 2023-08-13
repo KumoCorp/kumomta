@@ -15,6 +15,10 @@ impl CidrSet {
     pub fn contains(&self, ip: IpAddr) -> bool {
         self.0.contains(ip)
     }
+
+    pub fn insert<T: Ord + Into<AnyIpCidr>>(&mut self, value: T) {
+        self.0.insert(value.into(), ());
+    }
 }
 
 impl<T: Ord + Into<AnyIpCidr>, const N: usize> From<[T; N]> for CidrSet {

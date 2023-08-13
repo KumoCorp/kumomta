@@ -14,6 +14,7 @@ mod suspend_list;
 mod suspend_ready_q;
 mod suspend_ready_q_cancel;
 mod suspend_ready_q_list;
+mod trace_smtp_server;
 
 /// KumoMTA CLI.
 ///
@@ -46,6 +47,7 @@ enum SubCommand {
     SetLogFilter(logfilter::SetLogFilterCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
+    TraceSmtpServer(trace_smtp_server::TraceSmtpServerCommand),
 }
 
 impl SubCommand {
@@ -63,6 +65,7 @@ impl SubCommand {
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
+            Self::TraceSmtpServer(cmd) => cmd.run(endpoint).await,
         }
     }
 }

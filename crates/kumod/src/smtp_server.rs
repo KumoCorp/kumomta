@@ -1,3 +1,6 @@
+use crate::http_server::admin_trace_smtp_server_v1::{
+    SmtpServerTraceEvent, SmtpServerTraceEventPayload, SmtpServerTraceManager,
+};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
@@ -18,7 +21,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use prometheus::IntGauge;
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use spool::SpoolId;
 use std::fmt::Debug;
@@ -30,7 +33,7 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use tracing::{error, instrument};
+use tracing::{error, instrument, Level};
 
 static CRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n"));
 
@@ -43,7 +46,7 @@ struct DomainAndListener {
 static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
     Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
 
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Deserialize, Clone, Debug, Default, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EsmtpDomain {
     #[serde(default)]
@@ -407,6 +410,12 @@ impl SmtpServer {
         };
 
         server.params.connection_gauge().inc();
+
+        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+            conn_meta: server.meta.clone_inner(),
+            payload: SmtpServerTraceEventPayload::Connected,
+        });
+
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
                 error!("Error in SmtpServer: {err:#}");
@@ -420,6 +429,12 @@ impl SmtpServer {
             }
         }
         server.params.connection_gauge().dec();
+
+        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+            conn_meta: server.meta.clone_inner(),
+            payload: SmtpServerTraceEventPayload::Closed,
+        });
+
         Ok(())
     }
 
@@ -440,13 +455,38 @@ impl SmtpServer {
             return Ok(opt_dom);
         }
 
-        let value: Option<EsmtpDomain> = self
+        let value: anyhow::Result<Option<EsmtpDomain>> = self
             .config
             .async_call_callback_non_default_opt(
                 "get_listener_domain",
                 (key.domain.clone(), key.listener.clone(), self.meta.clone()),
             )
-            .await?;
+            .await;
+
+        let value = match value {
+            Ok(v) => {
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Callback {
+                        name: format!("get_listener_domain domain={domain_name}"),
+                        result: serde_json::to_value(&v).ok(),
+                        error: None,
+                    },
+                });
+                v
+            }
+            Err(err) => {
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Callback {
+                        name: format!("get_listener_domain domain={domain_name}"),
+                        result: None,
+                        error: Some(format!("{err:#}")),
+                    },
+                });
+                return Err(err);
+            }
+        };
 
         DOMAINS.lock().unwrap().insert(
             key,
@@ -520,6 +560,12 @@ impl SmtpServer {
                 let is_last = lines.peek().is_none();
                 let sep = if is_last { ' ' } else { '-' };
                 let text = format!("{status}{sep}{line}\r\n");
+
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Write(text.clone()),
+                });
+
                 tracing::trace!("writing response line: {text}");
                 socket
                     .write(text.as_bytes())
@@ -554,6 +600,13 @@ impl SmtpServer {
 
                 if too_big {
                     self.read_buffer.drain(0..i + 5);
+                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                        conn_meta: self.meta.clone_inner(),
+                        payload: SmtpServerTraceEventPayload::Diagnostic {
+                            level: Level::ERROR,
+                            message: "Data too big".to_string(),
+                        },
+                    });
                     return Ok(ReadData::TooBig);
                 }
 
@@ -564,6 +617,13 @@ impl SmtpServer {
                 let data = unstuff(tail);
 
                 if !check_line_lengths(&data, MAX_LINE_LEN) {
+                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                        conn_meta: self.meta.clone_inner(),
+                        payload: SmtpServerTraceEventPayload::Diagnostic {
+                            level: Level::ERROR,
+                            message: "Line too long".to_string(),
+                        },
+                    });
                     return Ok(ReadData::TooLong);
                 }
 
@@ -589,12 +649,30 @@ impl SmtpServer {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: format!("error reading: {err:#}"),
+                                }
+                            });
                             return Ok(ReadData::Disconnected);
                         }
                         Ok(size) if size == 0 => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: "Peer Disconnected".to_string(),
+                                },
+                            });
                             return Ok(ReadData::Disconnected);
                         }
                         Ok(size) => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                            });
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
                     }
@@ -615,10 +693,18 @@ impl SmtpServer {
             if let Some(i) = CRLF.find(&self.read_buffer) {
                 if too_long {
                     self.read_buffer.drain(0..i + 2);
+                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                        conn_meta: self.meta.clone_inner(),
+                        payload: SmtpServerTraceEventPayload::Diagnostic {
+                            level: Level::ERROR,
+                            message: "Line too long".to_string(),
+                        },
+                    });
                     return Ok(ReadLine::TooLong);
                 }
 
                 let line = String::from_utf8(self.read_buffer[0..i].to_vec());
+
                 self.read_buffer.drain(0..i + 2);
                 tracing::trace!("{line:?}");
                 return Ok(ReadLine::Line(line?));
@@ -639,12 +725,30 @@ impl SmtpServer {
                     match size {
                         Err(err) => {
                             tracing::trace!("error reading: {err:#}");
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: format!("error reading: {err:#}"),
+                                }
+                            });
                             return Ok(ReadLine::Disconnected);
                         }
                         Ok(size) if size == 0 => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Diagnostic {
+                                    level: Level::ERROR,
+                                    message: "Peer Disconnected".to_string(),
+                                },
+                            });
                             return Ok(ReadLine::Disconnected);
                         }
                         Ok(size) => {
+                            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                                conn_meta: self.meta.clone_inner(),
+                                payload: SmtpServerTraceEventPayload::Read(data[0..size].to_vec()),
+                            });
                             self.read_buffer.extend_from_slice(&data[0..size]);
                         }
                     }
@@ -662,11 +766,31 @@ impl SmtpServer {
         args: A,
     ) -> anyhow::Result<Result<R, RejectError>>
     where
-        R: mlua::FromLuaMulti<'lua> + Default,
+        R: mlua::FromLuaMulti<'lua> + Default + serde::Serialize,
     {
+        let name = name.as_ref();
         match self.config.async_call_callback(name, args).await {
-            Ok(r) => Ok(Ok(r)),
+            Ok(r) => {
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Callback {
+                        name: name.to_string(),
+                        result: serde_json::to_value(&r).ok(),
+                        error: None,
+                    },
+                });
+
+                Ok(Ok(r))
+            }
             Err(err) => {
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Callback {
+                        name: name.to_string(),
+                        result: None,
+                        error: Some(format!("{err:#}")),
+                    },
+                });
                 if let Some(rej) = RejectError::from_anyhow(&err) {
                     Ok(Err(rej))
                 } else {
@@ -1207,6 +1331,26 @@ impl SmtpServer {
                         let relay_disposition = self
                             .check_relaying(&message.sender()?, &message.recipient()?)
                             .await?;
+
+                        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                            conn_meta: self.meta.clone_inner(),
+                            payload: SmtpServerTraceEventPayload::MessageDisposition {
+                                relay: relay_disposition.relay,
+                                log_arf: relay_disposition.log_arf,
+                                log_oob: relay_disposition.log_oob,
+                                queue: queue_name.clone(),
+                                meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
+                                sender: message
+                                    .sender()
+                                    .map(|s| s.to_string())
+                                    .expect("have sender"),
+                                recipient: message
+                                    .recipient()
+                                    .map(|s| s.to_string())
+                                    .expect("have recipient"),
+                                id: *message.id(),
+                            },
+                        });
 
                         if queue_name != "null" {
                             if relay_disposition.relay && !self.params.deferred_spool {

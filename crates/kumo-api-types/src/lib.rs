@@ -1,3 +1,4 @@
+use cidr_map::CidrSet;
 use serde::{Deserialize, Serialize};
 use spool::SpoolId;
 use std::collections::HashMap;
@@ -186,4 +187,43 @@ pub struct MessageInformation {
     pub meta: serde_json::Value,
     #[serde(default)]
     pub data: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct TraceSmtpV1Request {
+    #[serde(default)]
+    pub source_addr: Option<CidrSet>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct TraceSmtpV1Event {
+    pub conn_meta: serde_json::Value,
+    pub payload: TraceSmtpV1Payload,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum TraceSmtpV1Payload {
+    Connected,
+    Closed,
+    Read(String),
+    Write(String),
+    Diagnostic {
+        level: String,
+        message: String,
+    },
+    Callback {
+        name: String,
+        result: Option<serde_json::Value>,
+        error: Option<String>,
+    },
+    MessageDisposition {
+        relay: bool,
+        log_arf: bool,
+        log_oob: bool,
+        queue: String,
+        meta: serde_json::Value,
+        sender: String,
+        recipient: String,
+        id: SpoolId,
+    },
 }

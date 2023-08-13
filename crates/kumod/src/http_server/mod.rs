@@ -5,6 +5,7 @@ pub mod admin_bounce_v1;
 pub mod admin_inspect_message;
 pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
+pub mod admin_trace_smtp_server_v1;
 pub mod inject_v1;
 
 pub fn make_router() -> Router {
@@ -34,5 +35,9 @@ pub fn make_router() -> Router {
         .route(
             "/api/admin/inspect-message/v1",
             get(admin_inspect_message::inspect_v1),
+        )
+        .route(
+            "/api/admin/trace-smtp-server/v1",
+            get(admin_trace_smtp_server_v1::trace),
         )
 }
