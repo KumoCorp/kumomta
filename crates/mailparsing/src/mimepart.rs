@@ -22,7 +22,7 @@ pub struct MimePart<'a> {
     /// The index into bytes of the first non-header byte.
     body_offset: usize,
     body_len: usize,
-    overall_conformance: HeaderConformance,
+    header_conformance: HeaderConformance,
     parts: Vec<Self>,
 }
 
@@ -89,7 +89,7 @@ impl<'a> MimePart<'a> {
         let HeaderParseResult {
             headers,
             body_offset,
-            overall_conformance,
+            overall_conformance: header_conformance,
         } = Header::parse_headers(bytes.clone())?;
 
         let body_len = bytes.len();
@@ -99,7 +99,7 @@ impl<'a> MimePart<'a> {
             headers,
             body_offset,
             body_len,
-            overall_conformance,
+            header_conformance,
             parts: vec![],
         };
 
@@ -146,6 +146,10 @@ impl<'a> MimePart<'a> {
         }
 
         Ok(())
+    }
+
+    pub fn header_conformance(&self) -> HeaderConformance {
+        self.header_conformance
     }
 
     /// Obtain a reference to the child parts
