@@ -2,6 +2,7 @@ mod error;
 mod header;
 mod headermap;
 mod mimepart;
+mod nom_utils;
 mod rfc5322_parser;
 mod strings;
 
