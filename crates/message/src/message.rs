@@ -366,10 +366,34 @@ impl Message {
         }
     }
 
+    pub fn set_sender(&self, sender: EnvelopeAddress) -> anyhow::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        match &mut inner.metadata {
+            Some(meta) => {
+                meta.sender = sender;
+                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                Ok(())
+            }
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
     pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
         let inner = self.inner.lock().unwrap();
         match &inner.metadata {
             Some(meta) => Ok(meta.recipient.clone()),
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
+    pub fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
+        let mut inner = self.inner.lock().unwrap();
+        match &mut inner.metadata {
+            Some(meta) => {
+                meta.recipient = recipient;
+                inner.flags.set(MessageFlags::DATA_DIRTY, true);
+                Ok(())
+            }
             None => anyhow::bail!("metadata is not loaded"),
         }
     }
@@ -762,9 +786,33 @@ impl UserData for Message {
         methods.add_method("sender", move |_, this, _: ()| {
             Ok(this.sender().map_err(any_err)?)
         });
+
+        methods.add_method("set_sender", move |lua, this, value: mlua::Value| {
+            let sender = match value {
+                mlua::Value::String(s) => {
+                    let s = s.to_str()?;
+                    EnvelopeAddress::parse(s).map_err(any_err)?
+                }
+                _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
+            };
+            Ok(this.set_sender(sender).map_err(any_err)?)
+        });
+
         methods.add_method("recipient", move |_, this, _: ()| {
             Ok(this.recipient().map_err(any_err)?)
         });
+
+        methods.add_method("set_recipient", move |lua, this, value: mlua::Value| {
+            let recipient = match value {
+                mlua::Value::String(s) => {
+                    let s = s.to_str()?;
+                    EnvelopeAddress::parse(s).map_err(any_err)?
+                }
+                _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
+            };
+            Ok(this.set_recipient(recipient).map_err(any_err)?)
+        });
+
         methods.add_method("dkim_sign", move |_, this, signer: Signer| {
             Ok(this.dkim_sign(&signer).map_err(any_err)?)
         });
