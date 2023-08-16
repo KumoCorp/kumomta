@@ -1,6 +1,8 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -495,10 +497,16 @@ impl SmtpClient {
 
         let connector = build_tls_connector(insecure);
         let mut handshake_error = None;
+
+        let server_name = match IpAddr::from_str(self.hostname.as_str()) {
+            Ok(ip) => ServerName::IpAddress(ip),
+            Err(_) => ServerName::try_from(self.hostname.as_str())
+                .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
+        };
+
         let stream: BoxedAsyncReadAndWrite = match connector
             .connect(
-                ServerName::try_from(self.hostname.as_str())
-                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
+                server_name,
                 match self.socket.take() {
                     Some(s) => s,
                     None => return Err(ClientError::NotConnected),
