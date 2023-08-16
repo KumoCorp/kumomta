@@ -36,6 +36,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, (name, func): (String, Function)| {
             let decorated_name = format!("kumomta-on-{}", name);
 
+            if let Ok(current_event) = lua.globals().get::<_, String>("_KUMO_CURRENT_EVENT") {
+                return Err(mlua::Error::external(format!(
+                    "Attempting to register an event handler via \
+                    `kumo.on('{name}', ...)` from within the event handler \
+                    '{current_event}'. You must move your event handler registration \
+                    so that it is setup directly when the policy is loaded \
+                    in order for it to consistently trigger and handle events."
+                )));
+            }
+
             let existing: Value = lua.named_registry_value(&decorated_name)?;
             match existing {
                 Value::Nil => {}

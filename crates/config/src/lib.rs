@@ -209,6 +209,15 @@ pub fn register(func: RegisterFunc) {
 }
 
 impl LuaConfig {
+    fn set_current_event(&mut self, name: &str) -> mlua::Result<()> {
+        self.inner
+            .as_mut()
+            .unwrap()
+            .lua
+            .globals()
+            .set("_KUMO_CURRENT_EVENT", name.to_string())
+    }
+
     /// Call a callback registered via `on`.
     pub async fn async_call_callback<
         'lua,
@@ -222,6 +231,7 @@ impl LuaConfig {
     ) -> anyhow::Result<R> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
+        self.set_current_event(name)?;
         match self
             .inner
             .as_mut()
@@ -246,6 +256,7 @@ impl LuaConfig {
     ) -> anyhow::Result<R> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
+        self.set_current_event(name)?;
         match self
             .inner
             .as_mut()
@@ -270,6 +281,7 @@ impl LuaConfig {
     ) -> anyhow::Result<Option<R>> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
+        self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
         let opt_func: mlua::Value = lua.lua.named_registry_value(&decorated_name)?;
 
@@ -308,6 +320,7 @@ impl LuaConfig {
     ) -> anyhow::Result<RegistryKey> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
+        self.set_current_event(name)?;
 
         let inner = self.inner.as_mut().unwrap();
 
@@ -353,6 +366,7 @@ impl LuaConfig {
     ) -> anyhow::Result<R> {
         let name = name.as_ref();
         let decorated_name = format!("kumomta-on-{}", name);
+        self.set_current_event(name);
         match self
             .inner
             .as_mut()
