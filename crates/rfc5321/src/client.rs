@@ -29,8 +29,8 @@ pub enum ClientError {
     NotConnected,
     #[error("Command rejected {0:?}")]
     Rejected(Response),
-    #[error("invalid DNS name: {0}")]
-    InvalidDnsName(#[from] tokio_rustls::rustls::client::InvalidDnsNameError),
+    #[error("STARTTLS: {0} is not a valid DNS name")]
+    InvalidDnsName(String),
     #[error("Timed Out waiting {duration:?} for response to {command:?}")]
     TimeOutResponse {
         command: Option<Command>,
@@ -497,7 +497,8 @@ impl SmtpClient {
         let mut handshake_error = None;
         let stream: BoxedAsyncReadAndWrite = match connector
             .connect(
-                ServerName::try_from(self.hostname.as_str())?,
+                ServerName::try_from(self.hostname.as_str())
+                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
                 match self.socket.take() {
                     Some(s) => s,
                     None => return Err(ClientError::NotConnected),

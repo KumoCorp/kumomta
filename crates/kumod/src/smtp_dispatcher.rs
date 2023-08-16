@@ -55,7 +55,11 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                addresses.append(&mut resolve_a_or_aaaa(a).await?);
+                addresses.append(
+                    &mut resolve_a_or_aaaa(a)
+                        .await
+                        .with_context(|| format!("resolving mx_list entry {a}"))?,
+                );
             }
             ResolvedMxAddresses::Addresses(addresses)
         };
