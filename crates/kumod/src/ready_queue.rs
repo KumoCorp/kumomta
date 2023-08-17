@@ -756,7 +756,11 @@ impl Dispatcher {
             .await
         {
             // Transient failure; continue with another host
-            tracing::debug!("failed to send message to {}: {err:#}", self.name,);
+            tracing::debug!(
+                "failed to send message id {:?} to {}: {err:#}",
+                self.msg.as_ref().map(|msg| format!("{}", msg.id())),
+                self.name,
+            );
             return Err(err.into());
         }
 
