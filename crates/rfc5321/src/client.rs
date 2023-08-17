@@ -543,6 +543,7 @@ impl SmtpClient {
     ) -> Result<Response, ClientError> {
         let mut responses = self
             .pipeline_commands(vec![
+                Command::Rset,
                 Command::MailFrom {
                     address: sender.into(),
                     parameters: vec![],
@@ -559,6 +560,11 @@ impl SmtpClient {
             // Should be impossible to get here really, but if we do,
             // assume that we aren't connected
             return Err(ClientError::NotConnected);
+        }
+
+        let rset_resp = responses.remove(0)?;
+        if rset_resp.code != 250 {
+            return Err(ClientError::Rejected(rset_resp));
         }
 
         let mail_resp = responses.remove(0)?;
