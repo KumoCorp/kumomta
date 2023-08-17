@@ -7,8 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-axum = "0.6"
-axum-server = "0.4"
+axum = {workspace=true}
+axum-server = {workspace=true}
 k9 = "0.11"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}

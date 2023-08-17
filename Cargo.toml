@@ -25,9 +25,12 @@ opt-level = 3
 debug = 1 # include line tables for more meaningful backtraces
 
 [workspace.dependencies]
+axum = "0.6"
+axum-server = "0.5"
 data-encoding = "2.4"
 ed25519-dalek = "1.0.1"
 mlua = "0.8"
-tokio = "1.25"
-tokio-rustls = "0.23"
+rustls = "0.21"
+tokio = "1.32"
+tokio-rustls = "0.24"
 trust-dns-resolver = "0.22"

@@ -10,9 +10,9 @@ anyhow = "1.0"
 async-channel = "1.8"
 async-recursion = "1.0"
 async-trait = "0.1"
-axum = {version="0.6", features=["ws"]}
+axum = {workspace=true, features=["ws"]}
 axum-client-ip = "0.4"
-axum-server = {version="0.4", features=["tls-rustls"]}
+axum-server = {workspace=true, features=["tls-rustls"]}
 base64 = "0.13"
 bounce-classify = {path="../bounce-classify"}
 caps = "0.5"
@@ -50,7 +50,7 @@ ppp = "2.2"
 prometheus = "0.13"
 rand = "0.8"
 rfc5321 = {path="../rfc5321"}
-rustls = "0.20"
+rustls = {workspace=true}
 self_cell = "1.0"
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"

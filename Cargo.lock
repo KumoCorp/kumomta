@@ -419,9 +419,9 @@ dependencies = [
 
 [[package]]
 name = "axum-server"
-version = "0.4.7"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bace45b270e36e3c27a190c65883de6dfc9f1d18c829907c127464815dc67b24"
+checksum = "447f28c85900215cc1bea282f32d4a2f22d55c5a300afdfbc661c8d6a632e063"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -430,10 +430,10 @@ dependencies = [
  "http-body",
  "hyper",
  "pin-project-lite",
- "rustls 0.20.8",
+ "rustls 0.21.6",
  "rustls-pemfile",
  "tokio",
- "tokio-rustls 0.23.4",
+ "tokio-rustls 0.24.1",
  "tower-service",
 ]
 
@@ -2439,7 +2439,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rcgen",
- "rustls 0.20.8",
+ "rustls 0.21.6",
  "rustls-pemfile",
  "serde",
  "serde_json",
@@ -2542,7 +2542,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "rfc5321",
- "rustls 0.20.8",
+ "rustls 0.21.6",
  "self_cell",
  "serde",
  "serde_json",
@@ -2552,7 +2552,7 @@ dependencies = [
  "throttle",
  "timeq",
  "tokio",
- "tokio-rustls 0.23.4",
+ "tokio-rustls 0.24.1",
  "tracing",
  "uuid",
  "version-info",
@@ -4386,7 +4386,7 @@ dependencies = [
  "serde",
  "thiserror",
  "tokio",
- "tokio-rustls 0.23.4",
+ "tokio-rustls 0.24.1",
  "tracing",
  "webpki-roots",
 ]
@@ -5768,7 +5768,7 @@ dependencies = [
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
- "tokio-rustls 0.23.4",
+ "tokio-rustls 0.24.1",
  "toml",
  "toml_edit",
  "tracing",
