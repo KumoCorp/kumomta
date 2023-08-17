@@ -9,4 +9,4 @@ edition = "2021"
 anyhow = "1.0"
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver"}
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

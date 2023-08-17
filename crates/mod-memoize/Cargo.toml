@@ -11,6 +11,6 @@ config = {path="../config"}
 humantime-serde = "1.1"
 lruttl = {path="../lruttl"}
 once_cell = "1.17"
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"

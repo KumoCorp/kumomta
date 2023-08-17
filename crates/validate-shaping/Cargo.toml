@@ -9,4 +9,4 @@ edition = "2021"
 anyhow = "1.0"
 clap = {version="4.1", features=["derive"]}
 kumo-api-types = {path="../kumo-api-types"}
-tokio = {version="1.25", features=["full"]}
+tokio = {workspace=true, features=["full"]}

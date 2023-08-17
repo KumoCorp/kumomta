@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 bitflags = "2.3"
 charset = "0.1"
-data-encoding = "2.4"
+data-encoding = {workspace=true}
 data-encoding-macro = "0.1"
 memchr = "2.5"
 nom = "7.1"

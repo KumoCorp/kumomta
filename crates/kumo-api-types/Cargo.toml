@@ -15,7 +15,7 @@ dns-resolver = {path="../dns-resolver"}
 fancy-regex = "0.11"
 humantime-serde = "1.1"
 kumo-log-types = {path="../kumo-log-types"}
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-memoize = {path="../mod-memoize"}
 reqwest = {version="0.11", default-features=false, features=["json", "rustls-tls"]}
 rfc5321 = {path="../rfc5321"}
@@ -30,4 +30,4 @@ url = "2.4"
 
 [dev-dependencies]
 k9 = "0.11.6"
-tokio = {version="1.25", features=["full"]}
+tokio = {workspace=true, features=["full"]}

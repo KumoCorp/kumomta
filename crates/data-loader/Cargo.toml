@@ -8,12 +8,12 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
-tokio = {version="1.25", features=["fs"]}
+tokio = {workspace=true, features=["fs"]}
 vaultrs = "0.6"
 
 [dev-dependencies]
-tokio = {version="1.25", features=["fs", "io-std", "process", "macros"]}
+tokio = {workspace=true, features=["fs", "io-std", "process", "macros"]}
 which = "4.4"

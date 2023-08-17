@@ -24,3 +24,10 @@ resolver = "2"
 opt-level = 3
 debug = 1 # include line tables for more meaningful backtraces
 
+[workspace.dependencies]
+data-encoding = "2.4"
+ed25519-dalek = "1.0.1"
+mlua = "0.8"
+tokio = "1.25"
+tokio-rustls = "0.23"
+trust-dns-resolver = "0.22"

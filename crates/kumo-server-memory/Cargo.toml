@@ -14,5 +14,5 @@ metrics = "0.20"
 nix = {version="0.26", features=["resource"]}
 tikv-jemallocator = "0.5"
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
-tokio = {version="1.25", features=["full", "tracing"]}
+tokio = {workspace=true, features=["full", "tracing"]}
 tracing = "0.1"

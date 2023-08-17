@@ -29,7 +29,7 @@ mac_address = "1.1"
 metrics = "0.20"
 metrics-prometheus = "0.3"
 metrics-tracing-context = "0.13"
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
 mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
@@ -47,7 +47,7 @@ rustls-pemfile = "1.0"
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 throttle = {path="../throttle"}
-tokio = {version="1.25", features=["full", "tracing"]}
+tokio = {workspace=true, features=["full", "tracing"]}
 toml = "0.7"
 tracing = "0.1"
 tracing-appender = "0.2"

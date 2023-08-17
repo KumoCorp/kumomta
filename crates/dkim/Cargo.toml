@@ -18,7 +18,7 @@ default = ["openssl"]
 [dependencies]
 base64 = "0.21.0"
 chrono = { version = "0.4.26", default-features = false, features = ["clock", "std"] }
-ed25519-dalek = "1.0.1"
+ed25519-dalek = {workspace=true}
 futures = "0.3.28"
 indexmap = "1.9.3"
 mailparse = "0.14"
@@ -34,14 +34,14 @@ sha-1 = { version = "0.10", features = ["oid"] }
 sha2 = { version = "0.10", features = ["oid"] }
 textwrap = "0.16"
 tracing = "0.1"
-trust-dns-resolver = "0.22"
+trust-dns-resolver = {workspace=true}
 
 [dev-dependencies]
 criterion = "0.3"
 k9 = "0.11"
 mail-auth = "0.3"
 regex = "1"
-tokio = { version = "1.25", features = ["macros"] }
+tokio = { workspace=true, features = ["macros"] }
 
 [[bench]]
 name = "sign"

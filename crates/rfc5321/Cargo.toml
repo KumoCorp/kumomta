@@ -12,7 +12,7 @@ pest = "2.5"
 pest_derive = "2.5"
 serde = {version="1.0", features=["derive"]}
 thiserror = "1.0"
-tokio = {version="1.25", features=["full"]}
-tokio-rustls = {version="0.23", features=["dangerous_configuration"]}
+tokio = {workspace=true, features=["full"]}
+tokio-rustls = {workspace=true, features=["dangerous_configuration"]}
 tracing = "0.1"
 webpki-roots = "0.22"

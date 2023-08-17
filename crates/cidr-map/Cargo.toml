@@ -10,7 +10,7 @@ anyhow = "1.0"
 bitstring = "0.1"
 cidr = {version="0.2", features=["serde", "bitstring"]}
 config = {path="../config"}
-mlua = {version="0.8", features=["vendored", "lua54", "async", "send", "serialize"]}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-memoize = {path="../mod-memoize"}
 serde = {version="1.0", features=["derive"]}
 

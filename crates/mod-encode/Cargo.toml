@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
-data-encoding = "2.4"
-mlua = {version="0.8", features=["serialize"]}
+data-encoding = {workspace=true}
+mlua = {workspace=true, features=["serialize"]}

@@ -10,5 +10,5 @@ anyhow = "1.0"
 async-channel = "1.8"
 kumo-server-memory = {path="../kumo-server-memory"}
 lazy_static = "1.4"
-tokio = {version="1.25", features=["full", "tracing"]}
+tokio = {workspace=true, features=["full", "tracing"]}
 tracing = "0.1"
