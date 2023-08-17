@@ -51,7 +51,5 @@ jobs:
         crate: cargo-nextest
     - name: Build (Release)
       run: cargo build --verbose --release
-    - name: Build
-      run: cargo build --verbose
     - name: Run tests
-      run: cargo nextest run
+      run: cargo nextest run --release
