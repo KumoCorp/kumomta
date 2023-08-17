@@ -202,6 +202,22 @@ pub struct SmtpClient {
     timeouts: SmtpClientTimeouts,
 }
 
+fn extract_hostname(hostname: &str) -> &str {
+    // Just the hostname, without any :port
+    let fields: Vec<&str> = hostname.rsplitn(2, ':').collect();
+    let hostname = if fields.len() == 2 {
+        fields[1]
+    } else {
+        hostname
+    };
+
+    if hostname.starts_with('[') && hostname.ends_with(']') {
+        &hostname[1..hostname.len() - 1]
+    } else {
+        hostname
+    }
+}
+
 impl SmtpClient {
     pub async fn new<A: ToSocketAddrs + ToString + Clone>(
         addr: A,
@@ -216,15 +232,7 @@ impl SmtpClient {
         peer_hostname: H,
         timeouts: SmtpClientTimeouts,
     ) -> Self {
-        let hostname = peer_hostname.as_ref().to_string();
-        let fields: Vec<&str> = hostname.rsplitn(2, ':').collect();
-
-        // Just the hostname, without any :port
-        let hostname = if fields.len() == 2 {
-            fields[1].to_string()
-        } else {
-            hostname
-        };
+        let hostname = extract_hostname(peer_hostname.as_ref()).to_string();
 
         Self {
             socket: Some(Box::new(stream)),
@@ -868,5 +876,14 @@ mod test {
             parse_response_line("not really"),
             Err(ClientError::MalformedResponseLine(_))
         ));
+    }
+
+    #[test]
+    fn test_extract_hostname() {
+        assert_eq!(extract_hostname("foo"), "foo");
+        assert_eq!(extract_hostname("foo:25"), "foo");
+        assert_eq!(extract_hostname("[foo]:25"), "foo");
+        assert_eq!(extract_hostname("[::1]:25"), "::1");
+        assert_eq!(extract_hostname("::1:25"), "::1");
     }
 }
