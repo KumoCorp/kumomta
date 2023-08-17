@@ -299,6 +299,7 @@ impl SmtpClient {
         }
 
         let mut line = self.read_line(timeout_duration, command).await?;
+        tracing::trace!("recv<-{}: {line}", self.hostname);
         let mut parsed = parse_response_line(&line)?;
         let code = parsed.code;
         let (enhanced_code, mut response_string) = match parse_enhanced_status_code(parsed.content)
@@ -320,7 +321,10 @@ impl SmtpClient {
             response_string.push_str(parsed.content);
         }
 
-        tracing::trace!("{command:?} response: {code} {enhanced_code:?} {response_string}");
+        tracing::trace!(
+            "{}: {command:?} response: {code} {enhanced_code:?} {response_string}",
+            self.hostname
+        );
 
         Ok(Response {
             code,
@@ -332,7 +336,7 @@ impl SmtpClient {
 
     pub async fn send_command(&mut self, command: &Command) -> Result<Response, ClientError> {
         let line = command.encode();
-        tracing::trace!("send {line}");
+        tracing::trace!("send->{}: {line}", self.hostname);
         match self.socket.as_mut() {
             Some(socket) => {
                 match timeout(
@@ -382,6 +386,11 @@ impl SmtpClient {
 
         for cmd in &commands {
             let line = cmd.encode();
+            tracing::trace!(
+                "send->{}: {}{line}",
+                if pipeline { "(PIPELINE) " } else { "" },
+                self.hostname
+            );
             match self.socket.as_mut() {
                 Some(socket) => {
                     let res = match timeout(
