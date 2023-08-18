@@ -44,6 +44,8 @@ jobs:
       options: --privileged
 
     steps:
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: "set APT to non-interactive"
       shell: bash
       run: "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"
@@ -74,6 +76,8 @@ jobs:
       run: git config --global --add safe.directory /__w/kumomta/kumomta
     - name: Get Deps
       run: bash ./get-deps.sh
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v2
       with:
@@ -86,8 +90,16 @@ jobs:
         key: ${{ matrix.container }}
     - name: Build
       run: cargo build --release
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: Run tests
       run: cargo nextest run --release
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
+    - name: Prune Target Dir
+      run: "./assets/trim-target-dir.sh"
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: Build Package
       env:
         REF_TYPE: ${{ github.ref_type }}

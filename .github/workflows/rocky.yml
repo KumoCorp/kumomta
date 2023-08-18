@@ -48,6 +48,8 @@ jobs:
       options: --privileged
 
     steps:
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: "Install git"
       shell: bash
       # Mariner uses yum rather than dnf
@@ -74,10 +76,20 @@ jobs:
         cache-on-failure: true
         env-vars: "CARGO RUST"
         key: ${{ matrix.container }}
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: Build
       run: cargo build --release
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: Run tests
       run: cargo nextest run --release
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
+    - name: Prune Target Dir
+      run: "./assets/trim-target-dir.sh"
+    - name: "Show Disk Usage"
+      run: "./assets/show-disk-space.sh"
     - name: "Build RPM"
       env:
         REF_TYPE: ${{ github.ref_type }}
