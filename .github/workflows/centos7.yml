@@ -69,16 +69,13 @@ jobs:
         rustup toolchain install stable --profile minimal --no-self-update
         rustup default stable
     - uses: actions/checkout@v3
-    - uses: Swatinem/rust-cache@v2
-      with:
-        cache-on-failure: true
-        env-vars: "CARGO RUST"
     - name: Get Deps
       run: bash ./get-deps.sh
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v2
       with:
         crate: cargo-nextest
+        cache-key: ${{ matrix.container }}
     - name: Build
       run: |
         source /opt/rh/devtoolset-9/enable

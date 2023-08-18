@@ -81,11 +81,6 @@ jobs:
       with:
         crate: cargo-nextest
         cache-key: ${{ matrix.container }}
-    - uses: Swatinem/rust-cache@v2
-      with:
-        cache-on-failure: true
-        env-vars: "CARGO RUST"
-        key: ${{ matrix.container }}
     - name: Build
       run: cargo build --release
     - name: "Show Disk Usage"
