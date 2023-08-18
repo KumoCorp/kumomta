@@ -415,11 +415,12 @@ impl QueueDispatcher for SmtpDispatcher {
             }
             Err(ClientError::TimeOutRequest { command, duration }) => {
                 // Transient failure
-                tracing::debug!(
-                    "failed to send message to {} {:?}: Timed Out waiting {duration:?} to write {command:?}",
-                    dispatcher.name,
-                    self.client_address
+                let reason = format!(
+                    "failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} to write {command:?}",
+                    dispatcher.name, self.client_address
                 );
+                tracing::debug!("{reason}");
                 if let Some(msg) = dispatcher.msg.take() {
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
@@ -433,7 +434,7 @@ impl QueueDispatcher for SmtpDispatcher {
                                 subject: 4,
                                 detail: 2,
                             }),
-                            content: format!("Timed Out waiting {duration:?} to write {command:?}"),
+                            content: reason.clone(),
                             command: Some(command.encode()),
                         },
                         egress_pool: Some(&dispatcher.egress_pool),
@@ -448,14 +449,18 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await?;
                 }
                 dispatcher.metrics.inc_transfail();
+                // Move on to the next host
+                anyhow::bail!("{reason}");
             }
             Err(ClientError::TimeOutResponse { command, duration }) => {
                 // Transient failure
-                tracing::debug!(
-                    "failed to send message to {} {:?}: Timed Out waiting {duration:?} for response to {command:?}",
-                    dispatcher.name,
-                    self.client_address
+                let reason = format!(
+                    "failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} for response to {command:?}",
+                    dispatcher.name, self.client_address
                 );
+
+                tracing::debug!("{reason}");
                 if let Some(msg) = dispatcher.msg.take() {
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
@@ -469,9 +474,7 @@ impl QueueDispatcher for SmtpDispatcher {
                                 subject: 4,
                                 detail: 2,
                             }),
-                            content: format!(
-                                "Timed Out waiting {duration:?} for response to {command:?}"
-                            ),
+                            content: reason.clone(),
                             command: command.map(|c| c.encode()),
                         },
                         egress_pool: Some(&dispatcher.egress_pool),
@@ -486,6 +489,8 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await?;
                 }
                 dispatcher.metrics.inc_transfail();
+                // Move on to the next host
+                anyhow::bail!("{reason}");
             }
             Err(ClientError::Rejected(response)) => {
                 dispatcher.metrics.inc_fail();
