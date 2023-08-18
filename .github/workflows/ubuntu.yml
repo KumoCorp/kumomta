@@ -44,8 +44,6 @@ jobs:
       options: --privileged
 
     steps:
-    - name: "Show Disk Usage"
-      run: "./assets/show-disk-space.sh"
     - name: "set APT to non-interactive"
       shell: bash
       run: "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"

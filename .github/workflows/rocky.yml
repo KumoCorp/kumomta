@@ -48,8 +48,6 @@ jobs:
       options: --privileged
 
     steps:
-    - name: "Show Disk Usage"
-      run: "./assets/show-disk-space.sh"
     - name: "Install git"
       shell: bash
       # Mariner uses yum rather than dnf
