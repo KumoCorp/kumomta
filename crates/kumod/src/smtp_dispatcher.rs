@@ -413,6 +413,80 @@ impl QueueDispatcher for SmtpDispatcher {
                 }
                 dispatcher.metrics.inc_transfail();
             }
+            Err(ClientError::TimeOutRequest { command, duration }) => {
+                // Transient failure
+                tracing::debug!(
+                    "failed to send message to {} {:?}: Timed Out waiting {duration:?} to write {command:?}",
+                    dispatcher.name,
+                    self.client_address
+                );
+                if let Some(msg) = dispatcher.msg.take() {
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: &dispatcher.name,
+                        peer_address: self.client_address.as_ref(),
+                        response: Response {
+                            code: 421,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 2,
+                            }),
+                            content: format!("Timed Out waiting {duration:?} to write {command:?}"),
+                            command: Some(command.encode()),
+                        },
+                        egress_pool: Some(&dispatcher.egress_pool),
+                        egress_source: Some(&dispatcher.egress_source.name),
+                        relay_disposition: None,
+                        delivery_protocol: Some(&dispatcher.delivery_protocol),
+                    })
+                    .await;
+                    rt_spawn("requeue message".to_string(), move || {
+                        Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
+                    })
+                    .await?;
+                }
+                dispatcher.metrics.inc_transfail();
+            }
+            Err(ClientError::TimeOutResponse { command, duration }) => {
+                // Transient failure
+                tracing::debug!(
+                    "failed to send message to {} {:?}: Timed Out waiting {duration:?} for response to {command:?}",
+                    dispatcher.name,
+                    self.client_address
+                );
+                if let Some(msg) = dispatcher.msg.take() {
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: &dispatcher.name,
+                        peer_address: self.client_address.as_ref(),
+                        response: Response {
+                            code: 421,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 2,
+                            }),
+                            content: format!(
+                                "Timed Out waiting {duration:?} for response to {command:?}"
+                            ),
+                            command: command.map(|c| c.encode()),
+                        },
+                        egress_pool: Some(&dispatcher.egress_pool),
+                        egress_source: Some(&dispatcher.egress_source.name),
+                        relay_disposition: None,
+                        delivery_protocol: Some(&dispatcher.delivery_protocol),
+                    })
+                    .await;
+                    rt_spawn("requeue message".to_string(), move || {
+                        Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
+                    })
+                    .await?;
+                }
+                dispatcher.metrics.inc_transfail();
+            }
             Err(ClientError::Rejected(response)) => {
                 dispatcher.metrics.inc_fail();
                 tracing::debug!(
