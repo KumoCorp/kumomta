@@ -425,17 +425,12 @@ impl Shaping {
             if domains.len() > 1 {
                 let domains = domains.into_iter().collect::<Vec<_>>().join(", ");
                 warnings.push(format!(
-                    "Multiple domains rollup to the same site: {site} -> {domains}"
+                    "Multiple domains rollup to the same site: {site} -> {domains}. \
+                    Actual shaping behavior for those domains will be unspecified. \
+                    Resolve this by retaining the primary domain and removing the others."
                 ));
                 conflicted.push(domains);
             }
-        }
-
-        if !conflicted.is_empty() {
-            anyhow::bail!(
-                "Multiple conflicting rollup domains: {}",
-                conflicted.join(" ")
-            );
         }
 
         for (site, partial) in &by_site {
