@@ -33,7 +33,7 @@ sudo dnf config-manager \
 sudo yum install kumomta-dev
 ```
 
-5) Create a configuration policy in ```/opt/kumomta/etc/policy/init.lua``` based on the example at [ https://docs.kumomta.com/userguide/configuration/example/](https://docs.kumomta.com/userguide/configuration/example/)
+5) Create a configuration policy in ```/opt/kumomta/etc/policy/init.lua``` based on the example at [https://docs.kumomta.com/userguide/configuration/example/](../userguide/configuration/example.md)
 Hint, you can copy and paste that into a new file and edit the necessary parts.
 You should either create dkim keys or comment out the dkim signing portion for now.
 
