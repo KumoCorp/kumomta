@@ -25,7 +25,7 @@ def define_env(env):
             blurb = f"""
     *The functionality described in this {scope} requires a dev build of KumoMTA.
     You can obtain a dev build by following the instructions in the
-    [Installation](/userguide/installation/linux.md) section.*
+    [Installation](/userguide/installation/linux/) section.*
 """
         else:
             first_line = f"*Since: Version {vers}*"
