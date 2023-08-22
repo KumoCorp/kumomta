@@ -43,4 +43,7 @@
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into
   a byte array.
+* `kumo.reject(421, ...)` didn't disconnect the incoming session. #79
+* `kumo.reject` in `smtp_server_message_received` could still produce a `250 ok`
+  after the rejection response.
 

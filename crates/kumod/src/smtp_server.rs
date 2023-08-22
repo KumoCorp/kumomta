@@ -578,6 +578,12 @@ impl SmtpServer {
                     .map_err(|_| WriteError {})?;
             }
             socket.flush().await.map_err(|_| WriteError {})?;
+
+            if status == 421 {
+                // 421 is only valid when disconnecting the session,
+                // so disconnect it!
+                self.socket.take();
+            }
         }
         Ok(())
     }
@@ -696,6 +702,10 @@ impl SmtpServer {
 
     #[instrument(skip(self))]
     async fn read_line(&mut self, override_limit: Option<usize>) -> anyhow::Result<ReadLine> {
+        if self.socket.is_none() {
+            return Ok(ReadLine::Disconnected);
+        }
+
         let mut too_long = false;
         tracing::trace!("reading line");
 
@@ -1256,169 +1266,7 @@ impl SmtpServer {
                         }
                     };
 
-                    let state = self
-                        .state
-                        .take()
-                        .ok_or_else(|| anyhow!("transaction state is impossibly not set!?"))?;
-
-                    tracing::trace!(?state);
-
-                    let mut ids = vec![];
-                    let mut messages = vec![];
-
-                    let datestamp = Utc::now().to_rfc2822();
-
-                    for recip in state.recipients {
-                        let id = SpoolId::new();
-                        let protocol = "ESMTP"; // FIXME: update SmtpServer ctor if we change this.
-                                                // OR: just read this from self.meta?
-
-                        let mut body = if self.params.trace_headers.received_header {
-                            let received = {
-                                let from_domain =
-                                    self.said_hello.as_deref().unwrap_or("unspecified");
-                                let peer_address = self.peer_address.ip();
-                                let my_address = self.my_address.ip();
-                                let hostname = &self.params.hostname;
-                                let recip = recip.to_string();
-                                format!(
-                                    "Received: from {from_domain} ({peer_address})\r\n  \
-                                       by {hostname} (KumoMTA {my_address}) \r\n  \
-                                       with {protocol} id {id} for <{recip}>;\r\n  \
-                                       {datestamp}\r\n"
-                                )
-                            };
-
-                            let mut body = Vec::with_capacity(data.len() + received.len());
-                            body.extend_from_slice(received.as_bytes());
-                            body
-                        } else {
-                            Vec::with_capacity(data.len())
-                        };
-
-                        body.extend_from_slice(&data);
-
-                        let message = Message::new_dirty(
-                            id,
-                            state.sender.clone(),
-                            recip,
-                            self.meta.clone_inner(),
-                            Arc::new(body.into_boxed_slice()),
-                        )?;
-
-                        if let Err(rej) = self
-                            .call_callback::<(), _, _>(
-                                "smtp_server_message_received",
-                                (message.clone(), self.meta.clone()),
-                            )
-                            .await?
-                        {
-                            self.write_response(rej.code, rej.message).await?;
-                            continue;
-                        }
-
-                        if self.params.trace_headers.supplemental_header {
-                            let mut object = json!({
-                                // Marker to identify encoded supplemental header
-                                "_@_": "\\_/",
-                                "recipient": message.recipient()?,
-                            });
-
-                            for name in &self.params.trace_headers.include_meta_names {
-                                if let Ok(value) = message.get_meta(name) {
-                                    object
-                                        .as_object_mut()
-                                        .unwrap()
-                                        .insert(name.to_string(), value);
-                                }
-                            }
-
-                            let value = base64::encode(serde_json::to_string(&object)?);
-                            message.prepend_header(
-                                Some(&self.params.trace_headers.header_name),
-                                &value,
-                            );
-                        }
-
-                        ids.push(message.id().to_string());
-
-                        let queue_name = message.get_queue_name()?;
-
-                        let relay_disposition = self
-                            .check_relaying(&message.sender()?, &message.recipient()?)
-                            .await?;
-
-                        SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
-                            conn_meta: self.meta.clone_inner(),
-                            payload: SmtpServerTraceEventPayload::MessageDisposition {
-                                relay: relay_disposition.relay,
-                                log_arf: relay_disposition.log_arf,
-                                log_oob: relay_disposition.log_oob,
-                                queue: queue_name.clone(),
-                                meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
-                                sender: message
-                                    .sender()
-                                    .map(|s| s.to_string())
-                                    .expect("have sender"),
-                                recipient: message
-                                    .recipient()
-                                    .map(|s| s.to_string())
-                                    .expect("have recipient"),
-                                id: *message.id(),
-                            },
-                            when: Utc::now(),
-                        });
-
-                        if queue_name != "null" {
-                            if relay_disposition.relay && !self.params.deferred_spool {
-                                message.save().await?;
-                            }
-                        }
-                        log_disposition(LogDisposition {
-                            kind: RecordType::Reception,
-                            msg: message.clone(),
-                            site: "",
-                            peer_address: Some(&ResolvedAddress {
-                                name: self.said_hello.as_deref().unwrap_or("").to_string(),
-                                addr: self.peer_address.ip(),
-                            }),
-                            response: Response {
-                                code: 250,
-                                enhanced_code: None,
-                                command: None,
-                                content: "".to_string(),
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: None,
-                        })
-                        .await;
-                        if queue_name != "null" {
-                            if relay_disposition.relay {
-                                messages.push((queue_name, message));
-                            }
-                        }
-                    }
-
-                    if !messages.is_empty() {
-                        spawn_local(
-                            format!(
-                                "SmtpServer: insert {} msgs for {:?}",
-                                messages.len(),
-                                self.peer_address
-                            ),
-                            async move {
-                                for (queue_name, msg) in messages {
-                                    QueueManager::insert(&queue_name, msg).await?;
-                                }
-                                Ok::<(), anyhow::Error>(())
-                            },
-                        )?;
-                    }
-
-                    let ids = ids.join(" ");
-                    self.write_response(250, format!("OK ids={ids}")).await?;
+                    self.process_data(data).await?;
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
@@ -1434,6 +1282,184 @@ impl SmtpServer {
                 Ok(Command::DataDot) => unreachable!(),
             }
         }
+    }
+
+    async fn process_data(&mut self, data: Vec<u8>) -> anyhow::Result<()> {
+        let state = self
+            .state
+            .take()
+            .ok_or_else(|| anyhow!("transaction state is impossibly not set!?"))?;
+
+        tracing::trace!(?state);
+
+        let mut ids = vec![];
+
+        // If anything decides to reject at this phase, it needs to apply to
+        // the entire batch, so we make a first pass to accumulate the messages
+        // here. If anything rejects, we return before we've committed to doing
+        // any real work
+        let mut accepted_messages = vec![];
+
+        let datestamp = Utc::now().to_rfc2822();
+
+        for recip in state.recipients {
+            let id = SpoolId::new();
+            let protocol = "ESMTP"; // FIXME: update SmtpServer ctor if we change this.
+                                    // OR: just read this from self.meta?
+
+            let mut body = if self.params.trace_headers.received_header {
+                let received = {
+                    let from_domain = self.said_hello.as_deref().unwrap_or("unspecified");
+                    let peer_address = self.peer_address.ip();
+                    let my_address = self.my_address.ip();
+                    let hostname = &self.params.hostname;
+                    let recip = recip.to_string();
+                    format!(
+                        "Received: from {from_domain} ({peer_address})\r\n  \
+                                       by {hostname} (KumoMTA {my_address}) \r\n  \
+                                       with {protocol} id {id} for <{recip}>;\r\n  \
+                                       {datestamp}\r\n"
+                    )
+                };
+
+                let mut body = Vec::with_capacity(data.len() + received.len());
+                body.extend_from_slice(received.as_bytes());
+                body
+            } else {
+                Vec::with_capacity(data.len())
+            };
+
+            body.extend_from_slice(&data);
+
+            let message = Message::new_dirty(
+                id,
+                state.sender.clone(),
+                recip,
+                self.meta.clone_inner(),
+                Arc::new(body.into_boxed_slice()),
+            )?;
+
+            if let Err(rej) = self
+                .call_callback::<(), _, _>(
+                    "smtp_server_message_received",
+                    (message.clone(), self.meta.clone()),
+                )
+                .await?
+            {
+                // Rejecting any one message from a batch in
+                // smtp_server_message_received will reject the
+                // entire batch
+                self.write_response(rej.code, rej.message).await?;
+                return Ok(());
+            }
+            accepted_messages.push(message);
+        }
+
+        // At this point we've nominally accepted the batch; let's
+        // get to work on logging and injecting into the queues
+
+        let mut messages = vec![];
+        for message in accepted_messages {
+            if self.params.trace_headers.supplemental_header {
+                let mut object = json!({
+                    // Marker to identify encoded supplemental header
+                    "_@_": "\\_/",
+                    "recipient": message.recipient()?,
+                });
+
+                for name in &self.params.trace_headers.include_meta_names {
+                    if let Ok(value) = message.get_meta(name) {
+                        object
+                            .as_object_mut()
+                            .unwrap()
+                            .insert(name.to_string(), value);
+                    }
+                }
+
+                let value = base64::encode(serde_json::to_string(&object)?);
+                message.prepend_header(Some(&self.params.trace_headers.header_name), &value);
+            }
+
+            ids.push(message.id().to_string());
+
+            let queue_name = message.get_queue_name()?;
+
+            let relay_disposition = self
+                .check_relaying(&message.sender()?, &message.recipient()?)
+                .await?;
+
+            SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                conn_meta: self.meta.clone_inner(),
+                payload: SmtpServerTraceEventPayload::MessageDisposition {
+                    relay: relay_disposition.relay,
+                    log_arf: relay_disposition.log_arf,
+                    log_oob: relay_disposition.log_oob,
+                    queue: queue_name.clone(),
+                    meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
+                    sender: message
+                        .sender()
+                        .map(|s| s.to_string())
+                        .expect("have sender"),
+                    recipient: message
+                        .recipient()
+                        .map(|s| s.to_string())
+                        .expect("have recipient"),
+                    id: *message.id(),
+                },
+                when: Utc::now(),
+            });
+
+            if queue_name != "null" {
+                if relay_disposition.relay && !self.params.deferred_spool {
+                    message.save().await?;
+                }
+            }
+            log_disposition(LogDisposition {
+                kind: RecordType::Reception,
+                msg: message.clone(),
+                site: "",
+                peer_address: Some(&ResolvedAddress {
+                    name: self.said_hello.as_deref().unwrap_or("").to_string(),
+                    addr: self.peer_address.ip(),
+                }),
+                response: Response {
+                    code: 250,
+                    enhanced_code: None,
+                    command: None,
+                    content: "".to_string(),
+                },
+                egress_pool: None,
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+            })
+            .await;
+            if queue_name != "null" {
+                if relay_disposition.relay {
+                    messages.push((queue_name, message));
+                }
+            }
+        }
+
+        if !messages.is_empty() {
+            spawn_local(
+                format!(
+                    "SmtpServer: insert {} msgs for {:?}",
+                    messages.len(),
+                    self.peer_address
+                ),
+                async move {
+                    for (queue_name, msg) in messages {
+                        QueueManager::insert(&queue_name, msg).await?;
+                    }
+                    Ok::<(), anyhow::Error>(())
+                },
+            )?;
+        }
+
+        let ids = ids.join(" ");
+        self.write_response(250, format!("OK ids={ids}")).await?;
+        Ok(())
     }
 }
 
