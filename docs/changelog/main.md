@@ -37,6 +37,8 @@
   digests of strings and other data.
 * The [kumo.encode](../reference/kumo.encode/index.md) module for encoding/decoding
   base32, base64 and hex strings.
+* [kumo.dns.configure_resolver](../reference/kumo.dns/configure_resolver.md) for
+  adjusting DNS resolver configuration.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

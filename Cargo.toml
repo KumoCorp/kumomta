@@ -33,4 +33,4 @@ mlua = "0.8"
 rustls = "0.21"
 tokio = "1.32"
 tokio-rustls = "0.24"
-trust-dns-resolver = "0.22"
+trust-dns-resolver = "0.22" # can't upgrade to 0.23 due to mail-auth using 0.22
