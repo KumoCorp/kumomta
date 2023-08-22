@@ -7,6 +7,7 @@ on:
       - "crates/**/*.rs"
       - ".github/workflows/rust.yml"
       - "**/Cargo.toml"
+      - "Cargo.lock" # for dependabot updates
 
   pull_request:
     branches: [ "main" ]
