@@ -41,13 +41,13 @@ const DNS_NAMESPACE: &str = "_domainkey";
 #[derive(Debug)]
 pub(crate) enum DkimPublicKey {
     Rsa(RsaPublicKey),
-    Ed25519(ed25519_dalek::PublicKey),
+    Ed25519(ed25519_dalek::VerifyingKey),
 }
 
 #[derive(Debug)]
 pub enum DkimPrivateKey {
     Rsa(RsaPrivateKey),
-    Ed25519(ed25519_dalek::Keypair),
+    Ed25519(ed25519_dalek::SigningKey),
     #[cfg(feature = "openssl")]
     OpenSSLRsa(openssl::rsa::Rsa<openssl::pkey::Private>),
 }
@@ -127,13 +127,24 @@ fn verify_signature(
                 signature,
             )
             .is_ok(),
-        DkimPublicKey::Ed25519(public_key) => public_key
-            .verify_strict(
-                header_hash,
-                &ed25519_dalek::Signature::from_bytes(signature)
-                    .map_err(|err| DKIMError::SignatureSyntaxError(err.to_string()))?,
-            )
-            .is_ok(),
+        DkimPublicKey::Ed25519(public_key) => {
+            let mut sig_bytes = [0u8; ed25519_dalek::Signature::BYTE_SIZE];
+            if signature.len() != sig_bytes.len() {
+                return Err(DKIMError::SignatureSyntaxError(format!(
+                    "ed25519 signatures should be {} bytes in length, have: {}",
+                    ed25519_dalek::Signature::BYTE_SIZE,
+                    signature.len()
+                )));
+            }
+            sig_bytes.copy_from_slice(signature);
+
+            public_key
+                .verify_strict(
+                    header_hash,
+                    &ed25519_dalek::Signature::from_bytes(&sig_bytes),
+                )
+                .is_ok()
+        }
     })
 }
 

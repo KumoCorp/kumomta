@@ -66,9 +66,20 @@ pub(crate) async fn retrieve_public_key(
                 })?,
         )
     } else {
-        DkimPublicKey::Ed25519(ed25519_dalek::PublicKey::from_bytes(&bytes).map_err(|err| {
-            DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
-        })?)
+        let mut key_bytes = [0u8; ed25519_dalek::PUBLIC_KEY_LENGTH];
+        if bytes.len() != key_bytes.len() {
+            return Err(DKIMError::KeyUnavailable(format!(
+                "ed25519 public keys should be {} bytes in length, have: {}",
+                ed25519_dalek::PUBLIC_KEY_LENGTH,
+                bytes.len()
+            )));
+        }
+
+        key_bytes.copy_from_slice(&bytes);
+
+        DkimPublicKey::Ed25519(ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).map_err(
+            |err| DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err)),
+        )?)
     };
     Ok(key)
 }

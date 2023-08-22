@@ -2,7 +2,7 @@ use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
 use base64::engine::general_purpose;
 use base64::Engine;
-use ed25519_dalek::ExpandedSecretKey;
+use ed25519_dalek::Signer as _;
 use rsa::Pkcs1v15Sign;
 use sha1::Sha1;
 use sha2::Sha256;
@@ -171,12 +171,8 @@ impl Signer {
                     &header_hash,
                 )
                 .map_err(|err| DKIMError::FailedToSign(err.to_string()))?,
-            DkimPrivateKey::Ed25519(keypair) => {
-                let expanded: ExpandedSecretKey = (&keypair.secret).into();
-                expanded
-                    .sign(&header_hash, &keypair.public)
-                    .to_bytes()
-                    .into()
+            DkimPrivateKey::Ed25519(signing_key) => {
+                signing_key.sign(&header_hash).to_bytes().into()
             }
             #[cfg(feature = "openssl")]
             DkimPrivateKey::OpenSSLRsa(private_key) => {
@@ -392,16 +388,9 @@ Joe."#
 
         let file_content = fs::read("./test/keys/ed.private").unwrap();
         let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
-        let secret_key = ed25519_dalek::SecretKey::from_bytes(&file_decoded).unwrap();
-
-        let file_content = fs::read("./test/keys/ed.public").unwrap();
-        let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
-        let public_key = ed25519_dalek::PublicKey::from_bytes(&file_decoded).unwrap();
-
-        let keypair = ed25519_dalek::Keypair {
-            public: public_key,
-            secret: secret_key,
-        };
+        let mut key_bytes = [0u8; ed25519_dalek::SECRET_KEY_LENGTH];
+        key_bytes.copy_from_slice(&file_decoded);
+        let secret_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);
 
         let time = chrono::Utc
             .with_ymd_and_hms(2018, 6, 10, 13, 38, 29)
@@ -419,7 +408,7 @@ Joe."#
                 "Date",
             ])
             .unwrap()
-            .with_private_key(DkimPrivateKey::Ed25519(keypair))
+            .with_private_key(DkimPrivateKey::Ed25519(secret_key))
             .with_body_canonicalization(canonicalization::Type::Relaxed)
             .with_header_canonicalization(canonicalization::Type::Relaxed)
             .with_selector("brisbane")
