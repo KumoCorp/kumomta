@@ -57,70 +57,68 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "configure_resolver",
-        lua.create_async_function(
-            |lua, config: mlua::Value| async move {
-                let config: DnsConfig = lua.from_value(config)?;
+        lua.create_async_function(|lua, config: mlua::Value| async move {
+            let config: DnsConfig = lua.from_value(config)?;
 
-                let mut r_config = ResolverConfig::new();
-                if let Some(dom) = config.domain {
-                    r_config.set_domain(
-                        Name::from_str_relaxed(&dom)
-                            .with_context(|| format!("domain: '{dom}'"))
-                            .map_err(any_err)?,
-                    );
-                }
-                for s in config.search {
-                    let name = Name::from_str_relaxed(&s)
-                        .with_context(|| format!("search: '{s}'"))
-                        .map_err(any_err)?;
-                    r_config.add_search(name);
-                }
+            let mut r_config = ResolverConfig::new();
+            if let Some(dom) = config.domain {
+                r_config.set_domain(
+                    Name::from_str_relaxed(&dom)
+                        .with_context(|| format!("domain: '{dom}'"))
+                        .map_err(any_err)?,
+                );
+            }
+            for s in config.search {
+                let name = Name::from_str_relaxed(&s)
+                    .with_context(|| format!("search: '{s}'"))
+                    .map_err(any_err)?;
+                r_config.add_search(name);
+            }
 
-                for ns in config.name_servers {
-                    r_config.add_name_server(match ns {
-                        NameServer::Ip(ip) => {
-                            let ip: SocketAddr = ip
+            for ns in config.name_servers {
+                r_config.add_name_server(match ns {
+                    NameServer::Ip(ip) => {
+                        let ip: SocketAddr = ip
+                            .parse()
+                            .with_context(|| format!("name server: '{ip}'"))
+                            .map_err(any_err)?;
+                        NameServerConfig::new(ip, Protocol::Udp)
+                    }
+                    NameServer::Detailed {
+                        socket_addr,
+                        protocol,
+                        trust_negative_responses,
+                        bind_addr,
+                    } => {
+                        let ip: SocketAddr = socket_addr
+                            .parse()
+                            .with_context(|| format!("name server: '{socket_addr}'"))
+                            .map_err(any_err)?;
+                        let mut c = NameServerConfig::new(ip, protocol);
+
+                        c.trust_nx_responses = trust_negative_responses;
+
+                        if let Some(bind) = bind_addr {
+                            let addr: SocketAddr = bind
                                 .parse()
-                                .with_context(|| format!("name server: '{ip}'"))
+                                .with_context(|| {
+                                    format!("name server: '{socket_addr}' bind_addr: '{bind}'")
+                                })
                                 .map_err(any_err)?;
-                            NameServerConfig::new(ip, Protocol::Udp)
+                            c.bind_addr.replace(addr);
                         }
-                        NameServer::Detailed {
-                            socket_addr,
-                            protocol,
-                            trust_negative_responses,
-                            bind_addr,
-                        } => {
-                            let ip: SocketAddr = socket_addr
-                                .parse()
-                                .with_context(|| format!("name server: '{socket_addr}'"))
-                                .map_err(any_err)?;
-                            let mut c = NameServerConfig::new(ip, protocol);
 
-                            c.trust_nx_responses = trust_negative_responses;
+                        c
+                    }
+                });
+            }
 
-                            if let Some(bind) = bind_addr {
-                                let addr: SocketAddr = bind
-                                    .parse()
-                                    .with_context(|| {
-                                        format!("name server: '{socket_addr}' bind_addr: '{bind}'")
-                                    })
-                                    .map_err(any_err)?;
-                                c.bind_addr.replace(addr);
-                            }
+            let resolver = TokioAsyncResolver::tokio(r_config, config.options).map_err(any_err)?;
 
-                            c
-                        }
-                    });
-                }
+            dns_resolver::reconfigure_resolver(resolver).await;
 
-                let resolver = TokioAsyncResolver::tokio(r_config, config.options).map_err(any_err)?;
-
-                dns_resolver::reconfigure_resolver(resolver).await;
-
-                Ok(())
-            },
-        )?,
+            Ok(())
+        })?,
     )?;
 
     Ok(())
