@@ -2526,7 +2526,6 @@ dependencies = [
  "kumo-server-runtime",
  "lazy_static",
  "lruttl",
- "mail-auth",
  "mail-builder 0.2.5",
  "mail-parser",
  "maildir",
