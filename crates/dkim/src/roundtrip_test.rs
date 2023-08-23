@@ -47,18 +47,6 @@ async fn verify(resolver: &dyn dns::Lookup, from_domain: &str, raw_email: &str) 
         .unwrap()
 }
 
-macro_rules! map {
-        { $($key:expr => $value:expr),+ } => {
-             {
-                 let mut m = ::std::collections::HashMap::new();
-                 $(
-                     m.insert($key, $value);
-                 )+
-                     m
-             }
-         };
-    }
-
 struct TestResolver {
     db: HashMap<&'static str, String>,
 }
@@ -74,16 +62,16 @@ impl dns::Lookup for TestResolver {
 }
 
 impl TestResolver {
-    fn new(db: HashMap<&'static str, String>) -> Self {
-        Self { db }
+    fn new<I: IntoIterator<Item = (&'static str, String)>>(iter: I) -> Self {
+        Self {
+            db: HashMap::from_iter(iter),
+        }
     }
 }
 
 #[tokio::test]
 async fn test_roundtrip() {
-    let resolver = TestResolver::new(map! {
-        "2022._domainkey.cloudflare.com" => dkim_record()
-    });
+    let resolver = TestResolver::new([("2022._domainkey.cloudflare.com", dkim_record())]);
     let from_domain = "cloudflare.com";
 
     {
