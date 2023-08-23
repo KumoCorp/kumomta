@@ -39,7 +39,6 @@ trust-dns-resolver = {workspace=true}
 [dev-dependencies]
 criterion = "0.3"
 k9 = "0.11"
-mail-auth = "0.3"
 regex = "1"
 tokio = { workspace=true, features = ["macros"] }
 

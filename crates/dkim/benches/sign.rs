@@ -109,33 +109,5 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     }
 }
 
-pub fn mail_auth_benchmark(c: &mut Criterion) {
-    let email_text = email_text();
-
-    use mail_auth::common::crypto::{RsaKey, Sha256};
-    use mail_auth::dkim::{Canonicalization, DkimSigner};
-
-    for canon in [Canonicalization::Simple, Canonicalization::Relaxed] {
-        let key_data = std::fs::read_to_string("./test/keys/2022.private").unwrap();
-        let key = RsaKey::<Sha256>::from_rsa_pem(&key_data).unwrap();
-
-        let signer = DkimSigner::from_key(key)
-            .domain("example.com")
-            .selector("s20")
-            .headers(["From", "Subject"])
-            .header_canonicalization(canon)
-            .body_canonicalization(canon);
-
-        let mut group = c.benchmark_group("mail-auth signing");
-        group.sampling_mode(SamplingMode::Flat);
-        group.throughput(Throughput::Bytes(email_text.len() as u64));
-        group.bench_function(&format!("sign {canon:?}"), |b| {
-            b.iter(|| signer.sign(black_box(email_text.as_bytes())).unwrap())
-        });
-        group.finish();
-    }
-}
-
 criterion_group!(benches, criterion_benchmark);
-criterion_group!(mail_auth, mail_auth_benchmark);
-criterion_main!(benches, mail_auth);
+criterion_main!(benches);
