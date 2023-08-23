@@ -4,6 +4,7 @@ use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
 pub mod local_disk;
+#[cfg(feature = "rocksdb")]
 pub mod rocks;
 pub mod spool_id;
 
