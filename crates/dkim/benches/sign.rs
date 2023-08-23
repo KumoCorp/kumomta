@@ -1,7 +1,7 @@
-use kumo_dkim::canonicalization::Type;
-use kumo_dkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
+use kumo_dkim::canonicalization::Type;
+use kumo_dkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use rsa::pkcs1::DecodeRsaPrivateKey;
 
 fn email_text() -> String {

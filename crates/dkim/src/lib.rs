@@ -9,7 +9,6 @@ use rsa::pkcs8::DecodePrivateKey;
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
-use std::sync::Arc;
 use trust_dns_resolver::TokioAsyncResolver;
 
 use mailparse::MailHeaderMap;
@@ -171,12 +170,12 @@ fn verify_signature(
 }
 
 async fn verify_email_header<'a>(
-    resolver: Arc<dyn dns::Lookup>,
+    resolver: &dyn dns::Lookup,
     dkim_header: &'a DKIMHeader,
     email: &'a ParsedEmail<'a>,
 ) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
     let public_key = public_key::retrieve_public_key(
-        Arc::clone(&resolver),
+        resolver,
         dkim_header.get_required_tag("d"),
         dkim_header.get_required_tag("s"),
     )
@@ -228,7 +227,7 @@ async fn verify_email_header<'a>(
 pub async fn verify_email_with_resolver<'a>(
     from_domain: &str,
     email: &'a ParsedEmail<'a>,
-    resolver: Arc<dyn dns::Lookup>,
+    resolver: &dyn dns::Lookup,
 ) -> Result<DKIMResult, DKIMError> {
     let mut last_error = None;
 
@@ -251,7 +250,7 @@ pub async fn verify_email_with_resolver<'a>(
             continue;
         }
 
-        match verify_email_header(Arc::clone(&resolver), &dkim_header, email).await {
+        match verify_email_header(resolver, &dkim_header, email).await {
             Ok((header_canonicalization_type, body_canonicalization_type)) => {
                 return Ok(DKIMResult::pass(
                     signing_domain,
@@ -282,9 +281,8 @@ pub async fn verify_email<'a>(
     let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
     })?;
-    let resolver = dns::from_tokio_resolver(resolver);
 
-    verify_email_with_resolver(from_domain, email, resolver).await
+    verify_email_with_resolver(from_domain, email, &resolver).await
 }
 
 #[cfg(test)]
@@ -440,10 +438,10 @@ Joe."#
             .get_value_raw();
         let raw_header_dkim = String::from_utf8_lossy(h);
 
-        let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
+        let resolver = MockResolver::new();
 
         let dkim_verify_result = verify_email_header(
-            Arc::clone(&resolver),
+            &resolver,
             &DKIMHeader::parse(&raw_header_dkim).unwrap(),
             &email,
         )
@@ -490,10 +488,10 @@ Joe.
             .get_value_raw();
         let raw_header_rsa = String::from_utf8_lossy(h);
 
-        let resolver: Arc<dyn Lookup> = Arc::new(MockResolver::new());
+        let resolver = MockResolver::new();
 
         let dkim_verify_result = verify_email_header(
-            Arc::clone(&resolver),
+            &resolver,
             &DKIMHeader::parse(&raw_header_rsa).unwrap(),
             &email,
         )

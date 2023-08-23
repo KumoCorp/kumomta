@@ -2,7 +2,6 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use rsa::{pkcs1, pkcs8};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::{dns, parser, DKIMError, DkimPublicKey, DNS_NAMESPACE};
 
@@ -11,7 +10,7 @@ const ED25519_KEY_TYPE: &str = "ed25519";
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.2
 pub(crate) async fn retrieve_public_key(
-    resolver: Arc<dyn dns::Lookup>,
+    resolver: &dyn dns::Lookup,
     domain: &str,
     subdomain: &str,
 ) -> Result<DkimPublicKey, DKIMError> {
@@ -103,9 +102,9 @@ mod tests {
                 })
             }
         }
-        let resolver = Arc::new(TestResolver {});
+        let resolver = TestResolver {};
 
-        retrieve_public_key(resolver, "cloudflare.com", "dkim")
+        retrieve_public_key(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap();
     }
@@ -124,9 +123,9 @@ mod tests {
                 })
             }
         }
-        let resolver = Arc::new(TestResolver {});
+        let resolver = TestResolver {};
 
-        let key = retrieve_public_key(resolver, "cloudflare.com", "dkim")
+        let key = retrieve_public_key(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::KeyIncompatibleVersion);
@@ -146,9 +145,9 @@ mod tests {
                 })
             }
         }
-        let resolver = Arc::new(TestResolver {});
+        let resolver = TestResolver {};
 
-        let key = retrieve_public_key(resolver, "cloudflare.com", "dkim")
+        let key = retrieve_public_key(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::InappropriateKeyAlgorithm);

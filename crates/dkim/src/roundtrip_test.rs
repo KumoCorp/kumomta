@@ -7,7 +7,6 @@ use chrono::TimeZone;
 use futures::future::BoxFuture;
 use regex::Regex;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 fn dkim_record() -> String {
     let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
@@ -40,7 +39,7 @@ fn sign(domain: &str, raw_email: &str) -> String {
     format!("{}\r\n{}", header, raw_email)
 }
 
-async fn verify(resolver: Arc<dyn dns::Lookup>, from_domain: &str, raw_email: &str) -> DKIMResult {
+async fn verify(resolver: &dyn dns::Lookup, from_domain: &str, raw_email: &str) -> DKIMResult {
     let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
 
     verify_email_with_resolver(from_domain, &email, resolver)
@@ -60,29 +59,29 @@ macro_rules! map {
          };
     }
 
-fn test_resolver(db: HashMap<&'static str, String>) -> Arc<dyn dns::Lookup> {
-    struct TestResolver {
-        db: HashMap<&'static str, String>,
+struct TestResolver {
+    db: HashMap<&'static str, String>,
+}
+impl dns::Lookup for TestResolver {
+    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
+        let res = if let Some(value) = self.db.get(name) {
+            vec![value.to_string()]
+        } else {
+            unreachable!("attempted to resolve: {}", name)
+        };
+        Box::pin(async move { Ok(res) })
     }
-    impl dns::Lookup for TestResolver {
-        fn lookup_txt<'a>(
-            &'a self,
-            name: &'a str,
-        ) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
-            let res = if let Some(value) = self.db.get(name) {
-                vec![value.to_string()]
-            } else {
-                unreachable!("attempted to resolve: {}", name)
-            };
-            Box::pin(async move { Ok(res) })
-        }
+}
+
+impl TestResolver {
+    fn new(db: HashMap<&'static str, String>) -> Self {
+        Self { db }
     }
-    Arc::new(TestResolver { db })
 }
 
 #[tokio::test]
 async fn test_roundtrip() {
-    let resolver = test_resolver(map! {
+    let resolver = TestResolver::new(map! {
         "2022._domainkey.cloudflare.com" => dkim_record()
     });
     let from_domain = "cloudflare.com";
@@ -98,7 +97,7 @@ Hello Alice
         let signed_email = sign(from_domain, &email);
         eprintln!("input email:\n{email:?}");
         eprintln!("signed email:\n{signed_email:?}");
-        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        let res = verify(&resolver, from_domain, &signed_email).await;
         eprintln!("{res:?}");
         assert_eq!(res.with_detail(), "pass");
     }
@@ -114,7 +113,7 @@ From: Sven Sauleau <sven@cloudflare.com>
         .replace("\n", "\r\n");
 
         let signed_email = sign(from_domain, &email);
-        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        let res = verify(&resolver, from_domain, &signed_email).await;
         assert_eq!(res.with_detail(), "pass")
     }
 
@@ -168,7 +167,7 @@ sentation" style=3D"width:100%;">
 "#.replace("\n", "\r\n");
 
         let signed_email = sign(from_domain, &email);
-        let res = verify(Arc::clone(&resolver), from_domain, &signed_email).await;
+        let res = verify(&resolver, from_domain, &signed_email).await;
         assert_eq!(res.with_detail(), "pass")
     }
 }

@@ -1,6 +1,6 @@
+use chrono::TimeZone;
 use kumo_dkim::canonicalization::Type;
 use kumo_dkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
-use chrono::TimeZone;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use std::time::Instant;
 

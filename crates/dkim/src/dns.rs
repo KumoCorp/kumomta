@@ -40,6 +40,24 @@ impl Lookup for TokioAsyncResolverWrapper {
     }
 }
 
+impl Lookup for TokioAsyncResolver {
+    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
+        Box::pin(async move {
+            self.txt_lookup(name)
+                .await
+                .map_err(to_lookup_error)?
+                .into_iter()
+                .map(|txt| {
+                    Ok(txt
+                        .iter()
+                        .map(|data| String::from_utf8_lossy(data))
+                        .collect())
+                })
+                .collect()
+        })
+    }
+}
+
 pub fn from_tokio_resolver(resolver: TokioAsyncResolver) -> Arc<dyn Lookup> {
     Arc::new(TokioAsyncResolverWrapper { inner: resolver })
 }
