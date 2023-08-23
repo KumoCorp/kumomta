@@ -1,0 +1,31 @@
+Return-Path: <example@example.com>
+X-Original-To: test.foobar@example.com
+Delivered-To: x11700823@homiemail-mx8.g.dreamhost.com
+Received: from homiemail-a15.g.dreamhost.com (agjbgdcfdaaf.dreamhost.com [69.163.253.5])
+	(using TLSv1 with cipher ADH-AES256-SHA (256/256 bits))
+	(No client certificate requested)
+	by homiemail-mx8.g.dreamhost.com (Postfix) with ESMTPS id 7DEB6A010C
+	for <test.foobar@example.com>; Sun, 22 May 2016 11:16:51 -0700 (PDT)
+Received: from homiemail-a15.g.dreamhost.com (localhost [127.0.0.1])
+	by homiemail-a15.g.dreamhost.com (Postfix) with ESMTP id 3016776C06B;
+	Sun, 22 May 2016 11:16:51 -0700 (PDT)
+DKIM-Signature: v=1; a=rsa-sha1; c=relaxed; d=example.com; h=
+	mime-version:from:to:subject:date:content-type:message-id; s=
+	example.com; bh=OtypsA3TTYXz2zqEj+PynojfmXg=; b=SDmJv4I7Cq/qtN
+	eLA2FWO0PW59gmRw7JPjnQ8lRLrB6DaR7REHkfbKOurvMmri6WFlm59kS52zS0Xm
+	KDdhEO3tBFIGTtytiZAI9W033LHb8fZiwQ8W7O3ssSWUBR3kV6fDXjB4/uSXt+kU
+	H3aU9QSlHlPohrye0oGaSB5sl838k=
+Received: from localhost (apache2-quack.mug.dreamhost.com [208.113.163.206])
+	(using TLSv1 with cipher DHE-RSA-AES256-SHA (256/256 bits))
+	(No client certificate requested)
+	by homiemail-a15.g.dreamhost.com (Postfix) with ESMTPSA id D149A76C069;
+	Sun, 22 May 2016 11:16:50 -0700 (PDT)
+MIME-Version: 1.0
+From: Kartikaya Gupta <example@example.com>
+To: test.foobar@example.com
+Subject: test
+Date: Sun, 22 May 2016 18:16:50 +0000
+Content-Type: text/plain; charset=utf-8
+Message-Id: <20160522181650.D149A76C069@homiemail-a15.g.dreamhost.com>
+
+Ignore this :)

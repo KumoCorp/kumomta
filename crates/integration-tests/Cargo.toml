@@ -14,7 +14,7 @@ kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 lipsum = "0.8"
 mail-builder = "0.2"
-maildir = {git="https://github.com/wez/maildir.git", rev="898d604fec05bfcb5af52f3960c4b07028faad39"}
+maildir = {path="../maildir"}
 mailparse = "0.14"
 nix = {version="0.26", features=["signal"]}
 rfc5321 = {path="../rfc5321"}

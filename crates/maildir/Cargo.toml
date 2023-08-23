@@ -1,0 +1,30 @@
+[package]
+name = "maildir"
+version = "0.6.3"
+authors = ["Kartikaya Gupta"]
+edition = "2018"
+license = "0BSD"
+
+description = "A simple library for maildir manipulation"
+homepage = "https://github.com/staktrace/maildir/blob/master/README.md"
+repository = "https://github.com/staktrace/maildir"
+readme = "README.md"
+keywords = ["maildir", "email", "rfc822", "mime"]
+categories = ["email", "filesystem"]
+exclude = [".gitignore", ".github/**"]
+
+[badges]
+maintenance = { status = "passively-maintained" }
+
+[dependencies]
+mailparse = "0.14"
+gethostname = "0.2.3"
+memmap2 = { version = "0.5.8", optional = true }
+
+[features]
+mmap = ["memmap2"]
+
+[dev-dependencies]
+tempfile = "3.0.8"
+walkdir = "2.2.7"
+percent-encoding = "1.0.1"
