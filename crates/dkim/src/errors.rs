@@ -78,6 +78,13 @@ quick_error! {
         PrivateKeyLoadError(err: String) {
             display("failed to load private key: {err}")
         }
+        MailParsingError(err: mailparsing::MailParsingError) {
+            from()
+            display("failed to parse message: {err:#}")
+        }
+        CanonicalLineEndingsRequired {
+            display("Canonical CRLF line endings are required for correct signing and verification")
+        }
     }
 }
 
@@ -100,6 +107,8 @@ impl DKIMError {
             | SignatureDidNotVerify
             | BodyHashDidNotVerify
             | MalformedBody
+            | CanonicalLineEndingsRequired
+            | MailParsingError(_)
             | UnsupportedCanonicalizationType(_)
             | UnsupportedHashAlgorithm(_) => Status::Permfail,
             KeyUnavailable(_)

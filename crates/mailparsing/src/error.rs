@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Clone, Debug, PartialEq)]
 pub enum MailParsingError {
     #[error("invalid header: {0}")]
     HeaderParse(String),
