@@ -8,8 +8,8 @@ use config::{any_err, from_lua_value};
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparse::{MailHeader, MailHeaderMap};
-use mailparsing::HeaderParseResult;
+use mailparse::MailHeader;
+use mailparsing::{Header, HeaderParseResult};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -609,32 +609,32 @@ impl Message {
 
     pub fn get_first_named_header_value(&self, name: &str) -> anyhow::Result<Option<String>> {
         let data = self.get_data();
-        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+        let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
-        match headers.get_first_header(name) {
-            Some(hdr) => Ok(Some(hdr.get_value_utf8()?)),
+        match headers.get_first(name) {
+            Some(hdr) => Ok(Some(hdr.as_unstructured()?)),
             None => Ok(None),
         }
     }
 
     pub fn get_all_named_header_values(&self, name: &str) -> anyhow::Result<Vec<String>> {
         let data = self.get_data();
-        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+        let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
-        for hdr in headers.get_all_headers(name) {
-            values.push(hdr.get_value_utf8()?);
+        for hdr in headers.iter_named(name) {
+            values.push(hdr.as_unstructured()?);
         }
         Ok(values)
     }
 
     pub fn get_all_headers(&self) -> anyhow::Result<Vec<(String, String)>> {
         let data = self.get_data();
-        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+        let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
         let mut values = vec![];
-        for hdr in headers {
-            values.push((hdr.get_key(), hdr.get_value_utf8()?));
+        for hdr in headers.iter() {
+            values.push((hdr.get_name().to_string(), hdr.as_unstructured()?));
         }
         Ok(values)
     }
@@ -676,17 +676,17 @@ impl Message {
 
     pub fn import_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
         let data = self.get_data();
-        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+        let HeaderParseResult { headers, .. } = Header::parse_headers(data.as_ref().as_ref())?;
 
-        for hdr in headers {
+        for hdr in headers.iter() {
             let do_import = if names.is_empty() {
-                is_x_header(&hdr)
+                is_x_header(hdr.get_name())
             } else {
-                is_header_in_names_list(&hdr, &names)
+                is_header_in_names_list(hdr.get_name(), &names)
             };
             if do_import {
-                let name = imported_header_name(&hdr);
-                self.set_meta(name, hdr.get_value_utf8()?)?;
+                let name = imported_header_name(hdr.get_name());
+                self.set_meta(name, hdr.as_unstructured()?)?;
             }
         }
 
@@ -696,9 +696,9 @@ impl Message {
     pub fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
         self.retain_headers(|hdr| {
             if names.is_empty() {
-                !is_x_header(hdr)
+                !is_x_header(hdr.get_key_ref().as_ref())
             } else {
-                !is_header_in_names_list(&hdr, &names)
+                !is_header_in_names_list(hdr.get_key_ref().as_ref(), &names)
             }
         })
     }
@@ -730,8 +730,7 @@ impl Message {
     }
 }
 
-fn is_header_in_names_list(hdr: &MailHeader, names: &[String]) -> bool {
-    let hdr_name = hdr.get_key_ref();
+fn is_header_in_names_list(hdr_name: &str, names: &[String]) -> bool {
     for name in names {
         if hdr_name.eq_ignore_ascii_case(name) {
             return true;
@@ -740,9 +739,8 @@ fn is_header_in_names_list(hdr: &MailHeader, names: &[String]) -> bool {
     false
 }
 
-fn imported_header_name(hdr: &MailHeader) -> String {
-    hdr.get_key_ref()
-        .chars()
+fn imported_header_name(name: &str) -> String {
+    name.chars()
         .map(|c| match c.to_ascii_lowercase() {
             '-' => '_',
             c => c,
@@ -750,8 +748,7 @@ fn imported_header_name(hdr: &MailHeader) -> String {
         .collect()
 }
 
-fn is_x_header(hdr: &MailHeader) -> bool {
-    let name = hdr.get_key_ref();
+fn is_x_header(name: &str) -> bool {
     name.starts_with("X-") || name.starts_with("x-")
 }
 

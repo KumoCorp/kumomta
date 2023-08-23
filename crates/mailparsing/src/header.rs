@@ -10,6 +10,7 @@ bitflags::bitflags! {
     pub struct HeaderConformance: u8 {
         const MISSING_COLON_VALUE = 0b0000_0001;
         const NON_CANONICAL_LINE_ENDINGS = 0b0000_0010;
+        const NAME_ENDS_WITH_SPACE = 0b0000_0100;
     }
 }
 
@@ -281,6 +282,11 @@ impl<'a> Header<'a> {
                     if c == b':' {
                         name_end.replace(idx);
                         state = State::Separator;
+                    } else if c == b' ' || c == b'\t' {
+                        if name_end.is_none() {
+                            name_end.replace(idx);
+                        }
+                        conformance.set(HeaderConformance::NAME_ENDS_WITH_SPACE, true);
                     } else if c < 33 || c > 126 {
                         return Err(MailParsingError::HeaderParse(format!(
                             "header name must be comprised of printable US-ASCII characters. Found {c:?}"
