@@ -1,8 +1,8 @@
 //! ARF reports
-use crate::rfc3464::RemoteMta;
+use crate::rfc3464::{content_type, RemoteMta};
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use mailparse::{parse_headers, parse_mail, ParsedMail};
+use mailparsing::{Header, HeaderParseResult, MimePart};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -43,34 +43,37 @@ pub struct ARFReport {
 
 impl ARFReport {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
-        let mail = parse_mail(input)?;
+        let mail = MimePart::parse(input)?;
+        let ct = mail.headers().content_type()?;
+        let ct = match ct {
+            None => return Ok(None),
+            Some(ct) => ct,
+        };
 
-        if mail.ctype.mimetype != "multipart/report" {
+        if ct.value != "multipart/report" {
             return Ok(None);
         }
-        if mail.ctype.params.get("report-type").map(|s| s.as_str()) != Some("feedback-report") {
+
+        if ct.get("report-type").as_deref() != Some("feedback-report") {
             return Ok(None);
         }
 
         let mut original_message = None;
         let mut supplemental_trace = None;
 
-        for part in &mail.subparts {
-            if part.ctype.mimetype == "message/rfc822"
-                || part.ctype.mimetype == "text/rfc822-headers"
-            {
-                let (_headers, offset) = parse_headers(part.raw_bytes)?;
-                let bytes = &part.raw_bytes[offset..];
-
-                if let Ok((headers, _)) = parse_headers(bytes) {
+        for part in mail.child_parts() {
+            let ct = content_type(part);
+            let ct = ct.as_deref();
+            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
+                if let Ok(HeaderParseResult { headers, .. }) =
+                    Header::parse_headers(part.raw_body())
+                {
                     // Look for x-headers that might be our supplemental trace headers
-                    for hdr in headers {
-                        if !(hdr.get_key_ref().starts_with("X-")
-                            || hdr.get_key_ref().starts_with("x-"))
-                        {
+                    for hdr in headers.iter() {
+                        if !(hdr.get_name().starts_with("X-") || hdr.get_name().starts_with("x-")) {
                             continue;
                         }
-                        if let Ok(decoded) = base64::decode(hdr.get_value_raw()) {
+                        if let Ok(decoded) = base64::decode(hdr.get_raw_value()) {
                             #[derive(Deserialize)]
                             struct Wrap {
                                 #[serde(rename = "_@_")]
@@ -91,12 +94,14 @@ impl ARFReport {
                     }
                 }
 
-                original_message = Some(String::from_utf8_lossy(bytes).replace("\r\n", "\n"));
+                original_message = Some(part.raw_body().replace("\r\n", "\n"));
             }
         }
 
-        for part in &mail.subparts {
-            if part.ctype.mimetype == "message/feedback-report" {
+        for part in mail.child_parts() {
+            let ct = content_type(part);
+            let ct = ct.as_deref();
+            if ct == Some("message/feedback-report") {
                 return Ok(Some(Self::parse_inner(
                     part,
                     original_message,
@@ -109,11 +114,11 @@ impl ARFReport {
     }
 
     fn parse_inner(
-        part: &ParsedMail,
+        part: &MimePart,
         original_message: Option<String>,
         supplemental_trace: Option<serde_json::Value>,
     ) -> anyhow::Result<Self> {
-        let body = part.get_body()?;
+        let body = part.raw_body();
         let mut extensions = extract_headers(body.as_bytes())?;
 
         let feedback_type = extract_single_req("feedback-type", &mut extensions)?;
@@ -153,16 +158,16 @@ impl ARFReport {
 }
 
 pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<HashMap<String, Vec<String>>> {
-    let (headers, _) = parse_headers(part)?;
+    let HeaderParseResult { headers, .. } = Header::parse_headers(part)?;
 
     let mut extensions = HashMap::new();
 
-    for hdr in headers {
-        let name = hdr.get_key_ref().to_ascii_lowercase();
+    for hdr in headers.iter() {
+        let name = hdr.get_name().to_ascii_lowercase();
         extensions
             .entry(name)
             .or_insert_with(|| vec![])
-            .push(hdr.get_value_utf8()?);
+            .push(hdr.as_unstructured()?);
     }
     Ok(extensions)
 }

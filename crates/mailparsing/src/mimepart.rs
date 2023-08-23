@@ -131,12 +131,21 @@ impl<'a> MimePart<'a> {
                     memchr::memchr(b'\n', &raw_body.as_bytes()[boundary_end..])
                         .map(|p| p + boundary_end + 1)
                 {
-                    let part_end = iter.next().unwrap_or(raw_body.len());
+                    let part_end = iter
+                        .next()
+                        .map(|p| {
+                            // P is the newline; we want to include it in the raw
+                            // bytes for this part, so look beyond it
+                            p + 1
+                        })
+                        .unwrap_or(raw_body.len());
 
                     let child = Self::parse_impl(raw_body.slice(part_start..part_end), false)?;
                     self.parts.push(child);
 
-                    boundary_end = part_end + boundary.len();
+                    boundary_end = part_end -
+                        1 /* newline we adjusted for when assigning part_end */
+                        + boundary.len();
                     if boundary_end + 2 > raw_body.len()
                         || &raw_body.as_bytes()[boundary_end..boundary_end + 2] == b"--"
                     {
@@ -352,7 +361,8 @@ Ok(
             r#"
 Ok(
     Text(
-        "This is the plaintext version, in utf-8. Proof by Euro: €",
+        "This is the plaintext version, in utf-8. Proof by Euro: €\r
+",
     ),
 )
 "#

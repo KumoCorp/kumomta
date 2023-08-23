@@ -2323,7 +2323,7 @@ dependencies = [
  "bounce-classify",
  "chrono",
  "k9",
- "mailparse",
+ "mailparsing",
  "rfc5321",
  "serde",
  "serde_json",

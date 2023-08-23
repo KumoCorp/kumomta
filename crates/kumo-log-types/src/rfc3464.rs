@@ -5,7 +5,7 @@ use crate::rfc5965::{
 };
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
-use mailparse::{parse_headers, parse_mail, ParsedMail};
+use mailparsing::MimePart;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -226,29 +226,38 @@ pub struct Report {
     pub original_message: Option<String>,
 }
 
+pub(crate) fn content_type(part: &MimePart) -> Option<String> {
+    let ct = part.headers().content_type().ok()??;
+    Some(ct.value)
+}
+
 impl Report {
     pub fn parse(input: &[u8]) -> anyhow::Result<Option<Self>> {
-        let mail = parse_mail(input)?;
+        let mail = MimePart::parse(input).with_context(|| {
+            format!(
+                "Report::parse top; input is {:?}",
+                String::from_utf8_lossy(input)
+            )
+        })?;
 
-        if mail.ctype.mimetype != "multipart/report" {
+        if content_type(&mail).as_deref() != Some("multipart/report") {
             return Ok(None);
         }
 
         let mut original_message = None;
 
-        for part in &mail.subparts {
-            if part.ctype.mimetype == "message/rfc822"
-                || part.ctype.mimetype == "text/rfc822-headers"
-            {
-                let (_headers, offset) = parse_headers(part.raw_bytes)?;
-                original_message =
-                    Some(String::from_utf8_lossy(&part.raw_bytes[offset..]).replace("\r\n", "\n"));
+        for part in mail.child_parts() {
+            let ct = content_type(part);
+            let ct = ct.as_deref();
+            if ct == Some("message/rfc822") || ct == Some("text/rfc822-headers") {
+                original_message = Some(part.raw_body().replace("\r\n", "\n"));
             }
         }
 
-        for part in &mail.subparts {
-            if part.ctype.mimetype == "message/delivery-status"
-                || part.ctype.mimetype == "message/global-delivery-status"
+        for part in mail.child_parts() {
+            let ct = content_type(part);
+            let ct = ct.as_deref();
+            if ct == Some("message/delivery-status") || ct == Some("message/global-delivery-status")
             {
                 return Ok(Some(Self::parse_inner(part, original_message)?));
             }
@@ -257,8 +266,8 @@ impl Report {
         anyhow::bail!("delivery-status part missing");
     }
 
-    fn parse_inner(part: &ParsedMail, original_message: Option<String>) -> anyhow::Result<Self> {
-        let body = part.get_body()?;
+    fn parse_inner(part: &MimePart, original_message: Option<String>) -> anyhow::Result<Self> {
+        let body = part.raw_body();
         let body = body.replace("\r\n", "\n");
         let mut parts = body.trim().split("\n\n");
 

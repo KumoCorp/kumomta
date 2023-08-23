@@ -202,13 +202,6 @@ impl<'a> Header<'a> {
 
         while idx < header_block.len() {
             let b = header_block[idx];
-            if headers.is_empty() {
-                if b.is_ascii_whitespace() {
-                    return Err(MailParsingError::HeaderParse(
-                        "header block must not start with spaces".to_string(),
-                    ));
-                }
-            }
             if b == b'\n' {
                 // LF: End of header block
                 idx += 1;
@@ -224,6 +217,13 @@ impl<'a> Header<'a> {
                 return Err(MailParsingError::HeaderParse(
                     "lone CR in header".to_string(),
                 ));
+            }
+            if headers.is_empty() {
+                if b.is_ascii_whitespace() {
+                    return Err(MailParsingError::HeaderParse(
+                        "header block must not start with spaces".to_string(),
+                    ));
+                }
             }
             let (header, next) = Self::parse(header_block.slice(idx..header_block.len()))?;
             overall_conformance |= header.conformance;
