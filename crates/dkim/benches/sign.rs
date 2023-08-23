@@ -1,5 +1,5 @@
-use cfdkim::canonicalization::Type;
-use cfdkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
+use kumo_dkim::canonicalization::Type;
+use kumo_dkim::{DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use rsa::pkcs1::DecodeRsaPrivateKey;
@@ -72,7 +72,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             .build()
             .unwrap();
 
-        let mut group = c.benchmark_group("cfdkim signing");
+        let mut group = c.benchmark_group("kumo_dkim signing");
         group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Bytes(email_text.len() as u64));
         group.bench_function(&format!("sign {canon:?}"), |b| {
@@ -99,7 +99,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             .build()
             .unwrap();
 
-        let mut group = c.benchmark_group("cfdkim openssl signing");
+        let mut group = c.benchmark_group("kumo_dkim openssl signing");
         group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Bytes(email_text.len() as u64));
         group.bench_function(&format!("sign {canon:?}"), |b| {

@@ -1,11 +1,10 @@
 [package]
-name = "cfdkim"
+name = "kumo-dkim"
 version = "0.3.0"
 authors = ["Sven Sauleau <sven@cloudflare.com>"]
 edition = "2021"
 description = "DKIM (RFC6376) implementation"
 repository = "https://github.com/cloudflare/dkim"
-documentation = "https://docs.rs/cfdkim"
 categories = ["email"]
 keywords = ["email", "dkim", "authentification"]
 readme = "README.md"

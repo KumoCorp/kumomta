@@ -660,35 +660,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfdkim"
-version = "0.3.0"
-dependencies = [
- "base64 0.21.2",
- "chrono",
- "criterion",
- "ed25519-dalek",
- "foreign-types",
- "futures",
- "indexmap 1.9.3",
- "k9",
- "mailparse",
- "memchr",
- "nom 7.1.3",
- "once_cell",
- "openssl",
- "openssl-sys",
- "quick-error 2.0.1",
- "regex",
- "rsa",
- "sha-1",
- "sha2",
- "textwrap 0.16.0",
- "tokio",
- "tracing",
- "trust-dns-resolver",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2325,6 +2296,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-dkim"
+version = "0.3.0"
+dependencies = [
+ "base64 0.21.2",
+ "chrono",
+ "criterion",
+ "ed25519-dalek",
+ "foreign-types",
+ "futures",
+ "indexmap 1.9.3",
+ "k9",
+ "mailparse",
+ "memchr",
+ "nom 7.1.3",
+ "once_cell",
+ "openssl",
+ "openssl-sys",
+ "quick-error 2.0.1",
+ "regex",
+ "rsa",
+ "sha-1",
+ "sha2",
+ "textwrap 0.16.0",
+ "tokio",
+ "tracing",
+ "trust-dns-resolver",
+]
+
+[[package]]
 name = "kumo-log-types"
 version = "0.1.0"
 dependencies = [
@@ -2865,13 +2865,13 @@ dependencies = [
  "anyhow",
  "base64 0.13.1",
  "bitflags 2.4.0",
- "cfdkim",
  "chrono",
  "chrono-tz",
  "config",
  "data-loader",
  "futures",
  "k9",
+ "kumo-dkim",
  "kumo-log-types",
  "lazy_static",
  "lruttl",

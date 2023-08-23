@@ -1,7 +1,7 @@
 use anyhow::Context;
-use cfdkim::DkimPrivateKey;
 use config::{from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
+use kumo_dkim::DkimPrivateKey;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
@@ -64,7 +64,7 @@ impl SignerConfig {
         300
     }
 
-    fn configure_cfdkim(&self, key: DkimPrivateKey) -> anyhow::Result<cfdkim::Signer> {
+    fn configure_kumo_dkim(&self, key: DkimPrivateKey) -> anyhow::Result<kumo_dkim::Signer> {
         if self.atps.is_some() {
             anyhow::bail!("atps is not currently supported for RSA keys");
         }
@@ -81,19 +81,19 @@ impl SignerConfig {
             anyhow::bail!("reporting is not currently supported for RSA keys");
         }
 
-        let mut signer = cfdkim::SignerBuilder::new()
+        let mut signer = kumo_dkim::SignerBuilder::new()
             .with_signed_headers(&self.headers)
             .context("configure signed headers")?
             .with_private_key(key)
             .with_selector(&self.selector)
             .with_signing_domain(&self.domain)
             .with_header_canonicalization(match self.header_canonicalization {
-                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
-                Canon::Simple => cfdkim::canonicalization::Type::Simple,
+                Canon::Relaxed => kumo_dkim::canonicalization::Type::Relaxed,
+                Canon::Simple => kumo_dkim::canonicalization::Type::Simple,
             })
             .with_body_canonicalization(match self.body_canonicalization {
-                Canon::Relaxed => cfdkim::canonicalization::Type::Relaxed,
-                Canon::Simple => cfdkim::canonicalization::Type::Simple,
+                Canon::Relaxed => kumo_dkim::canonicalization::Type::Relaxed,
+                Canon::Simple => kumo_dkim::canonicalization::Type::Simple,
             });
         if let Some(exp) = self.expiration {
             signer = signer.with_expiry(chrono::Duration::seconds(exp as i64));
@@ -135,7 +135,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
 
             let signer = params
-                .configure_cfdkim(key)
+                .configure_kumo_dkim(key)
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
             let inner = Arc::new(CFSigner { signer });
@@ -166,7 +166,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
 
             let signer = params
-                .configure_cfdkim(key)
+                .configure_kumo_dkim(key)
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
             let inner = Arc::new(CFSigner { signer });
@@ -181,12 +181,12 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 }
 
 pub struct CFSigner {
-    signer: cfdkim::Signer,
+    signer: kumo_dkim::Signer,
 }
 
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
-        let mail = cfdkim::ParsedEmail::parse_bytes(&message)
+        let mail = kumo_dkim::ParsedEmail::parse_bytes(&message)
             .ok_or_else(|| anyhow::anyhow!("failed to parse message to pass to dkim signer"))?;
 
         let dkim_header = self.signer.sign(&mail)?;
