@@ -1,5 +1,4 @@
-use maildir::MailEntry;
-use maildir::Maildir;
+use maildir::{MailEntry, Maildir};
 use std::io;
 
 fn list_mail(mail: MailEntry) {

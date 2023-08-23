@@ -1,9 +1,3 @@
-#[cfg(feature = "mmap")]
-extern crate memmap2;
-
-use std::error;
-use std::fmt;
-use std::fs;
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::ops::Deref;
@@ -13,7 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time;
+use std::{error, fmt, fs, time};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
