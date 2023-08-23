@@ -20,7 +20,7 @@ fn dkim_record() -> String {
 }
 
 fn sign(domain: &str, raw_email: &str) -> String {
-    let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+    let email = ParsedEmail::parse(raw_email).unwrap();
 
     let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
     let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
@@ -40,7 +40,7 @@ fn sign(domain: &str, raw_email: &str) -> String {
 }
 
 async fn verify(resolver: &dyn dns::Lookup, from_domain: &str, raw_email: &str) -> DKIMResult {
-    let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+    let email = ParsedEmail::parse(raw_email).unwrap();
 
     verify_email_with_resolver(from_domain, &email, resolver)
         .await

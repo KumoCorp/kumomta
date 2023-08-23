@@ -11,8 +11,6 @@ use sha1::Sha1;
 use sha2::Sha256;
 use trust_dns_resolver::TokioAsyncResolver;
 
-use mailparse::MailHeaderMap;
-
 #[macro_use]
 extern crate quick_error;
 
@@ -231,8 +229,8 @@ pub async fn verify_email_with_resolver<'a>(
 ) -> Result<DKIMResult, DKIMError> {
     let mut last_error = None;
 
-    for h in email.get_headers().get_all_headers(HEADER) {
-        let value = String::from_utf8_lossy(h.get_value_raw());
+    for h in email.get_headers().iter_named(HEADER) {
+        let value = h.get_raw_value();
         tracing::debug!("checking signature {:?}", value);
 
         let dkim_header = match DKIMHeader::parse(&value) {
@@ -429,20 +427,19 @@ We lost the game.  Are you hungry yet?
 Joe."#
             .replace('\n', "\r\n");
 
-        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
-        let h = email
+        let email = ParsedEmail::parse(raw_email).unwrap();
+        let raw_header_dkim = email
             .get_headers()
-            .get_all_headers(HEADER)
-            .first()
+            .iter_named(HEADER)
+            .next()
             .unwrap()
-            .get_value_raw();
-        let raw_header_dkim = String::from_utf8_lossy(h);
+            .get_raw_value();
 
         let resolver = MockResolver::new();
 
         let dkim_verify_result = verify_email_header(
             &resolver,
-            &DKIMHeader::parse(&raw_header_dkim).unwrap(),
+            &DKIMHeader::parse(raw_header_dkim).unwrap(),
             &email,
         )
         .await;
@@ -479,20 +476,19 @@ We lost the game. Are you hungry yet?
 Joe.
 "#
             .replace('\n', "\r\n");
-        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
-        let h = email
+        let email = ParsedEmail::parse(raw_email).unwrap();
+        let raw_header_rsa = email
             .get_headers()
-            .get_all_headers(HEADER)
-            .first()
+            .iter_named(HEADER)
+            .next()
             .unwrap()
-            .get_value_raw();
-        let raw_header_rsa = String::from_utf8_lossy(h);
+            .get_raw_value();
 
         let resolver = MockResolver::new();
 
         let dkim_verify_result = verify_email_header(
             &resolver,
-            &DKIMHeader::parse(&raw_header_rsa).unwrap(),
+            &DKIMHeader::parse(raw_header_rsa).unwrap(),
             &email,
         )
         .await;

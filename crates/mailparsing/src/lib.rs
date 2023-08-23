@@ -9,7 +9,7 @@ mod strings;
 pub use error::MailParsingError;
 pub type Result<T> = std::result::Result<T, MailParsingError>;
 
-pub use header::Header;
+pub use header::{Header, HeaderConformance, HeaderParseResult};
 pub use headermap::HeaderMap;
 pub use mimepart::MimePart;
 pub use rfc5322_parser::*;

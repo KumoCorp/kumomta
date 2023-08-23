@@ -297,7 +297,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(raw_email).unwrap();
 
         let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
@@ -337,7 +337,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(raw_email).unwrap();
 
         let data = std::fs::read("./test/keys/2022.private").unwrap();
         let pkey = openssl::rsa::Rsa::private_key_from_pem(&data).unwrap();
@@ -384,7 +384,7 @@ We lost the game.  Are you hungry yet?
 
 Joe."#
             .replace('\n', "\r\n");
-        let email = ParsedEmail::parse_bytes(raw_email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(raw_email).unwrap();
 
         let file_content = fs::read("./test/keys/ed.private").unwrap();
         let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();

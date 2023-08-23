@@ -103,7 +103,7 @@ pub(crate) fn compute_body_hash<'a>(
     hash_algo: HashAlgo,
     email: &'a ParsedEmail<'a>,
 ) -> Result<String, DKIMError> {
-    let body = email.get_body_bytes();
+    let body = email.get_body();
     let limit = length.unwrap_or(usize::MAX);
 
     let mut hasher = LimitHasher {
@@ -112,7 +112,7 @@ pub(crate) fn compute_body_hash<'a>(
         hashed: 0,
     };
 
-    canonicalization_type.canon_body(body, &mut hasher);
+    canonicalization_type.canon_body(body.as_bytes(), &mut hasher);
 
     Ok(hasher.finalize())
 }
@@ -158,11 +158,7 @@ impl HeaderList {
 
     /// Apply `apply` to each header in the provided email that
     /// matches the headers, follow the order set out in Section 5.4.2
-    fn apply<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
-        &self,
-        email: &'a ParsedEmail,
-        apply: F,
-    ) {
+    fn apply<'a, F: FnMut(&'a str, &'a [u8])>(&self, email: &'a ParsedEmail, apply: F) {
         match self {
             Self::MaybeMultiple(list) => Self::apply_multiple(list, email, apply),
             Self::Unique(list) => Self::apply_unique(list, email, apply),
@@ -172,7 +168,7 @@ impl HeaderList {
     /// Perform the apply when we know that the list of header names
     /// are unique.
     /// We can avoid allocating any additional state for this case.
-    fn apply_unique<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
+    fn apply_unique<'a, F: FnMut(&'a str, &'a [u8])>(
         header_list: &[String],
         email: &'a ParsedEmail,
         mut apply: F,
@@ -181,8 +177,8 @@ impl HeaderList {
 
         'outer: for name in header_list {
             for header in email_headers.iter().rev() {
-                if header.get_key_ref().eq_ignore_ascii_case(&name) {
-                    apply(header.get_key_ref(), header.get_value_raw());
+                if header.get_name().eq_ignore_ascii_case(&name) {
+                    apply(header.get_name(), header.get_raw_value().as_bytes());
                     continue 'outer;
                 }
             }
@@ -198,7 +194,7 @@ impl HeaderList {
     /// To facilitate this, we need to maintain state for each header name
     /// in the list to ensure that we select the appropriate header in the
     /// appropriate order.
-    fn apply_multiple<'a, F: FnMut(std::borrow::Cow<'a, str>, &'a [u8])>(
+    fn apply_multiple<'a, F: FnMut(&'a str, &'a [u8])>(
         header_list: &[String],
         email: &'a ParsedEmail,
         mut apply: F,
@@ -218,8 +214,8 @@ impl HeaderList {
                 .rev()
                 .skip(num_headers - index)
             {
-                if header.get_key_ref().eq_ignore_ascii_case(&name) {
-                    apply(header.get_key_ref(), header.get_value_raw());
+                if header.get_name().eq_ignore_ascii_case(&name) {
+                    apply(header.get_name(), header.get_raw_value().as_bytes());
                     last_index.insert(name, header_index);
                     continue 'outer;
                 }
@@ -286,7 +282,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(email).unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let length = None;
@@ -311,7 +307,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(email).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = None;
@@ -336,7 +332,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(email).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = Some(3);
@@ -354,7 +350,7 @@ Hello Alice
 
     #[test]
     fn test_compute_body_hash_empty_simple() {
-        let email = ParsedEmail::parse_bytes(b"Subject: nothing\r\n\r\n").unwrap();
+        let email = ParsedEmail::parse("Subject: nothing\r\n\r\n").unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let length = None;
@@ -372,7 +368,7 @@ Hello Alice
 
     #[test]
     fn test_compute_body_hash_empty_relaxed() {
-        let email = ParsedEmail::parse_bytes(b"Subject: nothing\r\n\r\n").unwrap();
+        let email = ParsedEmail::parse("Subject: nothing\r\n\r\n").unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let length = None;
@@ -397,7 +393,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(email).unwrap();
 
         let canonicalization_type = canonicalization::Type::Simple;
         let hash_algo = HashAlgo::RsaSha1;
@@ -442,7 +438,7 @@ From: Sven Sauleau <sven@cloudflare.com>
 Hello Alice
         "#
         .replace("\n", "\r\n");
-        let email = ParsedEmail::parse_bytes(email.as_bytes()).unwrap();
+        let email = ParsedEmail::parse(email).unwrap();
 
         let canonicalization_type = canonicalization::Type::Relaxed;
         let hash_algo = HashAlgo::RsaSha1;
@@ -480,18 +476,14 @@ Hello Alice
 
     #[test]
     fn test_get_body() {
-        let email = ParsedEmail::parse_bytes("Subject: A\r\n\r\nContent\n.hi\n.hello..".as_bytes())
-            .unwrap();
-        assert_eq!(
-            String::from_utf8_lossy(email.get_body_bytes()),
-            "Content\n.hi\n.hello..".to_owned()
-        );
+        let email = ParsedEmail::parse("Subject: A\r\n\r\nContent\n.hi\n.hello..").unwrap();
+        assert_eq!(email.get_body(), "Content\n.hi\n.hello..");
     }
 
     fn select_headers<'a>(
         header_list: &HeaderList,
         email: &'a ParsedEmail,
-    ) -> Vec<(std::borrow::Cow<'a, str>, &'a [u8])> {
+    ) -> Vec<(&'a str, &'a [u8])> {
         let mut result = vec![];
         header_list.apply(email, |key, value| {
             result.push((key, value));
@@ -507,10 +499,9 @@ Hello Alice
             "to".to_string(),
         ]);
 
-        let email1 = ParsedEmail::parse_bytes(
-            b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
-        )
-        .unwrap();
+        let email1 =
+            ParsedEmail::parse("from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest")
+                .unwrap();
 
         let result1 = select_headers(&header_list, &email1);
         assert_eq!(
@@ -522,8 +513,7 @@ Hello Alice
         );
 
         let email2 =
-            ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
-                .unwrap();
+            ParsedEmail::parse("From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest").unwrap();
 
         let result2 = select_headers(&header_list, &email2);
         assert_eq!(
@@ -544,10 +534,9 @@ Hello Alice
             "from".to_string(),
         ]);
 
-        let email1 = ParsedEmail::parse_bytes(
-            b"from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest",
-        )
-        .unwrap();
+        let email1 =
+            ParsedEmail::parse("from: biz\r\nfoo: bar\r\nfrom: baz\r\nsubject: boring\r\n\r\ntest")
+                .unwrap();
 
         let result1 = select_headers(&header_list, &email1);
         assert_eq!(
@@ -560,8 +549,7 @@ Hello Alice
         );
 
         let email2 =
-            ParsedEmail::parse_bytes(b"From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest")
-                .unwrap();
+            ParsedEmail::parse("From: biz\r\nFoo: bar\r\nSubject: Boring\r\n\r\ntest").unwrap();
 
         let result2 = select_headers(&header_list, &email2);
         assert_eq!(

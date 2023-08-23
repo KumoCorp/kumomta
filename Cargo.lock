@@ -2307,7 +2307,7 @@ dependencies = [
  "futures",
  "indexmap 1.9.3",
  "k9",
- "mailparse",
+ "mailparsing",
  "memchr",
  "nom 7.1.3",
  "once_cell",
