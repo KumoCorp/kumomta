@@ -31,7 +31,7 @@ pub use errors::DKIMError;
 use header::{DKIMHeader, HEADER};
 pub use parsed_email::ParsedEmail;
 pub use parser::{tag_list as parse_tag_list, Tag};
-pub use result::DKIMResult;
+pub use result::{DKIMResult, DKIMVerificationStatus};
 pub use sign::{Signer, SignerBuilder};
 
 const DNS_NAMESPACE: &str = "_domainkey";

@@ -1,7 +1,8 @@
 #![cfg(test)]
+use crate::canonicalization::Type;
 use crate::{
-    dns, verify_email_with_resolver, DKIMError, DKIMResult, DkimPrivateKey, ParsedEmail,
-    SignerBuilder,
+    dns, verify_email_with_resolver, DKIMError, DKIMResult, DKIMVerificationStatus, DkimPrivateKey,
+    ParsedEmail, SignerBuilder,
 };
 use chrono::TimeZone;
 use futures::future::BoxFuture;
@@ -87,7 +88,13 @@ Hello Alice
         eprintln!("signed email:\n{signed_email:?}");
         let res = verify(&resolver, from_domain, &signed_email).await;
         eprintln!("{res:?}");
-        assert_eq!(res.with_detail(), "pass");
+        assert_eq!(
+            res.status(),
+            &DKIMVerificationStatus::Pass {
+                header_canon: Type::Simple,
+                body_canon: Type::Simple
+            }
+        );
     }
 
     {
@@ -102,7 +109,13 @@ From: Sven Sauleau <sven@cloudflare.com>
 
         let signed_email = sign(from_domain, &email);
         let res = verify(&resolver, from_domain, &signed_email).await;
-        assert_eq!(res.with_detail(), "pass")
+        assert_eq!(
+            res.status(),
+            &DKIMVerificationStatus::Pass {
+                header_canon: Type::Simple,
+                body_canon: Type::Simple
+            }
+        )
     }
 
     {
@@ -156,6 +169,12 @@ sentation" style=3D"width:100%;">
 
         let signed_email = sign(from_domain, &email);
         let res = verify(&resolver, from_domain, &signed_email).await;
-        assert_eq!(res.with_detail(), "pass")
+        assert_eq!(
+            res.status(),
+            &DKIMVerificationStatus::Pass {
+                header_canon: Type::Simple,
+                body_canon: Type::Simple
+            }
+        );
     }
 }
