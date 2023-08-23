@@ -2,12 +2,10 @@
 name = "maildir"
 version = "0.6.3"
 authors = ["Kartikaya Gupta"]
-edition = "2018"
+edition = "2021"
 license = "0BSD"
 
 description = "A simple library for maildir manipulation"
-homepage = "https://github.com/staktrace/maildir/blob/master/README.md"
-repository = "https://github.com/staktrace/maildir"
 readme = "README.md"
 keywords = ["maildir", "email", "rfc822", "mime"]
 categories = ["email", "filesystem"]
