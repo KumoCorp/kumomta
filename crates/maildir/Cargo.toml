@@ -18,13 +18,13 @@ maintenance = { status = "passively-maintained" }
 
 [dependencies]
 mailparse = "0.14"
-gethostname = "0.2.3"
-memmap2 = { version = "0.5.8", optional = true }
+gethostname = "0.4"
+memmap2 = { version = "0.7", optional = true }
 
 [features]
 mmap = ["memmap2"]
 
 [dev-dependencies]
-tempfile = "3.0.8"
-walkdir = "2.2.7"
-percent-encoding = "1.0.1"
+tempfile = "3.8"
+walkdir = "2.3"
+percent-encoding = "2.3"

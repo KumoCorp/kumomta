@@ -90,7 +90,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "751bbd7d440576066233e740576f1b31fdc6ab86cfabfbd48c548de77eca73e4"
 dependencies = [
  "amq-protocol-types",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "url",
 ]
 
@@ -350,7 +350,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "pin-project-lite",
  "rustversion",
  "serde",
@@ -1561,7 +1561,7 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a62bc1cf6f830c2ec14a513a9fb124d0a213a629668a4186f329db21fe045652"
 dependencies = [
- "percent-encoding 2.3.0",
+ "percent-encoding",
 ]
 
 [[package]]
@@ -1701,16 +1701,6 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "gethostname"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1ebd34e35c46e00bb73e81363248d627782724609fe1b6396f553f68fe3862e"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]
@@ -2356,7 +2346,7 @@ dependencies = [
  "console-subscriber",
  "data-loader",
  "domain-map",
- "gethostname 0.4.3",
+ "gethostname",
  "json_comments",
  "kumo-api-types",
  "kumo-server-lifecycle",
@@ -2455,7 +2445,7 @@ dependencies = [
  "dns-resolver",
  "flume",
  "gcd",
- "gethostname 0.4.3",
+ "gethostname",
  "humansize",
  "humantime-serde",
  "k9",
@@ -2730,7 +2720,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8390bb0f68168cabc59999706c2199c9b556d7dfd94e65a26e8840fa1d58b238"
 dependencies = [
- "gethostname 0.4.3",
+ "gethostname",
 ]
 
 [[package]]
@@ -2746,10 +2736,10 @@ dependencies = [
 name = "maildir"
 version = "0.6.3"
 dependencies = [
- "gethostname 0.2.3",
+ "gethostname",
  "mailparse",
  "memmap2",
- "percent-encoding 1.0.1",
+ "percent-encoding",
  "tempfile",
  "walkdir",
 ]
@@ -2824,9 +2814,9 @@ checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
 name = "memmap2"
-version = "0.5.10"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83faa42c0a078c393f6b29d5db232d8be22776a891f8f56e5284faee4a20b327"
+checksum = "f49388d20533534cd19360ad3d6a7dadc885944aa802ba3995040c5ec11288c6"
 dependencies = [
  "libc",
 ]
@@ -3567,12 +3557,6 @@ dependencies = [
 
 [[package]]
 name = "percent-encoding"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31010dd2e1ac33d5b46a5b413495239882813e0369f8ed8a5e266f173602f831"
-
-[[package]]
-name = "percent-encoding"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b2a4787296e9989611394c33f193f676704af1686e70b8f8033ab5ba9a35a94"
@@ -4085,7 +4069,7 @@ dependencies = [
  "combine",
  "crc16",
  "itoa",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "r2d2",
  "rand",
  "ryu",
@@ -4196,7 +4180,7 @@ dependencies = [
  "log",
  "mime",
  "once_cell",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "pin-project-lite",
  "rustls",
  "rustls-pemfile",
@@ -5352,7 +5336,7 @@ dependencies = [
  "http-body",
  "hyper",
  "hyper-timeout",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "pin-project",
  "prost",
  "tokio",
@@ -5688,7 +5672,7 @@ checksum = "50bff7831e19200a85b17131d085c25d7811bc4e186efdaf54bbd132994a88cb"
 dependencies = [
  "form_urlencoded",
  "idna",
- "percent-encoding 2.3.0",
+ "percent-encoding",
  "serde",
 ]
 
