@@ -2875,7 +2875,6 @@ dependencies = [
  "kumo-log-types",
  "lazy_static",
  "lruttl",
- "mailparse",
  "mailparsing",
  "mlua",
  "prometheus",

@@ -8,7 +8,6 @@ use config::{any_err, from_lua_value};
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparse::MailHeader;
 use mailparsing::{Header, HeaderParseResult};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
@@ -639,24 +638,22 @@ impl Message {
         Ok(values)
     }
 
-    pub fn retain_headers<F: FnMut(&MailHeader) -> bool>(&self, mut func: F) -> anyhow::Result<()> {
+    pub fn retain_headers<F: FnMut(&Header) -> bool>(&self, mut func: F) -> anyhow::Result<()> {
         let data = self.get_data();
         let mut new_data = Vec::with_capacity(data.len());
-        let (headers, body_offset) = mailparse::parse_headers(&data)?;
-        for hdr in headers {
-            let retain = (func)(&hdr);
+        let HeaderParseResult {
+            headers,
+            body_offset,
+            ..
+        } = Header::parse_headers(data.as_ref().as_ref())?;
+        for hdr in headers.iter() {
+            let retain = (func)(hdr);
             if !retain {
                 continue;
             }
-            new_data.extend_from_slice(hdr.get_key_raw());
-            new_data.push(b':');
-            new_data.push(b' ');
-            new_data.extend_from_slice(hdr.get_value_raw());
-            new_data.push(b'\r');
-            new_data.push(b'\n');
+            new_data.extend_from_slice(hdr.to_header_string().as_bytes());
         }
-        new_data.push(b'\r');
-        new_data.push(b'\n');
+        new_data.extend_from_slice(b"\r\n");
         new_data.extend_from_slice(&data[body_offset..]);
         self.assign_data(new_data);
         Ok(())
@@ -665,7 +662,7 @@ impl Message {
     pub fn remove_first_named_header(&self, name: &str) -> anyhow::Result<()> {
         let mut removed = false;
         self.retain_headers(|hdr| {
-            if hdr.get_key_ref().eq_ignore_ascii_case(name) && !removed {
+            if hdr.get_name().eq_ignore_ascii_case(name) && !removed {
                 removed = true;
                 false
             } else {
@@ -696,15 +693,15 @@ impl Message {
     pub fn remove_x_headers(&self, names: Vec<String>) -> anyhow::Result<()> {
         self.retain_headers(|hdr| {
             if names.is_empty() {
-                !is_x_header(hdr.get_key_ref().as_ref())
+                !is_x_header(hdr.get_name())
             } else {
-                !is_header_in_names_list(hdr.get_key_ref().as_ref(), &names)
+                !is_header_in_names_list(hdr.get_name(), &names)
             }
         })
     }
 
     pub fn remove_all_named_headers(&self, name: &str) -> anyhow::Result<()> {
-        self.retain_headers(|hdr| !hdr.get_key_ref().eq_ignore_ascii_case(name))
+        self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name))
     }
 
     pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
@@ -1177,7 +1174,7 @@ QueueNameComponents {
         msg.remove_x_headers(vec![]).unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "Subject: Hello\r\nFrom : Someone\r\n\r\nBody"
+            "Subject: Hello\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 
@@ -1254,7 +1251,7 @@ QueueNameComponents {
         msg.remove_first_named_header("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom : Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 
@@ -1264,7 +1261,7 @@ QueueNameComponents {
         msg.remove_all_named_headers("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nFrom : Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
         );
     }
 }

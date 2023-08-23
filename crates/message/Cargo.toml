@@ -18,7 +18,6 @@ futures = "0.3"
 kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
-mailparse = "0.14"
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 prometheus = "0.13"

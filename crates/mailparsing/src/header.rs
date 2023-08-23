@@ -280,7 +280,9 @@ impl<'a> Header<'a> {
                 }
                 State::Name => {
                     if c == b':' {
-                        name_end.replace(idx);
+                        if name_end.is_none() {
+                            name_end.replace(idx);
+                        }
                         state = State::Separator;
                     } else if c == b' ' || c == b'\t' {
                         if name_end.is_none() {
