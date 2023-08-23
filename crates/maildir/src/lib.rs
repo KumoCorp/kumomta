@@ -1,3 +1,5 @@
+use chrono::{DateTime, FixedOffset};
+use mailparsing::{Header, HeaderMap, HeaderParseResult, MailParsingError, MimePart};
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::ops::Deref;
@@ -11,8 +13,6 @@ use std::{error, fmt, fs, time};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-use mailparse::*;
-
 #[cfg(unix)]
 const INFORMATIONAL_SUFFIX_SEPARATOR: &str = ":";
 #[cfg(windows)]
@@ -21,16 +21,18 @@ const INFORMATIONAL_SUFFIX_SEPARATOR: &str = ";";
 #[derive(Debug)]
 pub enum MailEntryError {
     IOError(std::io::Error),
-    ParseError(MailParseError),
+    ParseError(MailParsingError),
     DateError(&'static str),
+    ChronoError(chrono::format::ParseError),
 }
 
 impl fmt::Display for MailEntryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            MailEntryError::IOError(ref err) => write!(f, "IO error: {}", err),
-            MailEntryError::ParseError(ref err) => write!(f, "Parse error: {}", err),
-            MailEntryError::DateError(ref msg) => write!(f, "Date error: {}", msg),
+            MailEntryError::IOError(ref err) => write!(f, "IO error: {err}"),
+            MailEntryError::ParseError(ref err) => write!(f, "Parse error: {err}"),
+            MailEntryError::DateError(ref msg) => write!(f, "Date error: {msg}"),
+            MailEntryError::ChronoError(ref err) => write!(f, "Date error: {err:#}"),
         }
     }
 }
@@ -41,7 +43,14 @@ impl error::Error for MailEntryError {
             MailEntryError::IOError(ref err) => Some(err),
             MailEntryError::ParseError(ref err) => Some(err),
             MailEntryError::DateError(_) => None,
+            MailEntryError::ChronoError(ref err) => Some(err),
         }
+    }
+}
+
+impl From<chrono::format::ParseError> for MailEntryError {
+    fn from(err: chrono::format::ParseError) -> MailEntryError {
+        MailEntryError::ChronoError(err)
     }
 }
 
@@ -51,8 +60,8 @@ impl From<std::io::Error> for MailEntryError {
     }
 }
 
-impl From<MailParseError> for MailEntryError {
-    fn from(err: MailParseError) -> MailEntryError {
+impl From<MailParsingError> for MailEntryError {
+    fn from(err: MailParsingError) -> MailEntryError {
         MailEntryError::ParseError(err)
     }
 }
@@ -76,6 +85,16 @@ impl MailData {
         match self {
             MailData::None => true,
             _ => false,
+        }
+    }
+
+    fn data(&self) -> Option<&[u8]> {
+        match self {
+            Self::None => None,
+            #[cfg(not(feature = "mmap"))]
+            MailData::Bytes(ref b) => Some(b),
+            #[cfg(feature = "mmap")]
+            MailData::File(ref m) => Some(m),
         }
     }
 }
@@ -117,49 +136,52 @@ impl MailEntry {
         Ok(())
     }
 
-    pub fn parsed(&mut self) -> Result<ParsedMail, MailEntryError> {
+    pub fn parsed(&mut self) -> Result<MimePart, MailEntryError> {
         self.read_data()?;
-        match self.data {
-            MailData::None => panic!("read_data should have returned an Err!"),
-            #[cfg(not(feature = "mmap"))]
-            MailData::Bytes(ref b) => parse_mail(b).map_err(MailEntryError::ParseError),
-            #[cfg(feature = "mmap")]
-            MailData::File(ref m) => parse_mail(m).map_err(MailEntryError::ParseError),
-        }
+        let bytes = self
+            .data
+            .data()
+            .expect("read_data should have returned an Err!");
+
+        MimePart::parse(bytes).map_err(MailEntryError::ParseError)
     }
 
-    pub fn headers(&mut self) -> Result<Vec<MailHeader>, MailEntryError> {
+    pub fn headers(&mut self) -> Result<HeaderMap, MailEntryError> {
         self.read_data()?;
-        let headers = match self.data {
-            MailData::None => panic!("read_data should have returned an Err!"),
-            #[cfg(not(feature = "mmap"))]
-            MailData::Bytes(ref b) => parse_headers(b),
-            #[cfg(feature = "mmap")]
-            MailData::File(ref m) => parse_headers(m),
-        };
-        headers.map(|(v, _)| v).map_err(MailEntryError::ParseError)
+        let bytes = self
+            .data
+            .data()
+            .expect("read_data should have returned an Err!");
+
+        let HeaderParseResult { headers, .. } =
+            Header::parse_headers(bytes).map_err(MailEntryError::ParseError)?;
+
+        Ok(headers)
     }
 
-    pub fn received(&mut self) -> Result<i64, MailEntryError> {
+    pub fn received(&mut self) -> Result<DateTime<FixedOffset>, MailEntryError> {
         self.read_data()?;
         let headers = self.headers()?;
-        let received = headers.get_first_value("Received");
+        let received = headers.get_first("Received");
         match received {
             Some(v) => v
+                .get_raw_value()
                 .rsplit(';')
                 .nth(0)
                 .ok_or_else(|| MailEntryError::DateError("Unable to split Received header"))
-                .and_then(|ts| dateparse(ts).map_err(MailEntryError::from)),
+                .and_then(|ts| DateTime::parse_from_rfc2822(ts).map_err(MailEntryError::from)),
             None => Err("No Received header found")?,
         }
     }
 
-    pub fn date(&mut self) -> Result<i64, MailEntryError> {
+    pub fn date(&mut self) -> Result<DateTime<FixedOffset>, MailEntryError> {
         self.read_data()?;
         let headers = self.headers()?;
-        let date = headers.get_first_value("Date");
+        let date = headers.get_first("Date");
         match date {
-            Some(ts) => dateparse(&ts).map_err(MailEntryError::from),
+            Some(ts) => {
+                DateTime::parse_from_rfc2822(ts.get_raw_value()).map_err(MailEntryError::from)
+            }
             None => Err("No Date header found")?,
         }
     }

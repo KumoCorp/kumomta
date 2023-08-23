@@ -12,7 +12,6 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(windows)]
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
-use mailparse::MailHeaderMap;
 use percent_encoding::percent_decode;
 use tempfile::tempdir;
 use walkdir::WalkDir;
@@ -92,10 +91,7 @@ fn maildir_list() {
         let mut iter = maildir.list_new();
         let mut first = iter.next().unwrap().unwrap();
         assert_eq!(first.id(), "1463941010.5f7fa6dd4922c183dc457d033deee9d7");
-        assert_eq!(
-            first.headers().unwrap().get_first_value("Subject"),
-            Some(String::from("test"))
-        );
+        assert_eq!(first.headers().unwrap().subject().unwrap().unwrap(), "test",);
         assert_eq!(first.is_seen(), false);
         let second = iter.next();
         assert!(second.is_none());
@@ -104,8 +100,14 @@ fn maildir_list() {
         let mut first = iter.next().unwrap().unwrap();
         assert_eq!(first.id(), "1463868505.38518452d49213cb409aa1db32f53184");
         assert_eq!(
-            first.parsed().unwrap().headers.get_first_value("Subject"),
-            Some(String::from("test"))
+            first
+                .parsed()
+                .unwrap()
+                .headers()
+                .subject()
+                .unwrap()
+                .unwrap(),
+            "test"
         );
         assert_eq!(first.is_seen(), true);
         let second = iter.next();
@@ -230,7 +232,7 @@ fn check_received() {
     with_maildir(MAILDIR_NAME, |maildir| {
         let mut iter = maildir.list_cur();
         let mut first = iter.next().unwrap().unwrap();
-        assert_eq!(first.received().unwrap(), 1_463_868_507);
+        assert_eq!(first.received().unwrap().timestamp(), 1_463_868_507);
     });
 }
 
@@ -284,8 +286,8 @@ fn check_store_new() {
         assert!(msg.is_some());
 
         assert_eq!(
-            msg.unwrap().parsed().unwrap().get_body_raw().unwrap(),
-            b"Today is Boomtime, the 59th day of Discord in the YOLD 3183".as_ref()
+            msg.unwrap().parsed().unwrap().raw_body(),
+            "Today is Boomtime, the 59th day of Discord in the YOLD 3183"
         );
     });
 }

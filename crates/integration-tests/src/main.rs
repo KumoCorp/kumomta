@@ -13,7 +13,6 @@ mod test {
     use k9::assert_equal;
     use kumo_api_types::SuspendV1Response;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
-    use mailparse::MailHeaderMap;
     use rfc5321::*;
     use std::time::Duration;
 
@@ -443,23 +442,53 @@ DeliverySummary {
 
         assert_equal!(messages.len(), 1);
         let parsed = messages[0].parsed()?;
-        println!("headers: {:?}", parsed.headers);
+        println!("headers: {:?}", parsed.headers());
 
-        assert!(parsed.headers.get_first_header("Received").is_some());
-        assert!(parsed.headers.get_first_header("X-KumoRef").is_some());
-        assert_equal!(
-            parsed.headers.get_first_value("From").unwrap(),
-            "<sender@example.com>"
+        assert!(parsed.headers().get_first("Received").is_some());
+        assert!(parsed.headers().get_first("X-KumoRef").is_some());
+        k9::snapshot!(
+            parsed.headers().from().unwrap(),
+            r#"
+Some(
+    MailboxList(
+        [
+            Mailbox {
+                name: None,
+                address: AddrSpec {
+                    local_part: "sender",
+                    domain: "example.com",
+                },
+            },
+        ],
+    ),
+)
+"#
+        );
+        k9::snapshot!(
+            parsed.headers().to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: None,
+                    address: AddrSpec {
+                        local_part: "recip",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
         );
         assert_equal!(
-            parsed.headers.get_first_value("To").unwrap(),
-            "<recip@example.com>"
-        );
-        assert_equal!(
-            parsed.headers.get_first_value("Subject").unwrap(),
+            parsed.headers().subject().unwrap().unwrap(),
             "Hello! This is a test"
         );
-        assert_equal!(parsed.get_body()?, body);
+        assert_equal!(parsed.raw_body(), body.as_ref());
 
         Ok(())
     }
@@ -621,23 +650,53 @@ Ok(
 
         assert_equal!(messages.len(), 1);
         let parsed = messages[0].parsed()?;
-        println!("headers: {:?}", parsed.headers);
+        println!("headers: {:?}", parsed.headers());
 
-        assert!(parsed.headers.get_first_header("Received").is_some());
-        assert!(parsed.headers.get_first_header("X-KumoRef").is_some());
-        assert_equal!(
-            parsed.headers.get_first_value("From").unwrap(),
-            "<sender@example.com>"
+        assert!(parsed.headers().get_first("Received").is_some());
+        assert!(parsed.headers().get_first("X-KumoRef").is_some());
+        k9::snapshot!(
+            parsed.headers().from().unwrap(),
+            r#"
+Some(
+    MailboxList(
+        [
+            Mailbox {
+                name: None,
+                address: AddrSpec {
+                    local_part: "sender",
+                    domain: "example.com",
+                },
+            },
+        ],
+    ),
+)
+"#
+        );
+        k9::snapshot!(
+            parsed.headers().to().unwrap(),
+            r#"
+Some(
+    AddressList(
+        [
+            Mailbox(
+                Mailbox {
+                    name: None,
+                    address: AddrSpec {
+                        local_part: "recip",
+                        domain: "example.com",
+                    },
+                },
+            ),
+        ],
+    ),
+)
+"#
         );
         assert_equal!(
-            parsed.headers.get_first_value("To").unwrap(),
-            "<recip@example.com>"
-        );
-        assert_equal!(
-            parsed.headers.get_first_value("Subject").unwrap(),
+            parsed.headers().subject().unwrap().unwrap(),
             "Hello! This is a test"
         );
-        assert_equal!(parsed.get_body()?, body);
+        assert_equal!(parsed.raw_body(), body.as_ref());
 
         Ok(())
     }

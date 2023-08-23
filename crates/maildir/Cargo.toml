@@ -15,8 +15,9 @@ exclude = [".gitignore", ".github/**"]
 maintenance = { status = "passively-maintained" }
 
 [dependencies]
-mailparse = "0.14"
+chrono = {version="0.4", default-features=false}
 gethostname = "0.4"
+mailparsing = { path="../mailparsing" }
 memmap2 = { version = "0.7", optional = true }
 
 [features]

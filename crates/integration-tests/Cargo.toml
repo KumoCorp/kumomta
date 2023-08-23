@@ -15,7 +15,7 @@ kumo-log-types = {path="../kumo-log-types"}
 lipsum = "0.8"
 mail-builder = "0.2"
 maildir = {path="../maildir"}
-mailparse = "0.14"
+mailparsing = {path="../mailparsing"}
 nix = {version="0.26", features=["signal"]}
 rfc5321 = {path="../rfc5321"}
 serde = "1.0"
