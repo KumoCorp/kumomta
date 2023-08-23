@@ -12,4 +12,6 @@ pub enum MailParsingError {
     InvalidContentTransferEncoding(String),
     #[error("parsing body: {0}")]
     BodyParse(String),
+    #[error("Data is not ASCII or UTF-8")]
+    NotAscii,
 }

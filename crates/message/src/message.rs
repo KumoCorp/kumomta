@@ -9,6 +9,7 @@ use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 use mailparse::{MailHeader, MailHeaderMap};
+use mailparsing::HeaderParseResult;
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -593,10 +594,15 @@ impl Message {
         header_name: &str,
     ) -> anyhow::Result<Option<HeaderAddressList>> {
         let data = self.get_data();
-        let (headers, _body_offset) = mailparse::parse_headers(&data)?;
+        let HeaderParseResult { headers, .. } =
+            mailparsing::Header::parse_headers(data.as_ref().as_ref())?;
 
-        match headers.get_first_header(header_name) {
-            Some(hdr) => Ok(HeaderAddressList::parse_header_value(hdr.get_value_raw())),
+        match headers.get_first(header_name) {
+            Some(hdr) => {
+                let list = hdr.as_address_list()?;
+                let result: HeaderAddressList = list.into();
+                Ok(Some(result))
+            }
             None => Ok(None),
         }
     }

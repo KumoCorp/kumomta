@@ -1,5 +1,5 @@
 use config::any_err;
-use mail_parser::{Addr, Group, HeaderValue};
+use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,13 @@ impl HeaderAddressList {
     }
 }
 
+impl From<AddressList> for HeaderAddressList {
+    fn from(input: AddressList) -> HeaderAddressList {
+        let addresses: Vec<HeaderAddressEntry> = input.0.iter().map(Into::into).collect();
+        HeaderAddressList(addresses)
+    }
+}
+
 impl UserData for HeaderAddressList {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| {
@@ -183,18 +190,22 @@ pub enum HeaderAddressEntry {
     Group(AddressGroup),
 }
 
-impl From<Addr<'_>> for HeaderAddressEntry {
-    fn from(addr: Addr) -> Self {
-        Self::Address(addr.into())
-    }
-}
-
-impl From<Group<'_>> for HeaderAddressEntry {
-    fn from(group: Group) -> Self {
-        Self::Group(AddressGroup {
-            name: group.name.map(|s| s.to_string()),
-            addresses: group.addresses.into_iter().map(|a| a.into()).collect(),
-        })
+impl From<&Address> for HeaderAddressEntry {
+    fn from(addr: &Address) -> HeaderAddressEntry {
+        match addr {
+            Address::Mailbox(mbox) => HeaderAddressEntry::Address(mbox.into()),
+            Address::Group { name, entries } => {
+                let addresses = entries.0.iter().map(Into::into).collect();
+                HeaderAddressEntry::Group(AddressGroup {
+                    name: if name.is_empty() {
+                        None
+                    } else {
+                        Some(name.to_string())
+                    },
+                    addresses,
+                })
+            }
+        }
     }
 }
 
@@ -202,6 +213,15 @@ impl From<Group<'_>> for HeaderAddressEntry {
 pub struct HeaderAddress {
     pub name: Option<String>,
     pub address: Option<String>,
+}
+
+impl From<&Mailbox> for HeaderAddress {
+    fn from(mbox: &Mailbox) -> HeaderAddress {
+        Self {
+            name: mbox.name.clone(),
+            address: Some(mbox.address.encode_value().to_string()),
+        }
+    }
 }
 
 impl HeaderAddress {
@@ -251,59 +271,8 @@ impl UserData for HeaderAddress {
     }
 }
 
-impl From<Addr<'_>> for HeaderAddress {
-    fn from(addr: Addr) -> Self {
-        Self {
-            name: addr.name.map(|s| s.to_string()),
-            address: addr.address.map(|s| s.to_string()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressGroup {
     pub name: Option<String>,
     pub addresses: Vec<HeaderAddress>,
-}
-
-impl HeaderAddressList {
-    pub fn parse_header_value(data: &[u8]) -> Option<Self> {
-        // The parser needs a newline in the data otherwise it
-        // won't recognize the value
-        let mut fixed = data.to_vec();
-        fixed.push(b'\n');
-        let res = mail_parser::parsers::MessageStream::new(&fixed).parse_address();
-
-        let mut results = vec![];
-
-        match res {
-            HeaderValue::Address(addr) => {
-                results.push(addr.into());
-            }
-            HeaderValue::AddressList(list) => {
-                for addr in list {
-                    results.push(addr.into());
-                }
-            }
-            HeaderValue::Group(group) => {
-                results.push(group.into());
-            }
-            HeaderValue::GroupList(list) => {
-                for group in list {
-                    results.push(group.into());
-                }
-            }
-            HeaderValue::Text(_)
-            | HeaderValue::TextList(_)
-            | HeaderValue::DateTime(_)
-            | HeaderValue::ContentType(_)
-            | HeaderValue::Empty => {}
-        }
-
-        if results.is_empty() {
-            None
-        } else {
-            Some(Self(results))
-        }
-    }
 }

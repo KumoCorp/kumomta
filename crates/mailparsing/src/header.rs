@@ -3,6 +3,7 @@ use crate::rfc5322_parser::Parser;
 use crate::{
     AddressList, MailParsingError, Mailbox, MailboxList, MimeParameters, Result, SharedString,
 };
+use std::convert::TryInto;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -188,10 +189,12 @@ impl<'a> Header<'a> {
         Parser::parse_unstructured_header(self.get_raw_value())
     }
 
-    pub fn parse_headers<S: Into<SharedString<'a>>>(
+    pub fn parse_headers<S: TryInto<SharedString<'a>>>(
         header_block: S,
     ) -> Result<HeaderParseResult<'a>> {
-        let header_block = header_block.into();
+        let header_block = header_block
+            .try_into()
+            .map_err(|_| MailParsingError::NotAscii)?;
         let mut headers = vec![];
         let mut idx = 0;
         let mut overall_conformance = HeaderConformance::default();

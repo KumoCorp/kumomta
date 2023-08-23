@@ -1225,10 +1225,10 @@ pub enum Address {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AddressList(Vec<Address>);
+pub struct AddressList(pub Vec<Address>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MailboxList(Vec<Mailbox>);
+pub struct MailboxList(pub Vec<Mailbox>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mailbox {

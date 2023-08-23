@@ -120,3 +120,11 @@ impl<'a> From<&'a str> for SharedString<'a> {
         Self::Borrowed(s)
     }
 }
+
+impl<'a> TryFrom<&'a [u8]> for SharedString<'a> {
+    type Error = std::str::Utf8Error;
+    fn try_from(s: &'a [u8]) -> Result<Self, Self::Error> {
+        let s = std::str::from_utf8(s)?;
+        Ok(Self::Borrowed(s))
+    }
+}

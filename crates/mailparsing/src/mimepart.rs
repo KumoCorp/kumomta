@@ -2,6 +2,7 @@ use crate::header::{HeaderConformance, HeaderParseResult};
 use crate::headermap::HeaderMap;
 use crate::{Header, MailParsingError, MimeParameters, Result, SharedString};
 use charset::Charset;
+use std::convert::TryInto;
 use std::str::FromStr;
 
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
@@ -80,8 +81,8 @@ impl Rfc2045Info {
 
 impl<'a> MimePart<'a> {
     /// Parse some data into a tree of MimeParts
-    pub fn parse<S: Into<SharedString<'a>>>(bytes: S) -> Result<Self> {
-        let bytes = bytes.into();
+    pub fn parse<S: TryInto<SharedString<'a>>>(bytes: S) -> Result<Self> {
+        let bytes = bytes.try_into().map_err(|_| MailParsingError::NotAscii)?;
         Self::parse_impl(bytes, true)
     }
 

@@ -19,7 +19,7 @@ kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 mailparse = "0.14"
-mail-parser = "0.8"
+mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 prometheus = "0.13"
 rand = "0.8"
