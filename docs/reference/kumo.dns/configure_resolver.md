@@ -28,7 +28,7 @@ your system configuration.
 * `options` - a lua table listing out additional resolver options.
   The possible names, values and meanings are documented in
   the [trust DNS resolver ResolverOpts
-  documentation](https://docs.rs/trust-dns-resolver/0.22.0/trust_dns_resolver/config/struct.ResolverOpts.html)
+  documentation](https://docs.rs/trust-dns-resolver/0.23.0/trust_dns_resolver/config/struct.ResolverOpts.html)
 
 ```lua
 kumo.on('init', function()

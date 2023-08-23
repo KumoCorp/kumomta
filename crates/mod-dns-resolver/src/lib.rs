@@ -96,7 +96,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             .map_err(any_err)?;
                         let mut c = NameServerConfig::new(ip, protocol);
 
-                        c.trust_nx_responses = trust_negative_responses;
+                        c.trust_negative_responses = trust_negative_responses;
 
                         if let Some(bind) = bind_addr {
                             let addr: SocketAddr = bind
@@ -113,7 +113,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 });
             }
 
-            let resolver = TokioAsyncResolver::tokio(r_config, config.options).map_err(any_err)?;
+            let resolver = TokioAsyncResolver::tokio(r_config, config.options);
 
             dns_resolver::reconfigure_resolver(resolver).await;
 

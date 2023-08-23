@@ -355,7 +355,7 @@ pub async fn ipv4_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
     let ips = ipv4_lookup
         .as_lookup()
         .record_iter()
-        .filter_map(|r| (IpAddr::from(*r.data()?.as_a()?).into()))
+        .filter_map(|r| Some(r.data()?.as_a()?.0.into()))
         .collect::<Vec<_>>();
 
     let ips = Arc::new(ips);
@@ -377,7 +377,7 @@ pub async fn ipv6_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
     let ips = ipv6_lookup
         .as_lookup()
         .record_iter()
-        .filter_map(|r| (IpAddr::from(*r.data()?.as_aaaa()?)).into())
+        .filter_map(|r| Some(r.data()?.as_aaaa()?.0.into()))
         .collect::<Vec<_>>();
 
     let ips = Arc::new(ips);
