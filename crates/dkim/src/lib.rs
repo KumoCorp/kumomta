@@ -3,6 +3,7 @@
 use crate::hash::HeaderList;
 use base64::engine::general_purpose;
 use base64::Engine;
+use ed25519_dalek::SigningKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
@@ -47,7 +48,7 @@ pub(crate) enum DkimPublicKey {
 #[derive(Debug)]
 pub enum DkimPrivateKey {
     Rsa(RsaPrivateKey),
-    Ed25519(ed25519_dalek::SigningKey),
+    Ed25519(SigningKey),
     #[cfg(feature = "openssl")]
     OpenSSLRsa(openssl::rsa::Rsa<openssl::pkey::Private>),
 }
@@ -105,6 +106,27 @@ impl DkimPrivateKey {
             ))
         })?;
         Self::rsa_key(&data)
+    }
+
+    /// Parse PKCS8 encoded ed25519 key data into a DkimPrivateKey.
+    /// Both DER and PEM are supported
+    pub fn ed25519_key(data: &[u8]) -> Result<Self, DKIMError> {
+        let mut errors = vec![];
+
+        match SigningKey::from_pkcs8_der(data) {
+            Ok(key) => return Ok(Self::Ed25519(key)),
+            Err(err) => errors.push(format!("Ed25519 SigningKey::from_pkcs8_der: {err:#}")),
+        }
+
+        match std::str::from_utf8(data) {
+            Ok(s) => match SigningKey::from_pkcs8_pem(s) {
+                Ok(key) => return Ok(Self::Ed25519(key)),
+                Err(err) => errors.push(format!("Ed25519 SigningKey::from_pkcs8_pem: {err:#}")),
+            },
+            Err(err) => errors.push(format!("ed25519_key: data is not UTF-8: {err:#}")),
+        }
+
+        Err(DKIMError::PrivateKeyLoadError(errors.join(". ")))
     }
 }
 

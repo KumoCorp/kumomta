@@ -39,6 +39,8 @@
   base32, base64 and hex strings.
 * [kumo.dns.configure_resolver](../reference/kumo.dns/configure_resolver.md) for
   adjusting DNS resolver configuration.
+* [kumo.dkim.ed25519_signer](../reference/kumo.dkim/ed25519_signer.md) now also
+  supports loading signing keys that are in PEM encoded PKCS8 format.
 
 ## Fixes
 * Loading secrets from HashiCorp Vault failed to parse underlying json data into

@@ -3,9 +3,6 @@ use cfdkim::DkimPrivateKey;
 use config::{from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use lruttl::LruCacheWithTtl;
-use mail_auth::common::crypto::{Ed25519Key, HashAlgorithm, RsaKey, Sha256, SigningKey};
-use mail_auth::common::headers::HeaderWriter;
-use mail_auth::dkim::{Canonicalization, DkimSigner, Done, NeedDomain};
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
 use serde::Deserialize;
@@ -13,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
-    static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<SignerInner>> = LruCacheWithTtl::new(1024);
+    static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>> = LruCacheWithTtl::new(1024);
 }
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
@@ -28,28 +25,10 @@ impl Default for Canon {
     }
 }
 
-impl Into<Canonicalization> for Canon {
-    fn into(self) -> Canonicalization {
-        match self {
-            Self::Relaxed => Canonicalization::Relaxed,
-            Self::Simple => Canonicalization::Simple,
-        }
-    }
-}
-
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
 pub enum HashAlgo {
     Sha1,
     Sha256,
-}
-
-impl Into<HashAlgorithm> for HashAlgo {
-    fn into(self) -> HashAlgorithm {
-        match self {
-            Self::Sha1 => HashAlgorithm::Sha1,
-            Self::Sha256 => HashAlgorithm::Sha256,
-        }
-    }
 }
 
 #[derive(Deserialize, Hash, PartialEq, Eq, Clone)]
@@ -83,34 +62,6 @@ pub struct SignerConfig {
 impl SignerConfig {
     fn default_ttl() -> u64 {
         300
-    }
-
-    fn configure_signer<T: SigningKey>(
-        &self,
-        signer: DkimSigner<T, NeedDomain>,
-    ) -> DkimSigner<T, Done> {
-        let mut signer = signer
-            .domain(self.domain.clone())
-            .selector(self.selector.clone())
-            .headers(self.headers.clone());
-        if let Some(atps) = &self.atps {
-            signer = signer.atps(atps.clone());
-        }
-        if let Some(atpsh) = self.atpsh {
-            signer = signer.atpsh(atpsh.into());
-        }
-        if let Some(agent_user_identifier) = &self.agent_user_identifier {
-            signer = signer.agent_user_identifier(agent_user_identifier);
-        }
-        if let Some(expiration) = self.expiration {
-            signer = signer.expiration(expiration);
-        }
-        signer = signer.body_length(self.body_length);
-        signer = signer.reporting(self.reporting);
-        signer = signer.header_canonicalization(self.header_canonicalization.into());
-        signer = signer.body_canonicalization(self.body_canonicalization.into());
-
-        signer
     }
 
     fn configure_cfdkim(&self, key: DkimPrivateKey) -> anyhow::Result<cfdkim::Signer> {
@@ -152,32 +103,12 @@ impl SignerConfig {
     }
 }
 
-pub enum SignerInner {
-    RsaSha256(DkimSigner<RsaKey<Sha256>, Done>),
-    Ed25519(DkimSigner<Ed25519Key, Done>),
-    CFDKIM(CFSigner),
-}
-
 #[derive(Clone)]
-pub struct Signer(Arc<SignerInner>);
+pub struct Signer(Arc<CFSigner>);
 
 impl Signer {
     pub fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
         self.0.sign(message)
-    }
-}
-
-impl SignerInner {
-    fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
-        let sig = match self {
-            Self::RsaSha256(signer) => signer.sign(message),
-            Self::Ed25519(signer) => signer.sign(message),
-            Self::CFDKIM(signer) => return signer.sign(message),
-        }
-        .map_err(|err| anyhow::anyhow!("{err:#}"))?;
-
-        let header = sig.to_header();
-        Ok(header)
     }
 }
 
@@ -207,7 +138,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .configure_cfdkim(key)
                 .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
-            let inner = Arc::new(SignerInner::CFDKIM(CFSigner { signer }));
+            let inner = Arc::new(CFSigner { signer });
 
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
@@ -231,21 +162,15 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
 
-            let mut errors = vec![];
+            let key = DkimPrivateKey::ed25519_key(&data)
+                .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
 
-            let key = Ed25519Key::from_pkcs8_der(&data)
-                .or_else(|err| {
-                    errors.push(format!("from_pkcs8_der: {err:#}"));
-                    Ed25519Key::from_pkcs8_maybe_unchecked_der(&data)
-                })
-                .map_err(|err| {
-                    errors.push(format!("from_pkcs8_maybe_unchecked_der: {err:#}"));
-                    mlua::Error::external(format!("{:?}: {}", params.key, errors.join(", ")))
-                })?;
+            let signer = params
+                .configure_cfdkim(key)
+                .map_err(|err| mlua::Error::external(format!("{err:#}")))?;
 
-            let signer = params.configure_signer(DkimSigner::from_key(key));
+            let inner = Arc::new(CFSigner { signer });
 
-            let inner = Arc::new(SignerInner::Ed25519(signer));
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
