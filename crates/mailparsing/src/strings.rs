@@ -28,7 +28,7 @@ impl<'a> std::cmp::PartialEq<&str> for SharedString<'a> {
 impl<'a> std::fmt::Display for SharedString<'a> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         let str = self.as_str();
-        write!(fmt, "{str}")
+        fmt.write_str(str)
     }
 }
 
@@ -89,7 +89,9 @@ impl<'a> SharedString<'a> {
     }
 
     fn assert_slice(&self, slice_range: std::ops::Range<usize>) {
-        self.as_str().get(slice_range).unwrap();
+        if self.as_str().get(slice_range.clone()).is_none() {
+            panic!("slice range {slice_range:?} is invalid for {self:?}");
+        }
     }
 
     pub fn as_str(&self) -> &str {

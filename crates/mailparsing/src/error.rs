@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Clone, Debug, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum MailParsingError {
     #[error("invalid header: {0}")]
     HeaderParse(String),
@@ -14,4 +14,8 @@ pub enum MailParsingError {
     BodyParse(String),
     #[error("Data is not ASCII or UTF-8")]
     NotAscii,
+    #[error("Unexpected MimePart structure during write_message: {0}")]
+    WriteMessageWtf(&'static str),
+    #[error("IO error during write_message")]
+    WriteMessageIOError,
 }

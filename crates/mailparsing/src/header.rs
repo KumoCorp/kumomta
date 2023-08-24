@@ -116,7 +116,7 @@ impl<'a> Header<'a> {
 
     /// Format the header into the provided output stream,
     /// as though writing it out as part of a mime part
-    pub fn write_header<W: std::io::Write>(&self, mut out: W) -> std::io::Result<()> {
+    pub fn write_header<W: std::io::Write>(&self, out: &mut W) -> std::io::Result<()> {
         let line_ending = if self
             .conformance
             .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
@@ -125,11 +125,10 @@ impl<'a> Header<'a> {
         } else {
             "\r\n"
         };
-        write!(
-            out,
-            "{}{}{}{line_ending}",
-            self.name, self.separator, self.value
-        )
+        out.write_all(self.name.as_bytes())?;
+        out.write_all(self.separator.as_bytes())?;
+        out.write_all(self.value.as_bytes())?;
+        out.write_all(line_ending.as_bytes())
     }
 
     /// Convenience method wrapping write_header that returns

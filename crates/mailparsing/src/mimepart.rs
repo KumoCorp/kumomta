@@ -15,6 +15,7 @@ const BASE64_RFC2045: data_encoding::Encoding = data_encoding_macro::new_encodin
     wrap_separator: "\r\n",
 };
 
+#[derive(Debug, Clone)]
 pub struct MimePart<'a> {
     /// The bytes that comprise this part, from its beginning to its end
     bytes: SharedString<'a>,
@@ -25,6 +26,10 @@ pub struct MimePart<'a> {
     body_len: usize,
     header_conformance: HeaderConformance,
     parts: Vec<Self>,
+    /// For multipart, the content the precedes the first boundary
+    intro: SharedString<'a>,
+    /// For multipart, the content the follows the last boundary
+    outro: SharedString<'a>,
 }
 
 struct Rfc2045Info {
@@ -102,6 +107,8 @@ impl<'a> MimePart<'a> {
             body_len,
             header_conformance,
             parts: vec![],
+            intro: SharedString::Borrowed(""),
+            outro: SharedString::Borrowed(""),
         };
 
         part.recursive_parse(check_mime_version)?;
@@ -123,7 +130,11 @@ impl<'a> MimePart<'a> {
 
             let mut iter = memchr::memmem::find_iter(raw_body.as_bytes(), &boundary);
             if let Some(first_boundary_pos) = iter.next() {
-                self.body_len = first_boundary_pos;
+                self.intro = raw_body.slice(0..first_boundary_pos);
+
+                // When we create parts, we ignore the original body span in
+                // favor of what we're parsing out here now
+                self.body_len = 0;
 
                 let mut boundary_end = first_boundary_pos + boundary.len();
 
@@ -146,9 +157,18 @@ impl<'a> MimePart<'a> {
                     boundary_end = part_end -
                         1 /* newline we adjusted for when assigning part_end */
                         + boundary.len();
-                    if boundary_end + 2 > raw_body.len()
-                        || &raw_body.as_bytes()[boundary_end..boundary_end + 2] == b"--"
-                    {
+
+                    if boundary_end + 2 > raw_body.len() {
+                        break;
+                    }
+                    if &raw_body.as_bytes()[boundary_end..boundary_end + 2] == b"--" {
+                        if let Some(after_boundary) =
+                            memchr::memchr(b'\n', &raw_body.as_bytes()[boundary_end..])
+                                .map(|p| p + boundary_end + 1)
+                        {
+                            self.outro = raw_body.slice(after_boundary..raw_body.len());
+                            eprintln!("outro is: '{}'", self.outro.escape_debug());
+                        }
                         break;
                     }
                 }
@@ -178,13 +198,14 @@ impl<'a> MimePart<'a> {
     }
 
     /// Obtain a mutable reference to the headers
-    pub fn headers_mut(&'a mut self) -> &'a mut HeaderMap {
+    pub fn headers_mut<'b>(&'b mut self) -> &'b mut HeaderMap<'a> {
         &mut self.headers
     }
 
     /// Get the raw, transfer-encoded body
     pub fn raw_body(&self) -> SharedString {
-        self.bytes.slice(self.body_offset..self.body_len)
+        self.bytes
+            .slice(self.body_offset..self.body_len.max(self.body_offset))
     }
 
     /// Decode transfer decoding and return the body
@@ -235,6 +256,60 @@ impl<'a> MimePart<'a> {
         } else {
             Ok(DecodedBody::Binary(decoded.as_bytes().to_vec()))
         }
+    }
+
+    /// Write the message content to the provided output stream
+    pub fn write_message<W: std::io::Write>(&self, out: &mut W) -> Result<()> {
+        let line_ending = if self
+            .header_conformance
+            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+        {
+            "\n"
+        } else {
+            "\r\n"
+        };
+
+        for hdr in self.headers.iter() {
+            hdr.write_header(out)
+                .map_err(|_| MailParsingError::WriteMessageIOError)?;
+        }
+        out.write_all(line_ending.as_bytes())
+            .map_err(|_| MailParsingError::WriteMessageIOError)?;
+
+        if self.parts.is_empty() {
+            out.write_all(self.raw_body().as_bytes())
+                .map_err(|_| MailParsingError::WriteMessageIOError)?;
+        } else {
+            let info = Rfc2045Info::new(&self.headers, false)?;
+            let ct = info.content_type.ok_or_else(|| {
+                MailParsingError::WriteMessageWtf(
+                    "expected to have Content-Type when there are child parts",
+                )
+            })?;
+            let boundary = ct.get("boundary").ok_or_else(|| {
+                MailParsingError::WriteMessageWtf("expected Content-Type to have a boundary")
+            })?;
+            out.write_all(&self.intro.as_bytes())
+                .map_err(|_| MailParsingError::WriteMessageIOError)?;
+            for p in &self.parts {
+                write!(out, "--{boundary}{line_ending}")
+                    .map_err(|_| MailParsingError::WriteMessageIOError)?;
+                p.write_message(out)?;
+            }
+            write!(out, "--{boundary}--{line_ending}")
+                .map_err(|_| MailParsingError::WriteMessageIOError)?;
+            out.write_all(&self.outro.as_bytes())
+                .map_err(|_| MailParsingError::WriteMessageIOError)?;
+        }
+        Ok(())
+    }
+
+    /// Convenience method wrapping write_message that returns
+    /// the formatted message as a standalone string
+    pub fn to_message_string(&self) -> String {
+        let mut out = vec![];
+        self.write_message(&mut out).unwrap();
+        String::from_utf8_lossy(&out).to_string()
     }
 }
 
@@ -289,6 +364,7 @@ mod test {
         );
 
         let part = MimePart::parse(message).unwrap();
+        k9::assert_equal!(message, part.to_message_string());
         assert_eq!(part.raw_body(), "I am the body");
         k9::snapshot!(
             part.body(),
@@ -315,6 +391,7 @@ Ok(
         );
 
         let part = MimePart::parse(message).unwrap();
+        k9::assert_equal!(message, part.to_message_string());
         assert_eq!(part.raw_body(), "aGVsbG8K\n");
         k9::snapshot!(
             part.body(),
@@ -353,6 +430,9 @@ Ok(
         );
 
         let part = MimePart::parse(message).unwrap();
+
+        k9::assert_equal!(message, part.to_message_string());
+
         let children = part.child_parts();
         k9::assert_equal!(children.len(), 2);
 
@@ -376,6 +456,98 @@ Ok(
 ",
     ),
 )
+"#
+        );
+    }
+
+    #[test]
+    fn mutate_1() {
+        let message = concat!(
+            "Subject: This is a test email\r\n",
+            "Content-Type: multipart/alternative; boundary=foobar\r\n",
+            "Mime-Version: 1.0\r\n",
+            "Date: Sun, 02 Oct 2016 07:06:22 -0700 (PDT)\r\n",
+            "\r\n",
+            "--foobar\r\n",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "\r\n",
+            "This is the plaintext version, in utf-8. Proof by Euro: =E2=82=AC\r\n",
+            "--foobar\r\n",
+            "Content-Type: text/html\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "PGh0bWw+PGJvZHk+VGhpcyBpcyB0aGUgPGI+SFRNTDwvYj4gdmVyc2lvbiwgaW4g \r\n",
+            "dXMtYXNjaWkuIFByb29mIGJ5IEV1cm86ICZldXJvOzwvYm9keT48L2h0bWw+Cg== \r\n",
+            "--foobar--\r\n",
+            "After the final boundary stuff gets ignored.\r\n"
+        );
+
+        let mut part = MimePart::parse(message).unwrap();
+        k9::assert_equal!(message, part.to_message_string());
+        fn munge(part: &mut MimePart) {
+            let headers = part.headers_mut();
+            headers.push(Header::with_name_value("X-Woot", "Hello"));
+            headers.insert(0, Header::with_name_value("X-First", "at the top"));
+            headers.retain(|hdr| !hdr.get_name().eq_ignore_ascii_case("date"));
+        }
+        munge(&mut part);
+
+        let re_encoded = part.to_message_string();
+        k9::snapshot!(
+            re_encoded,
+            r#"
+X-First: at the top\r
+Subject: This is a test email\r
+Content-Type: multipart/alternative; boundary=foobar\r
+Mime-Version: 1.0\r
+X-Woot: Hello\r
+\r
+--foobar\r
+Content-Type: text/plain; charset=utf-8\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+This is the plaintext version, in utf-8. Proof by Euro: =E2=82=AC\r
+--foobar\r
+Content-Type: text/html\r
+Content-Transfer-Encoding: base64\r
+\r
+PGh0bWw+PGJvZHk+VGhpcyBpcyB0aGUgPGI+SFRNTDwvYj4gdmVyc2lvbiwgaW4g \r
+dXMtYXNjaWkuIFByb29mIGJ5IEV1cm86ICZldXJvOzwvYm9keT48L2h0bWw+Cg== \r
+--foobar--\r
+After the final boundary stuff gets ignored.\r
+
+"#
+        );
+
+        eprintln!("part before mutate:\n{part:#?}");
+
+        part.child_parts_mut().retain(|part| {
+            let ct = part.headers().content_type().unwrap().unwrap();
+            ct.value == "text/html"
+        });
+
+        eprintln!("part with html removed is:\n{part:#?}");
+
+        let re_encoded = part.to_message_string();
+        k9::snapshot!(
+            re_encoded,
+            r#"
+X-First: at the top\r
+Subject: This is a test email\r
+Content-Type: multipart/alternative; boundary=foobar\r
+Mime-Version: 1.0\r
+X-Woot: Hello\r
+\r
+--foobar\r
+Content-Type: text/html\r
+Content-Transfer-Encoding: base64\r
+\r
+PGh0bWw+PGJvZHk+VGhpcyBpcyB0aGUgPGI+SFRNTDwvYj4gdmVyc2lvbiwgaW4g \r
+dXMtYXNjaWkuIFByb29mIGJ5IEV1cm86ICZldXJvOzwvYm9keT48L2h0bWw+Cg== \r
+--foobar--\r
+After the final boundary stuff gets ignored.\r
+
 "#
         );
     }
