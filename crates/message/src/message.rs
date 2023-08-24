@@ -651,7 +651,7 @@ impl Message {
             if !retain {
                 continue;
             }
-            new_data.extend_from_slice(hdr.to_header_string().as_bytes());
+            hdr.write_header(&mut new_data)?;
         }
         new_data.extend_from_slice(b"\r\n");
         new_data.extend_from_slice(&data[body_offset..]);
