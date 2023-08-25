@@ -1,6 +1,6 @@
 # Connection Metadata Object
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 This object represents a collection of metadata keys and values that
 are associated with an established incoming SMTP connection.
@@ -25,9 +25,9 @@ The following values are predefined by KumoMTA:
 
 |Name|Purpose|Since|
 |----|-------|-----|
-|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('dev', inline=True)}}|
-|`received_via`|indicates the IP:port of the KumoMTA listener that is handling this session|{{since('dev', inline=True)}}|
-|`received_from`|indicates the IP:port of the sending or peer machine in this session|{{since('dev', inline=True)}}|
+|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('2023.08.22-4d895015', inline=True)}}|
+|`received_via`|indicates the IP:port of the KumoMTA listener that is handling this session|{{since('2023.08.22-4d895015', inline=True)}}|
+|`received_from`|indicates the IP:port of the sending or peer machine in this session|{{since('2023.08.22-4d895015', inline=True)}}|
 
 ## Available Methods
 

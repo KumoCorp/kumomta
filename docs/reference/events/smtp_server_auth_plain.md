@@ -17,7 +17,7 @@ The event handler receives the following parameters:
   with the *password* parameter.
 * *password* - the password which belongs to the claimed *authc*
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)

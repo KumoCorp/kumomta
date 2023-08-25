@@ -1,6 +1,6 @@
 # `kumo.on('tsa_load_shaping_data', FUNCTION)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Called by the `tsa-daemon` whenever it is going to evaluate a newly received log record.
 

@@ -1,6 +1,6 @@
 # `kumo.shaping.load({PATHS})`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 This function will load traffic shaping data from the list of filenames or HTTP/HTTPS URLs
 that is passed to it.

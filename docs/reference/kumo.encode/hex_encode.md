@@ -1,5 +1,5 @@
 # `kumo.encode.hex_encode(STRING)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Applies hex encoding to STRING, and returns the encoded string.

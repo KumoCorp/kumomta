@@ -4,7 +4,7 @@ Called by the ESMTP server in response to the client issuing either a `"HELO"`
 or `"EHLO"` command.  The event handler is passed the *domain* parameter from
 the `HELO/EHLO` command.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)

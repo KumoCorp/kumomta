@@ -1,6 +1,6 @@
 # `kumo.configure_tsa_db_path(PATH)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 This function should be called only from inside your
 [tsa_init](../events/tsa_init.md) event handler, and *MUST* be called before

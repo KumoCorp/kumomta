@@ -1,6 +1,6 @@
 # `message:set_recipient(ENVELOPE)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Sets the envelope recipient of the message.  The value can be an
 [EnvelopeAddress](../address/index.md) or a string that can be

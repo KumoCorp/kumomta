@@ -154,7 +154,7 @@ given connection.
 
 |Version|Default|
 |-------|-------|
-|{{since('dev', inline=True)}}|The default is 1024|
+|{{since('2023.08.22-4d895015', inline=True)}}|The default is 1024|
 |Prior versions|The default is unlimited|
 
 ## max_message_rate
@@ -283,7 +283,7 @@ You can set this to `true` to allow sending the credential in clear text.
 
 ## suspended
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Optional boolean. Defaults to `false`.
 

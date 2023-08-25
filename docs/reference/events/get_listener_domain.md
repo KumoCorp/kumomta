@@ -11,7 +11,7 @@ listener address.
 When the SMTP `RCPT TO` command is issued by the client, the destination
 domain is passed as the *domain* parameter to this event.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)

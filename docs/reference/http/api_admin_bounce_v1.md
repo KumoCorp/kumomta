@@ -33,7 +33,7 @@ If omitted, any domain will match.
 
 ### routing_domain
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     Optional string. The routing_domain name to match.
     If omitted, any routing_domain will match.
 

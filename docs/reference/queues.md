@@ -9,7 +9,7 @@ some metadata associated with the message:
 * `campaign` - a sender-provided label that can be used to logically group a set
   of related messages, perhaps generated from the same campaign.
 * destination domain - the site where the email will be routed
-* `routing_domain` - {{since('dev', inline=True)}} overrides the destination domain
+* `routing_domain` - {{since('2023.08.22-4d895015', inline=True)}} overrides the destination domain
   for routing purposes.
 
 These three pieces of information are combined to produce the name of the queue

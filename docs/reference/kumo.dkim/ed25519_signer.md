@@ -10,7 +10,7 @@ which must contain the matching public and private key pair.
 If the data cannot be loaded as V2, then it will fall back
 to try to load V1 data, which contains just the private key.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     We now support loading either DER or PEM encoded PKCS8
     private keys.
 

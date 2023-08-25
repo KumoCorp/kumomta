@@ -18,6 +18,6 @@ kumo.on('init', function()
 end)
 ```
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     Enabling redis throttles now also enables redis-based shared
     connection limits.

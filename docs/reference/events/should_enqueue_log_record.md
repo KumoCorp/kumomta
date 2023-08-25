@@ -4,7 +4,7 @@ This event is triggered when
 [kumo.configure_log_hook](../kumo/configure_log_hook.md) has been used to
 enable it.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *hook_name* parameter was added. It corresponds to the name field
     that was passed to `kumo.configure_log_hook` and is present to allow
     you to decide whether a given message should get queued for a given

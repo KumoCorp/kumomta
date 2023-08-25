@@ -1,6 +1,6 @@
 # `kumo.dns.lookup_addr(NAME)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Resolve the `A` and `AAAA` records for the requested `NAME`.
 

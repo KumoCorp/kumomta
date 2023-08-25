@@ -20,7 +20,7 @@ because that endpoint is shown as a suggested default for that http
 listener.  You need to adjust it to match whatever you have configured for
 your HTTP listener in your environment.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The `--endpoint` defaults to `http://127.0.0.1:8000` and can be omitted.
     If `KUMO_KCLI_ENDPOINT` is set in the environment, its value will be used
     if `--endpoint` is not specified.

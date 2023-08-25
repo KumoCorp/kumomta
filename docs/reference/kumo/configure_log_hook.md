@@ -38,7 +38,7 @@ In addition, the following options are supported:
 
 ## name
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
 
     Required string naming the hook.
 

@@ -6,7 +6,7 @@ the `MAIL FROM` command.
 
 The *sender address* is an [EnvelopeAddress](../address/index.md) object.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)

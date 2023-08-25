@@ -10,7 +10,7 @@ The event handler will be passed a [Message](../message/index.md) object.
 The Message will always have a `Received` header prepended that captures trace
 information about the sender.
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)

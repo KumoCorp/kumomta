@@ -1,6 +1,6 @@
 # `kumo.on('tsa_init', FUNCTION)`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 The `tsa_init` event is triggered once when the `tsa-daemon` process initializes.
 The intent is that you use this event to define the database storage location and

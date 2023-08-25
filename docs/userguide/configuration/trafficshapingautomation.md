@@ -1,6 +1,6 @@
 # Configuring Traffic Shaping Automation
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Many of the largest MailBox Providers (MBPs) operate platforms that provide feedback to senders through their response codes during the SMTP conversation. To ensure optimum throughput and deliverability, KumoMTA features Traffic Shaping Automation (TSA), via a daemon that monitors responses from the MBPs and adjusts traffic shaping rules on a granular level to ensure compliance with the guidelines of the MBPs in realtime.
 

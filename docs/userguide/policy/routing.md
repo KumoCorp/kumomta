@@ -5,7 +5,7 @@ several options.
 
 ## Changing the routing domain at reception time (per-message)
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     At reception time, you can specify an alternate *routing domain* for a
     message.  Messages with the same *destination domain* (based on their
     recipients) and *routing domain* will be queued into a separate
@@ -37,7 +37,7 @@ several options.
 
 ## Explicitly overriding the MX resolution for a scheduled queue (domain-based)
 
-{{since('dev', indent=True)}}
+{{since('2023.08.22-4d895015', indent=True)}}
     If you are re-routing a domain to internal infrastructure that doesn't have MX
     records, then this technique may be suitable.  It works by overriding the
     MX resolution that would normally be used for a scheduled queue.

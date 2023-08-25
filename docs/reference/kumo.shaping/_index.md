@@ -1,6 +1,6 @@
 # Module `kumo.shaping`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 This module provides functions to configure the KumoMTA Traffic Shaping Automation daemon.
 

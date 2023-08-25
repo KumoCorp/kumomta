@@ -62,7 +62,7 @@ custom lua code to process a message
 
 ### Example of smart-hosting with the SMTP protocol
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 Rather than relying on MX resolution, you can provide an explicit list
 of MX host names or IP addresses to which the queue should deliver.

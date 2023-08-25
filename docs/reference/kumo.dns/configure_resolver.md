@@ -1,6 +1,6 @@
 # `kumo.dns.configure_resolver{PARAMS}`
 
-{{since('dev')}}
+{{since('2023.08.22-4d895015')}}
 
 By default, KumoMTA will parse the system resolver configuration and
 use that to drive its internal caching DNS resolver.
