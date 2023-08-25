@@ -802,7 +802,7 @@ fn qcontent(input: Span) -> IResult<Span, char> {
 }
 
 // msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
-fn msg_id(input: Span) -> IResult<Span, String> {
+fn msg_id(input: Span) -> IResult<Span, MessageID> {
     let (loc, (left, _, right)) = context(
         "msg_id",
         delimited(
@@ -812,11 +812,24 @@ fn msg_id(input: Span) -> IResult<Span, String> {
         ),
     )(input)?;
 
-    Ok((loc, format!("{left}@{right}")))
+    Ok((loc, MessageID(format!("{left}@{right}"))))
+}
+
+fn content_id(input: Span) -> IResult<Span, MessageID> {
+    let (loc, id) = context(
+        "content_id",
+        delimited(
+            preceded(opt(cfws), char('<')),
+            id_right,
+            preceded(char('>'), opt(cfws)),
+        ),
+    )(input)?;
+
+    Ok((loc, MessageID(id)))
 }
 
 // msg_id_list = { msg_id+ }
-fn msg_id_list(input: Span) -> IResult<Span, Vec<String>> {
+fn msg_id_list(input: Span) -> IResult<Span, Vec<MessageID>> {
     context("msg_id_list", many1(msg_id))(input)
 }
 
@@ -1154,12 +1167,16 @@ impl Parser {
         parse_with(text, address_list)
     }
 
-    pub fn parse_msg_id_header(text: &str) -> Result<String> {
+    pub fn parse_msg_id_header(text: &str) -> Result<MessageID> {
         parse_with(text, msg_id)
     }
 
-    pub fn parse_msg_id_header_list(text: &str) -> Result<Vec<String>> {
+    pub fn parse_msg_id_header_list(text: &str) -> Result<Vec<MessageID>> {
         parse_with(text, msg_id_list)
+    }
+
+    pub fn parse_content_id_header(text: &str) -> Result<MessageID> {
+        parse_with(text, content_id)
     }
 
     pub fn parse_content_type_header(text: &str) -> Result<MimeParameters> {
@@ -1237,6 +1254,15 @@ pub struct Mailbox {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageID(pub String);
+
+impl EncodeHeaderValue for MessageID {
+    fn encode_value(&self) -> SharedString<'static> {
+        format!("<{}>", self.0).into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MimeParameter {
     pub name: String,
     pub section: Option<u32>,
@@ -1253,6 +1279,13 @@ pub struct MimeParameters {
 }
 
 impl MimeParameters {
+    pub fn new(value: &str) -> Self {
+        Self {
+            value: value.to_string(),
+            parameters: vec![],
+        }
+    }
+
     /// Retrieve the value for a named parameter.
     /// This method will attempt to decode any %-encoded values
     /// per RFC 2231 and combine multi-element fields into a single
@@ -2162,7 +2195,9 @@ Some(
             list,
             r#"
 Some(
-    "foo@example.com",
+    MessageID(
+        "foo@example.com",
+    ),
 )
 "#
         );
@@ -2176,10 +2211,18 @@ Some(
             r#"
 Some(
     [
-        "a@example.com",
-        "b@example.com",
-        "legacy@example.com",
-        "literal@[127.0.0.1]",
+        MessageID(
+            "a@example.com",
+        ),
+        MessageID(
+            "b@example.com",
+        ),
+        MessageID(
+            "legacy@example.com",
+        ),
+        MessageID(
+            "literal@[127.0.0.1]",
+        ),
     ],
 )
 "#

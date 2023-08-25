@@ -1,11 +1,13 @@
-use crate::{AddressList, Header, Mailbox, MailboxList, MimeParameters, Result, SharedString};
+use crate::{
+    AddressList, Header, Mailbox, MailboxList, MessageID, MimeParameters, Result, SharedString,
+};
 use paste::paste;
 
 /// Represents an ordered list of headers.
 /// Note that there may be multiple headers with the same name.
 /// Derefs to the underlying `Vec<Header>` for mutation,
 /// but provides some accessors for retrieving headers by name.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct HeaderMap<'a> {
     headers: Vec<Header<'a>>,
 }
@@ -37,7 +39,7 @@ macro_rules! accessor {
         }
 
         paste! {
-            pub fn [<set_ $func_name>](&'a mut self, v: impl EncodeHeaderValue) {
+            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) {
                 if let Some(idx) = self
                     .headers
                     .iter()
@@ -111,8 +113,9 @@ impl<'a> HeaderMap<'a> {
     accessor!(sender, "Sender", Mailbox, as_mailbox);
     accessor!(resent_sender, "Resent-Sender", Mailbox, as_mailbox);
 
-    accessor!(message_id, "Message-ID", String, as_message_id);
-    accessor!(references, "References", Vec<String>, as_message_id_list);
+    accessor!(message_id, "Message-ID", MessageID, as_message_id);
+    accessor!(content_id, "Content-ID", MessageID, as_content_id);
+    accessor!(references, "References", Vec<MessageID>, as_message_id_list);
 
     accessor!(subject, "Subject", String, as_unstructured);
     accessor!(comments, "Comments", String, as_unstructured);

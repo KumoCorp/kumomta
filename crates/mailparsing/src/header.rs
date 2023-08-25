@@ -1,7 +1,8 @@
 use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::{
-    AddressList, MailParsingError, Mailbox, MailboxList, MimeParameters, Result, SharedString,
+    AddressList, MailParsingError, Mailbox, MailboxList, MessageID, MimeParameters, Result,
+    SharedString,
 };
 use std::convert::TryInto;
 
@@ -14,7 +15,7 @@ bitflags::bitflags! {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Header<'a> {
     /// The name portion of the header
     name: SharedString<'a>,
@@ -177,11 +178,15 @@ impl<'a> Header<'a> {
         Parser::parse_address_list_header(self.get_raw_value())
     }
 
-    pub fn as_message_id(&self) -> Result<String> {
+    pub fn as_message_id(&self) -> Result<MessageID> {
         Parser::parse_msg_id_header(self.get_raw_value())
     }
 
-    pub fn as_message_id_list(&self) -> Result<Vec<String>> {
+    pub fn as_content_id(&self) -> Result<MessageID> {
+        Parser::parse_content_id_header(self.get_raw_value())
+    }
+
+    pub fn as_message_id_list(&self) -> Result<Vec<MessageID>> {
         Parser::parse_msg_id_header_list(self.get_raw_value())
     }
 

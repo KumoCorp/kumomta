@@ -1,6 +1,6 @@
 use crate::header::{HeaderConformance, HeaderParseResult};
 use crate::headermap::HeaderMap;
-use crate::{Header, MailParsingError, MimeParameters, Result, SharedString};
+use crate::{Header, MailParsingError, MessageID, MimeParameters, Result, SharedString};
 use charset::Charset;
 use std::convert::TryInto;
 use std::str::FromStr;
@@ -15,7 +15,7 @@ const BASE64_RFC2045: data_encoding::Encoding = data_encoding_macro::new_encodin
     wrap_separator: "\r\n",
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MimePart<'a> {
     /// The bytes that comprise this part, from its beginning to its end
     bytes: SharedString<'a>,
@@ -167,7 +167,6 @@ impl<'a> MimePart<'a> {
                                 .map(|p| p + boundary_end + 1)
                         {
                             self.outro = raw_body.slice(after_boundary..raw_body.len());
-                            eprintln!("outro is: '{}'", self.outro.escape_debug());
                         }
                         break;
                     }
@@ -311,6 +310,137 @@ impl<'a> MimePart<'a> {
         self.write_message(&mut out).unwrap();
         String::from_utf8_lossy(&out).to_string()
     }
+
+    /// Constructs a new part with textual utf8 content.
+    /// quoted-printable transfer encoding will be applied,
+    /// unless it is smaller to represent the text in base64
+    pub fn new_text(content_type: &str, content: &str) -> Self {
+        // We'll probably use qp, so speculatively do the work
+        let qp_encoded = quoted_printable::encode(content);
+
+        let (mut encoded, encoding) =
+            if qp_encoded.len() <= BASE64_RFC2045.encode_len(content.len()) {
+                (qp_encoded, "quoted-printable")
+            } else {
+                // Turns out base64 will be smaller; perhaps the content
+                // is dominated by non-ASCII text?
+                (
+                    BASE64_RFC2045.encode(content.as_bytes()).into_bytes(),
+                    "base64",
+                )
+            };
+        if !encoded.ends_with(b"\r\n") {
+            encoded.extend_from_slice(b"\r\n");
+        }
+        let mut headers = HeaderMap::default();
+
+        let mut ct = MimeParameters::new(content_type);
+        ct.set("charset", "utf-8");
+        headers.set_content_type(ct);
+
+        headers.set_content_transfer_encoding(MimeParameters::new(encoding));
+
+        let body_len = encoded.len();
+        let bytes =
+            String::from_utf8(encoded).expect("transfer encoder to produce valid ASCII output");
+
+        Self {
+            bytes: bytes.into(),
+            headers,
+            body_offset: 0,
+            body_len,
+            header_conformance: HeaderConformance::default(),
+            parts: vec![],
+            intro: "".into(),
+            outro: "".into(),
+        }
+    }
+
+    pub fn new_text_plain(content: &str) -> Self {
+        Self::new_text("text/plain", content)
+    }
+
+    pub fn new_html(content: &str) -> Self {
+        Self::new_text("text/html", content)
+    }
+
+    pub fn new_multipart(content_type: &str, parts: Vec<Self>, boundary: Option<&str>) -> Self {
+        let mut headers = HeaderMap::default();
+
+        let mut ct = MimeParameters::new(content_type);
+        match boundary {
+            Some(b) => {
+                ct.set("boundary", b);
+            }
+            None => {
+                // Generate a random boundary
+                let uuid = uuid::Uuid::new_v4();
+                let boundary = data_encoding::BASE64_NOPAD.encode(uuid.as_bytes());
+                ct.set("boundary", &boundary);
+            }
+        }
+        headers.set_content_type(ct);
+
+        headers.set_content_transfer_encoding(MimeParameters::new("quoted-printable"));
+
+        Self {
+            bytes: "".into(),
+            headers,
+            body_offset: 0,
+            body_len: 0,
+            header_conformance: HeaderConformance::default(),
+            parts,
+            intro: "".into(),
+            outro: "".into(),
+        }
+    }
+
+    pub fn new_binary(
+        content_type: &str,
+        content: &[u8],
+        options: Option<&AttachmentOptions>,
+    ) -> Self {
+        let mut encoded = BASE64_RFC2045.encode(content);
+        if !encoded.ends_with("\r\n") {
+            encoded.push_str("\r\n");
+        }
+        let mut headers = HeaderMap::default();
+
+        headers.set_content_type(MimeParameters::new(content_type));
+        headers.set_content_transfer_encoding(MimeParameters::new("base64"));
+
+        if let Some(opts) = options {
+            let mut cd = MimeParameters::new(if opts.inline { "inline" } else { "attachment" });
+            if let Some(name) = &opts.file_name {
+                cd.set("filename", name);
+            }
+            headers.set_content_disposition(cd);
+
+            if let Some(id) = &opts.content_id {
+                headers.set_content_id(MessageID(id.to_string()));
+            }
+        }
+
+        let body_len = encoded.len();
+
+        Self {
+            bytes: encoded.into(),
+            headers,
+            body_offset: 0,
+            body_len,
+            header_conformance: HeaderConformance::default(),
+            parts: vec![],
+            intro: "".into(),
+            outro: "".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttachmentOptions {
+    pub file_name: Option<String>,
+    pub inline: bool,
+    pub content_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,7 +474,7 @@ impl FromStr for ContentTransferEncoding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum DecodedBody<'a> {
     Text(SharedString<'a>),
     Binary(Vec<u8>),
@@ -547,6 +677,85 @@ PGh0bWw+PGJvZHk+VGhpcyBpcyB0aGUgPGI+SFRNTDwvYj4gdmVyc2lvbiwgaW4g \r
 dXMtYXNjaWkuIFByb29mIGJ5IEV1cm86ICZldXJvOzwvYm9keT48L2h0bWw+Cg== \r
 --foobar--\r
 After the final boundary stuff gets ignored.\r
+
+"#
+        );
+    }
+
+    #[test]
+    fn construct_1() {
+        let input_text = "Well, hello there! This is the plaintext version, in utf-8. Here's a Euro: €, and here are some emoji 👻 🍉 💩 and this long should be long enough that we wrap it in the returned part, let's see how that turns out!\r\n";
+
+        let part = MimePart::new_text_plain(input_text);
+
+        let encoded = part.to_message_string();
+        k9::snapshot!(
+            &encoded,
+            r#"
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+Well, hello there! This is the plaintext version, in utf-8. Here's a Euro: =\r
+=E2=82=AC, and here are some emoji =F0=9F=91=BB =F0=9F=8D=89 =F0=9F=92=A9 a=\r
+nd this long should be long enough that we wrap it in the returned part, le=\r
+t's see how that turns out!\r
+
+"#
+        );
+
+        let parsed_part = MimePart::parse(encoded.clone()).unwrap();
+        k9::assert_equal!(encoded.as_str(), parsed_part.to_message_string().as_str());
+        k9::assert_equal!(part.body().unwrap(), DecodedBody::Text(input_text.into()));
+    }
+
+    #[test]
+    fn construct_2() {
+        let msg = MimePart::new_multipart(
+            "multipart/mixed",
+            vec![
+                MimePart::new_text_plain("plain text"),
+                MimePart::new_html("<b>rich</b> text"),
+                MimePart::new_binary(
+                    "application/octet-stream",
+                    &[0, 1, 2, 3],
+                    Some(&AttachmentOptions {
+                        file_name: Some("woot.bin".to_string()),
+                        inline: false,
+                        content_id: Some("woot.id".to_string()),
+                    }),
+                ),
+            ],
+            Some("my-boundary"),
+        );
+        k9::snapshot!(
+            msg.to_message_string(),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="my-boundary"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+--my-boundary\r
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+plain text\r
+--my-boundary\r
+Content-Type: text/html;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+<b>rich</b> text\r
+--my-boundary\r
+Content-Type: application/octet-stream\r
+Content-Transfer-Encoding: base64\r
+Content-Disposition: attachment;\r
+\tfilename="woot.bin"\r
+Content-ID: <woot.id>\r
+\r
+AAECAw==\r
+--my-boundary--\r
 
 "#
         );
