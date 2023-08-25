@@ -32,9 +32,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  # Use rocksdb package instead of building it ourselves
-  ROCKSDB_LIB_DIR: /usr/lib64
-  SNAPPY_LIB_DIR: /usr/lib64
 
 jobs:
   build-rocky:
