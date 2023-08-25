@@ -51,6 +51,10 @@ fedora_deps() {
     # don't have it already
     $YUM install -y 'curl'
   fi
+
+  # Use a pre-built rocksdb if available
+  $YUM install -y 'rocksdb-devel' 'snappy-devel' || true
+
   $YUM install -y \
     'clang-devel' \
     'gcc' \
@@ -132,6 +136,8 @@ debian_deps() {
     'fakeroot' \
     'gcc' \
     'g++' \
+    'librocksdb-dev' \
+    'libsnappy-dev' \
     'libssl-dev' \
     'lsb-release' \
     'pkg-config' \

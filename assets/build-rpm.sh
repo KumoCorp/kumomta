@@ -20,6 +20,11 @@ export SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
 spec=$(mktemp)
 trap "rm ${spec}" "EXIT"
 
+ROCKSDEP=
+if ldd target/release/kumod | grep -q rocksdb ; then
+  ROCKSDEP="Requires: rocksdb"
+fi
+
 cat > $spec <<EOF
 Name: ${RPM_NAME}
 Conflicts: ${CONFLICTS}
@@ -30,6 +35,7 @@ License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
+${ROCKSDEP}
 
 %description
 A high performance, modern MTA.
