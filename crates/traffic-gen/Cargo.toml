@@ -20,4 +20,4 @@ rand = "0.8"
 rfc5321 = {path="../rfc5321"}
 textwrap = "0.16"
 tokio = {workspace=true, features=["full"]}
-uuid = {version="1.3", features=["v4", "rng"]}
+uuid = {workspace=true, features=["v4", "rng"]}
