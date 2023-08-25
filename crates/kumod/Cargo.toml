@@ -63,7 +63,7 @@ tokio-rustls = {workspace=true}
 tracing = "0.1"
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
-webpki-roots = "0.22"
+webpki-roots = {workspace=true}
 zstd = "0.12"
 
 [dev-dependencies]

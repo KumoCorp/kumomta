@@ -37,3 +37,4 @@ tokio-rustls = "0.24"
 # to match the version that we are using when you update this dep
 trust-dns-resolver = "0.23"
 uuid = "1.4"
+webpki-roots = "0.25"

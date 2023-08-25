@@ -15,4 +15,4 @@ thiserror = "1.0"
 tokio = {workspace=true, features=["full"]}
 tokio-rustls = {workspace=true, features=["dangerous_configuration"]}
 tracing = "0.1"
-webpki-roots = "0.22"
+webpki-roots = {workspace=true}
