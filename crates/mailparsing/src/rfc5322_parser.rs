@@ -1205,6 +1205,10 @@ impl AddrSpec {
             domain: domain.to_string(),
         }
     }
+
+    pub fn parse(email: &str) -> Result<Self> {
+        parse_with(email, addr_spec)
+    }
 }
 
 impl EncodeHeaderValue for AddrSpec {

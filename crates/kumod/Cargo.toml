@@ -36,7 +36,6 @@ kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}
-mail-builder = "0.2"
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 memchr = "2.5"

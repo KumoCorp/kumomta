@@ -13,6 +13,6 @@ pub type Result<T> = std::result::Result<T, MailParsingError>;
 pub use builder::*;
 pub use header::{Header, HeaderConformance, HeaderParseResult};
 pub use headermap::*;
-pub use mimepart::MimePart;
+pub use mimepart::*;
 pub use rfc5322_parser::*;
 pub use strings::SharedString;

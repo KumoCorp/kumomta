@@ -8,9 +8,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
-use mail_builder::headers::text::Text;
-use mail_builder::headers::HeaderType;
-use mail_builder::mime::MimePart;
+use mailparsing::{AddrSpec, Address, Mailbox, MessageBuilder, MimePart};
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
 use rfc5321::Response;
@@ -18,7 +16,6 @@ use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spool::SpoolId;
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -109,7 +106,6 @@ self_cell!(
 
 struct Compiled<'a> {
     env_and_templates: CompiledTemplates<'a>,
-    inline: Vec<MimePart<'a>>,
     attached: Vec<MimePart<'a>>,
 }
 
@@ -150,95 +146,53 @@ impl<'a> Compiled<'a> {
                 reply_to,
                 ..
             } => {
-                let mut builder = mail_builder::MessageBuilder::new();
-
-                let mut text = None;
-                let mut html = None;
+                let mut builder = MessageBuilder::new();
 
                 if text_body.is_some() {
-                    text.replace(MimePart::new_text(
-                        self.env_and_templates.borrow_dependent()[id].render(&subst)?,
-                    ));
+                    builder
+                        .text_plain(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
                     id += 1;
                 }
 
                 if html_body.is_some() {
-                    html.replace(MimePart::new_html(
-                        self.env_and_templates.borrow_dependent()[id].render(&subst)?,
-                    ));
+                    builder
+                        .text_html(&self.env_and_templates.borrow_dependent()[id].render(&subst)?);
                     id += 1;
                 }
 
-                builder = builder.to(mail_builder::headers::address::Address::new_address(
-                    recip.name.as_ref(),
-                    &recip.email,
-                ));
+                builder.set_to(Address::Mailbox(Mailbox {
+                    name: recip.name.clone(),
+                    address: AddrSpec::parse(&recip.email)?,
+                }));
 
                 if let Some(from) = from {
-                    builder = builder.from(mail_builder::headers::address::Address::new_address(
-                        from.name.as_ref(),
-                        &from.email,
-                    ));
+                    builder.set_from(Address::Mailbox(Mailbox {
+                        name: from.name.clone(),
+                        address: AddrSpec::parse(&from.email)?,
+                    }));
                 }
 
                 if let Some(reply_to) = reply_to {
-                    builder =
-                        builder.reply_to(mail_builder::headers::address::Address::new_address(
-                            reply_to.name.as_ref(),
-                            &reply_to.email,
-                        ));
+                    builder.set_reply_to(Address::Mailbox(Mailbox {
+                        name: reply_to.name.clone(),
+                        address: AddrSpec::parse(&reply_to.email)?,
+                    }));
                 }
-
-                let mut did_mime_version = false;
 
                 for (name, _value) in headers {
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;
-                    builder = builder.header(
+                    builder.push(mailparsing::Header::new_unstructured(
                         name.to_string(),
-                        HeaderType::Text(Text::new(expanded.to_string())),
-                    );
-
-                    if name.eq_ignore_ascii_case("MIME-Version") {
-                        did_mime_version = true;
-                    }
+                        expanded.to_string(),
+                    ));
                 }
 
-                if !did_mime_version {
-                    builder = builder.header("MIME-Version", HeaderType::Text("1.0".into()));
+                for part in &self.attached {
+                    builder.attach_part(part.clone());
                 }
 
-                let content_node = match (text, html) {
-                    (Some(t), Some(h)) => {
-                        MimePart::new_multipart("multipart/alternative", vec![t, h])
-                    }
-                    (Some(t), None) => t,
-                    (None, Some(h)) => h,
-                    (None, None) => anyhow::bail!("refusing to send an empty message"),
-                };
-
-                let content_node = if !self.inline.is_empty() {
-                    let mut parts = Vec::with_capacity(self.inline.len() + 1);
-                    parts.push(content_node);
-                    parts.extend(self.inline.iter().cloned());
-                    MimePart::new_multipart("multipart/related", parts)
-                } else {
-                    content_node
-                };
-
-                let root = if !self.attached.is_empty() {
-                    let mut parts = Vec::with_capacity(self.attached.len() + 1);
-                    parts.push(content_node);
-                    parts.extend(self.attached.iter().cloned());
-
-                    MimePart::new_multipart("multipart/mixed", parts)
-                } else {
-                    content_node
-                };
-
-                builder = builder.body(root);
-
-                Ok(builder.write_to_string()?)
+                Ok(builder.build()?.to_message_string())
             }
         }
     }
@@ -346,43 +300,45 @@ impl InjectV1Request {
             Ok(templates)
         }
 
-        let (inline, attached) = self.attachment_data()?;
+        let attached = self.attachment_data()?;
 
         let env_and_templates =
             CompiledTemplates::try_new(env, |env: &Environment| get_templates(env, &self.content))?;
 
         Ok(Compiled {
             env_and_templates,
-            inline,
             attached,
         })
     }
 
-    fn attachment_data(&self) -> anyhow::Result<(Vec<MimePart>, Vec<MimePart>)> {
+    fn attachment_data(&self) -> anyhow::Result<Vec<MimePart>> {
         match &self.content {
-            Content::Rfc822(_) => Ok((vec![], vec![])),
+            Content::Rfc822(_) => Ok(vec![]),
             Content::Builder { attachments, .. } => {
-                let mut inline = vec![];
                 let mut attached = vec![];
                 for a in attachments {
-                    let mut part = if a.base64 {
-                        MimePart::new_binary(&a.content_type, Cow::Owned(base64::decode(&a.data)?))
-                    } else {
-                        MimePart::new_binary(&a.content_type, Cow::Borrowed(a.data.as_bytes()))
+                    let opts = mailparsing::AttachmentOptions {
+                        file_name: a.file_name.clone(),
+                        inline: a.content_id.is_some(),
+                        content_id: a.content_id.clone(),
                     };
 
-                    if let Some(file_name) = &a.file_name {
-                        part = part.attachment(file_name);
-                    }
+                    let decoded_data;
 
-                    if let Some(cid) = &a.content_id {
-                        part = part.cid(cid).inline();
-                        inline.push(part);
-                    } else {
-                        attached.push(part);
-                    }
+                    let part = MimePart::new_binary(
+                        &a.content_type,
+                        if a.base64 {
+                            decoded_data = base64::decode(&a.data)?;
+                            &decoded_data
+                        } else {
+                            a.data.as_bytes()
+                        },
+                        Some(&opts),
+                    );
+
+                    attached.push(part);
                 }
-                Ok((inline, attached))
+                Ok(attached)
             }
         }
     }

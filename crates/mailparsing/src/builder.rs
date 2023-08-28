@@ -40,6 +40,20 @@ impl<'a> MessageBuilder<'a> {
         }
     }
 
+    pub fn attach_part(&mut self, part: MimePart<'a>) {
+        let is_inline = part
+            .headers()
+            .content_disposition()
+            .ok()
+            .and_then(|opt_cd| opt_cd.map(|cd| cd.value == "inline"))
+            .unwrap_or(false);
+        if is_inline {
+            self.inline.push(part);
+        } else {
+            self.attached.push(part);
+        }
+    }
+
     pub fn build(self) -> Result<MimePart<'a>, MailParsingError> {
         let text = self.text.as_deref().map(MimePart::new_text_plain);
         let html = self.html.as_deref().map(MimePart::new_html);

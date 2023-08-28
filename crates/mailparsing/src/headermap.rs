@@ -136,6 +136,7 @@ impl<'a> HeaderMap<'a> {
     accessor!(resent_from, "Resent-From", MailboxList, as_mailbox_list);
 
     accessor!(to, "To", AddressList, as_address_list);
+    accessor!(reply_to, "Reply-To", AddressList, as_address_list);
     accessor!(cc, "Cc", AddressList, as_address_list);
     accessor!(bcc, "Bcc", AddressList, as_address_list);
     accessor!(resent_to, "Resent-To", AddressList, as_address_list);
