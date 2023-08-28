@@ -179,9 +179,7 @@ impl MailEntry {
         let headers = self.headers()?;
         let date = headers.get_first("Date");
         match date {
-            Some(ts) => {
-                DateTime::parse_from_rfc2822(ts.get_raw_value()).map_err(MailEntryError::from)
-            }
+            Some(ts) => ts.as_date().map_err(MailEntryError::from),
             None => Err("No Date header found")?,
         }
     }

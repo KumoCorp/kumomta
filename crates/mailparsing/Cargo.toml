@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bitflags = "2.3"
 charset = "0.1"
+chrono = {version="0.4", default-features=false, features=["std", "clock"]}
 data-encoding = {workspace=true}
 data-encoding-macro = "0.1"
 memchr = "2.5"

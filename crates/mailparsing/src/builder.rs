@@ -8,7 +8,7 @@ pub struct MessageBuilder<'a> {
     headers: HeaderMap<'a>,
     inline: Vec<MimePart<'a>>,
     attached: Vec<MimePart<'a>>,
-    stable_content_ids: bool,
+    stable_content: bool,
 }
 
 impl<'a> MessageBuilder<'a> {
@@ -16,8 +16,8 @@ impl<'a> MessageBuilder<'a> {
         Self::default()
     }
 
-    pub fn set_stable_content_ids(&mut self, v: bool) {
-        self.stable_content_ids = v;
+    pub fn set_stable_content(&mut self, v: bool) {
+        self.stable_content = v;
     }
 
     pub fn text_plain(&mut self, text: &str) {
@@ -48,7 +48,7 @@ impl<'a> MessageBuilder<'a> {
             (Some(t), Some(h)) => MimePart::new_multipart(
                 "multipart/alternative",
                 vec![t, h],
-                if self.stable_content_ids {
+                if self.stable_content {
                     Some("ma-boundary")
                 } else {
                     None
@@ -70,7 +70,7 @@ impl<'a> MessageBuilder<'a> {
             MimePart::new_multipart(
                 "multipart/related",
                 parts,
-                if self.stable_content_ids {
+                if self.stable_content {
                     Some("mr-boundary")
                 } else {
                     None
@@ -87,7 +87,7 @@ impl<'a> MessageBuilder<'a> {
             MimePart::new_multipart(
                 "multipart/mixed",
                 parts,
-                if self.stable_content_ids {
+                if self.stable_content {
                     Some("mm-boundary")
                 } else {
                     None
@@ -105,7 +105,20 @@ impl<'a> MessageBuilder<'a> {
             root.headers_mut().set_mime_version("1.0");
         }
 
-        // TODO: Date, and Content-Id
+        if root.headers().date()?.is_none() {
+            if self.stable_content {
+                root.headers_mut().set_date(
+                    chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200")
+                        .expect("test date to be valid"),
+                );
+            } else {
+                root.headers_mut().set_date(chrono::Utc::now());
+            };
+        }
+
+        // TODO: Content-Id? Hard to do without context on the machine
+        // name and other external data, so perhaps punt this indefinitely
+        // from this module?
 
         Ok(root)
     }
@@ -131,7 +144,7 @@ mod test {
     #[test]
     fn basic() {
         let mut b = MessageBuilder::new();
-        b.set_stable_content_ids(true);
+        b.set_stable_content(true);
         b.set_subject("Hello there! 🍉");
         b.text_plain("This is the body! 👻");
         b.text_html("<b>this is html 🚀</b>");
@@ -144,6 +157,7 @@ Content-Type: multipart/alternative;\r
 Content-Transfer-Encoding: quoted-printable\r
 Subject: Hello there! =?UTF-8?q?=F0=9F=8D=89?=\r
 Mime-Version: 1.0\r
+Date: Tue, 01 Jul 2003 10:52:37 +0200\r
 \r
 --ma-boundary\r
 Content-Type: text/plain;\r

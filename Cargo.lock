@@ -2762,6 +2762,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.4.0",
  "charset",
+ "chrono",
  "data-encoding",
  "data-encoding-macro",
  "k9",

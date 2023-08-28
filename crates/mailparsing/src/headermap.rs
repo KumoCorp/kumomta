@@ -1,6 +1,7 @@
 use crate::{
     AddressList, Header, Mailbox, MailboxList, MessageID, MimeParameters, Result, SharedString,
 };
+use chrono::{DateTime, FixedOffset, TimeZone};
 use paste::paste;
 
 /// Represents an ordered list of headers.
@@ -39,6 +40,15 @@ impl EncodeHeaderValue for &str {
 
     fn as_header(&self, name: &str) -> Option<Header<'static>> {
         Some(Header::new_unstructured(name.to_string(), self.to_string()))
+    }
+}
+
+impl<T: TimeZone> EncodeHeaderValue for DateTime<T>
+where
+    <T as TimeZone>::Offset: std::fmt::Display,
+{
+    fn encode_value(&self) -> SharedString<'static> {
+        (*self).to_rfc2822().into()
     }
 }
 
@@ -131,6 +141,8 @@ impl<'a> HeaderMap<'a> {
     accessor!(resent_to, "Resent-To", AddressList, as_address_list);
     accessor!(resent_cc, "Resent-Cc", AddressList, as_address_list);
     accessor!(resent_bcc, "Resent-Bcc", AddressList, as_address_list);
+
+    accessor!(date, "Date", DateTime<FixedOffset>, as_date);
 
     accessor!(sender, "Sender", Mailbox, as_mailbox);
     accessor!(resent_sender, "Resent-Sender", Mailbox, as_mailbox);

@@ -20,4 +20,6 @@ pub enum MailParsingError {
     WriteMessageIOError,
     #[error("Error building message: {0}")]
     BuildError(&'static str),
+    #[error("Error parsing Date header: {0}")]
+    ChronoError(chrono::format::ParseError),
 }

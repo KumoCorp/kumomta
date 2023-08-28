@@ -4,6 +4,7 @@ use crate::{
     AddressList, MailParsingError, Mailbox, MailboxList, MessageID, MimeParameters, Result,
     SharedString,
 };
+use chrono::{DateTime, FixedOffset};
 use std::convert::TryInto;
 
 bitflags::bitflags! {
@@ -192,6 +193,10 @@ impl<'a> Header<'a> {
 
     pub fn as_unstructured(&self) -> Result<String> {
         Parser::parse_unstructured_header(self.get_raw_value())
+    }
+
+    pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
+        DateTime::parse_from_rfc2822(self.get_raw_value()).map_err(MailParsingError::ChronoError)
     }
 
     pub fn parse_headers<S: TryInto<SharedString<'a>>>(
@@ -559,5 +564,12 @@ Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the st
         );
 
         k9::assert_equal!(header.as_unstructured().unwrap(), input_text);
+    }
+
+    #[test]
+    fn test_date() {
+        let header = Header::with_name_value("Date", "Tue, 1 Jul 2003 10:52:37 +0200");
+        let date = header.as_date().unwrap();
+        k9::snapshot!(date, "2003-07-01T10:52:37+02:00");
     }
 }
