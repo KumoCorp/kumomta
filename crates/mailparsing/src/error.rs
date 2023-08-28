@@ -18,4 +18,6 @@ pub enum MailParsingError {
     WriteMessageWtf(&'static str),
     #[error("IO error during write_message")]
     WriteMessageIOError,
+    #[error("Error building message: {0}")]
+    BuildError(&'static str),
 }

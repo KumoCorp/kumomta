@@ -38,6 +38,7 @@ lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 mail-builder = "0.2"
 maildir = {path="../maildir"}
+mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
 metrics = "0.20"

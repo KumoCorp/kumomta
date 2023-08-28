@@ -9,7 +9,7 @@ use paste::paste;
 /// but provides some accessors for retrieving headers by name.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HeaderMap<'a> {
-    headers: Vec<Header<'a>>,
+    pub(crate) headers: Vec<Header<'a>>,
 }
 
 impl<'a> std::ops::Deref for HeaderMap<'a> {
@@ -27,6 +27,19 @@ impl<'a> std::ops::DerefMut for HeaderMap<'a> {
 
 pub trait EncodeHeaderValue {
     fn encode_value(&self) -> SharedString<'static>;
+    fn as_header(&self, _name: &str) -> Option<Header<'static>> {
+        None
+    }
+}
+
+impl EncodeHeaderValue for &str {
+    fn encode_value(&self) -> SharedString<'static> {
+        unimplemented!();
+    }
+
+    fn as_header(&self, name: &str) -> Option<Header<'static>> {
+        Some(Header::new_unstructured(name.to_string(), self.to_string()))
+    }
 }
 
 macro_rules! accessor {
@@ -40,15 +53,24 @@ macro_rules! accessor {
 
         paste! {
             pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) {
+
                 if let Some(idx) = self
                     .headers
                     .iter()
                     .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
                 {
-                    self.headers[idx].assign(v);
+                    if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
+                        self.headers[idx] = hdr;
+                    } else {
+                        self.headers[idx].assign(v);
+                    }
                 } else {
+                    if let Some(hdr) = v.as_header($header_name) {
+                        self.headers.push(hdr);
+                    } else {
                     self.headers
                         .push(Header::with_name_value($header_name, v.encode_value()));
+                    }
                 }
             }
         }
