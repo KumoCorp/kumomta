@@ -2456,7 +2456,6 @@ dependencies = [
  "kumo-server-runtime",
  "lazy_static",
  "lruttl",
- "mail-parser",
  "maildir",
  "mailparsing",
  "maplit",
@@ -2720,15 +2719,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8390bb0f68168cabc59999706c2199c9b556d7dfd94e65a26e8840fa1d58b238"
 dependencies = [
  "gethostname",
-]
-
-[[package]]
-name = "mail-parser"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4158a1c18963244e083888b21465846dfb68d6170850ed1ab4742edd57c9d47"
-dependencies = [
- "encoding_rs",
 ]
 
 [[package]]

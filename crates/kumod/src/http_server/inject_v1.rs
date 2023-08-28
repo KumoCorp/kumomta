@@ -587,31 +587,34 @@ This is a test message to James Smythe
             .unwrap();
 
         println!("{generated}");
-        let parsed = mail_parser::Message::parse(&generated.as_bytes()).unwrap();
-        println!("{parsed:?}");
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
+        println!("{parsed:#?}");
 
-        assert!(parsed.header("MIME-Version").is_some());
+        assert!(parsed.headers().mime_version().unwrap().is_some());
+
+        let structure = parsed.simplified_structure().unwrap();
+        eprintln!("{structure:?}");
 
         k9::snapshot!(
-            parsed.body_html(0),
+            structure.html,
             r#"
 Some(
-    "I am the <b>html</b> text, James Smythe. 👾 <img src="cid:my-image"/>",
+    "I am the <b>html</b> text, James Smythe. 👾 <img src="cid:my-image"/>\r
+",
 )
 "#
         );
         k9::snapshot!(
-            parsed.body_text(0),
+            structure.text,
             r#"
 Some(
-    "I am the plain text, James Smythe. 😀",
+    "I am the plain text, James Smythe. 😀\r
+",
 )
 "#
         );
 
-        k9::assert_equal!(parsed.html_body_count(), 1);
-        k9::assert_equal!(parsed.text_body_count(), 1);
-        k9::assert_equal!(parsed.attachment_count(), 1);
+        k9::assert_equal!(structure.attachments.len(), 1);
     }
 
     #[tokio::test]
@@ -651,40 +654,52 @@ Some(
             .unwrap();
 
         println!("{generated}");
-        let parsed = mail_parser::Message::parse(&generated.as_bytes()).unwrap();
+        let parsed = MimePart::parse(generated.as_str()).unwrap();
         println!("{parsed:?}");
 
         k9::snapshot!(
-            parsed.header("To"),
+            parsed.headers().to(),
             r#"
-Some(
-    Address(
-        Addr {
-            name: Some(
-                "James Smythe",
-            ),
-            address: Some(
-                "user@example.com",
-            ),
-        },
+Ok(
+    Some(
+        AddressList(
+            [
+                Mailbox(
+                    Mailbox {
+                        name: Some(
+                            "James Smythe",
+                        ),
+                        address: AddrSpec {
+                            local_part: "user",
+                            domain: "example.com",
+                        },
+                    },
+                ),
+            ],
+        ),
     ),
 )
 "#
         );
 
         k9::snapshot!(
-            parsed.header("From"),
+            parsed.headers().from(),
             r#"
-Some(
-    Address(
-        Addr {
-            name: Some(
-                "Sender Name",
-            ),
-            address: Some(
-                "from@example.com",
-            ),
-        },
+Ok(
+    Some(
+        MailboxList(
+            [
+                Mailbox {
+                    name: Some(
+                        "Sender Name",
+                    ),
+                    address: AddrSpec {
+                        local_part: "from",
+                        domain: "example.com",
+                    },
+                },
+            ],
+        ),
     ),
 )
 "#

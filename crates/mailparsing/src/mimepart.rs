@@ -434,6 +434,101 @@ impl<'a> MimePart<'a> {
             outro: "".into(),
         }
     }
+
+    /// Returns a SimplifiedStructure representation of the mime tree,
+    /// with the (probable) primary text/plain and text/html parts
+    /// pulled out, and the remaining parts recorded as a flat
+    /// attachments array
+    pub fn simplified_structure(&'a self) -> Result<SimplifiedStructure<'a>> {
+        let info = Rfc2045Info::new(&self.headers, false)?;
+
+        if let Some(ct) = &info.content_type {
+            if ct.value == "text/plain" {
+                return Ok(SimplifiedStructure {
+                    text: match self.body()? {
+                        DecodedBody::Text(t) => Some(t),
+                        DecodedBody::Binary(_) => {
+                            return Err(MailParsingError::BodyParse(
+                                "expected text/plain part to be text, but it is binary".to_string(),
+                            ))
+                        }
+                    },
+                    html: None,
+                    headers: &self.headers,
+                    attachments: vec![],
+                });
+            }
+            if ct.value == "text/html" {
+                return Ok(SimplifiedStructure {
+                    html: match self.body()? {
+                        DecodedBody::Text(t) => Some(t),
+                        DecodedBody::Binary(_) => {
+                            return Err(MailParsingError::BodyParse(
+                                "expected text/html part to be text, but it is binary".to_string(),
+                            ))
+                        }
+                    },
+                    text: None,
+                    headers: &self.headers,
+                    attachments: vec![],
+                });
+            }
+            if ct.value.starts_with("multipart/") {
+                let mut text = None;
+                let mut html = None;
+                let mut attachments = vec![];
+
+                for p in &self.parts {
+                    if let Ok(mut s) = p.simplified_structure() {
+                        if s.text.is_some() && text.is_none() {
+                            text = s.text;
+                        }
+                        if s.html.is_some() && html.is_none() {
+                            html = s.html;
+                        }
+                        attachments.append(&mut s.attachments);
+                    }
+                }
+
+                return Ok(SimplifiedStructure {
+                    html,
+                    text,
+                    headers: &self.headers,
+                    attachments,
+                });
+            }
+
+            return Ok(SimplifiedStructure {
+                html: None,
+                text: None,
+                headers: &self.headers,
+                attachments: vec![self.clone()],
+            });
+        }
+
+        // Assume text/plain content-type
+        Ok(SimplifiedStructure {
+            text: match self.body()? {
+                DecodedBody::Text(t) => Some(t),
+                DecodedBody::Binary(_) => {
+                    return Err(MailParsingError::BodyParse(
+                        "expected text/plain part to be text, but it is binary".to_string(),
+                    ))
+                }
+            },
+            html: None,
+            headers: &self.headers,
+            attachments: vec![],
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SimplifiedStructure<'a> {
+    pub text: Option<SharedString<'a>>,
+    pub html: Option<SharedString<'a>>,
+    pub headers: &'a HeaderMap<'a>,
+    pub attachments: Vec<MimePart<'a>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

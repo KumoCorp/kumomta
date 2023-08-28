@@ -68,5 +68,4 @@ zstd = "0.12"
 
 [dev-dependencies]
 k9 = "0.11"
-mail-parser = "0.8"
 maplit = "1.0"
