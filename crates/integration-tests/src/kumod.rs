@@ -2,6 +2,7 @@ use crate::webhook::WebHookServer;
 use anyhow::Context;
 use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
+use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
 use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts};
 use std::collections::BTreeMap;
@@ -88,13 +89,12 @@ impl MailGenParams<'_> {
         };
         let sender = self.sender.unwrap_or("sender@example.com");
         let recip = self.recip.unwrap_or("recip@example.com");
-        let message = mail_builder::MessageBuilder::new()
-            .from(sender)
-            .to(recip)
-            .subject(self.subject.unwrap_or("Hello! This is a test"))
-            .text_body(body)
-            .write_to_string()?;
-        Ok(message)
+        let mut message = MessageBuilder::new();
+        message.set_from(sender);
+        message.set_to(recip);
+        message.set_subject(self.subject.unwrap_or("Hello! This is a test"));
+        message.text_plain(body);
+        Ok(message.build()?.to_message_string())
     }
 }
 

@@ -2092,7 +2092,6 @@ dependencies = [
  "kumo-api-types",
  "kumo-log-types",
  "lipsum",
- "mail-builder",
  "maildir",
  "mailparsing",
  "nix 0.26.2",

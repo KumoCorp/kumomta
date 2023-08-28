@@ -13,6 +13,7 @@ mod test {
     use k9::assert_equal;
     use kumo_api_types::SuspendV1Response;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
+    use mailparsing::DecodedBody;
     use rfc5321::*;
     use std::time::Duration;
 
@@ -488,7 +489,7 @@ Some(
             parsed.headers().subject().unwrap().unwrap(),
             "Hello! This is a test"
         );
-        assert_equal!(parsed.raw_body(), body.as_ref());
+        assert_equal!(parsed.body().unwrap(), DecodedBody::Text(body.into()));
 
         Ok(())
     }
@@ -696,7 +697,7 @@ Some(
             parsed.headers().subject().unwrap().unwrap(),
             "Hello! This is a test"
         );
-        assert_equal!(parsed.raw_body(), body.as_ref());
+        assert_equal!(parsed.body().unwrap(), DecodedBody::Text(body.into()));
 
         Ok(())
     }
