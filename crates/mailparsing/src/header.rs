@@ -367,6 +367,62 @@ impl<'a> Header<'a> {
 
         Ok((header, idx))
     }
+
+    /// Re-constitute the header.
+    /// The header value will be parsed out according to the known schema
+    /// of the associated header name, and the parsed form used
+    /// to build a new version of the header.
+    /// This has the side effect of "fixing" non-conforming elements,
+    /// but may come at the cost of "losing" the non-sensical or otherwise
+    /// out of spec elements in the rebuilt header
+    pub fn rebuild(&self) -> Result<Self> {
+        let name = self.get_name();
+
+        macro_rules! hdr {
+            ($header_name:literal, $func_name:ident, encode) => {
+                if name.eq_ignore_ascii_case($header_name) {
+                    let value = self.$func_name()?;
+                    return Ok(Self::with_name_value($header_name, value.encode_value()));
+                }
+            };
+            ($header_name:literal, unstructured) => {
+                if name.eq_ignore_ascii_case($header_name) {
+                    let value = self.as_unstructured()?;
+                    return Ok(Self::new_unstructured($header_name, value));
+                }
+            };
+        }
+
+        hdr!("From", as_mailbox_list, encode);
+        hdr!("Resent-From", as_mailbox_list, encode);
+        hdr!("Reply-To", as_address_list, encode);
+        hdr!("To", as_address_list, encode);
+        hdr!("Cc", as_address_list, encode);
+        hdr!("Bcc", as_address_list, encode);
+        hdr!("Resent-To", as_address_list, encode);
+        hdr!("Resent-Cc", as_address_list, encode);
+        hdr!("Resent-Bcc", as_address_list, encode);
+        hdr!("Date", as_date, encode);
+        hdr!("Sender", as_mailbox, encode);
+        hdr!("Resent-Sender", as_mailbox, encode);
+        hdr!("Message-ID", as_message_id, encode);
+        hdr!("Content-ID", as_content_id, encode);
+        hdr!("Content-Type", as_content_type, encode);
+        hdr!(
+            "Content-Transfer-Encoding",
+            as_content_transfer_encoding,
+            encode
+        );
+        hdr!("Content-Disposition", as_content_disposition, encode);
+        hdr!("References", as_message_id_list, encode);
+        hdr!("Subject", unstructured);
+        hdr!("Comments", unstructured);
+        hdr!("Mime-Version", unstructured);
+
+        // Assume unstructured
+        let value = self.as_unstructured()?;
+        Ok(Self::new_unstructured(name.to_string(), value))
+    }
 }
 
 #[cfg(test)]

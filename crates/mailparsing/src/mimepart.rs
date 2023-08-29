@@ -38,6 +38,7 @@ struct Rfc2045Info {
     content_type: Option<MimeParameters>,
     is_text: bool,
     is_multipart: bool,
+    attachment_options: Option<AttachmentOptions>,
 }
 
 impl Rfc2045Info {
@@ -74,12 +75,29 @@ impl Rfc2045Info {
             (true, false)
         };
 
+        let content_disposition = headers.content_disposition()?;
+        let attachment_options = match content_disposition {
+            Some(cd) => {
+                let inline = cd.value == "inline";
+                let content_id = headers.content_id()?;
+                let file_name = cd.get("filename");
+
+                Some(AttachmentOptions {
+                    file_name,
+                    inline,
+                    content_id: content_id.map(|cid| cid.0),
+                })
+            }
+            None => None,
+        };
+
         Ok(Self {
             encoding,
             charset,
             content_type,
             is_text,
             is_multipart,
+            attachment_options,
         })
     }
 }
@@ -257,6 +275,67 @@ impl<'a> MimePart<'a> {
         }
     }
 
+    /// Re-constitute the message.
+    /// Each element will be parsed out, and the parsed form used
+    /// to build a new message.
+    /// This has the side effect of "fixing" non-conforming elements,
+    /// but may come at the cost of "losing" the non-sensical or otherwise
+    /// out of spec elements in the rebuilt message
+    pub fn rebuild(&self) -> Result<Self> {
+        let info = Rfc2045Info::new(&self.headers, false)?;
+
+        let mut children = vec![];
+        for part in &self.parts {
+            children.push(part.rebuild()?);
+        }
+
+        let mut rebuilt = if children.is_empty() {
+            let body = self.body()?;
+            match body {
+                DecodedBody::Text(text) => {
+                    let ct = info
+                        .content_type
+                        .as_ref()
+                        .map(|ct| ct.value.as_str())
+                        .unwrap_or("text/plain");
+                    Self::new_text(ct, text.as_str())
+                }
+                DecodedBody::Binary(data) => {
+                    let ct = info
+                        .content_type
+                        .as_ref()
+                        .map(|ct| ct.value.as_str())
+                        .unwrap_or("application/octet-stream");
+                    Self::new_binary(ct, &data, info.attachment_options.as_ref())
+                }
+            }
+        } else {
+            let ct = info.content_type.ok_or_else(|| {
+                MailParsingError::BodyParse(format!(
+                    "multipart message has no content-type information!?"
+                ))
+            })?;
+            Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())
+        };
+
+        for hdr in self.headers.iter() {
+            // Skip rfc2045 associated headers; we already rebuilt
+            // those above
+            let name = hdr.get_name();
+            if name.eq_ignore_ascii_case("Content-Type")
+                || name.eq_ignore_ascii_case("Content-Transfer-Encoding")
+                || name.eq_ignore_ascii_case("Content-Disposition")
+                || name.eq_ignore_ascii_case("Content-ID")
+            {
+                continue;
+            }
+
+            rebuilt.headers_mut().push(hdr.rebuild()?);
+        }
+
+        Ok(rebuilt)
+    }
+
     /// Write the message content to the provided output stream
     pub fn write_message<W: std::io::Write>(&self, out: &mut W) -> Result<()> {
         let line_ending = if self
@@ -335,7 +414,14 @@ impl<'a> MimePart<'a> {
         let mut headers = HeaderMap::default();
 
         let mut ct = MimeParameters::new(content_type);
-        ct.set("charset", "utf-8");
+        ct.set(
+            "charset",
+            if content.is_ascii() {
+                "us-ascii"
+            } else {
+                "utf-8"
+            },
+        );
         headers.set_content_type(ct);
 
         headers.set_content_transfer_encoding(MimeParameters::new(encoding));
@@ -380,8 +466,6 @@ impl<'a> MimePart<'a> {
             }
         }
         headers.set_content_type(ct);
-
-        headers.set_content_transfer_encoding(MimeParameters::new("quoted-printable"));
 
         Self {
             bytes: "".into(),
@@ -601,6 +685,20 @@ Ok(
 )
 "#
         );
+
+        k9::snapshot!(
+            part.rebuild().unwrap().to_message_string(),
+            r#"
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+Content-Transfer-Encoding: quoted-printable\r
+Subject: hello there\r
+From: Someone <someone@example.com>\r
+\r
+I am the body\r
+
+"#
+        );
     }
 
     #[test]
@@ -627,6 +725,21 @@ Ok(
 ",
     ),
 )
+"#
+        );
+
+        k9::snapshot!(
+            part.rebuild().unwrap().to_message_string(),
+            r#"
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+Content-Transfer-Encoding: quoted-printable\r
+Subject: hello there\r
+From: Someone <someone@example.com>\r
+Mime-Version: 1.0\r
+\r
+hello=0A\r
+
 "#
         );
     }
@@ -828,17 +941,16 @@ t's see how that turns out!\r
             r#"
 Content-Type: multipart/mixed;\r
 \tboundary="my-boundary"\r
-Content-Transfer-Encoding: quoted-printable\r
 \r
 --my-boundary\r
 Content-Type: text/plain;\r
-\tcharset="utf-8"\r
+\tcharset="us-ascii"\r
 Content-Transfer-Encoding: quoted-printable\r
 \r
 plain text\r
 --my-boundary\r
 Content-Type: text/html;\r
-\tcharset="utf-8"\r
+\tcharset="us-ascii"\r
 Content-Transfer-Encoding: quoted-printable\r
 \r
 <b>rich</b> text\r

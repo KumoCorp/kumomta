@@ -1266,6 +1266,19 @@ impl EncodeHeaderValue for MessageID {
     }
 }
 
+impl EncodeHeaderValue for Vec<MessageID> {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = String::new();
+        for id in self {
+            if !result.is_empty() {
+                result.push_str("\r\n\t");
+            }
+            result.push_str(&format!("<{}>", id.0));
+        }
+        result.into()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MimeParameter {
     pub name: String,
@@ -2087,6 +2100,22 @@ Some(
 Some(
     "Hello If you can read this you understand the example.",
 )
+"#
+        );
+
+        k9::snapshot!(
+            msg.rebuild().unwrap().to_message_string(),
+            r#"
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+Content-Transfer-Encoding: quoted-printable\r
+From: Keith Moore <moore@cs.utk.edu>\r
+To: =?UTF-8?q?Keld_J=C3=B8rn_Simonsen?= <keld@dkuug.dk>\r
+Cc: =?UTF-8?q?Andr=C3=A9_Pirard?= <PIRARD@vm1.ulg.ac.be>\r
+Subject: Hello If you can read this you understand the example.\r
+\r
+=0A\r
+
 "#
         );
     }
