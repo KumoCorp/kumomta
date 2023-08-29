@@ -1005,4 +1005,22 @@ AAECAw==\r
 "#
         );
     }
+
+    #[test]
+    fn funky_headers() {
+        let message = concat!(
+            "Subject\r\n",
+            "Other:\r\n",
+            "Content-Type: multipart/alternative; boundary=foobar\r\n",
+            "Mime-Version: 1.0\r\n",
+            "Date: Sun, 02 Oct 2016 07:06:22 -0700 (PDT)\r\n",
+            "\r\n",
+            "The body.\r\n"
+        );
+
+        let part = MimePart::parse(message).unwrap();
+        assert!(part
+            .conformance()
+            .contains(MessageConformance::MISSING_COLON_VALUE));
+    }
 }

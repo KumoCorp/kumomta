@@ -344,10 +344,6 @@ impl<'a> Header<'a> {
                             name_end.replace(idx);
                         }
                         conformance.set(MessageConformance::NAME_ENDS_WITH_SPACE, true);
-                    } else if c < 33 || c > 126 {
-                        return Err(MailParsingError::HeaderParse(format!(
-                            "header name must be comprised of printable US-ASCII characters. Found {c:?}"
-                        )));
                     } else if c == b'\n' {
                         // Got a newline before we finished parsing the name
                         conformance.set(MessageConformance::MISSING_COLON_VALUE, true);
@@ -357,6 +353,10 @@ impl<'a> Header<'a> {
                         value_end = idx;
                         idx += 1;
                         break;
+                    } else if c != b'\r' && (c < 33 || c > 126) {
+                        return Err(MailParsingError::HeaderParse(format!(
+                            "header name must be comprised of printable US-ASCII characters. Found {c:?}"
+                        )));
                     }
                 }
                 State::Separator => {
