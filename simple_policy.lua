@@ -125,6 +125,16 @@ end)
 -- Called once the body has been received.
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
+  local failed = msg:check_fix_conformance(
+    -- check for and reject messages with these issues:
+    'MISSING_COLON_VALUE',
+    -- fix messages with these issues:
+    'LINE_TOO_LONG|NAME_ENDS_WITH_SPACE|NEEDS_TRANSFER_ENCODING|NON_CANONICAL_LINE_ENDINGS|MISSING_DATE_HEADER|MISSING_MESSAGE_ID_HEADER|MISSING_MIME_VERSION'
+  )
+  if failed then
+    kumo.reject(552, string.format('5.6.0 %s', failed))
+  end
+
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
   -- print(msg:get_meta 'authn_id')
   -- msg:set_meta('routing_domain', 'outlook.com')

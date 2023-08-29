@@ -44,15 +44,7 @@ struct Rfc2045Info {
 }
 
 impl Rfc2045Info {
-    fn new(headers: &HeaderMap, check_mime_version: bool) -> Result<Self> {
-        if check_mime_version {
-            if let Some(v) = headers.mime_version()? {
-                if v != "1.0" {
-                    return Err(MailParsingError::UnknownMimeVersion(v));
-                }
-            }
-        }
-
+    fn new(headers: &HeaderMap) -> Result<Self> {
         let content_transfer_encoding = headers.content_transfer_encoding()?;
 
         let encoding = match &content_transfer_encoding {
@@ -111,7 +103,7 @@ impl<'a> MimePart<'a> {
         Self::parse_impl(bytes, true)
     }
 
-    fn parse_impl(bytes: SharedString<'a>, check_mime_version: bool) -> Result<Self> {
+    fn parse_impl(bytes: SharedString<'a>, is_top_level: bool) -> Result<Self> {
         let HeaderParseResult {
             headers,
             body_offset,
@@ -138,6 +130,30 @@ impl<'a> MimePart<'a> {
             has_lone_cr_or_lf(bytes.as_bytes()),
         );
 
+        if is_top_level {
+            conformance.set(
+                MessageConformance::MISSING_DATE_HEADER,
+                match headers.date() {
+                    Ok(Some(_)) => false,
+                    _ => true,
+                },
+            );
+            conformance.set(
+                MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                match headers.message_id() {
+                    Ok(Some(_)) => false,
+                    _ => true,
+                },
+            );
+            conformance.set(
+                MessageConformance::MISSING_MIME_VERSION,
+                match headers.mime_version() {
+                    Ok(Some(v)) => v.as_str() != "1.0",
+                    _ => true,
+                },
+            );
+        }
+
         let mut part = Self {
             bytes,
             headers,
@@ -149,13 +165,13 @@ impl<'a> MimePart<'a> {
             outro: SharedString::Borrowed(""),
         };
 
-        part.recursive_parse(check_mime_version)?;
+        part.recursive_parse()?;
 
         Ok(part)
     }
 
-    fn recursive_parse(&mut self, check_mime_version: bool) -> Result<()> {
-        let info = Rfc2045Info::new(&self.headers, check_mime_version)?;
+    fn recursive_parse(&mut self) -> Result<()> {
+        let info = Rfc2045Info::new(&self.headers)?;
         if let Some((boundary, true)) = info
             .content_type
             .as_ref()
@@ -190,6 +206,7 @@ impl<'a> MimePart<'a> {
                         .unwrap_or(raw_body.len());
 
                     let child = Self::parse_impl(raw_body.slice(part_start..part_end), false)?;
+                    self.conformance |= child.conformance;
                     self.parts.push(child);
 
                     boundary_end = part_end -
@@ -247,7 +264,7 @@ impl<'a> MimePart<'a> {
 
     /// Decode transfer decoding and return the body
     pub fn body(&self) -> Result<DecodedBody> {
-        let info = Rfc2045Info::new(&self.headers, false)?;
+        let info = Rfc2045Info::new(&self.headers)?;
 
         let bytes = match info.encoding {
             ContentTransferEncoding::Base64 => {
@@ -302,7 +319,7 @@ impl<'a> MimePart<'a> {
     /// but may come at the cost of "losing" the non-sensical or otherwise
     /// out of spec elements in the rebuilt message
     pub fn rebuild(&self) -> Result<Self> {
-        let info = Rfc2045Info::new(&self.headers, false)?;
+        let info = Rfc2045Info::new(&self.headers)?;
 
         let mut children = vec![];
         for part in &self.parts {
@@ -378,7 +395,7 @@ impl<'a> MimePart<'a> {
             out.write_all(self.raw_body().as_bytes())
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
         } else {
-            let info = Rfc2045Info::new(&self.headers, false)?;
+            let info = Rfc2045Info::new(&self.headers)?;
             let ct = info.content_type.ok_or_else(|| {
                 MailParsingError::WriteMessageWtf(
                     "expected to have Content-Type when there are child parts",
@@ -548,7 +565,7 @@ impl<'a> MimePart<'a> {
     /// pulled out, and the remaining parts recorded as a flat
     /// attachments array
     pub fn simplified_structure(&'a self) -> Result<SimplifiedStructure<'a>> {
-        let info = Rfc2045Info::new(&self.headers, false)?;
+        let info = Rfc2045Info::new(&self.headers)?;
 
         if let Some(ct) = &info.content_type {
             if ct.value == "text/plain" {

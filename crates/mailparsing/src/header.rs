@@ -16,6 +16,9 @@ bitflags::bitflags! {
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
         const LINE_TOO_LONG = 0b0000_1000;
         const NEEDS_TRANSFER_ENCODING = 0b0001_0000;
+        const MISSING_DATE_HEADER = 0b0010_0000;
+        const MISSING_MESSAGE_ID_HEADER = 0b0100_0000;
+        const MISSING_MIME_VERSION = 0b1000_0000;
     }
 }
 
@@ -25,6 +28,9 @@ impl FromStr for MessageConformance {
     fn from_str(s: &str) -> std::result::Result<Self, String> {
         let mut result = Self::default();
         for ele in s.split('|') {
+            if ele.is_empty() {
+                continue;
+            }
             match Self::from_name(ele) {
                 Some(v) => {
                     result = result.union(v);
@@ -698,6 +704,10 @@ Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the st
                 .to_string(),
             "LINE_TOO_LONG|NEEDS_TRANSFER_ENCODING"
         );
+        k9::assert_equal!(
+            MessageConformance::from_str("").unwrap(),
+            MessageConformance::default()
+        );
 
         k9::assert_equal!(
             MessageConformance::from_str("LINE_TOO_LONG").unwrap(),
@@ -710,7 +720,8 @@ Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the st
         k9::assert_equal!(
             MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
             "invalid MessageConformance flag 'spoon', possible values are \
-            'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'NAME_ENDS_WITH_SPACE', \
+            'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', \
+            'MISSING_MESSAGE_ID_HEADER', 'MISSING_MIME_VERSION', 'NAME_ENDS_WITH_SPACE', \
             'NEEDS_TRANSFER_ENCODING', 'NON_CANONICAL_LINE_ENDINGS'"
         );
     }
