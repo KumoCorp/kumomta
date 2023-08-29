@@ -1,6 +1,6 @@
 use crate::DKIMError;
 use mailparsing::{
-    Header, HeaderConformance, HeaderMap, HeaderParseResult, MimePart, SharedString,
+    Header, HeaderMap, HeaderParseResult, MessageConformance, MimePart, SharedString,
 };
 
 pub enum ParsedEmail<'a> {
@@ -15,8 +15,8 @@ impl<'a> TryFrom<MimePart<'a>> for ParsedEmail<'a> {
     type Error = DKIMError;
     fn try_from(mail: MimePart<'a>) -> Result<Self, DKIMError> {
         if mail
-            .header_conformance()
-            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+            .conformance()
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             return Err(DKIMError::CanonicalLineEndingsRequired);
         }
@@ -30,7 +30,7 @@ impl<'a> ParsedEmail<'a> {
         let parsed = Header::parse_headers(bytes.clone())?;
         if parsed
             .overall_conformance
-            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             return Err(DKIMError::CanonicalLineEndingsRequired);
         }

@@ -14,7 +14,7 @@ pub type Result<T> = std::result::Result<T, MailParsingError>;
 
 pub use builder::*;
 pub use conformance::*;
-pub use header::{Header, HeaderConformance, HeaderParseResult};
+pub use header::{Header, HeaderParseResult, MessageConformance};
 pub use headermap::*;
 pub use mimepart::*;
 pub use normalize::*;

@@ -9,10 +9,12 @@ use std::convert::TryInto;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-    pub struct HeaderConformance: u8 {
+    pub struct MessageConformance: u8 {
         const MISSING_COLON_VALUE = 0b0000_0001;
         const NON_CANONICAL_LINE_ENDINGS = 0b0000_0010;
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
+        const LINE_TOO_LONG = 0b0000_1000;
+        const NEEDS_TRANSFER_ENCODING = 0b0001_0000;
     }
 }
 
@@ -24,14 +26,14 @@ pub struct Header<'a> {
     value: SharedString<'a>,
     /// The separator between the name and the value
     separator: SharedString<'a>,
-    conformance: HeaderConformance,
+    conformance: MessageConformance,
 }
 
 /// Holds the result of parsing a block of headers
 pub struct HeaderParseResult<'a> {
     pub headers: HeaderMap<'a>,
     pub body_offset: usize,
-    pub overall_conformance: HeaderConformance,
+    pub overall_conformance: MessageConformance,
 }
 
 impl<'a> Header<'a> {
@@ -45,7 +47,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -56,7 +58,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -108,7 +110,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -121,7 +123,7 @@ impl<'a> Header<'a> {
     pub fn write_header<W: std::io::Write>(&self, out: &mut W) -> std::io::Result<()> {
         let line_ending = if self
             .conformance
-            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             "\n"
         } else {
@@ -207,14 +209,14 @@ impl<'a> Header<'a> {
             .map_err(|_| MailParsingError::NotAscii)?;
         let mut headers = vec![];
         let mut idx = 0;
-        let mut overall_conformance = HeaderConformance::default();
+        let mut overall_conformance = MessageConformance::default();
 
         while idx < header_block.len() {
             let b = header_block[idx];
             if b == b'\n' {
                 // LF: End of header block
                 idx += 1;
-                overall_conformance.set(HeaderConformance::NON_CANONICAL_LINE_ENDINGS, true);
+                overall_conformance.set(MessageConformance::NON_CANONICAL_LINE_ENDINGS, true);
                 break;
             }
             if b == b'\r' {
@@ -272,9 +274,11 @@ impl<'a> Header<'a> {
         let mut value_start = 0;
         let mut value_end = 0;
 
-        let mut idx = 0;
-        let mut conformance = HeaderConformance::default();
+        let mut idx = 0usize;
+        let mut conformance = MessageConformance::default();
         let mut saw_cr = false;
+        let mut line_start = 0;
+        let mut max_line_len = 0;
 
         loop {
             match state {
@@ -297,15 +301,16 @@ impl<'a> Header<'a> {
                         if name_end.is_none() {
                             name_end.replace(idx);
                         }
-                        conformance.set(HeaderConformance::NAME_ENDS_WITH_SPACE, true);
+                        conformance.set(MessageConformance::NAME_ENDS_WITH_SPACE, true);
                     } else if c < 33 || c > 126 {
                         return Err(MailParsingError::HeaderParse(format!(
                             "header name must be comprised of printable US-ASCII characters. Found {c:?}"
                         )));
                     } else if c == b'\n' {
                         // Got a newline before we finished parsing the name
-                        conformance.set(HeaderConformance::MISSING_COLON_VALUE, true);
+                        conformance.set(MessageConformance::MISSING_COLON_VALUE, true);
                         name_end.replace(idx);
+                        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
                         value_start = idx;
                         value_end = idx;
                         idx += 1;
@@ -323,10 +328,12 @@ impl<'a> Header<'a> {
                 State::Value => {
                     if c == b'\n' {
                         if !saw_cr {
-                            conformance.set(HeaderConformance::NON_CANONICAL_LINE_ENDINGS, true);
+                            conformance.set(MessageConformance::NON_CANONICAL_LINE_ENDINGS, true);
                         }
                         state = State::NewLine;
                         saw_cr = false;
+                        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
+                        line_start = idx + 1;
                     } else if c != b'\r' {
                         value_end = idx + 1;
                         saw_cr = false;
@@ -349,8 +356,13 @@ impl<'a> Header<'a> {
             };
         }
 
+        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
+        if max_line_len > 78 {
+            conformance.set(MessageConformance::LINE_TOO_LONG, true);
+        }
+
         let name_end = name_end.unwrap_or_else(|| {
-            conformance.set(HeaderConformance::MISSING_COLON_VALUE, true);
+            conformance.set(MessageConformance::MISSING_COLON_VALUE, true);
             idx
         });
 
@@ -471,7 +483,7 @@ mod test {
         k9::snapshot!(
             overall_conformance,
             "
-HeaderConformance(
+MessageConformance(
     NON_CANONICAL_LINE_ENDINGS,
 )
 "
@@ -485,7 +497,7 @@ HeaderMap {
             name: "Subject",
             value: "hello there",
             separator: ": ",
-            conformance: HeaderConformance(
+            conformance: MessageConformance(
                 NON_CANONICAL_LINE_ENDINGS,
             ),
         },
@@ -493,7 +505,7 @@ HeaderMap {
             name: "From",
             value: "Someone <someone@example.com>",
             separator: ":  ",
-            conformance: HeaderConformance(
+            conformance: MessageConformance(
                 NON_CANONICAL_LINE_ENDINGS,
             ),
         },

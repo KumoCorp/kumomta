@@ -1,6 +1,8 @@
-use crate::header::{HeaderConformance, HeaderParseResult};
+use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
-use crate::{Header, MailParsingError, MessageID, MimeParameters, Result, SharedString};
+use crate::{
+    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameters, Result, SharedString,
+};
 use charset::Charset;
 use std::convert::TryInto;
 use std::str::FromStr;
@@ -24,7 +26,7 @@ pub struct MimePart<'a> {
     /// The index into bytes of the first non-header byte.
     body_offset: usize,
     body_len: usize,
-    header_conformance: HeaderConformance,
+    conformance: MessageConformance,
     parts: Vec<Self>,
     /// For multipart, the content the precedes the first boundary
     intro: SharedString<'a>,
@@ -113,17 +115,35 @@ impl<'a> MimePart<'a> {
         let HeaderParseResult {
             headers,
             body_offset,
-            overall_conformance: header_conformance,
+            overall_conformance: mut conformance,
         } = Header::parse_headers(bytes.clone())?;
 
         let body_len = bytes.len();
+
+        if !bytes.is_ascii() {
+            conformance.set(MessageConformance::NEEDS_TRANSFER_ENCODING, true);
+        }
+        {
+            let mut prev = 0;
+            for idx in memchr::memchr_iter(b'\n', bytes.as_bytes()) {
+                if idx - prev > 78 {
+                    conformance.set(MessageConformance::LINE_TOO_LONG, true);
+                    break;
+                }
+                prev = idx;
+            }
+        }
+        conformance.set(
+            MessageConformance::NON_CANONICAL_LINE_ENDINGS,
+            has_lone_cr_or_lf(bytes.as_bytes()),
+        );
 
         let mut part = Self {
             bytes,
             headers,
             body_offset,
             body_len,
-            header_conformance,
+            conformance,
             parts: vec![],
             intro: SharedString::Borrowed(""),
             outro: SharedString::Borrowed(""),
@@ -195,8 +215,8 @@ impl<'a> MimePart<'a> {
         Ok(())
     }
 
-    pub fn header_conformance(&self) -> HeaderConformance {
-        self.header_conformance
+    pub fn conformance(&self) -> MessageConformance {
+        self.conformance
     }
 
     /// Obtain a reference to the child parts
@@ -339,8 +359,8 @@ impl<'a> MimePart<'a> {
     /// Write the message content to the provided output stream
     pub fn write_message<W: std::io::Write>(&self, out: &mut W) -> Result<()> {
         let line_ending = if self
-            .header_conformance
-            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+            .conformance
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             "\n"
         } else {
@@ -439,7 +459,7 @@ impl<'a> MimePart<'a> {
             headers,
             body_offset: 0,
             body_len,
-            header_conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
             parts: vec![],
             intro: "".into(),
             outro: "".into(),
@@ -476,7 +496,7 @@ impl<'a> MimePart<'a> {
             headers,
             body_offset: 0,
             body_len: 0,
-            header_conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
             parts,
             intro: "".into(),
             outro: "".into(),
@@ -516,7 +536,7 @@ impl<'a> MimePart<'a> {
             headers,
             body_offset: 0,
             body_len,
-            header_conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
             parts: vec![],
             intro: "".into(),
             outro: "".into(),
