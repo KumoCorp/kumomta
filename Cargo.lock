@@ -2759,6 +2759,7 @@ dependencies = [
  "nom_locate",
  "paste",
  "quoted_printable 0.5.0",
+ "serde",
  "textwrap 0.16.0",
  "thiserror",
  "uuid",

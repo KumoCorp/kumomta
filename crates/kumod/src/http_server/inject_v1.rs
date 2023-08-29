@@ -344,28 +344,6 @@ impl InjectV1Request {
     }
 }
 
-pub fn normalize_crlf(input: &str) -> String {
-    let mut normalized = String::with_capacity(input.len());
-    let mut prev = ' ';
-    for c in input.chars() {
-        if c == '\r' {
-            normalized.push_str("\r\n");
-            prev = c;
-            continue;
-        }
-        if c == '\n' {
-            if prev != '\r' {
-                normalized.push_str("\r\n");
-            }
-            prev = c;
-            continue;
-        }
-        prev = c;
-        normalized.push(c);
-    }
-    normalized
-}
-
 async fn process_recipient<'a>(
     config: &mut LuaConfig,
     sender: &EnvelopeAddress,
@@ -382,7 +360,7 @@ async fn process_recipient<'a>(
 
     // Ensure that there are no bare LF in the message, as that will
     // confuse SMTP delivery!
-    let normalized = normalize_crlf(&generated);
+    let normalized = mailparsing::normalize_crlf(generated.as_bytes());
 
     // build into a Message
     let id = SpoolId::new();
@@ -391,7 +369,7 @@ async fn process_recipient<'a>(
         sender.clone(),
         recip_addr,
         serde_json::json!({}),
-        Arc::new(normalized.into_bytes().into_boxed_slice()),
+        Arc::new(normalized.into_boxed_slice()),
     )?;
 
     message.set_meta("http_auth", auth.summarize())?;
@@ -703,14 +681,6 @@ Ok(
     ),
 )
 "#
-        );
-    }
-
-    #[test]
-    fn test_normalize_crlf() {
-        k9::assert_equal!(
-            normalize_crlf("foo\r\nbar\nwoot\rdouble-r\r\rend"),
-            "foo\r\nbar\r\nwoot\r\ndouble-r\r\n\r\nend"
         );
     }
 }

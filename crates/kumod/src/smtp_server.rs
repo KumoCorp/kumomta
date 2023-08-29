@@ -13,6 +13,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{rt_spawn, spawn_local};
 use lruttl::LruCacheWithTtl;
+use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
@@ -160,6 +161,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default = "EsmtpListenerParams::default_data_buffer_size")]
     data_buffer_size: usize,
+
+    #[serde(default)]
+    invalid_line_endings: ConformanceDisposition,
 }
 
 impl EsmtpListenerParams {
@@ -1284,13 +1288,46 @@ impl SmtpServer {
         }
     }
 
-    async fn process_data(&mut self, data: Vec<u8>) -> anyhow::Result<()> {
+    async fn process_data(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
         let state = self
             .state
             .take()
             .ok_or_else(|| anyhow!("transaction state is impossibly not set!?"))?;
 
         tracing::trace!(?state);
+
+        let lone_lf = mailparsing::has_lone_cr_or_lf(&data);
+        if lone_lf {
+            match self.params.invalid_line_endings {
+                ConformanceDisposition::Deny => {
+                    self.write_response(552, "5.6.0 message data must use CRLF for line endings")
+                        .await?;
+                    return Ok(());
+                }
+                ConformanceDisposition::Allow => {
+                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                        conn_meta: self.meta.clone_inner(),
+                        payload: SmtpServerTraceEventPayload::Diagnostic {
+                            level: Level::INFO,
+                            message: "Allowing invalid line endings in DATA".to_string(),
+                        },
+                        when: Utc::now(),
+                    });
+                }
+                ConformanceDisposition::Fix => {
+                    SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                        conn_meta: self.meta.clone_inner(),
+                        payload: SmtpServerTraceEventPayload::Diagnostic {
+                            level: Level::INFO,
+                            message: "Fixed line endings in DATA".to_string(),
+                        },
+                        when: Utc::now(),
+                    });
+
+                    mailparsing::normalize_crlf_in_place(&mut data);
+                }
+            }
+        }
 
         let mut ids = vec![];
 
