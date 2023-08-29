@@ -55,6 +55,9 @@ several options.
                 protocol = {
                     smtp = {
                         mx_list = { 'smart.host.local', '[10.0.0.1]' },
+                        mx_list_ip_map = {
+                            ['[10.0.0.1]'] = 'mx.example.com.'
+                            }
                     },
                 },
             }
@@ -68,7 +71,7 @@ several options.
     the list of hosts in `mx_list`.  `mx_list` is used as the ordered list
     of hosts to which the message should be delivered.  It is used in
     place of the normal MX resolution that would have been carried out
-    for the domain.
+    for the domain. 'mx_list_ip_map' maps ips from mx_list to their domain for tls connection. If left empty, enable_tls needs to be "OpportunisticInsecure" or "Disabled".
 
     With this approach, the original scheduled queue name remains as it
     was.

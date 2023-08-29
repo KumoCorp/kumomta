@@ -33,6 +33,7 @@ local function compute_ip_rollup_mx_list(domain, routing_domain)
   end
 
   local addrs = {}
+  local addrs_map = {}
   -- The host names are pre-sorted by lookup_mx
   for _, host in ipairs(hosts) do
     local host_addrs = kumo.dns.lookup_addr(host)
@@ -41,19 +42,23 @@ local function compute_ip_rollup_mx_list(domain, routing_domain)
     -- and hash consistently with the resulting ready queue name
     table.sort(host_addrs)
     for _, a in ipairs(host_addrs) do
-      table.insert(addrs, string.format('[%s]', a))
+      local ip = string.format('[%s]', a)
+      table.insert(addrs, ip)
+      addrs_map[ip] = host
     end
   end
 
-  return addrs
+  return addrs, addrs_map
 end
 
 function mod.apply_ip_rollup_to_queue_config(domain, routing_domain, params)
-  local mx_list = compute_ip_rollup_mx_list(domain, routing_domain)
+  local mx_list, mx_list_ip_map =
+    compute_ip_rollup_mx_list(domain, routing_domain)
   if mx_list then
     params.protocol = {
       smtp = {
         mx_list = mx_list,
+        mx_list_ip_map = mx_list_ip_map,
       },
     }
   end
