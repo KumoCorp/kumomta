@@ -397,17 +397,19 @@ impl<'a> MimePart<'a> {
         // We'll probably use qp, so speculatively do the work
         let qp_encoded = quoted_printable::encode(content);
 
-        let (mut encoded, encoding) =
-            if qp_encoded.len() <= BASE64_RFC2045.encode_len(content.len()) {
-                (qp_encoded, "quoted-printable")
-            } else {
-                // Turns out base64 will be smaller; perhaps the content
-                // is dominated by non-ASCII text?
-                (
-                    BASE64_RFC2045.encode(content.as_bytes()).into_bytes(),
-                    "base64",
-                )
-            };
+        let (mut encoded, encoding) = if qp_encoded == content.as_bytes() {
+            (qp_encoded, None)
+        } else if qp_encoded.len() <= BASE64_RFC2045.encode_len(content.len()) {
+            (qp_encoded, Some("quoted-printable"))
+        } else {
+            // Turns out base64 will be smaller; perhaps the content
+            // is dominated by non-ASCII text?
+            (
+                BASE64_RFC2045.encode(content.as_bytes()).into_bytes(),
+                Some("base64"),
+            )
+        };
+
         if !encoded.ends_with(b"\r\n") {
             encoded.extend_from_slice(b"\r\n");
         }
@@ -424,7 +426,9 @@ impl<'a> MimePart<'a> {
         );
         headers.set_content_type(ct);
 
-        headers.set_content_transfer_encoding(MimeParameters::new(encoding));
+        if let Some(encoding) = encoding {
+            headers.set_content_transfer_encoding(MimeParameters::new(encoding));
+        }
 
         let body_len = encoded.len();
         let bytes =
@@ -691,7 +695,6 @@ Ok(
             r#"
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
-Content-Transfer-Encoding: quoted-printable\r
 Subject: hello there\r
 From: Someone <someone@example.com>\r
 \r
@@ -945,13 +948,11 @@ Content-Type: multipart/mixed;\r
 --my-boundary\r
 Content-Type: text/plain;\r
 \tcharset="us-ascii"\r
-Content-Transfer-Encoding: quoted-printable\r
 \r
 plain text\r
 --my-boundary\r
 Content-Type: text/html;\r
 \tcharset="us-ascii"\r
-Content-Transfer-Encoding: quoted-printable\r
 \r
 <b>rich</b> text\r
 --my-boundary\r

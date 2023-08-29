@@ -381,13 +381,21 @@ impl<'a> Header<'a> {
         macro_rules! hdr {
             ($header_name:literal, $func_name:ident, encode) => {
                 if name.eq_ignore_ascii_case($header_name) {
-                    let value = self.$func_name()?;
+                    let value = self.$func_name().map_err(|err| {
+                        MailParsingError::HeaderParse(format!(
+                            "rebuilding '{name}' header: {err:#}"
+                        ))
+                    })?;
                     return Ok(Self::with_name_value($header_name, value.encode_value()));
                 }
             };
             ($header_name:literal, unstructured) => {
                 if name.eq_ignore_ascii_case($header_name) {
-                    let value = self.as_unstructured()?;
+                    let value = self.as_unstructured().map_err(|err| {
+                        MailParsingError::HeaderParse(format!(
+                            "rebuilding '{name}' header: {err:#}"
+                        ))
+                    })?;
                     return Ok(Self::new_unstructured($header_name, value));
                 }
             };
@@ -420,7 +428,9 @@ impl<'a> Header<'a> {
         hdr!("Mime-Version", unstructured);
 
         // Assume unstructured
-        let value = self.as_unstructured()?;
+        let value = self.as_unstructured().map_err(|err| {
+            MailParsingError::HeaderParse(format!("rebuilding '{name}' header: {err:#}"))
+        })?;
         Ok(Self::new_unstructured(name.to_string(), value))
     }
 }

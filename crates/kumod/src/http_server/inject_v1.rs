@@ -8,7 +8,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn;
-use mailparsing::{AddrSpec, Address, Mailbox, MessageBuilder, MimePart};
+use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
 use rfc5321::Response;
@@ -137,13 +137,23 @@ impl<'a> Compiled<'a> {
 
         let mut id = 0;
         match content {
-            Content::Rfc822(_) => Ok(self.env_and_templates.borrow_dependent()[id].render(&subst)?),
+            Content::Rfc822(_) => {
+                let content = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
+                let mut msg = MimePart::parse(&*content)
+                    .with_context(|| format!("failed to parse content: {content}"))?
+                    .rebuild()
+                    .with_context(|| format!("failed to rebuild content {content}"))?;
+
+                if msg.headers().mime_version()?.is_none() {
+                    msg.headers_mut().set_mime_version("1.0");
+                }
+
+                Ok(msg.to_message_string())
+            }
             Content::Builder {
                 text_body,
                 html_body,
                 headers,
-                from,
-                reply_to,
                 ..
             } => {
                 let mut builder = MessageBuilder::new();
@@ -164,20 +174,6 @@ impl<'a> Compiled<'a> {
                     name: recip.name.clone(),
                     address: AddrSpec::parse(&recip.email)?,
                 }));
-
-                if let Some(from) = from {
-                    builder.set_from(Address::Mailbox(Mailbox {
-                        name: from.name.clone(),
-                        address: AddrSpec::parse(&from.email)?,
-                    }));
-                }
-
-                if let Some(reply_to) = reply_to {
-                    builder.set_reply_to(Address::Mailbox(Mailbox {
-                        name: reply_to.name.clone(),
-                        address: AddrSpec::parse(&reply_to.email)?,
-                    }));
-                }
 
                 for (name, _value) in headers {
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
@@ -201,22 +197,39 @@ impl<'a> Compiled<'a> {
 impl InjectV1Request {
     /// Apply the from/subject/reply_to header shortcuts to the more
     /// general headers map to make the compile/expand phases
-    fn normalize(&mut self) {
+    fn normalize(&mut self) -> anyhow::Result<()> {
         match &mut self.content {
             Content::Builder {
                 text_body: _,
                 html_body: _,
                 attachments: _,
                 headers,
-                from: _,
+                from,
                 subject,
-                reply_to: _,
+                reply_to,
             } => {
+                if let Some(from) = from {
+                    let mailbox = Address::Mailbox(Mailbox {
+                        name: from.name.clone(),
+                        address: AddrSpec::parse(&from.email)?,
+                    });
+
+                    headers.insert("From".to_string(), mailbox.encode_value().to_string());
+                }
+                if let Some(reply_to) = reply_to {
+                    let mailbox = Address::Mailbox(Mailbox {
+                        name: reply_to.name.clone(),
+                        address: AddrSpec::parse(&reply_to.email)?,
+                    });
+                    headers.insert("Reply-To".to_string(), mailbox.encode_value().to_string());
+                }
                 if let Some(v) = subject {
                     headers.insert("Subject".to_string(), v.to_string());
                 }
+
+                Ok(())
             }
-            _ => {}
+            _ => Ok(()),
         }
     }
 
@@ -422,8 +435,9 @@ async fn inject_v1_impl(
     auth: AuthKind,
     sender: EnvelopeAddress,
     peer_address: IpAddr,
-    request: InjectV1Request,
+    mut request: InjectV1Request,
 ) -> Result<Json<InjectV1Response>, AppError> {
+    request.normalize()?;
     let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;
@@ -464,14 +478,13 @@ pub async fn inject_v1(
     auth: AuthKind,
     InsecureClientIp(peer_address): InsecureClientIp,
     // Note: Json<> must be last in the param list
-    Json(mut request): Json<InjectV1Request>,
+    Json(request): Json<InjectV1Request>,
 ) -> Result<Json<InjectV1Response>, AppError> {
     if kumo_server_memory::get_headroom() == 0 {
         // Using too much memory
         return Err(anyhow::anyhow!("load shedding").into());
     }
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
-    request.normalize();
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Bounce to the thread pool where we can run async lua
@@ -488,11 +501,11 @@ mod test {
 
     #[tokio::test]
     async fn test_generate_basic() {
-        let input = r#"From: Me
-Subject: A test
+        let input = r#"From: Me <me@example.com>
+Subject: A test 🛳️
 To: "{{ name }}" <{{ email }}>
 
-This is a test message to {{ name }}
+This is a test message to {{ name }}, with some 👻🍉💩 emoji!
 "#;
         let request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
@@ -516,18 +529,24 @@ This is a test message to {{ name }}
         k9::snapshot!(
             generated,
             r#"
-From: Me
-Subject: A test
-To: "James Smythe" <user@example.com>
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+From: Me <me@example.com>\r
+Subject: A test =?UTF-8?q?=F0=9F=9B=B3=EF=B8=8F?=\r
+To: James Smythe <user@example.com>\r
+Mime-Version: 1.0\r
+\r
+This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
+=F0=9F=92=A9 emoji!\r
 
-This is a test message to James Smythe
 "#
         );
     }
 
     #[tokio::test]
     async fn test_generate_builder() {
-        let request = InjectV1Request {
+        let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
             recipients: vec![Recipient {
                 email: "user@example.com".to_string(),
@@ -548,13 +567,14 @@ This is a test message to James Smythe
                     content_id: Some("my-image".to_string()),
                     file_name: None,
                 }],
-                subject: Some("hello {{ name }}".to_string()),
+                subject: Some("hello {{ name }} 👫".to_string()),
                 from: None,
                 reply_to: None,
                 headers: Default::default(),
             },
         };
 
+        request.normalize().unwrap();
         let compiled = request.compile().unwrap();
         let generated = compiled
             .expand_for_recip(
@@ -592,12 +612,21 @@ Some(
 "#
         );
 
+        k9::snapshot!(
+            structure.headers.subject().unwrap(),
+            r#"
+Some(
+    "hello James Smythe 👫",
+)
+"#
+        );
+
         k9::assert_equal!(structure.attachments.len(), 1);
     }
 
     #[tokio::test]
     async fn test_to_from_builder() {
-        let request = InjectV1Request {
+        let mut request = InjectV1Request {
             envelope_sender: "noreply@example.com".to_string(),
             recipients: vec![Recipient {
                 email: "user@example.com".to_string(),
@@ -622,6 +651,7 @@ Some(
             },
         };
 
+        request.normalize().unwrap();
         let compiled = request.compile().unwrap();
         let generated = compiled
             .expand_for_recip(
