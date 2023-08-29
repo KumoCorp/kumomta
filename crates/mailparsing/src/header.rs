@@ -6,6 +6,7 @@ use crate::{
 };
 use chrono::{DateTime, FixedOffset};
 use std::convert::TryInto;
+use std::str::FromStr;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -15,6 +16,41 @@ bitflags::bitflags! {
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
         const LINE_TOO_LONG = 0b0000_1000;
         const NEEDS_TRANSFER_ENCODING = 0b0001_0000;
+    }
+}
+
+impl FromStr for MessageConformance {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        let mut result = Self::default();
+        for ele in s.split('|') {
+            match Self::from_name(ele) {
+                Some(v) => {
+                    result = result.union(v);
+                }
+                None => {
+                    let mut possible: Vec<String> = Self::all()
+                        .iter_names()
+                        .map(|(name, _)| format!("'{name}'"))
+                        .collect();
+                    possible.sort();
+                    let possible = possible.join(", ");
+                    return Err(format!(
+                        "invalid MessageConformance flag '{ele}', possible values are {possible}"
+                    ));
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl ToString for MessageConformance {
+    fn to_string(&self) -> String {
+        let mut names: Vec<&str> = self.iter_names().map(|(name, _)| name).collect();
+        names.sort();
+        names.join("|")
     }
 }
 
@@ -649,5 +685,33 @@ Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the st
         let header = Header::with_name_value("Date", "Tue, 1 Jul 2003 10:52:37 +0200");
         let date = header.as_date().unwrap();
         k9::snapshot!(date, "2003-07-01T10:52:37+02:00");
+    }
+
+    #[test]
+    fn conformance_string() {
+        k9::assert_equal!(
+            MessageConformance::LINE_TOO_LONG.to_string(),
+            "LINE_TOO_LONG"
+        );
+        k9::assert_equal!(
+            (MessageConformance::LINE_TOO_LONG | MessageConformance::NEEDS_TRANSFER_ENCODING)
+                .to_string(),
+            "LINE_TOO_LONG|NEEDS_TRANSFER_ENCODING"
+        );
+
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG").unwrap(),
+            MessageConformance::LINE_TOO_LONG
+        );
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG|MISSING_COLON_VALUE").unwrap(),
+            MessageConformance::LINE_TOO_LONG | MessageConformance::MISSING_COLON_VALUE
+        );
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
+            "invalid MessageConformance flag 'spoon', possible values are \
+            'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'NAME_ENDS_WITH_SPACE', \
+            'NEEDS_TRANSFER_ENCODING', 'NON_CANONICAL_LINE_ENDINGS'"
+        );
     }
 }
