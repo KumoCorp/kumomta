@@ -70,9 +70,9 @@ to issue an appropriate error response. For example:
 ```lua
 local failed = msg:check_fix_conformance(checks, fixes)
 if failed then
-    -- Rejects with an error like:
-    -- `552 5.6.0 Message has conformance issues: LINE_TOO_LONG`
-    kumo.reject(552, string.format('5.6.0 %s', failed))
+  -- Rejects with an error like:
+  -- `552 5.6.0 Message has conformance issues: LINE_TOO_LONG`
+  kumo.reject(552, string.format('5.6.0 %s', failed))
 end
 ```
 
