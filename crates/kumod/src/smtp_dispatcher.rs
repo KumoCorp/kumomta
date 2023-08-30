@@ -17,7 +17,17 @@ use std::net::SocketAddr;
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {
     #[serde(default)]
-    pub mx_list: Vec<String>,
+    pub mx_list: Vec<MxListEntry>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum MxListEntry {
+    /// A name that needs to be resolved to its A or AAAA record in DNS,
+    /// or an IP domain literal enclosed in square brackets like `[10.0.0.1]`
+    Name(String),
+    /// A pre-resolved name and IP address
+    Resolved(ResolvedAddress),
 }
 
 #[derive(Debug)]
@@ -55,11 +65,18 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                addresses.append(
-                    &mut resolve_a_or_aaaa(a)
-                        .await
-                        .with_context(|| format!("resolving mx_list entry {a}"))?,
-                );
+                match a {
+                    MxListEntry::Name(a) => {
+                        addresses.append(
+                            &mut resolve_a_or_aaaa(a)
+                                .await
+                                .with_context(|| format!("resolving mx_list entry {a}"))?,
+                        );
+                    }
+                    MxListEntry::Resolved(addr) => {
+                        addresses.append(&mut vec![addr.clone()]);
+                    }
+                }
             }
             ResolvedMxAddresses::Addresses(addresses)
         };

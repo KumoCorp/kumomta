@@ -41,7 +41,7 @@ local function compute_ip_rollup_mx_list(domain, routing_domain)
     -- and hash consistently with the resulting ready queue name
     table.sort(host_addrs)
     for _, a in ipairs(host_addrs) do
-      table.insert(addrs, string.format('[%s]', a))
+      table.insert(addrs, { name = host, addr = a })
     end
   end
 

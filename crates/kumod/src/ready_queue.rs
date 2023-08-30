@@ -5,7 +5,7 @@ use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, ReadyQueueSuspended};
-use crate::smtp_dispatcher::SmtpDispatcher;
+use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -91,7 +91,18 @@ impl ReadyQueueManager {
                     mx.replace(MailExchanger::resolve(routing_domain).await?);
                     mx.as_ref().unwrap().site_name.to_string()
                 } else {
-                    format!("mx_list:{}", smtp.mx_list.join(","))
+                    let mut mx_list = vec![];
+                    for a in smtp.mx_list.iter() {
+                        match a {
+                            MxListEntry::Name(a) => {
+                                mx_list.push(a.clone());
+                            }
+                            MxListEntry::Resolved(addr) => {
+                                mx_list.push(addr.addr.to_string());
+                            }
+                        }
+                    }
+                    format!("mx_list:{}", mx_list.join(","))
                 }
             }
             _ => routing_domain.to_string(),
