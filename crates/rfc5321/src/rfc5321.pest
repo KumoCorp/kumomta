@@ -46,8 +46,8 @@ forward_path = { path | postmaster | path_no_angles }
 reverse_path = { path | null_sender | path_no_angles }
 null_sender = { "<>" }
 
-mail = { ^"MAIL FROM:" ~ reverse_path ~ (" " ~ smtp_parameters )? }
-rcpt = { ^"RCPT TO:" ~ forward_path ~ ( " " ~ smtp_parameters )? }
+mail = { ^"MAIL FROM:" ~ " "* ~ reverse_path ~ (" " ~ smtp_parameters )? }
+rcpt = { ^"RCPT TO:" ~ " "* ~ forward_path ~ ( " " ~ smtp_parameters )? }
 
 postmaster = { ^"<postmaster>" }
 
