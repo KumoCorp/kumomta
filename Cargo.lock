@@ -3127,6 +3127,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mta-sts"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dns-resolver",
+ "futures",
+ "k9",
+ "lruttl",
+ "reqwest",
+ "tokio",
+ "trust-dns-resolver",
+]
+
+[[package]]
 name = "nanorand"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
