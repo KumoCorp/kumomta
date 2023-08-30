@@ -733,7 +733,7 @@ impl Message {
         fix: MessageConformance,
     ) -> anyhow::Result<()> {
         let data = self.get_data();
-        let msg = MimePart::parse(data.as_ref().as_ref())?;
+        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
 
         let conformance = msg.conformance();
 
@@ -748,28 +748,38 @@ impl Message {
         if fix.intersects(conformance) {
             let to_fix = fix.intersection(conformance);
             let problems = to_fix.to_string();
-            let mut rebuilt = msg.rebuild().with_context(|| {
-                format!("Rebuilding message to correct conformance issues: {problems}")
-            })?;
+
+            let missing_headers_only = to_fix
+                .difference(
+                    MessageConformance::MISSING_DATE_HEADER
+                        | MessageConformance::MISSING_MIME_VERSION
+                        | MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                )
+                .is_empty();
+
+            if !missing_headers_only {
+                msg = msg.rebuild().with_context(|| {
+                    format!("Rebuilding message to correct conformance issues: {problems}")
+                })?;
+            }
 
             if to_fix.contains(MessageConformance::MISSING_DATE_HEADER) {
-                rebuilt.headers_mut().set_date(Utc::now());
+                msg.headers_mut().set_date(Utc::now());
             }
 
             if to_fix.contains(MessageConformance::MISSING_MIME_VERSION) {
-                rebuilt.headers_mut().set_mime_version("1.0");
+                msg.headers_mut().set_mime_version("1.0");
             }
 
             if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
                 let sender = self.sender()?;
                 let domain = sender.domain();
                 let id = *self.id();
-                rebuilt
-                    .headers_mut()
+                msg.headers_mut()
                     .set_message_id(mailparsing::MessageID(format!("{id}@{domain}")));
             }
 
-            let new_data = rebuilt.to_message_string();
+            let new_data = msg.to_message_string();
             self.assign_data(new_data.into_bytes());
         }
 
@@ -1286,7 +1296,7 @@ QueueNameComponents {
     }
 
     const MULTI_HEADER_CONTENT: &str =
-        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody";
+        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody";
 
     #[test]
     fn get_first_header() {
@@ -1314,7 +1324,7 @@ QueueNameComponents {
         msg.remove_first_named_header("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody"
         );
     }
 
@@ -1324,7 +1334,53 @@ QueueNameComponents {
         msg.remove_all_named_headers("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone@somewhere\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn check_conformance() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::MISSING_MIME_VERSION,
+        )
+        .unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+X-Hello: there\r
+X-Header: value\r
+Subject: Hello\r
+X-Header: another value\r
+From :Someone@somewhere\r
+Mime-Version: 1.0\r
+\r
+Body
+"#
+        );
+
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
+        )
+        .unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+X-Hello: there\r
+X-Header: value\r
+Subject: Hello\r
+X-Header: another value\r
+From: <Someone@somewhere>\r
+Mime-Version: 1.0\r
+\r
+Body\r
+
+"#
         );
     }
 }
