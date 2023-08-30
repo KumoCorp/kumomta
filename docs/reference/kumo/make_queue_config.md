@@ -84,7 +84,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
   end
   -- Otherwise, just use the defaults
   return kumo.make_queue_config {}
-en)
+end)
 ```
 
 ### Example of using the Maildir protocol
