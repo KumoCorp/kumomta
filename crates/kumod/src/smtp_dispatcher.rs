@@ -23,10 +23,10 @@ pub struct SmtpProtocol {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum MxListEntry {
-    // A name that needs to be resolved to its A or AAAA record in DNS,
-    // or an IP domain literal enclosed in square brackets like `[10.0.0.1]`
+    /// A name that needs to be resolved to its A or AAAA record in DNS,
+    /// or an IP domain literal enclosed in square brackets like `[10.0.0.1]`
     Name(String),
-    // A pre-resolved name and IP address
+    /// A pre-resolved name and IP address
     Resolved(ResolvedAddress),
 }
 
