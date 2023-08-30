@@ -564,6 +564,20 @@ mod test {
         );
 
         assert_eq!(
+            Parser::parse_command("Rcpt To:  user@host").unwrap(),
+            Command::RcptTo {
+                address: ForwardPath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "user".to_string(),
+                        domain: Domain::Name("host".to_string())
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
+
+        assert_eq!(
             Parser::parse_command("Rcpt To:<admin@[2001:aaaa:bbbbb]>").unwrap(),
             Command::RcptTo {
                 address: ForwardPath::Path(MailPath {
