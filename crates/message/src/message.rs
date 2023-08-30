@@ -8,11 +8,12 @@ use config::{any_err, from_lua_value};
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparsing::{Header, HeaderParseResult};
+use mailparsing::{Header, HeaderParseResult, MessageConformance, MimePart};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
@@ -725,6 +726,65 @@ impl Message {
 
         Ok(())
     }
+
+    pub fn check_fix_conformance(
+        &self,
+        check: MessageConformance,
+        fix: MessageConformance,
+    ) -> anyhow::Result<()> {
+        let data = self.get_data();
+        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
+
+        let conformance = msg.conformance();
+
+        // Don't raise errors for things that we're going to fix anyway
+        let check = check - fix;
+
+        if check.intersects(conformance) {
+            let problems = check.intersection(conformance).to_string();
+            anyhow::bail!("Message has conformance issues: {problems}");
+        }
+
+        if fix.intersects(conformance) {
+            let to_fix = fix.intersection(conformance);
+            let problems = to_fix.to_string();
+
+            let missing_headers_only = to_fix
+                .difference(
+                    MessageConformance::MISSING_DATE_HEADER
+                        | MessageConformance::MISSING_MIME_VERSION
+                        | MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                )
+                .is_empty();
+
+            if !missing_headers_only {
+                msg = msg.rebuild().with_context(|| {
+                    format!("Rebuilding message to correct conformance issues: {problems}")
+                })?;
+            }
+
+            if to_fix.contains(MessageConformance::MISSING_DATE_HEADER) {
+                msg.headers_mut().set_date(Utc::now());
+            }
+
+            if to_fix.contains(MessageConformance::MISSING_MIME_VERSION) {
+                msg.headers_mut().set_mime_version("1.0");
+            }
+
+            if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
+                let sender = self.sender()?;
+                let domain = sender.domain();
+                let id = *self.id();
+                msg.headers_mut()
+                    .set_message_id(mailparsing::MessageID(format!("{id}@{domain}")));
+            }
+
+            let new_data = msg.to_message_string();
+            self.assign_data(new_data.into_bytes());
+        }
+
+        Ok(())
+    }
 }
 
 fn is_header_in_names_list(hdr_name: &str, names: &[String]) -> bool {
@@ -925,6 +985,19 @@ impl UserData for Message {
             this.set_force_sync(force);
             Ok(())
         });
+
+        methods.add_async_method(
+            "check_fix_conformance",
+            |_, this, (check, fix): (String, String)| async move {
+                let check = MessageConformance::from_str(&check).map_err(any_err)?;
+                let fix = MessageConformance::from_str(&fix).map_err(any_err)?;
+
+                match this.check_fix_conformance(check, fix) {
+                    Ok(_) => Ok(None),
+                    Err(err) => Ok(Some(format!("{err:#}"))),
+                }
+            },
+        );
     }
 }
 
@@ -1223,7 +1296,7 @@ QueueNameComponents {
     }
 
     const MULTI_HEADER_CONTENT: &str =
-        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody";
+        "X-Hello: there\r\nX-Header: value\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody";
 
     #[test]
     fn get_first_header() {
@@ -1251,7 +1324,7 @@ QueueNameComponents {
         msg.remove_first_named_header("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nX-Header: another value\r\nFrom :Someone@somewhere\r\n\r\nBody"
         );
     }
 
@@ -1261,7 +1334,53 @@ QueueNameComponents {
         msg.remove_all_named_headers("X-header").unwrap();
         k9::assert_equal!(
             data_as_string(&msg),
-            "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone\r\n\r\nBody"
+            "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone@somewhere\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn check_conformance() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::MISSING_MIME_VERSION,
+        )
+        .unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+X-Hello: there\r
+X-Header: value\r
+Subject: Hello\r
+X-Header: another value\r
+From :Someone@somewhere\r
+Mime-Version: 1.0\r
+\r
+Body
+"#
+        );
+
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
+        )
+        .unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+X-Hello: there\r
+X-Header: value\r
+Subject: Hello\r
+X-Header: another value\r
+From: <Someone@somewhere>\r
+Mime-Version: 1.0\r
+\r
+Body\r
+
+"#
         );
     }
 }

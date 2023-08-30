@@ -164,6 +164,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default)]
     invalid_line_endings: ConformanceDisposition,
+
+    #[serde(default = "EsmtpListenerParams::default_line_length_hard_limit")]
+    line_length_hard_limit: usize,
 }
 
 impl EsmtpListenerParams {
@@ -185,6 +188,10 @@ impl EsmtpListenerParams {
 
     fn default_client_timeout() -> Duration {
         Duration::from_secs(60)
+    }
+
+    fn default_line_length_hard_limit() -> usize {
+        MAX_LINE_LEN
     }
 
     fn default_relay_hosts() -> CidrSet {
@@ -632,7 +639,7 @@ impl SmtpServer {
 
                 let data = unstuff(tail);
 
-                if !check_line_lengths(&data, MAX_LINE_LEN) {
+                if !check_line_lengths(&data, self.params.line_length_hard_limit) {
                     SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                         conn_meta: self.meta.clone_inner(),
                         payload: SmtpServerTraceEventPayload::Diagnostic {
@@ -735,7 +742,8 @@ impl SmtpServer {
                 return Ok(ReadLine::Line(line?));
             }
             tracing::trace!("read_buffer len is {}", self.read_buffer.len());
-            if self.read_buffer.len() > override_limit.unwrap_or(MAX_LINE_LEN) {
+            if self.read_buffer.len() > override_limit.unwrap_or(self.params.line_length_hard_limit)
+            {
                 self.read_buffer.clear();
                 too_long = true;
             }
@@ -1553,7 +1561,9 @@ impl UserData for ConnectionMetaData {
 #[error("Error writing to client")]
 struct WriteError;
 
+/// The maximum line length defined by the SMTP RFCs
 const MAX_LINE_LEN: usize = 998;
+
 #[derive(PartialEq)]
 enum ReadLine {
     Line(String),

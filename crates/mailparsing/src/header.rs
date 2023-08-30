@@ -6,13 +6,57 @@ use crate::{
 };
 use chrono::{DateTime, FixedOffset};
 use std::convert::TryInto;
+use std::str::FromStr;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-    pub struct HeaderConformance: u8 {
+    pub struct MessageConformance: u8 {
         const MISSING_COLON_VALUE = 0b0000_0001;
         const NON_CANONICAL_LINE_ENDINGS = 0b0000_0010;
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
+        const LINE_TOO_LONG = 0b0000_1000;
+        const NEEDS_TRANSFER_ENCODING = 0b0001_0000;
+        const MISSING_DATE_HEADER = 0b0010_0000;
+        const MISSING_MESSAGE_ID_HEADER = 0b0100_0000;
+        const MISSING_MIME_VERSION = 0b1000_0000;
+    }
+}
+
+impl FromStr for MessageConformance {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        let mut result = Self::default();
+        for ele in s.split('|') {
+            if ele.is_empty() {
+                continue;
+            }
+            match Self::from_name(ele) {
+                Some(v) => {
+                    result = result.union(v);
+                }
+                None => {
+                    let mut possible: Vec<String> = Self::all()
+                        .iter_names()
+                        .map(|(name, _)| format!("'{name}'"))
+                        .collect();
+                    possible.sort();
+                    let possible = possible.join(", ");
+                    return Err(format!(
+                        "invalid MessageConformance flag '{ele}', possible values are {possible}"
+                    ));
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl ToString for MessageConformance {
+    fn to_string(&self) -> String {
+        let mut names: Vec<&str> = self.iter_names().map(|(name, _)| name).collect();
+        names.sort();
+        names.join("|")
     }
 }
 
@@ -24,14 +68,14 @@ pub struct Header<'a> {
     value: SharedString<'a>,
     /// The separator between the name and the value
     separator: SharedString<'a>,
-    conformance: HeaderConformance,
+    conformance: MessageConformance,
 }
 
 /// Holds the result of parsing a block of headers
 pub struct HeaderParseResult<'a> {
     pub headers: HeaderMap<'a>,
     pub body_offset: usize,
-    pub overall_conformance: HeaderConformance,
+    pub overall_conformance: MessageConformance,
 }
 
 impl<'a> Header<'a> {
@@ -45,7 +89,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -56,7 +100,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -108,7 +152,7 @@ impl<'a> Header<'a> {
             name,
             value,
             separator: ": ".into(),
-            conformance: HeaderConformance::default(),
+            conformance: MessageConformance::default(),
         }
     }
 
@@ -121,7 +165,7 @@ impl<'a> Header<'a> {
     pub fn write_header<W: std::io::Write>(&self, out: &mut W) -> std::io::Result<()> {
         let line_ending = if self
             .conformance
-            .contains(HeaderConformance::NON_CANONICAL_LINE_ENDINGS)
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
         {
             "\n"
         } else {
@@ -207,14 +251,14 @@ impl<'a> Header<'a> {
             .map_err(|_| MailParsingError::NotAscii)?;
         let mut headers = vec![];
         let mut idx = 0;
-        let mut overall_conformance = HeaderConformance::default();
+        let mut overall_conformance = MessageConformance::default();
 
         while idx < header_block.len() {
             let b = header_block[idx];
             if b == b'\n' {
                 // LF: End of header block
                 idx += 1;
-                overall_conformance.set(HeaderConformance::NON_CANONICAL_LINE_ENDINGS, true);
+                overall_conformance.set(MessageConformance::NON_CANONICAL_LINE_ENDINGS, true);
                 break;
             }
             if b == b'\r' {
@@ -272,9 +316,11 @@ impl<'a> Header<'a> {
         let mut value_start = 0;
         let mut value_end = 0;
 
-        let mut idx = 0;
-        let mut conformance = HeaderConformance::default();
+        let mut idx = 0usize;
+        let mut conformance = MessageConformance::default();
         let mut saw_cr = false;
+        let mut line_start = 0;
+        let mut max_line_len = 0;
 
         loop {
             match state {
@@ -297,19 +343,20 @@ impl<'a> Header<'a> {
                         if name_end.is_none() {
                             name_end.replace(idx);
                         }
-                        conformance.set(HeaderConformance::NAME_ENDS_WITH_SPACE, true);
-                    } else if c < 33 || c > 126 {
-                        return Err(MailParsingError::HeaderParse(format!(
-                            "header name must be comprised of printable US-ASCII characters. Found {c:?}"
-                        )));
+                        conformance.set(MessageConformance::NAME_ENDS_WITH_SPACE, true);
                     } else if c == b'\n' {
                         // Got a newline before we finished parsing the name
-                        conformance.set(HeaderConformance::MISSING_COLON_VALUE, true);
+                        conformance.set(MessageConformance::MISSING_COLON_VALUE, true);
                         name_end.replace(idx);
+                        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
                         value_start = idx;
                         value_end = idx;
                         idx += 1;
                         break;
+                    } else if c != b'\r' && (c < 33 || c > 126) {
+                        return Err(MailParsingError::HeaderParse(format!(
+                            "header name must be comprised of printable US-ASCII characters. Found {c:?}"
+                        )));
                     }
                 }
                 State::Separator => {
@@ -323,10 +370,12 @@ impl<'a> Header<'a> {
                 State::Value => {
                     if c == b'\n' {
                         if !saw_cr {
-                            conformance.set(HeaderConformance::NON_CANONICAL_LINE_ENDINGS, true);
+                            conformance.set(MessageConformance::NON_CANONICAL_LINE_ENDINGS, true);
                         }
                         state = State::NewLine;
                         saw_cr = false;
+                        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
+                        line_start = idx + 1;
                     } else if c != b'\r' {
                         value_end = idx + 1;
                         saw_cr = false;
@@ -349,8 +398,13 @@ impl<'a> Header<'a> {
             };
         }
 
+        max_line_len = max_line_len.max(idx.saturating_sub(line_start));
+        if max_line_len > 78 {
+            conformance.set(MessageConformance::LINE_TOO_LONG, true);
+        }
+
         let name_end = name_end.unwrap_or_else(|| {
-            conformance.set(HeaderConformance::MISSING_COLON_VALUE, true);
+            conformance.set(MessageConformance::MISSING_COLON_VALUE, true);
             idx
         });
 
@@ -366,6 +420,72 @@ impl<'a> Header<'a> {
         };
 
         Ok((header, idx))
+    }
+
+    /// Re-constitute the header.
+    /// The header value will be parsed out according to the known schema
+    /// of the associated header name, and the parsed form used
+    /// to build a new version of the header.
+    /// This has the side effect of "fixing" non-conforming elements,
+    /// but may come at the cost of "losing" the non-sensical or otherwise
+    /// out of spec elements in the rebuilt header
+    pub fn rebuild(&self) -> Result<Self> {
+        let name = self.get_name();
+
+        macro_rules! hdr {
+            ($header_name:literal, $func_name:ident, encode) => {
+                if name.eq_ignore_ascii_case($header_name) {
+                    let value = self.$func_name().map_err(|err| {
+                        MailParsingError::HeaderParse(format!(
+                            "rebuilding '{name}' header: {err:#}"
+                        ))
+                    })?;
+                    return Ok(Self::with_name_value($header_name, value.encode_value()));
+                }
+            };
+            ($header_name:literal, unstructured) => {
+                if name.eq_ignore_ascii_case($header_name) {
+                    let value = self.as_unstructured().map_err(|err| {
+                        MailParsingError::HeaderParse(format!(
+                            "rebuilding '{name}' header: {err:#}"
+                        ))
+                    })?;
+                    return Ok(Self::new_unstructured($header_name, value));
+                }
+            };
+        }
+
+        hdr!("From", as_mailbox_list, encode);
+        hdr!("Resent-From", as_mailbox_list, encode);
+        hdr!("Reply-To", as_address_list, encode);
+        hdr!("To", as_address_list, encode);
+        hdr!("Cc", as_address_list, encode);
+        hdr!("Bcc", as_address_list, encode);
+        hdr!("Resent-To", as_address_list, encode);
+        hdr!("Resent-Cc", as_address_list, encode);
+        hdr!("Resent-Bcc", as_address_list, encode);
+        hdr!("Date", as_date, encode);
+        hdr!("Sender", as_mailbox, encode);
+        hdr!("Resent-Sender", as_mailbox, encode);
+        hdr!("Message-ID", as_message_id, encode);
+        hdr!("Content-ID", as_content_id, encode);
+        hdr!("Content-Type", as_content_type, encode);
+        hdr!(
+            "Content-Transfer-Encoding",
+            as_content_transfer_encoding,
+            encode
+        );
+        hdr!("Content-Disposition", as_content_disposition, encode);
+        hdr!("References", as_message_id_list, encode);
+        hdr!("Subject", unstructured);
+        hdr!("Comments", unstructured);
+        hdr!("Mime-Version", unstructured);
+
+        // Assume unstructured
+        let value = self.as_unstructured().map_err(|err| {
+            MailParsingError::HeaderParse(format!("rebuilding '{name}' header: {err:#}"))
+        })?;
+        Ok(Self::new_unstructured(name.to_string(), value))
     }
 }
 
@@ -405,7 +525,7 @@ mod test {
         k9::snapshot!(
             overall_conformance,
             "
-HeaderConformance(
+MessageConformance(
     NON_CANONICAL_LINE_ENDINGS,
 )
 "
@@ -419,7 +539,7 @@ HeaderMap {
             name: "Subject",
             value: "hello there",
             separator: ": ",
-            conformance: HeaderConformance(
+            conformance: MessageConformance(
                 NON_CANONICAL_LINE_ENDINGS,
             ),
         },
@@ -427,7 +547,7 @@ HeaderMap {
             name: "From",
             value: "Someone <someone@example.com>",
             separator: ":  ",
-            conformance: HeaderConformance(
+            conformance: MessageConformance(
                 NON_CANONICAL_LINE_ENDINGS,
             ),
         },
@@ -571,5 +691,38 @@ Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the st
         let header = Header::with_name_value("Date", "Tue, 1 Jul 2003 10:52:37 +0200");
         let date = header.as_date().unwrap();
         k9::snapshot!(date, "2003-07-01T10:52:37+02:00");
+    }
+
+    #[test]
+    fn conformance_string() {
+        k9::assert_equal!(
+            MessageConformance::LINE_TOO_LONG.to_string(),
+            "LINE_TOO_LONG"
+        );
+        k9::assert_equal!(
+            (MessageConformance::LINE_TOO_LONG | MessageConformance::NEEDS_TRANSFER_ENCODING)
+                .to_string(),
+            "LINE_TOO_LONG|NEEDS_TRANSFER_ENCODING"
+        );
+        k9::assert_equal!(
+            MessageConformance::from_str("").unwrap(),
+            MessageConformance::default()
+        );
+
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG").unwrap(),
+            MessageConformance::LINE_TOO_LONG
+        );
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG|MISSING_COLON_VALUE").unwrap(),
+            MessageConformance::LINE_TOO_LONG | MessageConformance::MISSING_COLON_VALUE
+        );
+        k9::assert_equal!(
+            MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
+            "invalid MessageConformance flag 'spoon', possible values are \
+            'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', \
+            'MISSING_MESSAGE_ID_HEADER', 'MISSING_MIME_VERSION', 'NAME_ENDS_WITH_SPACE', \
+            'NEEDS_TRANSFER_ENCODING', 'NON_CANONICAL_LINE_ENDINGS'"
+        );
     }
 }
