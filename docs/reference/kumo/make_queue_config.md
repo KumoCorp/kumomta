@@ -77,14 +77,14 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     return kumo.make_queue_config {
       protocol = {
         smtp = {
-            mx_list = { 'smart.host.local', { name = 'mx.example.com', addr = '10.0.0.1' }}
+          mx_list = { 'smart.host.local', { name = 'mx.example.com', addr = '10.0.0.1' }}
         },
       },
     }
   end
   -- Otherwise, just use the defaults
   return kumo.make_queue_config {}
-end)
+en)
 ```
 
 ### Example of using the Maildir protocol
