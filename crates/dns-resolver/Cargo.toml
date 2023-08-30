@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+arc-swap = "1.6"
 kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl"}

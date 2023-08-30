@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
 use serde::Serialize;
@@ -5,12 +6,11 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
-use tokio::sync::RwLock;
 use trust_dns_resolver::error::{ResolveErrorKind, ResolveResult};
 use trust_dns_resolver::{Name, TokioAsyncResolver};
 
 lazy_static::lazy_static! {
-    static ref RESOLVER: RwLock<TokioAsyncResolver> = RwLock::new(TokioAsyncResolver::tokio_from_system_conf().unwrap());
+    static ref RESOLVER: ArcSwap<TokioAsyncResolver> = ArcSwap::from_pointee(TokioAsyncResolver::tokio_from_system_conf().unwrap());
     static ref MX_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>> = StdMutex::new(LruCacheWithTtl::new(64 * 1024));
     static ref IPV4_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
     static ref IPV6_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
@@ -35,8 +35,12 @@ pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
     Ok(name)
 }
 
-pub async fn reconfigure_resolver(resolver: TokioAsyncResolver) {
-    *RESOLVER.write().await = resolver;
+pub fn reconfigure_resolver(resolver: TokioAsyncResolver) {
+    RESOLVER.store(resolver.into());
+}
+
+pub fn get_resolver() -> Arc<TokioAsyncResolver> {
+    RESOLVER.load_full()
 }
 
 pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
@@ -254,7 +258,7 @@ struct ByPreference {
 }
 
 async fn lookup_mx_record(domain_name: &Name) -> ResolveResult<(Vec<ByPreference>, Instant)> {
-    let mx_lookup = RESOLVER.read().await.mx_lookup(domain_name.clone()).await?;
+    let mx_lookup = RESOLVER.load().mx_lookup(domain_name.clone()).await?;
     let mx_records = mx_lookup.as_lookup().records();
 
     if mx_records.is_empty() {
@@ -351,7 +355,7 @@ pub async fn ipv4_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
         return Ok(value);
     }
 
-    let ipv4_lookup = RESOLVER.read().await.ipv4_lookup(key_fq.clone()).await?;
+    let ipv4_lookup = RESOLVER.load().ipv4_lookup(key_fq.clone()).await?;
     let ips = ipv4_lookup
         .as_lookup()
         .record_iter()
@@ -373,7 +377,7 @@ pub async fn ipv6_lookup(key: &str) -> ResolveResult<(Arc<Vec<IpAddr>>, Instant)
         return Ok(value);
     }
 
-    let ipv6_lookup = RESOLVER.read().await.ipv6_lookup(key_fq.clone()).await?;
+    let ipv6_lookup = RESOLVER.load().ipv6_lookup(key_fq.clone()).await?;
     let ips = ipv6_lookup
         .as_lookup()
         .record_iter()

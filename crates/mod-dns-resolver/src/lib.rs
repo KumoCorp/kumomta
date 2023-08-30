@@ -57,7 +57,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "configure_resolver",
-        lua.create_async_function(|lua, config: mlua::Value| async move {
+        lua.create_function(move |lua, config: mlua::Value| {
             let config: DnsConfig = lua.from_value(config)?;
 
             let mut r_config = ResolverConfig::new();
@@ -115,7 +115,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let resolver = TokioAsyncResolver::tokio(r_config, config.options);
 
-            dns_resolver::reconfigure_resolver(resolver).await;
+            dns_resolver::reconfigure_resolver(resolver);
 
             Ok(())
         })?,
