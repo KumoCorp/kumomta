@@ -36,18 +36,19 @@ impl<'a> StartConfig<'a> {
 
         let init_handle = rt_spawn("initialize".to_string(), move || {
             Ok(async move {
-                let mut ok = true;
+                let mut error = None;
                 let init_future = (perform_init)();
                 if let Err(err) = init_future.await {
-                    tracing::error!("problem initializing: {err:#}");
+                    let err = format!("{err:#}");
+                    tracing::error!("problem initializing: {err}");
                     LifeCycle::request_shutdown().await;
-                    ok = false;
+                    error.replace(err);
                 }
                 // This log line is depended upon by the integration
                 // test harness. Do not change or remove it without
                 // making appropriate adjustments over there!
                 tracing::info!("initialization complete");
-                ok
+                error
             })
         })
         .await?;
@@ -60,8 +61,8 @@ impl<'a> StartConfig<'a> {
 
         tracing::info!("Shutdown completed OK!");
 
-        if !init_handle.await? {
-            anyhow::bail!("Initialization raised an error");
+        if let Some(error) = init_handle.await? {
+            anyhow::bail!("Initialization raised an error: {error}");
         }
         Ok(())
     }
