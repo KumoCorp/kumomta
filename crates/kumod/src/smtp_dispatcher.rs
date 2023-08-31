@@ -10,6 +10,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::{rt_spawn, spawn};
 use message::Message;
+use mta_sts::policy::PolicyMode;
 use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -222,7 +223,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let enable_tls = dispatcher.path_config.borrow().enable_tls;
+        let mut enable_tls = dispatcher.path_config.borrow().enable_tls;
         let port = dispatcher
             .egress_source
             .remote_port
@@ -280,6 +281,34 @@ impl QueueDispatcher for SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
+
+        // Figure out MTA-STS policy.
+        if dispatcher.path_config.borrow().enable_mta_sts {
+            if let Some(mx) = &dispatcher.mx {
+                if let Ok(policy) = mta_sts::get_policy_for_domain(&mx.domain_name).await {
+                    match policy.mode {
+                        PolicyMode::Enforce => {
+                            enable_tls = Tls::Required;
+                            if !policy.mx_name_matches(&address.name) {
+                                anyhow::bail!(
+                                    "MTA-STS policy for {domain} is set to \
+                                     enforce but the current MX candidate \
+                                     {mx_host} does not match the list of allowed \
+                                     hosts. {policy:?}",
+                                    domain = mx.domain_name,
+                                    mx_host = address.name
+                                );
+                            }
+                        }
+                        PolicyMode::Testing => {
+                            enable_tls = Tls::OpportunisticInsecure;
+                        }
+                        PolicyMode::None => {}
+                    }
+                }
+            }
+        }
+
         let tls_enabled = match (enable_tls, has_tls) {
             (Tls::Required | Tls::RequiredInsecure, false) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}",);

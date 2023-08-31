@@ -43,6 +43,7 @@ message = {path="../message"}
 metrics = "0.20"
 minijinja = {version="1.0.1",features=["loader"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+mta-sts = {path="../mta-sts"}
 nix = {version="0.26", features=["resource"]}
 once_cell = "1.17"
 ppp = "2.2"

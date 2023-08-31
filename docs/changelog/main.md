@@ -11,6 +11,12 @@
 * HTTP injection API will now parse and re-encode the message content to ensure
   that it has appropriate transfer encoding applied when `content` is set to a
   string, rather than using the builder variant of the API.
+* Preliminary support for
+  [MTA-STS](https://datatracker.ietf.org/doc/html/rfc8461). It defaults to
+  enabled. See
+  [make_egress_path](../reference/kumo/make_egress_path.md#enable_mta_sts) for
+  more details. At this time, we do not support
+  [TLSRPT](https://datatracker.ietf.org/doc/html/rfc8460).
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or

@@ -2464,6 +2464,7 @@ dependencies = [
  "metrics",
  "minijinja",
  "mlua",
+ "mta-sts",
  "nix 0.26.2",
  "once_cell",
  "ppp",

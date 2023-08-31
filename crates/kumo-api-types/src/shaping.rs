@@ -617,6 +617,7 @@ MergedEntry {
     params: EgressPathConfig {
         connection_limit: 10,
         enable_tls: Opportunistic,
+        enable_mta_sts: true,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,
@@ -704,6 +705,7 @@ MergedEntry {
     params: EgressPathConfig {
         connection_limit: 3,
         enable_tls: Opportunistic,
+        enable_mta_sts: true,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,
@@ -778,6 +780,7 @@ MergedEntry {
         "my source name": EgressPathConfig {
             connection_limit: 5,
             enable_tls: Opportunistic,
+            enable_mta_sts: true,
             client_timeouts: SmtpClientTimeouts {
                 connect_timeout: 60s,
                 ehlo_timeout: 300s,
@@ -859,6 +862,7 @@ MergedEntry {
     params: EgressPathConfig {
         connection_limit: 10,
         enable_tls: Opportunistic,
+        enable_mta_sts: true,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,
