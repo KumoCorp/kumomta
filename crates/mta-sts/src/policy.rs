@@ -12,7 +12,7 @@ pub enum PolicyMode {
 pub struct MtaStsPolicy {
     pub mode: PolicyMode,
     pub mx: Vec<String>,
-    pub max_age: usize,
+    pub max_age: u64,
     pub fields: BTreeMap<String, Vec<String>>,
 }
 
@@ -60,7 +60,7 @@ impl MtaStsPolicy {
             Some(v) => v,
         };
 
-        let max_age: usize = match fields.remove("max_age") {
+        let max_age: u64 = match fields.remove("max_age") {
             None => anyhow::bail!("STS policy {data} is missing required max_age"),
             Some(v) if v.len() == 1 => {
                 let max_age = &v[0];

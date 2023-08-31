@@ -3135,6 +3135,7 @@ dependencies = [
  "futures",
  "k9",
  "lruttl",
+ "once_cell",
  "reqwest",
  "tokio",
  "trust-dns-resolver",
