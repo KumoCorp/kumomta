@@ -168,7 +168,13 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
     // of the changed code, it is safer for us to re-derive it for ourselves
     // so that we don't end up in a situation where we can't match any rollup
     // rules.
-    let mx = MailExchanger::resolve(&domain).await?;
+    let mx = match MailExchanger::resolve(&domain).await {
+        Ok(mx) => mx,
+        Err(err) => {
+            tracing::trace!("domain {domain} failed to resolve, ignoring record. {err:#}");
+            return Ok(());
+        }
+    };
 
     // Track events/outcomes by site.
     // At the time of writing, `record.site` looks like `source->site_name`
@@ -285,8 +291,9 @@ async fn publish_log_v1(
     rt_spawn("process record".to_string(), move || {
         Ok(async move { tx.send(publish_log_v1_impl(record).await) })
     })
-    .await?;
-    rx.await?
+    .await
+    .context("while processing /publish_log_v1")?;
+    rx.await.context("while processing /publish_log_v1")?
 }
 
 fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
