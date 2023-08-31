@@ -54,11 +54,16 @@ impl MtaStsPolicy {
             _ => anyhow::bail!("STS policy {data} has invalid mode"),
         };
 
-        let mx = match fields.remove("mx") {
+        let mut mx = match fields.remove("mx") {
             None if mode == PolicyMode::None => vec![],
             None => anyhow::bail!("STS policy {data} is missing required mx"),
             Some(v) => v,
         };
+
+        // Ensure that the mx entries are lowercased to aid
+        // the mx_name_matches method
+        mx.iter_mut()
+            .for_each(|entry| *entry = entry.to_lowercase());
 
         let max_age: u64 = match fields.remove("max_age") {
             None => anyhow::bail!("STS policy {data} is missing required max_age"),
@@ -75,6 +80,31 @@ impl MtaStsPolicy {
             mx,
             max_age,
         })
+    }
+
+    /// Returns true if `name` matches any of the allowed mx
+    /// host name patterns.
+    /// `name` must be lowercase.
+    pub fn mx_name_matches(&self, name: &str) -> bool {
+        for pattern in &self.mx {
+            if name_match(name, pattern) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn name_match(name: &str, pattern: &str) -> bool {
+    if pattern.starts_with("*.") {
+        let suffix = &pattern[1..];
+        if let Some(lhs) = name.strip_suffix(suffix) {
+            // Wildcaards only match the first component
+            return lhs.find('.').is_none();
+        }
+        false
+    } else {
+        name == pattern
     }
 }
 
@@ -164,5 +194,15 @@ MtaStsPolicy {
 }
 "#
         );
+    }
+
+    #[test]
+    fn name_matching() {
+        assert!(name_match("foo.com", "foo.com"));
+        assert!(!name_match("bar.com", "foo.com"));
+        assert!(name_match("foo.com", "*.com"));
+        assert!(name_match("mx.example.com", "*.example.com"));
+        assert!(!name_match("not.mx.example.com", "*.example.com"));
+        assert!(!name_match("example.com", "*.example.com"));
     }
 }
