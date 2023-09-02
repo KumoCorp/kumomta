@@ -63,33 +63,30 @@ pub type ub_callback_type = ::std::option::Option<
         arg3: *mut ub_result,
     ),
 >;
-#[repr(i32)]
+#[doc = " no error"]
+pub const ub_ctx_err_UB_NOERROR: ub_ctx_err = 0;
+#[doc = " socket operation. Set to -1, so that if an error from _fd() is\n passed (-1) it gives a socket error."]
+pub const ub_ctx_err_UB_SOCKET: ub_ctx_err = -1;
+#[doc = " alloc failure"]
+pub const ub_ctx_err_UB_NOMEM: ub_ctx_err = -2;
+#[doc = " syntax error"]
+pub const ub_ctx_err_UB_SYNTAX: ub_ctx_err = -3;
+#[doc = " DNS service failed"]
+pub const ub_ctx_err_UB_SERVFAIL: ub_ctx_err = -4;
+#[doc = " fork() failed"]
+pub const ub_ctx_err_UB_FORKFAIL: ub_ctx_err = -5;
+#[doc = " cfg change after finalize()"]
+pub const ub_ctx_err_UB_AFTERFINAL: ub_ctx_err = -6;
+#[doc = " initialization failed (bad settings)"]
+pub const ub_ctx_err_UB_INITFAIL: ub_ctx_err = -7;
+#[doc = " error in pipe communication with async bg worker"]
+pub const ub_ctx_err_UB_PIPE: ub_ctx_err = -8;
+#[doc = " error reading from file (resolv.conf)"]
+pub const ub_ctx_err_UB_READFILE: ub_ctx_err = -9;
+#[doc = " error async_id does not exist or result already been delivered"]
+pub const ub_ctx_err_UB_NOID: ub_ctx_err = -10;
 #[doc = " The error constants"]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum ub_ctx_err {
-    #[doc = " no error"]
-    UB_NOERROR = 0,
-    #[doc = " socket operation. Set to -1, so that if an error from _fd() is\n passed (-1) it gives a socket error."]
-    UB_SOCKET = -1,
-    #[doc = " alloc failure"]
-    UB_NOMEM = -2,
-    #[doc = " syntax error"]
-    UB_SYNTAX = -3,
-    #[doc = " DNS service failed"]
-    UB_SERVFAIL = -4,
-    #[doc = " fork() failed"]
-    UB_FORKFAIL = -5,
-    #[doc = " cfg change after finalize()"]
-    UB_AFTERFINAL = -6,
-    #[doc = " initialization failed (bad settings)"]
-    UB_INITFAIL = -7,
-    #[doc = " error in pipe communication with async bg worker"]
-    UB_PIPE = -8,
-    #[doc = " error reading from file (resolv.conf)"]
-    UB_READFILE = -9,
-    #[doc = " error async_id does not exist or result already been delivered"]
-    UB_NOID = -10,
-}
+pub type ub_ctx_err = ::std::os::raw::c_int;
 extern "C" {
     #[doc = " Create a resolving and validation context.\n The information from /etc/resolv.conf and /etc/hosts is not utilised by\n default. Use ub_ctx_resolvconf and ub_ctx_hosts to read them.\n @return a new context. default initialisation.\n \treturns NULL on error."]
     pub fn ub_ctx_create() -> *mut ub_ctx;

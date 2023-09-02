@@ -1299,6 +1299,7 @@ dependencies = [
  "k9",
  "kumo-log-types",
  "lazy_static",
+ "libunbound",
  "lruttl",
  "serde",
  "tokio",
@@ -2584,6 +2585,15 @@ dependencies = [
  "lz4-sys",
  "tikv-jemalloc-sys",
  "zstd-sys",
+]
+
+[[package]]
+name = "libunbound"
+version = "0.1.0"
+dependencies = [
+ "libunbound-sys",
+ "openssl",
+ "trust-dns-proto",
 ]
 
 [[package]]

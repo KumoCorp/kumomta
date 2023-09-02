@@ -40,7 +40,7 @@ fn unbound() {
         "util/configlexer.c",
         "util/configparser.c",
         // "util/shm_side/shm_main.c",
-        // "services/authzone.c",
+        "services/authzone.c",
         "util/fptr_wlist.c",
         "util/locks.c",
         "util/log.c",
@@ -94,6 +94,7 @@ fn unbound() {
         "sldns/parseutil.c",
         "sldns/rrdef.c",
         "sldns/str2wire.c",
+        "compat/strlcpy.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
     }

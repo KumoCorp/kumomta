@@ -7,5 +7,4 @@ bindgen unbound/libunbound/unbound.h -o src/lib.rs \
   --raw-line "#![allow(non_upper_case_globals)]" \
   --raw-line "#![allow(clippy::unreadable_literal)]" \
   --raw-line "#![allow(clippy::upper_case_acronyms)]" \
-  --default-enum-style rust \
   --generate=functions,types,vars \
