@@ -2591,6 +2591,7 @@ dependencies = [
 name = "libunbound"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "libunbound-sys",
  "openssl",
  "thiserror",

@@ -1,5 +1,6 @@
 use libunbound_sys::*;
 use std::ffi::{c_int, CStr, CString};
+use std::net::IpAddr;
 use std::sync::{Arc, Condvar, Mutex};
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::oneshot::{channel, Sender};
@@ -83,6 +84,267 @@ impl Context {
         if err == ub_ctx_err_UB_NOERROR {
             assert!(!result.is_null());
             Ok(Answer { result })
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Set an option for the context
+    /// @param opt: option name from the unbound.conf config file format.
+    /// (not all settings applicable). The name includes the trailing ':'
+    /// for example
+    ///
+    /// ```rust
+    /// let ctx = libunbound::Context::new().unwrap();
+    /// ctx.set_option("logfile:", "mylog.txt");
+    /// ```
+    ///
+    /// This is a power-users interface that lets you specify all sorts
+    /// of options.
+    ///
+    /// For some specific options, such as adding trust anchors, special
+    /// routines exist.
+    ///
+    /// @param val: value of the option.
+    pub fn set_option(&self, opt: &str, value: &str) -> Result<(), Error> {
+        let opt = CString::new(opt).map_err(|_| Error::InvalidName)?;
+        let value = CString::new(value).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_set_option(self.ctx, opt.as_ptr(), value.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Get an option from the context.
+    /// @param opt: option name from the unbound.conf config file format.
+    /// (not all settings applicable). The name excludes the trailing ':'
+    /// for example:
+    ///
+    /// ```rust
+    /// let ctx = libunbound::Context::new().unwrap();
+    /// ctx.get_option("logfile");
+    /// ```
+    ///
+    /// This is a power-users interface that lets you specify all sorts
+    /// of options.
+    /// In cases with multiple entries (auto-trust-anchor-file),
+    /// a newline delimited list is returned in the string.
+    pub fn get_option(&self, opt: &str) -> Result<String, Error> {
+        let opt = CString::new(opt).map_err(|_| Error::InvalidName)?;
+        let mut result = std::ptr::null_mut();
+        let err = unsafe { ub_ctx_get_option(self.ctx, opt.as_ptr(), &mut result) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            assert!(!result.is_null());
+            let s = unsafe { CStr::from_ptr(result) };
+            let value = s.to_string_lossy().to_string();
+            unsafe { libc::free(result as *mut libc::c_void) };
+            Ok(value)
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// setup configuration for the given context.
+    /// @param config_file_name: unbound config file (not all settings applicable).
+    /// This is a power-users interface that lets you specify all sorts of options.
+    /// For some specific options, such as adding trust anchors, special routines exist.
+    pub fn load_unbound_config_file(&self, config_file_name: &str) -> Result<(), Error> {
+        let fname = CString::new(config_file_name).map_err(|_| Error::InvalidName)?;
+
+        let err = unsafe { ub_ctx_config(self.ctx, fname.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Set machine to forward DNS queries to, the caching resolver to use.
+    /// IP4 or IP6 address. Forwards all DNS requests to that machine, which
+    /// is expected to run a recursive resolver. If the proxy is not DNSSEC-capable,
+    /// validation may fail. Can be called several times, in that case the addresses
+    /// are used as backup servers.
+    /// To read the list of nameservers from /etc/resolv.conf (from DHCP or so),
+    /// use the call ub_ctx_resolvconf.
+    /// At this time it is only possible to set configuration before the\n\tfirst resolve is done.
+    /// If the addr is None, forwarding is disabled.
+    pub fn set_forward(&self, addr: Option<IpAddr>) -> Result<(), Error> {
+        let err = match addr {
+            Some(addr) => {
+                let addr = CString::new(addr.to_string()).map_err(|_| Error::InvalidName)?;
+                unsafe { ub_ctx_set_fwd(self.ctx, addr.as_ptr()) }
+            }
+            None => unsafe { ub_ctx_set_fwd(self.ctx, std::ptr::null()) },
+        };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Use DNS over TLS to send queries to machines set with set_forward().
+    /// At this time it is only possible to set configuration before the first resolve is done.
+    /// @param tls: enable or disable DNS over TLS
+    pub fn set_tls(&self, tls: bool) -> Result<(), Error> {
+        let err = unsafe { ub_ctx_set_tls(self.ctx, if tls { 1 } else { 0 }) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add a stub zone, with given address to send to.  This is for custom
+    /// root hints or pointing to a local authoritative dns server.
+    /// For dns resolvers and the 'DHCP DNS' ip address, use set_forward.
+    /// This is similar to a stub-zone entry in unbound.conf.
+    ///
+    /// It is only possible to set configuration before the first resolve is done.
+    /// @param zone: name of the zone, string.
+    /// @param addr: address, IP4 or IP6 in string format.
+    /// The addr is added to the list of stub-addresses if the entry exists.
+    /// If the addr is None the stub entry is removed.
+    /// @param isprime: set to true to set stub-prime to yes for the stub.
+    /// For local authoritative servers, people usually set it to false,
+    /// For root hints it should be set to true.
+    pub fn set_stub(&self, zone: &str, addr: Option<IpAddr>, is_prime: bool) -> Result<(), Error> {
+        let zone = CString::new(zone).map_err(|_| Error::InvalidName)?;
+        let is_prime = if is_prime { 1 } else { 0 };
+
+        let err = match addr {
+            Some(addr) => {
+                let addr = CString::new(addr.to_string()).map_err(|_| Error::InvalidName)?;
+                unsafe { ub_ctx_set_stub(self.ctx, zone.as_ptr(), addr.as_ptr(), is_prime) }
+            }
+            None => unsafe { ub_ctx_set_stub(self.ctx, zone.as_ptr(), std::ptr::null(), is_prime) },
+        };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Read list of nameservers to use from the filename given.
+    /// Usually `"/etc/resolv.conf"`. Uses those nameservers as caching proxies.
+    /// If they do not support DNSSEC, validation may fail.
+    /// Only nameservers are picked up, the searchdomain, ndots and other
+    /// settings from resolv.conf(5) are ignored.
+    /// At this time it is only possible to set configuration before the first resolve is done.
+    /// n @param fname: file name string. If None `"/etc/resolv.conf"` is used.
+    pub fn load_resolv_conf(&self, file_name: Option<&str>) -> Result<(), Error> {
+        let err = match file_name {
+            Some(name) => {
+                let name = CString::new(name).map_err(|_| Error::InvalidName)?;
+                unsafe { ub_ctx_resolvconf(self.ctx, name.as_ptr()) }
+            }
+            None => unsafe { ub_ctx_resolvconf(self.ctx, std::ptr::null()) },
+        };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Read list of hosts from the filename given.
+    /// Usually `"/etc/hosts"`
+    /// These addresses are not flagged as DNSSEC secure when queried for.
+    /// At this time it is only possible to set configuration before the first resolve is done.
+    /// @param fname: file name string. If None `"/etc/hosts"` is used.
+    pub fn load_hosts(&self, file_name: Option<&str>) -> Result<(), Error> {
+        let err = match file_name {
+            Some(name) => {
+                let name = CString::new(name).map_err(|_| Error::InvalidName)?;
+                unsafe { ub_ctx_hosts(self.ctx, name.as_ptr()) }
+            }
+            None => unsafe { ub_ctx_hosts(self.ctx, std::ptr::null()) },
+        };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add a trust anchor to the given context.
+    /// The trust anchor is a string, on one line, that holds a valid DNSKEY or
+    /// DS RR.
+    /// tAt this time it is only possible to add trusted keys before the
+    /// first resolve is done.
+    ///
+    /// @param ta: string, with zone-format RR on one line.
+    ///
+    /// `[domainname] [TTL optional] [type] [class optional] [rdata contents]`
+    pub fn add_trust_anchor(&self, ta: &str) -> Result<(), Error> {
+        let ta = CString::new(ta).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_add_ta(self.ctx, ta.as_ptr()) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add trust anchors to the given context.
+    /// Pass name of a file with DS and DNSKEY records (like from dig or drill).
+    /// At this time it is only possible to add trusted keys before the
+    /// first resolve is done.
+    /// @param fname: filename of file with keyfile with trust anchors.
+    pub fn load_trust_anchor_file(&self, file_name: &str) -> Result<(), Error> {
+        let fname = CString::new(file_name).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_add_ta_file(self.ctx, fname.as_ptr()) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add trust anchor to the given context that is tracked with RFC5011
+    /// automated trust anchor maintenance.
+    /// The file is written to when the trust anchor is changed.
+    /// Pass the name of a file that was output from eg. unbound-anchor,
+    /// or you can start it by providing a trusted DNSKEY or DS record on one
+    /// line in the file.
+    /// At this time it is only possible to add trusted keys before the
+    /// first resolve is done.
+    /// @param fname: filename of file with trust anchor.
+    pub fn load_trust_anchor_file_with_auto_update(&self, file_name: &str) -> Result<(), Error> {
+        let fname = CString::new(file_name).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_add_ta_autr(self.ctx, fname.as_ptr()) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Set debug output (and error output) to the specified stream.
+    /// Pass NULL to disable. Default is stderr.
+    /// @param out: FILE* out file stream to log to.
+    pub fn set_debug_output(&self, stream: *mut libc::FILE) -> Result<(), Error> {
+        let err = unsafe { ub_ctx_debugout(self.ctx, stream as *mut _) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Set debug verbosity for the context
+    /// Output is directed to stderr or whatever was configured via set_debug_output().
+    /// @param d: debug level, 0 is off, 1 is very minimal, 2 is detailed, and 3 is lots.
+    pub fn set_debug_level(&self, level: DebugLevel) -> Result<(), Error> {
+        let err = unsafe { ub_ctx_debuglevel(self.ctx, level as _) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
         } else {
             Err(Error::Sys(err))
         }
@@ -472,4 +734,13 @@ impl<'a> std::iter::Iterator for AnswerDataIter<'a> {
             Restrict::new(raw_data.len() as u16),
         ))
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(i32)]
+pub enum DebugLevel {
+    Off = 0,
+    Minimal = 1,
+    Detailed = 2,
+    Lots = 3,
 }
