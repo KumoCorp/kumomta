@@ -2593,6 +2593,8 @@ version = "0.1.0"
 dependencies = [
  "libunbound-sys",
  "openssl",
+ "thiserror",
+ "tokio",
  "trust-dns-proto",
 ]
 
