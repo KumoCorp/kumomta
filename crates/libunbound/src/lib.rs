@@ -1,5 +1,6 @@
 use libunbound_sys::*;
 use std::ffi::{c_int, CStr, CString};
+use std::io::Write;
 use std::net::IpAddr;
 use std::sync::{Arc, Condvar, Mutex};
 use tokio::sync::oneshot::error::RecvError;
@@ -9,6 +10,16 @@ use trust_dns_proto::op::response_code::ResponseCode;
 use trust_dns_proto::rr::record_type::RecordType;
 use trust_dns_proto::rr::{DNSClass, RData};
 use trust_dns_proto::serialize::binary::{BinDecoder, Restrict};
+
+/// These are the root trust anchors at the time of writing.
+/// See <https://www.nlnetlabs.nl/documentation/unbound/howto-anchor/>
+/// for more information on anchors.
+/// The data for these comes from:
+/// <https://data.iana.org/root-anchors/root-anchors.xml>
+pub const ROOT_TRUST_ANCHORS: &[&str] = &[
+    ". IN DS 19036 8 2 49AAC11D7B6F6446702E54A1607371607A1A41855200FD2CE1CDDE32F24E8FB5",
+    ". IN DS 20326 8 2 E06D44B80B8F1D39A95C0B0D7C65D08458E880409BBC683457104237C7F8EC8D",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -303,6 +314,19 @@ impl Context {
         }
     }
 
+    /// Add the built-in trust anchors to the context.
+    /// These anchors were correct at the time that this module was authored,
+    /// however, for robust DNSSEC, you should consider bootstrapping an
+    /// anchor file and loading it via load_trust_anchor_file() if you want
+    /// stronger assertions that these anchors are correct and to keep them
+    /// updated.
+    pub fn add_builtin_trust_anchors(&self) -> Result<(), Error> {
+        for a in ROOT_TRUST_ANCHORS {
+            self.add_trust_anchor(a)?;
+        }
+        Ok(())
+    }
+
     /// Add trust anchors to the given context.
     /// Pass name of a file with DS and DNSKEY records (like from dig or drill).
     /// At this time it is only possible to add trusted keys before the
@@ -316,6 +340,21 @@ impl Context {
         } else {
             Err(Error::Sys(err))
         }
+    }
+
+    /// Use file_name to maintain root trust anchors for DNSSEC.
+    /// If the file doesn't already exist, it will be populated with
+    /// the built-in ROOT_TRUST_ANCHORS defined by this module.
+    pub fn bootstrap_trust_anchor_file(&self, file_name: &str) -> Result<(), Error> {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(file_name)
+        {
+            f.write_all(ROOT_TRUST_ANCHORS.join("\n").as_bytes())?;
+        }
+
+        self.load_trust_anchor_file(file_name)
     }
 
     /// Add trust anchor to the given context that is tracked with RFC5011
