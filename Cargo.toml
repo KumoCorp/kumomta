@@ -16,6 +16,7 @@ members = [
   "crates/throttle",
   "crates/traffic-gen",
   "crates/tsa-daemon",
+  "crates/libunbound-sys",
   "crates/validate-shaping",
   "crates/version-info",
 ]
