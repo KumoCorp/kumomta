@@ -1,5 +1,6 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module};
+use dns_resolver::resolver::Resolver;
 use dns_resolver::{resolve_a_or_aaaa, MailExchanger};
 use mlua::{Lua, LuaSerdeExt};
 use std::net::SocketAddr;
@@ -115,7 +116,64 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let resolver = TokioAsyncResolver::tokio(r_config, config.options);
 
-            dns_resolver::reconfigure_resolver(resolver);
+            dns_resolver::reconfigure_resolver(Resolver::Tokio(resolver));
+
+            Ok(())
+        })?,
+    )?;
+
+    dns_mod.set(
+        "configure_unbound_resolver",
+        lua.create_function(move |lua, config: mlua::Value| {
+            let config: DnsConfig = lua.from_value(config)?;
+
+            let context = libunbound::Context::new().map_err(any_err)?;
+
+            for ns in config.name_servers {
+                let addr = match ns {
+                    NameServer::Ip(ip) => {
+                        let ip: SocketAddr = ip
+                            .parse()
+                            .with_context(|| format!("name server: '{ip}'"))
+                            .map_err(any_err)?;
+                        ip.ip()
+                    }
+                    NameServer::Detailed { socket_addr, .. } => {
+                        let ip: SocketAddr = socket_addr
+                            .parse()
+                            .with_context(|| format!("name server: '{socket_addr}'"))
+                            .map_err(any_err)?;
+                        ip.ip()
+                    }
+                };
+                context
+                    .set_forward(Some(addr))
+                    .context("set_forward")
+                    .map_err(any_err)?;
+            }
+
+            // TODO: expose a way to provide unbound configuration
+            // options to this code
+
+            if config.options.validate {
+                context
+                    .add_builtin_trust_anchors()
+                    .context("add_builtin_trust_anchors")
+                    .map_err(any_err)?;
+            }
+            if config.options.use_hosts_file {
+                context
+                    .load_hosts(None)
+                    .context("load_hosts")
+                    .map_err(any_err)?;
+            }
+
+            let context = context
+                .into_async()
+                .context("make async resolver context")
+                .map_err(any_err)?;
+
+            dns_resolver::reconfigure_resolver(Resolver::Unbound(context));
 
             Ok(())
         })?,

@@ -3077,6 +3077,7 @@ dependencies = [
  "anyhow",
  "config",
  "dns-resolver",
+ "libunbound",
  "mlua",
  "serde",
  "trust-dns-resolver",

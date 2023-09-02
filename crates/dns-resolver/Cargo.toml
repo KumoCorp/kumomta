@@ -10,6 +10,9 @@ edition = "2021"
 # Resulting tests may be flaky and, if the upstream
 # has changed their records, may be wrong.
 live-dns-tests = []
+# Make the default configuration use unbound
+default-unbound = []
+#default = ["default-unbound"]
 
 [dependencies]
 anyhow = "1.0"

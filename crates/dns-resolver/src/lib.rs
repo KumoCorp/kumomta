@@ -9,16 +9,30 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 use trust_dns_resolver::error::ResolveResult;
 use trust_dns_resolver::proto::rr::RecordType;
-use trust_dns_resolver::{Name, TokioAsyncResolver};
+use trust_dns_resolver::Name;
 
 pub mod resolver;
 
 lazy_static::lazy_static! {
-    static ref RESOLVER: ArcSwap<Resolver> = ArcSwap::from_pointee(Resolver::Tokio(TokioAsyncResolver::tokio_from_system_conf().unwrap()));
+    static ref RESOLVER: ArcSwap<Resolver> = ArcSwap::from_pointee(default_resolver());
     static ref MX_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>> = StdMutex::new(LruCacheWithTtl::new(64 * 1024));
     static ref IPV4_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
     static ref IPV6_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
     static ref IP_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
+}
+
+#[cfg(feature = "default-unbound")]
+fn default_resolver() -> Resolver {
+    // This resolves directly against the root
+    let context = libunbound::Context::new().unwrap();
+    // and enables DNSSEC
+    context.add_builtin_trust_anchors().unwrap();
+    Resolver::Unbound(context.into_async().unwrap())
+}
+
+#[cfg(not(feature = "default-unbound"))]
+fn default_resolver() -> Resolver {
+    Resolver::Tokio(trust_dns_resolver::TokioAsyncResolver::tokio_from_system_conf().unwrap())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -39,8 +53,8 @@ pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
     Ok(name)
 }
 
-pub fn reconfigure_resolver(resolver: TokioAsyncResolver) {
-    RESOLVER.store(Arc::new(Resolver::Tokio(resolver)));
+pub fn reconfigure_resolver(resolver: Resolver) {
+    RESOLVER.store(Arc::new(resolver));
 }
 
 pub fn get_resolver() -> Arc<Resolver> {

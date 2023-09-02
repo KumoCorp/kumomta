@@ -31,6 +31,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Error waiting for query result: {0}")]
     Recv(#[from] RecvError),
+    #[error("Failed to create Context")]
+    ContextCreation,
 }
 
 pub fn unbound_error_string(err: ub_ctx_err) -> String {
@@ -69,13 +71,13 @@ impl Context {
     /// The information from /etc/resolv.conf and /etc/hosts is not utilised by
     /// default.
     /// Use ub_ctx_resolvconf and ub_ctx_hosts to read them.
-    pub fn new() -> Option<Self> {
+    pub fn new() -> Result<Self, Error> {
         openssl::init();
         let ctx = unsafe { ub_ctx_create() };
         if ctx.is_null() {
-            None
+            Err(Error::ContextCreation)
         } else {
-            Some(Self { ctx })
+            Ok(Self { ctx })
         }
     }
 
