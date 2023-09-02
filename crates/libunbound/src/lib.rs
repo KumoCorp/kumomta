@@ -582,25 +582,27 @@ impl AsyncContext {
         });
 
         let mut id = 0;
-        let state_ptr = Box::into_raw(state);
-        let err = unsafe {
-            ub_resolve_async(
-                self.inner.context.ctx,
-                name.as_ptr(),
-                rrtype as c_int,
-                rrclass as c_int,
-                state_ptr as *mut _,
-                Some(Self::process_result),
-                &mut id,
-            )
-        };
-        if err != ub_ctx_err_UB_NOERROR {
-            // Reclaim ownership of the query state pointer so
-            // that we don't leak it
-            let state: Box<AsyncQueryState> = unsafe { Box::from_raw(state_ptr) };
-            drop(state);
+        {
+            let state_ptr = Box::into_raw(state);
+            let err = unsafe {
+                ub_resolve_async(
+                    self.inner.context.ctx,
+                    name.as_ptr(),
+                    rrtype as c_int,
+                    rrclass as c_int,
+                    state_ptr as *mut _,
+                    Some(Self::process_result),
+                    &mut id,
+                )
+            };
+            if err != ub_ctx_err_UB_NOERROR {
+                // Reclaim ownership of the query state pointer so
+                // that we don't leak it
+                let state: Box<AsyncQueryState> = unsafe { Box::from_raw(state_ptr) };
+                drop(state);
 
-            return Err(Error::Sys(err));
+                return Err(Error::Sys(err));
+            }
         }
 
         // Hold the id so that we can cancel on drop

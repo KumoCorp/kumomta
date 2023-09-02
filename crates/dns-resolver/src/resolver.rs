@@ -1,8 +1,9 @@
+use libunbound::AsyncContext;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use trust_dns_resolver::error::ResolveErrorKind;
 use trust_dns_resolver::proto::op::response_code::ResponseCode;
-use trust_dns_resolver::proto::rr::{RData, RecordType};
+use trust_dns_resolver::proto::rr::{DNSClass, RData, RecordType};
 use trust_dns_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
 
 #[derive(Debug)]
@@ -45,6 +46,7 @@ impl Answer {
 
 pub enum Resolver {
     Tokio(TokioAsyncResolver),
+    Unbound(AsyncContext),
 }
 
 impl Resolver {
@@ -88,6 +90,27 @@ impl Resolver {
                     _ => Err(err.into()),
                 },
             },
+            Self::Unbound(ctx) => {
+                let name = name.into_name()?;
+                let name = name.to_ascii();
+                let answer = ctx.resolve(&name, rrtype, DNSClass::IN).await?;
+                let mut records = vec![];
+                for r in answer.rdata() {
+                    if let Ok(r) = r {
+                        records.push(r);
+                    }
+                }
+                Ok(Answer {
+                    canon_name: answer.canon_name().map(|s| s.to_string()),
+                    records,
+                    nxdomain: answer.nxdomain(),
+                    secure: answer.secure(),
+                    bogus: answer.bogus(),
+                    why_bogus: answer.why_bogus().map(|s| s.to_string()),
+                    response_code: answer.rcode(),
+                    expires: Instant::now() + Duration::from_secs(answer.ttl() as u64),
+                })
+            }
         }
     }
 }
