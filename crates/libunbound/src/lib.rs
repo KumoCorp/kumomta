@@ -12,7 +12,7 @@ use trust_dns_proto::serialize::binary::{BinDecoder, Restrict};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Unbound error code {0}")]
+    #[error("Unbound error: {}", unbound_error_string(*.0))]
     Sys(ub_ctx_err),
     #[error("DNS name has an embedded NUL character")]
     InvalidName,
@@ -20,6 +20,17 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Error waiting for query result: {0}")]
     Recv(#[from] RecvError),
+}
+
+pub fn unbound_error_string(err: ub_ctx_err) -> String {
+    let res = unsafe { ub_strerror(err) };
+    if res.is_null() {
+        format!("[{err}]: Unknown error")
+    } else {
+        let s = unsafe { CStr::from_ptr(res) };
+        let s = s.to_string_lossy();
+        format!("[{err}]: {s}")
+    }
 }
 
 pub struct Context {
