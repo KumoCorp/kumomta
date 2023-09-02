@@ -10,4 +10,5 @@ fn main() {
         .resolve("_25._tcp.do.havedane.net", RecordType::TLSA, DNSClass::IN)
         .unwrap();
     println!("{result:#?}");
+    ctx.print_local_zones().unwrap();
 }

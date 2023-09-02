@@ -361,6 +361,78 @@ impl Context {
         }
     }
 
+    /// Debug routine.  Print the local zone information to debug output.
+    /// Is finalized by the routine.
+    pub fn print_local_zones(&self) -> Result<(), Error> {
+        let err = unsafe { ub_ctx_print_local_zones(self.ctx) };
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add a new zone with the zonetype to the local authority info of the
+    /// library.
+    /// Is finalized by the routine.
+    /// @param zone_name: name of the zone in text, `"example.com"`
+    /// tIf it already exists, the type is updated.
+    /// @param zone_type: type of the zone (like for unbound.conf) in text.
+    pub fn zone_add(&self, zone_name: &str, zone_type: &str) -> Result<(), Error> {
+        let zone_name = CString::new(zone_name).map_err(|_| Error::InvalidName)?;
+        let zone_type = CString::new(zone_type).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_zone_add(self.ctx, zone_name.as_ptr(), zone_type.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Remove zone from local authority info of the library.
+    /// Is finalized by the routine.
+    /// @param zone_name: name of the zone in text, `"example.com\"`
+    /// If it does not exist, nothing happens.
+    pub fn zone_remove(&self, zone_name: &str) -> Result<(), Error> {
+        let zone_name = CString::new(zone_name).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_zone_remove(self.ctx, zone_name.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Add localdata to the library local authority info.
+    /// Similar to local-data config statement.
+    /// @param data: the resource record in text format, for example
+    /// `"www.example.com IN A 127.0.0.1"`
+    pub fn add_local_data(&self, data: &str) -> Result<(), Error> {
+        let data = CString::new(data).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_data_add(self.ctx, data.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
+    /// Remove localdata from the library local authority info.
+    /// @param data: the name to delete all data from, like `"www.example.com"
+    pub fn remove_local_data(&self, data: &str) -> Result<(), Error> {
+        let data = CString::new(data).map_err(|_| Error::InvalidName)?;
+        let err = unsafe { ub_ctx_data_remove(self.ctx, data.as_ptr()) };
+
+        if err == ub_ctx_err_UB_NOERROR {
+            Ok(())
+        } else {
+            Err(Error::Sys(err))
+        }
+    }
+
     /// Convert the context into an async resolving context.
     /// A helper thread will be spawned to manage the context,
     /// and will automatically shut down when the returned
