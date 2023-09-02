@@ -5,6 +5,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+# Enable this feature to run real DNS lookups.
+# Resulting tests may be flaky and, if the upstream
+# has changed their records, may be wrong.
+live-dns-tests = []
+
 [dependencies]
 anyhow = "1.0"
 arc-swap = "1.6"
