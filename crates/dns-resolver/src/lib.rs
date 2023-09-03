@@ -42,6 +42,8 @@ pub struct MailExchanger {
     pub site_name: String,
     pub by_pref: BTreeMap<u16, Vec<String>>,
     pub is_domain_literal: bool,
+    /// DNSSEC verified
+    pub is_secure: bool,
 }
 
 pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
@@ -146,6 +148,7 @@ impl MailExchanger {
                             site_name: addr.to_string(),
                             by_pref,
                             is_domain_literal: true,
+                            is_secure: false,
                         }));
                     }
                     Err(err) => {
@@ -167,6 +170,7 @@ impl MailExchanger {
                         site_name: addr.to_string(),
                         by_pref,
                         is_domain_literal: true,
+                        is_secure: false,
                     }));
                 }
                 Err(err) => {
@@ -192,6 +196,8 @@ impl MailExchanger {
             }
         }
 
+        let is_secure = by_pref.iter().all(|p| p.is_secure);
+
         let by_pref = by_pref
             .into_iter()
             .map(|pref| (pref.pref, pref.hosts))
@@ -204,6 +210,7 @@ impl MailExchanger {
             site_name,
             by_pref,
             is_domain_literal: false,
+            is_secure,
         };
 
         let mx = Arc::new(mx);
@@ -261,6 +268,7 @@ pub enum ResolvedMxAddresses {
 struct ByPreference {
     hosts: Vec<String>,
     pref: u16,
+    is_secure: bool,
 }
 
 async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
@@ -279,6 +287,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
             vec![ByPreference {
                 hosts: vec![domain_name.to_string()],
                 pref: 1,
+                is_secure: false,
             }],
             mx_lookup.expires,
         ));
@@ -297,6 +306,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
                 records.push(ByPreference {
                     hosts: vec![host],
                     pref,
+                    is_secure: mx_lookup.secure,
                 });
             }
         }
@@ -495,6 +505,7 @@ MailExchanger {
         ],
     },
     is_domain_literal: true,
+    is_secure: false,
 }
 "#
         );
@@ -528,6 +539,7 @@ MailExchanger {
         ],
     },
     is_domain_literal: true,
+    is_secure: false,
 }
 "#
         );
@@ -561,6 +573,7 @@ MailExchanger {
         ],
     },
     is_domain_literal: true,
+    is_secure: false,
 }
 "#
         );
@@ -672,6 +685,7 @@ MailExchanger {
         ],
     },
     is_domain_literal: false,
+    is_secure: false,
 }
 "#
         );
@@ -706,6 +720,32 @@ MailExchanger {
         ],
     },
     is_domain_literal: false,
+    is_secure: true,
+}
+"#
+        );
+    }
+
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn lookup_have_dane() {
+        let mx = MailExchanger::resolve("do.havedane.net").await.unwrap();
+        k9::snapshot!(
+            mx,
+            r#"
+MailExchanger {
+    domain_name: "do.havedane.net.",
+    hosts: [
+        "do.havedane.net.",
+    ],
+    site_name: "do.havedane.net",
+    by_pref: {
+        10: [
+            "do.havedane.net.",
+        ],
+    },
+    is_domain_literal: false,
+    is_secure: true,
 }
 "#
         );
@@ -731,6 +771,7 @@ MailExchanger {
         ],
     },
     is_domain_literal: false,
+    is_secure: false,
 }
 "#
         );
