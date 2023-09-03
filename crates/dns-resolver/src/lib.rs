@@ -8,6 +8,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 use trust_dns_resolver::error::ResolveResult;
+use trust_dns_resolver::proto::rr::rdata::tlsa::TLSA;
 use trust_dns_resolver::proto::rr::RecordType;
 use trust_dns_resolver::Name;
 
@@ -61,6 +62,46 @@ pub fn reconfigure_resolver(resolver: Resolver) {
 
 pub fn get_resolver() -> Arc<Resolver> {
     RESOLVER.load_full()
+}
+
+/// Resolves TLSA records for a destination name and port according to
+/// <https://datatracker.ietf.org/doc/html/rfc6698#appendix-B.2>
+pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>> {
+    let name = fully_qualify(&format!("_{port}._tcp.{hostname}"))?;
+    let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await?;
+    println!("{answer:#?}");
+
+    if answer.bogus {
+        // Bogus records are either tampered with, or due to misconfiguration
+        // of the local resolver
+        anyhow::bail!(
+            "DANE result for {hostname}:{port} unusable because: {}",
+            answer
+                .why_bogus
+                .as_deref()
+                .unwrap_or("DNSSEC validation failed")
+        );
+    }
+
+    let mut result = vec![];
+    // We ignore TLSA records unless they are validated; in other words,
+    // we'll return an empty list (without raising an error) if the resolver
+    // is not configured to verify DNSSEC
+    if answer.secure {
+        for r in &answer.records {
+            if let Some(tlsa) = r.as_tlsa() {
+                result.push(tlsa.clone());
+            }
+        }
+        // DNS results are unordered. For the sake of tests,
+        // sort these records.
+        // Unfortunately, the TLSA type is nor Ord so we
+        // convert to string and order by that, which is a bit
+        // wasteful but the cardinality of TLSA records is
+        // generally low
+        result.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    }
+    Ok(result)
 }
 
 pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
@@ -748,6 +789,97 @@ MailExchanger {
     is_secure: true,
 }
 "#
+        );
+    }
+
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn tlsa_have_dane() {
+        let tlsa = resolve_dane("do.havedane.net", 25).await.unwrap();
+        k9::snapshot!(
+            tlsa,
+            "
+[
+    TLSA {
+        cert_usage: TrustAnchor,
+        selector: Spki,
+        matching: Sha256,
+        cert_data: [
+            39,
+            182,
+            148,
+            181,
+            29,
+            31,
+            239,
+            136,
+            133,
+            55,
+            42,
+            207,
+            179,
+            145,
+            147,
+            117,
+            151,
+            34,
+            183,
+            54,
+            176,
+            66,
+            104,
+            100,
+            220,
+            28,
+            121,
+            208,
+            101,
+            31,
+            239,
+            115,
+        ],
+    },
+    TLSA {
+        cert_usage: DomainIssued,
+        selector: Spki,
+        matching: Sha256,
+        cert_data: [
+            85,
+            58,
+            207,
+            136,
+            249,
+            238,
+            24,
+            204,
+            170,
+            230,
+            53,
+            202,
+            84,
+            15,
+            50,
+            203,
+            132,
+            172,
+            167,
+            124,
+            71,
+            145,
+            102,
+            130,
+            188,
+            181,
+            66,
+            213,
+            29,
+            170,
+            135,
+            31,
+        ],
+    },
+]
+"
         );
     }
 
