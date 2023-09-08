@@ -17,6 +17,10 @@
   [make_egress_path](../reference/kumo/make_egress_path.md#enable_mta_sts) for
   more details. At this time, we do not support
   [TLSRPT](https://datatracker.ietf.org/doc/html/rfc8460).
+* The [DKIM
+  helper](../userguide/configuration/dkim.md#using-the-dkim_signlua-policy-helper)
+  now allows setting `body_canonicaliation` and `header_canonicalization`.
+  Thanks to @cai-n! #81
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
