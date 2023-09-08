@@ -171,6 +171,10 @@ local function do_dkim_sign(msg, data)
       domain = sender_domain,
       selector = domain_config.selector or data.base.selector,
       headers = domain_config.headers or base.headers,
+      header_canonicalization = domain_config.header_canonicalization
+        or base.header_canonicalization,
+      body_canonicalization = domain_config.body_canonicalization
+        or base.body_canonicalization,
     }
 
     if base.vault_mount then
@@ -215,6 +219,10 @@ local function do_dkim_sign(msg, data)
           domain = sig_config.domain,
           selector = sig_config.selector or data.base.selector,
           headers = sig_config.headers or base.headers,
+          header_canonicalization = sig_config.header_canonicalization
+            or base.header_canonicalization,
+          body_canonicalization = sig_config.body_canonicalization
+            or base.body_canonicalization,
         }
 
         if base.vault_mount then
