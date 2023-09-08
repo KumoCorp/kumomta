@@ -81,7 +81,15 @@ headers.  Can be one of:
 * `"Relaxed"` - this is the default
 * `"Simple"`
 
-## source
+## body_canonicalization
+
+Specify the canonicalization method to be used when hashing message
+body.  Can be one of:
+
+* `"Relaxed"` - this is the default
+* `"Simple"`
+
+## key
 
 Required. Specify the signing key.
 
