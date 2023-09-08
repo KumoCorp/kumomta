@@ -21,7 +21,10 @@ impl Probed {
             .print_system_libs(false)
             .probe("openssl")
         {
+            eprintln!("found openssl: {lib:?}");
             libs.push(lib);
+        } else {
+            eprintln!("openssl not found");
         }
 
         Self {
@@ -48,8 +51,8 @@ impl Probed {
             .to_command()
             .current_dir(temp.path())
             .arg(&main_c)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .output()
             .map(|o| o.status.success())
     }
@@ -404,6 +407,7 @@ fn unbound() {
         //"compat/getentropy_win.c",
         cfg.file(&format!("unbound/{name}"));
     }
+    panic!("boop");
 
     let ptr_width_bits: usize = std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH")
         .unwrap()
