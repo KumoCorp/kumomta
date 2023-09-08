@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 fn new_build() -> cc::Build {
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
@@ -7,6 +9,7 @@ fn new_build() -> cc::Build {
 
 struct Probed {
     libs: Vec<pkg_config::Library>,
+    defined: HashSet<String>,
 }
 
 impl Probed {
@@ -21,7 +24,10 @@ impl Probed {
             libs.push(lib);
         }
 
-        Self { libs }
+        Self {
+            libs,
+            defined: HashSet::new(),
+        }
     }
 
     fn try_compile(&self, code: &str) -> std::io::Result<bool> {
@@ -42,13 +48,13 @@ impl Probed {
             .to_command()
             .current_dir(temp.path())
             .arg(&main_c)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .output()
             .map(|o| o.status.success())
     }
 
-    fn check_header(&self, cfg: &mut cc::Build, name: &str) -> std::io::Result<()> {
+    fn check_header(&mut self, cfg: &mut cc::Build, name: &str) -> std::io::Result<()> {
         let def = name.to_uppercase().replace(".", "_").replace("/", "_");
         let def = format!("HAVE_{def}");
         eprintln!("checking for <{name}>");
@@ -62,12 +68,13 @@ int main(void) {{
         ))? {
             eprintln!("defining {def}");
             cfg.define(&def, Some("1"));
+            self.defined.insert(def);
         }
 
         Ok(())
     }
 
-    fn check_func(&self, cfg: &mut cc::Build, func: &str) -> std::io::Result<()> {
+    fn check_func(&mut self, cfg: &mut cc::Build, func: &str) -> std::io::Result<()> {
         let def = func.to_uppercase();
         let def = format!("HAVE_{def}");
         eprintln!("checking for function {func}");
@@ -81,6 +88,7 @@ int main(void) {{
         ))? {
             eprintln!("defining {def}");
             cfg.define(&def, Some("1"));
+            self.defined.insert(def);
         }
 
         Ok(())
@@ -176,15 +184,32 @@ fn unbound() {
         "sldns/parseutil.c",
         "sldns/rrdef.c",
         "sldns/str2wire.c",
-        "compat/strlcpy.c",
-        "compat/arc4random.c",
         "compat/arc4_lock.c",
+        "compat/arc4random.c",
         "compat/arc4random_uniform.c",
+        "compat/ctime_r.c",
+        "compat/explicit_bzero.c",
+        // "compat/fake-rfc2553.c",
+        "compat/gmtime_r.c",
+        "compat/inet_aton.c",
+        "compat/inet_ntop.c",
+        "compat/inet_pton.c",
+        "compat/isblank.c",
+        "compat/malloc.c",
+        "compat/memcmp.c",
+        "compat/memmove.c",
+        "compat/reallocarray.c",
+        "compat/sha512.c",
+        "compat/snprintf.c",
+        "compat/strlcat.c",
+        "compat/strlcpy.c",
+        "compat/strptime.c",
+        "compat/strsep.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
     }
 
-    let probe = Probed::new();
+    let mut probe = Probed::new();
 
     for hdr in &[
         "TargetConditionals.h",
@@ -369,6 +394,15 @@ fn unbound() {
         "writev",
     ] {
         probe.check_func(&mut cfg, func).unwrap();
+    }
+
+    if !probe.defined.contains("HAVE_GETENTROPY") {
+        let name = "compat/getentropy_linux.c";
+        //"compat/getentropy_freebsd.c",
+        //"compat/getentropy_osx.c",
+        //"compat/getentropy_solaris.c",
+        //"compat/getentropy_win.c",
+        cfg.file(&format!("unbound/{name}"));
     }
 
     let ptr_width_bits: usize = std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH")
