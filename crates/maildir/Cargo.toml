@@ -24,6 +24,6 @@ memmap2 = { version = "0.7", optional = true }
 mmap = ["memmap2"]
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = {workspace=true}
 walkdir = "2.3"
 percent-encoding = "2.3"

@@ -19,7 +19,7 @@ nix = {version="0.26", features=["signal"]}
 rfc5321 = {path="../rfc5321"}
 serde = "1.0"
 serde_json = "1.0"
-tempfile = "3.4"
+tempfile = {workspace=true}
 textwrap = "0.16"
 tokio = {workspace=true, features=["full"]}
 zstd = "0.12"

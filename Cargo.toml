@@ -35,6 +35,7 @@ futures = "0.3.28"
 mlua = "0.8"
 once_cell = "1.17"
 rustls = "0.21"
+tempfile = "3.8"
 tokio = "1.32"
 tokio-rustls = "0.24"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
