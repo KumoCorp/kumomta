@@ -5,6 +5,88 @@ fn new_build() -> cc::Build {
     cfg
 }
 
+struct Probed {
+    libs: Vec<pkg_config::Library>,
+}
+
+impl Probed {
+    fn new() -> Self {
+        let mut libs = vec![];
+
+        if let Ok(lib) = pkg_config::Config::new()
+            .cargo_metadata(false)
+            .print_system_libs(false)
+            .probe("openssl")
+        {
+            libs.push(lib);
+        }
+
+        Self { libs }
+    }
+
+    fn try_compile(&self, code: &str) -> std::io::Result<bool> {
+        let temp = tempfile::TempDir::new()?;
+        let main_c = temp.path().join("main.c");
+        std::fs::write(&main_c, format!("{code}"))?;
+
+        let mut cfg = cc::Build::new();
+        cfg.cargo_metadata(false);
+
+        for lib in &self.libs {
+            for l in &lib.libs {
+                cfg.flag(&format!("-l{l}"));
+            }
+        }
+
+        cfg.get_compiler()
+            .to_command()
+            .current_dir(temp.path())
+            .arg(&main_c)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .map(|o| o.status.success())
+    }
+
+    fn check_header(&self, cfg: &mut cc::Build, name: &str) -> std::io::Result<()> {
+        let def = name.to_uppercase().replace(".", "_").replace("/", "_");
+        let def = format!("HAVE_{def}");
+        eprintln!("checking for <{name}>");
+        if self.try_compile(&format!(
+            r#"
+#include <{name}>
+int main(void) {{
+    return 0;
+}}
+"#
+        ))? {
+            eprintln!("defining {def}");
+            cfg.define(&def, Some("1"));
+        }
+
+        Ok(())
+    }
+
+    fn check_func(&self, cfg: &mut cc::Build, func: &str) -> std::io::Result<()> {
+        let def = func.to_uppercase();
+        let def = format!("HAVE_{def}");
+        eprintln!("checking for function {func}");
+        if self.try_compile(&format!(
+            r#"
+extern int {func}();
+int main(void) {{
+    return {func}();
+}}
+"#
+        ))? {
+            eprintln!("defining {def}");
+            cfg.define(&def, Some("1"));
+        }
+
+        Ok(())
+    }
+}
+
 fn unbound() {
     let mut cfg = new_build();
     for f in [
@@ -100,6 +182,193 @@ fn unbound() {
         "compat/arc4random_uniform.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
+    }
+
+    let probe = Probed::new();
+
+    for hdr in &[
+        "TargetConditionals.h",
+        "arpa/inet.h",
+        "bsd/stdlib.h",
+        "bsd/string.h",
+        "dlfcn.h",
+        "endian.h",
+        "event.h",
+        "expat.h",
+        "getopt.h",
+        "glob.h",
+        "grp.h",
+        "hiredis/hiredis.h",
+        "ifaddrs.h",
+        "inttypes.h",
+        "iphlpapi.h",
+        "libkern/OSByteOrder.h",
+        "linux/net_tstamp.h",
+        "login_cap.h",
+        "memory.h",
+        "net/if.h",
+        "netdb.h",
+        "netinet/in.h",
+        "netinet/tcp.h",
+        "netioapi.h",
+        "nettle/dsa-compat.h",
+        "nettle/eddsa.h",
+        "nghttp2/nghttp2.h",
+        "openssl/bn.h",
+        "openssl/conf.h",
+        "openssl/core_names.h",
+        "openssl/dh.h",
+        "openssl/dsa.h",
+        "openssl/engine.h",
+        "openssl/err.h",
+        "openssl/param_build.h",
+        "openssl/rand.h",
+        "openssl/rsa.h",
+        "openssl/ssl.h",
+        "poll.h",
+        "pwd.h",
+        "stdarg.h",
+        "stdbool.h",
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "strings.h",
+        "sys/endian.h",
+        "sys/ipc.h",
+        "sys/param.h",
+        "sys/resource.h",
+        "sys/select.h",
+        "sys/sha2.h",
+        "sys/shm.h",
+        "sys/socket.h",
+        "sys/stat.h",
+        "sys/sysctl.h",
+        "sys/types.h",
+        "sys/uio.h",
+        "sys/un.h",
+        "sys/wait.h",
+        "syslog.h",
+        "time.h",
+        "unistd.h",
+        "vfork.h",
+        "windows.h",
+        "winsock2.h",
+        "ws2tcpip.h",
+    ] {
+        probe.check_header(&mut cfg, hdr).unwrap();
+    }
+
+    for func in &[
+        "BIO_set_callback_ex",
+        "CRYPTO_THREADID_set_callback",
+        "CRYPTO_cleanup_all_ex_data",
+        "DSA_SIG_set0",
+        "ENGINE_cleanup",
+        "ERR_free_strings",
+        "ERR_load_crypto_strings",
+        "EVP_DigestVerify",
+        "EVP_EncryptInit_ex",
+        "EVP_MAC_CTX_set_params",
+        "EVP_MD_CTX_new",
+        "EVP_aes_256_cbc",
+        "EVP_cleanup",
+        "EVP_default_properties_is_fips_enabled",
+        "EVP_dss1",
+        "EVP_sha1",
+        "EVP_sha256",
+        "EVP_sha512",
+        "FIPS_mode",
+        "HMAC_Init_ex",
+        "OPENSSL_config",
+        "OPENSSL_init_crypto",
+        "OPENSSL_init_ssl",
+        "OSSL_PARAM_BLD_new",
+        "OpenSSL_add_all_digests",
+        "RAND_cleanup",
+        "SHA512_Update",
+        "SSL_CTX_set_alpn_protos",
+        "SSL_CTX_set_alpn_select_cb",
+        "SSL_CTX_set_ciphersuites",
+        "SSL_CTX_set_security_level",
+        "SSL_CTX_set_tlsext_ticket_key_evp_cb",
+        "SSL_get0_alpn_selected",
+        "SSL_get0_peername",
+        "SSL_get1_peer_certificate",
+        "SSL_set1_host",
+        "X509_VERIFY_PARAM_set1_host",
+        "_beginthreadex",
+        "accept4",
+        //"arc4random",
+        //"arc4random_uniform",
+        "be64toh",
+        "chown",
+        "chroot",
+        "ctime_r",
+        "daemon",
+        "endprotoent",
+        "endpwent",
+        "endservent",
+        "ev_default_loop",
+        "ev_loop",
+        "event_assign",
+        "event_base_free",
+        "event_base_get_method",
+        "event_base_new",
+        "event_base_once",
+        "explicit_bzero",
+        "fcntl",
+        "fork",
+        "fsync",
+        "getaddrinfo",
+        "getauxval",
+        "getentropy",
+        "getifaddrs",
+        "getpwnam",
+        "getrlimit",
+        "gettid",
+        "glob",
+        "gmtime_r",
+        "htobe64",
+        "if_nametoindex",
+        "inet_aton",
+        "ioctlsocket",
+        "inet_ntop",
+        "inet_pton",
+        "initgroups",
+        "isblank",
+        "kill",
+        "localtime_r",
+        "memmove",
+        "poll",
+        "reallocarray",
+        "random",
+        "recvmsg",
+        "sendmsg",
+        "setregid",
+        "setresgid",
+        "setresuid",
+        "malloc",
+        "setreuid",
+        "setrlimit",
+        "setsid",
+        "setusercontext",
+        "shmget",
+        "sigprocmask",
+        "sleep",
+        "snprintf",
+        "socketpair",
+        "srandom",
+        "strftime",
+        "strlcat",
+        "strlcpy",
+        "strptime",
+        "strsep",
+        "tzset",
+        "usleep",
+        "vfork",
+        "writev",
+    ] {
+        probe.check_func(&mut cfg, func).unwrap();
     }
 
     let ptr_width_bits: usize = std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH")

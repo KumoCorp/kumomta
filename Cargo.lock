@@ -2604,6 +2604,7 @@ name = "libunbound-sys"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "pkg-config",
  "tempfile",
 ]
 
