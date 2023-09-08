@@ -1,19 +1,12 @@
+use crate::ColorMode;
 use chrono::{DateTime, Duration, Utc};
 use cidr_map::CidrSet;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use tungstenite::{connect, Message};
-
-#[derive(ValueEnum, Default, Debug, Clone, Copy)]
-pub enum ColorMode {
-    #[default]
-    Tty,
-    Yes,
-    No,
-}
 
 /// Trace incoming connections made to the SMTP service.
 ///

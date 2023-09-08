@@ -44,6 +44,8 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `queue-summary` — Prints a summary of the state of the queues, for a human to read
 
+* `trace-smtp-client` — Trace outgoing sessions made by the SMTP service
+
 * `trace-smtp-server` — Trace incoming connections made to the SMTP service
 
 * `top` — Continually update and show what's happening in kumod

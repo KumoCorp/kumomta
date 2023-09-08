@@ -21,6 +21,7 @@ use tokio_rustls::rustls::{
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
 };
 use tokio_rustls::TlsConnector;
+use tracing::Level;
 
 const MAX_LINE_LEN: usize = 4096;
 
@@ -73,6 +74,67 @@ pub struct EsmtpCapability {
     pub param: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub enum SmtpClientTraceEvent {
+    Closed,
+    Read(Vec<u8>),
+    Write(String),
+    Diagnostic {
+        level: tracing::Level,
+        message: String,
+    },
+}
+
+pub trait DeferredTracer {
+    fn trace(&self) -> SmtpClientTraceEvent;
+}
+
+pub trait SmtpClientTracer: std::fmt::Debug {
+    fn trace_event(&self, event: SmtpClientTraceEvent);
+    fn lazy_trace(&self, deferred: &dyn DeferredTracer);
+}
+
+// helper to avoid making a second copy of every write buffer
+struct WriteTracer<'a> {
+    data: &'a str,
+}
+impl<'a> DeferredTracer for WriteTracer<'a> {
+    fn trace(&self) -> SmtpClientTraceEvent {
+        SmtpClientTraceEvent::Write(self.data.to_string())
+    }
+}
+impl<'a> WriteTracer<'a> {
+    fn trace(tracer: &Arc<dyn SmtpClientTracer + Send + Sync>, data: &'a str) {
+        tracer.lazy_trace(&Self { data });
+    }
+}
+
+struct BinWriteTracer<'a> {
+    data: &'a [u8],
+}
+impl<'a> DeferredTracer for BinWriteTracer<'a> {
+    fn trace(&self) -> SmtpClientTraceEvent {
+        let data = String::from_utf8_lossy(&self.data).to_string();
+        SmtpClientTraceEvent::Write(data)
+    }
+}
+impl<'a> BinWriteTracer<'a> {
+    fn trace(tracer: &Arc<dyn SmtpClientTracer + Send + Sync>, data: &'a [u8]) {
+        tracer.lazy_trace(&Self { data });
+    }
+}
+
+// A little bit of gymnastics to avoid making a second
+// copy of every read buffer
+struct ReadTracer<'a> {
+    data: &'a [u8],
+}
+impl<'a> DeferredTracer for ReadTracer<'a> {
+    fn trace(&self) -> SmtpClientTraceEvent {
+        SmtpClientTraceEvent::Read(self.data.to_vec())
+    }
+}
+
 #[derive(Debug)]
 pub struct SmtpClient {
     socket: Option<BoxedAsyncReadAndWrite>,
@@ -80,6 +142,7 @@ pub struct SmtpClient {
     capabilities: HashMap<String, EsmtpCapability>,
     read_buffer: Vec<u8>,
     timeouts: SmtpClientTimeouts,
+    tracer: Option<Arc<dyn SmtpClientTracer + Send + Sync>>,
 }
 
 fn extract_hostname(hostname: &str) -> &str {
@@ -122,7 +185,12 @@ impl SmtpClient {
             capabilities: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
             timeouts,
+            tracer: None,
         }
+    }
+
+    pub fn set_tracer(&mut self, tracer: Arc<dyn SmtpClientTracer + Send + Sync>) {
+        self.tracer.replace(tracer);
     }
 
     pub fn timeouts(&self) -> &SmtpClientTimeouts {
@@ -144,6 +212,14 @@ impl SmtpClient {
                 if let Some((_, b'\n')) = iter.next() {
                     if too_long {
                         self.read_buffer.drain(0..i + 2);
+
+                        if let Some(tracer) = &self.tracer {
+                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                                level: Level::ERROR,
+                                message: "Response too long".to_string(),
+                            });
+                        }
+
                         return Err(ClientError::ResponseTooLong);
                     }
 
@@ -173,7 +249,15 @@ impl SmtpClient {
             };
             if size == 0 {
                 self.socket.take();
+                if let Some(tracer) = &self.tracer {
+                    tracer.trace_event(SmtpClientTraceEvent::Closed);
+                }
                 return Err(ClientError::NotConnected);
+            }
+            if let Some(tracer) = &self.tracer {
+                tracer.lazy_trace(&ReadTracer {
+                    data: &data[0..size],
+                });
             }
             self.read_buffer.extend_from_slice(&data[0..size]);
         }
@@ -216,6 +300,10 @@ impl SmtpClient {
         tracing::trace!("send->{}: {line}", self.hostname);
         match self.socket.as_mut() {
             Some(socket) => {
+                if let Some(tracer) = &self.tracer {
+                    WriteTracer::trace(tracer, &line);
+                }
+
                 match timeout(
                     command.client_timeout_request(&self.timeouts),
                     socket.write_all(line.as_bytes()),
@@ -269,6 +357,10 @@ impl SmtpClient {
             );
             match self.socket.as_mut() {
                 Some(socket) => {
+                    if let Some(tracer) = &self.tracer {
+                        WriteTracer::trace(tracer, &line);
+                    }
+
                     let res = match timeout(
                         cmd.client_timeout_request(&self.timeouts),
                         socket.write_all(line.as_bytes()),
@@ -459,6 +551,16 @@ impl SmtpClient {
             }
         };
 
+        if let Some(tracer) = &self.tracer {
+            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                level: Level::INFO,
+                message: match &handshake_error {
+                    Some(error) => format!("STARTTLS handshake failed: {error:?}"),
+                    None => format!("STARTTLS handshake -> {tls_info:?}"),
+                },
+            });
+        }
+
         self.socket.replace(stream);
         Ok(match handshake_error {
             Some(error) => TlsStatus::FailedHandshake(error),
@@ -528,15 +630,21 @@ impl SmtpClient {
         tracing::trace!("message data is {} bytes", data.len());
 
         match self.socket.as_mut() {
-            Some(sock) => match timeout(
-                Command::Data.client_timeout_request(&self.timeouts),
-                sock.write_all(data),
-            )
-            .await
-            {
-                Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                Err(_) => return Err(ClientError::TimeOutData),
-            },
+            Some(sock) => {
+                if let Some(tracer) = &self.tracer {
+                    BinWriteTracer::trace(tracer, &data);
+                }
+
+                match timeout(
+                    Command::Data.client_timeout_request(&self.timeouts),
+                    sock.write_all(data),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Err(_) => return Err(ClientError::TimeOutData),
+                }
+            }
             None => return Err(ClientError::NotConnected),
         }
 
@@ -545,20 +653,26 @@ impl SmtpClient {
         tracing::trace!("send->{}: {}", self.hostname, marker.escape_debug());
 
         match self.socket.as_mut() {
-            Some(sock) => match timeout(
-                Command::Data.client_timeout_request(&self.timeouts),
-                sock.write_all(marker.as_bytes()),
-            )
-            .await
-            {
-                Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                Err(_) => {
-                    return Err(ClientError::TimeOutRequest {
-                        command: Command::Data,
-                        duration: Command::Data.client_timeout_request(&self.timeouts),
-                    })
+            Some(sock) => {
+                if let Some(tracer) = &self.tracer {
+                    WriteTracer::trace(tracer, &marker);
                 }
-            },
+
+                match timeout(
+                    Command::Data.client_timeout_request(&self.timeouts),
+                    sock.write_all(marker.as_bytes()),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Err(_) => {
+                        return Err(ClientError::TimeOutRequest {
+                            command: Command::Data,
+                            duration: Command::Data.client_timeout_request(&self.timeouts),
+                        })
+                    }
+                }
+            }
             None => return Err(ClientError::NotConnected),
         }
 
@@ -587,6 +701,15 @@ pub struct TlsInformation {
     pub subject_name: Vec<String>,
 }
 
+impl Drop for SmtpClient {
+    fn drop(&mut self) {
+        if let Some(tracer) = &self.tracer {
+            if self.socket.is_some() {
+                tracer.trace_event(SmtpClientTraceEvent::Closed);
+            }
+        }
+    }
+}
 fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     if line.len() < 4 {
         return Err(ClientError::MalformedResponseLine(line.to_string()));

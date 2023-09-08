@@ -339,7 +339,7 @@ impl MailExchanger {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ResolvedMxAddresses {
     NullMx,
     Addresses(Vec<ResolvedAddress>),

@@ -349,3 +349,73 @@ pub enum TraceSmtpV1Payload {
         id: SpoolId,
     },
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
+pub struct TraceSmtpClientV1Event {
+    pub conn_meta: serde_json::Value,
+    pub payload: TraceSmtpClientV1Payload,
+    pub when: DateTime<Utc>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
+pub enum TraceSmtpClientV1Payload {
+    BeginSession,
+    Connected,
+    Closed,
+    Read(String),
+    Write(String),
+    Diagnostic { level: String, message: String },
+    MessageObtained,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
+pub struct TraceSmtpClientV1Request {
+    /// The campaign name to match. If omitted, any campaign will match.
+    #[serde(default)]
+    pub campaign: Vec<String>,
+
+    /// The tenant to match. If omitted, any tenant will match.
+    #[serde(default)]
+    pub tenant: Vec<String>,
+
+    /// The domain name to match. If omitted, any domain will match.
+    #[serde(default)]
+    #[schema(example = "example.com")]
+    pub domain: Vec<String>,
+
+    /// The routing_domain name to match. If omitted, any routing_domain will match.
+    #[serde(default)]
+    pub routing_domain: Vec<String>,
+
+    /// The egress pool name to match. If omitted, any egress pool will match.
+    #[serde(default)]
+    pub egress_pool: Vec<String>,
+
+    /// The egress source name to match. If omitted, any egress source will match.
+    #[serde(default)]
+    pub egress_source: Vec<String>,
+
+    /// The envelope sender to match. If omitted, any will match.
+    #[serde(default)]
+    pub mail_from: Vec<String>,
+
+    /// The envelope recipient to match. If omitted, any will match.
+    #[serde(default)]
+    pub rcpt_to: Vec<String>,
+
+    /// The source address to match. If omitted, any will match.
+    #[serde(default)]
+    pub source_addr: Option<CidrSet>,
+
+    /// The mx hostname to match. If omitted, any will match.
+    #[serde(default)]
+    pub mx_host: Vec<String>,
+
+    /// The ready queue name to match. If omitted, any will match.
+    #[serde(default)]
+    pub ready_queue: Vec<String>,
+
+    /// The mx ip address to match. If omitted, any will match.
+    #[serde(default)]
+    pub mx_addr: Option<CidrSet>,
+}

@@ -265,7 +265,7 @@ kumo.on(
       connection_limit = 32,
       -- max_connection_rate = '1/s',
       -- max_ready = 16,
-      smtp_port = 2026,
+      -- smtp_port = 2026,
       -- max_deliveries_per_connection = 5,
 
       -- hosts that we should consider to be poison because

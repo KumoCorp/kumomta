@@ -1,4 +1,7 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
+use crate::http_server::admin_trace_smtp_client_v1::{
+    SmtpClientTraceEventPayload, SmtpClientTracerImpl,
+};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
@@ -19,6 +22,9 @@ use rfc5321::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::Arc;
+use tracing::Level;
+use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {
@@ -43,6 +49,7 @@ pub struct SmtpDispatcher {
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
     tls_info: Option<TlsInformation>,
+    tracer: Arc<SmtpClientTracerImpl>,
 }
 
 impl SmtpDispatcher {
@@ -61,6 +68,8 @@ impl SmtpDispatcher {
                     .to_string(),
             },
         };
+
+        let trace_id = Uuid::new_v4().to_string();
 
         let addresses = if proto_config.mx_list.is_empty() {
             dispatcher
@@ -87,6 +96,15 @@ impl SmtpDispatcher {
             }
             ResolvedMxAddresses::Addresses(addresses)
         };
+
+        let tracer = Arc::new(SmtpClientTracerImpl::new(serde_json::json!({
+            "egress_pool": dispatcher.egress_pool.to_string(),
+            "egress_source": dispatcher.egress_source.name.to_string(),
+            "id": trace_id,
+            "ready_queue_name": dispatcher.name.to_string(),
+            "mx_plan": addresses.clone(),
+        })));
+
         tracing::trace!("mx resolved to {addresses:?}");
 
         let mut addresses = match addresses {
@@ -169,24 +187,11 @@ impl SmtpDispatcher {
             client_address: None,
             ehlo_name,
             tls_info: None,
+            tracer,
         }))
     }
-}
 
-#[async_trait(?Send)]
-impl QueueDispatcher for SmtpDispatcher {
-    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
-        if let Some(mut client) = self.client.take() {
-            client.send_command(&rfc5321::Command::Quit).await.ok();
-            // Close out this dispatcher and let the maintainer spawn
-            // a new connection
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         if self.client.is_some() {
             return Ok(());
         }
@@ -202,9 +207,18 @@ impl QueueDispatcher for SmtpDispatcher {
 
                 if let Some(delay) = result.retry_after {
                     if delay >= path_config.client_timeouts.idle_timeout {
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!(
+                                "Connection rate throttled for {delay:?} which is \
+                                 longer than the idle_timeout, will disconnect"
+                            )
+                        });
                         dispatcher.throttle_ready_queue(delay).await;
                         anyhow::bail!("connection rate throttled for {delay:?}");
                     }
+                    self.tracer.diagnostic(Level::INFO, || {
+                        format!("Connection rate throttled for {delay:?}, pausing.")
+                    });
                     tracing::trace!(
                         "{} throttled connection rate, sleep for {delay:?}",
                         dispatcher.name
@@ -237,10 +251,16 @@ impl QueueDispatcher for SmtpDispatcher {
             .unwrap_or(path_config.smtp_port);
         let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
+        self.tracer.diagnostic(Level::INFO, || {
+            format!("Attempting connection to {address:?} port {port}")
+        });
+
         let make_connection = async {
             let address = address.clone();
             let timeouts = path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
+            let tracer = self.tracer.clone();
+
             async move {
                 let (stream, source_address) = egress_source
                     .connect_to(SocketAddr::new(address.addr, port))
@@ -251,6 +271,12 @@ impl QueueDispatcher for SmtpDispatcher {
                 );
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
+                tracer.set_meta("source_address", source_address.to_string());
+                tracer.set_meta("mx_host", mx_host.to_string());
+                tracer.set_meta("mx_address", address.addr.to_string());
+                tracer.submit(|| SmtpClientTraceEventPayload::Connected);
+
+                client.set_tracer(tracer);
 
                 // Read banner
                 let banner = client
@@ -293,6 +319,9 @@ impl QueueDispatcher for SmtpDispatcher {
                 match dns_resolver::resolve_dane(&mx.domain_name, port).await {
                     Ok(tlsa) => {
                         dane_tlsa = tlsa;
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("DANE records for {} are: {dane_tlsa:?}", mx.domain_name)
+                        });
                         if !dane_tlsa.is_empty() {
                             enable_tls = Tls::Required;
                             // Do not use MTA-STS when there are DANE results
@@ -302,38 +331,71 @@ impl QueueDispatcher for SmtpDispatcher {
                     Err(err) => {
                         // Do not use MTA-STS when DANE results have been tampered
                         mta_sts_eligible = false;
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("DANE resolve error for {}: {err:#}", mx.domain_name)
+                        });
                         tracing::error!("DANE result for {}: {err:#}", mx.domain_name);
                         // TODO: should we prevent continuing in the clear here? probably
                     }
                 }
+            } else {
+                self.tracer.diagnostic(Level::INFO, || {
+                    format!(
+                        "DANE is enabled for this path, but it is not using MX records from DNS"
+                    )
+                });
             }
+        } else {
+            self.tracer
+                .diagnostic(Level::INFO, || format!("DANE is not enabled for this path"));
         }
 
         // Figure out MTA-STS policy.
         if mta_sts_eligible && path_config.enable_mta_sts {
             if let Some(mx) = &dispatcher.mx {
-                if let Ok(policy) = mta_sts::get_policy_for_domain(&mx.domain_name).await {
-                    match policy.mode {
-                        PolicyMode::Enforce => {
-                            enable_tls = Tls::Required;
-                            if !policy.mx_name_matches(&address.name) {
-                                anyhow::bail!(
-                                    "MTA-STS policy for {domain} is set to \
+                match mta_sts::get_policy_for_domain(&mx.domain_name).await {
+                    Ok(policy) => {
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("MTA-STS policy for {} is {:?}", mx.domain_name, policy.mode)
+                        });
+
+                        match policy.mode {
+                            PolicyMode::Enforce => {
+                                enable_tls = Tls::Required;
+                                if !policy.mx_name_matches(&address.name) {
+                                    anyhow::bail!(
+                                        "MTA-STS policy for {domain} is set to \
                                      enforce but the current MX candidate \
                                      {mx_host} does not match the list of allowed \
                                      hosts. {policy:?}",
-                                    domain = mx.domain_name,
-                                    mx_host = address.name
-                                );
+                                        domain = mx.domain_name,
+                                        mx_host = address.name
+                                    );
+                                }
                             }
+                            PolicyMode::Testing => {
+                                enable_tls = Tls::OpportunisticInsecure;
+                            }
+                            PolicyMode::None => {}
                         }
-                        PolicyMode::Testing => {
-                            enable_tls = Tls::OpportunisticInsecure;
-                        }
-                        PolicyMode::None => {}
+                    }
+                    Err(err) => {
+                        self.tracer.diagnostic(Level::INFO, || {
+                            format!("MTA-STS resolve error for {}: {err:#}", mx.domain_name)
+                        });
                     }
                 }
+            } else {
+                self.tracer.diagnostic(Level::INFO, || {
+                    format!(
+                        "MTA-STS is enabled for this path, but it is not using MX records from DNS"
+                    )
+                });
             }
+        } else {
+            self.tracer.diagnostic(Level::INFO, || {
+                format!("MTA-STS is not enabled for this path")
+            });
         }
 
         let tls_enabled = match (enable_tls, has_tls) {
@@ -397,6 +459,8 @@ impl QueueDispatcher for SmtpDispatcher {
                         );
                     }
                     TlsStatus::Info(info) => {
+                        self.tracer
+                            .diagnostic(Level::INFO, || format!("TLS: {info:?}"));
                         tracing::trace!("TLS: {info:?}");
                         self.tls_info.replace(info);
                     }
@@ -445,6 +509,29 @@ impl QueueDispatcher for SmtpDispatcher {
         dispatcher.delivered_this_connection = 0;
         Ok(())
     }
+}
+
+#[async_trait(?Send)]
+impl QueueDispatcher for SmtpDispatcher {
+    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        if let Some(mut client) = self.client.take() {
+            client.send_command(&rfc5321::Command::Quit).await.ok();
+            // Close out this dispatcher and let the maintainer spawn
+            // a new connection
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+        self.attempt_connection_impl(dispatcher)
+            .await
+            .map_err(|err| {
+                self.tracer.diagnostic(Level::ERROR, || format!("{err:#}"));
+                err
+            })
+    }
 
     async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
         !self.addresses.is_empty()
@@ -467,6 +554,34 @@ impl QueueDispatcher for SmtpDispatcher {
             .recipient()?
             .try_into()
             .map_err(|err| anyhow::anyhow!("{err}"))?;
+
+        self.tracer.set_meta("sender", sender.to_string());
+        self.tracer.set_meta("recipient", recipient.to_string());
+        if let Ok(name) = msg.get_queue_name() {
+            let components = QueueNameComponents::parse(&name);
+            self.tracer.set_meta("domain", components.domain);
+            self.tracer
+                .set_meta("routing_domain", components.routing_domain);
+            match &components.campaign {
+                Some(campaign) => {
+                    self.tracer.set_meta("campaign", campaign.to_string());
+                }
+                None => {
+                    self.tracer.unset_meta("campaign");
+                }
+            }
+            match &components.tenant {
+                Some(tenant) => {
+                    self.tracer.set_meta("tenant", tenant.to_string());
+                }
+                None => {
+                    self.tracer.unset_meta("tenant");
+                }
+            }
+            self.tracer.set_meta("queue_name", name);
+        }
+        self.tracer
+            .submit(|| SmtpClientTraceEventPayload::MessageObtained);
 
         match self
             .client

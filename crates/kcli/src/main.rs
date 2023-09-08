@@ -1,5 +1,5 @@
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use reqwest::Url;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ mod suspend_ready_q;
 mod suspend_ready_q_cancel;
 mod suspend_ready_q_list;
 mod top;
+mod trace_smtp_client;
 mod trace_smtp_server;
 
 /// KumoMTA CLI.
@@ -63,6 +64,7 @@ enum SubCommand {
     SetLogFilter(logfilter::SetLogFilterCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
+    TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
     TraceSmtpServer(trace_smtp_server::TraceSmtpServerCommand),
     Top(top::TopCommand),
 }
@@ -121,6 +123,7 @@ impl SubCommand {
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
+            Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpServer(cmd) => cmd.run(endpoint).await,
             Self::Top(cmd) => cmd.run(endpoint).await,
         }
@@ -225,6 +228,14 @@ pub async fn request_with_json_response<
             status.canonical_reason().unwrap_or("")
         )
     })
+}
+
+#[derive(ValueEnum, Default, Debug, Clone, Copy)]
+pub enum ColorMode {
+    #[default]
+    Tty,
+    Yes,
+    No,
 }
 
 #[tokio::main]
