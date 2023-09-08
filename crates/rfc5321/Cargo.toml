@@ -10,11 +10,13 @@ base64 = "0.13"
 humantime-serde = "1.1"
 memchr = "2.5"
 once_cell = "1.17"
+openssl = {workspace=true}
 pest = "2.5"
 pest_derive = "2.5"
 serde = {version="1.0", features=["derive"]}
 thiserror = "1.0"
 tokio = {workspace=true, features=["full"]}
 tokio-rustls = {workspace=true, features=["dangerous_configuration"]}
+tokio-openssl = "0.6.3"
 tracing = "0.1"
 webpki-roots = {workspace=true}

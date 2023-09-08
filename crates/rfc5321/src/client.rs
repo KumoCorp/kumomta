@@ -47,6 +47,16 @@ pub enum ClientError {
     },
     #[error("Timed Out sending message payload data")]
     TimeOutData,
+    #[error("SSL Error: {0}")]
+    SslErrorStack(#[from] openssl::error::ErrorStack),
+    #[error("SSL Error: {0}")]
+    SslError(#[from] openssl::ssl::Error),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TlsOptions {
+    pub insecure: bool,
+    pub use_openssl: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,36 +520,54 @@ impl SmtpClient {
     /// On completion, return an option that will be:
     /// * Some(handshake_error) - if the handshake failed
     /// * None - if the handshake succeeded
-    pub async fn starttls(&mut self, insecure: bool) -> Result<Option<String>, ClientError> {
+    pub async fn starttls(&mut self, options: TlsOptions) -> Result<Option<String>, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
             return Err(ClientError::Rejected(resp));
         }
 
-        let connector = build_tls_connector(insecure);
         let mut handshake_error = None;
 
-        let server_name = match IpAddr::from_str(self.hostname.as_str()) {
-            Ok(ip) => ServerName::IpAddress(ip),
-            Err(_) => ServerName::try_from(self.hostname.as_str())
-                .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
-        };
-
-        let stream: BoxedAsyncReadAndWrite = match connector
-            .connect(
-                server_name,
+        let stream: BoxedAsyncReadAndWrite = if options.use_openssl {
+            let connector = build_openssl_connector(options.insecure)?;
+            let ssl = connector.configure()?.into_ssl(self.hostname.as_str())?;
+            let mut ssl_stream = tokio_openssl::SslStream::new(
+                ssl,
                 match self.socket.take() {
                     Some(s) => s,
                     None => return Err(ClientError::NotConnected),
                 },
-            )
-            .into_fallible()
-            .await
-        {
-            Ok(stream) => Box::new(stream),
-            Err((err, stream)) => {
+            )?;
+
+            if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
                 handshake_error.replace(format!("{err:#}"));
-                stream
+            }
+
+            Box::new(ssl_stream)
+        } else {
+            let connector = build_tls_connector(options.insecure);
+            let server_name = match IpAddr::from_str(self.hostname.as_str()) {
+                Ok(ip) => ServerName::IpAddress(ip),
+                Err(_) => ServerName::try_from(self.hostname.as_str())
+                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
+            };
+
+            match connector
+                .connect(
+                    server_name,
+                    match self.socket.take() {
+                        Some(s) => s,
+                        None => return Err(ClientError::NotConnected),
+                    },
+                )
+                .into_fallible()
+                .await
+            {
+                Ok(stream) => Box::new(stream),
+                Err((err, stream)) => {
+                    handshake_error.replace(format!("{err:#}"));
+                    stream
+                }
             }
         };
 
@@ -745,6 +773,16 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
         },
         _ => Err(ClientError::MalformedResponseLine(line.to_string())),
     }
+}
+
+pub fn build_openssl_connector(insecure: bool) -> Result<openssl::ssl::SslConnector, ClientError> {
+    let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
+
+    if insecure {
+        builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
+    }
+    let connector = builder.build();
+    Ok(connector)
 }
 
 pub fn build_tls_connector(insecure: bool) -> TlsConnector {

@@ -11,7 +11,9 @@ use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::{rt_spawn, spawn};
 use message::Message;
 use mta_sts::policy::PolicyMode;
-use rfc5321::{ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient};
+use rfc5321::{
+    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient, TlsOptions,
+};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -318,8 +320,12 @@ impl QueueDispatcher for SmtpDispatcher {
                 false
             }
             (Tls::OpportunisticInsecure, true) => {
-                let (enabled, label) = if let Some(handshake_error) =
-                    client.starttls(enable_tls.allow_insecure()).await?
+                let (enabled, label) = if let Some(handshake_error) = client
+                    .starttls(TlsOptions {
+                        insecure: enable_tls.allow_insecure(),
+                        use_openssl: false,
+                    })
+                    .await?
                 {
                     tracing::debug!(
                         "TLS handshake with {address:?}:{port} failed: \
@@ -345,7 +351,13 @@ impl QueueDispatcher for SmtpDispatcher {
                 enabled
             }
             (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
-                if let Some(handshake_error) = client.starttls(enable_tls.allow_insecure()).await? {
+                if let Some(handshake_error) = client
+                    .starttls(TlsOptions {
+                        insecure: enable_tls.allow_insecure(),
+                        use_openssl: false,
+                    })
+                    .await?
+                {
                     client.send_command(&rfc5321::Command::Quit).await.ok();
                     anyhow::bail!(
                         "TLS handshake with {address:?}:{port} failed: {handshake_error}"
