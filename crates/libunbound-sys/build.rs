@@ -95,6 +95,9 @@ fn unbound() {
         "sldns/rrdef.c",
         "sldns/str2wire.c",
         "compat/strlcpy.c",
+        "compat/arc4random.c",
+        "compat/arc4_lock.c",
+        "compat/arc4random_uniform.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
     }
