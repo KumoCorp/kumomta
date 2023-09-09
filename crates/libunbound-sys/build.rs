@@ -77,7 +77,7 @@ int main(void) {{
         Ok(())
     }
 
-    fn check_func(&mut self, cfg: &mut cc::Build, func: &str) -> std::io::Result<()> {
+    fn check_func(&mut self, cfg: &mut cc::Build, func: &str) -> std::io::Result<bool> {
         let def = func.to_uppercase();
         let def = format!("HAVE_{def}");
         eprintln!("checking for function {func}");
@@ -92,9 +92,10 @@ int main(void) {{
             eprintln!("defining {def}");
             cfg.define(&def, Some("1"));
             self.defined.insert(def);
+            Ok(true)
+        } else {
+            Ok(false)
         }
-
-        Ok(())
     }
 }
 
@@ -190,24 +191,12 @@ fn unbound() {
         "compat/arc4_lock.c",
         "compat/arc4random.c",
         "compat/arc4random_uniform.c",
-        "compat/ctime_r.c",
-        "compat/explicit_bzero.c",
         // "compat/fake-rfc2553.c",
-        "compat/gmtime_r.c",
-        "compat/inet_aton.c",
-        "compat/inet_ntop.c",
-        "compat/inet_pton.c",
-        "compat/isblank.c",
         "compat/malloc.c",
         "compat/memcmp.c",
         "compat/memmove.c",
         "compat/reallocarray.c",
         "compat/sha512.c",
-        "compat/snprintf.c",
-        "compat/strlcat.c",
-        "compat/strlcpy.c",
-        "compat/strptime.c",
-        "compat/strsep.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
     }
@@ -326,12 +315,9 @@ fn unbound() {
         "X509_VERIFY_PARAM_set1_host",
         "_beginthreadex",
         "accept4",
-        //"arc4random",
-        //"arc4random_uniform",
         "be64toh",
         "chown",
         "chroot",
-        "ctime_r",
         "daemon",
         "endprotoent",
         "endpwent",
@@ -343,7 +329,6 @@ fn unbound() {
         "event_base_get_method",
         "event_base_new",
         "event_base_once",
-        "explicit_bzero",
         "fcntl",
         "fork",
         "fsync",
@@ -355,15 +340,10 @@ fn unbound() {
         "getrlimit",
         "gettid",
         "glob",
-        "gmtime_r",
         "htobe64",
         "if_nametoindex",
-        "inet_aton",
         "ioctlsocket",
-        "inet_ntop",
-        "inet_pton",
         "initgroups",
-        "isblank",
         "kill",
         "localtime_r",
         "memmove",
@@ -383,20 +363,37 @@ fn unbound() {
         "shmget",
         "sigprocmask",
         "sleep",
-        "snprintf",
         "socketpair",
         "srandom",
         "strftime",
-        "strlcat",
-        "strlcpy",
         "strptime",
-        "strsep",
         "tzset",
         "usleep",
         "vfork",
         "writev",
     ] {
         probe.check_func(&mut cfg, func).unwrap();
+    }
+
+    for func in &[
+        //"arc4random",
+        //"arc4random_uniform",
+        "ctime_r",
+        "gmtime_r",
+        "explicit_bzero",
+        "isblank",
+        "strlcat",
+        "strlcpy",
+        "inet_ntop",
+        "inet_pton",
+        "inet_aton",
+        "strsep",
+        "snprintf",
+        "strptime",
+    ] {
+        if !probe.check_func(&mut cfg, func).unwrap() {
+            cfg.file(&format!("unbound/compat/{func}.c"));
+        }
     }
 
     if !probe.defined.contains("HAVE_GETENTROPY") {
@@ -407,7 +404,6 @@ fn unbound() {
         //"compat/getentropy_win.c",
         cfg.file(&format!("unbound/{name}"));
     }
-    panic!("boop");
 
     let ptr_width_bits: usize = std::env::var("CARGO_CFG_TARGET_POINTER_WIDTH")
         .unwrap()
