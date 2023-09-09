@@ -21,10 +21,7 @@ impl Probed {
             .print_system_libs(false)
             .probe("openssl")
         {
-            eprintln!("found openssl: {lib:?}");
             libs.push(lib);
-        } else {
-            eprintln!("openssl not found");
         }
 
         Self {
@@ -40,18 +37,24 @@ impl Probed {
 
         let mut cfg = cc::Build::new();
         cfg.cargo_metadata(false);
+        let mut cmd = cfg.get_compiler().to_command();
+        cmd.current_dir(temp.path());
 
+        // Source file first
+        cmd.arg(&main_c);
+
+        // then libraries
         for lib in &self.libs {
+            for p in &lib.link_paths {
+                let p = p.to_string_lossy();
+                cmd.arg(&format!("-L{p}"));
+            }
             for l in &lib.libs {
-                cfg.flag(&format!("-l{l}"));
+                cmd.arg(&format!("-l{l}"));
             }
         }
 
-        cfg.get_compiler()
-            .to_command()
-            .current_dir(temp.path())
-            .arg(&main_c)
-            .stdout(std::process::Stdio::inherit())
+        cmd.stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
             .output()
             .map(|o| o.status.success())
