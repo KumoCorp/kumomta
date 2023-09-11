@@ -53,6 +53,7 @@ fedora_deps() {
   fi
   $YUM install -y \
     'clang-devel' \
+    'cmake' \
     'gcc' \
     'gcc-c++' \
     'git' \
@@ -89,6 +90,7 @@ mariner_deps() {
     'binutils' \
     'ca-certificates' \
     'clang-devel' \
+    'cmake' \
     'gcc' \
     'gcc-c++' \
     'glibc-devel' \
