@@ -13,6 +13,7 @@ use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::str::FromStr;
 use std::sync::Arc;
+use tower_http::trace::TraceLayer;
 
 pub mod auth;
 
@@ -95,7 +96,8 @@ impl HttpListenerParams {
                     trusted_hosts: Arc::new(self.trusted_hosts.clone()),
                 },
                 auth_middleware,
-            ));
+            ))
+            .layer(TraceLayer::new_for_http());
         let socket = TcpListener::bind(&self.listen)
             .with_context(|| format!("listen on {}", self.listen))?;
         let addr = socket.local_addr()?;
