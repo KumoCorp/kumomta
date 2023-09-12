@@ -45,6 +45,15 @@ jobs:
       with:
         path: "/usr/local/git"
         key: "centos7-git-2.26.2"
+    - name: "Install cmake"
+      shell: bash
+      run: |
+        mkdir /tmp/cmake
+        pushd /tmp/cmake
+        wget https://github.com/Kitware/CMake/releases/download/v3.27.4/cmake-3.27.4-linux-x86_64.sh
+        chmod +x cmake-3.27.4-linux-x86_64.sh
+        echo /tmp/cmake >> $GITHUB_PATH
+        popd
     - name: "Install Git from source"
       shell: bash
       run: |
