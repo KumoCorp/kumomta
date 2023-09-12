@@ -26,3 +26,4 @@
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
   `Subject` headers unless they were set in the additional headers object
 * Allow optional spaces after the colon in `MAIL FROM:` and `RCPT TO:`. #76
+* Missing 334 response to clients using multi-step SMTP `AUTH PLAIN`

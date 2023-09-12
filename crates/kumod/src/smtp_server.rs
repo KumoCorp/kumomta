@@ -972,7 +972,7 @@ impl SmtpServer {
                     if !self.tls_active {
                         self.write_response(
                             524,
-                            "5.7.11 AUTH {sasl_mech} requires an encrypted channel",
+                            format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
                         )
                         .await?;
                         continue;
@@ -981,6 +981,7 @@ impl SmtpServer {
                     let response = if let Some(r) = initial_response {
                         r
                     } else {
+                        self.write_response(334, " ").await?;
                         match self.read_line(Some(16384)).await? {
                             ReadLine::Disconnected => return Ok(()),
                             ReadLine::Line(line) => line,
