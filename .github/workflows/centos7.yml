@@ -45,15 +45,6 @@ jobs:
       with:
         path: "/usr/local/git"
         key: "centos7-git-2.26.2"
-    - name: "Install cmake"
-      shell: bash
-      run: |
-        mkdir /tmp/cmake
-        pushd /tmp/cmake
-        wget https://github.com/Kitware/CMake/releases/download/v3.27.4/cmake-3.27.4-linux-x86_64.sh
-        chmod +x cmake-3.27.4-linux-x86_64.sh
-        echo /tmp/cmake >> $GITHUB_PATH
-        popd
     - name: "Install Git from source"
       shell: bash
       run: |
@@ -80,8 +71,17 @@ jobs:
     - uses: actions/checkout@v3
     - name: Get Deps
       run: bash ./get-deps.sh
-    - name: Uninstall cmake rpm
-      run: yum remove -y cmake
+    - name: "Install cmake"
+      shell: bash
+      run: |
+        yum remove -y cmake
+        mkdir /tmp/cmake
+        pushd /tmp/cmake
+        wget https://github.com/Kitware/CMake/releases/download/v3.27.4/cmake-3.27.4-linux-x86_64.sh
+        mv cmake-3.27.4-linux-x86_64.sh cmake
+        chmod +x cmake
+        echo /tmp/cmake >> $GITHUB_PATH
+        popd
     - name: Install cargo-nextest
       uses: baptiste0928/cargo-install@v2
       with:
