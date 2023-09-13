@@ -5,8 +5,8 @@
 # If that diverges then weird or broken linkage issues will ensue.
 FROM lukemathwalker/cargo-chef:latest-rust-bookworm AS chef
 RUN apt update
-# Needed for building rocksdb
-RUN apt install -y libclang-dev
+# Needed for building rocksdb, kafka
+RUN apt install -y libclang-dev cmake
 WORKDIR /app
 
 
