@@ -869,7 +869,7 @@ fn unstructured(input: Span) -> IResult<Span, String> {
 
     let (loc, words) = context(
         "unstructured",
-        many1(alt((
+        many0(alt((
             preceded(
                 map(take_while(|c| c == '\r' || c == '\n'), |_| Word::Fws),
                 terminated(
