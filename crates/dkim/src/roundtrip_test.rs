@@ -1,11 +1,10 @@
 #![cfg(test)]
-use crate::canonicalization::Type;
 use crate::{
-    dns, verify_email_with_resolver, DKIMError, DKIMResult, DKIMVerificationStatus, DkimPrivateKey,
-    ParsedEmail, SignerBuilder,
+    dns, verify_email_with_resolver, DKIMError, DkimPrivateKey, ParsedEmail, SignerBuilder,
 };
 use chrono::TimeZone;
 use futures::future::BoxFuture;
+use mailparsing::AuthenticationResult;
 use regex::Regex;
 use std::collections::HashMap;
 
@@ -37,10 +36,38 @@ fn sign(domain: &str, raw_email: &str) -> String {
         .unwrap();
     let header = signer.sign(&email).unwrap();
 
-    format!("{}\r\n{}", header, raw_email)
+    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
+    let signer = SignerBuilder::new()
+        .with_signed_headers(["From", "Subject"])
+        .unwrap()
+        .with_private_key(private_key)
+        .with_selector("2022")
+        .with_signing_domain(format!("not.{domain}"))
+        .with_time(time)
+        .build()
+        .unwrap();
+    let header2 = signer.sign(&email).unwrap();
+
+    let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
+    let signer = SignerBuilder::new()
+        .with_signed_headers(["From", "Subject"])
+        .unwrap()
+        .with_private_key(private_key)
+        .with_selector("bogus-selector")
+        .with_signing_domain(domain)
+        .with_time(time)
+        .build()
+        .unwrap();
+    let header3 = signer.sign(&email).unwrap();
+
+    format!("{header}\r\n{header2}\r\n{header3}\r\n{raw_email}")
 }
 
-async fn verify(resolver: &dyn dns::Lookup, from_domain: &str, raw_email: &str) -> DKIMResult {
+async fn verify(
+    resolver: &dyn dns::Lookup,
+    from_domain: &str,
+    raw_email: &str,
+) -> Vec<AuthenticationResult> {
     let email = ParsedEmail::parse(raw_email).unwrap();
 
     verify_email_with_resolver(from_domain, &email, resolver)
@@ -54,11 +81,13 @@ struct TestResolver {
 impl dns::Lookup for TestResolver {
     fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
         let res = if let Some(value) = self.db.get(name) {
-            vec![value.to_string()]
+            Ok(vec![value.to_string()])
         } else {
-            unreachable!("attempted to resolve: {}", name)
+            Err(DKIMError::KeyUnavailable(format!(
+                "failed to resolve {name}"
+            )))
         };
-        Box::pin(async move { Ok(res) })
+        Box::pin(async move { res })
     }
 }
 
@@ -72,7 +101,10 @@ impl TestResolver {
 
 #[tokio::test]
 async fn test_roundtrip() {
-    let resolver = TestResolver::new([("2022._domainkey.cloudflare.com", dkim_record())]);
+    let resolver = TestResolver::new([
+        ("2022._domainkey.cloudflare.com", dkim_record()),
+        ("2022._domainkey.not.cloudflare.com", dkim_record()),
+    ]);
     let from_domain = "cloudflare.com";
 
     {
@@ -87,13 +119,56 @@ Hello Alice
         eprintln!("input email:\n{email:?}");
         eprintln!("signed email:\n{signed_email:?}");
         let res = verify(&resolver, from_domain, &signed_email).await;
-        eprintln!("{res:?}");
-        assert_eq!(
-            res.status(),
-            &DKIMVerificationStatus::Pass {
-                header_canon: Type::Simple,
-                body_canon: Type::Simple
-            }
+        k9::snapshot!(
+            res,
+            r#"
+[
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "pass",
+        reason: None,
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "cqlz1iCT",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "2022",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "policy",
+        reason: Some(
+            "mail-from-mismatch-signing-domain",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "DfFQMko4",
+            "header.d": "not.cloudflare.com",
+            "header.i": "@not.cloudflare.com",
+            "header.s": "2022",
+            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "temperror",
+        reason: Some(
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "BaNxr8i8",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "bogus-selector",
+        },
+    },
+]
+"#
         );
     }
 
@@ -109,13 +184,57 @@ From: Sven Sauleau <sven@cloudflare.com>
 
         let signed_email = sign(from_domain, &email);
         let res = verify(&resolver, from_domain, &signed_email).await;
-        assert_eq!(
-            res.status(),
-            &DKIMVerificationStatus::Pass {
-                header_canon: Type::Simple,
-                body_canon: Type::Simple
-            }
-        )
+        k9::snapshot!(
+            res,
+            r#"
+[
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "pass",
+        reason: None,
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "FOm2FiBR",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "2022",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "policy",
+        reason: Some(
+            "mail-from-mismatch-signing-domain",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "raIGA3h7",
+            "header.d": "not.cloudflare.com",
+            "header.i": "@not.cloudflare.com",
+            "header.s": "2022",
+            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "temperror",
+        reason: Some(
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "TqUXh9Co",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "bogus-selector",
+        },
+    },
+]
+"#
+        );
     }
 
     {
@@ -169,12 +288,56 @@ sentation" style=3D"width:100%;">
 
         let signed_email = sign(from_domain, &email);
         let res = verify(&resolver, from_domain, &signed_email).await;
-        assert_eq!(
-            res.status(),
-            &DKIMVerificationStatus::Pass {
-                header_canon: Type::Simple,
-                body_canon: Type::Simple
-            }
+        k9::snapshot!(
+            res,
+            r#"
+[
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "pass",
+        reason: None,
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "uEXXiVTP",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "2022",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "policy",
+        reason: Some(
+            "mail-from-mismatch-signing-domain",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "FrdUc1kp",
+            "header.d": "not.cloudflare.com",
+            "header.i": "@not.cloudflare.com",
+            "header.s": "2022",
+            "policy.dkim-rules": "mail-from-mismatch-signing-domain",
+        },
+    },
+    AuthenticationResult {
+        method: "dkim",
+        method_version: None,
+        result: "temperror",
+        reason: Some(
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+        ),
+        props: {
+            "header.a": "rsa-sha256",
+            "header.b": "ufd8xVaX",
+            "header.d": "cloudflare.com",
+            "header.i": "@cloudflare.com",
+            "header.s": "bogus-selector",
+        },
+    },
+]
+"#
         );
     }
 }

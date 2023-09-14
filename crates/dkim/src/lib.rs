@@ -1,14 +1,17 @@
 // Implementation of DKIM: https://datatracker.ietf.org/doc/html/rfc6376
 
+use crate::errors::Status;
 use crate::hash::HeaderList;
 use base64::engine::general_purpose;
 use base64::Engine;
 use ed25519_dalek::SigningKey;
+use mailparsing::AuthenticationResult;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
+use std::collections::BTreeMap;
 use trust_dns_resolver::TokioAsyncResolver;
 
 #[macro_use]
@@ -22,7 +25,6 @@ mod header;
 mod parsed_email;
 mod parser;
 mod public_key;
-mod result;
 #[cfg(test)]
 mod roundtrip_test;
 mod sign;
@@ -31,7 +33,6 @@ pub use errors::DKIMError;
 use header::{DKIMHeader, HEADER};
 pub use parsed_email::ParsedEmail;
 pub use parser::{tag_list as parse_tag_list, Tag};
-pub use result::{DKIMResult, DKIMVerificationStatus};
 pub use sign::{Signer, SignerBuilder};
 
 const DNS_NAMESPACE: &str = "_domainkey";
@@ -171,7 +172,7 @@ async fn verify_email_header<'a>(
     resolver: &dyn dns::Lookup,
     dkim_header: &'a DKIMHeader,
     email: &'a ParsedEmail<'a>,
-) -> Result<(canonicalization::Type, canonicalization::Type), DKIMError> {
+) -> Result<(), DKIMError> {
     let public_key = public_key::retrieve_public_key(
         resolver,
         dkim_header.get_required_tag("d"),
@@ -218,7 +219,7 @@ async fn verify_email_header<'a>(
         return Err(DKIMError::SignatureDidNotVerify);
     }
 
-    Ok((header_canonicalization_type, body_canonicalization_type))
+    Ok(())
 }
 
 /// Run the DKIM verification on the email providing an existing resolver
@@ -226,56 +227,116 @@ pub async fn verify_email_with_resolver<'a>(
     from_domain: &str,
     email: &'a ParsedEmail<'a>,
     resolver: &dyn dns::Lookup,
-) -> Result<DKIMResult, DKIMError> {
-    let mut last_error = None;
+) -> Result<Vec<AuthenticationResult>, DKIMError> {
+    let mut results = vec![];
+
+    let mut dkim_headers = vec![];
 
     for h in email.get_headers().iter_named(HEADER) {
-        let value = h.get_raw_value();
-        tracing::debug!("checking signature {:?}", value);
+        if results.len() > 10 {
+            // Limit DoS impact if a malicious message is filled
+            // with signatures
+            break;
+        }
 
-        let dkim_header = match DKIMHeader::parse(&value) {
-            Ok(v) => v,
+        let value = h.get_raw_value();
+        match DKIMHeader::parse(&value) {
+            Ok(v) => {
+                dkim_headers.push(v);
+            }
             Err(err) => {
-                tracing::debug!("failed to verify: {}", err);
-                last_error = Some(err);
-                continue;
+                results.push(AuthenticationResult {
+                    method: "dkim".to_string(),
+                    method_version: None,
+                    result: "permerror".to_string(),
+                    reason: Some(format!("{err}")),
+                    props: BTreeMap::new(),
+                });
+            }
+        }
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc6008>
+    /// The value associated with this item in the header field MUST be
+    /// at least the first eight characters of the digital signature
+    /// (the "b=" tag from a DKIM-Signature) for which a result is being
+    /// relayed, and MUST be long enough to be unique among the results being
+    /// reported.
+    fn compute_header_b(b_tag: &str, headers: &[DKIMHeader]) -> String {
+        let mut len = 8;
+
+        'bigger: while len < b_tag.len() {
+            for h in headers {
+                let candidate = h.get_required_tag("b");
+                if candidate == b_tag {
+                    continue;
+                }
+                if b_tag[0..len] == candidate[0..len] {
+                    len += 2;
+                    continue 'bigger;
+                }
+            }
+            return b_tag[0..len].to_string();
+        }
+        b_tag.to_string()
+    }
+
+    for dkim_header in &dkim_headers {
+        let signing_domain = dkim_header.get_required_tag("d");
+        let mut props = BTreeMap::new();
+
+        props.insert("header.d".to_string(), signing_domain.to_string());
+        props.insert("header.i".to_string(), format!("@{signing_domain}"));
+        props.insert(
+            "header.a".to_string(),
+            dkim_header.get_required_tag("a").to_string(),
+        );
+        props.insert(
+            "header.s".to_string(),
+            dkim_header.get_required_tag("s").to_string(),
+        );
+
+        let b_tag = compute_header_b(dkim_header.get_required_tag("b"), &dkim_headers);
+        props.insert("header.b".to_string(), b_tag);
+
+        let mut reason = None;
+        let result = match verify_email_header(resolver, &dkim_header, email).await {
+            Ok(()) => {
+                if signing_domain.eq_ignore_ascii_case(from_domain) {
+                    "pass"
+                } else {
+                    let why = "mail-from-mismatch-signing-domain".to_string();
+                    reason.replace(why.clone());
+                    props.insert("policy.dkim-rules".to_string(), why);
+                    "policy"
+                }
+            }
+            Err(err) => {
+                reason.replace(format!("{err}"));
+                match err.status() {
+                    Status::Tempfail => "temperror",
+                    Status::Permfail => "permerror",
+                }
             }
         };
 
-        // Select the signature corresponding to the email sender
-        let signing_domain = dkim_header.get_required_tag("d");
-        if signing_domain.to_lowercase() != from_domain.to_lowercase() {
-            continue;
-        }
-
-        match verify_email_header(resolver, &dkim_header, email).await {
-            Ok((header_canonicalization_type, body_canonicalization_type)) => {
-                return Ok(DKIMResult::pass(
-                    signing_domain,
-                    header_canonicalization_type,
-                    body_canonicalization_type,
-                ))
-            }
-            Err(err) => {
-                tracing::debug!("failed to verify: {}", err);
-                last_error = Some(err);
-                continue;
-            }
-        }
+        results.push(AuthenticationResult {
+            method: "dkim".to_string(),
+            method_version: None,
+            result: result.to_string(),
+            reason,
+            props,
+        });
     }
 
-    if let Some(err) = last_error {
-        Ok(DKIMResult::fail(err, from_domain))
-    } else {
-        Ok(DKIMResult::neutral(from_domain))
-    }
+    Ok(results)
 }
 
 /// Run the DKIM verification on the email
 pub async fn verify_email<'a>(
     from_domain: &str,
     email: &'a ParsedEmail<'a>,
-) -> Result<DKIMResult, DKIMError> {
+) -> Result<Vec<AuthenticationResult>, DKIMError> {
     let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
     })?;
@@ -437,14 +498,13 @@ Joe."#
 
         let resolver = MockResolver::new();
 
-        let dkim_verify_result = verify_email_header(
+        verify_email_header(
             &resolver,
             &DKIMHeader::parse(raw_header_dkim).unwrap(),
             &email,
         )
-        .await;
-
-        assert!(dkim_verify_result.is_ok());
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -486,13 +546,12 @@ Joe.
 
         let resolver = MockResolver::new();
 
-        let dkim_verify_result = verify_email_header(
+        verify_email_header(
             &resolver,
             &DKIMHeader::parse(raw_header_rsa).unwrap(),
             &email,
         )
-        .await;
-
-        assert!(dkim_verify_result.is_ok());
+        .await
+        .unwrap();
     }
 }
