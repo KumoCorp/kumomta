@@ -402,6 +402,7 @@ impl SmtpServer {
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
         meta.set_meta("received_from", peer_address.to_string());
+        meta.set_meta("hostname", params.hostname.to_string());
 
         let mut server = SmtpServer {
             socket: Some(socket),

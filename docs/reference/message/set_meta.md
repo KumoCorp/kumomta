@@ -37,3 +37,4 @@ The following meta values have meaning to KumoMTA:
 * `"received_via"` - the address:port of the local machine which received the message. Currently only set for SMTP receptions.
 * `"received_from"` - the address:port of the peer address from which we received the message
 * `"routing_domain"` - {{since('2023.08.22-4d895015', inline=True)}}. Overrides the domain of the recipient domain for routing purposes.
+* `"hostname"` - {{since('dev', inline=True)}}. A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener.md#hostname)

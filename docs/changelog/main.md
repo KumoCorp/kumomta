@@ -21,6 +21,9 @@
   helper](../userguide/configuration/dkim.md#using-the-dkim_signlua-policy-helper)
   now allows setting `body_canonicaliation` and `header_canonicalization`.
   Thanks to @cai-n! #81
+* [msg:dkim_verify()](../reference/message/dkim_verify.md) and
+  [msg:add_authentication_results()](../reference/message/add_authentication_results.md)
+  #82
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or

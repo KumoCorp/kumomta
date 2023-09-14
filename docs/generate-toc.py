@@ -339,6 +339,10 @@ TOC = [
                 "reference/addressheader",
             ),
             Page(
+                "object: authenticationresult",
+                "reference/authenticationresult.md",
+            ),
+            Page(
                 "object: connectionmeta",
                 "reference/connectionmeta.md",
             ),

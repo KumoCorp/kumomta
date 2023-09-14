@@ -126,8 +126,9 @@ end)
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
   local verify = msg:dkim_verify()
-  print('dkim', kumo.json_encode(verify))
-  msg:add_authentication_results('foo.lan', verify)
+  print('dkim', kumo.json_encode_pretty(verify))
+  msg:add_authentication_results(msg:get_meta 'hostname', verify)
+  print(msg:get_first_named_header_value 'Authentication-Results')
   print(msg:get_data())
 
   --[[
