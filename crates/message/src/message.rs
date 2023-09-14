@@ -10,7 +10,10 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparsing::{AuthenticationResult, Header, HeaderParseResult, MessageConformance, MimePart};
+use mailparsing::{
+    AuthenticationResult, AuthenticationResults, EncodeHeaderValue, Header, HeaderParseResult,
+    MessageConformance, MimePart,
+};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -939,6 +942,22 @@ impl UserData for Message {
         methods.add_method("dkim_sign", move |_, this, signer: Signer| {
             Ok(this.dkim_sign(&signer).map_err(any_err)?)
         });
+
+        methods.add_method(
+            "add_authentication_results",
+            move |lua, this, (serv_id, results): (String, mlua::Value)| {
+                let results: Vec<AuthenticationResult> = lua.from_value(results)?;
+                let results = AuthenticationResults {
+                    serv_id,
+                    version: None,
+                    results,
+                };
+
+                this.prepend_header(Some("Authentication-Results"), &results.encode_value());
+
+                Ok(())
+            },
+        );
 
         methods.add_async_method("dkim_verify", |lua, this, ()| async move {
             let results = this.dkim_verify().await.map_err(any_err)?;

@@ -127,7 +127,10 @@ end)
 kumo.on('smtp_server_message_received', function(msg)
   local verify = msg:dkim_verify()
   print('dkim', kumo.json_encode(verify))
+  msg:add_authentication_results('foo.lan', verify)
+  print(msg:get_data())
 
+  --[[
   local failed = msg:check_fix_conformance(
     -- check for and reject messages with these issues:
     'MISSING_COLON_VALUE',
@@ -137,6 +140,7 @@ kumo.on('smtp_server_message_received', function(msg)
   if failed then
     kumo.reject(552, string.format('5.6.0 %s', failed))
   end
+  ]]
 
   -- print('id', msg:id(), 'sender', tostring(msg:sender()))
   -- print(msg:get_meta 'authn_id')
