@@ -9,6 +9,7 @@ use nom::combinator::{all_consuming, map, opt, recognize};
 use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 
 impl MailParsingError {
@@ -929,6 +930,142 @@ fn unstructured(input: Span) -> IResult<Span, String> {
     Ok((loc, result))
 }
 
+fn authentication_results(input: Span) -> IResult<Span, AuthenticationResults> {
+    context(
+        "authentication_results",
+        map(
+            tuple((
+                opt(cfws),
+                value,
+                opt(preceded(cfws, nom::character::complete::u32)),
+                alt((no_result, many1(resinfo))),
+                opt(cfws),
+            )),
+            |(_, serv_id, version, results, _)| AuthenticationResults {
+                serv_id,
+                version,
+                results,
+            },
+        ),
+    )(input)
+}
+
+fn no_result(input: Span) -> IResult<Span, Vec<AuthenticationResult>> {
+    context(
+        "no_result",
+        map(
+            tuple((opt(cfws), char(';'), opt(cfws), tag("none"))),
+            |_| vec![],
+        ),
+    )(input)
+}
+
+fn resinfo(input: Span) -> IResult<Span, AuthenticationResult> {
+    context(
+        "resinfo",
+        map(
+            tuple((
+                opt(cfws),
+                char(';'),
+                methodspec,
+                opt(preceded(cfws, reasonspec)),
+                opt(many1(propspec)),
+            )),
+            |(_, _, (method, method_version, result), reason, props)| AuthenticationResult {
+                method,
+                method_version,
+                result,
+                reason,
+                props: match props {
+                    None => BTreeMap::default(),
+                    Some(props) => props.into_iter().collect(),
+                },
+            },
+        ),
+    )(input)
+}
+
+fn methodspec(input: Span) -> IResult<Span, (String, Option<u32>, String)> {
+    context(
+        "methodspec",
+        map(
+            tuple((
+                opt(cfws),
+                tuple((keyword, opt(methodversion))),
+                opt(cfws),
+                char('='),
+                opt(cfws),
+                keyword,
+            )),
+            |(_, (method, methodversion), _, _, _, result)| (method, methodversion, result),
+        ),
+    )(input)
+}
+
+// Taken from https://datatracker.ietf.org/doc/html/rfc8601 which says
+// that this is the same as the SMTP Keyword token
+fn keyword(input: Span) -> IResult<Span, String> {
+    context(
+        "keyword",
+        map(
+            take_while1(|c: char| c.is_ascii_alphanumeric() || c == '+'),
+            |s: Span| s.to_string(),
+        ),
+    )(input)
+}
+
+fn methodversion(input: Span) -> IResult<Span, u32> {
+    context(
+        "methodversion",
+        preceded(
+            tuple((opt(cfws), char('/'), opt(cfws))),
+            nom::character::complete::u32,
+        ),
+    )(input)
+}
+
+fn reasonspec(input: Span) -> IResult<Span, String> {
+    context(
+        "reason",
+        map(
+            tuple((tag("reason"), opt(cfws), char('='), opt(cfws), value)),
+            |(_, _, _, _, value)| value,
+        ),
+    )(input)
+}
+
+fn propspec(input: Span) -> IResult<Span, (String, String)> {
+    context(
+        "propspec",
+        map(
+            tuple((
+                opt(cfws),
+                keyword,
+                opt(cfws),
+                char('.'),
+                opt(cfws),
+                keyword,
+                opt(cfws),
+                char('='),
+                opt(cfws),
+                alt((
+                    map(preceded(char('@'), domain), |d| format!("@{d}")),
+                    map(separated_pair(local_part, char('@'), domain), |(u, d)| {
+                        format!("{u}@{d}")
+                    }),
+                    domain,
+                    // value must be last in this alternation
+                    value,
+                )),
+                opt(cfws),
+            )),
+            |(_, ptype, _, _, _, property, _, _, _, value, _)| {
+                (format!("{ptype}.{property}"), value)
+            },
+        ),
+    )(input)
+}
+
 // obs_utext = @{ "\u{00}" | obs_no_ws_ctl | vchar }
 fn obs_utext(input: Span) -> IResult<Span, char> {
     context(
@@ -1190,6 +1327,75 @@ impl Parser {
     pub fn parse_unstructured_header(text: &str) -> Result<String> {
         parse_with(text, unstructured)
     }
+
+    pub fn parse_authentication_results_header(text: &str) -> Result<AuthenticationResults> {
+        parse_with(text, authentication_results)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticationResults {
+    pub serv_id: String,
+    pub version: Option<u32>,
+    pub results: Vec<AuthenticationResult>,
+}
+
+/// Emits a value that was parsed by `value`, into target
+fn emit_value_token(value: &str, target: &mut String) {
+    let use_quoted_string = !value.chars().all(|c| is_mime_token(c) || c == '@');
+    if use_quoted_string {
+        target.push('"');
+        for c in value.chars() {
+            if c == '"' || c == '\\' {
+                target.push('\\');
+            }
+            target.push(c);
+        }
+        target.push('"');
+    } else {
+        target.push_str(value);
+    }
+}
+
+impl EncodeHeaderValue for AuthenticationResults {
+    fn encode_value(&self) -> SharedString<'static> {
+        let mut result = match self.version {
+            Some(v) => format!("{} {v}", self.serv_id),
+            None => format!("{}", self.serv_id),
+        };
+        if self.results.is_empty() {
+            result.push_str("; none");
+        } else {
+            for res in &self.results {
+                result.push_str(";\r\n\t");
+                emit_value_token(&res.method, &mut result);
+                if let Some(v) = res.method_version {
+                    result.push_str(&format!("/{v}"));
+                }
+                result.push('=');
+                emit_value_token(&res.result, &mut result);
+                if let Some(reason) = &res.reason {
+                    result.push_str(" reason=");
+                    emit_value_token(reason, &mut result);
+                }
+                for (k, v) in &res.props {
+                    result.push_str(&format!("\r\n\t{k}="));
+                    emit_value_token(v, &mut result);
+                }
+            }
+        }
+
+        result.into()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticationResult {
+    pub method: String,
+    pub method_version: Option<u32>,
+    pub result: String,
+    pub reason: Option<String>,
+    pub props: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2461,6 +2667,364 @@ application/x-stuff;\r
 \tlongernnamethananyoneshouldreallyuse*5="lines produced as a result of set";\r
 \tlongernnamethananyoneshouldreallyuse*6="ting this value in this way";\r
 \ttitle="This is even more ***fun*** isn't it!"
+"#
+        );
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.2>
+    #[test]
+    fn authentication_results_b_2() {
+        let ar = Header::with_name_value("Authentication-Results", "example.org 1; none");
+        let ar = ar.as_authentication_results().unwrap();
+        k9::snapshot!(
+            &ar,
+            r#"
+AuthenticationResults {
+    serv_id: "example.org",
+    version: Some(
+        1,
+    ),
+    results: [],
+}
+"#
+        );
+
+        k9::snapshot!(ar.encode_value(), "example.org 1; none");
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.3>
+    #[test]
+    fn authentication_results_b_3() {
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            "example.com; spf=pass smtp.mailfrom=example.net",
+        );
+        k9::snapshot!(
+            ar.as_authentication_results(),
+            r#"
+Ok(
+    AuthenticationResults {
+        serv_id: "example.com",
+        version: None,
+        results: [
+            AuthenticationResult {
+                method: "spf",
+                method_version: None,
+                result: "pass",
+                reason: None,
+                props: {
+                    "smtp.mailfrom": "example.net",
+                },
+            },
+        ],
+    },
+)
+"#
+        );
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.4>
+    #[test]
+    fn authentication_results_b_4() {
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            concat!(
+                "example.com;\n",
+                "\tauth=pass (cram-md5) smtp.auth=sender@example.net;\n",
+                "\tspf=pass smtp.mailfrom=example.net"
+            ),
+        );
+        k9::snapshot!(
+            ar.as_authentication_results(),
+            r#"
+Ok(
+    AuthenticationResults {
+        serv_id: "example.com",
+        version: None,
+        results: [
+            AuthenticationResult {
+                method: "auth",
+                method_version: None,
+                result: "pass",
+                reason: None,
+                props: {
+                    "smtp.auth": "sender@example.net",
+                },
+            },
+            AuthenticationResult {
+                method: "spf",
+                method_version: None,
+                result: "pass",
+                reason: None,
+                props: {
+                    "smtp.mailfrom": "example.net",
+                },
+            },
+        ],
+    },
+)
+"#
+        );
+
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            "example.com; iprev=pass\n\tpolicy.iprev=192.0.2.200",
+        );
+        k9::snapshot!(
+            ar.as_authentication_results(),
+            r#"
+Ok(
+    AuthenticationResults {
+        serv_id: "example.com",
+        version: None,
+        results: [
+            AuthenticationResult {
+                method: "iprev",
+                method_version: None,
+                result: "pass",
+                reason: None,
+                props: {
+                    "policy.iprev": "192.0.2.200",
+                },
+            },
+        ],
+    },
+)
+"#
+        );
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.5>
+    #[test]
+    fn authentication_results_b_5() {
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            "example.com;\n\tdkim=pass (good signature) header.d=example.com",
+        );
+        k9::snapshot!(
+            ar.as_authentication_results(),
+            r#"
+Ok(
+    AuthenticationResults {
+        serv_id: "example.com",
+        version: None,
+        results: [
+            AuthenticationResult {
+                method: "dkim",
+                method_version: None,
+                result: "pass",
+                reason: None,
+                props: {
+                    "header.d": "example.com",
+                },
+            },
+        ],
+    },
+)
+"#
+        );
+
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            "example.com;\n\tauth=pass (cram-md5) smtp.auth=sender@example.com;\n\tspf=fail smtp.mailfrom=example.com"
+        );
+        let ar = ar.as_authentication_results().unwrap();
+        k9::snapshot!(
+            &ar,
+            r#"
+AuthenticationResults {
+    serv_id: "example.com",
+    version: None,
+    results: [
+        AuthenticationResult {
+            method: "auth",
+            method_version: None,
+            result: "pass",
+            reason: None,
+            props: {
+                "smtp.auth": "sender@example.com",
+            },
+        },
+        AuthenticationResult {
+            method: "spf",
+            method_version: None,
+            result: "fail",
+            reason: None,
+            props: {
+                "smtp.mailfrom": "example.com",
+            },
+        },
+    ],
+}
+"#
+        );
+
+        k9::snapshot!(
+            ar.encode_value(),
+            r#"
+example.com;\r
+\tauth=pass\r
+\tsmtp.auth=sender@example.com;\r
+\tspf=fail\r
+\tsmtp.mailfrom=example.com
+"#
+        );
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.6>
+    #[test]
+    fn authentication_results_b_6() {
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            concat!(
+                "example.com;\n",
+                "\tdkim=pass reason=\"good signature\"\n",
+                "\theader.i=@mail-router.example.net;\n",
+                "\tdkim=fail reason=\"bad signature\"\n",
+                "\theader.i=@newyork.example.com"
+            ),
+        );
+        let ar = match ar.as_authentication_results() {
+            Err(err) => panic!("\n{err}"),
+            Ok(ar) => ar,
+        };
+
+        k9::snapshot!(
+            &ar,
+            r#"
+AuthenticationResults {
+    serv_id: "example.com",
+    version: None,
+    results: [
+        AuthenticationResult {
+            method: "dkim",
+            method_version: None,
+            result: "pass",
+            reason: Some(
+                "good signature",
+            ),
+            props: {
+                "header.i": "@mail-router.example.net",
+            },
+        },
+        AuthenticationResult {
+            method: "dkim",
+            method_version: None,
+            result: "fail",
+            reason: Some(
+                "bad signature",
+            ),
+            props: {
+                "header.i": "@newyork.example.com",
+            },
+        },
+    ],
+}
+"#
+        );
+
+        k9::snapshot!(
+            ar.encode_value(),
+            r#"
+example.com;\r
+\tdkim=pass reason="good signature"\r
+\theader.i=@mail-router.example.net;\r
+\tdkim=fail reason="bad signature"\r
+\theader.i=@newyork.example.com
+"#
+        );
+
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            concat!(
+                "example.net;\n",
+                "\tdkim=pass (good signature) header.i=@newyork.example.com"
+            ),
+        );
+        let ar = match ar.as_authentication_results() {
+            Err(err) => panic!("\n{err}"),
+            Ok(ar) => ar,
+        };
+
+        k9::snapshot!(
+            &ar,
+            r#"
+AuthenticationResults {
+    serv_id: "example.net",
+    version: None,
+    results: [
+        AuthenticationResult {
+            method: "dkim",
+            method_version: None,
+            result: "pass",
+            reason: None,
+            props: {
+                "header.i": "@newyork.example.com",
+            },
+        },
+    ],
+}
+"#
+        );
+
+        k9::snapshot!(
+            ar.encode_value(),
+            r#"
+example.net;\r
+\tdkim=pass\r
+\theader.i=@newyork.example.com
+"#
+        );
+    }
+
+    /// <https://datatracker.ietf.org/doc/html/rfc8601#appendix-B.7>
+    #[test]
+    fn authentication_results_b_7() {
+        let ar = Header::with_name_value(
+            "Authentication-Results",
+            concat!(
+                "foo.example.net (foobar) 1 (baz);\n",
+                "\tdkim (Because I like it) / 1 (One yay) = (wait for it) fail\n",
+                "\tpolicy (A dot can go here) . (like that) expired\n",
+                "\t(this surprised me) = (as I wasn't expecting it) 1362471462"
+            ),
+        );
+        let ar = match ar.as_authentication_results() {
+            Err(err) => panic!("\n{err}"),
+            Ok(ar) => ar,
+        };
+
+        k9::snapshot!(
+            &ar,
+            r#"
+AuthenticationResults {
+    serv_id: "foo.example.net",
+    version: Some(
+        1,
+    ),
+    results: [
+        AuthenticationResult {
+            method: "dkim",
+            method_version: Some(
+                1,
+            ),
+            result: "fail",
+            reason: None,
+            props: {
+                "policy.expired": "1362471462",
+            },
+        },
+    ],
+}
+"#
+        );
+
+        k9::snapshot!(
+            ar.encode_value(),
+            r#"
+foo.example.net 1;\r
+\tdkim/1=fail\r
+\tpolicy.expired=1362471462
 "#
         );
     }

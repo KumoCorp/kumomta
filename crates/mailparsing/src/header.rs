@@ -1,8 +1,8 @@
 use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
 use crate::{
-    AddressList, MailParsingError, Mailbox, MailboxList, MessageID, MimeParameters, Result,
-    SharedString,
+    AddressList, AuthenticationResults, MailParsingError, Mailbox, MailboxList, MessageID,
+    MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset};
 use std::convert::TryInto;
@@ -237,6 +237,10 @@ impl<'a> Header<'a> {
 
     pub fn as_unstructured(&self) -> Result<String> {
         Parser::parse_unstructured_header(self.get_raw_value())
+    }
+
+    pub fn as_authentication_results(&self) -> Result<AuthenticationResults> {
+        Parser::parse_authentication_results_header(self.get_raw_value())
     }
 
     pub fn as_date(&self) -> Result<DateTime<FixedOffset>> {
