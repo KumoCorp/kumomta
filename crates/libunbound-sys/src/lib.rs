@@ -5,6 +5,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::upper_case_acronyms)]
+#![allow(rustdoc::broken_intra_doc_links)]
 
 pub const UB_STATS_QTYPE_NUM: u32 = 256;
 pub const UB_STATS_QCLASS_NUM: u32 = 256;

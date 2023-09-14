@@ -1,4 +1,3 @@
-//! Inspired from https://docs.rs/dkim/latest/src/dkim/canonicalization.rs.html
 use crate::hash::LimitHasher;
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
