@@ -125,6 +125,9 @@ end)
 -- Called once the body has been received.
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
+  local verify = msg:dkim_verify()
+  print('dkim', kumo.json_encode(verify))
+
   local failed = msg:check_fix_conformance(
     -- check for and reject messages with these issues:
     'MISSING_COLON_VALUE',

@@ -50,6 +50,10 @@ pub enum Resolver {
 }
 
 impl Resolver {
+    pub async fn resolve_txt<N: IntoName + TryParseIp>(&self, name: N) -> anyhow::Result<Answer> {
+        self.resolve(name, RecordType::TXT).await
+    }
+
     pub async fn resolve<N: IntoName + TryParseIp>(
         &self,
         name: N,

@@ -5,10 +5,12 @@ use crate::EnvelopeAddress;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value};
+use dns_resolver::resolver::Resolver;
+use futures::future::BoxFuture;
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparsing::{Header, HeaderParseResult, MessageConformance, MimePart};
+use mailparsing::{AuthenticationResult, Header, HeaderParseResult, MessageConformance, MimePart};
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
@@ -554,6 +556,67 @@ impl Message {
         })
     }
 
+    pub async fn dkim_verify(&self) -> anyhow::Result<Vec<AuthenticationResult>> {
+        let resolver = dns_resolver::get_resolver();
+        let data = self.get_data();
+        let bytes = mailparsing::SharedString::try_from(data.as_ref().as_ref())?;
+
+        let parsed = mailparsing::Header::parse_headers(bytes.clone())?;
+        if parsed
+            .overall_conformance
+            .contains(MessageConformance::NON_CANONICAL_LINE_ENDINGS)
+        {
+            return Ok(vec![AuthenticationResult {
+                method: "dkim".to_string(),
+                method_version: None,
+                result: "permerror".to_string(),
+                reason: Some("message has non-canonical line endings".to_string()),
+                props: Default::default(),
+            }]);
+        }
+        let message = kumo_dkim::ParsedEmail::HeaderOnlyParse { bytes, parsed };
+
+        let from = message
+            .get_headers()
+            .from()
+            .map_err(any_err)?
+            .ok_or_else(|| anyhow::anyhow!("Missing or invalid From header"))?
+            .0;
+        if from.len() != 1 {
+            anyhow::bail!(
+                "From header must have a single sender, found {}",
+                from.len()
+            );
+        }
+        let from_domain = &from[0].address.domain;
+
+        struct ResolverAdapater {
+            resolver: Arc<Resolver>,
+        }
+
+        impl kumo_dkim::dns::Lookup for ResolverAdapater {
+            fn lookup_txt<'a>(
+                &'a self,
+                name: &'a str,
+            ) -> BoxFuture<'a, Result<Vec<String>, kumo_dkim::DKIMError>> {
+                Box::pin(async move {
+                    match self.resolver.resolve_txt(name).await {
+                        Ok(answer) => Ok(answer.as_txt()),
+                        Err(err) => Err(kumo_dkim::DKIMError::KeyUnavailable(format!("{err}"))),
+                    }
+                })
+            }
+        }
+
+        let results = kumo_dkim::verify_email_with_resolver(
+            from_domain,
+            &message,
+            &ResolverAdapater { resolver },
+        )
+        .await?;
+        Ok(results)
+    }
+
     pub fn parse_rfc3464(&self) -> anyhow::Result<Option<Report>> {
         let data = self.get_data();
         Report::parse(&data)
@@ -876,6 +939,12 @@ impl UserData for Message {
         methods.add_method("dkim_sign", move |_, this, signer: Signer| {
             Ok(this.dkim_sign(&signer).map_err(any_err)?)
         });
+
+        methods.add_async_method("dkim_verify", |lua, this, ()| async move {
+            let results = this.dkim_verify().await.map_err(any_err)?;
+            lua.to_value(&results)
+        });
+
         methods.add_method(
             "prepend_header",
             move |_, this, (name, value): (String, String)| {

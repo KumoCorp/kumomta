@@ -2904,6 +2904,7 @@ dependencies = [
  "chrono-tz",
  "config",
  "data-loader",
+ "dns-resolver",
  "futures",
  "k9",
  "kumo-dkim",

@@ -9,6 +9,7 @@ use nom::combinator::{all_consuming, map, opt, recognize};
 use nom::error::context;
 use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
@@ -1333,7 +1334,7 @@ impl Parser {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticationResults {
     pub serv_id: String,
     pub version: Option<u32>,
@@ -1389,7 +1390,7 @@ impl EncodeHeaderValue for AuthenticationResults {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthenticationResult {
     pub method: String,
     pub method_version: Option<u32>,

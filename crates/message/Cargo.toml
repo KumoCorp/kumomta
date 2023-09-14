@@ -14,6 +14,7 @@ config = {path="../config"}
 chrono = {version="0.4", default-features=false, features=["serde", "clock"]}
 chrono-tz = {version="0.8", features=["serde"]}
 data-loader = {path="../data-loader"}
+dns-resolver = {path="../dns-resolver"}
 futures = "0.3"
 kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
