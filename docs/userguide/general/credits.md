@@ -18,6 +18,9 @@ The following people have helped with writing the KumoMTA documentation:
 
 * *Mike Hillyer* - Initial author of the supplemental sections of the documentation.
 
+## Contributors
+
+KumoMTA benefits greatly from community contributions, and we thank our contributors, listed on our [GitHub Contributions Graph](https://github.com/KumoCorp/kumomta/graphs/contributors).
 ## Tools Used to Create KumoMTA
 
 The following is a list of some of the tools and components that we have used
