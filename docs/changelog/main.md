@@ -24,6 +24,10 @@
 * [msg:dkim_verify()](../reference/message/dkim_verify.md) and
   [msg:add_authentication_results()](../reference/message/add_authentication_results.md)
   #82
+* You may now use `log_record` to refer to the entire log record when using
+  templated log files. See
+  [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) for
+  more information.
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or

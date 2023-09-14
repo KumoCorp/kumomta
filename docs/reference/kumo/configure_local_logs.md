@@ -171,6 +171,23 @@ The JSON log record fields shown in the section below are assigned as template
 variables, so using `{{ id }}` in your log template will be substituted with
 the `id` field from the log record section below.
 
+{{since('dev', indent=True)}}
+    You may now use `log_record` to reference the entire log record,
+    which is useful if you want to replicate the default json representation
+    of the log record for an individual record type.
+
+    You might wish to use something like the following:
+
+    {% raw %}
+    ```lua
+    per_record = {
+        Feedback = {
+            template = [[{{ log_record | tojson }}]]
+        }
+    }
+    ```
+    {% endraw %}
+
 ## Log Record
 
 The log record is a JSON object with the following shape:
