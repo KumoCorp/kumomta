@@ -161,7 +161,20 @@ kumo.configure_local_logs {
 
 The keys of the `per_record` table must correspond to one of the
 record types listed below, or the special `Any` key which can be used
-to match any record type that was not explicitly listed.
+to match any record type that was not explicitly listed.  The values of
+the `per_record` table are `LogRecordParams` have the following fields
+and values:
+
+* `suffix` - a string to append to the generated segment file name.
+  For example, `suffix = '.csv'` will generate names like `20230306-022811.csv`.
+* `log_dir` - specify an alternative log directory for this type
+* `enable` - defaults to `true`. If you set it to `false`, records of this
+  type will not be logged
+* `segment_header` - ({{since('dev', inline=True)}}) text that will be written
+  out to each newly opened segment file. Useful for emitting eg: a CSV header
+  line.
+* `template` - the template to use to format the log line. Continue reading
+  below for more information.
 
 The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
 is used to evalute logging templates.  The full supported syntax is [documented

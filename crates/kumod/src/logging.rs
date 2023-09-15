@@ -82,6 +82,10 @@ pub struct LogRecordParams {
     /// minijinja template
     #[serde(default)]
     pub template: Option<String>,
+
+    /// Written to the start of each newly created log file segment
+    #[serde(default)]
+    pub segment_header: String,
 }
 
 fn default_true() -> bool {
@@ -859,19 +863,31 @@ impl LogThreadState {
                 .open(&name)
                 .with_context(|| format!("open log file {name:?}"))?;
 
-            self.file_map.insert(
-                file_key.clone(),
-                OpenedFile {
-                    file: Encoder::new(f, self.params.compression_level)
-                        .context("set up zstd encoder")?,
-                    name,
-                    written: 0,
-                    expires: self
-                        .params
-                        .max_segment_duration
-                        .map(|duration| Instant::now() + duration),
-                },
-            );
+            let mut file = OpenedFile {
+                file: Encoder::new(f, self.params.compression_level)
+                    .context("set up zstd encoder")?,
+                name,
+                written: 0,
+                expires: self
+                    .params
+                    .max_segment_duration
+                    .map(|duration| Instant::now() + duration),
+            };
+
+            if let Some(per_rec) = self.per_record(record.kind) {
+                if !per_rec.segment_header.is_empty() {
+                    file.file
+                        .write_all(per_rec.segment_header.as_bytes())
+                        .with_context(|| {
+                            format!(
+                                "writing segment header to newly opened segment file {}",
+                                file.name.display()
+                            )
+                        })?;
+                }
+            }
+
+            self.file_map.insert(file_key.clone(), file);
         }
 
         let mut need_rotate = false;

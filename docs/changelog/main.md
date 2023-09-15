@@ -28,6 +28,9 @@
   templated log files. See
   [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) for
   more information.
+* You may now specify an optional `segment_header` when customizing local logs.
+  See [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md)
+  for more information.
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
