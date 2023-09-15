@@ -152,6 +152,12 @@ pub struct LogFileParams {
 
     #[serde(default)]
     pub per_record: HashMap<RecordType, LogRecordParams>,
+
+    /// The name of an event which can be used to filter
+    /// out log records which should not be logged to this
+    /// log file
+    #[serde(default)]
+    pub filter_event: Option<String>,
 }
 
 impl LogFileParams {
@@ -178,6 +184,7 @@ pub struct Logger {
     meta: Vec<String>,
     headers: Vec<String>,
     enabled: HashMap<RecordType, bool>,
+    filter_event: Option<String>,
 }
 
 impl Logger {
@@ -233,6 +240,7 @@ impl Logger {
             meta,
             headers,
             enabled,
+            filter_event: None,
         };
 
         LOGGER.lock().unwrap().push(Arc::new(logger));
@@ -265,6 +273,8 @@ impl Logger {
         let headers = params.headers.clone();
         let meta = params.meta.clone();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
+        let filter_event = params.filter_event.clone();
+
         let thread = std::thread::Builder::new()
             .name("logger".to_string())
             .spawn(move || {
@@ -291,6 +301,7 @@ impl Logger {
             meta,
             headers,
             enabled,
+            filter_event,
         };
 
         LOGGER.lock().unwrap().push(Arc::new(logger));
@@ -421,6 +432,32 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     for logger in loggers.iter() {
         if !logger.record_is_enabled(kind) {
             continue;
+        }
+        if let Some(name) = &logger.filter_event {
+            match load_config().await {
+                Ok(mut lua_config) => {
+                    let enqueue: bool =
+                        match lua_config.async_call_callback(name, msg.clone()).await {
+                            Ok(b) => b,
+                            Err(err) => {
+                                tracing::error!(
+                                    "error while calling {name} event for log filter: {err:#}"
+                                );
+                                false
+                            }
+                        };
+                    if !enqueue {
+                        continue;
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "failed to load lua config while attempting to \
+                         call {name} event for log filter: {err:#}"
+                    );
+                    continue;
+                }
+            };
         }
 
         let (headers, meta) = logger.extract_fields(&msg).await;

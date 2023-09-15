@@ -28,7 +28,8 @@
   templated log files. See
   [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) for
   more information.
-* You may now specify an optional `segment_header` when customizing local logs.
+* You may now specify an optional `segment_header` and optional `filter_event`,
+  when customizing local logs.
   See [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md)
   for more information.
 

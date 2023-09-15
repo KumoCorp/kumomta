@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use kumo_api_types::{BounceV1CancelRequest, BounceV1ListEntry, BounceV1Request, BounceV1Response};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
+use kumo_server_runtime::rt_spawn_non_blocking;
 use message::message::QueueNameComponents;
 use message::Message;
 use std::collections::HashMap;
@@ -194,12 +195,22 @@ pub async fn bounce_v1(
     AdminBounceEntry::add(entry.clone());
 
     let queue_names = entry.list_matching_queues().await;
+    let (tx, rx) = tokio::sync::oneshot::channel();
 
-    for name in &queue_names {
-        if let Some(q) = QueueManager::get_opt(name).await {
-            q.lock().await.bounce_all(&entry).await;
-        }
-    }
+    // Move into a lua-capable thread so that logging related
+    // lua events can be triggered by log_disposition.
+    rt_spawn_non_blocking("process_bounce_v1".to_string(), move || {
+        Ok(async move {
+            for name in &queue_names {
+                if let Some(q) = QueueManager::get_opt(name).await {
+                    q.lock().await.bounce_all(&entry).await;
+                }
+            }
+            tx.send(entry)
+        })
+    })?;
+
+    let entry = rx.await?;
 
     let bounced = entry.bounced.lock().unwrap().clone();
     let total_bounced = bounced.values().sum();
