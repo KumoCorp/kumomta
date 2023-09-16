@@ -26,9 +26,9 @@ steps:
   - apt update
   - apt install -y curl
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  - ./get-deps.sh
   - source ~/.profile
   - source ~/.cargo/env
+  - ./get-deps.sh
   - cargo install cargo-nextest --locked
   - cargo build --verbose --release
   - cargo nextest run --release
