@@ -49,7 +49,7 @@ def main_branch_or_tag():
         "branch": {
             "include": [
                 "master",
-                "drone",  # TODO: remove this
+                # "drone",  # TODO: remove this
             ],
         },
         "event": {
@@ -111,6 +111,34 @@ def restore_mtime():
     }
 
 
+def cargo_environment():
+    return {
+        "CARGO_HOME": ".drone-cargo",
+        "CARGO_TERM_COLOR": "always",
+    }
+
+
+def install_rust():
+    return [
+        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+        ". $CARGO_HOME/env",
+    ]
+
+
+def install_deps():
+    return [
+        "./get-deps.sh",
+        "cargo install cargo-nextest --locked",
+    ]
+
+
+def perform_build_and_test():
+    return [
+        "cargo build --release",
+        "cargo nextest run --release",
+    ]
+
+
 def rocky(container):
     return {
         "kind": "pipeline",
@@ -122,19 +150,16 @@ def rocky(container):
             {
                 "name": "test",
                 "image": container,
-                "environment": {
-                    "CARGO_HOME": ".drone-cargo",
-                },
+                "environment": cargo_environment(),
                 "commands": [
                     "dnf install -y git",
                     # Some systems have curl-minimal which won't tolerate us installing curl
                     "command -v curl || dnf install -y curl",
-                    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-                    ". .drone-cargo/env",
-                    "./get-deps.sh",
-                    "cargo install cargo-nextest --locked",
-                    "cargo build --release",
-                    "cargo nextest run --release",
+                ]
+                + install_rust()
+                + install_deps()
+                + perform_build_and_test()
+                + [
                     "./assets/build-rpm.sh",
                     "mv ~/rpmbuild/RPMS/*/*.rpm .",
                 ],
@@ -164,19 +189,16 @@ def ubuntu(container):
             {
                 "name": "test",
                 "image": container,
-                "environment": {
-                    "CARGO_HOME": ".drone-cargo",
-                },
+                "environment": cargo_environment(),
                 "commands": [
                     "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
                     "apt update",
                     "apt install -y curl git",
-                    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-                    ". .drone-cargo/env",
-                    "./get-deps.sh",
-                    "cargo install cargo-nextest --locked",
-                    "cargo build --release",
-                    "cargo nextest run --release",
+                ]
+                + install_rust()
+                + install_deps()
+                + perform_build_and_test()
+                + [
                     "./assets/build-deb.sh",
                 ],
             },
