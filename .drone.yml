@@ -48,6 +48,15 @@ steps:
   commands:
   - apt-get install ./kumomta*.deb
 
+- name: upload-package
+  image: alpine:3.14
+  # TODO: constrain this to `main`
+  environment:
+    TOKEN:
+      from_secret: OPENREPO_API_TOKEN
+  commands:
+    - /bin/sh ./assets/upload-package.sh ubuntu:22.04 kumomta*.deb
+
 - name: update-build-cache
   image: meltwater/drone-cache
   environment:
