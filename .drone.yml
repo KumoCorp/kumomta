@@ -25,7 +25,7 @@ steps:
 volumes:
   - name: cache
     host:
-      path: /tmp/build-cache
+      path: /var/lib/drone-build-cache
 
 ---
 kind: pipeline
