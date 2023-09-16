@@ -34,7 +34,6 @@ steps:
   - cargo install cargo-nextest --locked
   - cargo build --release
   - cargo nextest run --release
-  - echo woot
 
 - name: update-build-cache
   image: meltwater/drone-cache
