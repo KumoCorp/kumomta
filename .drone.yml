@@ -4,7 +4,7 @@ type: docker
 
 steps:
 - name: restore-mtime
-  image: ubuntu:22.04
+  image: python:3-bookworm
   commands:
     - ./assets/ci/git-restore-mtime
 - name: restore-build-cache
