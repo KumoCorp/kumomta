@@ -3,6 +3,10 @@ name: rust
 type: docker
 
 steps:
+- name: cache
+  image: rust:latest
+  commands:
+  - ls -l /tmp/build-cache
 - name: test
   image: rust:latest
   commands:
