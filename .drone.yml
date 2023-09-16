@@ -5,6 +5,9 @@ type: docker
 steps:
 - name: cache
   image: rust:latest
+  volumes:
+  - name: cache
+    path: /tmp/build-cache
   commands:
   - ls -l /tmp/build-cache
 
@@ -17,6 +20,11 @@ steps:
   - cargo install cargo-nextest --locked
   - cargo build --verbose --release
   - cargo nextest run --release
+
+volumes:
+  - name: cache
+    host:
+      path: /tmp/build-cache
 
 ---
 kind: pipeline
