@@ -8,6 +8,7 @@ case "$REPO" in
   "ubuntu:18.04") REPO="kumomta-ubuntu-18" ;;
   "ubuntu:20.04") REPO="kumomta-ubuntu-20" ;;
   "ubuntu:22.04") REPO="kumomta-ubuntu-22" ;;
+  "arm64v8/ubuntu:22.04") REPO="kumomta-ubuntu-aarch64-22" ;;
   "rockylinux:8") REPO="kumomta-rockylinux-8" ;;
   "rockylinux:9") REPO="kumomta-rockylinux-9" ;;
   "centos:7") REPO="kumomta-centos-7" ;;
