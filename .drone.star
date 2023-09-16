@@ -77,49 +77,54 @@ def upload_package(container, filename):
     }
 
 
+def ubuntu(container):
+    return {
+        "kind": "pipeline",
+        "name": container,
+        "type": "docker",
+        "steps": [
+            {
+                "name": "restore-mtime",
+                "image": "python:3-bookworm",
+                "commands": [
+                    "./assets/ci/git-restore-mtime",
+                ],
+            },
+            restore_cache(container),
+            {
+                "name": "test",
+                "image": container,
+                "environment": {
+                    "CARGO_HOME": ".drone-cargo",
+                },
+                "commands": [
+                    "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
+                    "apt update",
+                    "apt install -y curl git",
+                    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+                    ". .drone-cargo/env",
+                    "./get-deps.sh",
+                    "cargo install cargo-nextest --locked",
+                    "cargo build --release",
+                    "cargo nextest run --release",
+                    "./assets/build-deb.sh",
+                ],
+            },
+            {
+                "name": "verify-installable",
+                "image": container,
+                "commands": [
+                    "apt-get install ./kumomta*.deb",
+                ],
+            },
+            upload_package(container, "kumomta*.deb"),
+            save_cache(container),
+        ],
+    }
+
+
 def main(ctx):
     return [
-        {
-            "kind": "pipeline",
-            "name": "ubuntu:22",
-            "type": "docker",
-            "steps": [
-                {
-                    "name": "restore-mtime",
-                    "image": "python:3-bookworm",
-                    "commands": [
-                        "./assets/ci/git-restore-mtime",
-                    ],
-                },
-                restore_cache("ubuntu:22.04"),
-                {
-                    "name": "test",
-                    "image": "ubuntu:22.04",
-                    "environment": {
-                        "CARGO_HOME": ".drone-cargo",
-                    },
-                    "commands": [
-                        "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
-                        "apt update",
-                        "apt install -y curl git",
-                        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-                        ". .drone-cargo/env",
-                        "./get-deps.sh",
-                        "cargo install cargo-nextest --locked",
-                        "cargo build --release",
-                        "cargo nextest run --release",
-                        "./assets/build-deb.sh",
-                    ],
-                },
-                {
-                    "name": "verify-installable",
-                    "image": "ubuntu:22.04",
-                    "commands": [
-                        "apt-get install ./kumomta*.deb",
-                    ],
-                },
-                upload_package("ubuntu:22.04", "kumomta*.deb"),
-                save_cache("ubuntu:22.04"),
-            ],
-        }
+        ubuntu("ubuntu:20.04"),
+        ubuntu("ubuntu:22.04"),
     ]
