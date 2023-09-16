@@ -3,16 +3,6 @@ name: rust
 type: docker
 
 steps:
-- name: cache
-  image: rust:latest
-  volumes:
-  - name: cache
-    path: /tmp/build-cache
-  commands:
-  - ls -l /tmp/build-cache
-  - echo hello
-  - echo HOME is $HOME
-
 - name: restore-build-cache
   image: meltwater/drone-cache
   environment:
