@@ -24,7 +24,8 @@ steps:
     mount:
       - .drone-cargo/registry/index/
       - .drone-cargo/registry/cache/
-      - .drone-cargo/git/db/      
+      - .drone-cargo/git/db/
+      - target
 
 - name: test
   image: rust:latest
@@ -59,7 +60,9 @@ steps:
     mount:
       - .drone-cargo/registry/index/
       - .drone-cargo/registry/cache/
-      - .drone-cargo/git/db/      
+      - .drone-cargo/git/db/
+      - target
+      
 ---
 kind: pipeline
 name: ubuntu-22
