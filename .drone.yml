@@ -1,5 +1,5 @@
 kind: pipeline
-name: rust
+name: ubuntu:22
 type: docker
 
 steps:
@@ -22,22 +22,26 @@ steps:
     region: eu-west-2
     path_style: true
     restore: true
-    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
+    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_ubuntu:22.04'
     mount:
       - .drone-cargo
       - target
 
 - name: test
-  image: rust:latest
+  image: ubuntu:22.04
   environment:
     CARGO_HOME: .drone-cargo
   commands:
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
+  - apt install -y curl git
+  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  - . .drone-cargo/env
   - ./get-deps.sh
   - cargo install cargo-nextest --locked
   - cargo build --release
   - cargo nextest run --release
+  - ./assets/build-deb.sh
 
 - name: update-build-cache
   image: meltwater/drone-cache
@@ -55,29 +59,7 @@ steps:
     path_style: true
     rebuild: true
     exit_code: true
-    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
+    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_ubuntu:22.04'
     mount:
       - .drone-cargo
       - target
-
----
-kind: pipeline
-name: ubuntu-22
-type: docker
-
-steps:
-- name: build
-  image: ubuntu:22.04
-  commands:
-  - false
-  - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-  - apt update
-  - apt install -y curl git
-  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  - . $HOME/.cargo/env
-  - ./get-deps.sh
-  - cargo install cargo-nextest --locked
-  - cargo build --release
-  - cargo nextest run --release
-  - ./assets/build-deb.sh
-
