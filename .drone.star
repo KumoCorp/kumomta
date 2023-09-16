@@ -139,9 +139,9 @@ def install_rust():
 def install_nextest(container):
     arch = "linux-arm" if "arm64" in container else "linux"
     return [
-        "test -x ${CARGO_HOME}/bin/cargo-nextest || curl -LsSf https://get.nexte.st/latest/"
+        "test -x .drone-cargo/bin/cargo-nextest || curl -LsSf https://get.nexte.st/latest/"
         + arch
-        + " | tar zxf - -C ${CARGO_HOME}/bin"
+        + " | tar zxf - -C .drone-cargo/bin"
     ]
 
 
