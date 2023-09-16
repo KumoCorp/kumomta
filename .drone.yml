@@ -20,9 +20,7 @@ steps:
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     mount:
-      - .drone-cargo/registry/index/
-      - .drone-cargo/registry/cache/
-      - .drone-cargo/git/db/
+      - .drone-cargo
       - target
 
 - name: test
@@ -56,9 +54,7 @@ steps:
     exit_code: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     mount:
-      - .drone-cargo/registry/index/
-      - .drone-cargo/registry/cache/
-      - .drone-cargo/git/db/
+      - .drone-cargo
       - target
       
 ---
