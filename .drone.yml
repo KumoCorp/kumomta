@@ -22,6 +22,21 @@ steps:
   - cargo build --verbose --release
   - cargo nextest run --release
 
+- name: store-build-cache
+  image: meltwater/drone-cache
+  volumes:
+  - name: cache
+    path: /tmp/cache
+  settings:
+    backend: "filesystem"
+    rebuild: true
+    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
+    archive_format: "gzip"
+    mount:
+      - ~/.cargo/registry/index/
+      - ~/.cargo/registry/cache/
+      - ~/.cargo/git/db/      
+
 volumes:
   - name: cache
     host:
