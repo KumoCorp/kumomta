@@ -3,6 +3,10 @@ name: rust
 type: docker
 
 steps:
+- name: restore-mtime
+  image: ubuntu:22.04
+  commands:
+    - ./assets/ci/git-restore-mtime
 - name: restore-build-cache
   image: meltwater/drone-cache
   environment:
@@ -41,7 +45,7 @@ steps:
     AWS_ACCESS_KEY_ID:
       from_secret: S3_ACCESS_KEY_ID
     AWS_SECRET_ACCESS_KEY:
-      from_secret: S3_SECRET_KEY  
+      from_secret: S3_SECRET_KEY
     AWS_DISABLESSL: true
     S3_ENDPOINT:
       from_secret: S3_ENDPOINT
@@ -55,7 +59,7 @@ steps:
     mount:
       - .drone-cargo
       - target
-      
+
 ---
 kind: pipeline
 name: ubuntu-22
