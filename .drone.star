@@ -72,7 +72,7 @@ def upload_package(container, filename):
         },
         "commands": [
             "apk --no-cache add curl bash",
-            f"./assets/upload-package.sh {container} {filename}",
+            "./assets/upload-package.sh " + container + " " + filename,
         ],
     }
 
