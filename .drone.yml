@@ -16,12 +16,14 @@ steps:
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
     mount:
-      - /root/.cargo/registry/index/
-      - /root/.cargo/registry/cache/
-      - /root/.cargo/git/db/      
+      - .drone-cargo/registry/index/
+      - .drone-cargo/registry/cache/
+      - .drone-cargo/git/db/      
 
 - name: test
   image: rust:latest
+  environment:
+    CARGO_HOME: .drone-cargo
   commands:
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
@@ -43,9 +45,9 @@ steps:
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
     mount:
-      - /root/.cargo/registry/index/
-      - /root/.cargo/registry/cache/
-      - /root/.cargo/git/db/      
+      - .drone-cargo/registry/index/
+      - .drone-cargo/registry/cache/
+      - .drone-cargo/git/db/      
 ---
 kind: pipeline
 name: ubuntu-22
