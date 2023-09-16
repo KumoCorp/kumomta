@@ -116,11 +116,17 @@ def restore_mtime():
     }
 
 
-def cargo_environment():
-    return {
+def cargo_environment(container):
+    env = {
         "CARGO_HOME": ".drone-cargo",
         "CARGO_TERM_COLOR": "always",
     }
+    # arm64 is qemu-emulated, reduce the concurrency there to make
+    # things a bit easier on the host
+    if "arm64" in container:
+        env["CARGO_BUILD_JOBS"] = "4"
+
+    return env
 
 
 def install_rust():
@@ -130,10 +136,18 @@ def install_rust():
     ]
 
 
+def install_nextest(container):
+    arch = "linux-arm" if "arm64" in container else "linux"
+    return [
+        "test -x ${CARGO_HOME}/bin/cargo-nextest || curl -LsSf https://get.nexte.st/latest/"
+        + arch
+        + " | tar zxf - -C ${CARGO_HOME}/bin"
+    ]
+
+
 def install_deps():
     return [
         "./get-deps.sh",
-        "cargo install cargo-nextest --locked",
     ]
 
 
@@ -155,7 +169,7 @@ def rocky(container):
             {
                 "name": "build",
                 "image": container,
-                "environment": cargo_environment(),
+                "environment": cargo_environment(container),
                 "depends_on": [
                     "restore-build-cache",
                     "restore-mtime",
@@ -167,6 +181,7 @@ def rocky(container):
                 ]
                 + install_rust()
                 + install_deps()
+                + install_nextest(container)
                 + perform_build_and_test()
                 + [
                     "./assets/build-rpm.sh",
@@ -204,7 +219,7 @@ def ubuntu(container):
             {
                 "name": "build",
                 "image": container,
-                "environment": cargo_environment(),
+                "environment": cargo_environment(container),
                 "depends_on": [
                     "restore-build-cache",
                     "restore-mtime",
@@ -216,6 +231,7 @@ def ubuntu(container):
                 ]
                 + install_rust()
                 + install_deps()
+                + install_nextest(container)
                 + perform_build_and_test()
                 + [
                     "./assets/build-deb.sh",
@@ -238,9 +254,12 @@ def ubuntu(container):
 
 def main(ctx):
     return [
-        ubuntu("ubuntu:20.04"),
+        # Drone tends to schedule these in the order specified, so
+        # let's have a mix of rocky and ubuntu to start, then
+        # let the rest get picked up by runners as they become ready
+        rocky("rockylinux:9"),
         ubuntu("ubuntu:22.04"),
         ubuntu("arm64v8/ubuntu:22.04"),
+        ubuntu("ubuntu:20.04"),
         rocky("rockylinux:8"),
-        rocky("rockylinux:9"),
     ]
