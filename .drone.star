@@ -140,7 +140,7 @@ def rocky(container):
                 ],
             },
             save_cache(container),
-            sign_rpm(),
+            sign_rpm(container),
             {
                 "name": "verify-installable",
                 "image": container,
