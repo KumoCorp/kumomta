@@ -189,10 +189,15 @@ def rocky(container):
 
 
 def ubuntu(container):
+    arch = "arm64" if "arm64" in container else "amd64"
     return {
         "kind": "pipeline",
         "name": container,
         "type": "docker",
+        "platform": {
+            "os": "linux",
+            "arch": arch,
+        },
         "steps": [
             restore_mtime(),
             restore_cache(container),
