@@ -52,7 +52,7 @@ def upload_package(container, filename):
             "branch": {
                 "include": [
                     "master",
-                    "drone",  # TODO: remove this
+                    # "drone",  # TODO: remove this
                 ],
             },
             "event": {
