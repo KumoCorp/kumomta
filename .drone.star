@@ -6,7 +6,7 @@ def cache_step(container, is_restore):
     rebuild = "false" if is_restore else "true"
     restore = "true" if is_restore else "false"
     key = 'kumomta_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_' + container
-    return {
+    step = {
         "name": name,
         "image": "meltwater/drone-cache",
         "environment": {
@@ -34,6 +34,9 @@ def cache_step(container, is_restore):
             ],
         },
     }
+    if not is_restore:
+        step["depends_on"] = ["build"]
+    return step
 
 
 def restore_cache(container):
@@ -69,6 +72,7 @@ def upload_package(container, filename):
         "name": "upload-package",
         "image": "alpine:3.14",
         "when": main_branch_or_tag(),
+        "depends_on": ["verify-installable"],
         "environment": {
             "TOKEN": {
                 "from_secret": "OPENREPO_API_TOKEN",
@@ -86,6 +90,7 @@ def sign_rpm(container):
         "name": "sign-rpm",
         "image": container,
         "when": main_branch_or_tag(),
+        "depends_on": ["build"],
         "environment": {
             "PUB": {
                 "from_secret": "OPENREPO_GPG_PUBLIC",
@@ -148,9 +153,13 @@ def rocky(container):
             restore_mtime(),
             restore_cache(container),
             {
-                "name": "test",
+                "name": "build",
                 "image": container,
                 "environment": cargo_environment(),
+                "depends_on": [
+                    "restore-build-cache",
+                    "restore-mtime",
+                ],
                 "commands": [
                     "dnf install -y git",
                     # Some systems have curl-minimal which won't tolerate us installing curl
@@ -169,6 +178,7 @@ def rocky(container):
             {
                 "name": "verify-installable",
                 "image": container,
+                "depends_on": ["sign-rpm"],
                 "commands": [
                     "dnf install -y ./*.rpm",
                 ],
@@ -187,9 +197,13 @@ def ubuntu(container):
             restore_mtime(),
             restore_cache(container),
             {
-                "name": "test",
+                "name": "build",
                 "image": container,
                 "environment": cargo_environment(),
+                "depends_on": [
+                    "restore-build-cache",
+                    "restore-mtime",
+                ],
                 "commands": [
                     "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
                     "apt update",
@@ -206,6 +220,7 @@ def ubuntu(container):
             {
                 "name": "verify-installable",
                 "image": container,
+                "depends_on": ["build"],
                 "commands": [
                     "apt update",
                     "apt-get install -y ./kumomta*.deb",
