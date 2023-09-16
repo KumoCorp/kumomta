@@ -1,9 +1,11 @@
 # vim:ft=python:ts=4:sw=4:et:
 
+
 def cache_step(container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
     rebuild = "false" if is_restore else "true"
     restore = "true" if is_restore else "false"
+    key = 'kumomta_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_' + container
     return {
         "name": name,
         "image": "meltwater/drone-cache",
@@ -25,12 +27,53 @@ def cache_step(container, is_restore):
             "path_style": "true",
             "restore": restore,
             "rebuild": rebuild,
-            "cache_key": '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_' + container,
+            "cache_key": key,
             "mount": [
                 ".drone-cargo",
                 "target",
             ],
         },
+    }
+
+
+def restore_cache(container):
+    return cache_step(container, True)
+
+
+def save_cache(container):
+    return cache_step(container, False)
+
+
+def upload_package(container, filename):
+    return {
+        "name": "upload-package",
+        "image": "alpine:3.14",
+        "when": {
+            "branch": {
+                "include": [
+                    "master",
+                    "drone",  # TODO: remove this
+                ],
+            },
+            "event": {
+                "include": [
+                    "tag",
+                    "push",
+                ],
+                "exclude": [
+                    "pull_request",
+                ],
+            },
+        },
+        "environment": {
+            "TOKEN": {
+                "from_secret": "OPENREPO_API_TOKEN",
+            },
+        },
+        "commands": [
+            "apk --no-cache add curl bash",
+            f"./assets/upload-package.sh {container} {filename}",
+        ],
     }
 
 
@@ -47,7 +90,7 @@ def main(ctx):
                     "./assets/ci/git-restore-mtime",
                 ],
             },
-            cache_step("ubuntu:22.04", True),
+            restore_cache("ubuntu:22.04"),
             {
                 "name": "test",
                 "image": "ubuntu:22.04",
@@ -74,36 +117,7 @@ def main(ctx):
                     "apt-get install ./kumomta*.deb",
                 ],
             },
-            {
-                "name": "upload-package",
-                "image": "alpine:3.14",
-                "when": {
-                    "branch": {
-                        "include": [
-                            "master",
-                            "drone",  # TODO: remove this
-                        ],
-                    },
-                    "event": {
-                        "include": [
-                            "tag",
-                            "push",
-                        ],
-                        "exclude": [
-                            "pull_request",
-                        ],
-                    },
-                },
-                "environment": {
-                    "TOKEN": {
-                        "from_secret": "OPENREPO_API_TOKEN",
-                    },
-                },
-                "commands": [
-                    "apk --no-cache add curl",
-                    "/bin/sh ./assets/upload-package.sh ubuntu:22.04 kumomta*.deb",
-                ],
-            },
-            cache_step("ubuntu:22.04", False),
+            upload_package("ubuntu:22.04", "kumomta*.deb"),
+            save_cache("ubuntu:22.04"),
         ],
     }
