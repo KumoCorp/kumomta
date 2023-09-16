@@ -44,27 +44,31 @@ def save_cache(container):
     return cache_step(container, False)
 
 
+def main_branch_or_tag():
+    return {
+        "branch": {
+            "include": [
+                "master",
+                "drone",  # TODO: remove this
+            ],
+        },
+        "event": {
+            "include": [
+                "tag",
+                "push",
+            ],
+            "exclude": [
+                "pull_request",
+            ],
+        },
+    }
+
+
 def upload_package(container, filename):
     return {
         "name": "upload-package",
         "image": "alpine:3.14",
-        "when": {
-            "branch": {
-                "include": [
-                    "master",
-                    # "drone",  # TODO: remove this
-                ],
-            },
-            "event": {
-                "include": [
-                    "tag",
-                    "push",
-                ],
-                "exclude": [
-                    "pull_request",
-                ],
-            },
-        },
+        "when": main_branch_or_tag(),
         "environment": {
             "TOKEN": {
                 "from_secret": "OPENREPO_API_TOKEN",
@@ -73,6 +77,26 @@ def upload_package(container, filename):
         "commands": [
             "apk --no-cache add curl bash",
             "./assets/upload-package.sh " + container + " " + filename,
+        ],
+    }
+
+
+def sign_rpm(container):
+    return {
+        "name": "sign-rpm",
+        "image": container,
+        "when": main_branch_or_tag(),
+        "environment": {
+            "PUB": {
+                "from_secret": "OPENREPO_GPG_PUBLIC",
+            },
+            "PRIV": {
+                "from_secret": "OPENREPO_GPG_PRIVATE",
+            },
+        },
+        "commands": [
+            "dnf install -y rpm-sign gnupg2",
+            "./assets/sign-rpm.sh *.rpm",
         ],
     }
 
@@ -102,7 +126,9 @@ def rocky(container):
                     "CARGO_HOME": ".drone-cargo",
                 },
                 "commands": [
-                    "dnf install -y git curl",
+                    "dnf install -y git",
+                    # Some systems have curl-minimal which won't tolerate us installing curl
+                    "command -v curl || dnf install -y curl",
                     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
                     ". .drone-cargo/env",
                     "./get-deps.sh",
@@ -114,7 +140,7 @@ def rocky(container):
                 ],
             },
             save_cache(container),
-            # FIXME: sign rpm
+            sign_rpm(),
             {
                 "name": "verify-installable",
                 "image": container,
