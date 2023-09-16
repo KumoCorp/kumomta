@@ -5,8 +5,8 @@ steps:
 - name: test
   image: rust:latest
   commands:
-  #- echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-  #- apt update
+  - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+  - apt update
   - ./get-deps.sh
   - curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
   #- cargo install cargo-nextest --locked
