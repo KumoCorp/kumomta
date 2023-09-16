@@ -12,7 +12,7 @@ steps:
       from_secret: S3_SECRET_KEY  
   settings:
     bucket: drone-ci-cache
-    region: us-east-1
+    region: eu-west-2
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
@@ -42,7 +42,7 @@ steps:
       from_secret: S3_SECRET_KEY  
   settings:
     bucket: drone-ci-cache
-    region: us-east-1
+    region: eu-west-2
     rebuild: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
