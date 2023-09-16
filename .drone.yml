@@ -20,7 +20,7 @@ steps:
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
-    exit_code: true
+    #exit_code: true
     mount:
       - .drone-cargo/registry/index/
       - .drone-cargo/registry/cache/
