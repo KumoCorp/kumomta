@@ -113,16 +113,16 @@ def rocky(container):
                     "mv ~/rpmbuild/RPMS/*/*.rpm .",
                 ],
             },
+            save_cache(container),
             # FIXME: sign rpm
             {
                 "name": "verify-installable",
                 "image": container,
                 "commands": [
-                    "dnf install ./*.rpm",
+                    "dnf install -y ./*.rpm",
                 ],
             },
             upload_package(container, "*.rpm"),
-            save_cache(container),
         ],
     }
 
@@ -154,16 +154,16 @@ def ubuntu(container):
                     "./assets/build-deb.sh",
                 ],
             },
+            save_cache(container),
             {
                 "name": "verify-installable",
                 "image": container,
                 "commands": [
                     "apt update",
-                    "apt-get install ./kumomta*.deb",
+                    "apt-get install -y ./kumomta*.deb",
                 ],
             },
             upload_package(container, "kumomta*.deb"),
-            save_cache(container),
         ],
     }
 
