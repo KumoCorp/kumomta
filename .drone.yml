@@ -7,7 +7,7 @@ steps:
   image: rust:latest
   commands:
   - ls -l /tmp/build-cache
-  - echo woot
+
 - name: test
   image: rust:latest
   commands:
