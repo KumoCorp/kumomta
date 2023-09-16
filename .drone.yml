@@ -11,6 +11,23 @@ steps:
   commands:
   - ls -l /tmp/build-cache
   - echo hello
+  - echo HOME is $HOME
+  - false
+
+- name: restore-build-cache
+  image: meltwater/drone-cache
+  volumes:
+  - name: cache
+    path: /tmp/cache
+  settings:
+    backend: "filesystem"
+    restore: true
+    cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
+    archive_format: "gzip"
+    mount:
+      - ~/.cargo/registry/index/
+      - ~/.cargo/registry/cache/
+      - ~/.cargo/git/db/      
 
 - name: test
   image: rust:latest
@@ -22,7 +39,7 @@ steps:
   - cargo build --verbose --release
   - cargo nextest run --release
 
-- name: store-build-cache
+- name: update-build-cache
   image: meltwater/drone-cache
   volumes:
   - name: cache
@@ -51,6 +68,7 @@ steps:
 - name: build
   image: ubuntu:22.04
   commands:
+  - false
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
   - apt install -y curl git
