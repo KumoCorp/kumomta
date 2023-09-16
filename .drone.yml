@@ -43,6 +43,11 @@ steps:
   - cargo nextest run --release
   - ./assets/build-deb.sh
 
+- name: verify-installable
+  image: ubuntu:22.04
+  commands:
+  - apt-get install ./kumomta*.deb
+
 - name: update-build-cache
   image: meltwater/drone-cache
   environment:
