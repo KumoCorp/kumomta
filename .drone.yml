@@ -12,7 +12,6 @@ steps:
   - ls -l /tmp/build-cache
   - echo hello
   - echo HOME is $HOME
-  - false
 
 - name: restore-build-cache
   image: meltwater/drone-cache
@@ -25,9 +24,9 @@ steps:
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
     mount:
-      - ~/.cargo/registry/index/
-      - ~/.cargo/registry/cache/
-      - ~/.cargo/git/db/      
+      - /root/.cargo/registry/index/
+      - /root/.cargo/registry/cache/
+      - /root/.cargo/git/db/      
 
 - name: test
   image: rust:latest
@@ -50,9 +49,9 @@ steps:
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
     mount:
-      - ~/.cargo/registry/index/
-      - ~/.cargo/registry/cache/
-      - ~/.cargo/git/db/      
+      - /root/.cargo/registry/index/
+      - /root/.cargo/registry/cache/
+      - /root/.cargo/git/db/      
 
 volumes:
   - name: cache
