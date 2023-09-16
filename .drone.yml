@@ -1,5 +1,6 @@
 kind: pipeline
 name: rust
+type: docker
 
 steps:
 - name: test
@@ -8,8 +9,27 @@ steps:
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
   - ./get-deps.sh
-  - mkdir -p ~/.cargo/bin
-  - curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin
-  #- cargo install cargo-nextest --locked
+  - cargo install cargo-nextest --locked
   - cargo build --verbose --release
   - cargo nextest run --release
+
+---
+kind: pipeline
+name: ubuntu-22
+type: docker
+
+steps:
+- name: build
+  image: rust:latest
+  commands:
+  - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+  - apt update
+  - ./get-deps.sh
+  - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  - source ~/.profile
+  - source ~/.cargo/env
+  - cargo install cargo-nextest --locked
+  - cargo build --verbose --release
+  - cargo nextest run --release
+  - ./assets/build-deb.sh
+
