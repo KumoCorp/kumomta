@@ -5,6 +5,9 @@ steps:
 - name: test
   image: rust:latest
   commands:
+  - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+  - apt update
+  - ./get-deps.sh
   - cargo install cargo-nextest --locked
   - cargo build --verbose --release
   - cargo nextest run --release
