@@ -24,7 +24,7 @@ steps:
   commands:
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
-  - apt install -y curl
+  - apt install -y curl git
   - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   - . $HOME/.cargo/env
   - ./get-deps.sh
