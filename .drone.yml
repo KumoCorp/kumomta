@@ -10,6 +10,7 @@ steps:
     path: /tmp/build-cache
   commands:
   - ls -l /tmp/build-cache
+  - echo hello
 
 - name: test
   image: rust:latest
