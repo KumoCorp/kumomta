@@ -13,6 +13,7 @@ steps:
   settings:
     bucket: drone-ci-cache
     region: eu-west-2
+    endpoint: drone-s3:9000
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
@@ -43,6 +44,7 @@ steps:
   settings:
     bucket: drone-ci-cache
     region: eu-west-2
+    endpoint: drone-s3:9000
     rebuild: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
