@@ -77,19 +77,63 @@ def upload_package(container, filename):
     }
 
 
+def restore_mtime():
+    return {
+        "name": "restore-mtime",
+        "image": "python:3-bookworm",
+        "commands": [
+            "./assets/ci/git-restore-mtime",
+        ],
+    }
+
+
+def rocky(container):
+    return {
+        "kind": "pipeline",
+        "name": container,
+        "type": "docker",
+        "steps": [
+            restore_mtime(),
+            restore_cache(container),
+            {
+                "name": "test",
+                "image": container,
+                "environment": {
+                    "CARGO_HOME": ".drone-cargo",
+                },
+                "commands": [
+                    "dnf install -y git curl",
+                    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+                    ". .drone-cargo/env",
+                    "./get-deps.sh",
+                    "cargo install cargo-nextest --locked",
+                    "cargo build --release",
+                    "cargo nextest run --release",
+                    "./assets/build-rpm.sh",
+                    "mv ~/rpmbuild/RPMS/*/*.rpm .",
+                ],
+            },
+            # FIXME: sign rpm
+            {
+                "name": "verify-installable",
+                "image": container,
+                "commands": [
+                    "dnf install ./*.rpm",
+                ],
+            },
+            upload_package(container, "*.rpm"),
+            save_cache(container),
+        ],
+    }
+
+
 def ubuntu(container):
     return {
         "kind": "pipeline",
         "name": container,
         "type": "docker",
         "steps": [
-            {
-                "name": "restore-mtime",
-                "image": "python:3-bookworm",
-                "commands": [
-                    "./assets/ci/git-restore-mtime",
-                ],
-            },
+            restore_mtime(),
             restore_cache(container),
             {
                 "name": "test",
@@ -114,6 +158,7 @@ def ubuntu(container):
                 "name": "verify-installable",
                 "image": container,
                 "commands": [
+                    "apt update",
                     "apt-get install ./kumomta*.deb",
                 ],
             },
@@ -127,4 +172,6 @@ def main(ctx):
     return [
         ubuntu("ubuntu:20.04"),
         ubuntu("ubuntu:22.04"),
+        rocky("rockylinux:8"),
+        rocky("rockylinux:9"),
     ]
