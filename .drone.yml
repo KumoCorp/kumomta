@@ -11,14 +11,16 @@ steps:
     AWS_SECRET_ACCESS_KEY:
       from_secret: S3_SECRET_KEY
     AWS_DISABLESSL: true
+    S3_ENDPOINT:
+      from_secret: S3_ENDPOINT
   settings:
     bucket: drone-ci-cache
     region: eu-west-2
-    endpoint: drone-s3:9000
     path_style: true
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
+    exit_code: true
     mount:
       - .drone-cargo/registry/index/
       - .drone-cargo/registry/cache/
@@ -44,12 +46,14 @@ steps:
     AWS_SECRET_ACCESS_KEY:
       from_secret: S3_SECRET_KEY  
     AWS_DISABLESSL: true
+    S3_ENDPOINT:
+      from_secret: S3_ENDPOINT
   settings:
     bucket: drone-ci-cache
     region: eu-west-2
-    endpoint: drone-s3:9000
     path_style: true
     rebuild: true
+    exit_code: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
     mount:
