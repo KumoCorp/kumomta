@@ -12,6 +12,7 @@ steps:
       from_secret: S3_SECRET_KEY  
   settings:
     bucket: drone-ci-cache
+    region: local
     restore: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
@@ -29,7 +30,7 @@ steps:
   - apt update
   - ./get-deps.sh
   - cargo install cargo-nextest --locked
-  - cargo build --verbose --release
+  - cargo build --release
   - cargo nextest run --release
 
 - name: update-build-cache
@@ -41,6 +42,7 @@ steps:
       from_secret: S3_SECRET_KEY  
   settings:
     bucket: drone-ci-cache
+    region: local
     rebuild: true
     cache_key: '{{ .Repo.Name }}_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}'
     archive_format: "gzip"
@@ -65,7 +67,7 @@ steps:
   - . $HOME/.cargo/env
   - ./get-deps.sh
   - cargo install cargo-nextest --locked
-  - cargo build --verbose --release
+  - cargo build --release
   - cargo nextest run --release
   - ./assets/build-deb.sh
 
