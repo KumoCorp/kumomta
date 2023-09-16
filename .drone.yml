@@ -8,7 +8,8 @@ steps:
   - echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
   - apt update
   - ./get-deps.sh
-  - curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ${CARGO_HOME:-~/.cargo}/bin
+  - mkdir -p ~/.cargo/bin
+  - curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin
   #- cargo install cargo-nextest --locked
   - cargo build --verbose --release
   - cargo nextest run --release
