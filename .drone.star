@@ -5,7 +5,7 @@ def cache_step(container, is_restore):
     rebuild = "false" if is_restore else "true"
     restore = "true" if is_restore else "false"
     return {
-        "name": "restore-build-cache",
+        "name": name,
         "image": "meltwater/drone-cache",
         "environment": {
             "AWS_ACCESS_KEY_ID": {
