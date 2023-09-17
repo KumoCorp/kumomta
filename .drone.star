@@ -198,7 +198,7 @@ def rocky(container):
 
 def ubuntu(container):
     arch = "arm64" if "arm64" in container else "amd64"
-    return {
+    pipeline = {
         "kind": "pipeline",
         "name": container,
         "type": "docker",
@@ -244,6 +244,22 @@ def ubuntu(container):
         ],
     }
 
+    if container == "ubuntu:22.04":
+        pipeline["steps"] += [
+            {
+                "name": "docker-image",
+                "image": "plugins/docker",
+                "settings": {
+                    "registry": "ghcr.io",
+                    "repo": "kumocorp/kumomta",
+                    "dockerfile": "docker/kumod/Dockerfile.partial",
+                    "dry_run": True,
+                },
+            },
+        ]
+
+    return pipeline
+
 
 def docker_image(ctx):
     return {
@@ -267,7 +283,7 @@ def docker_image(ctx):
 
 def main(ctx):
     return [
-        docker_image(ctx),
+        # docker_image(ctx),
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
