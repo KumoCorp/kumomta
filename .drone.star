@@ -273,9 +273,14 @@ def ubuntu(container):
                 "depends_on": ["verify-installable"],
                 "settings": {
                     "registry": "ghcr.io",
-                    "repo": "kumocorp/kumomta",
+                    "repo": "ghcr.io/kumocorp/kumomta",
+                    "username": {
+                        "from_secret": "GH_PACKAGE_PUBLISH_USER",
+                    },
+                    "password": {
+                        "from_secret": "GH_PACKAGE_PUBLISH_TOKEN",
+                    },
                     "dockerfile": "docker/kumod/Dockerfile.incremental",
-                    "dry_run": True,
                 },
             },
         ]
