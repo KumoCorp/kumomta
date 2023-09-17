@@ -4,16 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Note that we don't use the docker USER here because we need to
 # start as root and then drop to this user. That is handled by
 # the docker-runner.sh script.
-RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
-RUN apt update && apt install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
-WORKDIR /opt/kumomta/sbin
-COPY target/release/kcli .
-COPY target/release/kumod .
-COPY target/release/proxy-server .
-COPY target/release/traffic-gen .
-COPY docker/kumod/docker-runner.sh .
-WORKDIR /opt/kumomta/bounce_classifier
-COPY assets/bounce_classifier/*.toml .
+#RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
+RUN apt update && apt install -y ./kumo*.deb
 EXPOSE 25/tcp
 EXPOSE 587/tcp
 EXPOSE 465/tcp

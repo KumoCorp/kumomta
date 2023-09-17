@@ -266,6 +266,12 @@ def ubuntu(container):
     }
 
     if container == "ubuntu:22.04":
+        tags = []
+        if ctx.build.event == "tag":
+            tags += [tag_name_from_ref(ctx.build.ref), "latest"]
+        else:
+            tags += ["dev"]
+
         pipeline["steps"] += [
             {
                 "name": "docker-image",
@@ -280,6 +286,7 @@ def ubuntu(container):
                     "password": {
                         "from_secret": "GH_PACKAGE_PUBLISH_TOKEN",
                     },
+                    "tags": tags,
                     "dockerfile": "docker/kumod/Dockerfile.incremental",
                 },
             },
@@ -293,39 +300,8 @@ def tag_name_from_ref(ref):
     return ref[10:]
 
 
-def docker_image(ctx):
-    tags = []
-    # if ctx.build.event == "tag":
-    #    tags += [tag_name_from_ref(ctx.build.ref), "latest"]
-
-    return {
-        "kind": "pipeline",
-        "name": "docker:kumomta",
-        "type": "docker",
-        "steps": [
-            {
-                "name": "build-image",
-                "image": "plugins/docker",
-                "settings": {
-                    "registry": "ghcr.io",
-                    "repo": "ghcr.io/kumocorp/kumomta",
-                    "dockerfile": "docker/kumod/Dockerfile",
-                    "username": {
-                        "from_secret": "GH_PACKAGE_PUBLISH_USER",
-                    },
-                    "password": {
-                        "from_secret": "GH_PACKAGE_PUBLISH_TOKEN",
-                    },
-                    "tags": tags,
-                },
-            },
-        ],
-    }
-
-
 def main(ctx):
     return [
-        # docker_image(ctx),
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
