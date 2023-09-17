@@ -261,7 +261,7 @@ def main(ctx):
         # let the rest get picked up by runners as they become ready
         rocky("rockylinux:9"),
         ubuntu("ubuntu:22.04"),
-        ubuntu("arm64v8/ubuntu:22.04"),
+        # ubuntu("arm64v8/ubuntu:22.04"),
         ubuntu("ubuntu:20.04"),
         rocky("rockylinux:8"),
     ]
