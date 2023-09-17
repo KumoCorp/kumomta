@@ -124,7 +124,9 @@ def cargo_environment(container):
     # arm64 is qemu-emulated, reduce the concurrency there to make
     # things a bit easier on the host
     if "arm64" in container:
-        env["CARGO_BUILD_JOBS"] = "4"
+        cores = "4"
+        env["CARGO_BUILD_JOBS"] = cores
+        env["NEXTEST_TEST_THREADS"] = cores
 
     return env
 
