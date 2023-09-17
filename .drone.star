@@ -125,7 +125,7 @@ def cargo_environment(container):
 
 CURL_RETRY_ALL_ERRORS = {
     "ubuntu:20.04": False,
-    "rocklinux:8": False,
+    "rockylinux:8": False,
 }
 
 
