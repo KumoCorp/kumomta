@@ -217,7 +217,7 @@ def rocky(container):
     }
 
 
-def ubuntu(container):
+def ubuntu(ctx, container):
     arch = "arm64" if "arm64" in container else "amd64"
     pipeline = {
         "kind": "pipeline",
@@ -306,8 +306,8 @@ def main(ctx):
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
         rocky("rockylinux:9"),
-        ubuntu("ubuntu:22.04"),
-        # ubuntu("arm64v8/ubuntu:22.04"),
-        ubuntu("ubuntu:20.04"),
+        ubuntu(ctx, "ubuntu:22.04"),
+        # ubuntu(ctx, "arm64v8/ubuntu:22.04"),
+        ubuntu(ctx, "ubuntu:20.04"),
         rocky("rockylinux:8"),
     ]
