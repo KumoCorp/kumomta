@@ -36,7 +36,7 @@ def cache_step(container, is_restore):
     }
     if not is_restore:
         step["depends_on"] = ["build"]
-        step["when"] = {"branch": {"include": {"main"}}}
+        step["when"] = {"branch": {"include": ["main"]}}
     return step
 
 
