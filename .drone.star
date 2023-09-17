@@ -248,7 +248,7 @@ def ubuntu(container):
 def docker_image(ctx):
     return {
         "kind": "pipeline",
-        "name": container,
+        "name": "docker:kumomta",
         "type": "docker",
         "platform": {
             "os": "linux",
