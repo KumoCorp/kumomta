@@ -132,7 +132,9 @@ CURL_RETRY_ALL_ERRORS = {
 def curl_retry(container):
     flags = "--retry 12"
     probe = CURL_RETRY_ALL_ERRORS.get(container)
-    if (probe is None) or (probe == True):
+    if probe is None:
+        probe = True
+    if probe:
         flags = flags + " --retry-all-errors"
     return flags
 
