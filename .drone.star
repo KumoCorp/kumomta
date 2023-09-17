@@ -253,7 +253,7 @@ def ubuntu(container):
                 "settings": {
                     "registry": "ghcr.io",
                     "repo": "kumocorp/kumomta",
-                    "dockerfile": "docker/kumod/Dockerfile.partial",
+                    "dockerfile": "docker/kumod/Dockerfile.incremental",
                     "dry_run": True,
                 },
             },
