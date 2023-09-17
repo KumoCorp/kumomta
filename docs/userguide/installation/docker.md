@@ -49,7 +49,7 @@ and tell it to use it.  The default location for this is `/opt/kumomta/etc/polic
 $ sudo docker run --rm -p 2025:25 \
     -v .:/opt/kumomta/etc/policy \
     --name kumo-sink \
-    ghcr.io/kumocorp/kumomta:main
+    ghcr.io/kumocorp/kumomta-dev:latest
 ```
 
 ## Building your own KumoMTA container image
