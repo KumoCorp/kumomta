@@ -177,6 +177,7 @@ def rocky(container):
         "kind": "pipeline",
         "name": container,
         "type": "docker",
+        "trigger": default_trigger(),
         "steps": [
             restore_mtime(),
             restore_cache(container),
@@ -217,6 +218,10 @@ def rocky(container):
     }
 
 
+def default_trigger():
+    return {"event": {"exclude": ["promote"]}}
+
+
 def ubuntu(ctx, container):
     arch = "arm64" if "arm64" in container else "amd64"
     pipeline = {
@@ -227,6 +232,7 @@ def ubuntu(ctx, container):
             "os": "linux",
             "arch": arch,
         },
+        "trigger": default_trigger(),
         "steps": [
             restore_mtime(),
             restore_cache(container),
