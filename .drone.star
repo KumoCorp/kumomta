@@ -123,9 +123,25 @@ def cargo_environment(container):
     return env
 
 
-def install_rust():
+CURL_RETRY_ALL_ERRORS = {
+    "ubuntu:20.04": False,
+    "rocklinux:8": False,
+}
+
+
+def curl_retry(container):
+    flags = "--retry 12"
+    probe = CURL_RETRY_ALL_ERRORS.get(container)
+    if (probe is None) or (probe == True):
+        flags = flags + " --retry-all-errors"
+    return flags
+
+
+def install_rust(container):
     return [
-        "curl --retry 12 --retry-all-errors --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+        "curl "
+        + curl_retry(container)
+        + " --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
         ". $CARGO_HOME/env",
     ]
 
@@ -133,7 +149,9 @@ def install_rust():
 def install_nextest(container):
     arch = "linux-arm" if "arm64" in container else "linux"
     return [
-        "test -x .drone-cargo/bin/cargo-nextest || curl --retry 12 --retry-all-errors -LsSf https://get.nexte.st/latest/"
+        "test -x .drone-cargo/bin/cargo-nextest || curl "
+        + curl_retry(container)
+        + " -LsSf https://get.nexte.st/latest/"
         + arch
         + " | tar zxf - -C .drone-cargo/bin"
     ]
@@ -173,7 +191,7 @@ def rocky(container):
                     # Some systems have curl-minimal which won't tolerate us installing curl
                     "command -v curl || dnf install -y curl",
                 ]
-                + install_rust()
+                + install_rust(container)
                 + install_deps()
                 + install_nextest(container)
                 + perform_build_and_test()
@@ -223,7 +241,7 @@ def ubuntu(container):
                     "apt update",
                     "apt install -y curl git",
                 ]
-                + install_rust()
+                + install_rust(container)
                 + install_deps()
                 + install_nextest(container)
                 + perform_build_and_test()
