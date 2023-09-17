@@ -5,6 +5,7 @@ fn new_build() -> cc::Build {
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
     cfg.extra_warnings(false);
+    cfg.flag_if_supported("-Wno-deprecated-declarations");
 
     println!("cargo:rerun-if-env-changed=DEP_OPENSSL_INCLUDE");
     if let Some(path) = std::env::var_os("DEP_OPENSSL_INCLUDE") {
@@ -67,9 +68,9 @@ impl Probed {
         if let Ok(lib_root) = std::env::var("DEP_OPENSSL_ROOT") {
             eprintln!("DEP_OPENSSL_ROOT is {lib_root:?}");
             cmd.arg(&format!("-L{lib_root}/lib"));
-            cmd.arg(&format!("-lssl"));
-            cmd.arg(&format!("-lcrypto"));
         }
+        cmd.arg("-lssl");
+        cmd.arg("-lcrypto");
 
         cmd.stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
