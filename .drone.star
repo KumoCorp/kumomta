@@ -250,10 +250,6 @@ def docker_image(ctx):
         "kind": "pipeline",
         "name": "docker:kumomta",
         "type": "docker",
-        "platform": {
-            "os": "linux",
-            "arch": arch,
-        },
         "steps": [
             {
                 "name": "build-image",
