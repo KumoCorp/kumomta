@@ -245,8 +245,33 @@ def ubuntu(container):
     }
 
 
+def docker_image(ctx):
+    return {
+        "kind": "pipeline",
+        "name": container,
+        "type": "docker",
+        "platform": {
+            "os": "linux",
+            "arch": arch,
+        },
+        "steps": [
+            {
+                "name": "build-image",
+                "image": "plugins/docker",
+                "settings": {
+                    "registry": "ghcr.io",
+                    "repo": "kumocorp/kumomta",
+                    "dockerfile": "docker/kumod/Dockerfile",
+                    "dry_run": True,
+                },
+            },
+        ],
+    }
+
+
 def main(ctx):
     return [
+        docker_image(ctx),
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
