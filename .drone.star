@@ -303,7 +303,7 @@ def docker_image(ctx):
                 "image": "plugins/docker",
                 "settings": {
                     "registry": "ghcr.io",
-                    "repo": "kumocorp/kumomta",
+                    "repo": "ghcr.io/kumocorp/kumomta",
                     "dockerfile": "docker/kumod/Dockerfile",
                     "username": {
                         "from_secret": "GH_PACKAGE_PUBLISH_USER",
