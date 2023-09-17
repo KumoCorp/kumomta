@@ -137,6 +137,9 @@ mod test {
 
     #[tokio::test]
     async fn test_basic_operation() -> anyhow::Result<()> {
+        if which::which("redis-server").is_err() {
+            return Ok(());
+        }
         let daemon = RedisServer::spawn().await?;
         let connection = daemon.connection().await?;
 
