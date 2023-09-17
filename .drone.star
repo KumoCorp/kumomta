@@ -283,7 +283,16 @@ def ubuntu(container):
     return pipeline
 
 
+def tag_name_from_ref(ref):
+    # "refs/tags/something" -> "something"
+    return ref[10:]
+
+
 def docker_image(ctx):
+    tags = []
+    # if ctx.build.event == "tag":
+    #    tags += [tag_name_from_ref(ctx.build.ref), "latest"]
+
     return {
         "kind": "pipeline",
         "name": "docker:kumomta",
@@ -296,7 +305,13 @@ def docker_image(ctx):
                     "registry": "ghcr.io",
                     "repo": "kumocorp/kumomta",
                     "dockerfile": "docker/kumod/Dockerfile",
-                    "dry_run": True,
+                    "username": {
+                        "from_secret": "GH_PACKAGE_PUBLISH_USER",
+                    },
+                    "password": {
+                        "from_secret": "GH_PACKAGE_PUBLISH_TOKEN",
+                    },
+                    "tags": tags,
                 },
             },
         ],
