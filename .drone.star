@@ -47,21 +47,12 @@ def save_cache(container):
     return cache_step(container, False)
 
 
-def main_branch_or_tag():
+def should_publish_package():
     return {
-        "branch": {
-            "include": [
-                "master",
-                # "drone",  # TODO: remove this
-            ],
-        },
         "event": {
             "include": [
                 "tag",
                 "push",
-            ],
-            "exclude": [
-                "pull_request",
             ],
         },
     }
@@ -71,7 +62,7 @@ def upload_package(container, filename):
     return {
         "name": "upload-package",
         "image": "alpine:3.14",
-        "when": main_branch_or_tag(),
+        "when": should_publish_package(),
         "depends_on": ["verify-installable"],
         "environment": {
             "TOKEN": {
@@ -89,7 +80,7 @@ def sign_rpm(container):
     return {
         "name": "sign-rpm",
         "image": container,
-        "when": main_branch_or_tag(),
+        "when": should_publish_package(),
         "depends_on": ["build"],
         "environment": {
             "PUB": {
