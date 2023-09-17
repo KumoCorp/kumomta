@@ -249,6 +249,7 @@ def ubuntu(container):
             {
                 "name": "docker-image",
                 "image": "plugins/docker",
+                "depends_on": "verify-installable",
                 "settings": {
                     "registry": "ghcr.io",
                     "repo": "kumocorp/kumomta",
