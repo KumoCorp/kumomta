@@ -266,11 +266,12 @@ def ubuntu(ctx, container):
     }
 
     if container == "ubuntu:22.04":
-        tags = []
+        tags = ["latest"]
         if ctx.build.event == "tag":
-            tags += [tag_name_from_ref(ctx.build.ref), "latest"]
+            tags += [tag_name_from_ref(ctx.build.ref)]
+            name = "kumomta"
         else:
-            tags += ["dev"]
+            name = "kumomta-dev"
 
         pipeline["steps"] += [
             {
@@ -279,7 +280,7 @@ def ubuntu(ctx, container):
                 "depends_on": ["verify-installable"],
                 "settings": {
                     "registry": "ghcr.io",
-                    "repo": "ghcr.io/kumocorp/kumomta",
+                    "repo": "ghcr.io/kumocorp/" + name,
                     "username": {
                         "from_secret": "GH_PACKAGE_PUBLISH_USER",
                     },
