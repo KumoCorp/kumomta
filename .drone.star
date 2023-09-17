@@ -125,7 +125,7 @@ def cargo_environment(container):
 
 def install_rust():
     return [
-        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+        "curl --retry 12 --retry-all-errors --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
         ". $CARGO_HOME/env",
     ]
 
@@ -133,7 +133,7 @@ def install_rust():
 def install_nextest(container):
     arch = "linux-arm" if "arm64" in container else "linux"
     return [
-        "test -x .drone-cargo/bin/cargo-nextest || curl -LsSf https://get.nexte.st/latest/"
+        "test -x .drone-cargo/bin/cargo-nextest || curl --retry 12 --retry-all-errors -LsSf https://get.nexte.st/latest/"
         + arch
         + " | tar zxf - -C .drone-cargo/bin"
     ]
