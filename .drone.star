@@ -5,7 +5,7 @@ def cache_step(container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
     rebuild = "false" if is_restore else "true"
     restore = "true" if is_restore else "false"
-    key = 'kumomta_{{ checksum "Cargo.lock" }}_{{ arch }}_{{ os }}_' + container
+    key = container + "_{{ arch }}_{{ os }}"
     step = {
         "name": name,
         "image": "meltwater/drone-cache",
@@ -36,6 +36,7 @@ def cache_step(container, is_restore):
     }
     if not is_restore:
         step["depends_on"] = ["build"]
+        step["when"] = {"branch": {"include": {"main"}}}
     return step
 
 
