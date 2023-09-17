@@ -8,9 +8,7 @@ members = [
   "crates/kumod",
   "crates/mailparsing",
   "crates/mta-sts",
-# proxy-server is currently linux-specific, so don't
-# try to build it by default
-#  "crates/proxy-server",
+  "crates/proxy-server",
   "crates/rfc5321",
   "crates/spool",
   "crates/tailer",
