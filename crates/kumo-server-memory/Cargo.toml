@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-cgroups-rs = "0.3"
 humansize = "2.1" # for printing
 lazy_static = "1.4"
 metrics = "0.20"
@@ -16,3 +15,6 @@ tikv-jemallocator = "0.5"
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 tokio = {workspace=true, features=["full", "tracing"]}
 tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cgroups-rs = "0.3"

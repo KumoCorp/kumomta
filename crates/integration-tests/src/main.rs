@@ -10,6 +10,7 @@ fn main() {
 #[cfg(test)]
 mod test {
     use super::kumod::*;
+    use anyhow::Context;
     use k9::assert_equal;
     use kumo_api_types::SuspendV1Response;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
@@ -400,10 +401,12 @@ DeliverySummary {
     /// into the maildir at the other end with the same content
     #[tokio::test]
     async fn end_to_end() -> anyhow::Result<()> {
-        let mut daemon = DaemonWithMaildir::start().await?;
+        let mut daemon = DaemonWithMaildir::start()
+            .await
+            .context("DaemonWithMaildir::start")?;
 
         eprintln!("sending message");
-        let mut client = daemon.smtp_client().await?;
+        let mut client = daemon.smtp_client().await.context("make smtp_client")?;
 
         let body = generate_message_text(1024, 78);
         let response = MailGenParams {
@@ -411,7 +414,8 @@ DeliverySummary {
             ..Default::default()
         }
         .send(&mut client)
-        .await?;
+        .await
+        .context("send message")?;
         eprintln!("{response:?}");
         anyhow::ensure!(response.code == 250);
 
@@ -419,10 +423,10 @@ DeliverySummary {
             .wait_for_maildir_count(1, Duration::from_secs(10))
             .await;
 
-        daemon.stop_both().await?;
+        daemon.stop_both().await.context("stop_both")?;
         println!("Stopped!");
 
-        let delivery_summary = daemon.dump_logs()?;
+        let delivery_summary = daemon.dump_logs().context("dump_logs")?;
         k9::snapshot!(
             delivery_summary,
             "

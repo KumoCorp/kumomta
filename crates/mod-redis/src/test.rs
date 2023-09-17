@@ -75,7 +75,7 @@ impl RedisServer {
             let mut line = String::new();
             stdout.read_line(&mut line).await?;
             if line.is_empty() {
-                anyhow::bail!("Unexpected EOF");
+                anyhow::bail!("Unexpected EOF while reading output from redis-server");
             }
             eprintln!("{}", line.trim());
 

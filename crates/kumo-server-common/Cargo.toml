@@ -35,8 +35,8 @@ mod-digest = {path="../mod-digest"}
 mod-dns-resolver = {path="../mod-dns-resolver"}
 mod-encode = {path="../mod-encode"}
 mod-http = {path="../mod-http"}
-mod-memoize = {path="../mod-memoize"}
 mod-kafka = {path="../mod-kafka"}
+mod-memoize = {path="../mod-memoize"}
 mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
 nix = "0.26"

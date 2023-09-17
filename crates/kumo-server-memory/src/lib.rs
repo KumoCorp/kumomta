@@ -2,11 +2,16 @@
 //! implement memory limits, and some helpers to attempt to
 //! release cached memory back to the system when memory
 //! is low.
+
+#[cfg(target_os = "linux")]
 use cgroups_rs::cgroup::{get_cgroups_relative_paths, Cgroup, UNIFIED_MOUNTPOINT};
+#[cfg(target_os = "linux")]
 use cgroups_rs::hierarchies::{V1, V2};
+#[cfg(target_os = "linux")]
 use cgroups_rs::memory::MemController;
+#[cfg(target_os = "linux")]
 use cgroups_rs::{Hierarchy, MaxValue};
-use nix::sys::resource::{getrlimit, rlim_t, Resource, RLIM_INFINITY};
+use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -55,16 +60,20 @@ impl std::fmt::Display for MemoryUsage {
 
 impl MemoryUsage {
     pub fn get() -> anyhow::Result<Self> {
-        if let Ok(v2) = Self::get_cgroup(true) {
-            return Ok(v2);
-        }
-        if let Ok(v1) = Self::get_cgroup(false) {
-            return Ok(v1);
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(v2) = Self::get_cgroup(true) {
+                return Ok(v2);
+            }
+            if let Ok(v1) = Self::get_cgroup(false) {
+                return Ok(v1);
+            }
         }
         Self::get_linux_statm()
     }
 
-    pub fn get_cgroup(v2: bool) -> anyhow::Result<Self> {
+    #[cfg(target_os = "linux")]
+    fn get_cgroup(v2: bool) -> anyhow::Result<Self> {
         let cgroup = get_my_cgroup(v2)?;
         let mem: &MemController = cgroup
             .controller_of()
@@ -125,6 +134,7 @@ fn rlim_to_opt(rlim: rlim_t) -> Option<u64> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn max_value_to_opt(value: Option<MaxValue>) -> anyhow::Result<Option<u64>> {
     Ok(match value {
         None | Some(MaxValue::Max) => None,
@@ -143,7 +153,12 @@ fn min_opt_limit(a: Option<u64>, b: Option<u64>) -> Option<u64> {
 
 impl MemoryLimits {
     pub fn get_rlimits() -> anyhow::Result<Self> {
-        let (rss_soft, rss_hard) = getrlimit(Resource::RLIMIT_RSS)?;
+        #[cfg(not(target_os = "macos"))]
+        let (rss_soft, rss_hard) =
+            nix::sys::resource::getrlimit(nix::sys::resource::Resource::RLIMIT_RSS)?;
+        #[cfg(target_os = "macos")]
+        let (rss_soft, rss_hard) = (RLIM_INFINITY, RLIM_INFINITY);
+
         let soft_limit = rlim_to_opt(rss_soft);
         let hard_limit = rlim_to_opt(rss_hard);
 
@@ -153,13 +168,15 @@ impl MemoryLimits {
         })
     }
 
-    pub fn get_any_cgroup() -> anyhow::Result<Self> {
+    #[cfg(target_os = "linux")]
+    fn get_any_cgroup() -> anyhow::Result<Self> {
         if let Ok(cg) = Self::get_cgroup(true) {
             return Ok(cg);
         }
         Self::get_cgroup(false)
     }
 
+    #[cfg(target_os = "linux")]
     pub fn get_cgroup(v2: bool) -> anyhow::Result<Self> {
         let cgroup = get_my_cgroup(v2)?;
         let mem: &MemController = cgroup
@@ -176,6 +193,7 @@ impl MemoryLimits {
 
 /// Returns the amount of physical memory available to the system.
 /// This is linux specific.
+#[cfg(target_os = "linux")]
 fn get_physical_memory() -> anyhow::Result<u64> {
     let data = std::fs::read_to_string("/proc/meminfo")?;
     for line in data.lines() {
@@ -209,6 +227,7 @@ fn get_physical_memory() -> anyhow::Result<u64> {
 /// If no limits are explicitly configured, we'll assume a hard limit
 /// equal to the physical ram on the system, and a soft limit of 75%
 /// of whatever we've determined the hard limit to be.
+#[cfg(target_os = "linux")]
 pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     let mut limit = MemoryLimits::get_rlimits()?;
     let mut usage = MemoryUsage::get_linux_statm()?;
@@ -229,6 +248,17 @@ pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     }
 
     Ok((usage, limit))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
+    Ok((
+        MemoryUsage { bytes: 0 },
+        MemoryLimits {
+            soft_limit: None,
+            hard_limit: None,
+        },
+    ))
 }
 
 /// To be called when a thread goes idle; it will flush cached
@@ -331,6 +361,17 @@ fn memory_thread() {
                     tracing::debug!("memory usage {}, limit {}", human(usage), human(limit));
                 }
             }
+            Ok((
+                MemoryUsage { bytes: 0 },
+                MemoryLimits {
+                    soft_limit: None,
+                    hard_limit: None,
+                },
+            )) => {
+                // We don't know anything about the memory usage on this
+                // system, just pretend everything is fine
+                HEAD_ROOM.store(1024, Ordering::SeqCst);
+            }
             Ok(_) => {}
             Err(err) => tracing::error!("unable to query memory info: {err:#}"),
         }
@@ -371,6 +412,7 @@ pub fn setup_memory_limit() -> anyhow::Result<()> {
 
 /// Returns a Cgroup for the current process.
 /// Can return either a v2 or a v1 cgroup.
+#[cfg(target_os = "linux")]
 fn get_my_cgroup(v2: bool) -> anyhow::Result<Cgroup> {
     let paths = get_cgroups_relative_paths()?;
     let h: Box<dyn Hierarchy> = if v2 {

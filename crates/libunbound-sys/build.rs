@@ -1,31 +1,39 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 fn new_build() -> cc::Build {
     let mut cfg = cc::Build::new();
     cfg.warnings(false);
     cfg.extra_warnings(false);
+
+    println!("cargo:rerun-if-env-changed=DEP_OPENSSL_INCLUDE");
+    if let Some(path) = std::env::var_os("DEP_OPENSSL_INCLUDE") {
+        if let Some(path) = std::env::split_paths(&path).next() {
+            if let Some(path) = path.to_str() {
+                if !path.is_empty() {
+                    cfg.include(path);
+                }
+            }
+        }
+    }
+
+    if let Some(lib_root) = std::env::var_os("DEP_OPENSSL_ROOT") {
+        println!(
+            "cargo:rustc-link-search=native={}",
+            PathBuf::from(lib_root).join("lib").to_str().unwrap()
+        );
+    }
+
     cfg
 }
 
 struct Probed {
-    libs: Vec<pkg_config::Library>,
     defined: HashSet<String>,
 }
 
 impl Probed {
     fn new() -> Self {
-        let mut libs = vec![];
-
-        if let Ok(lib) = pkg_config::Config::new()
-            .cargo_metadata(false)
-            .print_system_libs(false)
-            .probe("openssl")
-        {
-            libs.push(lib);
-        }
-
         Self {
-            libs,
             defined: HashSet::new(),
         }
     }
@@ -37,6 +45,18 @@ impl Probed {
 
         let mut cfg = cc::Build::new();
         cfg.cargo_metadata(false);
+        if let Some(path) = std::env::var_os("DEP_OPENSSL_INCLUDE") {
+            eprintln!("DEP_OPENSSL_INCLUDE is {path:?}");
+            if let Some(path) = std::env::split_paths(&path).next() {
+                if let Some(path) = path.to_str() {
+                    if !path.is_empty() {
+                        eprintln!("adding {path} to includes");
+                        cfg.include(path);
+                    }
+                }
+            }
+        }
+
         let mut cmd = cfg.get_compiler().to_command();
         cmd.current_dir(temp.path());
 
@@ -44,14 +64,11 @@ impl Probed {
         cmd.arg(&main_c);
 
         // then libraries
-        for lib in &self.libs {
-            for p in &lib.link_paths {
-                let p = p.to_string_lossy();
-                cmd.arg(&format!("-L{p}"));
-            }
-            for l in &lib.libs {
-                cmd.arg(&format!("-l{l}"));
-            }
+        if let Ok(lib_root) = std::env::var("DEP_OPENSSL_ROOT") {
+            eprintln!("DEP_OPENSSL_ROOT is {lib_root:?}");
+            cmd.arg(&format!("-L{lib_root}/lib"));
+            cmd.arg(&format!("-lssl"));
+            cmd.arg(&format!("-lcrypto"));
         }
 
         cmd.stdout(std::process::Stdio::inherit())
@@ -69,6 +86,26 @@ impl Probed {
 #include <{name}>
 int main(void) {{
     return 0;
+}}
+"#
+        ))? {
+            eprintln!("defining {def}");
+            cfg.define(&def, Some("1"));
+            self.defined.insert(def);
+        }
+
+        Ok(())
+    }
+
+    fn check_type(&mut self, cfg: &mut cc::Build, name: &str, header: &str) -> std::io::Result<()> {
+        let def = name.to_uppercase().replace(".", "_").replace("/", "_");
+        let def = format!("HAVE_{def}");
+        eprintln!("checking for <{name}>");
+        if self.try_compile(&format!(
+            r#"
+#include <{header}>
+int main(void) {{
+    return sizeof({name});
 }}
 "#
         ))? {
@@ -195,10 +232,10 @@ fn unbound() {
         "compat/arc4random.c",
         "compat/arc4random_uniform.c",
         // "compat/fake-rfc2553.c",
-        "compat/malloc.c",
-        "compat/memcmp.c",
-        "compat/memmove.c",
-        "compat/reallocarray.c",
+        //"compat/malloc.c",
+        //"compat/memcmp.c",
+        //"compat/memmove.c",
+        //"compat/reallocarray.c",
         "compat/sha512.c",
     ] {
         cfg.file(&format!("unbound/{f}"));
@@ -390,6 +427,10 @@ fn unbound() {
         "inet_ntop",
         "inet_pton",
         "inet_aton",
+        "malloc",
+        "memcmp",
+        "memmove",
+        "reallocarray",
         "strsep",
         "snprintf",
         "strptime",
@@ -399,10 +440,17 @@ fn unbound() {
         }
     }
 
+    for t in &["pthread_rwlock_t", "pthread_spinlock_t"] {
+        probe.check_type(&mut cfg, t, "pthread.h").unwrap();
+    }
+
     if !probe.defined.contains("HAVE_GETENTROPY") {
-        let name = "compat/getentropy_linux.c";
+        let name = if cfg!(target_os = "macos") {
+            "compat/getentropy_osx.c"
+        } else {
+            "compat/getentropy_linux.c"
+        };
         //"compat/getentropy_freebsd.c",
-        //"compat/getentropy_osx.c",
         //"compat/getentropy_solaris.c",
         //"compat/getentropy_win.c",
         cfg.file(&format!("unbound/{name}"));

@@ -115,7 +115,7 @@ impl DaemonWithMaildir {
     }
 
     pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
-        let sink = KumoDaemon::spawn_maildir().await?;
+        let sink = KumoDaemon::spawn_maildir().await.context("spawn_maildir")?;
         let smtp = sink.listener("smtp");
 
         let mut env: Vec<(String, String)> = env
@@ -129,7 +129,8 @@ impl DaemonWithMaildir {
             policy_file: "source.lua".to_string(),
             env,
         })
-        .await?;
+        .await
+        .context("KumoDaemon::spawn")?;
 
         Ok(Self { source, sink })
     }
@@ -280,20 +281,25 @@ impl KumoDaemon {
 
         let dir = tempfile::tempdir().context("make temp dir")?;
 
-        let user = User::from_uid(Uid::current())?
+        let user = User::from_uid(Uid::current())
+            .context("determine current uid")?
             .ok_or_else(|| anyhow::anyhow!("couldn't resolve myself"))?;
 
-        let mut child = Command::new(&path)
-            .args(["--policy", &args.policy_file, "--user", &user.name])
+        let mut cmd = Command::new(&path);
+        cmd.args(["--policy", &args.policy_file, "--user", &user.name])
             .env("KUMOD_LOG", "kumod=trace,kumo_server_common=info")
             .env("KUMOD_TEST_DIR", dir.path())
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+
+        let cmd_label = format!("{cmd:?}");
+
+        let mut child = cmd
             .spawn()
-            .with_context(|| format!("spawning {}", path.display()))?;
+            .with_context(|| format!("spawning {cmd_label}"))?;
 
         let mut stderr = BufReader::new(child.stderr.take().unwrap());
 
@@ -333,7 +339,7 @@ impl KumoDaemon {
             let mut line = String::new();
             stderr.read_line(&mut line).await?;
             if line.is_empty() {
-                anyhow::bail!("Unexpected EOF");
+                anyhow::bail!("Unexpected EOF while reading output from {cmd_label}");
             }
             eprintln!("{}", line.trim());
 

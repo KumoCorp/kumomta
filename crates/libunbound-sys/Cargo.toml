@@ -9,5 +9,10 @@ edition = "2021"
 
 [build-dependencies]
 cc = {version="1.0", features = ["parallel"]}
-pkg-config = "0.3.9"
 tempfile = {workspace=true}
+
+[target.'cfg(not(any(windows, target_os="macos")))'.dependencies]
+openssl-sys = "0.9"
+
+[target.'cfg(any(windows, target_os="macos"))'.dependencies]
+openssl-sys = { version = "0.9", features=["vendored"] }

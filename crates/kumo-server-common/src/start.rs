@@ -1,4 +1,5 @@
 use crate::diagnostic_logging::LoggingConfig;
+use anyhow::Context;
 use config::RegisterFunc;
 use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::rt_spawn;
@@ -24,13 +25,15 @@ impl<'a> StartConfig<'a> {
     {
         self.logging.init()?;
 
-        kumo_server_memory::setup_memory_limit()?;
+        kumo_server_memory::setup_memory_limit().context("setup_memory_limit")?;
 
         for &func in self.lua_funcs {
             config::register(func);
         }
 
-        config::set_policy_path(self.policy.to_path_buf()).await?;
+        config::set_policy_path(self.policy.to_path_buf())
+            .await
+            .with_context(|| format!("set_policy_path to {:?}", self.policy))?;
 
         let mut life_cycle = LifeCycle::new();
 

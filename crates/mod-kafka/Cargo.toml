@@ -10,5 +10,5 @@ anyhow = "1.0"
 config = {path="../config"}
 humantime-serde = "1.1"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-rdkafka = { version = "0.34", features = ["cmake-build"] }
+rdkafka = "0.34"
 serde = {version="1.0", features=["derive"]}

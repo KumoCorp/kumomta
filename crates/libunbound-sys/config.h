@@ -156,13 +156,13 @@
 #define HAVE_PTHREAD 1
 
 /* Have PTHREAD_PRIO_INHERIT. */
-#define HAVE_PTHREAD_PRIO_INHERIT 1
+//#define HAVE_PTHREAD_PRIO_INHERIT 1
 
 /* Define to 1 if the system has the type `pthread_rwlock_t'. */
-#define HAVE_PTHREAD_RWLOCK_T 1
+//#define HAVE_PTHREAD_RWLOCK_T 1
 
 /* Define to 1 if the system has the type `pthread_spinlock_t'. */
-#define HAVE_PTHREAD_SPINLOCK_T 1
+//#define HAVE_PTHREAD_SPINLOCK_T 1
 
 /* Define if you have Python libraries and header files. */
 /* #undef HAVE_PYTHON */
