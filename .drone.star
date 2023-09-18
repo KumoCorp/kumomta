@@ -361,7 +361,7 @@ def build_docs():
                 + install_rust(container)
                 + install_deps()
                 + [
-                    "apt install -y pip",
+                    "apt install -y pip libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev",
                     "cargo install --locked gelatyx",
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
