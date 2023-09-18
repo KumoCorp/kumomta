@@ -357,11 +357,8 @@ def build_docs():
                 ],
                 "commands": []
                 + setup_apt_and_install_curl()
-                + [
-                    # Needed for rust to link
-                    "apt install -y gcc pkg-config libssl-dev"
-                ]
                 + install_rust(container)
+                + install_deps()
                 + [
                     "cargo install --locked gelatyx",
                     "CI=true CARDS=true ./docs/build.sh",
