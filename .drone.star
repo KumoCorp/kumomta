@@ -266,11 +266,8 @@ def ubuntu(ctx, container):
                     "restore-build-cache",
                     "restore-mtime",
                 ],
-                "commands": [
-                    "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
-                    "apt update",
-                    "apt install -y curl git",
-                ]
+                "commands": []
+                + setup_apt_and_install_curl()
                 + install_rust(container)
                 + install_deps()
                 + install_nextest(container)
@@ -329,6 +326,14 @@ def tag_name_from_ref(ref):
     return ref[10:]
 
 
+def setup_apt_and_install_curl():
+    return [
+        "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
+        "apt update",
+        "apt install -y curl git",
+    ]
+
+
 def build_docs():
     container = "ubuntu:latest"
     return {
@@ -351,6 +356,7 @@ def build_docs():
                     "restore-build-cache",
                 ],
                 "commands": []
+                + setup_apt_and_install_curl()
                 + install_rust(container)
                 + [
                     "cargo install --locked gelatyx",
