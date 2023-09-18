@@ -337,6 +337,8 @@ def setup_apt_and_install_curl():
 
 def build_docs():
     container = "ubuntu:latest"
+    env = cargo_environment(container)
+    env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
     return {
         "kind": "pipeline",
         "name": "build-docs",
@@ -352,7 +354,7 @@ def build_docs():
             {
                 "name": "build",
                 "image": container,
-                "environment": cargo_environment(container),
+                "environment": env,
                 "depends_on": [
                     "restore-build-cache",
                 ],
@@ -366,24 +368,10 @@ def build_docs():
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
                     "CI=true CARDS=true ./docs/build.sh",
-                ],
-            },
-            save_cache(container + "-docs"),
-            {
-                "name": "deploy",
-                "image": "docker:git",
-                "depends_on": [
-                    "build",
-                ],
-                "environment": {
-                    "TOKEN": {
-                        "from_secret": "GH_PAGE_DEPLOY_TOKEN",
-                    },
-                },
-                "commands": [
                     "./assets/ci/push-gh-pages.sh",
                 ],
             },
+            save_cache(container + "-docs"),
         ],
     }
 
