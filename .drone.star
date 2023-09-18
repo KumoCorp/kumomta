@@ -361,6 +361,7 @@ def build_docs():
                 + install_rust(container)
                 + install_deps()
                 + [
+                    "apt install -y pip",
                     "cargo install --locked gelatyx",
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
