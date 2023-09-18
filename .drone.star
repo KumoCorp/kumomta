@@ -354,7 +354,7 @@ def build_docs(ctx):
             "event": {"include": ["push"]},
             "branch": {"include": ["main"]},
             # TODO: restrict to doc files
-        },
+        }
     else:
         trigger = {
             "event": {"include": ["pull_request"]},
