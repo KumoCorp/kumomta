@@ -5,6 +5,7 @@
 # allows filtering by changed path:
 # https://github.com/meltwater/drone-convert-pathschanged
 
+
 def cache_step(container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
     rebuild = "false" if is_restore else "true"
@@ -364,15 +365,16 @@ def build_docs(ctx):
             "CHECK_ONLY=1 ./docs/build.sh",
         ]
 
-    if ctx.build.event != "cron":
+    if ctx.build.event == "cron":
+        trigger["event"]: ["cron"]
+        trigger["target"] = {"include": ["hourly"]}
+    else:
         trigger["paths"] = {
             "include": [
                 "docs/**",
                 "mkdocs-base.yml",
             ]
         }
-
-    trigger["cron"] = ["hourly"]
 
     return {
         "kind": "pipeline",
