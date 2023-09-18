@@ -37,9 +37,14 @@ cargo tree --depth 0 -e normal --prefix none | \
 
 python3 docs/generate-toc.py || exit 1
 
+PIP=pip
+if command -v pip3 >/dev/null ; then
+  PIP=pip3
+fi
+
 # Adjust path to pick up pip-installed binaries
 PATH="$HOME/.local/bin;$PATH"
-pip install --quiet \
+${PIP} install --quiet \
   mkdocs-material \
   mkdocs-git-revision-date-localized-plugin \
   black \
