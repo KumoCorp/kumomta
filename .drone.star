@@ -366,25 +366,23 @@ def build_docs():
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
                     "CI=true CARDS=true ./docs/build.sh",
-                    "echo docs.kumomta.com > gh_pages/CNAME",
                 ],
             },
             save_cache(container + "-docs"),
             {
                 "name": "deploy",
-                "image": "plugins/gh-pages",
+                "image": "docker:git",
                 "depends_on": [
                     "build",
                 ],
-                "settings": {
-                    "username": {
-                        "from_secret": "GH_PAGE_DEPLOY_USER",
-                    },
-                    "password": {
+                "environment": {
+                    "TOKEN": {
                         "from_secret": "GH_PAGE_DEPLOY_TOKEN",
                     },
-                    "pages_directory": "gh_pages",
                 },
+                "commands": [
+                    "./assets/ci/push-gh-pages.sh",
+                ],
             },
         ],
     }
