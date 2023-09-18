@@ -379,9 +379,9 @@ def build_docs():
                     },
                     "password": {
                         "from_secret": "GH_PAGE_DEPLOY_TOKEN",
-                    }
+                    },
                     "pages_directory": "gh_pages",
-                }
+                },
             },
         ],
     }
