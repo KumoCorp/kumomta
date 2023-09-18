@@ -359,7 +359,7 @@ def build_docs():
                 + setup_apt_and_install_curl()
                 + [
                     # Needed for rust to link
-                    "apt install -y build-essential"
+                    "apt install -y gcc pkg-config libssl-dev"
                 ]
                 + install_rust(container)
                 + [
