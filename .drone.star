@@ -32,6 +32,7 @@ def cache_step(container, is_restore):
                 ".drone-cargo",
                 "target",
                 ".cache",
+                ".python-home",
             ],
         },
     }
@@ -361,7 +362,9 @@ def build_docs():
                 + install_deps()
                 + [
                     "cargo install --locked gelatyx",
-                    "CI=true CARDS=true ./docs/build.sh",
+                    "mkdir .python-home",
+                    "PATH=$PATH:$HOME/.python-home",
+                    "CI=true CARDS=true HOME=$HOME/.python-home ./docs/build.sh",
                 ],
             },
             save_cache(container + "-docs"),
