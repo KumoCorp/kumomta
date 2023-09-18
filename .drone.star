@@ -6,7 +6,7 @@
 # https://github.com/meltwater/drone-convert-pathschanged
 
 
-def cache_step(container, is_restore):
+def cache_step(ctx, container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
     rebuild = "false" if is_restore else "true"
     restore = "true" if is_restore else "false"
@@ -45,17 +45,17 @@ def cache_step(container, is_restore):
         step["depends_on"] = ["build"]
         step["when"] = {
             "branch": {"include": ["main"]},
-            "event": {"exclude": ["pull_request"]},
+            "event": {"include": ["push"]},
         }
     return step
 
 
-def restore_cache(container):
-    return cache_step(container, True)
+def restore_cache(ctx, container):
+    return cache_step(ctx, container, True)
 
 
-def save_cache(container):
-    return cache_step(container, False)
+def save_cache(ctx, container):
+    return cache_step(ctx, container, False)
 
 
 def should_publish_package():
@@ -65,6 +65,9 @@ def should_publish_package():
                 "tag",
                 "push",
             ],
+        },
+        "branch": {
+            "include": ["main"],
         },
     }
 
@@ -182,7 +185,7 @@ def perform_build_and_test():
     ]
 
 
-def rocky(container):
+def rocky(ctx, container):
     return {
         "kind": "pipeline",
         "name": container,
@@ -190,7 +193,7 @@ def rocky(container):
         "trigger": default_trigger(),
         "steps": [
             restore_mtime(),
-            restore_cache(container),
+            restore_cache(ctx, container),
             {
                 "name": "build",
                 "image": container,
@@ -213,7 +216,7 @@ def rocky(container):
                     "mv ~/rpmbuild/RPMS/*/*.rpm .",
                 ],
             },
-            save_cache(container),
+            save_cache(ctx, container),
             sign_rpm(container),
             {
                 "name": "verify-installable",
@@ -266,7 +269,7 @@ def ubuntu(ctx, container):
         "trigger": default_trigger(),
         "steps": [
             restore_mtime(),
-            restore_cache(container),
+            restore_cache(ctx, container),
             {
                 "name": "build",
                 "image": container,
@@ -285,7 +288,7 @@ def ubuntu(ctx, container):
                     "./assets/build-deb.sh",
                 ],
             },
-            save_cache(container),
+            save_cache(ctx, container),
             {
                 "name": "verify-installable",
                 "image": container,
@@ -390,7 +393,7 @@ def build_docs(ctx):
         },
         "steps": [
             restore_mtime(),
-            restore_cache(container + "-docs"),
+            restore_cache(ctx, container + "-docs"),
             {
                 "name": "build",
                 "image": container,
@@ -410,7 +413,7 @@ def build_docs(ctx):
                 ]
                 + commands,
             },
-            save_cache(container + "-docs"),
+            save_cache(ctx, container + "-docs"),
         ],
     }
 
@@ -421,7 +424,7 @@ def main(ctx):
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
-        rocky("rockylinux:9"),
+        rocky(ctx, "rockylinux:9"),
         ubuntu(ctx, "ubuntu:22.04"),
         # ubuntu(ctx, "arm64v8/ubuntu:22.04"),
         ubuntu(ctx, "ubuntu:20.04"),
