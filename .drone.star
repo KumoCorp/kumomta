@@ -1,5 +1,5 @@
 # vim:ft=python:ts=4:sw=4:et:
-
+# Ref: https://docs.drone.io/pipeline/scripting/starlark
 
 def cache_step(container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
@@ -342,19 +342,16 @@ def build_docs(ctx):
     trigger = {}
     depth = 1
 
-    if ctx.build.event == "push":
-        # Need fully history for page change dates
+    if (
+        ctx.build.event == "push" and ctx.build.branch == "main"
+    ) or ctx.build.event == "cron":
+        # Need full history for page change dates
         depth = 0
         env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
         commands += [
             "CI=true CARDS=true ./docs/build.sh",
             "./assets/ci/push-gh-pages.sh",
         ]
-        trigger = {
-            "event": {"include": ["push"]},
-            "branch": {"include": ["main"]},
-            # TODO: restrict to doc files
-        }
     else:
         trigger = {
             "event": {"include": ["pull_request"]},
@@ -362,6 +359,15 @@ def build_docs(ctx):
         commands += [
             "CHECK_ONLY=1 ./docs/build.sh",
         ]
+
+    trigger["paths"] = {
+        "include": [
+            "docs/**",
+            "mkdocs-base.yml",
+        ]
+    }
+
+    trigger["cron"] = ["hourly"]
 
     return {
         "kind": "pipeline",
