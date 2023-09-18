@@ -219,7 +219,28 @@ def rocky(container):
 
 
 def default_trigger():
-    return {"event": {"exclude": ["promote"]}}
+    return {
+        "event": {
+            "exclude": ["promote"],
+        },
+        # This relies on having
+        # https://github.com/meltwater/drone-convert-pathschanged
+        # deployed as a conversion plugin in the drone configuration
+        "paths": {
+            "include": [
+                "**/*.rs",
+                "**/*.lua",
+                "assets/**/*.toml",
+                "get-deps.sh",
+                "assets/upload-package.sh",
+                "assets/build*.sh",
+                "assets/install.sh",
+                "assets/*.service",
+                "**/Cargo.toml",
+                ".drone.star",
+            ]
+        },
+    }
 
 
 def ubuntu(ctx, container):
