@@ -335,19 +335,39 @@ def setup_apt_and_install_curl():
     ]
 
 
-def build_docs():
+def build_docs(ctx):
     container = "ubuntu:latest"
     env = cargo_environment(container)
-    env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
-    return {
-        "kind": "pipeline",
-        "name": "build-docs",
-        "type": "docker",
-        "trigger": {
+    commands = []
+    trigger = {}
+
+    if ctx.build.event == "push":
+        env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
+        commands += [
+            # Need full commit history for last change dates
+            # to work on doc pages
+            "git fetch --unshallow",
+            "CI=true CARDS=true ./docs/build.sh",
+            "./assets/ci/push-gh-pages.sh",
+        ]
+        trigger = {
             "event": {"include": ["push"]},
             "branch": {"include": ["main"]},
             # TODO: restrict to doc files
         },
+    else:
+        trigger = {
+            "event": {"include": ["pull_request"]},
+        }
+        commands += [
+            "CHECK_ONLY=1 ./docs/build.sh",
+        ]
+
+    return {
+        "kind": "pipeline",
+        "name": "build-docs",
+        "type": "docker",
+        "trigger": trigger,
         "steps": [
             restore_mtime(),
             restore_cache(container + "-docs"),
@@ -367,9 +387,8 @@ def build_docs():
                     "cargo install --locked gelatyx",
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
-                    "CI=true CARDS=true ./docs/build.sh",
-                    "./assets/ci/push-gh-pages.sh",
-                ],
+                ]
+                + commands,
             },
             save_cache(container + "-docs"),
         ],
@@ -378,7 +397,7 @@ def build_docs():
 
 def main(ctx):
     return [
-        build_docs(),
+        build_docs(ctx),
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
