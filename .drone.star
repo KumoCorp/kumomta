@@ -357,10 +357,7 @@ def build_docs(ctx):
             "CI=true CARDS=true ./docs/build.sh",
         ]
         if ctx.build.event == "push":
-            commands += [
-                "./assets/ci/push-auto-fix.sh"
-            ]
-        ]
+            commands += ["./assets/ci/push-auto-fix.sh"]
 
         commands += [
             "./assets/ci/push-gh-pages.sh",
