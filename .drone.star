@@ -373,6 +373,9 @@ def build_docs():
             {
                 "name": "deploy",
                 "image": "plugins/gh-pages",
+                "depends_on": [
+                    "build",
+                ],
                 "settings": {
                     "username": {
                         "from_secret": "GH_PAGE_DEPLOY_USER",
