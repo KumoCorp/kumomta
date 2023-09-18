@@ -310,7 +310,7 @@ def ubuntu(ctx, container):
         else:
             name = "kumomta-dev"
 
-        dry_run = ctx.build.event = "pull_request"
+        dry_run = ctx.build.event == "pull_request"
 
         pipeline["steps"] += [
             {
