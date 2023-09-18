@@ -310,6 +310,8 @@ def ubuntu(ctx, container):
         else:
             name = "kumomta-dev"
 
+        dry_run = ctx.build.event = "pull_request"
+
         pipeline["steps"] += [
             {
                 "name": "docker-image",
@@ -318,6 +320,7 @@ def ubuntu(ctx, container):
                 "settings": {
                     "registry": "ghcr.io",
                     "repo": "ghcr.io/kumocorp/" + name,
+                    "dry_run": dry_run,
                     "username": {
                         "from_secret": "GH_PACKAGE_PUBLISH_USER",
                     },
