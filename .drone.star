@@ -366,7 +366,7 @@ def build_docs(ctx):
         ]
 
     if ctx.build.event == "cron":
-        trigger["event"]: ["cron"]
+        trigger["event"] = ["cron"]
         trigger["target"] = {"include": ["hourly"]}
     else:
         trigger["paths"] = {
