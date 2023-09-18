@@ -340,13 +340,13 @@ def build_docs(ctx):
     env = cargo_environment(container)
     commands = []
     trigger = {}
+    depth = 1
 
     if ctx.build.event == "push":
+        # Need fully history for page change dates
+        depth = 0
         env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
         commands += [
-            # Need full commit history for last change dates
-            # to work on doc pages
-            "git fetch --unshallow",
             "CI=true CARDS=true ./docs/build.sh",
             "./assets/ci/push-gh-pages.sh",
         ]
@@ -368,6 +368,9 @@ def build_docs(ctx):
         "name": "build-docs",
         "type": "docker",
         "trigger": trigger,
+        "clone": {
+            "depth": depth,
+        },
         "steps": [
             restore_mtime(),
             restore_cache(container + "-docs"),
