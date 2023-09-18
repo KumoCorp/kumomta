@@ -344,43 +344,38 @@ def build_docs(ctx):
     container = "ubuntu:latest"
     env = cargo_environment(container)
     commands = []
-    trigger = {}
+    trigger = {
+        "event": {
+            "exclude": [
+                "promote",
+            ]
+        }
+    }
     depth = 1
 
-    if (
-        ctx.build.event == "push" and ctx.build.branch == "main"
-    ) or ctx.build.event == "cron":
+    if ctx.build.event == "push" and ctx.build.branch == "main":
         # Need full history for page change dates
         depth = 0
         env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
         commands += [
             "CI=true CARDS=true ./docs/build.sh",
-        ]
-        if ctx.build.event == "push":
-            commands += ["./assets/ci/push-auto-fix.sh"]
-
-        commands += [
+            "./assets/ci/push-auto-fix.sh",
             "./assets/ci/push-gh-pages.sh",
         ]
 
     else:
-        trigger = {
-            "event": {"include": ["pull_request"]},
-        }
+        trigger["event"]["include"] = ["pull_request"]
         commands += [
             "CHECK_ONLY=1 ./docs/build.sh",
         ]
 
-    if ctx.build.event == "cron":
-        trigger["event"] = ["cron"]
-        trigger["target"] = {"include": ["hourly"]}
-    else:
-        trigger["paths"] = {
-            "include": [
-                "docs/**",
-                "mkdocs-base.yml",
-            ]
-        }
+    trigger["paths"] = {
+        "include": [
+            "docs/**",
+            "mkdocs-base.yml",
+            "stylua.toml",
+        ]
+    }
 
     return {
         "kind": "pipeline",
