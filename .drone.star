@@ -228,7 +228,7 @@ def rocky(container):
 def default_trigger():
     return {
         "event": {
-            "exclude": ["promote"],
+            "exclude": ["promote", "cron"],
         },
         # This relies on having
         # https://github.com/meltwater/drone-convert-pathschanged
