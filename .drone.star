@@ -363,8 +363,8 @@ def build_docs():
                 + [
                     "cargo install --locked gelatyx",
                     "mkdir .python-home",
-                    "PATH=$PATH:$HOME/.python-home",
-                    "CI=true CARDS=true HOME=$HOME/.python-home ./docs/build.sh",
+                    "PATH=$$PATH:$$HOME/.python-home",
+                    "CI=true CARDS=true HOME=$$HOME/.python-home ./docs/build.sh",
                 ],
             },
             save_cache(container + "-docs"),
