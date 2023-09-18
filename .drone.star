@@ -336,16 +336,8 @@ def build_docs():
         "name": "build-docs",
         "type": "docker",
         "trigger": {
-            "event": {
-                "include": [
-                    "push"
-                ]
-            },
-            "branch": {
-                "include": [
-                    "main"
-                ]
-            },
+            "event": {"include": ["push"]},
+            "branch": {"include": ["main"]},
             # TODO: restrict to doc files
         },
         "steps": [
@@ -358,13 +350,15 @@ def build_docs():
                 "depends_on": [
                     "restore-build-cache",
                 ],
-                "commands": [
+                "commands": []
+                + install_rust(container)
+                + [
                     "cargo install --locked gelatyx",
                     "CI=true CARDS=true ./docs/build.sh",
                 ],
             },
             save_cache(container + "-docs"),
-        ]
+        ],
     }
 
 
