@@ -31,6 +31,7 @@ def cache_step(container, is_restore):
             "mount": [
                 ".drone-cargo",
                 "target",
+                ".cache",
             ],
         },
     }
@@ -328,8 +329,48 @@ def tag_name_from_ref(ref):
     return ref[10:]
 
 
+def build_docs():
+    container = "ubuntu:latest"
+    return {
+        "kind": "pipeline",
+        "name": "build-docs",
+        "type": "docker",
+        "trigger": {
+            "event": {
+                "include": [
+                    "push"
+                ]
+            },
+            "branch": {
+                "include": [
+                    "main"
+                ]
+            },
+            # TODO: restrict to doc files
+        },
+        "steps": [
+            restore_mtime(),
+            restore_cache(container + "-docs"),
+            {
+                "name": "build",
+                "image": container,
+                "environment": cargo_environment(container),
+                "depends_on": [
+                    "restore-build-cache",
+                ],
+                "commands": [
+                    "cargo install --locked gelatyx",
+                    "CI=true CARDS=true ./docs/build.sh",
+                ],
+            },
+            save_cache(container + "-docs"),
+        ]
+    }
+
+
 def main(ctx):
     return [
+        build_docs(),
         # Drone tends to schedule these in the order specified, so
         # let's have a mix of rocky and ubuntu to start, then
         # let the rest get picked up by runners as they become ready
