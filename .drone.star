@@ -1,5 +1,9 @@
 # vim:ft=python:ts=4:sw=4:et:
 # Ref: https://docs.drone.io/pipeline/scripting/starlark
+# Ref: https://docs.drone.io/pipeline/docker/syntax/
+# We use a conversion extension with our drone deployment which
+# allows filtering by changed path:
+# https://github.com/meltwater/drone-convert-pathschanged
 
 def cache_step(container, is_restore):
     name = "restore-build-cache" if is_restore else "save-build-cache"
@@ -360,12 +364,13 @@ def build_docs(ctx):
             "CHECK_ONLY=1 ./docs/build.sh",
         ]
 
-    trigger["paths"] = {
-        "include": [
-            "docs/**",
-            "mkdocs-base.yml",
-        ]
-    }
+    if ctx.build.event != "cron":
+        trigger["paths"] = {
+            "include": [
+                "docs/**",
+                "mkdocs-base.yml",
+            ]
+        }
 
     trigger["cron"] = ["hourly"]
 
