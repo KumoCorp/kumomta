@@ -357,6 +357,10 @@ def build_docs():
                 ],
                 "commands": []
                 + setup_apt_and_install_curl()
+                + [
+                    # Needed for rust to link
+                    "apt install -y build-essential"
+                ]
                 + install_rust(container)
                 + [
                     "cargo install --locked gelatyx",
