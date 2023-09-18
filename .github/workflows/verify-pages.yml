@@ -1,11 +1,11 @@
 name: verify-pages
 
 on:
-  pull_request:
-    paths:
-      - "docs/**"
-      - ".github/workflows/verify-pages.yml"
-      - "mkdocs-base.yml"
+  #pull_request:
+  #  paths:
+  #    - "docs/**"
+  #    - ".github/workflows/verify-pages.yml"
+  #    - "mkdocs-base.yml"
 
 jobs:
   verify-pages:

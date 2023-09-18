@@ -1,13 +1,13 @@
 name: pages
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "docs/**"
-      - ".github/workflows/pages.yml"
-      - "mkdocs-base.yml"
+  #push:
+  #  branches:
+  #    - main
+  #  paths:
+  #    - "docs/**"
+  #    - ".github/workflows/pages.yml"
+  #    - "mkdocs-base.yml"
   #schedule:
   #  - cron: "50 * * * *"
 
