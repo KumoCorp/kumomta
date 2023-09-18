@@ -355,8 +355,17 @@ def build_docs(ctx):
         env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
         commands += [
             "CI=true CARDS=true ./docs/build.sh",
+        ]
+        if ctx.build.event == "push":
+            commands += [
+                "./assets/ci/push-auto-fix.sh"
+            ]
+        ]
+
+        commands += [
             "./assets/ci/push-gh-pages.sh",
         ]
+
     else:
         trigger = {
             "event": {"include": ["pull_request"]},
