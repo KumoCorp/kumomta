@@ -1,6 +1,9 @@
 check:
 	cargo check
 
+check-ci: .drone.star
+	./assets/ci/check-starlark.sh
+
 test:
 	cargo build
 	cargo nextest run

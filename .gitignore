@@ -17,6 +17,8 @@ dhat-heap.json
 /jeprof*
 /.cache
 /.drone-cache
+/.drone-cargo
+/.drone.yml
 /.python-home
 .idea/
 .vscode/

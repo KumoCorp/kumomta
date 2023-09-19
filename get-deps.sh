@@ -127,7 +127,7 @@ suse_deps() {
 
 debian_deps() {
   APT="$SUDO apt-get"
-  $APT install -y \
+  $APT install -y --no-install-recommends \
     'bsdutils' \
     'cmake' \
     'dpkg-dev' \

@@ -116,6 +116,7 @@ def restore_mtime():
         "name": "restore-mtime",
         "image": "python:3-bookworm",
         "commands": [
+            git_ownership(),
             "./assets/ci/git-restore-mtime",
         ],
     }
@@ -206,6 +207,7 @@ def rocky(ctx, container):
                     "dnf install -y git",
                     # Some systems have curl-minimal which won't tolerate us installing curl
                     "command -v curl || dnf install -y curl",
+                    git_ownership(),
                 ]
                 + install_rust(container)
                 + install_deps()
@@ -278,7 +280,9 @@ def ubuntu(ctx, container):
                     "restore-build-cache",
                     "restore-mtime",
                 ],
-                "commands": []
+                "commands": [
+                    git_ownership(),
+                ]
                 + setup_apt_and_install_curl()
                 + install_rust(container)
                 + install_deps()
@@ -341,18 +345,24 @@ def tag_name_from_ref(ref):
     return ref[10:]
 
 
+def git_ownership():
+    return "git config --global --add safe.directory /drone/src"
+
+
 def setup_apt_and_install_curl():
     return [
         "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
         "apt update",
-        "apt install -y curl git",
+        "apt install -yqq curl ca-certificates git --no-install-recommends",
     ]
 
 
 def build_docs(ctx):
     container = "ubuntu:latest"
     env = cargo_environment(container)
-    commands = []
+    commands = [
+        git_ownership(),
+    ]
     trigger = {
         "event": {
             "exclude": [
@@ -409,7 +419,7 @@ def build_docs(ctx):
                 + install_rust(container)
                 + install_deps()
                 + [
-                    "apt install -y pip libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev",
+                    "apt install -y --no-install-recommends pip libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev",
                     "cargo install --locked gelatyx",
                     "mkdir -p .python-home",
                     "ln -s $$PWD/.python-home ~/.local",
