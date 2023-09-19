@@ -117,7 +117,8 @@ def restore_mtime():
         "image": "python:3-bookworm",
         "commands": [
             git_ownership(),
-            "./assets/ci/git-restore-mtime",
+            "./assets/ci/git-restore-mtime crates",
+            "git diff-index --name-status HEAD --",
         ],
     }
 
@@ -280,12 +281,13 @@ def ubuntu(ctx, container):
                     "restore-build-cache",
                     "restore-mtime",
                 ],
-                "commands": [
-                    git_ownership(),
-                ]
+                "commands": []
                 + setup_apt_and_install_curl()
                 + install_rust(container)
                 + install_deps()
+                + [
+                    git_ownership(),
+                ]
                 + install_nextest(container)
                 + perform_build_and_test()
                 + [
