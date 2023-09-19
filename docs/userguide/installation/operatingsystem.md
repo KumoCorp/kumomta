@@ -14,6 +14,8 @@ So far we've run non-production tests on the following systems:
 * Amazon Linux 2
 * Kali (2003.1)
 * CentOS 7
+* RHEL 7,8,9
+* Mariner2
 
 and the following machine types:
 
