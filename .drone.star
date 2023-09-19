@@ -380,7 +380,7 @@ def build_docs(ctx):
         env["TOKEN"] = {"from_secret": "GH_PAGE_DEPLOY_TOKEN"}
         commands += [
             "CI=true CARDS=true ./docs/build.sh",
-            "./assets/ci/push-auto-fix.sh",
+            #"./assets/ci/push-auto-fix.sh",
             "./assets/ci/push-gh-pages.sh",
         ]
 
