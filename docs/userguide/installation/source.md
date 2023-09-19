@@ -82,6 +82,24 @@ $ # or assets/build-deb.sh # if you are using a Debian derivative
 ```
 A minimal policy is included in /opt/kumomta/share/minimal-init.lua that you can just copy to /opt/kumomta/etc/policy/init.lua.  This is VERY minimal and you shoud definitely edit or create your own (see below)
 
+You will probably also want to run all of this to create the directories and permissions that will help with a seamless experience.
+```console
+$ sudo useradd kumod -U -M
+$ sudo mkdir -p /opt/kumomta/etc/policy
+$ sudo mkdir -p /opt/kumomta/etc/dkim
+$ sudo mkdir -p /opt/kumomta/etc/tls
+$ sudo mkdir -p /var/spool/kumomta
+$ sudo mkdir -p /var/log/kumomta
+$ sudo chown kumod:kumod /var/spool/kumomta
+$ sudo chown kumod:kumod /var/log/kumomta
+$ sudo chown kumod:kumod /opt/kumomta/etc
+$ sudo chown kumod:kumod /opt/kumomta/etc/policy
+$ sudo chown kumod:kumod /opt/kumomta/etc/tls
+$ sudo chown kumod:kumod /opt/kumomta/etc/dkim
+$ sudo cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua
+$ sudo cp /opt/kumomta/share/minimal-tsa_init.lua /opt/kumomta/etc/policy/tsa-init.lua
+
+```
 
 ## Creating the initial config
 KumoMTA is now installed, but it requires a configuration policy so it knows how to behave.
@@ -102,7 +120,7 @@ $ KUMOD_LOG=kumod=info cargo run --release -p kumod -- --policy /opt/kumomta/etc
 
 You can run as root using port 25 with this:
 ```
- sudo KUMOD_LOG=kumod=debug /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/sink.lua --user kumod&
+ sudo KUMOD_LOG=kumod=debug /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod&
 ```
 
 In the above you are telling Cargo to run the Rust compiler to build an
