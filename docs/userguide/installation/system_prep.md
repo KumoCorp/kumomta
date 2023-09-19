@@ -42,21 +42,6 @@ sudo apt install bind9 -y
 sudo systemctl start named
 ```
 
-You can test that with a simple lookup like `nslookup google.com` and it should show the result coming from localhost.
-
-```
-$  nslookup google.com
-Server:         127.0.0.53
-Address:        127.0.0.53#53
-
-Non-authoritative answer:
-Name:   google.com
-Address: 142.251.33.78
-Name:   google.com
-Address: 2607:f8b0:400a:806::200e
-
-```
-
 * Turn off services that can interfere, particularly postfix and qpidd
 
 ```bash
