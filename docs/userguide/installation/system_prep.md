@@ -36,6 +36,27 @@ sudo apt-get -y upgrade
 
 * Install basic testing and support tools like firewalld tree telnet git bind (or bind9) bind-utils (or bind9-utils)
 
+Note that installing a caching name server is absolutely critical when you are using a high performance mail engine.  Please do yourself a favour and install bind (or some other caching name server) and test it now.
+```bash
+sudo apt install bind9 -y
+sudo systemctl start named
+```
+
+You can test that with a simple lookup like `nslookup google.com` and it should show the result coming from localhost.
+
+```
+$  nslookup google.com
+Server:         127.0.0.53
+Address:        127.0.0.53#53
+
+Non-authoritative answer:
+Name:   google.com
+Address: 142.251.33.78
+Name:   google.com
+Address: 2607:f8b0:400a:806::200e
+
+```
+
 * Turn off services that can interfere, particularly postfix and qpidd
 
 ```bash
