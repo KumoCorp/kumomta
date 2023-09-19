@@ -79,7 +79,6 @@ There are a few helpers included that can build out the recommended directory st
 ```console
 $ assets/build-rpm.sh
 $ # or assets/build-deb.sh # if you are using a Debian derivative
-$ assets/install.sh /opt/kumomta
 ```
 A minimal policy is included in /opt/kumomta/share/minimal-init.lua that you can just copy to /opt/kumomta/etc/policy/init.lua.  This is VERY minimal and you shoud definitely edit or create your own (see below)
 
