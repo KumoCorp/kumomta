@@ -13,11 +13,11 @@ sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
 ```
 
 Now that you have KumoMTA installed, you should test it from the command line of the installed host. This is easy if you installed the basic tools as described earlier.  
-Note that the default SMTP listener is on port 2025, so we have use that in these examples.
+Note that the default SMTP listener is on port 25, so we have use that in these examples.
 
 ## Telnet method for SMTP
 
-Start a telnet session with ```telnet localhost 2025```
+Start a telnet session with ```telnet localhost 25```
 Then replace youremail@address.com with your actual email address.
 Copy the entire thing and paste it into the telnet session in your console.
 
@@ -75,7 +75,7 @@ chmod 755 ./swaks-20201014.0/swaks
 You can test a relay through KumoMTA with this (change user@example.com to your own email address first)
 
 ```console
-swaks --to user@example.com --server 127.0.0.1 --port 2025
+swaks --to user@example.com --server 127.0.0.1 --port 25
 ```
 
 

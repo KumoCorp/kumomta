@@ -12,7 +12,7 @@ If you just want to get this installed and running without exhaustive explanatio
 
 1) Spin up an AWS t2.xlarge (or larger)instance (or any server with at least 4vCPUs, 16Gb RAM, 300Gb Hard Drive*)
 
-*This may sound large, but this is typical for a million/month sender. If you really just want to "kick tires", this can be built on a 1CPU, 2GB RAM, 10GB Drive.  
+*This may sound large, but this is typical for a million/month sender. If you really just want to "kick tires", this can be built on a 1CPU, 2GB RAM instance with 10GB Drive - most of that is for OS.  
 
 2) Install Rocky linux 9
 
@@ -39,7 +39,7 @@ sudo yum install kumomta-dev
 Hint, you can copy and paste that into a new file and edit the necessary parts.
 You should either create dkim keys or comment out the dkim signing portion for now.
 
-6) Run it with : 
+6) If it is not already running from the instructions above, run it with : 
 ```
 sudo systemctl start kumomta
 sudo systemctl enable kumomta

@@ -54,7 +54,7 @@ kumo.start_http_listener {
   trusted_hosts = { '127.0.0.1', '::1' },
 }
 ```
-
+NOTE that if you are going to allow the HTTP listener on any IP other than localhost, you should also configure [TLS](https://docs.kumomta.com/reference/kumo/start_http_listener/?h=tls#tls_private_key) and [HTTP Validation](https://docs.kumomta.com/reference/events/http_server_validate_auth_basic/).
 
 That will provide you with a basic and safe sending configuration that will allow you to move on to the testing step - we can examine the details later.
 
@@ -62,6 +62,13 @@ That will provide you with a basic and safe sending configuration that will allo
 
 
 If you followed all the instructions above without errors, you should now have a working MTA on a properly sized server.  Lets test that theory.
+
+Check to see if it is already running from the install instructions above:
+
+```bash
+sudo systemctl status kumomta
+```
+If this shows the service as running with no errors, you can skip the rest of this page.  If not, keep reading.
 
 Start the MTA with this:
 ```
