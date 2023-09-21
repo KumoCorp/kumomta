@@ -12,15 +12,15 @@ sudo dnf config-manager \
 sudo yum install kumomta-dev
 ```
 
-This installs the KumoMTA daemon to /opt/kumomta/sbin/kumod 
+This installs the KumoMTA daemon to /opt/kumomta/sbin/kumod
 
-Technically KumoMTA is now installed, but it will need a configuration policy in order to do anything useful. 
+Technically KumoMTA is now installed, but it will need a configuration policy in order to do anything useful.
 
 
 ### Writing Config Policy
 The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html).  If you have not heard of Lua before, that is ok, you are not alone.  It is a powerful scripting language that is easy to read and code, but is very powerful.  It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](https://docs.kumomta.com/tutorial/lua_resources/).
 
-To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](https://docs.kumomta.com/userguide/installation/getting_started/) and modify the relevant sections.  Create that in ```/opt/kumomta/etc/policy/init.lua``` like this:
+To save you from writing your own policy from scratch, you can just copy the example found in the [User Guide](../userguide/configuration/example.md) and modify the relevant sections.  Create that in ```/opt/kumomta/etc/policy/init.lua``` like this:
 
 ```console
 sudo vi /opt/kumomta/etc/policy/init.lua
@@ -74,7 +74,7 @@ sudo systemctl enable kumomta
 
 Alternately you can start it manually with:
 ```console
- sudo /opt/kumomta/sbin/kumod --policy \ 
+ sudo /opt/kumomta/sbin/kumod --policy \
  /opt/kumomta/etc/policy/init.lua --user kumod&
 ```
 
