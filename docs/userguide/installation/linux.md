@@ -12,7 +12,7 @@ The install instructions for supported platforms are shown below. If your platfo
         Note that Red Hat full support for RHEL 7 [ended in August
         2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates)
         and CentOS 7 full support [ended in August
-        2020](https://wiki.centos.org/About/Product).
+        2020](https://wiki.centos.org/About/Product). We ended automated builds for RHEL 7 with the [2023.08.22-4d895015](../../changelog/2023.08.22-4d895015.md) release.
 
         We recommend upgrading to a newer OS as soon as possible.
 
