@@ -2,7 +2,7 @@
 
 Congratulations for making it this far. Now we can actually install some software.  This is probably the easiest part.
 
-In another section of the documentation we show how to build from source but we are not covering that in this tutorial.  Here, we are going to take the easy path and install the [prebuilt binary from the repo](https://docs.kumomta.com/userguide/installation/getting_started/).  You can literally just copy/paste the commands below to install it from our yum repo.
+In another section of the documentation we show how to build from source but we are not covering that in this tutorial.  Here, we are going to take the easy path and install the [prebuilt binary from the repo](../userguide/installation/linux.md).  You can literally just copy/paste the commands below to install it from our yum repo.
 
 ```console
 sudo dnf -y install dnf-plugins-core
