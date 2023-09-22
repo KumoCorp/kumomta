@@ -31,6 +31,8 @@ fi
 
 # https://github.com/rust-lang/cargo/issues/2025
 # Document only our own crates
+# TODO: consider using:
+# <https://doc.rust-lang.org/nightly/cargo/reference/unstable.html#rustdoc-map>
 cargo tree --depth 0 -e normal --prefix none | \
   cut -d' ' -f1 | sort -u | xargs printf -- '-p %s\n' | \
   xargs cargo doc --no-deps --locked --lib
