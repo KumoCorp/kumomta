@@ -5,7 +5,7 @@ logs. The easiest way to see what is going on iw with the built-in tailer utilit
 ```bash
 sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta
 ``` 
-This assumes a default installtion with the logs located in /var/log/kumomta.
+This assumes a default installation with the logs located in /var/log/kumomta/.
 
 If you want to dive in deeper, compressed logs are found in `/var/log/kumomta/` as can be seen in this
 tree. Logs are segmented by a combination of size/time and stored in compressed
