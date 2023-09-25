@@ -1,7 +1,13 @@
 # Check for success in the logs
 
 Regardless of whether the mail delivers or not, you should take a look at the
-logs.  Compressed logs are found in `/var/log/kumomta/` as can be seen in this
+logs. The easiest way to see what is going on iw with the built-in tailer utility.  Simply open a new terminal (so you can work on other things and watch logs at the same time) and run this:
+```bash
+sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta
+``` 
+This assumes a default installtion with the logs located in /var/log/kumomta.
+
+If you want to dive in deeper, compressed logs are found in `/var/log/kumomta/` as can be seen in this
 tree. Logs are segmented by a combination of size/time and stored in compressed
 files named after the time that the segment was started. To read these, you
 need to unpack them first. You have [many options for configuring
