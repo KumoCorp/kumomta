@@ -140,3 +140,16 @@ $ curl -s 'http://localhost:8008/get_config_v1/shaping.toml'
 ```
 
 This call returns the current set of shaping rules in the same format as shaping.toml, the example is of an empty set.
+
+## Debugging Tips
+If the tsa-deamon does not appear to be working, you can check to see if it is running with 'sudo systemctl status kumo-tsa-daemon' which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
+```bash
+sudo systemctl stop kumo-tsa-daemon
+sudo systemctl start kumo-tsa-daemon
+``` 
+
+Data for the TSA daemon is just like any other message in KumoMTA and will follow the same retry rules. The default is to retry in 20 minutes with exponential fallback.  If desired, this (or any other) scheduled queue can be customized with the [get_queue_config](https://docs.kumomta.com/reference/events/get_queue_config/) hook.
+
+ 
+
+
