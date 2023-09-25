@@ -170,7 +170,7 @@ Content-Type: multipart/alternative;\r
 \tboundary="ma-boundary"\r
 Subject: Hello there! =?UTF-8?q?=F0=9F=8D=89?=\r
 Mime-Version: 1.0\r
-Date: Tue, 01 Jul 2003 10:52:37 +0200\r
+Date: Tue, 1 Jul 2003 10:52:37 +0200\r
 \r
 --ma-boundary\r
 Content-Type: text/plain;\r
