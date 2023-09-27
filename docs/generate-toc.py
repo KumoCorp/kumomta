@@ -114,7 +114,7 @@ TOC = [
         "Tutorial",
         None,
         children=[
-            Page("KumoMTA Day 1", "tutorial/kumomta_day_1.md"),
+            Page("Quickstart Tutorial", "tutorial/quickstart.md"),
             Page("Server Environment", "tutorial/server_environment.md"),
             Page("System Preparation", "tutorial/system_preparation.md"),
             Page("Install It", "tutorial/install_it.md"),
@@ -124,6 +124,7 @@ TOC = [
             Page("Lua Resources", "tutorial/lua_resources.md"),
             Page("How messages flow", "tutorial/how_it_works.md"),
             Page("Working with Vault", "tutorial/using_vault.md"),
+            Page("Deprecated", "tutorial/kumomta_day_1.md"),
         ],
     ),
     Page(
