@@ -106,7 +106,7 @@ end) -- END OF THE INIT EVENT
 
 -- Configure listener domains for relay, oob bounces, and FBLs using the
 -- listener_domains.lua policy helper.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- WARNING: THIS WILL NOT LOAD WITHOUT THE listener_domains.toml FILE IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/smtplisteners/
 
 local listener_domains = require 'policy-extras.listener_domains'
@@ -126,7 +126,7 @@ kumo.on('get_egress_path_config', shaping:setup_json())
 -- connect to remote systems using the sources.lua policy helper.
 -- Note that defining sources and pools does nothing without some form of
 -- policy in effect to assign messages to the source pools you have defined.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- WARNING: THIS WILL NOT LOAD WITHOUT THE source.toml FILE IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
 
 local sources = require 'policy-extras.sources'
@@ -155,7 +155,7 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
 end)
 
 -- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
 
 local dkim_sign = require 'policy-extras.dkim_sign'

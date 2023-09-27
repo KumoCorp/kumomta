@@ -1,27 +1,26 @@
-# KumoMTA - Day 1
+# KumoMTA Tutorial
+This document will outline a typical deployment of KumoMTA starting from scratch. This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
 
-This document will outline a typical deployment of KumoMTA starting from scratch. This walkthrough is not a replacement for reading the full documentation, but rather will show how to install and configure in a specific environment as a sample that you can bend to your own needs.
+This tutorial assumes the reader has a basic understanding of Linux administration, a provisioned physical or virtual machine, and a minimal install of Rocky Linux 9.
 
-We assume that you know Linux, have an AWS account, Github account, and have a working knowledge of how those tools operate. We also assume that you know what an MTA is and why you need one.  If not, you may want to [read this first](https://en.wikipedia.org/wiki/Message_transfer_agent).
+This tutorial also assumes that you have some experience installing and managing an [MTA](https://en.wikipedia.org/wiki/Message_transfer_agent).
 
-## Getting Started
-The scenario we are going to emulate is a deployment using Rocky Linux V9 in AWS Public cloud. This will be a single node server having to send about eight million messages a day to the public Internet. The average size of these messages will be 50KB.
+## Quickstart Install
+This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md).
 
-## The TL;DR version
-If you just want to get this installed and running without exhaustive explanation, follow these steps. This assumes you know what you are doing and just want the high-level info.  The longer version with deeper explanation follows in the next section.
+1) Provision an AWS t2.xlarge (or larger) instance (or any physical or virtual server with at least 4 CPUs, 16Gb RAM, 300Gb Hard Drive).
 
-1) Spin up an AWS t2.xlarge (or larger)instance (or any server with at least 4vCPUs, 16Gb RAM, 300Gb Hard Drive*)
+!!!Note
+    The hardware here is for a high-throughput sending environment, but KumoMTA can run on a smaller footprint for low-volume environments. if your sending needs are smaller, you can deploy to a server with 1 CPU, 2GB RAM, and 10Gb of storage.
 
-*This may sound large, but this is typical for a million/month sender. If you really just want to "kick tires", this can be built on a 1CPU, 2GB RAM instance with 10GB Drive - most of that is for OS.  
-
-2) Install Rocky linux 9
+2) [Install Rocky Linux 9](https://docs.rockylinux.org/guides/installation/). A minimal install is sufficient.
 
 3) Update the OS and disable Postfix if needed
 
 ```console
 sudo dnf clean all
 sudo dnf update -y
-sudo systemctl stop  postfix.service
+sudo systemctl stop postfix.service
 sudo systemctl disable postfix.service
 ```
 
@@ -32,15 +31,16 @@ sudo dnf -y install dnf-plugins-core
 sudo dnf config-manager \
     --add-repo \
     https://openrepo.kumomta.com/files/kumomta-rocky.repo
-sudo yum install kumomta-dev
+sudo yum install kumomta
 ```
 
-5) Create a configuration policy in ```/opt/kumomta/etc/policy/init.lua``` based on the example at [https://docs.kumomta.com/userguide/configuration/example/](../userguide/configuration/example.md)
-Hint, you can copy and paste that into a new file and edit the necessary parts.
-You should either create dkim keys or comment out the dkim signing portion for now.
+!!!note
+    Alternatively you can install the kumomta-dev package in order to take advantage of the latest pre-release features. This is only recommended for testing environments.
 
-6) If it is not already running from the instructions above, run it with : 
-```
+
+5) The instructions above will place a default configuration file at /opt/kumomta/etc/policy/init.lua and start the KumoMTA service, if the service does not start by default it can be started and enabled with the following commands:
+
+```console
 sudo systemctl start kumomta
 sudo systemctl enable kumomta
 ```
@@ -51,10 +51,81 @@ sudo /opt/kumomta/sbin/kumod --policy \
   /opt/kumomta/etc/policy/init.lua --user kumod&
 ```
 
-And you are done.  KumoMTA will now be installed and running the init.lua configuration from ```/opt/kumomta/sbin/kumod```.  If you started it manually, the `&` pushes the running process to the background, type 'fg' to bring it forward again.
+KumoMTA will now be installed and running the init.lua configuration from `/opt/kumomta/sbin/kumod`.  If you started it manually, the `&` pushes the running process to the background, type 'fg' to bring it forward again.
+
+6) Test your KumoMTA configuration using telnet or the tool of your choice:
+
+```console
+telnet localhost 25
+Trying ::1...
+telnet: connect to address ::1: Connection refused
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is '^]'.
+220 localhost.localdomain KumoMTA
+ehlo moto
+250-localhost.localdomain Aloha moto
+250-PIPELINING
+250-ENHANCEDSTATUSCODES
+250 STARTTLS
+MAIL FROM:test@example.com
+250 OK EnvelopeAddress("test@example.com")
+RCPT TO:test@example.com
+250 OK EnvelopeAddress("test@example.com")
+DATA
+354 Send body; end with CRLF.CRLF
+Subject: Test Message Using KumoMTA
+
+This is a test.
+.
+250 OK ids=d7ef132b5d7711eea8c8000c29c33806
+quit
+221 So long, and thanks for all the fish!
+```
+
+7) View the log entries related to your test message:
+
+```console
+sudo systemctl restart kumomta
+zstdcat /var/log/kumomta/20230927-205300
+```
+
+```json
+{
+  "type": "Reception",
+  "id": "d7ef132b5d7711eea8c8000c29c33806",
+  "sender": "test@example.com",
+  "recipient": "test@example.com",
+  "queue": "example.com",
+  "site": "",
+  "size": 320,
+  "response": {
+    "code": 250,
+    "enhanced_code": null,
+    "content": "",
+    "command": null
+  },
+  "peer_address": {
+    "name": "moto",
+    "addr": "127.0.0.1"
+  },
+  "timestamp": 1695847980,
+  "created": 1695847980,
+  "num_attempts": 0,
+  "bounce_classification": "Uncategorized",
+  "egress_pool": null,
+  "egress_source": null,
+  "feedback_report": null,
+  "meta": {},
+  "headers": {},
+  "delivery_protocol": null,
+  "reception_protocol": "ESMTP",
+  "nodeid": "d8e014c7-eaeb-4683-a56e-61324e91b1fc"
+}
+```
+
+!!!note
+    The server is restarted because logs are written using streaming compression with log flushing after every 1GB of data, or upon server restart. These example log entries have been formatted for ease of reading in the documentation.
 
 ## The Longer Version
-This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions.  Read on to the next section to look at server selection and sizing, OS preparation, installing and testing it with more detail.
-
-
-
+This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions. [Read on](./server_environment.md) to look at server selection and sizing, OS preparation, installation, and testing in more detail.
