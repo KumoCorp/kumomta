@@ -55,7 +55,7 @@ chmod 755 ./swaks-20201014.0/swaks
 
 Basic Swaks usage:
 
-```console
+```bash
 swaks --to user@example.com --server 127.0.0.1 --port 25
 ```
 

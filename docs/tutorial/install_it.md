@@ -2,7 +2,7 @@
 
 Pre-built repos are available for supported Operating Systems, making installation straightforward:
 
-```console
+```bash
 sudo dnf -y install dnf-plugins-core
 sudo dnf config-manager \
     --add-repo \
@@ -47,7 +47,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
 1. Copy the default Traffic Shaping helper configuration files into place. The helpers are designed to provide simple configuration for standard use cases:
 
-    ```console
+    ```bash
     sudo cp /opt/kumomta/share/policy-extras/shaping.toml /opt/kumomta/etc/
     ```
 
@@ -83,7 +83,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
     Replace the domain and selector with your own, then generate signing keys with:
 
-    ```console
+    ```bash
     export DOMAIN=<your_domain>
     export SELECTOR=<your_selector>
     sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN

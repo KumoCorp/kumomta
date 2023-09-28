@@ -14,7 +14,7 @@ For AWS users:
 
 When AWS has finished building your server instance, you can select it and connect. I prefer to find the SSH client information and use a remote terminal emulator like Putty or Terminal like this:
 
-```console
+```bash
 ssh -i "yourkeyname.pem" rocky@ec2-\<pub-lic-ip\>.<zone>.compute.amazonaws.com
 ```
 
@@ -31,7 +31,7 @@ Regardless of what system you deploy, there are things you need to do to prepare
 !!!note
     Rocky Linux is very similar to RedHat Enterprise Linux (RHEL), as is Alma and CentOS. The instructions below are shown for a Rocky 9 system but with slight modification, should work for any DNF package management system. For Amazon Linux (AL2) the instructions are identical, but replace "dnf" with "yum".
 
-```console
+```bash
 # Do basic updates
 sudo dnf clean all
 sudo dnf update -y
@@ -45,7 +45,7 @@ sudo systemctl enable named
 
 For the sake of simplicity you can automate daily updates of installed packages using `cron`:
 
-```console
+```bash
 # Make sure it all stays up to date
 # Run a dnf update at 3AM daily
 echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | \
@@ -54,7 +54,7 @@ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | \
 
 Next configure the local firewall:
 
-```console
+```bash
 # Build a basic firewall
 sudo echo "ZONE=public
 " | sudo tee -a /etc/sysconfig/network-scripts/ifcfg-eth0
@@ -75,7 +75,7 @@ sudo firewall-cmd --reload
 
 Finally, disable unnecessary services like postfix and qpidd:
 
-```console
+```bash
 sudo systemctl stop postfix.service
 sudo systemctl disable postfix.service
 sudo systemctl stop qpidd.service
@@ -86,7 +86,7 @@ sudo systemctl disable qpidd.service
 
 Before you continue, you should ensure that your system has a valid SSL Certificate.  If you do not have one available, a self-signed certificate is acceptable for most purposes (Change the certificate variables before executing this):
 
-```console
+```bash
 # For the certificate enter your FQDN
 MYFQDN="my.company.com"
 

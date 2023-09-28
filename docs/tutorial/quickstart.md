@@ -16,7 +16,7 @@ This adbridged set of instructions assumes you are an experienced MailOps admini
 
 1. Update the OS and disable Postfix if needed
 
-    ```console
+    ```bash
     sudo dnf clean all
     sudo dnf update -y
     sudo systemctl stop postfix.service
@@ -25,7 +25,7 @@ This adbridged set of instructions assumes you are an experienced MailOps admini
 
 1. Add the KumoMTA repo to your config manager and yum install it like this:
 
-    ```console
+    ```bash
     sudo dnf -y install dnf-plugins-core
     sudo dnf config-manager \
         --add-repo \
@@ -38,13 +38,13 @@ This adbridged set of instructions assumes you are an experienced MailOps admini
 
 1. The instructions above will place a default configuration file at /opt/kumomta/etc/policy/init.lua and start the KumoMTA service, if the service does not start by default it can be started and enabled with the following commands:
 
-    ```console
+    ```bash
     sudo systemctl start kumomta
     sudo systemctl enable kumomta
     ```
 
     Alternately you can run it manually with :
-    ```console
+    ```bash
     sudo /opt/kumomta/sbin/kumod --policy \
       /opt/kumomta/etc/policy/init.lua --user kumod&
     ```
@@ -53,7 +53,7 @@ This adbridged set of instructions assumes you are an experienced MailOps admini
 
 1. Test your KumoMTA configuration using telnet or the tool of your choice:
 
-    ```console
+    ```bash
     telnet localhost 25
     Trying ::1...
     telnet: connect to address ::1: Connection refused
@@ -83,7 +83,7 @@ This adbridged set of instructions assumes you are an experienced MailOps admini
 
 1. View the log entries related to your test message:
 
-    ```console
+    ```bash
     sudo systemctl restart kumomta
     zstdcat /var/log/kumomta/20230927-205300
     ```
