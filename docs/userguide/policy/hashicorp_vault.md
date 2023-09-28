@@ -7,8 +7,8 @@
 
 ## How do I configure it to work with KumoMTA?
 
-The documentation [here](https://docs.kumomta.com/reference/keysource/?h=hashi#hashicorp-vault) is fairly straightforward, but does have some nuance. 
-In the example shown there and below,we are storing the DKIM signing key as a file in vault so it can be called dynamically (more on that later), but including the vault token in the script is not particularly a secure way of doing things.  It is much better to place that addres and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.   
+The documentation [here](https://docs.kumomta.com/reference/keysource/?h=hashi#hashicorp-vault) is fairly straightforward, but does have some nuance.
+In the example shown there and below,we are storing the DKIM signing key as a file in vault so it can be called dynamically (more on that later), but including the vault token in the script is not particularly a secure way of doing things.  It is much better to place that addres and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.
 
 ```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {
@@ -41,7 +41,7 @@ At the bottom of that section, add 2 lines:
  Environment=VAULT_TOKEN='<YOUR_ACCESS_TOKEN>'
 ```
 
-When done, it should look something like this: 
+When done, it should look something like this:
 
 ```
  [Unit]
@@ -87,7 +87,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
     vault_mount = 'secret',
     vault_path = 'dkim/' .. msg:from_header().domain,
   },
-} 
+}
 ```
 
 You could easily modify that code to pull a different signing key based on any number of factors.

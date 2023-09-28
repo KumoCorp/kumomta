@@ -120,11 +120,6 @@ TOC = [
             Page("Installing KumoMTA", "tutorial/install_it.md"),
             Page("Testing KumoMTA", "tutorial/your_first_email.md"),
             Page("Checking Logs", "tutorial/checking_logs.md"),
-            Page("Performance tuning", "tutorial/performance.md"),
-            Page("Lua Resources", "tutorial/lua_resources.md"),
-            Page("How messages flow", "tutorial/how_it_works.md"),
-            Page("Working with Vault", "tutorial/using_vault.md"),
-            Page("Deprecated", "tutorial/kumomta_day_1.md"),
         ],
     ),
     Page(
@@ -143,6 +138,7 @@ TOC = [
                     Page("Credits", "userguide/general/credits.md"),
                     Page("History", "userguide/general/history.md"),
                     Page("Architecture", "userguide/general/architecture.md"),
+                    Page("Lua Fundamentals", "userguide/general/lua.md"),
                 ],
             ),
             Page(
@@ -266,6 +262,7 @@ TOC = [
                         "Routing Messages via HTTP Request", "userguide/policy/http.md"
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
+                    Page("Storing Secrets in Hashicorp Vault", "userguide/policy/hashicorp_vault.md"),
                 ],
             ),
         ],

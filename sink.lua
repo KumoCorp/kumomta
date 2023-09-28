@@ -37,3 +37,8 @@ kumo.on('smtp_server_message_received', function(msg)
   -- Accept and discard all messages
   msg:set_meta('queue', 'null')
 end)
+
+kumo.on('http_message_generated', function(msg)
+  -- Accept and discard all messages
+  msg:set_meta('queue', 'null')
+end)
