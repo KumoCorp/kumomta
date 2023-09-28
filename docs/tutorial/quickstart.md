@@ -1,11 +1,10 @@
 # Quickstart Tutorial
-This document will outline a typical deployment of KumoMTA starting from scratch. This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
+
+This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md).
 
 This tutorial assumes the reader has a basic understanding of Linux administration, a provisioned physical or virtual machine, and a minimal install of Rocky Linux 9.
 
 This tutorial also assumes that you have some experience installing and managing an [MTA](https://en.wikipedia.org/wiki/Message_transfer_agent).
-
-This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md).
 
 1. Provision an AWS t2.xlarge (or larger) instance (or any physical or virtual server with at least 4 CPUs, 16Gb RAM, 300Gb Hard Drive).
 
