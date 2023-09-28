@@ -79,6 +79,19 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     [pool."Default"."ip-2"]
     ```
 
+1. Configure DKIM signing keys. [Read the guide](https://docs.kumomta.com/userguide/configuration/dkim/) for details, but the short version is below:
+
+    Replace the domain and selector with your own, then generate signing keys with:
+
+    ```console
+    export DOMAIN=<your_domain>
+    export SELECTOR=<your_selector>
+    sudo mkdir -p /opt/kumomta/etc/dkim/$DOMAIN
+    sudo openssl genrsa -f4 -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key 1024
+    sudo openssl rsa -in /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.key -outform PEM -pubout -out /opt/kumomta/etc/dkim/$DOMAIN/$SELECTOR.pub
+    sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
+    ```
+
 1. Configure the dkim_data.toml file, written to `/opt/kumomta/etc/dkim_data.toml` in the following format, substituting your own DKIM signing information:
 
     ```toml

@@ -118,7 +118,7 @@ TOC = [
             Page("Server Environment", "tutorial/server_environment.md"),
             Page("System Preparation", "tutorial/system_preparation.md"),
             Page("Installing KumoMTA", "tutorial/install_it.md"),
-            Page("Your First Email", "tutorial/your_first_email.md"),
+            Page("Testing KumoMTA", "tutorial/your_first_email.md"),
             Page("Checking Logs", "tutorial/checking_logs.md"),
             Page("Performance tuning", "tutorial/performance.md"),
             Page("Lua Resources", "tutorial/lua_resources.md"),
