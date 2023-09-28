@@ -2,33 +2,34 @@
 
 Now that we know **_what_** to build, lets go ahead and build it.
 
-* Open up AWS, select EC2 and hit the **Launch Instance** button.
-* Give this server a name and then search for "rocky" in the OS images.  When you have found it, select "Rocky 9".
+## OS Installation
+
+For AWS users:
+
+* Log into AWS, select EC2 and hit the **Launch Instance** button.
+* Give this server a name and then search for "Rocky" in the OS images, select "Rocky 9".
 * Under Instance Type, select a t2.xlarge, provide your keypair for login or create a pair if necessary.
 * In the Network Settings, select or create a security group that includes ports 22,25,80,443,587,2025. These will be important for sending and receiving email in a number of ways.
-* Finally, modify the storage volume to 300Gb (or anything over 100Gb) and click **Launch Instance.**
-
-... wait ....
+* Finally, modify the storage volume to 1TB (or anything over 300Gb) and click **Launch Instance**.
 
 When AWS has finished building your server instance, you can select it and connect. I prefer to find the SSH client information and use a remote terminal emulator like Putty or Terminal like this:
 
 ```console
-ssh -i "yourkeyname.pem" rocky@ec2-\<pub-lic-ip\>.us-west-2.compute.amazonaws.com
+ssh -i "yourkeyname.pem" rocky@ec2-\<pub-lic-ip\>.<zone>.compute.amazonaws.com
 ```
 
-## Doing the basics
+## OS Preparation
 
 Regardless of what system you deploy, there are things you need to do to prepare the OS before installing the MTA.
 
-* Update to the latest patches
+* Update the installed packages
 * Install basic testing and support tools
 * Turn off services that are wasteful or can interfere
 * Tune the use of memory and file access for best performance
 * Automate updates and startup for resiliency
 
-### Rocky Linux Example
-
-Rocky Linux is very similar to CentOS, as is Alma and RHEL  The instructions below are shown for a Rocky 9 system but with slight modification, should work for any DNF package management system. For Amazon Linux (AL2) the instructions are identical, but replace "dnf" with "yum".
+!!!note
+    Rocky Linux is very similar to RedHat Enterprise Linux (RHEL), as is Alma and CentOS. The instructions below are shown for a Rocky 9 system but with slight modification, should work for any DNF package management system. For Amazon Linux (AL2) the instructions are identical, but replace "dnf" with "yum".
 
 ```console
 # Do basic updates
@@ -42,7 +43,7 @@ sudo systemctl start named
 sudo systemctl enable named
 ```
 
-It is always a good idea to automate daily systems updates.
+For the sake of simplicity you can automate daily updates of installed packages using `cron`:
 
 ```console
 # Make sure it all stays up to date
@@ -51,7 +52,8 @@ echo "0 3 * * * root /usr/bin/dnf update -y >/dev/null 2>&1" | \
  sudo tee /etc/cron.d/dnf-updates >/dev/null
 ```
 
-... and configure the local firewall...
+Next configure the local firewall:
+
 ```console
 # Build a basic firewall
 sudo echo "ZONE=public
@@ -71,18 +73,18 @@ sudo systemctl enable firewalld
 sudo firewall-cmd --reload
 ```
 
-And finally, disabling unnecessary services like postfix and qpidd
+Finally, disable unnecessary services like postfix and qpidd:
 
 ```console
-sudo systemctl stop  postfix.service
+sudo systemctl stop postfix.service
 sudo systemctl disable postfix.service
-sudo systemctl stop  qpidd.service
+sudo systemctl stop qpidd.service
 sudo systemctl disable qpidd.service
 ```
 
 ## Creating a Self-Signed Certificate
 
-Before you continue, you should ensure that your system has a valid SSL Certificate.  If you do not have one available, a self-signed certificate is usually ok for most purposes.  You can create one like this. (Change the certificate variables before executing this)
+Before you continue, you should ensure that your system has a valid SSL Certificate.  If you do not have one available, a self-signed certificate is acceptable for most purposes (Change the certificate variables before executing this):
 
 ```console
 # For the certificate enter your FQDN
@@ -114,11 +116,10 @@ sudo mv -f ca.crt /etc/pki/tls/certs
 sudo mv -f ca.key /etc/pki/tls/private/ca.key
 sudo mv -f ca.csr /etc/pki/tls/private/ca.csr
 
-# If Apache HTTPD is installed, update the SSL config (ignore errors)
+# If Apache HTTPD is installed, update the SSL config (IGNORE ERRORS)
 sudo sed -i 's/SSLCertificateFile \/etc\/pki\/tls\/certs\/localhost.crt/SSLCertificateFile \/etc\/pki\/tls\/certs\/ca.crt/' /etc/httpd/conf.d/ssl.conf
 sudo sed -i 's/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/localhost.key/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/ca.key/' /etc/httpd/conf.d/ssl.conf
-
 ```
 
-Now you can move on to Installing it.
+With this preparation complete, we're ready to [Install KumoMTA](./install_it.md).
 
