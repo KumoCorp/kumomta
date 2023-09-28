@@ -1,1 +1,0 @@
-This page has moved, see the [Quickstart Tutorial](./quickstart.md) page.

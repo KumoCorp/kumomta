@@ -65,3 +65,9 @@ stopping KumoMTA with a `zstdcat /var/log/kumomta/20230314-181435`.
 
 The default for log segments is to flush them after 1GB of data is written,
 but you can adjust them to flush after a certain amount of time. The [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) page of the Reference Manual has all of the available logging configuration options.
+
+## Next Steps
+
+With KumoMTA installed, configured, and tested, the tutorial is complete.
+
+See more on [Next Steps](./next_steps.md).

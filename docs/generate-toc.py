@@ -117,9 +117,10 @@ TOC = [
             Page("Quickstart Tutorial", "tutorial/quickstart.md"),
             Page("Server Environment", "tutorial/server_environment.md"),
             Page("System Preparation", "tutorial/system_preparation.md"),
-            Page("Installing KumoMTA", "tutorial/install_it.md"),
-            Page("Testing KumoMTA", "tutorial/your_first_email.md"),
+            Page("Installing KumoMTA", "tutorial/installing_kumomta.md"),
+            Page("Testing KumoMTA", "tutorial/testing_kumomta.md"),
             Page("Checking Logs", "tutorial/checking_logs.md"),
+            Page("Nest Steps", "tutorial/next_steps.md"),
         ],
     ),
     Page(
