@@ -55,7 +55,7 @@ ExecStart=/opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --us
 # write out pending data
 TimeoutStopSec=300
 Environment=VAULT_ADDR='http://127.0.0.1:8200'
-Environment=VAULT_TOKEN='hvs.RGTlkIUYif34pjsf90wGCp0Q'
+Environment=VAULT_TOKEN='SAMPLE-TOKEN'
 
 [Install]
 WantedBy=multi-user.target
