@@ -120,7 +120,7 @@ TOC = [
             Page("Installing KumoMTA", "tutorial/installing_kumomta.md"),
             Page("Testing KumoMTA", "tutorial/testing_kumomta.md"),
             Page("Checking Logs", "tutorial/checking_logs.md"),
-            Page("Nest Steps", "tutorial/next_steps.md"),
+            Page("Next Steps", "tutorial/next_steps.md"),
         ],
     ),
     Page(
