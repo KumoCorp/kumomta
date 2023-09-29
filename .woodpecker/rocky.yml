@@ -1,0 +1,99 @@
+matrix:
+  # Annoying workaround for <https://github.com/woodpecker-ci/woodpecker/issues/2002>
+  include:
+    - ROCKY_VERSION: 8
+      ROCKY_IMAGE: rockylinux:8
+      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:8
+    - ROCKY_VERSION: 9
+      ROCKY_IMAGE: rockylinux:9
+      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:9
+
+when:
+  path:
+    exclude:
+      - docs/**
+      - mkdocs-base.yml
+      - stylua.toml
+
+variables:
+  - &docker_credentials
+      username:
+        from_secret: gh_package_publish_user
+      password:
+        from_secret: gh_package_publish_token
+
+steps:
+  restore-mtime:
+    image: python:3-bookworm
+    commands:
+      - git config --global --add safe.directory /woodpecker/src
+      - ./assets/ci/git-restore-mtime crates
+      - git diff-index --name-status HEAD --
+
+  restore-build-cache:
+    environment: &cache_environment
+      AWS_DISABLESSL: "true"
+    secrets: &cache_secrets
+      - source: s3_access_key_id
+        target: AWS_ACCESS_KEY_ID
+      - source: s3_secret_key
+        target: AWS_SECRET_ACCESS_KEY
+      - source: s3_endpoint
+        target: S3_ENDPOINT
+    image: &cache_image meltwater/drone-cache
+    settings: &cache_settings
+      bucket: kumomta-cache
+      cache_key: rocky:${ROCKY_VERSION}_{{ arch }}_{{ os }}
+      mount:
+        - .ci-cargo
+        - target
+      path_style: "true"
+      region: eu-west-2
+      rebuild: "false"
+      restore: "true"
+
+  build:
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    image: ${BUILDER_IMAGE}
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
+      - ./get-deps.sh
+      - git config --global --add safe.directory /woodpecker/src
+      - cargo build --release
+      - cargo nextest run --release
+      - ./assets/build-rpm.sh
+      - "mv ~/rpmbuild/RPMS/*/*.rpm ."
+
+  save-build-cache:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: *cache_image
+    environment: *cache_environment
+    secrets: *cache_secrets
+    #detach: true
+    settings:
+      <<: *cache_settings
+      rebuild: "true"
+      restore: "false"
+
+  verify-installable:
+    image: ${ROCKY_IMAGE}
+    commands:
+      - dnf install -y ./kumomta*.rpm
+
+  publish_rpm:
+    image: ${BUILDER_IMAGE}
+    when:
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
+    secrets:
+      - source: openrepo_publish_token
+        target: TOKEN
+      - source: openrepo_gpg_public
+        target: PUB
+      - source: openrepo_gpg_private
+        target: PRIV
+    commands:
+      - "./assets/sign-rpm.sh *.rpm"
+      - "./assets/upload-package.sh ${ROCKY_IMAGE} *.rpm"

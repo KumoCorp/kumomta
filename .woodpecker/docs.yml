@@ -1,0 +1,80 @@
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      partial: false
+      depth: 0 # Need full history for doc build
+
+when:
+  path:
+    include:
+      - docs/**
+      - mkdocs-base.yml
+      - stylua.toml
+
+steps:
+  restore-mtime:
+    image: python:3-bookworm
+    commands:
+      - git config --global --add safe.directory /woodpecker/src
+      - ./assets/ci/git-restore-mtime crates
+      - git diff-index --name-status HEAD --
+
+  restore-doc-cache:
+    environment: &cache_environment
+      AWS_DISABLESSL: "true"
+    secrets: &cache_secrets
+      - source: s3_access_key_id
+        target: AWS_ACCESS_KEY_ID
+      - source: s3_secret_key
+        target: AWS_SECRET_ACCESS_KEY
+      - source: s3_endpoint
+        target: S3_ENDPOINT
+    image: &cache_image meltwater/drone-cache
+    settings: &cache_settings
+      bucket: kumomta-cache
+      cache_key: docs
+      mount:
+        - .ci-cargo
+        - target
+      path_style: "true"
+      region: eu-west-2
+      rebuild: "false"
+      restore: "true"
+
+  verify-docs:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "pull_request"'
+    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
+      - CI=false CARDS=false CHECK_ONLY=1 ./docs/build.sh
+
+  build-docs:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    secrets:
+      - source: gh_pages_deploy_token
+        target: TOKEN
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
+      - CI=true CARDS=true ./docs/build.sh
+      - ./assets/ci/push-gh-pages.sh
+
+  save-doc-cache:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: *cache_image
+    environment: *cache_environment
+    secrets: *cache_secrets
+    settings:
+      <<: *cache_settings
+      rebuild: "true"
+      restore: "false"

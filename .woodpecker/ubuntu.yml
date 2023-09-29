@@ -1,0 +1,136 @@
+matrix:
+  # Annoying workaround for <https://github.com/woodpecker-ci/woodpecker/issues/2002>
+  include:
+    - UBUNTU_VERSION: 22.04
+      UBUNTU_IMAGE: ubuntu:22.04
+      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    - UBUNTU_VERSION: 20.04
+      UBUNTU_IMAGE: ubuntu:20.04
+      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:20.04
+
+when:
+  path:
+    exclude:
+      - docs/**
+      - mkdocs-base.yml
+      - stylua.toml
+
+variables:
+  - &docker_credentials
+      username:
+        from_secret: gh_package_publish_user
+      password:
+        from_secret: gh_package_publish_token
+
+steps:
+  restore-mtime:
+    image: python:3-bookworm
+    commands:
+      - git config --global --add safe.directory /woodpecker/src
+      - ./assets/ci/git-restore-mtime crates
+      - git diff-index --name-status HEAD --
+
+  restore-build-cache:
+    environment: &cache_environment
+      AWS_DISABLESSL: "true"
+    secrets: &cache_secrets
+      - source: s3_access_key_id
+        target: AWS_ACCESS_KEY_ID
+      - source: s3_secret_key
+        target: AWS_SECRET_ACCESS_KEY
+      - source: s3_endpoint
+        target: S3_ENDPOINT
+    image: &cache_image meltwater/drone-cache
+    settings: &cache_settings
+      bucket: kumomta-cache
+      cache_key: ubuntu:${UBUNTU_VERSION}_{{ arch }}_{{ os }}
+      mount:
+        - .ci-cargo
+        - target
+      path_style: "true"
+      region: eu-west-2
+      rebuild: "false"
+      restore: "true"
+
+  build:
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    image: ${BUILDER_IMAGE}
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
+      - ./get-deps.sh
+      - git config --global --add safe.directory /woodpecker/src
+      - cargo build --release
+      - cargo nextest run --release
+      - ./assets/build-deb.sh
+
+  save-build-cache:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: *cache_image
+    environment: *cache_environment
+    secrets: *cache_secrets
+    #detach: true
+    settings:
+      <<: *cache_settings
+      rebuild: "true"
+      restore: "false"
+
+  verify-installable:
+    image: ${UBUNTU_IMAGE}
+    commands:
+      - apt update
+      - apt-get install -y ./kumomta*.deb
+
+  publish_deb:
+    image: alpine:3.14
+    group: publish
+    when:
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
+    secrets:
+      - source: openrepo_publish_token
+        target: TOKEN
+    commands:
+      - "apk --no-cache add curl bash"
+      - "./assets/upload-package.sh ${UBUNTU_IMAGE} *.deb"
+
+  dry-run-build-docker-image:
+    when:
+      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && (CI_PIPELINE_EVENT == "pull_request" || (CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH != "main"))'
+    image: plugins/docker
+    group: publish
+    settings:
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta-dev"
+      dry_run: true
+      tags:
+        - dry-run
+      dockerfile: docker/kumod/Dockerfile.incremental
+
+  build-dev-docker-image:
+    when:
+      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: plugins/docker
+    group: publish
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta-dev"
+      tags:
+        - latest
+      dockerfile: docker/kumod/Dockerfile.incremental
+
+  build-docker-image:
+    when:
+      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+    image: plugins/docker
+    group: publish
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta"
+      tags:
+        - latest
+        - ${CI_COMMIT_TAG}
+      dockerfile: docker/kumod/Dockerfile.incremental
