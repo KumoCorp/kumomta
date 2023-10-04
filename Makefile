@@ -1,9 +1,6 @@
 check:
 	cargo check
 
-check-ci: .drone.star
-	./assets/ci/check-starlark.sh
-
 test:
 	cargo build
 	cargo nextest run
@@ -11,7 +8,7 @@ test:
 fmt:
 	cargo +nightly fmt
 	stylua --config-path stylua.toml .
-	black docs/generate-toc.py .drone.star assets/ci/build-builder-images.py
+	black docs/generate-toc.py assets/ci/build-builder-images.py
 
 sink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
