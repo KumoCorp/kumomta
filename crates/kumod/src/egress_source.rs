@@ -168,6 +168,9 @@ impl EgressSource {
         }
         .with_context(|| format!("make socket to connect to {transport_address:?}"))?;
 
+        // No need for Nagle with SMTP request/response
+        socket.set_nodelay(true)?;
+
         if let Some(source) = self.source_address {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
                 // Always log failure to bind: it indicates a critical

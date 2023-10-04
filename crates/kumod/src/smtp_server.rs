@@ -262,6 +262,8 @@ impl EsmtpListenerParams {
                 }
                 result = listener.accept() => {
                     let (socket, peer_address) = result?;
+                    // No need for Nagle with SMTP request/response
+                    socket.set_nodelay(true)?;
                     let my_address = socket.local_addr()?;
                     let params = self.clone();
                     rt_spawn(

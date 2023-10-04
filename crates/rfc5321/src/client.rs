@@ -224,6 +224,8 @@ impl SmtpClient {
         timeouts: SmtpClientTimeouts,
     ) -> std::io::Result<Self> {
         let stream = TcpStream::connect(addr.clone()).await?;
+        // No need for Nagle with SMTP request/response
+        stream.set_nodelay(true)?;
         Ok(Self::with_stream(stream, addr.to_string(), timeouts))
     }
 
