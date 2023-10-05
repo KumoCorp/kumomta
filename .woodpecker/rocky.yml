@@ -8,12 +8,12 @@ matrix:
       ROCKY_IMAGE: rockylinux:9
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:9
 
-when:
-  path:
-    exclude:
-      - docs/**
-      - mkdocs-base.yml
-      - stylua.toml
+#when:
+# path:
+#   exclude:
+#     - docs/**
+#     - mkdocs-base.yml
+#     - stylua.toml
 
 variables:
   - &docker_credentials

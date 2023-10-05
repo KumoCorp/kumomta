@@ -8,12 +8,12 @@ matrix:
       UBUNTU_IMAGE: ubuntu:20.04
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:20.04
 
-when:
-  path:
-    exclude:
-      - docs/**
-      - mkdocs-base.yml
-      - stylua.toml
+#when:
+# path:
+#   exclude:
+#     - docs/**
+#     - mkdocs-base.yml
+#     - stylua.toml
 
 variables:
   - &docker_credentials
