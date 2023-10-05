@@ -38,3 +38,5 @@
   `Subject` headers unless they were set in the additional headers object
 * Allow optional spaces after the colon in `MAIL FROM:` and `RCPT TO:`. #76
 * Missing 334 response to clients using multi-step SMTP `AUTH PLAIN`
+* Messages that require "dot stuffing" could hang an outgoing SMTP session
+  and tie up a connection until the data and/or data-dot timeout was reached.

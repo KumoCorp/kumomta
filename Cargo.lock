@@ -4345,6 +4345,8 @@ version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
  "humantime-serde",
+ "memchr",
+ "once_cell",
  "pest",
  "pest_derive",
  "serde",

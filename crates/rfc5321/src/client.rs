@@ -1,4 +1,6 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
+use memchr::memmem::Finder;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -398,8 +400,8 @@ impl SmtpClient {
             let line = cmd.encode();
             tracing::trace!(
                 "send->{}: {}{line}",
+                self.hostname,
                 if pipeline { "(PIPELINE) " } else { "" },
-                self.hostname
             );
             match self.socket.as_mut() {
                 Some(socket) => {
@@ -592,53 +594,36 @@ impl SmtpClient {
             return Err(ClientError::Rejected(data_resp));
         }
 
-        let mut needs_stuffing = false;
         let data: &[u8] = data.as_ref();
+        let stuffed;
 
-        for line in data.split(|&b| b == b'\n') {
-            if line.starts_with(b".") {
-                needs_stuffing = true;
-                break;
+        let data = match apply_dot_stuffing(data) {
+            Some(d) => {
+                stuffed = d;
+                &stuffed
             }
-        }
-
-        if needs_stuffing {
-            let mut stuffed = vec![];
-            for line in data.split(|&b| b == b'\n') {
-                if line.starts_with(b".") {
-                    stuffed.push(b'.');
-                }
-                stuffed.extend_from_slice(line);
-            }
-            match self.socket.as_mut() {
-                Some(sock) => match timeout(
-                    Command::Data.client_timeout_request(&self.timeouts),
-                    sock.write_all(&stuffed),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOutData),
-                },
-                None => return Err(ClientError::NotConnected),
-            }
-        } else {
-            match self.socket.as_mut() {
-                Some(sock) => match timeout(
-                    Command::Data.client_timeout_request(&self.timeouts),
-                    sock.write_all(data),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOutData),
-                },
-                None => return Err(ClientError::NotConnected),
-            }
-        }
-
+            None => data,
+        };
         let needs_newline = data.last().map(|&b| b != b'\n').unwrap_or(true);
+
+        tracing::trace!("message data is {} bytes", data.len());
+
+        match self.socket.as_mut() {
+            Some(sock) => match timeout(
+                Command::Data.client_timeout_request(&self.timeouts),
+                sock.write_all(data),
+            )
+            .await
+            {
+                Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                Err(_) => return Err(ClientError::TimeOutData),
+            },
+            None => return Err(ClientError::NotConnected),
+        }
+
         let marker = if needs_newline { "\r\n.\r\n" } else { ".\r\n" };
+
+        tracing::trace!("send->{}: {}", self.hostname, marker.escape_debug());
 
         match self.socket.as_mut() {
             Some(sock) => match timeout(
@@ -801,9 +786,41 @@ pub fn build_tls_connector(insecure: bool) -> TlsConnector {
     TlsConnector::from(Arc::new(config))
 }
 
+fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
+    static LFDOT: Lazy<Finder> = Lazy::new(|| memchr::memmem::Finder::new("\n."));
+
+    if !data.starts_with(b".") && LFDOT.find(&data).is_none() {
+        return None;
+    }
+
+    let mut stuffed = vec![];
+    if data.starts_with(b".") {
+        stuffed.push(b'.');
+    }
+    let mut last_idx = 0;
+    for i in LFDOT.find_iter(&data) {
+        stuffed.extend_from_slice(&data[last_idx..=i]);
+        stuffed.push(b'.');
+        last_idx = i + 1;
+    }
+    stuffed.extend_from_slice(&data[last_idx..]);
+    Some(stuffed)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_stuffing() {
+        assert_eq!(apply_dot_stuffing(b"foo"), None);
+        assert_eq!(apply_dot_stuffing(b".foo").unwrap(), b"..foo");
+        assert_eq!(apply_dot_stuffing(b"foo\n.bar").unwrap(), b"foo\n..bar");
+        assert_eq!(
+            apply_dot_stuffing(b"foo\n.bar\n..baz\n").unwrap(),
+            b"foo\n..bar\n...baz\n"
+        );
+    }
 
     /*
     #[tokio::test]
