@@ -27,6 +27,7 @@ impl policy::Get for Getter {
                 // <https://datatracker.ietf.org/doc/html/rfc8461#section-3.3>
                 // HTTP 3xx redirects MUST NOT be followed
                 .redirect(reqwest::redirect::Policy::none())
+                .timeout(std::time::Duration::from_secs(20))
                 .build()?
                 .request(reqwest::Method::GET, url)
                 .send()
