@@ -35,18 +35,10 @@ kumo.on('init', function()
     -- Used by the SOCKS5 proxy server to connect to the destination address
     socks5_proxy_source_address = '10.0.0.1',
 
-    -- Used to connect to the SOCKS5 proxy server itself.
-    -- Not usually needed unless required by your specific configuration
-    source_address = '10.0.5.1',
-
     ehlo_domain = 'mta1.examplecorp.com',
   }
 end)
 ```
-
-The `source_address` option in the preceding example specifies what IP address
-the KumoMTA server should use for its outbound communications to the SOCKS5 proxy
-server, which is defined by IP and port number in the `socks5_proxy_server` option.
 
 The SOCKS5 proxy server will forward communications via the
 `socks5_proxy_source_address` IP address to reach the remote destination host.
@@ -82,18 +74,10 @@ kumo.on('init', function()
     -- Used by HAProxy to connect to the destination address
     ha_proxy_source_address = '10.0.0.1',
 
-    -- Used to connect to the HAProxy itself.
-    -- Not usually needed unless required by your HAProxy configuration
-    source_address = '10.0.5.1',
-
     ehlo_domain = 'mta1.examplecorp.com',
   }
 end)
 ```
-
-The `source_address` option in the preceding example specifies what IP address
-the KumoMTA server should use for its outbound communications to the HAProxy
-server, which is defined by IP and port number in the `ha_proxy_server` option.
 
 The HAProxy server will forward communications via the
 `ha_proxy_source_address` IP address to reach the remote destination host.
