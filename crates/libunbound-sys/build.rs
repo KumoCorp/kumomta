@@ -416,13 +416,20 @@ fn unbound() {
         probe.check_func(&mut cfg, func).unwrap();
     }
 
+    if cfg!(target_os = "macos") {
+        cfg.define("HAVE_ISBLANK", Some("1"));
+    } else {
+        if !probe.check_func(&mut cfg, "isblank").unwrap() {
+            cfg.file(&format!("unbound/compat/isblank.c"));
+        }
+    }
+
     for func in &[
         //"arc4random",
         //"arc4random_uniform",
         "ctime_r",
         "gmtime_r",
         "explicit_bzero",
-        "isblank",
         "strlcat",
         "strlcpy",
         "inet_ntop",
