@@ -3,6 +3,7 @@ use clap::Parser;
 use tokio::net::TcpListener;
 
 mod proxy_handler;
+#[cfg(target_os = "linux")]
 mod splice_copy;
 
 /// KumoProxy SOCKS5 Proxy Server

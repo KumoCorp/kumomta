@@ -1,9 +1,13 @@
+#[cfg(target_os = "linux")]
+use crate::splice_copy::splice_copy as copy_stream;
 use anyhow::Context;
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
 use std::net::{IpAddr, SocketAddr};
 use tokio::io::AsyncWriteExt;
+#[cfg(not(target_os = "linux"))]
+use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
 
@@ -85,13 +89,13 @@ pub async fn handle_proxy_client(
             let (mut dest_reader, mut dest_writer) = stream.split();
 
             let src_to_dest = async {
-                crate::splice_copy::splice_copy(&mut src_reader, &mut dest_writer).await?;
+                copy_stream(&mut src_reader, &mut dest_writer).await?;
                 dest_writer.shutdown().await?;
                 Ok(())
             };
 
             let dest_to_src = async {
-                crate::splice_copy::splice_copy(&mut dest_reader, &mut src_writer).await?;
+                copy_stream(&mut dest_reader, &mut src_writer).await?;
                 src_writer.shutdown().await?;
                 Ok(())
             };
@@ -100,6 +104,12 @@ pub async fn handle_proxy_client(
         }
         _ => anyhow::bail!("Unexpected client state {state:?}"),
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn copy_stream(src: &mut ReadHalf<'_>, dst: &mut WriteHalf<'_>) -> anyhow::Result<()> {
+    tokio::io::copy(src, dst).await?;
+    Ok(())
 }
 
 /// Encapsulates the result of processing a command from the client
