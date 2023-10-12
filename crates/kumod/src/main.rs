@@ -9,6 +9,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 
+mod accounting;
 mod delivery_metrics;
 mod egress_source;
 mod http_server;
@@ -153,7 +154,7 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
-    StartConfig {
+    let res = StartConfig {
         logging: LoggingConfig {
             log_dir: opts.diag_log_dir.clone(),
             diag_format: opts.diag_format,
@@ -171,5 +172,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         policy: &opts.policy,
     }
     .run(perform_init, crate::logging::Logger::signal_shutdown)
-    .await
+    .await;
+
+    if let Err(err) = crate::accounting::ACCT.flush() {
+        tracing::error!("error flushing ACCT: {err:#}");
+    }
+
+    res
 }

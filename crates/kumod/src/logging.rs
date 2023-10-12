@@ -460,6 +460,20 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             };
         }
 
+        match kind {
+            RecordType::Reception => {
+                crate::accounting::account_reception(
+                    &reception_protocol.as_deref().unwrap_or("unknown"),
+                );
+            }
+            RecordType::Delivery => {
+                crate::accounting::account_delivery(
+                    &delivery_protocol.as_deref().unwrap_or("unknown"),
+                );
+            }
+            _ => {}
+        };
+
         let (headers, meta) = logger.extract_fields(&msg).await;
 
         let record = JsonLogRecord {

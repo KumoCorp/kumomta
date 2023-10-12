@@ -5,6 +5,7 @@ use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
 use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts};
+use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
@@ -443,6 +444,34 @@ impl KumoDaemon {
             _ = tokio::time::sleep(timeout) => false,
         }
     }
+
+    pub fn accounting_stats(&self) -> anyhow::Result<AccountingStats> {
+        let path = self.dir.path().join("accounting.db");
+
+        let db = Connection::open_with_full_mutex(&path)
+            .with_context(|| format!("opening accounting database {path:?}"))?;
+
+        let mut stmt = db
+            .prepare("select sum(received) as r, sum(delivered) as d from accounting")
+            .with_context(|| format!("prepare query against {path:?}"))?;
+        if let Ok(State::Row) = stmt.next() {
+            let received = stmt.read::<i64, _>("r")?;
+            let delivered = stmt.read::<i64, _>("d")?;
+
+            return Ok(AccountingStats {
+                received: received as usize,
+                delivered: delivered as usize,
+            });
+        }
+
+        anyhow::bail!("unexpected state from accounting db");
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AccountingStats {
+    pub received: usize,
+    pub delivered: usize,
 }
 
 pub struct DaemonWithMaildirAndWebHook {

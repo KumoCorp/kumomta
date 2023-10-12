@@ -53,6 +53,16 @@ DeliverySummary {
 }
 "
         );
+
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 1,
+    delivered: 0,
+}
+"
+        );
         Ok(())
     }
 
@@ -108,6 +118,15 @@ DeliverySummary {
         TransientFailure: 1,
     },
     sink_counts: {},
+}
+"
+        );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 1,
+    delivered: 0,
 }
 "
         );
@@ -196,6 +215,15 @@ DeliverySummary {
 }
 "
         );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 2,
+    delivered: 1,
+}
+"
+        );
         Ok(())
     }
 
@@ -244,6 +272,15 @@ DeliverySummary {
         Reception: 1,
     },
     sink_counts: {},
+}
+"
+        );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 1,
+    delivered: 0,
 }
 "
         );
@@ -327,6 +364,15 @@ DeliverySummary {
 }
 "
         );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 2,
+    delivered: 1,
+}
+"
+        );
         Ok(())
     }
 
@@ -362,6 +408,15 @@ DeliverySummary {
         Bounce: 1,
     },
     sink_counts: {},
+}
+"
+        );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 1,
+    delivered: 0,
 }
 "
         );
@@ -439,6 +494,15 @@ DeliverySummary {
         Reception: 1,
         Delivery: 1,
     },
+}
+"
+        );
+        k9::snapshot!(
+            daemon.source.accounting_stats()?,
+            "
+AccountingStats {
+    received: 1,
+    delivered: 1,
 }
 "
         );
