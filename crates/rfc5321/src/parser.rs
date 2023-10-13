@@ -512,8 +512,13 @@ mod test {
             Parser::parse_command("HELO there").unwrap(),
             Command::Helo(Domain::Name("there".to_string()))
         );
-        // Cannot use address literals with HELO
-        assert!(Parser::parse_command("HELO [127.0.0.1]").is_err(),);
+        // The spec says that we cannot use address literals with,
+        // HELO, but some tools will still submit it and some MTAs
+        // will accept it, so we do too.
+        assert_eq!(
+            Parser::parse_command("EHLO [127.0.0.1]").unwrap(),
+            Command::Ehlo(Domain::V4("127.0.0.1".to_string()))
+        );
     }
 
     #[test]

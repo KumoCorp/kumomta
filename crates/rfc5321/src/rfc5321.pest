@@ -67,7 +67,7 @@ initial_response = { base64+ }
 base64 = { 'A'..'Z' | 'a'..'z' | '0'..'9' | "+" | "/" | "=" }
 
 ehlo = { ^"EHLO " ~ ( domain | address_literal ) }
-helo = { ^"HELO " ~ domain }
+helo = { ^"HELO " ~ ( domain | address_literal ) }
 data = { ^"DATA" }
 rset = { ^"RSET" }
 quit = { ^"QUIT" }
