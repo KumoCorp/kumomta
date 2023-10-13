@@ -1,8 +1,11 @@
 # Check for success in the logs
 
-When diagnosing the failure (or monitoring the success) of your test messages, the logs provide extensive information.
+When diagnosing the failure (or monitoring the success) of your test messages,
+the logs provide extensive information.
 
-The easiest way to monitor activity is with the built-in `tailer` utility. Open a new terminal (because you cannot tail the logs and simultaneously send mail from the same session) and start the `tailer` utility:
+The easiest way to monitor activity is with the built-in `tailer` utility. Open
+a new terminal (because you cannot tail the logs and simultaneously send mail
+from the same session) and start the `tailer` utility:
 
 ```bash
 sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta

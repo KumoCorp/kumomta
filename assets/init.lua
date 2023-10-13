@@ -34,6 +34,11 @@ kumo.on('init', function()
 
   kumo.configure_local_logs {
     log_dir = '/var/log/kumomta',
+    -- Flush logs every 10 seconds.
+    -- You may wish to set a larger value in your production
+    -- configuration; this lower value makes it quicker to see
+    -- logs while you are first getting set up.
+    max_segment_duration = '10s',
   }
 end)
 --[[ End of INIT Section ]]

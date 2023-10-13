@@ -82,9 +82,8 @@ This tutorial assumes the reader has a basic understanding of Linux administrati
 
 1. View the log entries related to your test message:
 
-    ```bash
-    sudo systemctl restart kumomta
-    zstdcat /var/log/kumomta/20230927-205300
+    ```console
+    $ sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta
     ```
 
     ```json
@@ -122,7 +121,11 @@ This tutorial assumes the reader has a basic understanding of Linux administrati
     ```
 
     !!!note
-        The server is restarted because logs are written using streaming compression with log flushing after every 1GB of data, or upon server restart. These example log entries have been formatted for ease of reading in the documentation.
+        In the default configuration, it will take about 10 seconds for the log files to flush and show the log entries in the `tailer` output.
+        You can speed that up by changing the `max_segment_duration` in the `init.lua` file, or just by restarting the server via
+        `sudo systemctl restart kumomta`.
+
+        These example log entries have been formatted for ease of reading in the documentation.
 
 ## Next Steps
 This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions. [Read on](./server_environment.md) to look at server selection and sizing, OS preparation, installation, and testing in more detail.
