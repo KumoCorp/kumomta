@@ -16,7 +16,7 @@ libc = "0.2"
 tokio = {workspace=true, features=["macros"]}
 
 [target.'cfg(not(any(windows, target_os="macos")))'.dependencies]
-openssl = "0.10"
+openssl = { workspace=true }
 
 [target.'cfg(any(windows, target_os="macos"))'.dependencies]
-openssl = { version = "0.10", features=["vendored"] }
+openssl = { workspace=true, features=["vendored"] }

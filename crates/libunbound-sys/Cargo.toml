@@ -12,7 +12,7 @@ cc = {version="1.0", features = ["parallel"]}
 tempfile = {workspace=true}
 
 [target.'cfg(not(any(windows, target_os="macos")))'.dependencies]
-openssl-sys = "0.9"
+openssl-sys = {workspace=true}
 
 [target.'cfg(any(windows, target_os="macos"))'.dependencies]
-openssl-sys = { version = "0.9", features=["vendored"] }
+openssl-sys = { workspace=true, features=["vendored"] }

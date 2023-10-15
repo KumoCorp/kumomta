@@ -3482,8 +3482,7 @@ checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 [[package]]
 name = "openssl"
 version = "0.10.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bac25ee399abb46215765b1cb35bc0212377e58a061560d8b29b024fd0430e7c"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#2f1a918299a09e0bf4e7f82a0ec660f9e62d6c36"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if",
@@ -3497,8 +3496,7 @@ dependencies = [
 [[package]]
 name = "openssl-macros"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#2f1a918299a09e0bf4e7f82a0ec660f9e62d6c36"
 dependencies = [
  "proc-macro2 1.0.69",
  "quote 1.0.33",
@@ -3523,8 +3521,7 @@ dependencies = [
 [[package]]
 name = "openssl-sys"
 version = "0.9.93"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db4d56a4c0478783083cfafcc42493dd4a981d41669da64b4572a2a089b51b1d"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#2f1a918299a09e0bf4e7f82a0ec660f9e62d6c36"
 dependencies = [
  "cc",
  "libc",
