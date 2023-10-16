@@ -60,7 +60,7 @@ Possible values are:
   Validation of the certificate will be skipped.  Not recommended for sending
   to the public internet; this is intended for local or lab testing scenarios.
 
-* `"Disabled" - do not try to use TLS.
+* `"Disabled"` - do not try to use TLS.
 
 The default value is `"Opportunistic"`.
 
