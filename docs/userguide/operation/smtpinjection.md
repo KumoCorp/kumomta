@@ -43,7 +43,11 @@ Email" and set the SMTP Port, Hostname or IP ddress and If you have configured
 [SMTP_Auth](../..//reference/events/smtp_server_auth_plain.md),
 your injection username and password as well.
 
-Below is a sample of the configuration page for
+Below is a configuration screen for [Ongage](https://www.ongage.com/)
+
+![Ongage_SMTP_Configuration](../../assets/images/Ongage_SMTP_Configuration.png)
+
+And this is a sample of the configuration page for
 [Mautic](https://docs.mautic.org/en/setup/how-to-install-mautic/install-mautic-from-package)
 marketing automation.
 
