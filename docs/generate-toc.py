@@ -269,6 +269,14 @@ TOC = [
                     ),
                 ],
             ),
+            Page(
+                "Integrations",
+                "userguide/integrations/index.md",
+                children=[
+                    Page("Ongage Email Marketing Platform", "userguide/integrations/ongage.md"),
+                    ),
+                ],
+            ),
         ],
     ),
     Page(
