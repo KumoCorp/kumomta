@@ -277,6 +277,10 @@ TOC = [
                         "Ongage Email Marketing Platform",
                         "userguide/integrations/ongage.md",
                     ),
+                    Page(
+                        "Prometheus Observability",
+                        "userguide/integrations/prometheus.md",
+                    ),
                 ],
             ),
         ],

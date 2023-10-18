@@ -58,6 +58,7 @@ scrape_configs:
   - job_name: 'systemstats' 
     static_configs: 
       - targets: ['localhost:9100'] 
+" > ./myprometheus.yml
 ```  
 
 
