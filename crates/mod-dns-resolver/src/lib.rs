@@ -31,11 +31,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     #[derive(serde::Deserialize, Debug)]
+    #[serde(deny_unknown_fields)]
     struct DnsConfig {
         #[serde(default)]
         domain: Option<String>,
         #[serde(default)]
         search: Vec<String>,
+        #[serde(default)]
         name_servers: Vec<NameServer>,
         #[serde(default)]
         options: ResolverOpts,
@@ -43,6 +45,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     #[derive(serde::Deserialize, Debug)]
     #[serde(untagged)]
+    #[serde(deny_unknown_fields)]
     enum NameServer {
         Ip(String),
         Detailed {

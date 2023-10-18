@@ -284,8 +284,32 @@ impl QueueDispatcher for SmtpDispatcher {
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
 
+        let mut dane_tlsa = vec![];
+        let mut mta_sts_eligible = true;
+
+        if dispatcher.path_config.borrow().enable_dane {
+            if let Some(mx) = &dispatcher.mx {
+                match dns_resolver::resolve_dane(&mx.domain_name, port).await {
+                    Ok(tlsa) => {
+                        dane_tlsa = tlsa;
+                        if !dane_tlsa.is_empty() {
+                            enable_tls = Tls::Required;
+                            // Do not use MTA-STS when there are DANE results
+                            mta_sts_eligible = false;
+                        }
+                    }
+                    Err(err) => {
+                        // Do not use MTA-STS when DANE results have been tampered
+                        mta_sts_eligible = false;
+                        tracing::error!("DANE result for {}: {err:#}", mx.domain_name);
+                        // TODO: should we prevent continuing in the clear here? probably
+                    }
+                }
+            }
+        }
+
         // Figure out MTA-STS policy.
-        if dispatcher.path_config.borrow().enable_mta_sts {
+        if mta_sts_eligible && dispatcher.path_config.borrow().enable_mta_sts {
             if let Some(mx) = &dispatcher.mx {
                 if let Ok(policy) = mta_sts::get_policy_for_domain(&mx.domain_name).await {
                     match policy.mode {
@@ -323,7 +347,8 @@ impl QueueDispatcher for SmtpDispatcher {
                 let (enabled, label) = if let Some(handshake_error) = client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
-                        use_openssl: false,
+                        alt_name: None,
+                        dane_tlsa,
                     })
                     .await?
                 {
@@ -354,7 +379,8 @@ impl QueueDispatcher for SmtpDispatcher {
                 if let Some(handshake_error) = client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
-                        use_openssl: false,
+                        alt_name: None,
+                        dane_tlsa,
                     })
                     .await?
                 {

@@ -4375,6 +4375,7 @@ dependencies = [
  "tokio-openssl",
  "tokio-rustls",
  "tracing",
+ "trust-dns-proto",
  "webpki-roots",
 ]
 

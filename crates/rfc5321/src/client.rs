@@ -1,6 +1,7 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
+use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -16,6 +17,8 @@ use tokio_rustls::rustls::{
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
 };
 use tokio_rustls::TlsConnector;
+use trust_dns_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
+use trust_dns_proto::rr::rdata::TLSA;
 
 const MAX_LINE_LEN: usize = 4096;
 
@@ -51,12 +54,15 @@ pub enum ClientError {
     SslErrorStack(#[from] openssl::error::ErrorStack),
     #[error("SSL Error: {0}")]
     SslError(#[from] openssl::ssl::Error),
+    #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
+    NoUsableDaneTlsa { hostname: String, tlsa: Vec<TLSA> },
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct TlsOptions {
     pub insecure: bool,
-    pub use_openssl: bool,
+    pub alt_name: Option<String>,
+    pub dane_tlsa: Vec<TLSA>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,9 +534,9 @@ impl SmtpClient {
 
         let mut handshake_error = None;
 
-        let stream: BoxedAsyncReadAndWrite = if options.use_openssl {
-            let connector = build_openssl_connector(options.insecure)?;
-            let ssl = connector.configure()?.into_ssl(self.hostname.as_str())?;
+        let stream: BoxedAsyncReadAndWrite = if !options.dane_tlsa.is_empty() {
+            let connector = build_dane_connector(&options, &self.hostname)?;
+            let ssl = connector.into_ssl(self.hostname.as_str())?;
             let mut ssl_stream = tokio_openssl::SslStream::new(
                 ssl,
                 match self.socket.take() {
@@ -775,14 +781,66 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     }
 }
 
-pub fn build_openssl_connector(insecure: bool) -> Result<openssl::ssl::SslConnector, ClientError> {
+pub fn build_dane_connector(
+    options: &TlsOptions,
+    hostname: &str,
+) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
+    tracing::trace!("build_dane_connector for {hostname}");
     let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
-    if insecure {
+    if options.insecure {
         builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
     }
+
+    builder.dane_enable()?;
+    builder.set_no_dane_ee_namechecks();
+
     let connector = builder.build();
-    Ok(connector)
+
+    let mut config = connector.configure()?;
+
+    config.dane_enable(hostname)?;
+    let mut any_usable = false;
+    for tlsa in &options.dane_tlsa {
+        let usable = config.dane_tlsa_add(
+            match tlsa.cert_usage() {
+                CertUsage::CA => DaneUsage::PKIX_TA,
+                CertUsage::Service => DaneUsage::PKIX_EE,
+                CertUsage::TrustAnchor => DaneUsage::DANE_TA,
+                CertUsage::DomainIssued => DaneUsage::DANE_EE,
+                CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
+                CertUsage::Private => DaneUsage::PRIV_CERT,
+            },
+            match tlsa.selector() {
+                Selector::Full => DaneSelector::CERT,
+                Selector::Spki => DaneSelector::SPKI,
+                Selector::Unassigned(n) => DaneSelector::from_raw(n),
+                Selector::Private => DaneSelector::PRIV_SEL,
+            },
+            match tlsa.matching() {
+                Matching::Raw => DaneMatchType::FULL,
+                Matching::Sha256 => DaneMatchType::SHA2_256,
+                Matching::Sha512 => DaneMatchType::SHA2_512,
+                Matching::Unassigned(n) => DaneMatchType::from_raw(n),
+                Matching::Private => DaneMatchType::PRIV_MATCH,
+            },
+            tlsa.cert_data(),
+        )?;
+
+        tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
+        if usable {
+            any_usable = true;
+        }
+    }
+
+    if !any_usable {
+        return Err(ClientError::NoUsableDaneTlsa {
+            hostname: hostname.to_string(),
+            tlsa: options.dane_tlsa.clone(),
+        });
+    }
+
+    Ok(config)
 }
 
 pub fn build_tls_connector(insecure: bool) -> TlsConnector {

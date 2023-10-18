@@ -184,7 +184,8 @@ impl Opt {
             client
                 .starttls(TlsOptions {
                     insecure: true,
-                    use_openssl: false,
+                    alt_name: None,
+                    dane_tlsa: vec![],
                 })
                 .await?;
         }

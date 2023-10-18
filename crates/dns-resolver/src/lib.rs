@@ -8,7 +8,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
 use trust_dns_resolver::error::ResolveResult;
-use trust_dns_resolver::proto::rr::rdata::tlsa::TLSA;
+pub use trust_dns_resolver::proto::rr::rdata::tlsa::TLSA;
 use trust_dns_resolver::proto::rr::RecordType;
 use trust_dns_resolver::Name;
 
@@ -69,7 +69,7 @@ pub fn get_resolver() -> Arc<Resolver> {
 pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>> {
     let name = fully_qualify(&format!("_{port}._tcp.{hostname}"))?;
     let answer = RESOLVER.load().resolve(name, RecordType::TLSA).await?;
-    println!("{answer:#?}");
+    tracing::info!("resolve_dane {hostname}:{port} TLSA answer is: {answer:?}");
 
     if answer.bogus {
         // Bogus records are either tampered with, or due to misconfiguration
@@ -101,6 +101,9 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
         // generally low
         result.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
     }
+
+    tracing::info!("resolve_dane {hostname}:{port} result is: {result:?}");
+
     Ok(result)
 }
 

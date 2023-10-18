@@ -618,6 +618,7 @@ MergedEntry {
         connection_limit: 10,
         enable_tls: Opportunistic,
         enable_mta_sts: true,
+        enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,
@@ -706,6 +707,7 @@ MergedEntry {
         connection_limit: 3,
         enable_tls: Opportunistic,
         enable_mta_sts: true,
+        enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,
@@ -781,6 +783,7 @@ MergedEntry {
             connection_limit: 5,
             enable_tls: Opportunistic,
             enable_mta_sts: true,
+            enable_dane: false,
             client_timeouts: SmtpClientTimeouts {
                 connect_timeout: 60s,
                 ehlo_timeout: 300s,
@@ -863,6 +866,7 @@ MergedEntry {
         connection_limit: 10,
         enable_tls: Opportunistic,
         enable_mta_sts: true,
+        enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             ehlo_timeout: 300s,

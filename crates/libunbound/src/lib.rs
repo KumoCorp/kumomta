@@ -57,7 +57,6 @@ unsafe impl Send for Context {}
 impl Drop for Context {
     fn drop(&mut self) {
         unsafe {
-            eprintln!("deleting Context");
             ub_ctx_delete(self.ctx);
         }
     }
@@ -479,6 +478,11 @@ impl Context {
     /// and will automatically shut down when the returned
     /// AsyncContext is dropped.
     pub fn into_async(self) -> Result<AsyncContext, Error> {
+        // Use a thread rather than forking a worker for unbound
+        unsafe {
+            ub_ctx_async(self.ctx, 1);
+        }
+
         // Note that while libunbound does support exporting its
         // fd for monitoring by eg: mio or AsyncFd in tokio,
         // I've found that it is perpetually ready for read
