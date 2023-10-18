@@ -274,11 +274,11 @@ TOC = [
                 "userguide/integrations/index.md",
                 children=[
                     Page(
-                        "Ongage Email Marketing Platform",
+                        "Ongage",
                         "userguide/integrations/ongage.md",
                     ),
                     Page(
-                        "Prometheus Observability",
+                        "Prometheus",
                         "userguide/integrations/prometheus.md",
                     ),
                 ],
