@@ -87,7 +87,7 @@ Finally, the following must be added outside the init event to enable the TSA ma
 -- Attach various hooks to the shaper
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local cfg = shaper.get_queue_config(domain, tenant, campaign)
   if cfg then
     return cfg

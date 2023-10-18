@@ -143,7 +143,7 @@ local TENANT_PARAMS = {
   },
 }
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local params = {
     max_age = '5 minutes',
     retry_interval = '10 minutes',

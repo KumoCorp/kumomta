@@ -98,11 +98,14 @@ local TENANT_TO_POOL = {
   ['tenant-3'] = 'pool1',
 }
 
-kumo.on('get_queue_config', function(domain_name, tenant, campaign)
-  return kumo.make_queue_config {
-    egress_pool = TENANT_TO_POOL[tenant],
-  }
-end)
+kumo.on(
+  'get_queue_config',
+  function(domain_name, tenant, campaign, routing_domain)
+    return kumo.make_queue_config {
+      egress_pool = TENANT_TO_POOL[tenant],
+    }
+  end
+)
 ```
 
 When a message in a given queue is ready for delivery, it will use the

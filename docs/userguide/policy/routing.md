@@ -46,7 +46,7 @@ several options.
     using the [get_queue_config](../../reference/events/get_queue_config.md) event:
 
     ```lua
-    kumo.on('get_queue_config', function(domain, tenant, campaign)
+    kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
         if domain == 'domain.to.be.smart.hosted' then
             -- Relay via some other internal infrastructure.
             -- Enclose IP (or IPv6) addresses in `[]`.

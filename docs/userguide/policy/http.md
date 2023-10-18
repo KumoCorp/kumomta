@@ -46,7 +46,7 @@ kumo.on('make.mailgun', function(domain, tenant, campaign)
   return sender
 end)
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if tenant == 'mailgun-user' then
     return kumo.make_queue_config {
       protocol = {

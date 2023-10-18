@@ -11,7 +11,7 @@ The process to queue log events and make them available for sending via `custom_
 When a message is ready to be queued, the `get_queue_config` event is fired, at which point we can specify the protocol of the queue, in this case `custom_lua`. In the example below, we check whether the message is queued to the `amqp` queue and act accordingly:
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'amqp' then
     -- Use the `make.webhook` event to handle delivery
     -- of webhook log records

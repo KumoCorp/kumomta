@@ -80,7 +80,7 @@ kumo.on('make.webhook', function(domain, tenant, campaign)
   return connection
 end)
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'webhook' then
     -- Use the `make.webhook` event to handle delivery
     -- of webhook log records

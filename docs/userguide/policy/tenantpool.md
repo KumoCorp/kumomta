@@ -24,7 +24,7 @@ msg:set_meta('tenant', tenant)
 You could then reference that same TENANT_TO_POOL mapping later on:
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local params = {
     max_age = '5 minutes',
     retry_interval = '10 minutes',
@@ -55,7 +55,7 @@ and the policy should check the msg:sender().domain as well as the tenant before
 if you want to allow leaving the pool unspecified then:
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local params = {
     max_age = '5 minutes',
     retry_interval = '10 minutes',

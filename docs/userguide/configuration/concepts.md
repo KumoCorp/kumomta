@@ -90,7 +90,7 @@ That said, any modification to the policy script itself is subject to caching of
 An example:
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {
     egress_pool = tenant,
   }

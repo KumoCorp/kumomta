@@ -26,7 +26,7 @@ Limits how long a message can remain in the queue.
 The default value is `"7 days"`.
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 20 minutes
     max_age = '20 minutes',
@@ -45,7 +45,7 @@ The default is that there is no upper limit.
 The value is expressed in seconds.
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {
     -- Retry at most every hour
     max_retry_interval = '1 hour',
@@ -69,7 +69,7 @@ of MX host names or IP addresses to which the queue should deliver.
 The addresses will be tried in the order specified.
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'smarthost.example.com' then
     -- Relay via some other internal infrastructure.
     -- Enclose IP (or IPv6) addresses in `[]`.
@@ -93,7 +93,7 @@ end)
 ### Example of using the Maildir protocol
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'maildir.example.com' then
     -- Store this domain into a maildir, rather than attempting
     -- to deliver via SMTP
@@ -119,7 +119,7 @@ not apply.
 ### Using Lua as a delivery protocol
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   if domain == 'webhook' then
     -- Use the `make.webhook` event to handle delivery
     -- of webhook log records
@@ -178,7 +178,7 @@ applied before trying again. If it transiently fails a second time,
 The default is `"20 minutes"`.
 
 ```lua
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {
     retry_interval = '20 minutes',
   }

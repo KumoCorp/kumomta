@@ -129,7 +129,7 @@ end)
 
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
-kumo.on('get_queue_config', function(domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   local cfg = shaper.get_queue_config(domain, tenant, campaign)
   if cfg then
     return cfg
@@ -225,7 +225,7 @@ function mod:setup_with_automation(options)
       return should_enq(publish, msg, hook_name)
     end,
     setup_publish = setup_publish,
-    get_queue_config = function(domain, tenant, campaign)
+    get_queue_config = function(domain, tenant, campaign, routing_domain)
       return get_queue_cfg(publish, domain, tenant, campaign)
     end,
   }
