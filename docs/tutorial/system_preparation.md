@@ -121,5 +121,5 @@ sudo sed -i 's/SSLCertificateFile \/etc\/pki\/tls\/certs\/localhost.crt/SSLCerti
 sudo sed -i 's/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/localhost.key/SSLCertificateKeyFile \/etc\/pki\/tls\/private\/ca.key/' /etc/httpd/conf.d/ssl.conf
 ```
 
-With this preparation complete, we're ready to [Install KumoMTA](./install_it.md).
+With this preparation complete, we're ready to [Install KumoMTA](./installing_kumomta.md).
 
