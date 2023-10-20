@@ -41,4 +41,4 @@ $ sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod \
 
 If all goes well, it should return a PID and drop you back to a Linux prompt.
 
-If KumoMTA does not start, refer to the [Troubleshooting Page](../userguide/operation/troubleshooting.md) of the User Guide.
+If KumoMTA does not start, refer to the [Troubleshooting Page](./troubleshooting.md) of the User Guide.
