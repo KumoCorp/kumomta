@@ -63,7 +63,7 @@ In addition, you can adjust the log filter level dynamically [using the HTTP API
 ```console
 curl -i 'http://localhost:8000/api/admin/set_diagnostic_log_filter/v1' \
     -H 'Content-Type: application/json' \
-    -d '{"filter":"kumod=trace"}'
+    -d '{"filter":"kumod=debug"}'
 ```
 
 This will produce output similar to the following:
