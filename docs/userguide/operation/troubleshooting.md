@@ -46,30 +46,63 @@ Oct 19 22:09:07 localhost.localdomain systemd[1]: Failed to start KumoMTA SMTP s
 
 This error message makes it clear that there was an issue with permissions on the spool folder that prevented the kumomta service from starting.
 
-## Starting KumoMTA in the Foreground
+## Changing the Log Level
 
-When there are issues with starting KumoMTA that are not exposed through the system journal, an additional troubleshooting step is starting KumoMTA in the foreground with extended error reporting.
+Sometimes the default logging level will not expose sufficient information to troubleshoot certain issues.
 
-To run KumoMTA in the foreground with additional error logging use the following command:
+To increase the verbosity of the logs written to the system journal, use the [kumo.set_diagnostic_log_filter](../../reference/kumo/set_diagnostic_log_filter.md) function in your `init.lua`` policy's **init** event handler:
+
+```lua
+kumo.on('init', function()
+  kumo.set_diagnostic_log_filter 'kumod=debug'
+end)
+```
+
+In addition, you can adjust the log filter level dynamically [using the HTTP API](../../reference/http/api_admin_set_diagnostic_log_filter_v1.md):
 
 ```console
-sudo KUMOD_LOG=kumod=debug /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+curl -i 'http://localhost:8000/api/admin/set_diagnostic_log_filter/v1' \
+    -H 'Content-Type: application/json' \
+    -d '{"filter":"kumod=trace"}'
 ```
 
 This will produce output similar to the following:
 
 ```console
-[root@localhost spool]# sudo KUMOD_LOG=kumod=debug /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
-2023-10-20T02:15:00.481840Z  INFO localset-0 kumod: NodeId is 2a32fb9b-7353-48bd-a06e-cc97e224c924
-2023-10-20T02:15:00.485934Z  INFO localset-0 kumod::smtp_server: smtp listener on 0.0.0.0:25
-2023-10-20T02:15:00.486788Z DEBUG localset-0 kumod::spool: Defining local disk spool 'data' on /var/spool/kumomta/data
-2023-10-20T02:15:00.487283Z ERROR localset-0 kumod::spool: Error in spool: Opening spool data: opening pid file /var/spool/kumomta/data/lock: Permission denied (os error 13)
-2023-10-20T02:15:00.488043Z DEBUG localset-0 kumod::spool: Defining local disk spool 'meta' on /var/spool/kumomta/meta
-2023-10-20T02:15:00.488177Z ERROR localset-0 kumod::spool: Error in spool: Opening spool meta: opening pid file /var/spool/kumomta/meta/lock: Permission denied (os error 13)
-2023-10-20T02:15:00.488552Z  INFO localset-0 kumod::smtp_server: smtp listener on 0.0.0.0:25 -> stopping
-2023-10-20T02:15:00.514056Z DEBUG     logger kumod::logging: started logger thread
-2023-10-20T02:15:00.515102Z DEBUG     logger kumod::logging: calling state.logger_thread()
-Error: Initialization raised an error
+Oct 20 09:26:43 localhost.localdomain systemd[1]: Started KumoMTA SMTP service.
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.030934Z  INFO localset-2 kumod: NodeId is 2a32fb9b-7353-48bd-a06e-cc97e224c924
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.032892Z  INFO localset-2 kumod::smtp_server: smtp listener on 0.0.0.0:25
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.033051Z DEBUG localset-2 kumod::spool: Defining local disk spool 'data' on /var/spool/kumomta/data
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.033179Z ERROR localset-2 kumod::spool: Error in spool: Opening spool data: opening pid file /var/spool/kumomta/data/lock: Permission denied (os error 13)
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.033404Z DEBUG localset-2 kumod::spool: Defining local disk spool 'meta' on /var/spool/kumomta/meta
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.033490Z ERROR localset-2 kumod::spool: Error in spool: Opening spool meta: opening pid file /var/spool/kumomta/meta/lock: Permission denied (os error 13)
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.048202Z  INFO localset-2 kumod::smtp_server: smtp listener on 0.0.0.0:25 -> stopping
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.050200Z DEBUG     logger kumod::logging: started logger thread
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.051984Z DEBUG     logger kumod::logging: calling state.logger_thread()
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.052337Z DEBUG     logger kumod::logging: LogFileParams: LogFileParams {
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     log_dir: "/var/log/kumomta",
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     max_file_size: 1000000000,
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     back_pressure: 128000,
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     compression_level: 0,
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     max_segment_duration: None,
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     meta: [],
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     headers: [],
+Oct 20 09:26:44 localhost.localdomain kumod[6061]:     per_record: {},
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: }
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: Error: Initialization raised an error
+Oct 20 09:26:44 localhost.localdomain kumod[6061]: 2023-10-20T13:26:44.053482Z DEBUG     logger kumod::logging: waiting until deadline=None for a log record
+Oct 20 09:26:44 localhost.localdomain systemd[1]: kumomta.service: Main process exited, code=exited, status=1/FAILURE
+Oct 20 09:26:44 localhost.localdomain systemd[1]: kumomta.service: Failed with result 'exit-code'.
 ```
 
-One again we have a clear indication that there is an issue with permissions on the spool directory.
+Note the additional DEBUG level log entries compared to the previous example.
+
+The log levels available, in order from least to most verbose are:
+* Error
+* Warn
+* Info
+* Debug
+* Trace
+
+!!!warning
+    The lower, more verbose levels of log levels can be very verbose, especially the  **trace** level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.
