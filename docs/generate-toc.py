@@ -221,7 +221,7 @@ TOC = [
                 children=[
                     Page("Starting KumoMTA", "userguide/operation/starting.md"),
                     Page("Getting Server Status", "userguide/operation/status.md"),
-                    Page("Troubleshooting KumoMTA", "userguide/operation/troubleshooting.md,")
+                    Page("Troubleshooting KumoMTA", "userguide/operation/troubleshooting.md"),
                     Page(
                         "Using the kcli Command-Line Client",
                         "userguide/operation/kcli.md",
