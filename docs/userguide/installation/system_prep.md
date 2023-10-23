@@ -45,10 +45,10 @@ sudo systemctl start named
 * Turn off services that can interfere, particularly postfix and qpidd
 
 ```bash
-systemctl disable postfix
-systemctl stop postfix
-systemctl disable qpidd
-systemctl stop qpidd
+sudo systemctl disable postfix
+sudo systemctl stop postfix
+sudo systemctl disable qpidd
+sudo systemctl stop qpidd
 ```
 
 * Tune the use of memory and file access for best performance. In the sysctl settings, boosting fs.file-max up to 65535 and also setting tcp_tw_reuse = 1 will help performance.  Make other adjustments as needed to make maximum use of RAM, file, and network resources.
