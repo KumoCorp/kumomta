@@ -76,9 +76,16 @@ directory in the repo.
 ## Installing your build
 There are a few helpers included that can build out the recommended directory structure. 
 
-```console
-$ assets/build-rpm.sh
-$ # or assets/build-deb.sh # if you are using a Debian derivative
+```bash
+# First run the install script to create the needed directory structure
+sudo assets/install.sh
+
+# Next run one of the following for eihter an RPM or APT OS type
+# For RPM (yum/dnf)
+assets/build-rpm.sh
+
+# or for APT, if you are using a Debian derivative
+assets/build-deb.sh
 ```
 A minimal policy is included in /opt/kumomta/share/minimal-init.lua that you can just copy to /opt/kumomta/etc/policy/init.lua.  This is VERY minimal and you shoud definitely edit or create your own (see below)
 
