@@ -138,6 +138,13 @@ You can add debugging output by adjusting the `KUMOD_LOG` environment variable.
 For exampe, setting `KUMOD_LOG=kumod=trace` in the environment will run with
 very verbose logging.
 
+If you followed all of the steps above and now have the binary in `/opt/kumomta/sbin`, then you can also run it like this:
+```console
+$ sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+```
+Running as sudo allows you to acces port 25. Running it this way also requires you to specify the config file and the user (kumod).
+
+
 
 ## Staying up to date
 
