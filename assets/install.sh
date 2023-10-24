@@ -1,4 +1,8 @@
 #!/bin/bash
+# This script is an implementation detail of the package builder automatioon.
+# It is not intended to be run directly by humans.
+# It may change its behavior in unpredictable ways and should not be relied
+# upon by anyone or anything other than build-deb.sh and build-rpm.sh
 set -ex
 PREFIX="${1:-/opt/kumomta}"
 
