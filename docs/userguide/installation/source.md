@@ -25,7 +25,7 @@ You will need `git`:
 
 === "APT based systems"
     ```console
-    $ sudo apt install -y git
+    $ sudo apt install -y git curl
     ```
 
 Then clone the repo:
@@ -63,9 +63,7 @@ If you are using a priviledged user, drop back to your non-priviledged user firs
 
 ```console
 $ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-$ source ~/.profile
 $ source ~/.cargo/env
-$ rustc -V
 ```
 
 ## Building KumoMTA
@@ -86,20 +84,45 @@ If you're running on such a system, we recommend building and installing from
 a package built by our scripts, as those packages will best encapsulate how
 we intend for KumoMTA to be installed and operated.
 
+These scripts will produce a package file that you are then free to install
+either locally or on a target system elsewhere.
+
 === "RPM based systems"
 
     ```console
     $ assets/build-rpm.sh
     ```
 
+    You can find the generated rpm in a directory maintained by rpmbuild; that is
+    usually `~/rpmbuild/RPMS/x86_64`, but some environments use a different
+    location, so the example below uses `rpm --eval` to obtain the correct location:
+
+    ```console
+    $ rpm --eval '%{_rpmdir}/%{_arch}'
+    /home/USER/rpmbuild/RPMS/x86_64
+    $ ls $(rpm --eval '%{_rpmdir}/%{_arch}')/kumo*.rpm
+    /home/USER/rpmbuild/RPMS/x86_64/kumomta-dev-2023.10.24.112314_f8aaa6f1-1.fedora38.x86_64.rpm
+    ```
+
+    You can install it directly if you wish:
+
+    ```console
+    $ sudo rpm -Uvh $(ls $(rpm --eval '%{_rpmdir}/%{_arch}')/kumo*.rpm | tail -1)
+    ```
+
 === "APT based systems"
 
     ```console
     $ assets/build-deb.sh
+    $ ls *.deb
+    kumomta-dev.2023.10.24.112314.f8aaa6f1.Ubuntu22.04.deb
     ```
 
-These scripts will produce a package file that you are then free to install
-either locally or on a target system elsewhere.
+    You can install it directly if you wish:
+
+    ```console
+    $ sudo apt-get install -y ./kumomta*.deb
+    ```
 
 ## Installing from source
 
