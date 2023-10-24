@@ -140,10 +140,9 @@ very verbose logging.
 
 If you followed all of the steps above and now have the binary in `/opt/kumomta/sbin`, then you can also run it like this:
 ```console
-$ sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
+$ sudo /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod &
 ```
-Running as sudo allows you to acces port 25. Running it this way also requires you to specify the config file and the user (kumod).
-
+Running as sudo allows you to acces port 25. Running it this way also requires you to specify the config file and the user (kumod). adding the & at the end of teh command allow it to run in the background.  Type `fg` to bring it to the foreground.
 
 
 ## Staying up to date
