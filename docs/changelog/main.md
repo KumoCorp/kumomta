@@ -17,6 +17,12 @@
   [make_egress_path](../reference/kumo/make_egress_path.md#enable_mta_sts) for
   more details. At this time, we do not support
   [TLSRPT](https://datatracker.ietf.org/doc/html/rfc8460).
+* Preliminary support for
+  [DANE](https://datatracker.ietf.org/doc/html/rfc7672). It defaults to
+  disabled because it requires additional configuration to enable DNSSEC. See
+  [make_egress_path](../reference/kumo/make_egress_path.md#enable_dane) for
+  more details. At this time, we do not support
+  [TLSRPT](https://datatracker.ietf.org/doc/html/rfc8460).
 * The [DKIM
   helper](../userguide/configuration/dkim.md#using-the-dkim_signlua-policy-helper)
   now allows setting `body_canonicaliation` and `header_canonicalization`.
@@ -32,6 +38,8 @@
   when customizing local logs.
   See [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md)
   for more information.
+* Delivery log records now include information about the TLS cipher, protocol
+  version and peer subject name for SMTP deliveries that used TLS
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
