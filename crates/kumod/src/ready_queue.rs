@@ -665,6 +665,7 @@ impl Dispatcher {
                             egress_source: Some(&dispatcher.egress_source.name),
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
+                            tls_info: None,
                         })
                         .await;
                         Dispatcher::requeue_message(msg, true, None).await?;
@@ -912,6 +913,7 @@ impl Dispatcher {
                                 egress_source: Some(&egress_source),
                                 relay_disposition: None,
                                 delivery_protocol: None,
+                                tls_info: None,
                             })
                             .await;
 

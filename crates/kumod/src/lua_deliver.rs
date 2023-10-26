@@ -129,6 +129,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 egress_source: Some(&dispatcher.egress_source.name),
                                 relay_disposition: None,
                                 delivery_protocol: Some("Lua"),
+                                tls_info: None,
                             })
                             .await;
                             rt_spawn("requeue message".to_string(), move || {
@@ -154,6 +155,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 egress_source: Some(&dispatcher.egress_source.name),
                                 relay_disposition: None,
                                 delivery_protocol: Some("Lua"),
+                                tls_info: None,
                             })
                             .await;
                             spawn("remove from spool", async move {
@@ -187,6 +189,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some("Lua"),
+                        tls_info: None,
                     })
                     .await;
                     spawn("remove from spool", async move {

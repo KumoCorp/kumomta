@@ -1481,6 +1481,7 @@ impl SmtpServer {
                 egress_source: None,
                 relay_disposition: None,
                 delivery_protocol: None,
+                tls_info: None, // TODO: populate with peer info
             })
             .await;
             if queue_name != "null" {

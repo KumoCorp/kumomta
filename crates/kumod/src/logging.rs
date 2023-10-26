@@ -12,7 +12,7 @@ use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::{Lazy, OnceCell};
-use rfc5321::{EnhancedStatusCode, Response};
+use rfc5321::{EnhancedStatusCode, Response, TlsInformation};
 use serde::Deserialize;
 use serde_json::Value;
 use spool::SpoolId;
@@ -391,6 +391,7 @@ pub struct LogDisposition<'a> {
     pub egress_source: Option<&'a str>,
     pub relay_disposition: Option<RelayDisposition>,
     pub delivery_protocol: Option<&'a str>,
+    pub tls_info: Option<&'a TlsInformation>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -404,6 +405,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         egress_source,
         relay_disposition,
         delivery_protocol,
+        tls_info,
     } = args;
 
     let loggers = Logger::get_loggers();
@@ -476,6 +478,15 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
 
         let (headers, meta) = logger.extract_fields(&msg).await;
 
+        let mut tls_cipher = None;
+        let mut tls_protocol_version = None;
+        let mut tls_peer_subject_name = None;
+        if let Some(info) = tls_info {
+            tls_cipher.replace(info.cipher.clone());
+            tls_protocol_version.replace(info.protocol_version.clone());
+            tls_peer_subject_name.replace(info.subject_name.clone());
+        }
+
         let record = JsonLogRecord {
             kind,
             id: msg.id().to_string(),
@@ -506,6 +517,9 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             delivery_protocol: delivery_protocol.map(|s| s.to_string()),
             reception_protocol: reception_protocol.clone(),
             nodeid,
+            tls_cipher,
+            tls_protocol_version,
+            tls_peer_subject_name,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -587,6 +601,9 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             delivery_protocol: None,
                             reception_protocol: reception_protocol.clone(),
                             nodeid,
+                            tls_cipher: None,
+                            tls_protocol_version: None,
+                            tls_peer_subject_name: None,
                         };
 
                         if let Err(err) = logger.log(record).await {

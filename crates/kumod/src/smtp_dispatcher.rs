@@ -12,7 +12,8 @@ use kumo_server_runtime::{rt_spawn, spawn};
 use message::Message;
 use mta_sts::policy::PolicyMode;
 use rfc5321::{
-    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient, TlsOptions,
+    ClientError, EnhancedStatusCode, ForwardPath, Response, ReversePath, SmtpClient,
+    TlsInformation, TlsOptions, TlsStatus,
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -39,6 +40,7 @@ pub struct SmtpDispatcher {
     client: Option<MetricsWrappedConnection<SmtpClient>>,
     client_address: Option<ResolvedAddress>,
     ehlo_name: String,
+    tls_info: Option<TlsInformation>,
 }
 
 impl SmtpDispatcher {
@@ -164,6 +166,7 @@ impl SmtpDispatcher {
             client: None,
             client_address: None,
             ehlo_name,
+            tls_info: None,
         }))
     }
 }
@@ -344,7 +347,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 false
             }
             (Tls::OpportunisticInsecure, true) => {
-                let (enabled, label) = if let Some(handshake_error) = client
+                let (enabled, label) = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
                         alt_name: None,
@@ -352,16 +355,21 @@ impl QueueDispatcher for SmtpDispatcher {
                     })
                     .await?
                 {
-                    tracing::debug!(
-                        "TLS handshake with {address:?}:{port} failed: \
+                    TlsStatus::FailedHandshake(handshake_error) => {
+                        tracing::debug!(
+                            "TLS handshake with {address:?}:{port} failed: \
                         {handshake_error}, but continuing in clear text because \
                         we are in OpportunisticInsecure mode"
-                    );
-                    // We did not enable TLS
-                    (false, format!("failed: {handshake_error}"))
-                } else {
-                    // TLS is available
-                    (true, "OK".to_string())
+                        );
+                        // We did not enable TLS
+                        (false, format!("failed: {handshake_error}"))
+                    }
+                    TlsStatus::Info(info) => {
+                        // TLS is available
+                        tracing::trace!("TLS: {info:?}");
+                        self.tls_info.replace(info);
+                        (true, "OK".to_string())
+                    }
                 };
                 // Re-EHLO even if we didn't enable TLS, as some implementations
                 // incorrectly roll over failed TLS into the following command,
@@ -376,7 +384,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 enabled
             }
             (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
-                if let Some(handshake_error) = client
+                match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
                         alt_name: None,
@@ -384,10 +392,16 @@ impl QueueDispatcher for SmtpDispatcher {
                     })
                     .await?
                 {
-                    client.send_command(&rfc5321::Command::Quit).await.ok();
-                    anyhow::bail!(
-                        "TLS handshake with {address:?}:{port} failed: {handshake_error}"
-                    );
+                    TlsStatus::FailedHandshake(handshake_error) => {
+                        client.send_command(&rfc5321::Command::Quit).await.ok();
+                        anyhow::bail!(
+                            "TLS handshake with {address:?}:{port} failed: {handshake_error}"
+                        );
+                    }
+                    TlsStatus::Info(info) => {
+                        tracing::trace!("TLS: {info:?}");
+                        self.tls_info.replace(info);
+                    }
                 }
                 client
                     .ehlo(&ehlo_name)
@@ -488,6 +502,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
+                        tls_info: self.tls_info.as_ref(),
                     })
                     .await;
                     rt_spawn("requeue message".to_string(), move || {
@@ -525,6 +540,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
+                        tls_info: self.tls_info.as_ref(),
                     })
                     .await;
                     rt_spawn("requeue message".to_string(), move || {
@@ -565,6 +581,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
+                        tls_info: self.tls_info.as_ref(),
                     })
                     .await;
                     rt_spawn("requeue message".to_string(), move || {
@@ -594,6 +611,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
+                        tls_info: self.tls_info.as_ref(),
                     })
                     .await;
                     spawn("remove from spool", async move {
@@ -623,6 +641,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
+                        tls_info: self.tls_info.as_ref(),
                     })
                     .await;
                     spawn("remove from spool", async move {

@@ -163,6 +163,7 @@ impl AdminBounceEntry {
             egress_pool: None,
             relay_disposition: None,
             delivery_protocol: None,
+            tls_info: None,
         })
         .await;
 

@@ -2,6 +2,7 @@ use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardP
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage};
+use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -526,13 +527,14 @@ impl SmtpClient {
     /// On completion, return an option that will be:
     /// * Some(handshake_error) - if the handshake failed
     /// * None - if the handshake succeeded
-    pub async fn starttls(&mut self, options: TlsOptions) -> Result<Option<String>, ClientError> {
+    pub async fn starttls(&mut self, options: TlsOptions) -> Result<TlsStatus, ClientError> {
         let resp = self.send_command(&Command::StartTls).await?;
         if resp.code != 220 {
             return Err(ClientError::Rejected(resp));
         }
 
         let mut handshake_error = None;
+        let mut tls_info = TlsInformation::default();
 
         let stream: BoxedAsyncReadAndWrite = if !options.dane_tlsa.is_empty() {
             let connector = build_dane_connector(&options, &self.hostname)?;
@@ -547,6 +549,21 @@ impl SmtpClient {
 
             if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
                 handshake_error.replace(format!("{err:#}"));
+            }
+
+            tls_info.cipher = match ssl_stream.ssl().current_cipher() {
+                Some(cipher) => cipher.standard_name().unwrap_or(cipher.name()).to_string(),
+                None => String::new(),
+            };
+            tls_info.protocol_version = ssl_stream.ssl().version_str().to_string();
+
+            if let Some(cert) = ssl_stream.ssl().peer_certificate() {
+                tls_info.subject_name = subject_name(&cert);
+            }
+            if let Ok(authority) = ssl_stream.ssl().dane_authority() {
+                if let Some(cert) = &authority.cert {
+                    tls_info.subject_name = subject_name(cert);
+                }
             }
 
             Box::new(ssl_stream)
@@ -569,7 +586,26 @@ impl SmtpClient {
                 .into_fallible()
                 .await
             {
-                Ok(stream) => Box::new(stream),
+                Ok(stream) => {
+                    let (_, conn) = stream.get_ref();
+                    tls_info.cipher = match conn.negotiated_cipher_suite() {
+                        Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    };
+                    tls_info.protocol_version = match conn.protocol_version() {
+                        Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    };
+
+                    if let Some(certs) = conn.peer_certificates() {
+                        let peer_cert = &certs[0];
+                        if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                            tls_info.subject_name = subject_name(&cert);
+                        }
+                    }
+
+                    Box::new(stream)
+                }
                 Err((err, stream)) => {
                     handshake_error.replace(format!("{err:#}"));
                     stream
@@ -578,7 +614,10 @@ impl SmtpClient {
         };
 
         self.socket.replace(stream);
-        Ok(handshake_error)
+        Ok(match handshake_error {
+            Some(error) => TlsStatus::FailedHandshake(error),
+            None => TlsStatus::Info(tls_info),
+        })
     }
 
     pub async fn send_mail<B: AsRef<[u8]>, SENDER: Into<ReversePath>, RECIP: Into<ForwardPath>>(
@@ -687,6 +726,19 @@ impl SmtpClient {
 
         Ok(resp)
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub enum TlsStatus {
+    FailedHandshake(String),
+    Info(TlsInformation),
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct TlsInformation {
+    pub cipher: String,
+    pub protocol_version: String,
+    pub subject_name: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy, Hash)]
@@ -901,6 +953,24 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
     }
     stuffed.extend_from_slice(&data[last_idx..]);
     Some(stuffed)
+}
+
+/// Extracts the object=name pairs of the subject name from a cert.
+/// eg:
+/// ```norun
+/// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
+/// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
+/// ```
+fn subject_name(cert: &X509Ref) -> Vec<String> {
+    let mut subject_name = vec![];
+    for entry in cert.subject_name().entries() {
+        if let Ok(obj) = entry.object().nid().short_name() {
+            if let Ok(name) = entry.data().as_utf8() {
+                subject_name.push(format!("{obj}={name}"));
+            }
+        }
+    }
+    subject_name
 }
 
 #[cfg(test)]

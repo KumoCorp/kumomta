@@ -90,4 +90,16 @@ pub struct JsonLogRecord {
 
     /// The id of the node on which the event occurred
     pub nodeid: Uuid,
+
+    /// The TLS Cipher used, if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cipher: Option<String>,
+
+    /// The TLS protocol version used, if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_protocol_version: Option<String>,
+
+    /// The Subject Name from the peer TLS certificate, if applicable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_peer_subject_name: Option<Vec<String>>,
 }

@@ -490,6 +490,7 @@ impl Queue {
                 egress_source: None,
                 relay_disposition: None,
                 delivery_protocol: None,
+                tls_info: None,
             })
             .await;
             SpoolManager::remove_from_spool(id).await?;
@@ -627,6 +628,7 @@ impl Queue {
                                 egress_source: None,
                                 relay_disposition: None,
                                 delivery_protocol: None,
+                                tls_info: None,
                             })
                             .await;
                             msg.delay_by_and_jitter(duration).await?;
@@ -655,6 +657,7 @@ impl Queue {
                                 egress_source: None,
                                 relay_disposition: None,
                                 delivery_protocol: None,
+                                tls_info: None,
                             })
                             .await;
                             anyhow::bail!(
@@ -705,6 +708,7 @@ impl Queue {
                                 egress_source: None,
                                 relay_disposition: None,
                                 delivery_protocol: None,
+                                tls_info: None,
                             })
                             .await;
                             anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
@@ -754,6 +758,7 @@ impl Queue {
                             egress_source: None,
                             relay_disposition: None,
                             delivery_protocol: Some("Maildir"),
+                            tls_info: None,
                         })
                         .await;
                         spawn("remove from spool", async move {
@@ -777,6 +782,7 @@ impl Queue {
                             egress_source: None,
                             relay_disposition: None,
                             delivery_protocol: Some("Maildir"),
+                            tls_info: None,
                         })
                         .await;
                         anyhow::bail!("failed maildir store: {err:#}");

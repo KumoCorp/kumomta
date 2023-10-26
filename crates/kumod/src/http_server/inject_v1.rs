@@ -420,6 +420,7 @@ async fn process_recipient<'a>(
             egress_pool: None,
             relay_disposition: None,
             delivery_protocol: None,
+            tls_info: None,
         })
         .await;
         rt_spawn(format!("http inject for {peer_address:?}"), move || {
