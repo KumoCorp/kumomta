@@ -46,14 +46,14 @@ kumo.on('tsa_load_shaping_data', function()
     '/opt/kumomta/share/policy-extras/shaping.toml',
 
     -- and maybe you have your own rules
-    '/opt/kumomta/policy/shaping.toml',
+    '/opt/kumomta/etc/policy/shaping.toml',
   }
   return shaping
 end)
 ```
 
 !!!note
-    Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create the `/opt/kumomta/policy/shaping.toml` file as listed above and populate it with your own override rules.
+    Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create the `/opt/kumomta/etc/policy/shaping.toml` file as listed above and populate it with your own override rules.
 
 ## Changes to the `init.lua` File
 
@@ -67,10 +67,11 @@ local shaping = require 'policy-extras.shaping'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
+  extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
 }
 ```
 
-This section enabled communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively.
+This section enabled communication with the TSA daemon. The publish and subscribe URLs correspond to the TSA daemon's HTTP listener endpoint defined in its tsa_init.lua.  For a single node deployment the values shown here are sufficient.  You may list multiple publish and/or subscribe endpoints to publish to multiple hosts and read shaping configuration from multiple hosts, respectively. In addition, while the `setup_with_automation` call is aware of the community shaping rules file, any custom file must be identified in the `extra_files` directive as seen in the example above.
 
 Next, the following should be added within the `kumo.on('init', function()` block:
 
@@ -146,10 +147,10 @@ If the tsa-deamon does not appear to be working, you can check to see if it is r
 ```bash
 sudo systemctl stop kumo-tsa-daemon
 sudo systemctl start kumo-tsa-daemon
-``` 
+```
 
 Data for the TSA daemon is just like any other message in KumoMTA and will follow the same retry rules. The default is to retry in 20 minutes with exponential fallback.  If desired, this (or any other) scheduled queue can be customized with the [get_queue_config](https://docs.kumomta.com/reference/events/get_queue_config/) hook.
 
- 
+
 
 
