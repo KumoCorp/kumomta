@@ -81,6 +81,14 @@ consecutive_connection_failures_before_delay = 24
 ["mail.com"]
 max_deliveries_per_connection = 100
 
+# example.com is used by our integration tests, while also demonstrating
+# a couple of example options. No one should be sending mail to example.com:
+# it has a NULL MX record and doesn't accept mail.
+["example.com"]
+mx_rollup = false
+max_deliveries_per_connection = 100
+connection_limit = 3
+
 # If you want to declare local overrides with settings for your locally defined
 # egress sources, you can syntax like the following; the section is named:
 # [DOMAIN.sources.SOURCE] where both the DOMAIN and the SOURCE need to be quoted
