@@ -5,6 +5,7 @@ use rocksdb::{DBCompressionType, IteratorMode, LogLevel, Options, DB};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -35,6 +36,49 @@ pub struct RocksSpoolParams {
     /// <https://docs.rs/rocksdb/latest/rocksdb/struct.Options.html#method.set_memtable_huge_page_size>
     #[serde(default)]
     pub memtable_huge_page_size: Option<usize>,
+
+    #[serde(
+        with = "humantime_serde",
+        default = "RocksSpoolParams::default_log_file_time_to_roll"
+    )]
+    pub log_file_time_to_roll: Duration,
+
+    #[serde(
+        with = "humantime_serde",
+        default = "RocksSpoolParams::default_obsolete_files_period"
+    )]
+    pub obsolete_files_period: Duration,
+}
+
+impl Default for RocksSpoolParams {
+    fn default() -> Self {
+        Self {
+            increase_parallelism: None,
+            optimize_level_style_compaction: None,
+            optimize_universal_style_compaction: None,
+            paranoid_checks: false,
+            compression_type: DBCompressionTypeDef::default(),
+            compaction_readahead_size: None,
+            level_compaction_dynamic_level_bytes: false,
+            max_open_files: None,
+            log_level: LogLevelDef::default(),
+            memtable_huge_page_size: None,
+            log_file_time_to_roll: Self::default_log_file_time_to_roll(),
+            obsolete_files_period: Self::default_obsolete_files_period(),
+        }
+    }
+}
+
+impl RocksSpoolParams {
+    fn default_log_file_time_to_roll() -> Duration {
+        let one_day = Duration::from_secs(86400);
+        one_day
+    }
+
+    fn default_obsolete_files_period() -> Duration {
+        let six_hours = Duration::from_secs(6 * 60 * 60);
+        six_hours
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -106,31 +150,34 @@ impl RocksSpool {
         let mut opts = Options::default();
         opts.set_use_fsync(flush);
         opts.create_if_missing(true);
+        // The default is 1000, which is a bit high
+        opts.set_keep_log_file_num(10);
 
-        if let Some(p) = params {
-            if let Some(i) = p.increase_parallelism {
-                opts.increase_parallelism(i);
-            }
-            if let Some(i) = p.optimize_level_style_compaction {
-                opts.optimize_level_style_compaction(i);
-            }
-            if let Some(i) = p.optimize_universal_style_compaction {
-                opts.optimize_universal_style_compaction(i);
-            }
-            if let Some(i) = p.compaction_readahead_size {
-                opts.set_compaction_readahead_size(i);
-            }
-            if let Some(i) = p.max_open_files {
-                opts.set_max_open_files(i as _);
-            }
-            if let Some(i) = p.memtable_huge_page_size {
-                opts.set_memtable_huge_page_size(i);
-            }
-            opts.set_paranoid_checks(p.paranoid_checks);
-            opts.set_level_compaction_dynamic_level_bytes(p.level_compaction_dynamic_level_bytes);
-            opts.set_compression_type(p.compression_type.into());
-            opts.set_log_level(p.log_level.into());
+        let p = params.unwrap_or_default();
+        if let Some(i) = p.increase_parallelism {
+            opts.increase_parallelism(i);
         }
+        if let Some(i) = p.optimize_level_style_compaction {
+            opts.optimize_level_style_compaction(i);
+        }
+        if let Some(i) = p.optimize_universal_style_compaction {
+            opts.optimize_universal_style_compaction(i);
+        }
+        if let Some(i) = p.compaction_readahead_size {
+            opts.set_compaction_readahead_size(i);
+        }
+        if let Some(i) = p.max_open_files {
+            opts.set_max_open_files(i as _);
+        }
+        if let Some(i) = p.memtable_huge_page_size {
+            opts.set_memtable_huge_page_size(i);
+        }
+        opts.set_paranoid_checks(p.paranoid_checks);
+        opts.set_level_compaction_dynamic_level_bytes(p.level_compaction_dynamic_level_bytes);
+        opts.set_compression_type(p.compression_type.into());
+        opts.set_log_level(p.log_level.into());
+        opts.set_log_file_time_to_roll(p.log_file_time_to_roll.as_secs() as usize);
+        opts.set_delete_obsolete_files_period_micros(p.obsolete_files_period.as_micros() as u64);
 
         let db = Arc::new(DB::open(&opts, path)?);
 
