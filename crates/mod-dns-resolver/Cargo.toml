@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver"}
-libunbound = {path="../libunbound"}
+libunbound = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
 trust-dns-resolver = {workspace=true, features=["serde-config"]}

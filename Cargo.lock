@@ -2600,6 +2600,7 @@ dependencies = [
 [[package]]
 name = "libunbound"
 version = "0.1.0"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=5913110316a5c7f4a5fc928b542b2ba053b5cc2a#5913110316a5c7f4a5fc928b542b2ba053b5cc2a"
 dependencies = [
  "libc",
  "libunbound-sys",
@@ -2612,6 +2613,7 @@ dependencies = [
 [[package]]
 name = "libunbound-sys"
 version = "0.1.0"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=5913110316a5c7f4a5fc928b542b2ba053b5cc2a#5913110316a5c7f4a5fc928b542b2ba053b5cc2a"
 dependencies = [
  "cc",
  "openssl-sys",
