@@ -43,6 +43,9 @@
 * New [regex_set_map](../reference/kumo.regex_set_map/new.md) type for efficiently
   matching multiple regular expressions in a single search operation and returning
   an associated value.
+* New
+  [smtp_client_rewrite_delivery_status](../reference/events/smtp_client_rewrite_delivery_status.md)
+  event to enable rewriting SMTP client status codes.
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or

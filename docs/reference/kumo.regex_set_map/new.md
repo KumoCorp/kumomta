@@ -1,5 +1,7 @@
 # `kumo.regex_set_map.new([{MAP}])`
 
+{{since('dev')}}
+
 Create a new *regex set map* from a set of key/value pairs.
 
 A regex set can efficiently match a haystack string against a list of multiple

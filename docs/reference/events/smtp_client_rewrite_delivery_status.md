@@ -1,5 +1,7 @@
 # `kumo.on('smtp_client_rewrite_delivery_status', function(response, domain, tenant, campaign, routing_domain))`
 
+{{since('dev')}}
+
 This event is triggered by the SMTP client if a message is rejected by
 a destination SMTP server.
 
