@@ -2379,6 +2379,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rcgen",
+ "regex-set-map",
  "rustls",
  "rustls-pemfile",
  "serde",
@@ -4296,6 +4297,19 @@ dependencies = [
  "aho-corasick 1.1.2",
  "memchr",
  "regex-syntax 0.8.2",
+]
+
+[[package]]
+name = "regex-set-map"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "mlua",
+ "mod-memoize",
+ "regex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

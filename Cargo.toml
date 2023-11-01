@@ -9,6 +9,7 @@ members = [
   "crates/mailparsing",
   "crates/mta-sts",
   "crates/proxy-server",
+  "crates/regex-set-map",
   "crates/rfc5321",
   "crates/spool",
   "crates/tailer",

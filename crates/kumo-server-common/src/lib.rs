@@ -26,6 +26,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_kafka::register,
         mod_memoize::register,
         kumo_api_types::shaping::register,
+        regex_set_map::register,
     ] {
         func(lua)?;
     }
