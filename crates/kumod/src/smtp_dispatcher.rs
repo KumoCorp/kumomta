@@ -4,11 +4,13 @@ use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
+use config::load_config;
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::{rt_spawn, spawn};
+use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
 use rfc5321::{
@@ -484,33 +486,114 @@ impl QueueDispatcher for SmtpDispatcher {
             .send_mail(sender, recipient, &*data)
             .await
         {
-            Err(ClientError::Rejected(response)) if response.code >= 400 && response.code < 500 => {
-                // Transient failure
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {response:?}",
-                    dispatcher.name,
-                    self.client_address
-                );
-                if let Some(msg) = dispatcher.msg.take() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: self.tls_info.as_ref(),
-                    })
+            Err(ClientError::Rejected(mut response)) => {
+                let components = QueueNameComponents::parse(&dispatcher.queue_name);
+                let mut config = load_config().await?;
+
+                let rewritten_code: anyhow::Result<Option<u16>> = config
+                    .async_call_callback(
+                        "smtp_client_rewrite_delivery_status",
+                        (
+                            response.to_single_line(),
+                            components.domain,
+                            components.tenant,
+                            components.campaign,
+                            components
+                                .routing_domain
+                                .as_deref()
+                                .unwrap_or(&components.domain),
+                        ),
+                    )
                     .await;
-                    rt_spawn("requeue message".to_string(), move || {
-                        Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
-                    })
-                    .await?;
+
+                match rewritten_code {
+                    Ok(Some(code)) if code != response.code => {
+                        response.content = format!(
+                            "{} (kumomta: status was rewritten from {} -> {code})",
+                            response.content, response.code
+                        );
+                        response.code = code;
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::error!("smtp_client_rewrite_delivery_status event failed: {err:#}. Preserving original DSN");
+                    }
                 }
-                dispatcher.metrics.inc_transfail();
+
+                if response.code >= 400 && response.code < 500 {
+                    // Transient failure
+                    tracing::debug!(
+                        "failed to send message to {} {:?}: {response:?}",
+                        dispatcher.name,
+                        self.client_address
+                    );
+                    if let Some(msg) = dispatcher.msg.take() {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: &dispatcher.name,
+                            peer_address: self.client_address.as_ref(),
+                            response,
+                            egress_pool: Some(&dispatcher.egress_pool),
+                            egress_source: Some(&dispatcher.egress_source.name),
+                            relay_disposition: None,
+                            delivery_protocol: Some(&dispatcher.delivery_protocol),
+                            tls_info: self.tls_info.as_ref(),
+                        })
+                        .await;
+                        rt_spawn("requeue message".to_string(), move || {
+                            Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
+                        })
+                        .await?;
+                    }
+                    dispatcher.metrics.inc_transfail();
+                } else if response.code >= 200 && response.code < 300 {
+                    tracing::debug!("Delivered OK! {response:?}");
+                    if let Some(msg) = dispatcher.msg.take() {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Delivery,
+                            msg: msg.clone(),
+                            site: &dispatcher.name,
+                            peer_address: self.client_address.as_ref(),
+                            response,
+                            egress_pool: Some(&dispatcher.egress_pool),
+                            egress_source: Some(&dispatcher.egress_source.name),
+                            relay_disposition: None,
+                            delivery_protocol: Some(&dispatcher.delivery_protocol),
+                            tls_info: self.tls_info.as_ref(),
+                        })
+                        .await;
+                        spawn("remove from spool", async move {
+                            SpoolManager::remove_from_spool(*msg.id()).await
+                        })?;
+                    }
+                    dispatcher.metrics.inc_delivered();
+                } else {
+                    dispatcher.metrics.inc_fail();
+                    tracing::debug!(
+                        "failed to send message to {} {:?}: {response:?}",
+                        dispatcher.name,
+                        self.client_address
+                    );
+                    if let Some(msg) = dispatcher.msg.take() {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Bounce,
+                            msg: msg.clone(),
+                            site: &dispatcher.name,
+                            peer_address: self.client_address.as_ref(),
+                            response,
+                            egress_pool: Some(&dispatcher.egress_pool),
+                            egress_source: Some(&dispatcher.egress_source.name),
+                            relay_disposition: None,
+                            delivery_protocol: Some(&dispatcher.delivery_protocol),
+                            tls_info: self.tls_info.as_ref(),
+                        })
+                        .await;
+                        spawn("remove from spool", async move {
+                            SpoolManager::remove_from_spool(*msg.id()).await
+                        })?;
+                    }
+                }
             }
             Err(ClientError::TimeOutRequest { command, duration }) => {
                 // Transient failure
@@ -592,32 +675,6 @@ impl QueueDispatcher for SmtpDispatcher {
                 dispatcher.metrics.inc_transfail();
                 // Move on to the next host
                 anyhow::bail!("{reason}");
-            }
-            Err(ClientError::Rejected(response)) => {
-                dispatcher.metrics.inc_fail();
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {response:?}",
-                    dispatcher.name,
-                    self.client_address
-                );
-                if let Some(msg) = dispatcher.msg.take() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::Bounce,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: self.tls_info.as_ref(),
-                    })
-                    .await;
-                    spawn("remove from spool", async move {
-                        SpoolManager::remove_from_spool(*msg.id()).await
-                    })?;
-                }
             }
             Err(err) => {
                 // Transient failure; continue with another host
