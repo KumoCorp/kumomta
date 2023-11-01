@@ -69,4 +69,7 @@ kumo.on(
 )
 ```
 
-See also: [kumo.regex_set_map.new](../kumo.regex_set_map/new.md).
+See also:
+
+ * [kumo.memoize](../kumo/memoize.md)
+ * [kumo.regex_set_map.new](../kumo.regex_set_map/new.md)
