@@ -46,6 +46,9 @@
 * New
   [smtp_client_rewrite_delivery_status](../reference/events/smtp_client_rewrite_delivery_status.md)
   event to enable rewriting SMTP client status codes.
+* minijinja templates now provide date/time formatting filters and globals
+  via [minijinja_contrib](https://docs.rs/minijinja-contrib/latest/minijinja_contrib/index.html).
+  Thanks to @cai-n! #91
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
