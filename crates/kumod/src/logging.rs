@@ -10,6 +10,7 @@ pub use kumo_log_types::*;
 use kumo_server_runtime::rt_spawn_non_blocking;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
+use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response, TlsInformation};
@@ -82,6 +83,9 @@ pub struct LogRecordParams {
     /// minijinja template
     #[serde(default)]
     pub template: Option<String>,
+
+    #[serde(default)]
+    pub template_datetime_format: Option<String>,
 
     /// Written to the start of each newly created log file segment
     #[serde(default)]
@@ -197,6 +201,10 @@ impl Logger {
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
+                if let Some(datetime_format) = &per_rec.template_datetime_format {
+                    template_engine.add_global("DATETIME_FORMAT", datetime_format.clone());
+                }
+                add_to_environment(&mut template_engine);
                 template_engine
                     .add_template_owned(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
@@ -252,6 +260,10 @@ impl Logger {
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
+                if let Some(datetime_format) = &per_rec.template_datetime_format {
+                    template_engine.add_global("DATETIME_FORMAT", datetime_format.clone());
+                }
+                add_to_environment(&mut template_engine);
                 template_engine
                     .add_template_owned(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
