@@ -11,6 +11,7 @@ use kumo_server_runtime::rt_spawn;
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
+use minijinja_contrib::add_to_environment;
 use rfc5321::Response;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
@@ -235,6 +236,7 @@ impl InjectV1Request {
 
     fn compile(&self) -> anyhow::Result<Compiled> {
         let mut env = Environment::new();
+        add_to_environment(&mut env);
         let mut id = 0;
 
         // Pass 1: create the templates

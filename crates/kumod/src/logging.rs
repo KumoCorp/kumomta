@@ -10,6 +10,7 @@ pub use kumo_log_types::*;
 use kumo_server_runtime::rt_spawn_non_blocking;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
+use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::{Lazy, OnceCell};
 use rfc5321::{EnhancedStatusCode, Response, TlsInformation};
@@ -194,6 +195,7 @@ impl Logger {
 
     pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
         let mut template_engine = Environment::new();
+        add_to_environment(&mut template_engine);
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
@@ -249,6 +251,7 @@ impl Logger {
 
     pub fn init(params: LogFileParams) -> anyhow::Result<()> {
         let mut template_engine = Environment::new();
+        add_to_environment(&mut template_engine);
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
