@@ -264,3 +264,4 @@ $ git pull --rebase
 $ ./get-deps.sh
 $ cargo build --release
 ```
+Note that this builds the new files in `target/release/`.  If you installed binaries to /opt/kumomta/sbin then you will want to follow the instructions above to [build your own package](source.md/#building-your-own-package) and update the files in `/opt/kumomta/`.
