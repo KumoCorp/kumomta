@@ -129,14 +129,6 @@ end)
 
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
-kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
-  local cfg = shaper.get_queue_config(domain, tenant, campaign)
-  if cfg then
-    return cfg
-  end
-
-  -- Do your normal queue config handling here
-end)
 ]]
 function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
@@ -219,6 +211,21 @@ function mod:setup_with_automation(options)
     return kumo.make_egress_path(params)
   end
 
+  -- Setup the webhook publisher to the TSA daemon.
+  -- Since each destination has a unique domain name,
+  -- the implementation of get_queue_cfg can simply
+  -- match that name and return the full configuration
+  -- for it; there is no need for user config to need
+  -- to mutate it so we can register a handler here without
+  -- exposing the handler to the user's config, make things
+  -- just a little simpler for them.
+  kumo.on(
+    'get_queue_config',
+    function(domain, tenant, campaign, routing_domain)
+      return get_queue_cfg(publish, domain, tenant, campaign)
+    end
+  )
+
   return {
     get_egress_path_config = get_egress_path_config,
     should_enqueue_log_record = function(msg, hook_name)
@@ -226,7 +233,11 @@ function mod:setup_with_automation(options)
     end,
     setup_publish = setup_publish,
     get_queue_config = function(domain, tenant, campaign, routing_domain)
-      return get_queue_cfg(publish, domain, tenant, campaign)
+      -- deprecated: no longer needed as we register a get_queue_config
+      -- handler above.
+      -- This is preserved for backwards compatibility; when
+      -- called, it does nothing.
+      -- TODO: remove me after next release.
     end,
   }
 end

@@ -49,6 +49,27 @@
 * minijinja templates now provide date/time formatting filters and globals
   via [minijinja_contrib](https://docs.rs/minijinja-contrib/latest/minijinja_contrib/index.html).
   Thanks to @cai-n! #91
+* It is no longer necessary to call `shaper.get_queue_config` when using the shaping
+  helper together with TSA.  You should change your config from:
+
+  ```lua
+  kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+    local cfg = shaper.get_queue_config(domain, tenant, campaign)
+    if cfg then
+        return cfg
+    end
+
+    -- Do your normal queue config handling here
+  end)
+  ```
+
+  to:
+
+  ```lua
+  kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+    -- Do your normal queue config handling here
+  end)
+  ```
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or
