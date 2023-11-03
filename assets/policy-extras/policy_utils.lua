@@ -1,11 +1,46 @@
 local mod = {}
 local kumo = require 'kumo'
 
+function mod.assert_eq(a, b, message)
+  if a ~= b then
+    if message then
+      message = string.format('%s. ', message)
+    else
+      message = ''
+    end
+    error(
+      string.format(
+        '%sexpected %s == %s',
+        message,
+        kumo.json_encode(a),
+        kumo.json_encode(b)
+      )
+    )
+  end
+end
+
 -- Helper function that merges the values from `src` into `dest`
 function mod.merge_into(src, dest)
   if src then
     for k, v in pairs(src) do
       dest[k] = v
+    end
+  end
+end
+
+-- Helper function that merges the values from `src` into `dest`
+function mod.recursive_merge_into(src, dest)
+  if src then
+    for k, v in pairs(src) do
+      if type(v) == 'table' then
+        if not dest[k] then
+          dest[k] = v
+        else
+          mod.recursive_merge_into(v, dest[k])
+        end
+      else
+        dest[k] = v
+      end
     end
   end
 end
@@ -31,6 +66,14 @@ function mod.table_keys(tbl)
     table.insert(result, k)
   end
   return result
+end
+
+-- Returns true if table is empty, false otherwise
+function mod.table_is_empty(tbl)
+  for _k, _v in pairs(tbl) do
+    return false
+  end
+  return true
 end
 
 function mod.load_json_or_toml_file(filename)
