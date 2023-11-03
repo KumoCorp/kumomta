@@ -1,7 +1,8 @@
 use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, ToLuaMulti, Value};
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::borrow::Cow;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -29,6 +30,7 @@ lazy_static::lazy_static! {
             "the number of lua contexts available for reuse in the pool");
         metrics::register_gauge!("lua_spare_count")
     };
+    static ref CALLBACK_ALLOWS_MULTIPLE: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }
 
 /// Maximum age of a lua context before we release it, in seconds
@@ -218,24 +220,43 @@ impl LuaConfig {
             .set("_KUMO_CURRENT_EVENT", name.to_string())
     }
 
-    /// Call a callback registered via `on`.
     pub async fn async_call_callback<
         'lua,
-        S: AsRef<str>,
         A: ToLuaMulti<'lua> + Clone,
         R: FromLuaMulti<'lua> + Default,
     >(
         &'lua mut self,
-        name: S,
+        sig: &CallbackSignature<'lua, A, R>,
         args: A,
     ) -> anyhow::Result<R> {
-        let name = name.as_ref();
-        let decorated_name = format!("kumomta-on-{}", name);
+        let name = sig.name();
+        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
-        match self
-            .inner
-            .as_mut()
-            .unwrap()
+        let lua = self.inner.as_mut().unwrap();
+
+        if sig.allow_multiple() {
+            return match lua
+                .lua
+                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+            {
+                Value::Table(tbl) => {
+                    for func in tbl.sequence_values::<mlua::Function>() {
+                        let func = func?;
+                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                        if result.is_empty() {
+                            // Continue with other handlers
+                            continue;
+                        }
+                        let result = R::from_lua_multi(result, &lua.lua)?;
+                        return Ok(result);
+                    }
+                    Ok(R::default())
+                }
+                _ => Ok(R::default()),
+            };
+        }
+
+        match lua
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
@@ -246,21 +267,41 @@ impl LuaConfig {
 
     pub async fn async_call_callback_non_default<
         'lua,
-        S: AsRef<str>,
         A: ToLuaMulti<'lua> + Clone,
         R: FromLuaMulti<'lua>,
     >(
         &'lua mut self,
-        name: S,
+        sig: &CallbackSignature<'lua, A, R>,
         args: A,
     ) -> anyhow::Result<R> {
-        let name = name.as_ref();
-        let decorated_name = format!("kumomta-on-{}", name);
+        let name = sig.name();
+        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
-        match self
-            .inner
-            .as_mut()
-            .unwrap()
+        let lua = self.inner.as_mut().unwrap();
+
+        if sig.allow_multiple() {
+            match lua
+                .lua
+                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+            {
+                Value::Table(tbl) => {
+                    for func in tbl.sequence_values::<mlua::Function>() {
+                        let func = func?;
+                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                        if result.is_empty() {
+                            // Continue with other handlers
+                            continue;
+                        }
+                        let result = R::from_lua_multi(result, &lua.lua)?;
+                        return Ok(result);
+                    }
+                }
+                _ => {}
+            };
+            anyhow::bail!("invalid return type for {name} event");
+        }
+
+        match lua
             .lua
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
@@ -271,18 +312,40 @@ impl LuaConfig {
 
     pub async fn async_call_callback_non_default_opt<
         'lua,
-        S: AsRef<str>,
         A: ToLuaMulti<'lua> + Clone,
         R: FromLua<'lua>,
     >(
         &'lua mut self,
-        name: S,
+        sig: &CallbackSignature<'lua, A, Option<R>>,
         args: A,
     ) -> anyhow::Result<Option<R>> {
-        let name = name.as_ref();
-        let decorated_name = format!("kumomta-on-{}", name);
+        let name = sig.name();
+        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
+
+        if sig.allow_multiple() {
+            return match lua
+                .lua
+                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+            {
+                Value::Table(tbl) => {
+                    for func in tbl.sequence_values::<mlua::Function>() {
+                        let func = func?;
+                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                        if result.is_empty() {
+                            // Continue with other handlers
+                            continue;
+                        }
+                        let result = R::from_lua_multi(result, &lua.lua)?;
+                        return Ok(Some(result));
+                    }
+                    Ok(None)
+                }
+                _ => Ok(None),
+            };
+        }
+
         let opt_func: mlua::Value = lua.lua.named_registry_value(&decorated_name)?;
 
         match opt_func {
@@ -313,13 +376,18 @@ impl LuaConfig {
 
     /// Call a constructor registered via `on`. Returns a registry key that can be
     /// used to reference the returned value again later on this same Lua instance
-    pub async fn async_call_ctor<'lua, S: AsRef<str>, A: ToLuaMulti<'lua> + Clone>(
+    pub async fn async_call_ctor<'lua, A: ToLuaMulti<'lua> + Clone>(
         &'lua mut self,
-        name: S,
+        sig: &CallbackSignature<'lua, A, Value<'lua>>,
         args: A,
     ) -> anyhow::Result<RegistryKey> {
-        let name = name.as_ref();
-        let decorated_name = format!("kumomta-on-{}", name);
+        let name = sig.name();
+        anyhow::ensure!(
+            !sig.allow_multiple(),
+            "ctor event signature for {name} is defined as allow_multiple, which is not supported"
+        );
+
+        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
 
         let inner = self.inner.as_mut().unwrap();
@@ -350,33 +418,6 @@ impl LuaConfig {
         let value = inner.lua.registry_value(value)?;
         let future = (func)(value)?;
         future.await
-    }
-
-    /// Call a callback registered via `on`.
-    #[allow(unused)]
-    pub fn call_callback<
-        'lua,
-        S: AsRef<str>,
-        A: ToLuaMulti<'lua> + Clone,
-        R: FromLuaMulti<'lua> + Default,
-    >(
-        &'lua mut self,
-        name: S,
-        args: A,
-    ) -> anyhow::Result<R> {
-        let name = name.as_ref();
-        let decorated_name = format!("kumomta-on-{}", name);
-        self.set_current_event(name);
-        match self
-            .inner
-            .as_mut()
-            .unwrap()
-            .lua
-            .named_registry_value::<_, mlua::Function>(&decorated_name)
-        {
-            Ok(func) => Ok(func.call(args.clone())?),
-            _ => Ok(R::default()),
-        }
     }
 }
 
@@ -447,4 +488,84 @@ where
         tracing::error!("{err:#}, while processing {serialized}");
         mlua::Error::external(format!("{err:#}, while processing {serialized}"))
     })
+}
+
+/// CallbackSignature is a bit sugar to aid with statically typing event callback
+/// function invocation.
+///
+/// The idea is that you declare a signature instance that is typed
+/// with its argument tuple (A), and its return type tuple (R).
+///
+/// The signature instance can then be used to invoke the callback by name.
+///
+/// The register method allows pre-registering events so that `kumo.on`
+/// can reason about them better.  The main function enabled by this is
+/// `allow_multiple`; when that is set to true, `kumo.on` will allow
+/// recording multiple callback instances, calling them in sequence
+/// until one of them returns a value.
+pub struct CallbackSignature<'lua, A, R>
+where
+    A: ToLuaMulti<'lua>,
+    R: FromLuaMulti<'lua>,
+{
+    marker: std::marker::PhantomData<&'lua (A, R)>,
+    allow_multiple: bool,
+    name: Cow<'static, str>,
+}
+
+impl<'lua, A, R> CallbackSignature<'lua, A, R>
+where
+    A: ToLuaMulti<'lua>,
+    R: FromLuaMulti<'lua>,
+{
+    pub fn new<S: Into<Cow<'static, str>>>(name: S) -> Self {
+        let name = name.into();
+
+        Self {
+            marker: std::marker::PhantomData,
+            allow_multiple: false,
+            name,
+        }
+    }
+
+    pub fn new_with_multiple<S: Into<Cow<'static, str>>>(name: S) -> Self {
+        let name = name.into();
+
+        Self {
+            marker: std::marker::PhantomData,
+            allow_multiple: true,
+            name,
+        }
+    }
+
+    pub fn register(&self) {
+        if self.allow_multiple {
+            CALLBACK_ALLOWS_MULTIPLE
+                .lock()
+                .unwrap()
+                .insert(self.name.to_string());
+        }
+    }
+
+    /// Return true if this signature allows multiple instances to be registered
+    /// and called.
+    pub fn allow_multiple(&self) -> bool {
+        self.allow_multiple
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn decorated_name(&self) -> String {
+        decorate_callback_name(&self.name)
+    }
+}
+
+pub fn does_callback_allow_multiple(name: &str) -> bool {
+    CALLBACK_ALLOWS_MULTIPLE.lock().unwrap().contains(name)
+}
+
+pub fn decorate_callback_name(name: &str) -> String {
+    format!("kumomta-on-{name}")
 }

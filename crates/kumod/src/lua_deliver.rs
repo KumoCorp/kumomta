@@ -4,7 +4,7 @@ use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use async_trait::async_trait;
-use config::LuaConfig;
+use config::{CallbackSignature, LuaConfig};
 use kumo_log_types::{RecordType, ResolvedAddress};
 use kumo_server_runtime::{rt_spawn, spawn};
 use message::message::QueueNameComponents;
@@ -60,10 +60,14 @@ impl QueueDispatcher for LuaQueueDispatcher {
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
         let components = QueueNameComponents::parse(&dispatcher.queue_name);
+        let sig = CallbackSignature::<(&str, Option<&str>, Option<&str>), Value>::new(
+            self.proto_config.constructor.to_string(),
+        );
+
         let connection = self
             .lua_config
             .async_call_ctor(
-                self.proto_config.constructor.to_string(),
+                &sig,
                 (components.domain, components.tenant, components.campaign),
             )
             .await?;

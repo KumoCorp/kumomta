@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
+use config::CallbackSignature;
 use kumo_api_types::shaping::Shaping;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
@@ -56,13 +57,16 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
 
         // Explicitly load the shaping config now to catch silly
         // mistakes before we start up the listeners
+        let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
         let _shaping: Shaping = config
-            .async_call_callback_non_default("tsa_load_shaping_data", ())
+            .async_call_callback_non_default(&sig, ())
             .await
             .context("in tsa_load_shaping_data event")?;
 
+        let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
+
         config
-            .async_call_callback("tsa_init", ())
+            .async_call_callback(&tsa_init_sig, ())
             .await
             .context("in tsa_init event")?;
 

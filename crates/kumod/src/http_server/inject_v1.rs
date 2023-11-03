@@ -3,7 +3,7 @@ use crate::queue::QueueManager;
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
-use config::{load_config, LuaConfig};
+use config::{load_config, CallbackSignature, LuaConfig};
 use kumo_log_types::ResolvedAddress;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
@@ -392,9 +392,8 @@ async fn process_recipient<'a>(
     message.set_meta("received_from", peer_address.to_string())?;
 
     // call callback to assign to queue
-    config
-        .async_call_callback("http_message_generated", message.clone())
-        .await?;
+    let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
+    config.async_call_callback(&sig, message.clone()).await?;
 
     // spool and insert to queue
     let queue_name = message.get_queue_name()?;

@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use async_channel::{Receiver, Sender};
 use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::Utc;
-use config::{any_err, from_lua_value, get_or_create_module, load_config};
+use config::{any_err, from_lua_value, get_or_create_module, load_config, CallbackSignature};
 use kumo_log_types::rfc3464::ReportAction;
 pub use kumo_log_types::*;
 use kumo_server_runtime::rt_spawn_non_blocking;
@@ -441,8 +441,10 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         if let Some(name) = &logger.filter_event {
             match load_config().await {
                 Ok(mut lua_config) => {
+                    let log_sig = CallbackSignature::<Message, bool>::new(name.clone());
+
                     let enqueue: bool =
-                        match lua_config.async_call_callback(name, msg.clone()).await {
+                        match lua_config.async_call_callback(&log_sig, msg.clone()).await {
                             Ok(b) => b,
                             Err(err) => {
                                 tracing::error!(
@@ -744,8 +746,12 @@ impl LogHookState {
         rt_spawn_non_blocking("should_enqueue_log_record".to_string(), move || {
             Ok(async move {
                 let mut lua_config = load_config().await?;
+
+                let sig =
+                    CallbackSignature::<(Message, String), bool>::new("should_enqueue_log_record");
+
                 let enqueue: bool = lua_config
-                    .async_call_callback("should_enqueue_log_record", (msg.clone(), name))
+                    .async_call_callback(&sig, (msg.clone(), name))
                     .await?;
 
                 if enqueue {

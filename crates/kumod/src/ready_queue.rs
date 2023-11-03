@@ -9,7 +9,7 @@ use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
-use config::load_config;
+use config::{load_config, CallbackSignature};
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::config_handle::ConfigHandle;
@@ -144,9 +144,13 @@ impl ReadyQueueManager {
 
         let egress_source = EgressSource::resolve(egress_source, &mut config).await?;
 
+        let sig = CallbackSignature::<(&str, String, String), EgressPathConfig>::new(
+            "get_egress_path_config",
+        );
+
         let path_config: EgressPathConfig = config
             .async_call_callback(
-                "get_egress_path_config",
+                &sig,
                 (
                     routing_domain,
                     egress_source.name.to_string(),

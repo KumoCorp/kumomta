@@ -10,6 +10,8 @@ use mlua::{Lua, Value};
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
+    crate::queue::GET_Q_CONFIG_SIG.register();
+
     kumo_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {

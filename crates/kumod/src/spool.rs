@@ -3,7 +3,7 @@ use crate::queue::QueueManager;
 use crate::rt_spawn;
 use anyhow::Context;
 use chrono::Utc;
-use config::{any_err, from_lua_value, get_or_create_module};
+use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
 use kumo_server_runtime::spawn;
 use message::Message;
@@ -211,6 +211,10 @@ impl SpoolManager {
         let mut config = config::load_config().await?;
         let egress_pool = None;
         let egress_source = None;
+
+        let spool_message_enumerated =
+            CallbackSignature::<Message, ()>::new("spool_message_enumerated");
+
         loop {
             let entry = tokio::select! {
                 _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
@@ -224,7 +228,7 @@ impl SpoolManager {
                         spooled_in.fetch_add(1, Ordering::SeqCst);
 
                         config
-                            .async_call_callback("spool_message_enumerated", msg.clone())
+                            .async_call_callback(&spool_message_enumerated, msg.clone())
                             .await?;
 
                         match msg.get_queue_name() {

@@ -4,7 +4,7 @@ use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
-use config::load_config;
+use config::{load_config, CallbackSignature};
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
@@ -490,9 +490,14 @@ impl QueueDispatcher for SmtpDispatcher {
                 let components = QueueNameComponents::parse(&dispatcher.queue_name);
                 let mut config = load_config().await?;
 
+                let sig = CallbackSignature::<
+                    (String, &str, Option<&str>, Option<&str>, &str),
+                    Option<u16>,
+                >::new("smtp_client_rewrite_delivery_status");
+
                 let rewritten_code: anyhow::Result<Option<u16>> = config
                     .async_call_callback(
-                        "smtp_client_rewrite_delivery_status",
+                        &sig,
                         (
                             response.to_single_line(),
                             components.domain,

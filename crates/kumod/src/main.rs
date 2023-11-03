@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
+use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_runtime::rt_spawn;
@@ -138,8 +139,10 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
         let nodeid = kumo_server_common::nodeid::NodeId::get();
         tracing::info!("NodeId is {nodeid}");
         let mut config = config::load_config().await.context("load_config")?;
+
+        let sig = CallbackSignature::<(), ()>::new("init");
         config
-            .async_call_callback("init", ())
+            .async_call_callback(&sig, ())
             .await
             .context("call init callback")?;
 

@@ -8,7 +8,7 @@ use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::Utc;
-use config::{load_config, LuaConfig};
+use config::{load_config, CallbackSignature, LuaConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{rt_spawn, spawn, spawn_blocking};
@@ -31,6 +31,9 @@ lazy_static::lazy_static! {
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
+    pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
+        (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
+        QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -387,9 +390,10 @@ impl Queue {
         config: &mut LuaConfig,
     ) -> anyhow::Result<QueueConfig> {
         let components = QueueNameComponents::parse(&name);
+
         let queue_config: QueueConfig = config
             .async_call_callback(
-                "get_queue_config",
+                &GET_Q_CONFIG_SIG,
                 (
                     components.domain,
                     components.tenant,

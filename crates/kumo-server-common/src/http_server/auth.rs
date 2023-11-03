@@ -4,7 +4,7 @@ use axum::extract::{FromRequestParts, State};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use config::load_config;
+use config::{load_config, CallbackSignature};
 use kumo_server_runtime::rt_spawn;
 use std::net::{IpAddr, SocketAddr};
 
@@ -48,15 +48,19 @@ impl AuthKind {
         let mut config = load_config().await?;
         match self {
             Self::TrustedIp(_) => Ok(true),
-            Self::Basic { user, password } => Ok(config
-                .async_call_callback(
+            Self::Basic { user, password } => {
+                let sig = CallbackSignature::<(String, Option<String>), bool>::new(
                     "http_server_validate_auth_basic",
-                    (user.to_string(), password.clone()),
-                )
-                .await?),
-            Self::Bearer { token } => Ok(config
-                .async_call_callback("http_server_validate_auth_bearer", token.to_string())
-                .await?),
+                );
+                Ok(config
+                    .async_call_callback(&sig, (user.to_string(), password.clone()))
+                    .await?)
+            }
+            Self::Bearer { token } => {
+                let sig =
+                    CallbackSignature::<String, bool>::new("http_server_validate_auth_bearer");
+                Ok(config.async_call_callback(&sig, token.to_string()).await?)
+            }
         }
     }
 

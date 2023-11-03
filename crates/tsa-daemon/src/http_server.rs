@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use config::CallbackSignature;
 use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Rule, Shaping, Trigger};
 use kumo_log_types::*;
@@ -185,8 +186,9 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
     let store_key = format!("{source}->{}", mx.site_name);
 
     let mut config = config::load_config().await?;
+    let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
     let shaping: Shaping = config
-        .async_call_callback_non_default("tsa_load_shaping_data", ())
+        .async_call_callback_non_default(&sig, ())
         .await
         .context("in tsa_load_shaping_data event")?;
 

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use config::{any_err, from_lua_value, get_or_create_module};
+use config::{any_err, decorate_callback_name, from_lua_value, get_or_create_module};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 
@@ -36,7 +36,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "on",
         lua.create_function(move |lua, (name, func): (String, Function)| {
-            let decorated_name = format!("kumomta-on-{}", name);
+            let decorated_name = decorate_callback_name(&name);
 
             if let Ok(current_event) = lua.globals().get::<_, String>("_KUMO_CURRENT_EVENT") {
                 return Err(mlua::Error::external(format!(
@@ -46,6 +46,26 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     so that it is setup directly when the policy is loaded \
                     in order for it to consistently trigger and handle events."
                 )));
+            }
+
+            if config::does_callback_allow_multiple(&name) {
+                let tbl: Value = lua.named_registry_value(&decorated_name)?;
+                return match tbl {
+                    Value::Nil => {
+                        let tbl = lua.create_table()?;
+                        tbl.set(1, func)?;
+                        lua.set_named_registry_value(&decorated_name, tbl)?;
+                        Ok(())
+                    }
+                    Value::Table(tbl) => {
+                        let len = tbl.raw_len();
+                        tbl.set(len + 1, func)?;
+                        Ok(())
+                    }
+                    _ => Err(mlua::Error::external(format!(
+                        "registry key for {decorated_name} has invalid type",
+                    ))),
+                };
             }
 
             let existing: Value = lua.named_registry_value(&decorated_name)?;

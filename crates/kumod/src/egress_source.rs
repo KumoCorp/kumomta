@@ -2,7 +2,7 @@ use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::queue::QueueConfig;
 use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
-use config::LuaConfig;
+use config::{CallbackSignature, LuaConfig};
 use gcd::Gcd;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
@@ -81,8 +81,9 @@ impl EgressSource {
                 source_address: None,
             }
         } else {
+            let sig = CallbackSignature::<String, EgressSource>::new("get_egress_source");
             config
-                .async_call_callback_non_default("get_egress_source", name.to_string())
+                .async_call_callback_non_default(&sig, name.to_string())
                 .await
                 .with_context(|| format!("get_egress_source '{name}'"))?
         };
@@ -252,8 +253,10 @@ impl EgressPool {
                 ttl: default_ttl(),
             }
         } else {
+            let sig = CallbackSignature::<String, EgressPool>::new("get_egress_pool");
+
             config
-                .async_call_callback_non_default("get_egress_pool", name.to_string())
+                .async_call_callback_non_default(&sig, name.to_string())
                 .await
                 .with_context(|| format!("resolving egress pool '{name}'"))?
         };
