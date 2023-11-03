@@ -56,7 +56,7 @@ local function should_enq(publish, msg, hook_name)
   local params = publish[hook_name]
   if not params then
     -- User defined log hook that is not part of shaping.lua
-    return false
+    return nil
   end
 
   local log_record = msg:get_meta 'log_record'
@@ -128,7 +128,6 @@ kumo.on('init', function()
 end)
 
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
-kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
 ]]
 function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
@@ -226,10 +225,19 @@ function mod:setup_with_automation(options)
     end
   )
 
+  kumo.on('should_enqueue_log_record', function(msg, hook_name)
+    return should_enq(publish, msg, hook_name)
+  end)
+
   return {
     get_egress_path_config = get_egress_path_config,
     should_enqueue_log_record = function(msg, hook_name)
-      return should_enq(publish, msg, hook_name)
+      -- deprecated: no longer needed as we register a should_enqueue_log_record
+      -- handler above.
+      -- This is preserved for backwards compatibility; when
+      -- called, it does nothing.
+      -- TODO: remove me after next release.
+      return false
     end,
     setup_publish = setup_publish,
     get_queue_config = function(domain, tenant, campaign, routing_domain)

@@ -95,3 +95,14 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {}
 end)
 ```
+
+{{since('dev', indent=True)}}
+    It is now possible to use `kumo.on` to register multiple handlers for
+    this event.  The handlers will be called in the order that they were
+    registered.  If a handler returns `nil` then the next handler will be
+    called. Conversely, if a handler returns either `true` or `false`,
+    its return value is taken as the definitive outcome and no further handlers
+    will be called.
+
+    This behavior is intended to make it easier to compose multiple helpers
+    or lua modules together.

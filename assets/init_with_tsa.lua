@@ -4,9 +4,12 @@ local shaping = require 'policy-extras.shaping'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
+  extra_files = { 'assets/policy-extras/shaping.toml' },
 }
 
 kumo.on('init', function()
+  kumo.configure_accounting_db_path '/tmp/acct.db'
+
   -- Configure publishing of logs to automation daemon
   shaper.setup_publish()
 
@@ -16,6 +19,7 @@ kumo.on('init', function()
 
   kumo.configure_local_logs {
     log_dir = '/var/tmp/kumo-logs',
+    max_segment_duration = '1s',
   }
 
   kumo.start_http_listener {
@@ -50,13 +54,3 @@ kumo.on('get_egress_source', function(source_name)
 end)
 
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
-kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
-kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
-  local cfg = shaper.get_queue_config(domain, tenant, campaign)
-  if cfg then
-    return cfg
-  end
-
-  -- Do your normal queue config handling here
-  return kumo.make_queue_config {}
-end)

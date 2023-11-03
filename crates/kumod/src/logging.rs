@@ -32,6 +32,8 @@ use zstd::stream::write::Encoder;
 
 static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
 static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
+pub static SHOULD_ENQ_LOG_RECORD_SIG: Lazy<CallbackSignature<(Message, String), bool>> =
+    Lazy::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -747,11 +749,8 @@ impl LogHookState {
             Ok(async move {
                 let mut lua_config = load_config().await?;
 
-                let sig =
-                    CallbackSignature::<(Message, String), bool>::new("should_enqueue_log_record");
-
                 let enqueue: bool = lua_config
-                    .async_call_callback(&sig, (msg.clone(), name))
+                    .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
                     .await?;
 
                 if enqueue {
