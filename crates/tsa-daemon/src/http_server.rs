@@ -212,6 +212,8 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
             }
         };
 
+        tracing::trace!("match={m:?} triggered={triggered} for {record:?}");
+
         // To enact the action, we need to generate (or update) a row
         // in the db with its effects and its expiry
         if triggered {
