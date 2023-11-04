@@ -1,4 +1,6 @@
 use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
+use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
+use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage};
@@ -18,8 +20,6 @@ use tokio_rustls::rustls::{
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
 };
 use tokio_rustls::TlsConnector;
-use trust_dns_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
-use trust_dns_proto::rr::rdata::TLSA;
 
 const MAX_LINE_LEN: usize = 4096;
 

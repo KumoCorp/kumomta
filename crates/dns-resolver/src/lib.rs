@@ -1,5 +1,9 @@
 use crate::resolver::Resolver;
 use arc_swap::ArcSwap;
+use hickory_resolver::error::ResolveResult;
+pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
+use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::Name;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
 use serde::Serialize;
@@ -7,10 +11,6 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Instant;
-use trust_dns_resolver::error::ResolveResult;
-pub use trust_dns_resolver::proto::rr::rdata::tlsa::TLSA;
-use trust_dns_resolver::proto::rr::RecordType;
-use trust_dns_resolver::Name;
 
 pub mod resolver;
 
@@ -33,7 +33,7 @@ fn default_resolver() -> Resolver {
 
 #[cfg(not(feature = "default-unbound"))]
 fn default_resolver() -> Resolver {
-    Resolver::Tokio(trust_dns_resolver::TokioAsyncResolver::tokio_from_system_conf().unwrap())
+    Resolver::Tokio(hickory_resolver::TokioAsyncResolver::tokio_from_system_conf().unwrap())
 }
 
 #[derive(Clone, Debug, Serialize)]

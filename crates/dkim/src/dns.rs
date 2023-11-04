@@ -1,7 +1,7 @@
 use crate::DKIMError;
 use futures::future::BoxFuture;
-use trust_dns_resolver::error::{ResolveError, ResolveErrorKind};
-use trust_dns_resolver::TokioAsyncResolver;
+use hickory_resolver::error::{ResolveError, ResolveErrorKind};
+use hickory_resolver::TokioAsyncResolver;
 
 /// A trait for entities that perform DNS resolution.
 pub trait Lookup: Sync + Send {

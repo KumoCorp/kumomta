@@ -5,6 +5,7 @@ use crate::hash::HeaderList;
 use base64::engine::general_purpose;
 use base64::Engine;
 use ed25519_dalek::SigningKey;
+use hickory_resolver::TokioAsyncResolver;
 use mailparsing::AuthenticationResult;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
@@ -12,7 +13,6 @@ use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
 use sha1::Sha1;
 use sha2::Sha256;
 use std::collections::BTreeMap;
-use trust_dns_resolver::TokioAsyncResolver;
 
 #[macro_use]
 extern crate quick_error;

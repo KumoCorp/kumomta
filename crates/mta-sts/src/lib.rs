@@ -1,10 +1,10 @@
 use futures::future::BoxFuture;
+use hickory_resolver::Name;
 use lruttl::LruCacheWithTtl;
 use once_cell::sync::Lazy;
 use policy::MtaStsPolicy;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use trust_dns_resolver::Name;
 
 static CACHE: Lazy<Mutex<LruCacheWithTtl<Name, CachedPolicy>>> =
     Lazy::new(|| Mutex::new(LruCacheWithTtl::new(64 * 1024)));

@@ -19,5 +19,5 @@ tokio = {workspace=true, features=["full"]}
 tokio-rustls = {workspace=true, features=["dangerous_configuration"]}
 tokio-openssl = "0.6.3"
 tracing = "0.1"
-trust-dns-proto = {workspace=true}
+hickory-proto = {workspace=true}
 webpki-roots = {workspace=true}

@@ -1,8 +1,8 @@
 use dns_resolver::resolver::Resolver;
 use futures::future::BoxFuture;
+use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::TokioAsyncResolver;
 use std::collections::BTreeMap;
-use trust_dns_resolver::proto::rr::RecordType;
-use trust_dns_resolver::TokioAsyncResolver;
 
 // <https://datatracker.ietf.org/doc/html/rfc8461>
 

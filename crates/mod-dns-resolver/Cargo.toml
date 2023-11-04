@@ -12,4 +12,4 @@ dns-resolver = {path="../dns-resolver"}
 libunbound = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
-trust-dns-resolver = {workspace=true, features=["serde-config"]}
+hickory-resolver = {workspace=true, features=["serde-config"]}

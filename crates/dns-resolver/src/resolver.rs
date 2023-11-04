@@ -1,10 +1,10 @@
+use hickory_resolver::error::ResolveErrorKind;
+use hickory_resolver::proto::op::response_code::ResponseCode;
+use hickory_resolver::proto::rr::{DNSClass, RData, RecordType};
+use hickory_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
 use libunbound::AsyncContext;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
-use trust_dns_resolver::error::ResolveErrorKind;
-use trust_dns_resolver::proto::op::response_code::ResponseCode;
-use trust_dns_resolver::proto::rr::{DNSClass, RData, RecordType};
-use trust_dns_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
 
 #[derive(Debug)]
 pub struct Answer {

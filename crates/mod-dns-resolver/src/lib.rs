@@ -2,10 +2,10 @@ use anyhow::Context;
 use config::{any_err, get_or_create_sub_module};
 use dns_resolver::resolver::Resolver;
 use dns_resolver::{resolve_a_or_aaaa, MailExchanger};
+use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
+use hickory_resolver::{Name, TokioAsyncResolver};
 use mlua::{Lua, LuaSerdeExt};
 use std::net::SocketAddr;
-use trust_dns_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
-use trust_dns_resolver::{Name, TokioAsyncResolver};
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let dns_mod = get_or_create_sub_module(lua, "dns")?;

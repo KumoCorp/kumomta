@@ -1300,6 +1300,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "hickory-resolver",
  "k9",
  "kumo-log-types",
  "lazy_static",
@@ -1308,7 +1309,6 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
- "trust-dns-resolver",
 ]
 
 [[package]]
@@ -1835,6 +1835,53 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hickory-proto"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "091a6fbccf4860009355e3efc52ff4acf37a63489aad7435372d44ceeb6fbbcf"
+dependencies = [
+ "async-trait",
+ "cfg-if",
+ "data-encoding",
+ "enum-as-inner",
+ "futures-channel",
+ "futures-io",
+ "futures-util",
+ "idna",
+ "ipnet",
+ "once_cell",
+ "rand",
+ "serde",
+ "thiserror",
+ "tinyvec",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "hickory-resolver"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35b8f021164e6a984c9030023544c57789c51760065cd510572fedcfb04164e8"
+dependencies = [
+ "cfg-if",
+ "futures-util",
+ "hickory-proto",
+ "ipconfig",
+ "lru-cache",
+ "once_cell",
+ "parking_lot",
+ "rand",
+ "resolv-conf",
+ "serde",
+ "smallvec 1.11.1",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "hierarchical_hash_wheel_timer"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2304,6 +2351,7 @@ dependencies = [
  "ed25519-dalek",
  "foreign-types",
  "futures",
+ "hickory-resolver",
  "indexmap 1.9.3",
  "k9",
  "mailparsing",
@@ -2320,7 +2368,6 @@ dependencies = [
  "textwrap 0.16.0",
  "tokio",
  "tracing",
- "trust-dns-resolver",
 ]
 
 [[package]]
@@ -2602,21 +2649,21 @@ dependencies = [
 
 [[package]]
 name = "libunbound"
-version = "0.1.0"
-source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=5913110316a5c7f4a5fc928b542b2ba053b5cc2a#5913110316a5c7f4a5fc928b542b2ba053b5cc2a"
+version = "0.2.0"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=cc250a49b43bbef0d7ff28d4c600444230b2294e#cc250a49b43bbef0d7ff28d4c600444230b2294e"
 dependencies = [
+ "hickory-proto",
  "libc",
  "libunbound-sys",
  "openssl",
  "thiserror",
  "tokio",
- "trust-dns-proto",
 ]
 
 [[package]]
 name = "libunbound-sys"
 version = "0.1.0"
-source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=5913110316a5c7f4a5fc928b542b2ba053b5cc2a#5913110316a5c7f4a5fc928b542b2ba053b5cc2a"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=cc250a49b43bbef0d7ff28d4c600444230b2294e#cc250a49b43bbef0d7ff28d4c600444230b2294e"
 dependencies = [
  "cc",
  "openssl-sys",
@@ -3108,10 +3155,10 @@ dependencies = [
  "anyhow",
  "config",
  "dns-resolver",
+ "hickory-resolver",
  "libunbound",
  "mlua",
  "serde",
- "trust-dns-resolver",
 ]
 
 [[package]]
@@ -3199,12 +3246,12 @@ dependencies = [
  "anyhow",
  "dns-resolver",
  "futures",
+ "hickory-resolver",
  "k9",
  "lruttl",
  "once_cell",
  "reqwest",
  "tokio",
- "trust-dns-resolver",
 ]
 
 [[package]]
@@ -4393,6 +4440,7 @@ name = "rfc5321"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
+ "hickory-proto",
  "humantime-serde",
  "memchr",
  "once_cell",
@@ -4405,7 +4453,6 @@ dependencies = [
  "tokio-openssl",
  "tokio-rustls",
  "tracing",
- "trust-dns-proto",
  "webpki-roots",
 ]
 
@@ -5758,54 +5805,6 @@ dependencies = [
  "textwrap 0.16.0",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "trust-dns-proto"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3119112651c157f4488931a01e586aa459736e9d6046d3bd9105ffb69352d374"
-dependencies = [
- "async-trait",
- "cfg-if",
- "data-encoding",
- "enum-as-inner",
- "futures-channel",
- "futures-io",
- "futures-util",
- "idna",
- "ipnet",
- "once_cell",
- "rand",
- "serde",
- "smallvec 1.11.1",
- "thiserror",
- "tinyvec",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "trust-dns-resolver"
-version = "0.23.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10a3e6c3aff1718b3c73e395d1f35202ba2ffa847c6a62eea0db8fb4cfe30be6"
-dependencies = [
- "cfg-if",
- "futures-util",
- "ipconfig",
- "lru-cache",
- "once_cell",
- "parking_lot",
- "rand",
- "resolv-conf",
- "serde",
- "smallvec 1.11.1",
- "thiserror",
- "tokio",
- "tracing",
- "trust-dns-proto",
 ]
 
 [[package]]
