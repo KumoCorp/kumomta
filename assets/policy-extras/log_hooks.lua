@@ -71,16 +71,18 @@ function mod:new(options)
     end
 
     local log_record = msg:get_meta 'log_record'
+
     -- avoid an infinite loop caused by logging that we logged that we logged...
     -- Check the log record: if the record was destined for the webhook queue
     -- then it was a record of the webhook delivery attempt and we must not
     -- log its outcome via the webhook.
-    if log_record.queue ~= domain_name then
-      -- was some other event that we want to log via the webhook
-      msg:set_meta('queue', domain_name)
-      return true
+    if log_record.queue == domain_name then
+      return false
     end
-    return false
+
+    -- was some other event that we want to log via the webhook
+    msg:set_meta('queue', domain_name)
+    return true
   end)
 
   kumo.on(
@@ -91,15 +93,11 @@ function mod:new(options)
         return nil
       end
 
-      -- Use the `make.NAME` event to handle delivery
+      -- Use the `make.NAME.log_hook` event to handle delivery
       -- of webhook log records
       return kumo.make_queue_config {
         protocol = {
           custom_lua = {
-            -- this will cause an event called `make.webhook` to trigger.
-            -- You can pick any name for this event, so long as it doesn't
-            -- collide with a pre-defined event, and so long as you bind
-            -- to it with a kumo.on call
             constructor = constructor_name,
           },
         },
