@@ -56,7 +56,7 @@ local function should_enq(publish, msg, hook_name)
   local params = publish[hook_name]
   if not params then
     -- User defined log hook that is not part of shaping.lua
-    return nil
+    return
   end
 
   local log_record = msg:get_meta 'log_record'

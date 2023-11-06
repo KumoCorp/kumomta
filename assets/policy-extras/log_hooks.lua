@@ -67,7 +67,7 @@ function mod:new(options)
   kumo.on('should_enqueue_log_record', function(msg, hook_name)
     if hook_name ~= options.name then
       -- It's not our hook
-      return nil
+      return
     end
 
     local log_record = msg:get_meta 'log_record'
@@ -90,7 +90,7 @@ function mod:new(options)
     function(domain, tenant, campaign, routing_domain)
       if domain ~= domain_name then
         -- It's not the domain associated with our hook
-        return nil
+        return
       end
 
       -- Use the `make.NAME.log_hook` event to handle delivery
