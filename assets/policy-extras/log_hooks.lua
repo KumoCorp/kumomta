@@ -44,7 +44,7 @@ log_hooks:new {
       kumo.reject(500, disposition)
     end
     return connection
-  end)
+  end,
 }
 
 ]]
@@ -108,3 +108,5 @@ function mod:new(options)
   -- And connect up the constructor event to the user-provided constructor
   kumo.on(constructor_name, options.constructor)
 end
+
+return mod
