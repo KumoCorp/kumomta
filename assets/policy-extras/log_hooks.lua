@@ -8,6 +8,8 @@ local log_hooks = require 'policy-extras.log_hooks'
 -- Call this at the top level, outside of an event handler
 log_hooks:new {
   name = "webhook",
+  -- log_parameters are combined with the name and
+  -- passed through to kumo.configure_log_hook
   log_parameters = {
     headers = { 'Subject', 'X-Customer-ID' },
   },
@@ -16,7 +18,7 @@ log_hooks:new {
     local client = kumo.http.build_client {}
     function connection:send(message)
       local response = client
-        :post(string.format('http://127.0.0.1:%d/log', WEBHOOK_PORT))
+        :post('http://10.0.0.1:4242/log')
         :header('Content-Type', 'application/json')
         :body(message:get_data())
         :send()
@@ -73,7 +75,7 @@ function mod:new(options)
     -- Check the log record: if the record was destined for the webhook queue
     -- then it was a record of the webhook delivery attempt and we must not
     -- log its outcome via the webhook.
-    if log_record.queue ~= options.name then
+    if log_record.queue ~= domain_name then
       -- was some other event that we want to log via the webhook
       msg:set_meta('queue', domain_name)
       return true
