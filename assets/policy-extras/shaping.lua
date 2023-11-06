@@ -121,6 +121,10 @@ end
 local shaper = shaping:setup_with_automation {
   publish = {"http://10.0.0.1:8008"},
   subscribe = {"http://10.0.0.1:8008"},
+  -- this needs to list any files that hold your custom shaping rules; should match
+  -- the additional files beyond /opt/kumomta/share/policy-extras/shaping.toml in your
+  -- tsa config
+  extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
 }
 
 kumo.on('init', function()
