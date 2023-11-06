@@ -31,7 +31,11 @@ myvar = 32 -- this is a GLOBAL variable
 !!! danger
     In KumoMTA, variables should always be declared as "local" unless you intend for the value to be constant for the life of the program.
 
-    The concurrency model used by KumoMTA means that global variables can be shared in unpredictable ways. If you need to share values that change across the life of the program, you should use a data store such as [sqlite](../reference/sqlite/index.md) or [redis](../reference/redis/index.md).
+    The concurrency model used by KumoMTA means that global variables can be
+    shared in unpredictable ways. If you need to share values that change
+    across the life of the program, you should use a data store such as
+    [sqlite](../../reference/sqlite/index.md) or
+    [redis](../../reference/redis/index.md).
 
 Lua supports the following relational operators:
 

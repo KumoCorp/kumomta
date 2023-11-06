@@ -4,7 +4,9 @@ This is the KumoMTA User Guide.
 
 The User Guide is intended for those who have a general understanding of operating an MTA and are looking for information on how to use KumoMTA in particular.
 
-Those who are brand new to email operations, or those who just want the minimum information needed to get started, should refer to the [Tutorial](../tutorial/kumomta_day_1.md).
+Those who are brand new to email operations, or those who just want the minimum
+information needed to get started, should refer to the
+[Tutorial](../tutorial/quickstart.md).
 
 Those who are experienced at using KumoMTA and are looking for more detailed information on specific commands and functions may be better served by the [Reference Manual](../reference/index.md).
 
