@@ -209,7 +209,7 @@ function mod:setup(file_names)
         msg:get_first_named_header_value(data.options.campaign_header)
       if campaign then
         msg:set_meta('campaign', campaign)
-        if options.remove_campaign_header then
+        if data.options.remove_campaign_header then
           msg:remove_all_named_headers(data.options.campaign_header)
         end
       end
@@ -221,7 +221,7 @@ function mod:setup(file_names)
       if tenant then
         tenant_source =
           string.format("'%s' header", data.options.tenant_header)
-        if options.remove_tenant_header then
+        if data.options.remove_tenant_header then
           msg:remove_all_named_headers(data.options.tenant_header)
         end
       end
