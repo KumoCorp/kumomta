@@ -1,0 +1,110 @@
+local mod = {}
+local kumo = require 'kumo'
+local utils = require 'policy-extras.policy_utils'
+
+--[[
+local log_hooks = require 'policy-extras.log_hooks'
+
+-- Call this at the top level, outside of an event handler
+log_hooks:new {
+  name = "webhook",
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+  constructor = function(domain, tenant, campaign)
+    local connection = {}
+    local client = kumo.http.build_client {}
+    function connection:send(message)
+      local response = client
+        :post(string.format('http://127.0.0.1:%d/log', WEBHOOK_PORT))
+        :header('Content-Type', 'application/json')
+        :body(message:get_data())
+        :send()
+
+      local disposition = string.format(
+        '%d %s: %s',
+        response:status_code(),
+        response:status_reason(),
+        response:text()
+      )
+
+      if response:status_is_success() then
+        return disposition
+      end
+
+      -- Signal that the webhook request failed.
+      -- In this case the 500 status prevents us from retrying
+      -- the webhook call again, but you could be more sophisticated
+      -- and analyze the disposition to determine if retrying it
+      -- would be useful and generate a 400 status instead.
+      -- In that case, the message we be retryed later, until
+      -- it reached it expiration.
+      kumo.reject(500, disposition)
+    end
+    return connection
+  end)
+}
+
+]]
+function mod:new(options)
+  kumo.on('pre_init', function()
+    local log_parameters = {
+      name = options.name,
+    }
+    utils.merge_into(options.log_parameters, log_parameters)
+    kumo.configure_log_hook(log_parameters)
+  end)
+
+  -- Choose a domain name with a "TLD" that will never match a
+  -- legitimate TLD. This helps to avoid collision with real
+  -- functioning SMTP domains
+  local domain_name = string.format('%s.log_hook', options.name)
+  -- Now derive a constructor event name from that
+  local constructor_name = string.format('make.%s', domain_name)
+
+  kumo.on('should_enqueue_log_record', function(msg, hook_name)
+    if hook_name ~= options.name then
+      -- It's not our hook
+      return nil
+    end
+
+    local log_record = msg:get_meta 'log_record'
+    -- avoid an infinite loop caused by logging that we logged that we logged...
+    -- Check the log record: if the record was destined for the webhook queue
+    -- then it was a record of the webhook delivery attempt and we must not
+    -- log its outcome via the webhook.
+    if log_record.queue ~= options.name then
+      -- was some other event that we want to log via the webhook
+      msg:set_meta('queue', domain_name)
+      return true
+    end
+    return false
+  end)
+
+  kumo.on(
+    'get_queue_config',
+    function(domain, tenant, campaign, routing_domain)
+      if domain ~= domain_name then
+        -- It's not the domain associated with our hook
+        return nil
+      end
+
+      -- Use the `make.NAME` event to handle delivery
+      -- of webhook log records
+      return kumo.make_queue_config {
+        protocol = {
+          custom_lua = {
+            -- this will cause an event called `make.webhook` to trigger.
+            -- You can pick any name for this event, so long as it doesn't
+            -- collide with a pre-defined event, and so long as you bind
+            -- to it with a kumo.on call
+            constructor = constructor_name,
+          },
+        },
+      }
+    end
+  )
+
+  -- And connect up the constructor event to the user-provided constructor
+  kumo.on(constructor_name, options.constructor)
+end
