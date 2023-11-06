@@ -11,10 +11,15 @@ Create a `/opt/kumomta/etc/queue.toml` with contents like:
 # Allow optional scheduled sends based on this header
 # https://docs.kumomta.com/reference/message/import_scheduling_header
 scheduling_header = "X-Schedule"
+
 # Set the tenant from this header
 tenant_header = "X-Tenant"
+remove_tenant_header = true
+
 # Set the campaign from this header
 campaign_header = "X-Campaign"
+remove_campaign_header = true
+
 # The tenant to use if no tenant_header is present
 default_tenant = "default-tenant"
 
@@ -204,6 +209,9 @@ function mod:setup(file_names)
         msg:get_first_named_header_value(data.options.campaign_header)
       if campaign then
         msg:set_meta('campaign', campaign)
+        if options.remove_campaign_header then
+          msg:remove_all_named_headers(data.options.campaign_header)
+        end
       end
     end
     local tenant = nil
@@ -213,6 +221,9 @@ function mod:setup(file_names)
       if tenant then
         tenant_source =
           string.format("'%s' header", data.options.tenant_header)
+        if options.remove_tenant_header then
+          msg:remove_all_named_headers(data.options.tenant_header)
+        end
       end
     end
     if not tenant and data.options.default_tenant then
