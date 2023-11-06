@@ -140,9 +140,15 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
         tracing::info!("NodeId is {nodeid}");
         let mut config = config::load_config().await.context("load_config")?;
 
-        let sig = CallbackSignature::<(), ()>::new("init");
+        let pre_init_sig = CallbackSignature::<(), ()>::new_with_multiple("pre_init");
         config
-            .async_call_callback(&sig, ())
+            .async_call_callback(&pre_init_sig, ())
+            .await
+            .context("call pre_init callback")?;
+
+        let init_sig = CallbackSignature::<(), ()>::new("init");
+        config
+            .async_call_callback(&init_sig, ())
             .await
             .context("call init callback")?;
 
