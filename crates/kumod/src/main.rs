@@ -6,9 +6,13 @@ use kumo_server_common::start::StartConfig;
 use kumo_server_runtime::rt_spawn;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
+use once_cell::sync::Lazy;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+
+pub static PRE_INIT_SIG: Lazy<CallbackSignature<(), ()>> =
+    Lazy::new(|| CallbackSignature::new_with_multiple("pre_init"));
 
 mod accounting;
 mod delivery_metrics;
@@ -138,11 +142,11 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
     Box::pin(async move {
         let nodeid = kumo_server_common::nodeid::NodeId::get();
         tracing::info!("NodeId is {nodeid}");
+
         let mut config = config::load_config().await.context("load_config")?;
 
-        let pre_init_sig = CallbackSignature::<(), ()>::new_with_multiple("pre_init");
         config
-            .async_call_callback(&pre_init_sig, ())
+            .async_call_callback(&PRE_INIT_SIG, ())
             .await
             .context("call pre_init callback")?;
 

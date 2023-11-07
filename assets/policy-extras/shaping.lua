@@ -241,7 +241,7 @@ function mod:setup_with_automation(options)
       -- This is preserved for backwards compatibility; when
       -- called, it does nothing.
       -- TODO: remove me after next release.
-      return false
+      return
     end,
     setup_publish = setup_publish,
     get_queue_config = function(domain, tenant, campaign, routing_domain)
