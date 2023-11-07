@@ -60,6 +60,10 @@ local function should_enq(publish, msg, hook_name)
   end
 
   local log_record = msg:get_meta 'log_record'
+  -- avoid overlap with other logs
+  if log_record.reception_protocol == 'LogRecord' then
+    return false
+  end
 
   -- We only want to log if the event isn't one of our
   -- publishing events
