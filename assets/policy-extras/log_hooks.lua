@@ -73,10 +73,7 @@ function mod:new(options)
     local log_record = msg:get_meta 'log_record'
 
     -- avoid an infinite loop caused by logging that we logged that we logged...
-    -- Check the log record: if the record was destined for the webhook queue
-    -- then it was a record of the webhook delivery attempt and we must not
-    -- log its outcome via the webhook.
-    if log_record.queue == domain_name then
+    if log_record.reception_protocol == 'LogRecord' then
       return false
     end
 
