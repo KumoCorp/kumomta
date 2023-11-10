@@ -19,8 +19,8 @@ function sqlite_auth_check(user, password)
     user,
     password
   )
-  -- if we got any rows, it was because a user+pass matched
-  return #result == 1
+  -- if we return the username, it is because the password matched
+  return result[1] == user
 end
 
 kumo.on('smtp_server_auth_plain', function(authz, authc, password)
@@ -45,8 +45,8 @@ function sqlite_auth_check(user, password)
     user,
     password
   )
-  -- if we got any rows, it was because a user+pass matched
-  return #result == 1
+  -- if we return the username, it is because the password matched
+  return result[1] == user
 end
 
 -- This creates a new function called `cached_sqlite_auth_check`

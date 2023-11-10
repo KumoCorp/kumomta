@@ -242,13 +242,13 @@ end
 -- with user and pass fields
 function sqlite_auth_check(user, password)
   local sqlite = require 'sqlite'
-  local db = sqlite.open '/path/to/auth.db'
+  local db = sqlite.open '/tmp/auth.db'
   local result = db:execute(
     'select user from auth where user=? and pass=?',
     user,
     password
   )
-  return #result == 1
+  return result[1] == user
 end
 
 -- Use this to lookup and confirm a user/password credential
