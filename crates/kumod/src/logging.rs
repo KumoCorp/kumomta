@@ -378,7 +378,9 @@ impl Logger {
 
         for name in &self.meta {
             if let Ok(value) = msg.get_meta(name) {
-                meta.insert(name.to_string(), value);
+                if value.is_null() == false {
+                    meta.insert(name.to_string(), value);
+                }
             }
         }
 
