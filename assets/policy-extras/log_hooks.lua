@@ -13,6 +13,14 @@ log_hooks:new {
   log_parameters = {
     headers = { 'Subject', 'X-Customer-ID' },
   },
+  -- queue config are passed to kumo.make_queue_config.
+  -- You can use these to override the retry parameters
+  -- if you wish.
+  -- The defaults are shown below.
+  queue_config = {
+    retry_interval = "1m",
+    max_retry_interval = "20m",
+  },
   constructor = function(domain, tenant, campaign)
     local connection = {}
     local client = kumo.http.build_client {}
@@ -82,6 +90,17 @@ function mod:new(options)
     return true
   end)
 
+  local queue_config = {
+    retry_interval = '1m',
+    max_retry_interval = '20m',
+  }
+  utils.merge_into(options.queue_config, queue_config)
+  queue_config.protocol = {
+    custom_lua = {
+      constructor = constructor_name,
+    },
+  }
+
   kumo.on(
     'get_queue_config',
     function(domain, tenant, campaign, routing_domain)
@@ -92,20 +111,71 @@ function mod:new(options)
 
       -- Use the `make.NAME.log_hook` event to handle delivery
       -- of webhook log records
-      return kumo.make_queue_config {
-        retry_interval = '1m',
-        max_retry_interval = '20m',
-        protocol = {
-          custom_lua = {
-            constructor = constructor_name,
-          },
-        },
-      }
+      return kumo.make_queue_config(queue_config)
     end
   )
 
   -- And connect up the constructor event to the user-provided constructor
   kumo.on(constructor_name, options.constructor)
+end
+
+--[[
+local log_hooks = require 'policy-extras.log_hooks'
+
+-- Call this at the top level, outside of an event handler
+log_hooks:new_json {
+  name = "webhook",
+  -- log_parameters are combined with the name and
+  -- passed through to kumo.configure_log_hook
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+  -- queue config are passed to kumo.make_queue_config.
+  -- You can use these to override the retry parameters
+  -- if you wish.
+  -- The defaults are shown below.
+  queue_config = {
+    retry_interval = "1m",
+    max_retry_interval = "20m",
+  },
+  -- The URL to POST the JSON to
+  url = "http://10.0.0.1:4242/log",
+}
+]]
+function mod:new_json(options)
+  options.constructor = function(domain, tenant, campaign)
+    local connection = {}
+    local client = kumo.http.build_client {}
+    function connection:send(message)
+      local response = client
+        :post(options.url)
+        :header('Content-Type', 'application/json')
+        :body(message:get_data())
+        :send()
+
+      local disposition = string.format(
+        '%d %s: %s',
+        response:status_code(),
+        response:status_reason(),
+        response:text()
+      )
+
+      if response:status_is_success() then
+        return disposition
+      end
+
+      -- Signal that the webhook request failed.
+      -- In this case the 500 status prevents us from retrying
+      -- the webhook call again, but you could be more sophisticated
+      -- and analyze the disposition to determine if retrying it
+      -- would be useful and generate a 400 status instead.
+      -- In that case, the message we be retryed later, until
+      -- it reached it expiration.
+      kumo.reject(500, disposition)
+    end
+    return connection
+  end
+  return self:new(options)
 end
 
 return mod
