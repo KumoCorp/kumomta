@@ -7,6 +7,66 @@ present. The Scheduled Queue is also used for messages that encountered a
 temporary failure and are awaiting a retry. See [Configuration
 Concepts](./concepts.md) for more information.
 
+## Using The Queues Helper
+
+To help simplify configuration for those with typical use cases, we have provided the *queue.lua* policy helper.
+
+The *queue.lua* policy helper simplifies configuration of queue management, including identifying and assigning tenant and campaign information as well as message scheduling.
+
+To use the *queue.lua* policy helper, adding the following to your *init.lua* policy:
+
+```lua
+local queue_module = require 'policy-extras.queue'
+local queue_helper = queue_module:setup({'/opt/kumomta/etc/policy/queues.toml'})
+```
+
+In addition, create a file at `/opt/kumomta/etc/queues.toml` and populate it
+as follows:
+
+```toml
+# Allow optional scheduled sends based on this header
+# https://docs.kumomta.com/reference/message/import_scheduling_header
+scheduling_header = "X-Schedule"
+
+# Set the tenant from this header
+tenant_header = "X-Tenant"
+
+# Set the campaign from this header
+campaign_header = "X-Campaign"
+
+# The tenant to use if no tenant_header is present
+default_tenant = "default-tenant"
+
+[tenant.'default-tenant']
+egress_pool = 'pool-0'
+
+[tenant.'mytenant']
+# Which pool should be used for this tenant
+egress_pool = 'pool-1'
+# Override maximum message age based on tenant; this overrides settings at the domain level
+max_age = '10 hours'
+
+# Only the authorized identities are allowed to use this tenant via the tenant_header
+#require_authz = ["scott"]
+
+# The default set of parameters
+[queue.default]
+max_age = '24 hours'
+
+# Base settings for a given destination domain.
+# These are overridden by more specific settings
+# in a tenant or more specific queue
+[queue.'gmail.com']
+max_age = '22 hours'
+retry_interval = '17 mins'
+
+[queue.'gmail.com'.'mytenant']
+# options here for domain=gmail.com AND tenant=mytenant for any unmatched campaign
+
+[queue.'gmail.com'.'mytenant'.'welcome-campaign']
+# options here for domain=gmail.com, tenant=mytenant, and campaign='welcome-campaign'
+```
+
 ## Configuring Message Life and Retry Times
 
 There is no throttling configured at the Scheduled Queue level, instead, the
