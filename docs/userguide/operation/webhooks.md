@@ -19,6 +19,88 @@ enter the Ready Queue they are set to deliver via an arbitrary Lua event rather
 than SMTP, with the Lua script configured to issue an HTTP request to the
 destination server.
 
+## Using the log_hooks.lua Helper
+
+While the methods documented below can be used to implement advanced webhook delivery scenarios, most users will benefit from using the *log_hooks.lua* helper.
+
+To implement the helper, add the following to your init.lua:
+
+```lua
+local log_hooks = require 'policy-extras.log_hooks'
+log_hooks:new_json {
+  name = "webhook",
+  -- log_parameters are combined with the name and
+  -- passed through to kumo.configure_log_hook
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+  -- queue config are passed to kumo.make_queue_config.
+  -- You can use these to override the retry parameters
+  -- if you wish.
+  -- The defaults are shown below.
+  queue_config = {
+    retry_interval = "1m",
+    max_retry_interval = "20m",
+  },
+  -- The URL to POST the JSON to
+  url = "http://10.0.0.1:4242/log",
+}
+```
+
+More advanced usage is possible by implementing the full call to the log_hooks.lua helper, in the following format:
+
+```lua
+local log_hooks = require 'policy-extras.log_hooks'
+log_hooks:new {
+  name = "webhook",
+  -- log_parameters are combined with the name and
+  -- passed through to kumo.configure_log_hook
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+  -- queue config are passed to kumo.make_queue_config.
+  -- You can use these to override the retry parameters
+  -- if you wish.
+  -- The defaults are shown below.
+  queue_config = {
+    retry_interval = "1m",
+    max_retry_interval = "20m",
+  },
+  constructor = function(domain, tenant, campaign)
+    local connection = {}
+    local client = kumo.http.build_client {}
+    function connection:send(message)
+      local response = client
+        :post('http://10.0.0.1:4242/log')
+        :header('Content-Type', 'application/json')
+        :body(message:get_data())
+        :send()
+
+      local disposition = string.format(
+        '%d %s: %s',
+        response:status_code(),
+        response:status_reason(),
+        response:text()
+      )
+
+      if response:status_is_success() then
+        return disposition
+      end
+
+      -- Signal that the webhook request failed.
+      -- In this case the 500 status prevents us from retrying
+      -- the webhook call again, but you could be more sophisticated
+      -- and analyze the disposition to determine if retrying it
+      -- would be useful and generate a 400 status instead.
+      -- In that case, the message we be retryed later, until
+      -- it reached it expiration.
+      kumo.reject(500, disposition)
+    end
+    return connection
+  end,
+}
+```
+
 ## Configuring a Log Hook
 
 The first step in setting up Webhooks is to turn on the log hook. This adds a

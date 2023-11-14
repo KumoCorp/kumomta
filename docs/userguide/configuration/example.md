@@ -32,6 +32,7 @@ local queue_module = require 'policy-extras.queue'
 local listener_domains = require 'policy-extras.listener_domains'
 local sources = require 'policy-extras.sources'
 local dkim_sign = require 'policy-extras.dkim_sign'
+local log_hooks = require 'policy-extras.log_hooks'
 
 -- Load TSA shaper tools
 local shaping_config = '/opt/kumomta/etc/policy/shaping.toml'
@@ -122,6 +123,16 @@ kumo.on('init', function()
   -- See https://docs.kumomta.com/reference/kumo/configure_redis_throttles/
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
 end) -- END OF THE INIT EVENT
+
+-- Send a JSON webhook to a local network host.
+-- See https://docs.kumomta.com/userguide/operation/webhooks/
+log_hooks:new_json {
+  name = "webhook",
+  url = "http://10.0.0.1:4242/log",
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+}
 
 -- Configure listener domains for relay, oob bounces, and FBLs using the
 -- listener_domains.lua policy helper.
