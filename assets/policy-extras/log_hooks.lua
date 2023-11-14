@@ -93,6 +93,8 @@ function mod:new(options)
       -- Use the `make.NAME.log_hook` event to handle delivery
       -- of webhook log records
       return kumo.make_queue_config {
+        retry_interval = '1m',
+        max_retry_interval = '20m',
         protocol = {
           custom_lua = {
             constructor = constructor_name,
