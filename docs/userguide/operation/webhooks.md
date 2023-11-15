@@ -28,7 +28,7 @@ To implement the helper, add the following to your init.lua:
 ```lua
 local log_hooks = require 'policy-extras.log_hooks'
 log_hooks:new_json {
-  name = "webhook",
+  name = 'webhook',
   -- log_parameters are combined with the name and
   -- passed through to kumo.configure_log_hook
   log_parameters = {
@@ -39,11 +39,11 @@ log_hooks:new_json {
   -- if you wish.
   -- The defaults are shown below.
   queue_config = {
-    retry_interval = "1m",
-    max_retry_interval = "20m",
+    retry_interval = '1m',
+    max_retry_interval = '20m',
   },
   -- The URL to POST the JSON to
-  url = "http://10.0.0.1:4242/log",
+  url = 'http://10.0.0.1:4242/log',
 }
 ```
 
@@ -52,7 +52,7 @@ More advanced usage is possible by implementing the full call to the log_hooks.l
 ```lua
 local log_hooks = require 'policy-extras.log_hooks'
 log_hooks:new {
-  name = "webhook",
+  name = 'webhook',
   -- log_parameters are combined with the name and
   -- passed through to kumo.configure_log_hook
   log_parameters = {
@@ -63,8 +63,8 @@ log_hooks:new {
   -- if you wish.
   -- The defaults are shown below.
   queue_config = {
-    retry_interval = "1m",
-    max_retry_interval = "20m",
+    retry_interval = '1m',
+    max_retry_interval = '20m',
   },
   constructor = function(domain, tenant, campaign)
     local connection = {}

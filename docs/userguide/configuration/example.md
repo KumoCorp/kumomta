@@ -39,7 +39,7 @@ local shaping_config = '/opt/kumomta/etc/policy/shaping.toml'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
-  extra_files = {shaping_config},
+  extra_files = { shaping_config },
 }
 
 -- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A SERVER RESTART WHEN CHANGED.
@@ -127,8 +127,8 @@ end) -- END OF THE INIT EVENT
 -- Send a JSON webhook to a local network host.
 -- See https://docs.kumomta.com/userguide/operation/webhooks/
 log_hooks:new_json {
-  name = "webhook",
-  url = "http://10.0.0.1:4242/log",
+  name = 'webhook',
+  url = 'http://10.0.0.1:4242/log',
   log_parameters = {
     headers = { 'Subject', 'X-Customer-ID' },
   },
@@ -160,7 +160,8 @@ sources:setup { '/opt/kumomta/etc/sources.toml' }
 -- control how messages flow through the queues.
 -- WARNING: THIS WILL NOT LOAD WITHOUT the queues.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
-local queue_helper = queue_module:setup({'/opt/kumomta/etc/policy/queues.toml'})
+local queue_helper =
+  queue_module:setup { '/opt/kumomta/etc/policy/queues.toml' }
 
 -- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
 -- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
@@ -169,13 +170,13 @@ local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
 
 kumo.on('smtp_server_message_received', function(msg)
   queue_helper:apply(msg)
--- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)
 end)
 
 kumo.on('http_message_generated', function(msg)
   queue_helper:apply(msg)
--- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)
 end)
 ```

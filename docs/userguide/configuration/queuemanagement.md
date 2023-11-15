@@ -17,7 +17,8 @@ To use the *queue.lua* policy helper, adding the following to your *init.lua* po
 
 ```lua
 local queue_module = require 'policy-extras.queue'
-local queue_helper = queue_module:setup({'/opt/kumomta/etc/policy/queues.toml'})
+local queue_helper =
+  queue_module:setup { '/opt/kumomta/etc/policy/queues.toml' }
 ```
 
 In addition, create a file at `/opt/kumomta/etc/queues.toml` and populate it
