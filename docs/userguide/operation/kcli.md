@@ -138,3 +138,14 @@ OK
 See the [Set Diagnostic Log
 Filter](../../reference/kumo/set_diagnostic_log_filter.md) page of the
 Reference Manual for more information.
+
+## Monitoring SMTP handshaking with smtp-trace
+
+When debugging, it is often helpful to monitor the full SMTP handshaking process in real-time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
+
+```console
+$ kcli trace-smtp-server
+```
+
+
+
