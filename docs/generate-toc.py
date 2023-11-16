@@ -118,6 +118,8 @@ TOC = [
             Page("Server Environment", "tutorial/server_environment.md"),
             Page("System Preparation", "tutorial/system_preparation.md"),
             Page("Installing KumoMTA", "tutorial/installing_kumomta.md"),
+            Page("Configuring KumoMTA", "tutorial/configuring_kumomta.md"),
+            Page("Starting KumoMTA", "tutorial/starting_kumomta.md"),
             Page("Testing KumoMTA", "tutorial/testing_kumomta.md"),
             Page("Checking Logs", "tutorial/checking_logs.md"),
             Page("Next Steps", "tutorial/next_steps.md"),
