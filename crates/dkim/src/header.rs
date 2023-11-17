@@ -1,6 +1,7 @@
 use crate::{parser, DKIMError, HeaderList};
 use indexmap::map::IndexMap;
 use std::str::FromStr;
+use textwrap::core::Word;
 
 pub(crate) const HEADER: &str = "DKIM-Signature";
 const REQUIRED_TAGS: &[&str] = &["v", "a", "b", "bh", "d", "h", "s"];
@@ -141,6 +142,9 @@ fn serialize(header: DKIMHeader) -> String {
     let mut out = String::new();
 
     for (key, tag) in &header.tags {
+        let mut value = &tag.value;
+        let value_storage;
+
         if !out.is_empty() {
             if key == "b" {
                 // Always emit b on a separate line for the sake of
@@ -151,13 +155,52 @@ fn serialize(header: DKIMHeader) -> String {
                 // may produce inconsistent results as a result of the
                 // textwrap::fill operation and the signature will be invalid
                 out.push_str("\r\n");
+            } else if key == "h" {
+                // header lists can be rather long, and we want to control
+                // how they wrap with a bit more nuance. We'll put these
+                // on a line of their own, and explicitly wrap the value
+                out.push_str("\r\n");
+                value_storage = textwrap::fill(
+                    value,
+                    textwrap::Options::new(75)
+                        .initial_indent("")
+                        .line_ending(textwrap::LineEnding::CRLF)
+                        .word_separator(textwrap::WordSeparator::Custom(|line| {
+                            let mut start = 0;
+                            let mut prev_was_colon = false;
+                            let mut char_indices = line.char_indices();
+
+                            Box::new(std::iter::from_fn(move || {
+                                for (idx, ch) in char_indices.by_ref() {
+                                    if ch == ':' {
+                                        prev_was_colon = true;
+                                    } else if prev_was_colon {
+                                        prev_was_colon = false;
+                                        let word = Word::from(&line[start..idx]);
+                                        start = idx;
+
+                                        return Some(word);
+                                    }
+                                }
+                                if start < line.len() {
+                                    let word = Word::from(&line[start..]);
+                                    start = line.len();
+                                    return Some(word);
+                                }
+                                None
+                            }))
+                        }))
+                        .word_splitter(textwrap::WordSplitter::NoHyphenation)
+                        .subsequent_indent("\t"),
+                );
+                value = &value_storage;
             } else {
                 out.push_str(" ");
             }
         }
         out.push_str(&key);
         out.push('=');
-        out.push_str(&tag.value);
+        out.push_str(value);
         out.push(';');
     }
     textwrap::fill(
@@ -166,6 +209,7 @@ fn serialize(header: DKIMHeader) -> String {
             .initial_indent("")
             .line_ending(textwrap::LineEnding::CRLF)
             .word_separator(textwrap::WordSeparator::AsciiSpace)
+            .word_splitter(textwrap::WordSplitter::NoHyphenation)
             .subsequent_indent("\t"),
     )
 }
@@ -244,7 +288,13 @@ mod tests {
             .add_tag("v", "2")
             .set_signed_headers(&signed_header_list(&["header1", "header2", "header3"]))
             .build();
-        k9::snapshot!(header.raw_bytes, "v=2; h=header1:header2:header3;");
+        k9::snapshot!(
+            header.raw_bytes,
+            r#"
+v=2;\r
+\th=header1:header2:header3;
+"#
+        );
     }
 
     #[test]

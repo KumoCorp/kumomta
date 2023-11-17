@@ -317,13 +317,13 @@ Hello Alice
             header,
             r#"
 DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
-\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject;\r
-\tt=1609459201;\r
-\tb=VHc8OpeLVbLw9PBWV2gBOQvdp7/YB7j/vFH21ztcdP/eeIgWyAKZUUQvCtNR+JXVmnPBKC2gw\r
-\tSSXSoagRbJuXmalEzA4HdUU1hCyCZtJ61oSWDDakCUY55dWlyNPJdx4IWpRpwAE5vbhi7LEQEZI\r
-\t2z7x22v9Tuobim0/0s8vKQJUWniqcF/0Et7vbq/jUdKNQNdYfsCQP9ZrwswCftfdGtHtfWyadN8\r
-\t/ye0JTvNSgINP+bt5HDUH3/GDHY/kGHdKjY3N9p2eSTqQDDBf5yY7Zj0rBPKN3sGfuzCsEneG3D\r
-\tTil2EYiPHT3/f8cgHBVIHOMQGBLfrbJxvo3XDAPCKZbg==;
+\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=;\r
+\th=from:subject; t=1609459201;\r
+\tb=jWvcCA6TzqyFbpitXBo2barOzu7ObOcPg5jqqdekMdHTxR2XoAGGtQ9NUDVqxJoifZvOIfElh\r
+\tT7717zandgj4HSL0nldmfhLHECN43Ktk3dfpSid5KPZQJddQBVwrH6qUXPoAk9THhuZx8KP/PdM\r
+\tedlRuNYixoMtZynSl8VfWOjMQohanxafYUtIG+p2DYCq82uzVOLy87mvQBk8IWooNk1rDTHkj5U\r
+\t03xSRjPuEUZqkQKJzYcPV+L9TE3jX7HmuCzRpY9fn3G0xp/YhJFD7FuGr47vZLzMRaqqov5BTJw\r
+\tTgKxK8IE0fuYkF7e1LUYbEzZqdtSLxgmzCuz+efLY38w==;
 "#
         );
     }
@@ -345,7 +345,13 @@ Hello Alice
         let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
 
         let signer = SignerBuilder::new()
-            .with_signed_headers(["From", "Subject"])
+            .with_signed_headers([
+                "From",
+                "Subject",
+                "List-Unsubscribe",
+                "List-Unsubscribe-Post",
+                "X-Lets-Make-This-Really-Long",
+            ])
             .unwrap()
             .with_private_key(DkimPrivateKey::OpenSSLRsa(pkey))
             .with_selector("s20")
@@ -359,13 +365,14 @@ Hello Alice
             header,
             r#"
 DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
-\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=; h=from:subject;\r
-\tt=1609459201;\r
-\tb=VHc8OpeLVbLw9PBWV2gBOQvdp7/YB7j/vFH21ztcdP/eeIgWyAKZUUQvCtNR+JXVmnPBKC2gw\r
-\tSSXSoagRbJuXmalEzA4HdUU1hCyCZtJ61oSWDDakCUY55dWlyNPJdx4IWpRpwAE5vbhi7LEQEZI\r
-\t2z7x22v9Tuobim0/0s8vKQJUWniqcF/0Et7vbq/jUdKNQNdYfsCQP9ZrwswCftfdGtHtfWyadN8\r
-\t/ye0JTvNSgINP+bt5HDUH3/GDHY/kGHdKjY3N9p2eSTqQDDBf5yY7Zj0rBPKN3sGfuzCsEneG3D\r
-\tTil2EYiPHT3/f8cgHBVIHOMQGBLfrbJxvo3XDAPCKZbg==;
+\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=;\r
+\th=from:subject:list-unsubscribe:list-unsubscribe-post:\r
+\t\tx-lets-make-this-really-long; t=1609459201;\r
+\tb=kNEseaF1ozpjc3/BnUgXqRjl99TIOmxnIlXzQEGu9B3HkUmiZM3sY9jkoqo3x44DlxZv2sEsd\r
+\todQQ8NivIvruQb7tkgRrnhB+54fVh7mfxiG3q1CB3fFkz13FPU85UkE/Y5HozEfjfSBiBDMnguv\r
+\tZyh/M4SVbDAXxBeQWHVVggkUQoyRy7X9vdlK3vRWQq+mdFINEUITKSI6GAUJdtWDTUad3/DnOm5\r
+\tykzWZkIcX7u+ng2jXC7wI+cko4+dLzdy9SIKaL1rEqdiF+IDRnR1yLDBZjQXUyzPkLYKzmrOAsb\r
+\tF1E9z34xwGjT0F3+TKbcupxg8mHnn0QBU8PXCKb+NYbQ==;
 "#
         );
     }
