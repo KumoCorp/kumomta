@@ -88,3 +88,6 @@
 * Missing 334 response to clients using multi-step SMTP `AUTH PLAIN`
 * Messages that require "dot stuffing" could hang an outgoing SMTP session
   and tie up a connection until the data and/or data-dot timeout was reached.
+* DKIM Signature headers with a long list of signed headers would wrap on
+  hyphens instead of colons, which caused problems with some but not all
+  verifiers.
