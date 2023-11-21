@@ -244,15 +244,7 @@ TOC = [
                         "Routing Messages Via Proxy Servers",
                         "userguide/operation/proxy.md",
                     ),
-                    Page(
-                        "Delivering Messages Using SMTP Auth",
-                        "userguide/operation/smtpauth.md",
-                    ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
-                    Page(
-                        "Publishing Log Events Via Webhooks",
-                        "userguide/operation/webhooks.md",
-                    ),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
                 ],
@@ -263,16 +255,20 @@ TOC = [
                 children=[
                     Page("Custom Destination Routing", "userguide/policy/routing.md"),
                     Page(
-                        "Advanced Tenant to Pool Mapping",
-                        "userguide/policy/tenantpool.md",
-                    ),
-                    Page(
                         "Routing Messages via HTTP Request", "userguide/policy/http.md"
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
                     Page(
+                        "Delivering Messages Using SMTP Auth",
+                        "userguide/operation/smtpauth.md",
+                    ),
+                    Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
+                    ),
+                    Page(
+                        "Publishing Log Events Via Webhooks",
+                        "userguide/operation/webhooks.md",
                     ),
                 ],
             ),
