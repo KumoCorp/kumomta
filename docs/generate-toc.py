@@ -175,6 +175,7 @@ TOC = [
                     Page(
                         "Configuration Concepts", "userguide/configuration/concepts.md"
                     ),
+                    Page("Lua Policy Helpers", "userguide/configuration/policy_helpers.md"),
                     Page("Example Server Policy", "userguide/configuration/example.md"),
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
