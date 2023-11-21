@@ -20,77 +20,152 @@ use spool::SpoolId;
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::Arc;
+use utoipa::{ToResponse, ToSchema};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct FromHeader {
+    /// The email address of the sender
+    #[schema(example = "sales@sender-example.com")]
     pub email: String,
+    /// The displayable name of the sender
     #[serde(default)]
+    #[schema(example = "Sales")]
     pub name: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct Recipient {
+    /// The email address of the recipient
+    #[schema(example = "john.smith@mailbox-example.com")]
     pub email: String,
+
+    /// The displayable name of the recipient
     #[serde(default)]
+    #[schema(example = "John Smith")]
     pub name: Option<String>,
+
+    /// When using templating, this is the map of placeholder
+    /// name to replacement value that should be used by the
+    /// templating engine when processing just this recipient.
+    /// Note that `name` is implicitly set from the `name`
+    /// field, so you do not need to duplicate it here.
     #[serde(default)]
+    #[schema(example=json!({
+        "age": 42,
+        "gender": "male",
+    }))]
     pub substitutions: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct InjectV1Request {
+    /// Specify the envelope sender that will be sent in the
+    /// MAIL FROM portion of SMTP.
+    #[schema(example = "some.id@bounces.sender-example.com")]
     pub envelope_sender: String,
+
+    /// The list of recipients
     pub recipients: Vec<Recipient>,
+
+    /// The content of the message
     pub content: Content,
+
+    /// When using templating, this is the map of placeholder
+    /// name to replacement value that should be used by
+    /// the templating engine.  This map applies to all
+    /// recipients, with the per-recipient substitutions
+    /// taking precedence.
     #[serde(default)]
+    #[schema(example=json!({
+        "campaign_title": "Fall Campaign",
+    }))]
     pub substitutions: HashMap<String, Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
 pub struct InjectV1Response {
+    /// The number of messages that were injected successfully
     pub success_count: usize,
+    /// The number of messages that failed to inject
     pub fail_count: usize,
+
+    /// The list of failed recipients
     pub failed_recipients: Vec<String>,
+
+    /// The list of error messages
     pub errors: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// The message content.
+/// Can either be a fully formed MIME message, or a json
+/// object describing the MIME structure that should be created.
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(untagged)]
 pub enum Content {
+    /// A complete MIME message string
     Rfc822(String),
+    /// Describe the MIME structure to be created
     Builder {
+        /// If set, will be used to create a text/plain part
         #[serde(default)]
         text_body: Option<String>,
+
+        /// If set, will be used to create a text/html part
         #[serde(default)]
         html_body: Option<String>,
+
+        /// Optional list of attachments
         #[serde(default)]
         attachments: Vec<Attachment>,
+
+        /// Optional map of headers to include in the message.
+        /// This is a map of header name to header value
         #[serde(default)]
+        #[schema(example=json!({
+            "X-Tenant": "MyTenant"
+        }))]
         headers: BTreeMap<String, String>,
+
+        /// Set the From: header
         #[serde(default)]
         from: Option<FromHeader>,
+
+        /// Set the Subject: header
         #[serde(default)]
         subject: Option<String>,
+
+        /// Set the Reply-To: header
         #[serde(default)]
         reply_to: Option<FromHeader>,
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+/// An email header.
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(untagged)]
 pub enum Header {
     Full(String),
     NameValue(String, String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct Attachment {
+    /// The content of the payload.
+    /// This is interpreted as UTF-8 text unless the
+    /// `base64` field is set to `true`.
     data: String,
+    /// The MIME `Content-Type` header that should be
+    /// set for this attachment.
     content_type: String,
+    /// Set the `Content-ID` header for this attachment.
+    /// This is used in multipart/related messages to
+    /// embed inline images in text/html parts.
     #[serde(default)]
     content_id: Option<String>,
+    /// The the preferred filename for the attachment
     #[serde(default)]
     file_name: Option<String>,
+    /// If true, the `data` field must be encoded as base64
     #[serde(default)]
     base64: bool,
 }
@@ -476,6 +551,16 @@ async fn inject_v1_impl(
     }))
 }
 
+/// Inject a message using a given message body, with template expansion,
+/// to a list of recipients.
+#[utoipa::path(
+    post,
+    tag="inject",
+    path="/api/inject/v1",
+    responses(
+        (status = 200, description = "Message(s) injected successfully", body=InjectV1Response)
+    ),
+)]
 pub async fn inject_v1(
     auth: AuthKind,
     InsecureClientIp(peer_address): InsecureClientIp,

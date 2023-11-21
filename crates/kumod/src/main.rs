@@ -55,6 +55,11 @@ struct Opt {
     #[arg(long)]
     tokio_console: bool,
 
+    /// Instead of running the daemon, output the openapi spec json
+    /// to stdout
+    #[arg(long)]
+    dump_openapi_spec: bool,
+
     /// Required if started as root; specifies which user to run as once
     /// privileges have been dropped.
     ///
@@ -120,6 +125,13 @@ impl Opt {
 
 fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
+
+    if opts.dump_openapi_spec {
+        let api_docs = crate::http_server::make_router().make_docs();
+        println!("{}", api_docs.to_pretty_json()?);
+        return Ok(());
+    }
+
     // This MUST happen before we spawn any threads,
     // which is why we manually set up the tokio
     // runtime after we've called it.

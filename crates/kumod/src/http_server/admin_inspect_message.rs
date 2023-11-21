@@ -4,6 +4,16 @@ use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use message::Message;
 
+/// Retrieve information about a message given its spool id.
+#[utoipa::path(
+    get,
+    tag="inspect",
+    path="/api/admin/inspect-message/v1",
+    params(InspectMessageV1Request),
+    responses(
+        (status = 200, description = "Obtained message information", body=InspectMessageV1Response),
+    ),
+)]
 pub async fn inspect_v1(
     _: TrustedIpRequired,
     Query(request): Query<InspectMessageV1Request>,

@@ -37,10 +37,22 @@ struct Opt {
     /// Whether to enable the diagnostic tokio console
     #[arg(long)]
     tokio_console: bool,
+
+    /// Instead of running the daemon, output the openapi spec json
+    /// to stdout
+    #[arg(long)]
+    dump_openapi_spec: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
+
+    if opts.dump_openapi_spec {
+        let api_docs = crate::http_server::make_router().make_docs();
+        println!("{}", api_docs.to_pretty_json()?);
+        return Ok(());
+    }
+
     kumo_server_common::panic::register_panic_hook();
 
     tokio::runtime::Builder::new_multi_thread()

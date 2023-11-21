@@ -176,6 +176,16 @@ impl AdminBounceEntry {
     }
 }
 
+/// Allows the system operator to administratively bounce messages that match
+/// certain criteria, or if no criteria are provided, ALL messages.
+#[utoipa::path(
+    post,
+    tag="bounce",
+    path="/api/admin/bounce/v1",
+    responses(
+        (status = 200, description = "Bounce added successfully", body=BounceV1Response)
+    ),
+)]
 pub async fn bounce_v1(
     _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
@@ -223,6 +233,16 @@ pub async fn bounce_v1(
     }))
 }
 
+/// Allows the system operator to list all currently active administrative bounces that have been
+/// configured.
+#[utoipa::path(
+    get,
+    tag="bounce",
+    path="/api/admin/bounce/v1",
+    responses(
+        (status = 200, description = "Returned information about current admin bounces", body=[BounceV1ListEntry])
+    ),
+)]
 pub async fn bounce_v1_list(
     _: TrustedIpRequired,
 ) -> Result<Json<Vec<BounceV1ListEntry>>, AppError> {
@@ -252,6 +272,16 @@ pub async fn bounce_v1_list(
     ))
 }
 
+/// Allows the system operator to delete an administrative bounce entry by its id.
+#[utoipa::path(
+    delete,
+    tag="bounce",
+    path="/api/admin/bounce/v1",
+    responses(
+        (status = 200, description = "Removed the requested bounce id"),
+        (status = 404, description = "The requested bounce id is no longer, or never was, valid"),
+    ),
+)]
 pub async fn bounce_v1_delete(
     _: TrustedIpRequired,
     Json(request): Json<BounceV1CancelRequest>,

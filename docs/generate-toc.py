@@ -175,7 +175,10 @@ TOC = [
                     Page(
                         "Configuration Concepts", "userguide/configuration/concepts.md"
                     ),
-                    Page("Lua Policy Helpers", "userguide/configuration/policy_helpers.md"),
+                    Page(
+                        "Lua Policy Helpers",
+                        "userguide/configuration/policy_helpers.md",
+                    ),
                     Page("Example Server Policy", "userguide/configuration/example.md"),
                     Page("Configuring Spooling", "userguide/configuration/spool.md"),
                     Page("Configuring Logging", "userguide/configuration/logging.md"),
@@ -381,6 +384,7 @@ TOC = [
                 "events",
                 "reference/events",
             ),
+            Page("HTTP API Explorer", "reference/rapidoc.md"),
             Gen("HTTP API", "reference/http", extract_title=True),
             RustDoc(
                 "Internal Rust API",

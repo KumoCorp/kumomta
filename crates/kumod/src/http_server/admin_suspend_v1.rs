@@ -116,6 +116,15 @@ impl AdminSuspendEntry {
     }
 }
 
+/// Define a suspension for a scheduled queue
+#[utoipa::path(
+    post,
+    tag="suspend",
+    path="/api/admin/suspend/v1",
+    responses(
+        (status = 200, description = "Suspended", body=SuspendV1Response),
+    ),
+)]
 pub async fn suspend(
     _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
@@ -136,6 +145,15 @@ pub async fn suspend(
     Ok(Json(SuspendV1Response { id: entry.id }))
 }
 
+/// List the active scheduled-queue suspensions
+#[utoipa::path(
+    get,
+    tag="suspend",
+    path="/api/admin/suspend/v1",
+    responses(
+        (status = 200, description = "Suspended", body=SuspendV1ListEntry),
+    ),
+)]
 pub async fn list(_: TrustedIpRequired) -> Result<Json<Vec<SuspendV1ListEntry>>, AppError> {
     let now = Instant::now();
     Ok(Json(
@@ -158,6 +176,16 @@ pub async fn list(_: TrustedIpRequired) -> Result<Json<Vec<SuspendV1ListEntry>>,
     ))
 }
 
+/// Remove a scheduled-queue suspension
+#[utoipa::path(
+    delete,
+    tag="suspend",
+    path="/api/admin/suspend/v1",
+    responses(
+        (status = 200, description = "Removed the suspension"),
+        (status = 404, description = "Suspension either expired or was never valid"),
+    ),
+)]
 pub async fn delete(_: TrustedIpRequired, Json(request): Json<SuspendV1CancelRequest>) -> Response {
     let removed = AdminSuspendEntry::remove_by_id(&request.id);
     if removed {

@@ -22,8 +22,11 @@ fn get_mac_address() -> [u8; 6] {
     }
 }
 
+/// Identifies a message within the spool of its host node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
+#[derive(utoipa::ToSchema)]
+#[schema(value_type=String, example="d7ef132b5d7711eea8c8000c29c33806")]
 pub struct SpoolId(Uuid);
 
 impl std::fmt::Display for SpoolId {

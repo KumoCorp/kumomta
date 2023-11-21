@@ -34,4 +34,5 @@ tokio-rustls = {workspace=true}
 toml = "0.7"
 toml_edit = "0.19"
 tracing = "0.1"
+utoipa = {workspace=true}
 version-info = {path="../version-info"}

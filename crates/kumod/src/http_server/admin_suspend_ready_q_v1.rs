@@ -90,6 +90,15 @@ impl AdminSuspendReadyQEntry {
     }
 }
 
+/// Define a suspension for a ready queue
+#[utoipa::path(
+    post,
+    tag="suspend",
+    path="/api/admin/suspend-ready-q/v1",
+    responses(
+        (status = 200, description = "Suspended", body=SuspendV1Response),
+    ),
+)]
 pub async fn suspend(
     _: TrustedIpRequired,
     // Note: Json<> must be last in the param list
@@ -108,6 +117,15 @@ pub async fn suspend(
     Ok(Json(SuspendV1Response { id: entry.id }))
 }
 
+/// List the active ready-queue suspensions
+#[utoipa::path(
+    get,
+    tag="suspend",
+    path="/api/admin/suspend-ready-q/v1",
+    responses(
+        (status = 200, description = "Suspended", body=SuspendReadyQueueV1ListEntry),
+    ),
+)]
 pub async fn list(
     _: TrustedIpRequired,
 ) -> Result<Json<Vec<SuspendReadyQueueV1ListEntry>>, AppError> {
@@ -129,6 +147,16 @@ pub async fn list(
     ))
 }
 
+/// Remove a ready-queue suspension
+#[utoipa::path(
+    delete,
+    tag="suspend",
+    path="/api/admin/suspend-ready-q/v1",
+    responses(
+        (status = 200, description = "Removed the suspension"),
+        (status = 404, description = "Suspension either expired or was never valid"),
+    ),
+)]
 pub async fn delete(_: TrustedIpRequired, Json(request): Json<SuspendV1CancelRequest>) -> Response {
     let removed = AdminSuspendReadyQEntry::remove_by_id(&request.id);
     if removed {
