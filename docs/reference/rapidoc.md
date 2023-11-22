@@ -39,6 +39,7 @@ window.addEventListener('DOMContentLoaded', (event) => {
   doc.setAttribute('allow-authentication', 'false');
   doc.setAttribute('allow-spec-file-download', 'true');
   doc.setAttribute('show-curl-before-try', 'true');
+  doc.setAttribute('server-url', 'http://127.0.0.1:8000');
 
   // Now insert this element into the DOM
   document.getElementById('rapidoccontainer').appendChild(doc);

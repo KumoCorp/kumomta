@@ -14,6 +14,7 @@ use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::str::FromStr;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
+use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
 use utoipa_rapidoc::RapiDoc;
 // Avoid referencing api types as crate::name in the utoipa macros,
@@ -28,11 +29,34 @@ use auth::*;
 
 #[derive(OpenApi)]
 #[openapi(
-    info(license(name = "Apache-2.0",),),
-    paths(set_diagnostic_log_filter_v1,),
-    components(schemas(SetDiagnosticFilterRequest))
+    info(license(name = "Apache-2.0")),
+    paths(set_diagnostic_log_filter_v1),
+    // Indicate that all paths can accept http basic auth.
+    // the "basic_auth" name corresponds with the scheme
+    // defined by the OptionalAuth addon defined below
+    security(
+        ("basic_auth" = [""])
+    ),
+    components(schemas(SetDiagnosticFilterRequest)),
+    modifiers(&OptionalAuth),
 )]
 struct ApiDoc;
+
+struct OptionalAuth;
+
+impl utoipa::Modify for OptionalAuth {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi
+            .components
+            .as_mut()
+            .expect("always set because we always have components above");
+        // Define basic_auth as http basic auth
+        components.add_security_scheme(
+            "basic_auth",
+            SecurityScheme::Http(Http::new(HttpAuthScheme::Basic)),
+        );
+    }
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
