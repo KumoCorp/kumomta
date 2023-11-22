@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2023.11.18-8b8f5312"
+    "version": "2023.11.22-0fc11083"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1050,6 +1050,19 @@
           }
         }
       }
+    },
+    "securitySchemes": {
+      "basic_auth": {
+        "type": "http",
+        "scheme": "basic"
+      }
     }
-  }
+  },
+  "security": [
+    {
+      "basic_auth": [
+        ""
+      ]
+    }
+  ]
 }
