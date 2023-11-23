@@ -26,6 +26,7 @@ pub struct AdminBounceEntry {
     pub domain: Option<String>,
     pub routing_domain: Option<String>,
     pub reason: String,
+    pub suppress_logging: bool,
     pub expires: Instant,
     pub bounced: Arc<Mutex<HashMap<String, usize>>>,
 }
@@ -144,28 +145,30 @@ impl AdminBounceEntry {
             }
         };
 
-        log_disposition(LogDisposition {
-            kind: RecordType::AdminBounce,
-            msg,
-            site: "localhost",
-            peer_address: None,
-            response: rfc5321::Response {
-                code: 551,
-                enhanced_code: Some(rfc5321::EnhancedStatusCode {
-                    class: 5,
-                    subject: 7,
-                    detail: 1,
-                }),
-                content: format!("Administrator bounced with reason: {}", self.reason),
-                command: None,
-            },
-            egress_source: None,
-            egress_pool: None,
-            relay_disposition: None,
-            delivery_protocol: None,
-            tls_info: None,
-        })
-        .await;
+        if !self.suppress_logging {
+            log_disposition(LogDisposition {
+                kind: RecordType::AdminBounce,
+                msg,
+                site: "localhost",
+                peer_address: None,
+                response: rfc5321::Response {
+                    code: 551,
+                    enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                        class: 5,
+                        subject: 7,
+                        detail: 1,
+                    }),
+                    content: format!("Administrator bounced with reason: {}", self.reason),
+                    command: None,
+                },
+                egress_source: None,
+                egress_pool: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+            })
+            .await;
+        }
 
         let mut bounced = self.bounced.lock().unwrap();
         if let Some(entry) = bounced.get_mut(queue_name) {
@@ -199,6 +202,7 @@ pub async fn bounce_v1(
         domain: request.domain,
         routing_domain: request.routing_domain,
         reason: request.reason,
+        suppress_logging: request.suppress_logging,
         expires: Instant::now() + duration,
         bounced: Arc::new(Mutex::new(HashMap::new())),
     };

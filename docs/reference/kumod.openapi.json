@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2023.11.22-0fc11083"
+    "version": "2023.11.22-c814b960"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -488,13 +488,17 @@
           },
           "reason": {
             "type": "string",
-            "description": "Reason to log in the delivery log",
+            "description": "Reason to log in the delivery log. Each matching message will be bounced\nwith an AdminBounce record unless you suppress logging.\nThe reason will also be shown in the list of currently active admin\nbounces.",
             "example": "Cleaning up a bad send"
           },
           "routing_domain": {
             "type": "string",
             "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
             "nullable": true
+          },
+          "suppress_logging": {
+            "type": "boolean",
+            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages."
           },
           "tenant": {
             "type": "string",

@@ -33,7 +33,10 @@ pub struct BounceV1Request {
     #[serde(default)]
     pub routing_domain: Option<String>,
 
-    /// Reason to log in the delivery log
+    /// Reason to log in the delivery log. Each matching message will be bounced
+    /// with an AdminBounce record unless you suppress logging.
+    /// The reason will also be shown in the list of currently active admin
+    /// bounces.
     #[schema(example = "Cleaning up a bad send")]
     pub reason: String,
 
@@ -47,6 +50,11 @@ pub struct BounceV1Request {
     )]
     #[schema(example = "20m")]
     pub duration: Option<Duration>,
+
+    /// If true, do not generate AdminBounce delivery logs for matching
+    /// messages.
+    #[serde(default)]
+    pub suppress_logging: bool,
 }
 
 impl BounceV1Request {

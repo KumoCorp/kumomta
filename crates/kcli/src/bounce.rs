@@ -38,13 +38,19 @@ pub struct BounceCommand {
     #[arg(long)]
     tenant: Option<String>,
 
-    /// The reason to log in the delivery logs
+    /// The reason to log in the delivery logs (each matching message will
+    /// bounce with an AdminBounce record) as well as in the list
+    /// of bounces.
     #[arg(long)]
     reason: String,
 
     /// Purge all queues.
     #[arg(long)]
     everything: bool,
+
+    /// Do not generate AdminBounce delivery logs
+    #[arg(long)]
+    suppress_logging: bool,
 
     /// The duration over which matching messages will continue to bounce.
     /// The default is '5m'.
@@ -77,6 +83,7 @@ impl BounceCommand {
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),
+                suppress_logging: self.suppress_logging,
             },
         )
         .await?;

@@ -80,6 +80,8 @@
 * New [pre_init](../reference/events/pre_init.md) event to aid in building optional
   modular lua helpers.
 * log records now only log *meta* values which are non-null. Thanks to @cai-n! #94
+* Admin bounces now have the option to suppress generation of `AdminBounce` log
+  records. #75
 
 ## Fixes
 * HTTP injection API did not expand templating in `From`, `Reply-To` or

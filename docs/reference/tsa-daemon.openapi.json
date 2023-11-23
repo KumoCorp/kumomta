@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2023.11.22-0fc11083"
+    "version": "2023.11.22-c814b960"
   },
   "paths": {
     "/api/admin/set_diagnostic_log_filter/v1": {
