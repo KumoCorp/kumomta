@@ -3,6 +3,7 @@ check:
 
 test:
 	cargo build
+	./docs/update-openapi.sh
 	cargo nextest run
 
 fmt:

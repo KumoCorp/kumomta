@@ -29,6 +29,10 @@ if ! gelatyx --language lua --color always --file-list $tracked_markdown --langu
   exit 1
 fi
 
+if test -x target/debug/kumod ; then
+  ./docs/update-openapi.sh
+fi
+
 # https://github.com/rust-lang/cargo/issues/2025
 # Document only our own crates
 # TODO: consider using:
