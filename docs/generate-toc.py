@@ -136,8 +136,9 @@ TOC = [
                     Page("Preface and Legal Notices", "userguide/general/preface.md"),
                     Page("About This Manual", "userguide/general/about.md"),
                     Page(
-                        "How to Report Bugs or Get Help", "userguide/general/report.md"
+                        "How to Report Bugs", "userguide/general/report.md"
                     ),
+                    Page("How to Get Help", "userguide/general/get_help.md"),
                     Page("Credits", "userguide/general/credits.md"),
                     Page("History", "userguide/general/history.md"),
                     Page("Architecture", "userguide/general/architecture.md"),
