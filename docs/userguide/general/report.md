@@ -1,5 +1,5 @@
 
-# How to Report Bugs or Get Help
+# How to Report Bugs
 
 This section described the process for submitting a bug report and how to get assistance.
 
@@ -31,26 +31,3 @@ If you submit an issue, please keep the following in mind:
   whether it solves your problem. All official KumoMTA releases are thoroughly
   tested and should work without issue. We strive to maintain backward
   compatibility, allowing you to switch versions of KumoMTA without issue.
-
-## Getting Help
-
-Community support for KumoMTA is available both in the forum and in the
-community Discord server. Paid support customers should consult their support
-SLA document for information on how to contact KumoMTA support and their
-relevant guaranteed response and resolution times.
-
-### Discord
-
-The KumoMTA Discord server is intended for real-time communication about
-KumoMTA and MailOps/Deliverability in general. The KumoMTA team also hosts
-weekly office hours in the Discord server to better engage with the KumoMTA
-community. The Discord server can be found at
-[https://kumomta.com/discord](https://kumomta.com/discord).
-
-### Forum
-
-The KumoMTA forum is best suited to longer-form help requests that benefit from
-higher visibility in the community (as the help request won't get lost in the
-chat scroll or otherwise missed), and which would be of benefit to other users
-thanks to the more permanent nature of forum interactions. The forum can be
-accessed at [https://forum.kumomta.com](https://forum.kumomta.com).
