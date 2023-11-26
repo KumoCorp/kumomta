@@ -3,7 +3,34 @@
 There are several things that can go wrong, especially when first installing KumoMTA. This page is intended to help with troubleshooting common issues.
 
 !!!Note
-        There is a community Discord server available at https://kumomta.com/discord where you can ask for community assistance.
+        There are multiple ways to get help with KumoMTA, see the [How To Get Help](../general/get_help.md) page for more information.
+
+## Using Swaks
+
+When troubleshooting, it helps to eliminate external factors, including the injecting email infrastructure. We recommend using Swaks to perform test injections as it is known to act in an RFC compliant way when injecting messages. See the [Swaks Documentation](http://www.jetmore.org/john/code/swaks/latest/doc/ref.txt) for more information.
+
+## Tracing Server Communications
+
+When having issues with injecting messages, use the `kcli trace-smtp-server` command to receive an output of all communications between KumoMTA and the incoming client.
+
+``` console
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]   0ns === Connected 2023-11-24 15:54:55.532224578 UTC
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]   0ns === conn_meta received_from="2xx.xxx.xx.xx:40422"
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]   0ns === conn_meta received_via="1xx.x.xxx.xx:587"
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]   0ns === conn_meta reception_protocol="ESMTP"
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]  17µs <-  220 kumomta.abcdef.com KumoMTA
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 182ms  -> EHLO kumomta.abcdef.com
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 183ms === smtp_server_ehlo: Ok
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 183ms <-  250-kumomta.abcdef.com Aloha kumomta.abcdef.com
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 183ms <-  250-PIPELINING
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 183ms <-  250-ENHANCEDSTATUSCODES
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 183ms <-  250 STARTTLS
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 588ms  -> STARTTLS
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587] 588ms <-  220 Ready to Start TLS
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]    1s  -> QUIT
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]    1s <-  221 So long, and thanks for all the fish!
+[2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]    1s === Closed
+```
 
 ## Reviewing the System Journal
 
