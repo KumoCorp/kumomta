@@ -70,6 +70,7 @@
     -- Do your normal queue config handling here
   end)
   ```
+
 * It is no longer necessary to register `shaper.should_enqueue_log_record` when using the shaping
   helper together with TSA.  You should remove this line from your config:
 
