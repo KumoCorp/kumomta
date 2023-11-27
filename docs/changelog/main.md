@@ -78,6 +78,7 @@
   -- Remove this next line
   kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
   ```
+
 * New [pre_init](../reference/events/pre_init.md) event to aid in building optional
   modular lua helpers.
 * log records now only log *meta* values which are non-null. Thanks to @cai-n! #94
