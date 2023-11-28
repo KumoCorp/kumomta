@@ -6,7 +6,7 @@ HERE=$(pwd)
 
 # If not specified, build the package as `kumomta-dev`.
 # When we're building from a tag (REF_TYPE is set to tag) we set 'DEB_NAME=kumomta'
-[[ "${REF_TYPE}" == "tag" ]] && DEB_NAME=kumomta
+[[ "${REF_TYPE}" == "tag" || "${CI_PIPELINE_EVENT}" == "tag" ]] && DEB_NAME=kumomta
 DEB_NAME=${DEB_NAME:-kumomta-dev}
 
 CONFLICTS=kumomta

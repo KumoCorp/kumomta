@@ -15,7 +15,7 @@ case "$REPO" in
   "mcr.microsoft.com/cbl-mariner/base/core:2.0") REPO="kumomta-mariner-2" ;;
 esac
 
-[[ "${REF_TYPE}" == "tag" ]] && REPO="${REPO}-stable"
+[[ "${REF_TYPE}" == "tag" || "${CI_PIPELINE_EVENT}" == "tag" ]] && REPO="${REPO}-stable"
 
 t=$(mktemp)
 trap "rm -f $t" EXIT
