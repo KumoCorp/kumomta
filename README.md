@@ -31,4 +31,4 @@ Please see [How to Get Help](https://docs.kumomta.com/userguide/general/get_help
 
 ## Talk to Us
 
-We're available to ask questions, book us at https://cal.com/kumomta-mike/15min?utm_source=banner&utm_campaign=oss
+We're available to talk about the project, book us at [https://cal.com/team/kumomta/talk-with-kumomta](https://cal.com/team/kumomta/talk-with-kumomta?utm_source=banner&utm_campaign=oss).
