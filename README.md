@@ -21,6 +21,14 @@ Our [Forum](https://forum.kumomta.com) is better for long-form questions and dis
 If you're interesting in contributing/extending KumoMTA, take a look at
 [DEVELOPERS.md](DEVELOPERS.md).
 
+## Reporting Bugs
+
+Please see [How to Report Bugs](https://docs.kumomta.com/userguide/general/report/).
+
 ## Getting Help
 
-Please see [How to Report Bugs or Get Help](https://docs.kumomta.com/userguide/general/report/)
+Please see [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/)
+
+## Talk to Us
+
+We're available to ask questions, book us at https://cal.com/kumomta-mike/15min?utm_source=banner&utm_campaign=oss
