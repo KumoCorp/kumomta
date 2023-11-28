@@ -87,4 +87,4 @@ All policy helpers listed below are implemented in the [Example Lua Policy](./ex
 * [Queues](./queuemanagement.md#using-the-queues-helper) - Helper for configuring tenant and queue configuration, including retry intervals, tenant identifier headers, and the mapping from tenant to egress pool.
 * [Shaping](./trafficshaping.md#using-the-shapinglua-helper) - Helper for configuring traffic shaping rules to use for destination domains. Also can be configured for [Traffic Shaping Automation](./trafficshapingautomation.md).
 * [Dkim_Sign](./dkim.md#using-the-dkim_signlua-policy-helper) - Helper for configuring parameters for DKIM signing for each signing domain.
-* [Log_Hooks](../policy/webhooks.md#using-the-log_hookslua-helper) - Helper for configuring webhooks.
+* [Log_Hooks](../operation/webhooks.md#using-the-log_hookslua-helper) - Helper for configuring webhooks.
