@@ -3662,7 +3662,7 @@ checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 [[package]]
 name = "openssl"
 version = "0.10.60"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#583e74a22814cafe805d00465cdcccf4f83ffe7c"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if",
@@ -3676,7 +3676,7 @@ dependencies = [
 [[package]]
 name = "openssl-macros"
 version = "0.1.1"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#583e74a22814cafe805d00465cdcccf4f83ffe7c"
 dependencies = [
  "proc-macro2 1.0.70",
  "quote 1.0.33",
@@ -3701,7 +3701,7 @@ dependencies = [
 [[package]]
 name = "openssl-sys"
 version = "0.9.96"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#583e74a22814cafe805d00465cdcccf4f83ffe7c"
 dependencies = [
  "cc",
  "libc",
