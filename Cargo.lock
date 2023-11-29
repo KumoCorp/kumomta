@@ -3661,8 +3661,8 @@ checksum = "0ab1bc2a289d34bd04a330323ac98a1b4bc82c9d9fcb1e66b63caa84da26b575"
 
 [[package]]
 name = "openssl"
-version = "0.10.57"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#0dc3d0f42d91c2aed6bc62b352b4274958acae2a"
+version = "0.10.60"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if",
@@ -3676,7 +3676,7 @@ dependencies = [
 [[package]]
 name = "openssl-macros"
 version = "0.1.1"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#0dc3d0f42d91c2aed6bc62b352b4274958acae2a"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
 dependencies = [
  "proc-macro2 1.0.70",
  "quote 1.0.33",
@@ -3700,8 +3700,8 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.93"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#0dc3d0f42d91c2aed6bc62b352b4274958acae2a"
+version = "0.9.96"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#48a48d2bb4c3d8966473e4120f22e2a061a32dbb"
 dependencies = [
  "cc",
  "libc",
@@ -4618,9 +4618,9 @@ dependencies = [
 
 [[package]]
 name = "ring"
-version = "0.17.5"
+version = "0.17.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb0205304757e5d899b9c2e448b867ffd03ae7f988002e47cd24954391394d0b"
+checksum = "684d5e6e18f669ccebf64a92236bb7db9a34f07be010e3627368182027180866"
 dependencies = [
  "cc",
  "getrandom",
@@ -4749,7 +4749,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "629648aced5775d558af50b2b4c7b02983a04b312126d45eeead26e7caa498b9"
 dependencies = [
  "log",
- "ring 0.17.5",
+ "ring 0.17.6",
  "rustls-webpki",
  "sct",
 ]
@@ -4793,7 +4793,7 @@ version = "0.101.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
 dependencies = [
- "ring 0.17.5",
+ "ring 0.17.6",
  "untrusted 0.9.0",
 ]
 
@@ -4848,7 +4848,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
 dependencies = [
- "ring 0.17.5",
+ "ring 0.17.6",
  "untrusted 0.9.0",
 ]
 
@@ -5177,9 +5177,9 @@ dependencies = [
 
 [[package]]
 name = "spki"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d1e996ef02c474957d681f1b05213dfb0abab947b446a62d37770b23500184a"
+checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",

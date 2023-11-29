@@ -35,7 +35,7 @@ futures = "0.3.28"
 libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="1f629e81919d8aae7e95fff82dc1390912b4ba53"}
 mlua = "0.8"
 once_cell = "1.17"
-openssl = { version="0.10.57" }
+openssl = { version="0.10.60" }
 openssl-sys = { version="0.9" }
 rustls = "0.21"
 tempfile = "3.8"
@@ -52,6 +52,6 @@ webpki-roots = "0.25"
 
 [patch.crates-io]
 # Can be removed once dane support is upstreamed
-openssl = { version="0.10.57", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
+openssl = { version="0.10.60", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
 # Can be removed once dane support is upstreamed
 openssl-sys = { version="0.9", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
