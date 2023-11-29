@@ -1,6 +1,6 @@
 # `kumo.configure_accounting_db_path("PATH")`
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 Configures the path that will be used for the accounting database.
 

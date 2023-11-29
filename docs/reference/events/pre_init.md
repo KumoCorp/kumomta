@@ -1,6 +1,6 @@
 # `kumo.on('pre_init', FUNCTION)`
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 The `pre_init` event is triggered once when the `kumod` process initializes,
 prior to triggering the [init](init.md) event.

@@ -1,6 +1,6 @@
 # Authentication Result Object
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 This object represents parsed individual *Authentication Result* as specified by [RFC
 8601](https://datatracker.ietf.org/doc/html/rfc8601).  Technically speaking, each

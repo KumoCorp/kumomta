@@ -1,6 +1,6 @@
 # `message:add_authentication_results(server_id, results)`
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 This method will prepend an `Authentication-Results` header to the message, as
 specified by [RFC 8601](https://datatracker.ietf.org/doc/html/rfc8601).

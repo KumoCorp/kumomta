@@ -22,7 +22,7 @@ kumo.on(
 
 See also [kumo.make_queue_config](../kumo/make_queue_config.md).
 
-{{since('dev', indent=True)}}
+{{since('2023.11.28-b5252a41', indent=True)}}
     It is now possible to use `kumo.on` to register multiple handlers for
     this event.  The handlers will be called in the order that they were
     registered.  If a handler returns `nil` then the next handler will be

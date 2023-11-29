@@ -1,6 +1,6 @@
 # `message:check_fix_conformance(CHECKS, FIXES)`
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 !!!warning
     Fixing messages with this method is inherently imperfect: it is based on a

@@ -52,7 +52,7 @@ kumo.configure_local_logs {
 
 ## filter_event
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 Optional string. If provided, specifies the name of an event that should
 be triggered to decide whether logs for a given message should be included
@@ -208,7 +208,7 @@ and values:
 * `log_dir` - specify an alternative log directory for this type
 * `enable` - defaults to `true`. If you set it to `false`, records of this
   type will not be logged
-* `segment_header` - ({{since('dev', inline=True)}}) text that will be written
+* `segment_header` - ({{since('2023.11.28-b5252a41', inline=True)}}) text that will be written
   out to each newly opened segment file. Useful for emitting eg: a CSV header
   line.
 * `template` - the template to use to format the log line. Continue reading
@@ -222,7 +222,7 @@ The JSON log record fields shown in the section below are assigned as template
 variables, so using `{{ id }}` in your log template will be substituted with
 the `id` field from the log record section below.
 
-{{since('dev', indent=True)}}
+{{since('2023.11.28-b5252a41', indent=True)}}
     You may now use `log_record` to reference the entire log record,
     which is useful if you want to replicate the default json representation
     of the log record for an individual record type.

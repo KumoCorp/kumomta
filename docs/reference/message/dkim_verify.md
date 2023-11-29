@@ -1,6 +1,6 @@
 # `message:dkim_verify()`
 
-{{since('dev')}}
+{{since('2023.11.28-b5252a41')}}
 
 This method will verify each DKIM signature that is present at the top level of
 the message, up to a limit of 10 signatures.  The limit is in place to limit the

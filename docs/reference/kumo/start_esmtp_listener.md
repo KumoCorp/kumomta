@@ -94,7 +94,7 @@ kumo.start_esmtp_listener {
 
 ## invalid_line_endings
 
-{{since('dev', indent=True)}}
+{{since('2023.11.28-b5252a41', indent=True)}}
     Specifies the behavior when the received DATA contains invalid line
     endings.  The SMTP protocol requires that each line of the DATA be
     separated by canonical CRLF sequences. Immediately after receiving the DATA
@@ -116,7 +116,7 @@ kumo.start_esmtp_listener {
 
 ## line_length_hard_limit
 
-{{since('dev', indent=True)}}
+{{since('2023.11.28-b5252a41', indent=True)}}
     The SMTP protocol specification defines the maximum length of a line in the
     protocol.  The limit exists because there are SMTP implementations that are
     simply not capable of reading longer lines.
