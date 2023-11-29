@@ -1,9 +1,61 @@
 use regex::{RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Copy, Clone, Ord, PartialOrd)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
+#[serde(from = "String", into = "String")]
 pub enum BounceClass {
+    PreDefined(PreDefinedBounceClass),
+    UserDefined(String),
+}
+
+impl From<String> for BounceClass {
+    fn from(s: String) -> BounceClass {
+        if let Ok(pre) = PreDefinedBounceClass::from_str(&s) {
+            BounceClass::PreDefined(pre)
+        } else {
+            BounceClass::UserDefined(s)
+        }
+    }
+}
+
+impl Into<String> for BounceClass {
+    fn into(self) -> String {
+        match self {
+            BounceClass::PreDefined(pre) => pre.to_string(),
+            BounceClass::UserDefined(s) => s,
+        }
+    }
+}
+
+impl Default for BounceClass {
+    fn default() -> Self {
+        PreDefinedBounceClass::Uncategorized.into()
+    }
+}
+
+impl From<PreDefinedBounceClass> for BounceClass {
+    fn from(c: PreDefinedBounceClass) -> BounceClass {
+        BounceClass::PreDefined(c)
+    }
+}
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Copy,
+    Clone,
+    Ord,
+    PartialOrd,
+    strum::EnumString,
+    strum::Display,
+)]
+pub enum PreDefinedBounceClass {
     /// The recipient is invalid
     InvalidRecipient,
     /// The message bounced due to a DNS failure.
@@ -117,7 +169,7 @@ impl BounceClassifierBuilder {
             // start/end ranges of pattern indices and uses a
             // binary search.
             for _ in 0..rules.len() {
-                pattern_to_class.push(class);
+                pattern_to_class.push(class.clone());
             }
             patterns.append(&mut rules);
         }
@@ -146,8 +198,10 @@ impl BounceClassifier {
             .into_iter()
             .next()
             .and_then(|idx| self.pattern_to_class.get(idx))
-            .copied()
-            .unwrap_or(BounceClass::Uncategorized)
+            .cloned()
+            .unwrap_or(BounceClass::PreDefined(
+                PreDefinedBounceClass::Uncategorized,
+            ))
     }
 
     pub fn classify_response(&self, response: &rfc5321::Response) -> BounceClass {
@@ -169,28 +223,40 @@ mod test {
         let classifier = builder.build().unwrap();
 
         let corpus = &[
-            ("552 5.2.2 mailbox is stuffed", BounceClass::QuotaIssues),
-            ("552 4.2.2 mailbox is stuffed", BounceClass::QuotaIssues),
-            ("552 4.2.2 mailbox is stuffed", BounceClass::QuotaIssues),
-            ("352 5.2.2 mailbox is stuffed", BounceClass::Uncategorized),
+            (
+                "552 5.2.2 mailbox is stuffed",
+                PreDefinedBounceClass::QuotaIssues,
+            ),
+            (
+                "552 4.2.2 mailbox is stuffed",
+                PreDefinedBounceClass::QuotaIssues,
+            ),
+            (
+                "552 4.2.2 mailbox is stuffed",
+                PreDefinedBounceClass::QuotaIssues,
+            ),
+            (
+                "352 5.2.2 mailbox is stuffed",
+                PreDefinedBounceClass::Uncategorized,
+            ),
             (
                 "525 4.7.13 user account is disabled",
-                BounceClass::InactiveMailbox,
+                PreDefinedBounceClass::InactiveMailbox,
             ),
             (
                 "551 4.7.17 mailbox owner has changed",
-                BounceClass::InvalidRecipient,
+                PreDefinedBounceClass::InvalidRecipient,
             ),
             (
                 "551 4.7.18 domain owner has changed",
-                BounceClass::BadDomain,
+                PreDefinedBounceClass::BadDomain,
             ),
         ];
 
         for &(input, output) in corpus {
             assert_eq!(
                 classifier.classify_str(input),
-                output,
+                output.into(),
                 "expected {input} -> {output:?}"
             );
         }

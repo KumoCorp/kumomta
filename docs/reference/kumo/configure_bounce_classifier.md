@@ -8,10 +8,43 @@ to respond and react to a delivery failure.
 This function should be called only from inside your [init](../events/init.md)
 event handler.
 
-!!! note
-    The precise set of classifications are not yet finalized so are
-    not reproduced here. They can be found in the `BounceClass` enum
-    in `kumomta/crates/bounce-classify/src/lib.rs`
+The following classifications are pre-defined:
+
+|Label | Meaning|
+|------|--------|
+|InvalidRecipient|The recipient is invalid|
+|DNSFailure|The message bounced due to a DNS failure.|
+|SpamBlock|The message was blocked by the receiver as coming from a known spam source.|
+|SpamContent|The message was blocked by the receiver as spam|
+|ProhibitedAttachment|The message was blocked by the receiver because it contained an attachment|
+|RelayDenied|The message was blocked by the receiver because relaying is not allowed.|
+|AutoReply|The message is an auto-reply/vacation mail.|
+|TransientFailure|Message transmission has been temporarily delayed.|
+|Subscribe|The message is a subscribe request.|
+|Unsubscribe|The message is an unsubscribe request.|
+|ChallengeResponse|The message is a challenge-response probe.|
+|BadConfiguration|messages rejected due to configuration issues with remote host|5.X.X error|
+|BadConnection|messages bounced due to bad connection issues with remote host|4.X.X error|
+|BadDomain|messages bounced due to invalid or non-existing domains|5.X.X error|
+|ContentRelated|messages refused or blocked due to content related reasons|5.X.X error|
+|InactiveMailbox|messages rejected due to expired|inactive, or disabled recipient addresses, 5.X.X error|
+|InvalidSender|messages bounced due to invalid DNS or MX entry for sending domain|
+|MessageExpired|messages bounced due to not being delivered before the bounce-after|4.X.X error|
+|NoAnswerFromHost|messages bounces due to receiving no response from remote host after connecting|4.X.X or 5.X.X error|
+|PolicyRelated|messages refused or blocked due to general policy reasons|5.X.X error|
+|ProtocolErrors|messages rejected due to SMTP protocol syntax or sequence errors|5.X.X error|
+|QuotaIssues|messages rejected or blocked due to mailbox quota issues|4.X.X or 5.X.X error|
+|RelayingIssues|messages refused or blocked due to remote mail server relaying issues|5.X.X error|
+|RoutingErrors|messages bounced due to mail routing issues for recipient domain|5.X.X error|
+|SpamRelated|messages refused or blocked due to spam related reasons|5.X.X error|
+|VirusRelated|messages refused or blocked due to virus related reasons|5.X.X error|
+|AuthenticationFailed|authentication policy was not met|
+|Uncategorized|messages rejected due to other reasons|4.X.X or 5.X.X error|
+
+{{since('dev', indent=True)}}
+    It is now possible to define your own classification labels. You can do so
+    simply by using whatever label you like.  It is more efficient (uses less memory)
+    to use one of the predefined codes.
 
 The classifier must be configured with a set of rules files
 that provide mappings from a set of regular expressions to
