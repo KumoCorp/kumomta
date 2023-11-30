@@ -199,7 +199,7 @@ function mod:setup_with_options(options)
     return params
   end
 
-  if options.skip_queue_config_hook == false then
+  if not options.skip_queue_config_hook then
     kumo.on(
       'get_queue_config',
       function(domain, tenant, campaign, _routing_domain)
