@@ -136,29 +136,6 @@ when including a tag value in the DNS text record.
     interpreted by DKIM verification and should be used sparingly because of
     space limitations of the DNS text record.
 
-## Implement the signing process
-
-Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.
-This is done with Lua in policy.  The sample `init.lua` policy provided with
-KumoMTA declairs a basic working DKIM signer that you can copy and modify as
-needed.  This signs a message with `RSA256` using a selector named `default` on
-headers `From`, `To`, and `Subject` using the DKIM key located at
-example-private-dkim-key.pem. ([More
-documentation](../../reference/kumo.dkim/rsa_sha256_signer.md))
-
-```lua
-local signer = kumo.dkim.rsa_sha256_signer {
-  domain = msg:from_header().domain,
-  selector = 'default',
-  headers = { 'From', 'To', 'Subject' },
-  file_name = 'example-private-dkim-key.pem',
-}
-```
-
-Where you want to enable dkim signing, simply call that signer in policy.
-
-IE:  `msg:dkim_sign(signer)`
-
 ## Using the dkim_sign.lua Policy Helper
 
 To simplify DKIM configuration using a TOML configuration file, you can use the
@@ -241,3 +218,26 @@ policy = "Always" # Always add this signature
 # specifies the signing domain for this signature block
 domain = "myesp.com"
 ```
+
+## Implementing DKIM Signing
+
+Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.
+This is done with Lua in policy.  The sample `init.lua` policy provided with
+KumoMTA declairs a basic working DKIM signer that you can copy and modify as
+needed.  This signs a message with `RSA256` using a selector named `default` on
+headers `From`, `To`, and `Subject` using the DKIM key located at
+example-private-dkim-key.pem. ([More
+documentation](../../reference/kumo.dkim/rsa_sha256_signer.md))
+
+```lua
+local signer = kumo.dkim.rsa_sha256_signer {
+  domain = msg:from_header().domain,
+  selector = 'default',
+  headers = { 'From', 'To', 'Subject' },
+  file_name = 'example-private-dkim-key.pem',
+}
+```
+
+Where you want to enable dkim signing, simply call that signer in policy.
+
+IE:  `msg:dkim_sign(signer)`
