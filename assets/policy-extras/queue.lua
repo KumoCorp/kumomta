@@ -176,31 +176,44 @@ local function resolve_config(data, domain, tenant, campaign)
 end
 
 function mod:setup(file_names)
+  return self:setup_with_options {
+    skip_queue_config_hook = false,
+    file_names = file_names,
+  }
+end
+
+function mod:setup_with_options(options)
   local cached_load_data = kumo.memoize(load_queue_config, {
     name = 'queue_helper_data',
     ttl = '1 minute',
     capacity = 10,
   })
 
-  local test = cached_load_data(file_names)
-
-  kumo.on(
-    'get_queue_config',
-    function(domain, tenant, campaign, _routing_domain)
-      local data = cached_load_data(file_names)
-      local params = resolve_config(data, domain, tenant, campaign)
-      if params then
-        return kumo.make_queue_config(params)
-      end
-    end
-  )
-
   local helper = {
-    file_names = file_names,
+    file_names = options.file_names,
   }
 
+  function helper:resolve_config(domain, tenant, campaign)
+    local data = cached_load_data(options.file_names)
+    local params = resolve_config(data, domain, tenant, campaign)
+    return params
+  end
+
+  if not options.skip_queue_config_hook then
+    kumo.on(
+      'get_queue_config',
+      function(domain, tenant, campaign, _routing_domain)
+        local data = cached_load_data(options.file_names)
+        local params = resolve_config(data, domain, tenant, campaign)
+        if params then
+          return kumo.make_queue_config(params)
+        end
+      end
+    )
+  end
+
   function helper:apply(msg)
-    local data = cached_load_data(file_names)
+    local data = cached_load_data(options.file_names)
     if data.options.scheduling_header then
       msg:import_scheduling_header(data.options.scheduling_header, true)
     end
