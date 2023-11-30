@@ -176,10 +176,10 @@ local function resolve_config(data, domain, tenant, campaign)
 end
 
 function mod:setup(file_names)
-  return self:setup_with_options({
+  return self:setup_with_options {
     skip_queue_config_hook = false,
     file_names = file_names,
-  })
+  }
 end
 
 function mod:setup_with_options(options)
