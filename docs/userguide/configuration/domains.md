@@ -15,48 +15,6 @@ kumo.start_esmtp_listener {
 }
 ```
 
-## Configuring Domains for Relaying, Bounces, and Feedback Loops
-
-By default, if a host connects to the listener and is not listed in the
-`relay_hosts` directive, that host will not be permitted to inject messages.
-While that is acceptable for most outbound relaying, it is necessary in most
-use cases to also configure certain exceptions on a destination-domain basis
-for things such as inbound mail relay, out-of-band bounce processing, and
-feedback loop processing.
-
-When a host not on the relay_hosts list connects to a listener and issues a
-`RCPT TO` command, the
-[get_listener_domain](../../reference/events/get_listener_domain.md) hook is
-fired, allowing for policy to be applied based on the destination domain of the
-message.
-
-To apply policy based on the domain, the `make_listener_domain` function is used:
-
-```lua
-kumo.on('get_listener_domain', function(domain, listener, conn_meta)
-  if domain == 'example.com' then
-    return kumo.make_listener_domain {
-      relay_to = true,
-      log_oob = true,
-      log_fbl = true,
-    }
-  end
-end)
-```
-
-In the preceding example, the domain `example.com` is permitted for inbound
-relay, resulting in messages destined for the domain being accepted and queued,
-while messages will also be checked for whether they are OOB or FBL messages,
-which are processed, logged, and discarded.
-
-Additional information on the `log_oob` and `log_arf` options can be found in the
-[Configuring Bounce Classification](bounce.md) and the [Configuring Feedback
-Loop Processing](fbl.md) chapters respectively.
-
-For more information, see the
-[make_listener_domain](../../reference/kumo/make_listener_domain.md) page of
-the Reference manual.
-
 ## Using the listener_domains.lua Policy Helper
 
 For most basic use cases, it will be simpler to use the `listener_domains.lua`
@@ -132,3 +90,45 @@ log_oob = false
 [listener."127.0.0.1:25"."*.example.com"]
 log_oob = false
 ```
+
+## Configuring Domains for Relaying, Bounces, and Feedback Loops
+
+By default, if a host connects to the listener and is not listed in the
+`relay_hosts` directive, that host will not be permitted to inject messages.
+While that is acceptable for most outbound relaying, it is necessary in most
+use cases to also configure certain exceptions on a destination-domain basis
+for things such as inbound mail relay, out-of-band bounce processing, and
+feedback loop processing.
+
+When a host not on the relay_hosts list connects to a listener and issues a
+`RCPT TO` command, the
+[get_listener_domain](../../reference/events/get_listener_domain.md) hook is
+fired, allowing for policy to be applied based on the destination domain of the
+message.
+
+To apply policy based on the domain, the `make_listener_domain` function is used:
+
+```lua
+kumo.on('get_listener_domain', function(domain, listener, conn_meta)
+  if domain == 'example.com' then
+    return kumo.make_listener_domain {
+      relay_to = true,
+      log_oob = true,
+      log_fbl = true,
+    }
+  end
+end)
+```
+
+In the preceding example, the domain `example.com` is permitted for inbound
+relay, resulting in messages destined for the domain being accepted and queued,
+while messages will also be checked for whether they are OOB or FBL messages,
+which are processed, logged, and discarded.
+
+Additional information on the `log_oob` and `log_arf` options can be found in the
+[Configuring Bounce Classification](bounce.md) and the [Configuring Feedback
+Loop Processing](fbl.md) chapters respectively.
+
+For more information, see the
+[make_listener_domain](../../reference/kumo/make_listener_domain.md) page of
+the Reference manual.
