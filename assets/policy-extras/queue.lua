@@ -57,7 +57,6 @@ retry_interval = '17 mins'
 ---
 local queue_module = require 'policy-extras.queue'
 local queue_helper = queue_module:setup({'/opt/kumomta/etc/queue.toml'})
-queue_helper:setup_get_queue_config()
 
 kumo.on('smtp_server_message_received', function(msg)
   queue_helper:apply(msg)
@@ -177,6 +176,13 @@ local function resolve_config(data, domain, tenant, campaign)
 end
 
 function mod:setup(file_names)
+  return self:setup_with_options({
+    skip_queue_config_hook = false,
+    file_names = file_names,
+  })
+end
+
+function mod:setup_with_options(options)
   local cached_load_data = kumo.memoize(load_queue_config, {
     name = 'queue_helper_data',
     ttl = '1 minute',
@@ -184,20 +190,20 @@ function mod:setup(file_names)
   })
 
   local helper = {
-    file_names = file_names,
+    file_names = options.file_names,
   }
 
   function helper:resolve_config(domain, tenant, campaign)
-    local data = cached_load_data(file_names)
+    local data = cached_load_data(options.file_names)
     local params = resolve_config(data, domain, tenant, campaign)
     return params
   end
 
-  function helper:setup_get_queue_config()
+  if options.skip_queue_config_hook == false then
     kumo.on(
       'get_queue_config',
       function(domain, tenant, campaign, _routing_domain)
-        local data = cached_load_data(file_names)
+        local data = cached_load_data(options.file_names)
         local params = resolve_config(data, domain, tenant, campaign)
         if params then
           return kumo.make_queue_config(params)
@@ -207,7 +213,7 @@ function mod:setup(file_names)
   end
 
   function helper:apply(msg)
-    local data = cached_load_data(file_names)
+    local data = cached_load_data(options.file_names)
     if data.options.scheduling_header then
       msg:import_scheduling_header(data.options.scheduling_header, true)
     end
