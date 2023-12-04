@@ -74,7 +74,7 @@ log_hooks:new_json {
 
 -- Configure queue management settings. These are not throttles, but instead
 -- control how messages flow through the queues.
--- WARNING: BECAUSE THE QUEUE HELPER CREATES DEFAULT QUEUES, IT SHOULD COME LAST IN SETUP
+-- WARNING: ENSURE THAT WEBHOOKS AND SHAPING ARE SETUP BEFORE THE QUEUE HELPER FOR PROPER OPERATION
 -- WARNING: THIS WILL NOT LOAD WITHOUT the queues.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
 local queue_helper =
