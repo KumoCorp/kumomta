@@ -20,13 +20,13 @@ While KumoMTA will work with any compliant SOCKS5 proxy server, we have built Ku
 
 ### Configuring an egress_source for SOCKS5 Proxy Use
 
-Configuring an egress_source to use a SOCKS5 proxy server is done as part of the `define_egress_source`
+Configuring an egress_source to use a SOCKS5 proxy server is done as part of the `make_egress_source`
 function call:
 
 ```lua
 kumo.on('init', function()
   -- Make a source that will emit from 10.0.0.1, via a proxy server
-  kumo.define_egress_source {
+  kumo.make_egress_source {
     name = 'ip-1',
 
     -- The SOCKS5 proxy server address and port
@@ -59,13 +59,13 @@ messages via IP addresses on the HAProxy host.
 
 ### Configuring an egress_source for HAProxy Use
 
-Configuring an egress_source to use an HAProxy server is done as part of the `define_egress_source`
+Configuring an egress_source to use an HAProxy server is done as part of the `make_egress_source`
 function call:
 
 ```lua
 kumo.on('init', function()
   -- Make a source that will emit from 10.0.0.1, via a proxy server
-  kumo.define_egress_source {
+  kumo.make_egress_source {
     name = 'ip-1',
 
     -- The HAProxy server address and port
