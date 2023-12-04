@@ -39,7 +39,7 @@ pub enum RecordType {
     Any,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonLogRecord {
     /// What kind of record this is
     #[serde(rename = "type")]

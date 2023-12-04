@@ -71,6 +71,10 @@ impl WebHookServer {
         }
         Ok(counts)
     }
+
+    pub fn return_logs(&self) -> Vec<JsonLogRecord> {
+        (*self.records.lock().unwrap()).clone()
+    }
 }
 
 async fn log_record(

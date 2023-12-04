@@ -26,6 +26,7 @@ kumo.on('init', function()
   if WEBHOOK_PORT then
     kumo.configure_log_hook {
       name = 'webhook',
+      headers = { 'Subject', 'X-*' },
     }
   end
 

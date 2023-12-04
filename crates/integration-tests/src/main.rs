@@ -13,9 +13,11 @@ mod test {
     use anyhow::Context;
     use k9::assert_equal;
     use kumo_api_types::SuspendV1Response;
+    use kumo_log_types::RecordType;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
     use mailparsing::DecodedBody;
     use rfc5321::*;
+    use std::collections::BTreeMap;
     use std::time::Duration;
 
     #[tokio::test]
@@ -821,6 +823,27 @@ Ok(
     },
 )
 "
+        );
+
+        let mut logged_headers = vec![];
+        for record in daemon.webhook.return_logs() {
+            if record.kind == RecordType::Reception {
+                let ordered_headers: BTreeMap<_, _> = record.headers.into_iter().collect();
+                logged_headers.push(ordered_headers);
+            }
+        }
+        k9::snapshot!(
+            logged_headers,
+            r#"
+[
+    {
+        "Subject": String("Hello! This is a test"),
+        "x-another": String("Another"),
+        "x-kumoref": String("eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20ifQ=="),
+        "x-test1": String("Test1"),
+    },
+]
+"#
         );
 
         let mut messages = daemon.with_maildir.extract_maildir_messages()?;
