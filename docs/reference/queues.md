@@ -63,26 +63,26 @@ traffic to the destination domain.
 
 ```lua
 kumo.on('init', function()
-  kumo.define_egress_source {
+  kumo.make_egress_source {
     name = 'ip-1',
     source_address = '10.0.0.1',
   }
-  kumo.define_egress_source {
+  kumo.make_egress_source {
     name = 'ip-2',
     source_address = '10.0.0.2',
   }
-  kumo.define_egress_source {
+  kumo.make_egress_source {
     name = 'ip-3',
     source_address = '10.0.0.3',
   }
 
-  kumo.define_egress_pool {
+  kumo.make_egress_pool {
     name = 'pool1',
     entries = {
       { name = 'ip-1' },
     },
   }
-  kumo.define_egress_pool {
+  kumo.make_egress_pool {
     name = 'pool2',
     entries = {
       { name = 'ip-2', weight = 2 },
