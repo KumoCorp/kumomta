@@ -34,6 +34,26 @@ local sources = require 'policy-extras.sources'
 local dkim_sign = require 'policy-extras.dkim_sign'
 local log_hooks = require 'policy-extras.log_hooks'
 
+-- START SETUP
+
+-- Configure the sending IP addresses that will be used by KumoMTA to
+-- connect to remote systems using the sources.lua policy helper.
+-- Note that defining sources and pools does nothing without some form of
+-- policy in effect to assign messages to the source pools you have defined.
+-- WARNING: THIS WILL NOT LOAD WITHOUT THE source.toml FILE IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
+sources:setup { '/opt/kumomta/etc/sources.toml' }
+
+-- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
+-- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
+-- See https://docs.kumomta.com/userguide/configuration/dkim/
+local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
+
+-- Configure traffic shaping using the shaping.lua policy helper.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
+local get_shaping_config = shaping:setup()
+
 -- Load TSA shaper tools
 local shaping_config = '/opt/kumomta/etc/policy/shaping.toml'
 local shaper = shaping:setup_with_automation {
@@ -42,7 +62,29 @@ local shaper = shaping:setup_with_automation {
   extra_files = { shaping_config },
 }
 
--- CALLED ON STARTUP, ALL ENTRIES WITHIN init REQUIRE A SERVER RESTART WHEN CHANGED.
+-- Send a JSON webhook to a local network host.
+-- See https://docs.kumomta.com/userguide/operation/webhooks/
+log_hooks:new_json {
+  name = 'webhook',
+  url = 'http://10.0.0.1:4242/log',
+  log_parameters = {
+    headers = { 'Subject', 'X-Customer-ID' },
+  },
+}
+
+-- Configure queue management settings. These are not throttles, but instead
+-- control how messages flow through the queues.
+-- WARNING: BECAUSE THE QUEUE HELPER CREATES DEFAULT QUEUES, IT SHOULD COME LAST IN SETUP
+-- WARNING: THIS WILL NOT LOAD WITHOUT the queues.toml FILE IN PLACE
+-- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
+local queue_helper =
+  queue_module:setup { '/opt/kumomta/etc/policy/queues.toml' }
+
+-- END SETUP
+
+--START EVENT HANDLERS
+
+-- Called On Startup, handles initial configuration
 kumo.on('init', function()
   -- Define the default "data" spool location; this is where
   -- message bodies will be stored.
@@ -56,7 +98,6 @@ kumo.on('init', function()
 
   -- Define the default "meta" spool location; this is where
   -- message envelope and metadata will be stored.
-
   kumo.define_spool {
     name = 'meta',
     path = '/var/spool/kumomta/meta',
@@ -69,7 +110,6 @@ kumo.on('init', function()
   -- Configure logging to local disk. Separating spool and logs to separate
   -- disks helps reduce IO load and can help performance.
   -- See https://docs.kumomta.com/userguide/configuration/logging/
-
   kumo.configure_local_logs {
     log_dir = '/var/log/kumomta',
     max_segment_duration = '1 minute',
@@ -78,7 +118,6 @@ kumo.on('init', function()
 
   -- Configure bounce classification.
   -- See https://docs.kumomta.com/userguide/configuration/bounce/
-
   kumo.configure_bounce_classifier {
     files = {
       '/opt/kumomta/share/bounce_classifier/iana.toml',
@@ -87,7 +126,6 @@ kumo.on('init', function()
 
   -- Configure HTTP Listeners for injection and management APIs.
   -- See https://docs.kumomta.com/userguide/configuration/httplisteners/
-
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
     -- allowed to access any http endpoint without additional auth
@@ -103,7 +141,6 @@ kumo.on('init', function()
   -- Define an SMTP listener. Can be used multiple times with different
   -- parameters to define multiple listeners!
   -- See https://docs.kumomta.com/userguide/configuration/smtplisteners/
-
   kumo.start_esmtp_listener {
     listen = '0.0.0.0:25',
     hostname = 'mail.example.com',
@@ -124,16 +161,6 @@ kumo.on('init', function()
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
 end) -- END OF THE INIT EVENT
 
--- Send a JSON webhook to a local network host.
--- See https://docs.kumomta.com/userguide/operation/webhooks/
-log_hooks:new_json {
-  name = 'webhook',
-  url = 'http://10.0.0.1:4242/log',
-  log_parameters = {
-    headers = { 'Subject', 'X-Customer-ID' },
-  },
-}
-
 -- Configure listener domains for relay, oob bounces, and FBLs using the
 -- listener_domains.lua policy helper.
 -- WARNING: THIS WILL NOT LOAD WITHOUT THE listener_domains.toml FILE IN PLACE
@@ -143,40 +170,19 @@ kumo.on(
   listener_domains:setup { '/opt/kumomta/etc/listener_domains.toml' }
 )
 
--- Configure traffic shaping using the shaping.lua policy helper.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
-local get_shaping_config = shaping:setup()
-
--- Configure the sending IP addresses that will be used by KumoMTA to
--- connect to remote systems using the sources.lua policy helper.
--- Note that defining sources and pools does nothing without some form of
--- policy in effect to assign messages to the source pools you have defined.
--- WARNING: THIS WILL NOT LOAD WITHOUT THE source.toml FILE IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
-sources:setup { '/opt/kumomta/etc/sources.toml' }
-
--- Configure queue management settings. These are not throttles, but instead
--- control how messages flow through the queues.
--- WARNING: THIS WILL NOT LOAD WITHOUT the queues.toml FILE IN PLACE
--- See https://docs.kumomta.com/userguide/configuration/queuemanagement/
-local queue_helper =
-  queue_module:setup { '/opt/kumomta/etc/policy/queues.toml' }
-
--- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
--- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
--- See https://docs.kumomta.com/userguide/configuration/dkim/
-local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
-
+-- Processing of incoming messages via SMTP
 kumo.on('smtp_server_message_received', function(msg)
   queue_helper:apply(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)
 end)
 
+-- Processing of incoming messages via HTTP
 kumo.on('http_message_generated', function(msg)
   queue_helper:apply(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)
 end)
+
+-- END OF EVENT HANDLERS
 ```
