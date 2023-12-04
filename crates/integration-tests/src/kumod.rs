@@ -95,6 +95,8 @@ impl MailGenParams<'_> {
         message.set_to(recip);
         message.set_subject(self.subject.unwrap_or("Hello! This is a test"));
         message.text_plain(body);
+        message.prepend("X-Test1", "Test1");
+        message.prepend("X-Another", "Another");
         Ok(message.build()?.to_message_string())
     }
 }
@@ -408,6 +410,30 @@ impl KumoDaemon {
 
     pub fn maildir(&self) -> Maildir {
         Maildir::from(self.dir.path().join("maildir"))
+    }
+
+    pub fn check_for_x_and_y_headers_in_logs(&self) -> anyhow::Result<()> {
+        let dir = self.dir.path().join("logs");
+
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                let f = std::fs::File::open(entry.path())?;
+                let data = zstd::stream::decode_all(f)?;
+                let text = String::from_utf8(data)?;
+                eprintln!("{text}");
+
+                for line in text.lines() {
+                    let record: JsonLogRecord = serde_json::from_str(&line)?;
+                    if record.kind == RecordType::Reception {
+                        assert!(record.headers.contains_key("x-test1"));
+                        assert!(record.headers.contains_key("x-another"));
+                        assert!(!record.headers.contains_key("y-something"));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {

@@ -100,6 +100,11 @@ kumo.configure_local_logs {
 }
 ```
 
+{{since('dev', indent=True)}}
+    Header names can now use simple wildcard suffixes; if the last character
+    of the header name is `*` then it will match any string with that prefix.
+    For example `"X-*"` will match any header names that start with `"X-"`.
+
 ## log_dir
 
 Specifies the directory into which log file segments will be written.

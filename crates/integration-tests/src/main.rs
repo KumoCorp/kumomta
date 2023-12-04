@@ -481,6 +481,8 @@ AccountingStats {
         daemon.stop_both().await.context("stop_both")?;
         println!("Stopped!");
 
+        daemon.source.check_for_x_and_y_headers_in_logs()?;
+
         let delivery_summary = daemon.dump_logs().context("dump_logs")?;
         k9::snapshot!(
             delivery_summary,
@@ -515,6 +517,11 @@ AccountingStats {
 
         assert!(parsed.headers().get_first("Received").is_some());
         assert!(parsed.headers().get_first("X-KumoRef").is_some());
+
+        // These two headers are added to all MailGenParams generated mail
+        assert!(parsed.headers().get_first("X-Test1").is_some());
+        assert!(parsed.headers().get_first("X-Another").is_some());
+
         k9::snapshot!(
             parsed.headers().from().unwrap(),
             r#"

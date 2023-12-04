@@ -363,7 +363,11 @@ impl Logger {
                     .push(value.into());
             }
 
-            for name in &self.headers {
+            fn capture_header(
+                headers: &mut HashMap<String, Value>,
+                name: &str,
+                all_headers: &mut HashMap<String, Vec<Value>>,
+            ) {
                 match all_headers.remove(&name.to_ascii_lowercase()) {
                     Some(mut values) if values.len() == 1 => {
                         headers.insert(name.to_string(), values.remove(0));
@@ -372,6 +376,27 @@ impl Logger {
                         headers.insert(name.to_string(), Value::Array(values));
                     }
                     None => {}
+                }
+            }
+
+            for name in &self.headers {
+                if name.ends_with('*') {
+                    let pattern = name[..name.len() - 1].to_ascii_lowercase();
+                    let matching_names: Vec<String> = all_headers
+                        .keys()
+                        .filter_map(|candidate| {
+                            if candidate.to_ascii_lowercase().starts_with(&pattern) {
+                                Some(candidate.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    for name in matching_names {
+                        capture_header(&mut headers, &name, &mut all_headers);
+                    }
+                } else {
+                    capture_header(&mut headers, name, &mut all_headers);
                 }
             }
         }

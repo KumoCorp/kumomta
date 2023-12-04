@@ -93,6 +93,11 @@ impl<'a> HeaderMap<'a> {
         Self { headers }
     }
 
+    pub fn prepend<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
+        self.headers
+            .insert(0, Header::new_unstructured(name.to_string(), v));
+    }
+
     pub fn get_first(&'a self, name: &str) -> Option<&Header<'a>> {
         self.iter_named(name).next()
     }

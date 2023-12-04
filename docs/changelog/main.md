@@ -8,5 +8,8 @@
 * queue helper: Added `setup_with_options` method that allows skipping the registration of the
   `get_queue_config` event handler. This helps when building a more complex configuration
   policy, such as using the rollup helper. Thanks to @cai-n! #101
+* You may now use simple suffix based wildcards like `X-*` to match header
+  names to capture in log records. See
+  [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md). #74
 
 ## Fixes
