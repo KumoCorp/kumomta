@@ -355,25 +355,26 @@ impl Logger {
         if !self.headers.is_empty() {
             msg.load_data_if_needed().await.ok();
 
-            let mut all_headers: HashMap<String, Vec<Value>> = HashMap::new();
+            let mut all_headers: HashMap<String, (String, Vec<Value>)> = HashMap::new();
             for (name, value) in msg.get_all_headers().unwrap_or_else(|_| vec![]) {
                 all_headers
                     .entry(name.to_ascii_lowercase())
-                    .or_default()
+                    .or_insert_with(|| (name.to_string(), vec![]))
+                    .1
                     .push(value.into());
             }
 
             fn capture_header(
                 headers: &mut HashMap<String, Value>,
                 name: &str,
-                all_headers: &mut HashMap<String, Vec<Value>>,
+                all_headers: &mut HashMap<String, (String, Vec<Value>)>,
             ) {
                 match all_headers.remove(&name.to_ascii_lowercase()) {
-                    Some(mut values) if values.len() == 1 => {
-                        headers.insert(name.to_string(), values.remove(0));
+                    Some((orig_name, mut values)) if values.len() == 1 => {
+                        headers.insert(orig_name.to_string(), values.remove(0));
                     }
-                    Some(values) => {
-                        headers.insert(name.to_string(), Value::Array(values));
+                    Some((orig_name, values)) => {
+                        headers.insert(orig_name.to_string(), Value::Array(values));
                     }
                     None => {}
                 }

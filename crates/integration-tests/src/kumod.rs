@@ -426,8 +426,8 @@ impl KumoDaemon {
                 for line in text.lines() {
                     let record: JsonLogRecord = serde_json::from_str(&line)?;
                     if record.kind == RecordType::Reception {
-                        assert!(record.headers.contains_key("x-test1"));
-                        assert!(record.headers.contains_key("x-another"));
+                        assert!(record.headers.contains_key("X-Test1"));
+                        assert!(record.headers.contains_key("X-Another"));
                         assert!(!record.headers.contains_key("y-something"));
                     }
                 }

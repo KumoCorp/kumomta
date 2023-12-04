@@ -838,9 +838,9 @@ Ok(
 [
     {
         "Subject": String("Hello! This is a test"),
-        "x-another": String("Another"),
-        "x-kumoref": String("eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20ifQ=="),
-        "x-test1": String("Test1"),
+        "X-Another": String("Another"),
+        "X-KumoRef": String("eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20ifQ=="),
+        "X-Test1": String("Test1"),
     },
 ]
 "#
