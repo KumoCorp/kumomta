@@ -62,7 +62,7 @@ a local IP address or configured to use an alternative destination port
 traffic to the destination domain.
 
 ```lua
-kumo.on('init', function()
+kumo.on('get_egress_source', function()
   kumo.make_egress_source {
     name = 'ip-1',
     source_address = '10.0.0.1',

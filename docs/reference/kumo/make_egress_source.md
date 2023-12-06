@@ -15,9 +15,7 @@ A source must have at a minimum a *name*, which will be used in logging/reportin
 
 Required string.
 
-The name of the source. If you call `kumo.make_egress_source` multiple
-times with the same name, the most recently defined version of that name will replace
-any previously defined source with that name.
+The name of the source.
 
 ```lua
 kumo.on('get_egress_source', function(source_name)

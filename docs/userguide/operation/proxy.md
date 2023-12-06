@@ -24,7 +24,7 @@ Configuring an egress_source to use a SOCKS5 proxy server is done as part of the
 function call:
 
 ```lua
-kumo.on('init', function()
+kumo.on('get_egress_source', function()
   -- Make a source that will emit from 10.0.0.1, via a proxy server
   kumo.make_egress_source {
     name = 'ip-1',
@@ -63,7 +63,7 @@ Configuring an egress_source to use an HAProxy server is done as part of the `ma
 function call:
 
 ```lua
-kumo.on('init', function()
+kumo.on('get_egress_source', function()
   -- Make a source that will emit from 10.0.0.1, via a proxy server
   kumo.make_egress_source {
     name = 'ip-1',

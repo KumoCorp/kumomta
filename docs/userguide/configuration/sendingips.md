@@ -78,7 +78,7 @@ SMTP, it could also define a specific outbound port for sending through
 port-based NAT, or a specific configuration for sending over HTTP.
 
 An Egress Source is defined using the **`kumo.make_egress_source`** function,
-called during the init event. For more information, see the
+called during the **`kumo.get_egress_source`** event. For more information, see the
 [make_egress_source](../../reference/kumo/make_egress_source.md) chapter of the
 Reference Manual.
 
