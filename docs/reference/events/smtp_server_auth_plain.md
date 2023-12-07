@@ -16,12 +16,13 @@ The event handler receives the following parameters:
   purposes of validating who the client claims to be.  *authc* is paired
   with the *password* parameter.
 * *password* - the password which belongs to the claimed *authc*
-
-{{since('2023.08.22-4d895015', indent=True)}}
-    The *conn_meta* parameter represents the connection metadata and
+* *conn_meta* - represents the connection metadata and
     can be used to share state between the various SMTP listener
     event handlers. See [Connection Metadata](../connectionmeta.md)
     for more information.
+
+{{since('2023.08.22-4d895015', indent=True)}}
+    The *conn_metadata* parameter is new as of this release.
 
 Note that [PLAIN SASL](https://www.rfc-editor.org/rfc/rfc4616) allows for *authz*
 to be empty.  KumoMTA will assume the same value as *authc* in that case, so
@@ -41,7 +42,7 @@ using a lua table:
 
 ```lua
 -- Use this to lookup and confirm a user/password credential
-kumo.on('smtp_server_auth_plain', function(authz, authc, password)
+kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta)
   local password_database = {
     ['scott'] = 'tiger',
   }

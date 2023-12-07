@@ -17,3 +17,9 @@ kumo.start_esmtp_listener {
 Refer to the [start_esmtp_listener](https://docs.kumomta.com/reference/kumo/start_esmtp_listener/) chapter of the Reference Manual for detailed options.
 
 For most use cases, it will be necessary to configure listeners on a per-domain basis regarding inbound traffic. This includes designating which domains are allowed for inbound relay and bounce/feedback loop processing. See the [Configuring Inbound and Relay Domains](./domains.md) section of the User Guide for more information.
+
+## Securing Inbound SMTP Listeners with SMTP AUTH
+
+While the `relay_hosts` option is often sufficient when receiving mail from internal systems, those environments that receive messages from external hosts should considering implementing SMTP AUTH authentication using username/password.
+
+For more information, see the [Checking Inbound SMTP Authentication](../policy/auth.md) page.

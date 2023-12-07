@@ -137,6 +137,7 @@ This call returns the current set of shaping rules in the same format as shaping
 
 ## Debugging Tips
 If the tsa-deamon does not appear to be working, you can check to see if it is running with 'sudo systemctl status kumo-tsa-daemon' which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
+
 ```bash
 sudo systemctl stop kumo-tsa-daemon
 sudo systemctl start kumo-tsa-daemon

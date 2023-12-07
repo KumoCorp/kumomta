@@ -255,15 +255,16 @@ TOC = [
                 "Policy",
                 "userguide/policy/index.md",
                 children=[
+                    Page("Checking Inbound SMTP Authentication", "userguide/policy/inbound_auth.md"),
+                    Page(
+                        "Delivering Messages Using SMTP Auth",
+                        "userguide/operation/outbound_auth.md",
+                    ),
                     Page("Custom Destination Routing", "userguide/policy/routing.md"),
                     Page(
                         "Routing Messages via HTTP Request", "userguide/policy/http.md"
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
-                    Page(
-                        "Delivering Messages Using SMTP Auth",
-                        "userguide/operation/smtpauth.md",
-                    ),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",
