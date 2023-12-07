@@ -42,19 +42,20 @@ local log_hooks = require 'policy-extras.log_hooks'
 -- policy in effect to assign messages to the source pools you have defined.
 -- WARNING: THIS WILL NOT LOAD WITHOUT THE source.toml FILE IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/sendingips/
-sources:setup { '/opt/kumomta/etc/sources.toml' }
+sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 
 -- Configure DKIM signing. In this case we use the dkim_sign.lua policy helper.
 -- WARNING: THIS WILL NOT LOAD WITHOUT the dkim_data.toml FILE IN PLACE
 -- See https://docs.kumomta.com/userguide/configuration/dkim/
-local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/dkim_data.toml' }
+local dkim_signer = dkim_sign:setup { '/opt/kumomta/etc/policy/dkim_data.toml' }
 
 -- Configure traffic shaping using the shaping.lua policy helper.
+-- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
-local get_shaping_config = shaping:setup()
+-- local get_shaping_config = shaping:setup()
 
--- Load TSA shaper tools
+-- Load Traffic Shaping Automation Helper
 local shaping_config = '/opt/kumomta/etc/policy/shaping.toml'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
@@ -167,11 +168,15 @@ end) -- END OF THE INIT EVENT
 -- SEE https://docs.kumomta.com/userguide/configuration/smtplisteners/
 kumo.on(
   'get_listener_domain',
-  listener_domains:setup { '/opt/kumomta/etc/listener_domains.toml' }
+  listener_domains:setup { '/opt/kumomta/etc/policy/listener_domains.toml' }
 )
+
+-- Call the Traffic Shaping Automation Helper to configure shaping rules.
+kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 -- Processing of incoming messages via SMTP
 kumo.on('smtp_server_message_received', function(msg)
+  -- Call the queue helper to set up the queue for the message.
   queue_helper:apply(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)
@@ -179,6 +184,7 @@ end)
 
 -- Processing of incoming messages via HTTP
 kumo.on('http_message_generated', function(msg)
+  -- Call the queue helper to set up the queue for the message.
   queue_helper:apply(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
   dkim_signer(msg)

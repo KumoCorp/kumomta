@@ -52,10 +52,13 @@ kumo.on('tsa_load_shaping_data', function()
 end)
 ```
 
-!!!note
+!!!warning
     Do not edit the `/opt/kumomta/share/policy-extras/shaping.toml` as it is overwritten when upgrading KumoMTA. Instead, create the `/opt/kumomta/etc/policy/shaping.toml` file as listed above and populate it with your own override rules.
 
 ## Changes to the `init.lua` File
+
+!!!note
+    It's easiest to reference the [Example Config](./example.md) to see how the complete configuration looks.
 
 The server's `init.lua` file will require modifications to enable it to be used with TSA.
 
@@ -87,16 +90,6 @@ Finally, the following must be added outside the init event to enable the TSA ma
 ```lua
 -- Attach various hooks to the shaper
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
-kumo.on('should_enqueue_log_record', shaper.should_enqueue_log_record)
-kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
-  local cfg = shaper.get_queue_config(domain, tenant, campaign)
-  if cfg then
-    return cfg
-  end
-
-  -- Do your normal queue config handling here
-  return kumo.make_queue_config {}
-end)
 ```
 
 ## Changes to the `shaping.toml` File
@@ -150,7 +143,3 @@ sudo systemctl start kumo-tsa-daemon
 ```
 
 Data for the TSA daemon is just like any other message in KumoMTA and will follow the same retry rules. The default is to retry in 20 minutes with exponential fallback.  If desired, this (or any other) scheduled queue can be customized with the [get_queue_config](https://docs.kumomta.com/reference/events/get_queue_config/) hook.
-
-
-
-
