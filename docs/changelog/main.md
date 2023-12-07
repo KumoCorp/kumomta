@@ -13,3 +13,5 @@
   [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md). #74
 
 ## Fixes
+
+* MTA-STS policy may fail to match due to trailing periods in mx host names

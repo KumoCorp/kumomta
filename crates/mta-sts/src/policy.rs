@@ -96,10 +96,14 @@ impl MtaStsPolicy {
 }
 
 fn name_match(name: &str, pattern: &str) -> bool {
+    // kumo uses canonicalized names that include a trailing period.
+    // remove that from the name when matching against a pattern.
+    let name = name.trim_end_matches('.');
+
     if pattern.starts_with("*.") {
         let suffix = &pattern[1..];
         if let Some(lhs) = name.strip_suffix(suffix) {
-            // Wildcaards only match the first component
+            // Wildcards only match the first component
             return lhs.find('.').is_none();
         }
         false
@@ -199,6 +203,7 @@ MtaStsPolicy {
     #[test]
     fn name_matching() {
         assert!(name_match("foo.com", "foo.com"));
+        assert!(name_match("foo.com.", "foo.com"));
         assert!(!name_match("bar.com", "foo.com"));
         assert!(name_match("foo.com", "*.com"));
         assert!(name_match("mx.example.com", "*.example.com"));
