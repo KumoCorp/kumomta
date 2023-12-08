@@ -89,6 +89,14 @@ LABEL org.opencontainers.image.licenses="Apache"
         ] + commands
         dockerfile += "RUN " + " && ".join(commands) + "\n"
 
+    if "amazonlinux" in container:
+        commands = [
+            "yum install -y git rpm-sign gnupg2",
+            # Some systems have curl-minimal which won't tolerate us installing curl
+            "command -v curl || yum install -y curl",
+        ] + commands
+        dockerfile += "RUN " + " && ".join(commands) + "\n"
+
     print(dockerfile)
 
     tag = f"{REGISTRY}/kumocorp/builder-for-{container}"
