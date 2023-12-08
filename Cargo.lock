@@ -5530,6 +5530,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid",
+ "which",
 ]
 
 [[package]]

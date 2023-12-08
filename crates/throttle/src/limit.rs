@@ -342,6 +342,9 @@ mod test {
 
     #[tokio::test]
     async fn test_redis() {
+        if which::which("redis-server").is_err() {
+            return;
+        }
         let redis = RedisServer::spawn().await.unwrap();
         let conn = redis.connection().await.unwrap();
 
@@ -406,6 +409,9 @@ mod test {
 
     #[tokio::test]
     async fn test_redis_extension() {
+        if which::which("redis-server").is_err() {
+            return;
+        }
         let redis = RedisServer::spawn().await.unwrap();
         let conn = redis.connection().await.unwrap();
 
