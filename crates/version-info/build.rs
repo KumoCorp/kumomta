@@ -3,7 +3,8 @@ fn main() {
 
     // If a file named `.tag` is present, we'll take its contents for the
     // version number that we report in kumod -V.
-    let mut ci_tag = String::new();
+    let mut ci_tag = "UNKNOWN-missing-.git-and-.tag-during-build".to_string();
+
     if let Ok(tag) = std::fs::read("../../.tag") {
         if let Ok(s) = String::from_utf8(tag) {
             ci_tag = s.trim().to_string();
