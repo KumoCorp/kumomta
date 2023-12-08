@@ -91,8 +91,12 @@ LABEL org.opencontainers.image.licenses="Apache"
         dockerfile += "RUN " + " && ".join(commands) + "\n"
 
     if "amazonlinux" in container:
+        if container == "amazonlinux:2":
+            gpg = "yum install -y gnupg2"
+        else:
+            gpg = "yum install -y gnupg2 --allowerasing"
         commands = [
-            "command -v gpg || yum install -y gnupg2",
+            gpg,
             "yum install -y git rpm-sign",
             # Some systems have curl-minimal which won't tolerate us installing curl
             "command -v curl || yum install -y curl",
