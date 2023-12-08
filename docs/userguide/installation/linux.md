@@ -59,6 +59,13 @@ The install instructions for supported platforms are shown below. If your platfo
         so if you want a pre-built binary you could consider
         installing a `-dev` build, see instructions below
 
+=== "Amazon Linux 2023"
+
+    !!! note
+        There are no stable versions available for this platform,
+        so if you want a pre-built binary you could consider
+        installing a `-dev` build, see instructions below
+
 ## Installing from a Dev Repository
 
 If you want to test the latest additions and improvements to KumoMTA, you can instead install from the dev repository on your platform of choice. The dev repository is rebuilt after each commit to the KumoMTA repository, which means the dev repository will always include the latest changes.
@@ -120,6 +127,16 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
         https://openrepo.kumomta.com/files/kumomta-amazon.repo
     $ sudo yum install kumomta-dev
     ```
+
+=== "Amazon Linux 2023"
+
+    ```console
+    $ sudo dnf -y install dnf-plugins-core
+    $ sudo dnf config-manager --add-repo \
+        https://openrepo.kumomta.com/files/kumomta-amazon2023.repo
+    $ sudo yum install kumomta-dev
+    ```
+
 
 ## The Initial Config File
 

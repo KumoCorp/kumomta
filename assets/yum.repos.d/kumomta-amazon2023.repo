@@ -1,0 +1,14 @@
+[kumomta-dev]
+name=KumoMTA Dev
+baseurl=https://openrepo.kumomta.com/kumomta-amazonlinux-2023
+enabled=1
+repo_gpgcheck=1
+gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-2023/public.gpg
+
+#[kumomta-stable]
+#name=KumoMTA Stable
+#baseurl=https://openrepo.kumomta.com/kumomta-amazonlinux-2023-stable
+#enabled=1
+#repo_gpgcheck=1
+#gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-2023-stable/public.gpg
+

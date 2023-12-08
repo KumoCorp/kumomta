@@ -11,3 +11,4 @@ gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever/public.gpg
 #enabled=1
 #repo_gpgcheck=1
 #gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever-stable/public.gpg
+
