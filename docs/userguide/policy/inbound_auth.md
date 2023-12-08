@@ -60,10 +60,11 @@ A more secure option for storing authentication credentials for checking is Hash
 
 ```lua
 function vault_auth_check(user, password)
-  return password == kumo.secrets.load {
+  return password
+    == kumo.secrets.load {
       vault_mount = 'secret',
       vault_path = 'smtp-auth/' .. user,
-    },
+    }
 end
 
 kumo.on('smtp_server_auth_plain', function(authz, authc, password)
@@ -79,7 +80,7 @@ One example of this is using headers for identifying which tenant a message is a
 
 To prevent this, you can use the `require_authz` option in the helper:
 
-```lua
+```toml
 [tenant.'mytenant']
 # Which pool should be used for this tenant
 egress_pool = 'pool-1'

@@ -255,7 +255,10 @@ TOC = [
                 "Policy",
                 "userguide/policy/index.md",
                 children=[
-                    Page("Checking Inbound SMTP Authentication", "userguide/policy/inbound_auth.md"),
+                    Page(
+                        "Checking Inbound SMTP Authentication",
+                        "userguide/policy/inbound_auth.md",
+                    ),
                     Page(
                         "Delivering Messages Using SMTP Auth",
                         "userguide/operation/outbound_auth.md",
