@@ -83,7 +83,7 @@ steps:
   verify-installable:
     image: ${AMAZON_IMAGE}
     commands:
-      - dnf install -y ./kumomta*.rpm
+      - yum install -y ./kumomta*.rpm
 
   publish_rpm:
     image: ${BUILDER_IMAGE}
