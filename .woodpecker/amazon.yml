@@ -4,6 +4,9 @@ matrix:
     - AMAZON_VERSION: 2
       AMAZON_IMAGE: amazonlinux:2
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2
+    - AMAZON_VERSION: 2023
+      AMAZON_IMAGE: amazonlinux:2023
+      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2023
 
 #when:
 # path:
@@ -53,7 +56,7 @@ steps:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
-      # These are needed because amazonlinux has both `openssl-devel`
+      # These are needed because amazonlinux:2 has both `openssl-devel`
       # and `openssl11-devel` and the latter, newer version, isn't
       # automatically found by the rust openssl-sys build machinery
       OPENSSL_LIB_DIR: /usr/lib64

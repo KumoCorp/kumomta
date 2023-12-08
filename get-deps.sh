@@ -83,6 +83,18 @@ amazon_deps() {
     # don't have it already
     $YUM install -y 'curl'
   fi
+
+  # Amazon Linux 2 has some legacy openssl stuff to workaround
+  case $VERSION in
+    2)
+      $YUM remove 'openssl' || true
+      $YUM install -y 'openssl11-devel'
+      ;;
+    *)
+      $YUM install -y 'openssl-devel'
+      ;;
+  esac
+
   $YUM install -y \
     'binutils' \
     'ca-certificates' \
@@ -95,7 +107,6 @@ amazon_deps() {
     'kernel-devel' \
     'kernel-headers' \
     'make' \
-    'openssl11-devel' \
     'pkgconfig' \
     'python3' \
     'python3-pip' \

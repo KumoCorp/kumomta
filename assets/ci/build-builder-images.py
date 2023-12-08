@@ -16,6 +16,7 @@ IMAGES = [
     "rockylinux:8",
     "rockylinux:9",
     "amazonlinux:2",
+    "amazonlinux:2023",
 ]
 
 for container in IMAGES:
@@ -91,7 +92,8 @@ LABEL org.opencontainers.image.licenses="Apache"
 
     if "amazonlinux" in container:
         commands = [
-            "yum install -y git rpm-sign gnupg2",
+            "command -v gpg || yum install -y gnupg2",
+            "yum install -y git rpm-sign",
             # Some systems have curl-minimal which won't tolerate us installing curl
             "command -v curl || yum install -y curl",
         ] + commands
