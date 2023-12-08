@@ -17,6 +17,7 @@ The install instructions for supported platforms are shown below. If your platfo
         We recommend upgrading to a newer OS as soon as possible.
 
     ```console
+    $ sudo yum install -y yum-utils
     $ sudo yum-config-manager --add-repo=\
         https://openrepo.kumomta.com/files/kumomta-centos.repo
     $ sudo yum install kumomta
@@ -69,6 +70,7 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
         We recommend upgrading to a newer OS as soon as possible.
 
     ```console
+    $ sudo yum install -y yum-utils
     $ sudo yum-config-manager --add-repo=\
         https://openrepo.kumomta.com/files/kumomta-centos.repo
     $ sudo yum install kumomta-dev

@@ -96,7 +96,7 @@ amazon_deps() {
     'kernel-headers' \
     'make' \
     'openssl11-devel' \
-    'pkg-config' \
+    'pkgconfig' \
     'python3' \
     'python3-pip' \
     'rpm-build' \
