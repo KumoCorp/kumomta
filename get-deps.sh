@@ -77,9 +77,6 @@ amazon_deps() {
     echo "No idea what package manager to use, sorry! (perhaps 'dnf' or 'yum' is not in \$PATH?)"
     return 1
   fi
-  # perl stuff moved around in different versions of the distro.
-  # Make a soft attempt under this name.
-  $YUM install -y 'perl-FindBin' 'perl-File-Compare' || true
   if ! have_command 'curl' ; then
     # Some systems have curl-minimal which won't tolerate us
     # trying to install curl, so only try to install if we
@@ -98,7 +95,7 @@ amazon_deps() {
     'kernel-devel' \
     'kernel-headers' \
     'make' \
-    'openssl-devel' \
+    'openssl11-devel' \
     'pkg-config' \
     'python3' \
     'python3-pip' \

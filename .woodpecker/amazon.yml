@@ -53,6 +53,11 @@ steps:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
+      # These are needed because amazonlinux has both `openssl-devel`
+      # and `openssl11-devel` and the latter, newer version, isn't
+      # automatically found by the rust openssl-sys build machinery
+      OPENSSL_LIB_DIR: /usr/lib64
+      OPENSSL_INCLUDE_DIR: /usr/include
     image: ${BUILDER_IMAGE}
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
