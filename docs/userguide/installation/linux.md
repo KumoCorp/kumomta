@@ -52,6 +52,13 @@ The install instructions for supported platforms are shown below. If your platfo
     $ sudo apt install -y kumomta
     ```
 
+=== "Amazon Linux 2"
+
+    !!! note
+        There are no stable versions available for this platform,
+        so if you want a pre-built binary you could consider
+        installing a `-dev` build, see instructions below
+
 ## Installing from a Dev Repository
 
 If you want to test the latest additions and improvements to KumoMTA, you can instead install from the dev repository on your platform of choice. The dev repository is rebuilt after each commit to the KumoMTA repository, which means the dev repository will always include the latest changes.
@@ -103,6 +110,15 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
     $ sudo apt update
     $ sudo apt install -y kumomta-dev
+    ```
+
+=== "Amazon Linux 2"
+
+    ```console
+    $ sudo yum install -y yum-utils
+    $ sudo yum-config-manager --add-repo=\
+        https://openrepo.kumomta.com/files/kumomta-amazon.repo
+    $ sudo yum install kumomta-dev
     ```
 
 ## The Initial Config File
