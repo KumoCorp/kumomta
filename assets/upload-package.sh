@@ -13,6 +13,7 @@ case "$REPO" in
   "rockylinux:9") REPO="kumomta-rockylinux-9" ;;
   "centos:7") REPO="kumomta-centos-7" ;;
   "mcr.microsoft.com/cbl-mariner/base/core:2.0") REPO="kumomta-mariner-2" ;;
+  "amazonlinux:2") REPO="kumomta-amazonlinux-2" ;;
 esac
 
 [[ "${REF_TYPE}" == "tag" || "${CI_PIPELINE_EVENT}" == "tag" ]] && REPO="${REPO}-stable"

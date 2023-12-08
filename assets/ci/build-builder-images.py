@@ -15,6 +15,7 @@ IMAGES = [
     "ubuntu:22.04",
     "rockylinux:8",
     "rockylinux:9",
+    "amazonlinux:2",
 ]
 
 for container in IMAGES:
