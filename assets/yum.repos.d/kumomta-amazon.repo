@@ -5,9 +5,9 @@ enabled=1
 repo_gpgcheck=1
 gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever/public.gpg
 
-[kumomta-stable]
-name=KumoMTA Stable
-baseurl=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever-stable
-enabled=1
-repo_gpgcheck=1
-gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever-stable/public.gpg
+#[kumomta-stable]
+#name=KumoMTA Stable
+#baseurl=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever-stable
+#enabled=1
+#repo_gpgcheck=1
+#gpgkey=https://openrepo.kumomta.com/kumomta-amazonlinux-$releasever-stable/public.gpg
