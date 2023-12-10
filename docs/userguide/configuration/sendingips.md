@@ -8,7 +8,7 @@ sending volumes than would be possible on a single IP address.
 
 ## Using the sources.lua Policy Helper
 
-While the process for creating Egress Sources and Pools are defined below, most
+While the process for creating Egress Sources and Pools is defined below, most
 users will want to take advantage of the `sources.lua` policy helper. This is a
 supplemental script that takes care of the creation logic by leveraging a TOML
 configuration file you define.
@@ -39,17 +39,17 @@ source_address = "10.0.0.3"
 ehlo_domain = 'mta3.examplecorp.com'
 
 # Pool containing just ip-1, which has weight=1
-[pool."BestReputation"]
-[pool."BestReputation"."ip-1"]
+[pool."pool-1"]
+[pool."pool-1"."ip-1"]
 
 # Pool with multiple ips
-[pool."MediumReputation"]
+[pool."pool-2"]
 
-[pool."MediumReputation"."ip-2"]
+[pool."pool-2"."ip-2"]
 weight = 2
 
 # We're warming up ip-3, so use it less frequently than ip-2
-[pool."MediumReputation"."ip-3"]
+[pool."pool-2"."ip-3"]
 weight = 1
 ```
 
@@ -65,7 +65,7 @@ This logic occurs in the events related to queue management, see the [Queue
 Management](./queuemanagement.md#configuring-egress-pool-assignment) chapter
 for more information.
 
-## Making an Egress Source without the helper
+## Provisioning Egress Sources Using Lua
 
 !!!note
     Most users will be satisfied with using the policy helper shown above.
@@ -136,7 +136,7 @@ kumo.on('get_egress_source', function(source_name)
 end)
 ```
 
-## Making an Egress Pool without the helper
+## Provisioning Egress Pools Using Lua
 
 !!!note
     Most users will be satisfied with using the policy helper shown above.

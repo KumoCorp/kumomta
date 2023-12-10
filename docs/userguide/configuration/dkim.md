@@ -23,13 +23,19 @@ title: DKIM Process flow
 ---
 graph TD
     SMTA["Sending MTA"]
+    SIGN["Sign Message Using Private Key"]
+    VALIDATE["Validate Signature using Public Key"]
     RMTA["Receiving MTA"]
     MBOX["User Mailbox"]
+    SPAM["Spam Folder"]
     DNS
-    SMTA -- 2. Send to recipient MTA --> RMTA
-    RMTA -- 4. Deliver to mailbox --> MBOX
+    SMTA --> SIGN
+    SIGN --> RMTA
+    RMTA --> VALIDATE
     SMTA -- 1. Publish Public Key --> DNS
     RMTA -- 3. Get Sender's Public Key --> DNS
+    VALIDATE -- Valid Signature --> MBOX
+    VALIDATE -- Invalid Signature --> SPAM
 
    style SMTA fill:orange,color:black
    style RMTA fill:skyblue,color:black
@@ -187,13 +193,20 @@ additional_signatures = ["MyESPName"]
 selector = "dkim1024"
 
 # The default set of headers to sign if otherwise unspecified
-headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
+# This reccommended set comes from section 5.4.1 of RFC 6376
+headers = [
+  "From", "Reply-To", "Subject", "Date", "To", "Cc",
+  "Resent-Date", "Resent-From", "Resent-To", "Resent-Cc",
+  "In-Reply-To", "References", "List-Id", "List-Help",
+  "List-Unsubscribe", "List-Subscribe", "List-Post",
+  "List-Owner", "List-Archive"
+  ]
 
 # Domain blocks match based on the sender domain of the
 # incoming message
 [domain."example.com"]
 selector = 'dkim1024'
-headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
+headers = ["From", "To", "Subject", "Date", "Sender"]
 algo = "sha256" # or "ed25519". Omit to use the default of "sha256"
 
 # optional overridden filename.
@@ -219,7 +232,7 @@ policy = "Always" # Always add this signature
 domain = "myesp.com"
 ```
 
-## Implementing DKIM Signing
+## Implementing DKIM Signing using Lua
 
 Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.
 This is done with Lua in policy.  The sample `init.lua` policy provided with

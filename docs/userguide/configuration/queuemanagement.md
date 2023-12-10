@@ -29,21 +29,23 @@ as follows:
 # https://docs.kumomta.com/reference/message/import_scheduling_header
 scheduling_header = "X-Schedule"
 
-# Set the tenant from this header
+# Set the tenant from this header and delete the header for added security
 tenant_header = "X-Tenant"
+remove_tenant_header = true
 
-# Set the campaign from this header
+# Set the campaign from this header and delete the header for added security
 campaign_header = "X-Campaign"
+remove_campaign_header = true
 
 # The tenant to use if no tenant_header is present
 default_tenant = "default-tenant"
 
 [tenant.'default-tenant']
-egress_pool = 'pool-0'
+egress_pool = 'pool-1'
 
 [tenant.'mytenant']
 # Which pool should be used for this tenant
-egress_pool = 'pool-1'
+egress_pool = 'pool-2'
 # Override maximum message age based on tenant; this overrides settings at the domain level
 max_age = '10 hours'
 
@@ -68,7 +70,7 @@ retry_interval = '17 mins'
 # options here for domain=gmail.com, tenant=mytenant, and campaign='welcome-campaign'
 ```
 
-## Configuring Message Life and Retry Times
+## Configuring Message Life and Retry Times Using Lua
 
 There is no throttling configured at the Scheduled Queue level, instead, the
 Scheduled Queue is where messages are evaluated when retries are needed,
@@ -117,7 +119,7 @@ storing and managing the parameters of the
 [kumo.make_queue_config](../../reference/kumo/make_queue_config.md) function,
 but users are free to store and combine parameters as they see fit.
 
-## Configuring Egress Pool Assignment
+## Configuring Egress Pool Assignment Using Lua
 
 It's not enough to configure an Egress Pool, the server must also have
 assignment logic to determine which Egress pool should be used for a given
