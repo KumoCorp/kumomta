@@ -33,7 +33,7 @@ graph TD
     SIGN --> RMTA
     RMTA --> VALIDATE
     SMTA -- 1. Publish Public Key --> DNS
-    RMTA -- 3. Get Sender's Public Key --> DNS
+    DNS -- 3. Get Sender's Public Key --> RMTA
     VALIDATE -- Valid Signature --> MBOX
     VALIDATE -- Invalid Signature --> SPAM
 
@@ -194,6 +194,7 @@ selector = "dkim1024"
 
 # The default set of headers to sign if otherwise unspecified
 # This reccommended set comes from section 5.4.1 of RFC 6376
+# See https://datatracker.ietf.org/doc/html/rfc6376#section-5.4
 headers = [
   "From", "Reply-To", "Subject", "Date", "To", "Cc",
   "Resent-Date", "Resent-From", "Resent-To", "Resent-Cc",
