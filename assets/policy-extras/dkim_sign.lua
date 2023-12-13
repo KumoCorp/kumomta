@@ -157,7 +157,14 @@ local function make_signer(params, algo)
 end
 
 local function do_dkim_sign(msg, data)
-  local sender_domain = msg:from_header().domain
+  local from_header = msg:from_header()
+  if not from_header then
+    kumo.reject(
+      552,
+      '5.6.0 DKIM signing requires a From header, but it is missing from this message'
+    )
+  end
+  local sender_domain = from_header.domain
 
   local signed_domain = false
   local domain_config = data.domain[sender_domain]

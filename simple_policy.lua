@@ -127,6 +127,14 @@ end)
 -- Called once the body has been received.
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
+  local from_header = msg:from_header()
+  if not from_header then
+    kumo.reject(
+      552,
+      '5.6.0 DKIM signing requires a From header, but it is missing from this message'
+    )
+  end
+
   local verify = msg:dkim_verify()
   print('dkim', kumo.json_encode_pretty(verify))
   msg:add_authentication_results(msg:get_meta 'hostname', verify)
