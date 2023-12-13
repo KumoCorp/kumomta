@@ -15,3 +15,6 @@
 ## Fixes
 
 * MTA-STS policy may fail to match due to trailing periods in mx host names
+* Assigning `nil` via `msg:set_meta` would return a userdata wrapper around the
+  underlying json `null` value when `msg:get_meta` was called for that key.  We
+  now map that as `nil`.

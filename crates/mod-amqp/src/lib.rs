@@ -107,7 +107,7 @@ impl LuaUserData for Confirm {
                 reply_text,
             };
 
-            let result = lua.to_value(&confirmation)?;
+            let result = lua.to_value_with(&confirmation, config::serialize_options())?;
 
             Ok(result)
         })

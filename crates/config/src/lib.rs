@@ -569,3 +569,9 @@ pub fn does_callback_allow_multiple(name: &str) -> bool {
 pub fn decorate_callback_name(name: &str) -> String {
     format!("kumomta-on-{name}")
 }
+
+pub fn serialize_options() -> mlua::SerializeOptions {
+    mlua::SerializeOptions::new()
+        .serialize_none_to_null(false)
+        .serialize_unit_to_null(false)
+}

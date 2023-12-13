@@ -4,7 +4,7 @@ use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use config::{any_err, from_lua_value};
+use config::{any_err, from_lua_value, serialize_options};
 use dns_resolver::resolver::Resolver;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -902,7 +902,7 @@ impl UserData for Message {
         );
         methods.add_method("get_meta", move |lua, this, name: String| {
             let value = this.get_meta(name).map_err(any_err)?;
-            Ok(Some(lua.to_value(&value)?))
+            Ok(Some(lua.to_value_with(&value, serialize_options())?))
         });
         methods.add_method("get_data", move |lua, this, _: ()| {
             let data = this.get_data();
@@ -961,7 +961,7 @@ impl UserData for Message {
 
         methods.add_async_method("dkim_verify", |lua, this, ()| async move {
             let results = this.dkim_verify().await.map_err(any_err)?;
-            lua.to_value(&results)
+            lua.to_value_with(&results, serialize_options())
         });
 
         methods.add_method(
@@ -1052,7 +1052,7 @@ impl UserData for Message {
         methods.add_method("parse_rfc3464", move |lua, this, _: ()| {
             let report = this.parse_rfc3464().map_err(any_err)?;
             match report {
-                Some(report) => lua.to_value(&report),
+                Some(report) => lua.to_value_with(&report, serialize_options()),
                 None => Ok(mlua::Value::Nil),
             }
         });
@@ -1060,7 +1060,7 @@ impl UserData for Message {
         methods.add_method("parse_rfc5965", move |lua, this, _: ()| {
             let report = this.parse_rfc5965().map_err(any_err)?;
             match report {
-                Some(report) => lua.to_value(&report),
+                Some(report) => lua.to_value_with(&report, serialize_options()),
                 None => Ok(mlua::Value::Nil),
             }
         });
@@ -1313,6 +1313,21 @@ QueueNameComponents {
                 "x_header": "value",
             })
         );
+    }
+
+    #[test]
+    fn meta_and_nil() {
+        let msg = new_msg_body(X_HDR_CONTENT);
+        // Ensure that json null round-trips
+        msg.set_meta("test", serde_json::Value::Null).unwrap();
+        k9::assert_equal!(msg.get_meta("test").unwrap(), serde_json::Value::Null);
+
+        // and that it is exposed to lua as nil
+        let lua = mlua::Lua::new();
+        lua.globals().set("msg", msg).unwrap();
+        lua.load("assert(msg:get_meta('test') == nil)")
+            .exec()
+            .unwrap();
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use anyhow::Context;
-use config::{any_err, decorate_callback_name, from_lua_value, get_or_create_module};
+use config::{
+    any_err, decorate_callback_name, from_lua_value, get_or_create_module, serialize_options,
+};
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 
@@ -144,7 +146,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let obj: toml::Value = toml::from_str(&data)
                 .with_context(|| format!("parsing {file_name} as toml"))
                 .map_err(any_err)?;
-            Ok(lua.to_value(&obj))
+            Ok(lua.to_value_with(&obj, serialize_options()))
         })?,
     )?;
 
@@ -154,7 +156,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let obj: toml::Value = toml::from_str(&toml)
                 .with_context(|| format!("parsing {toml} as toml"))
                 .map_err(any_err)?;
-            Ok(lua.to_value(&obj))
+            Ok(lua.to_value_with(&obj, serialize_options()))
         })?,
     )?;
 
@@ -183,7 +185,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let obj: serde_json::Value = serde_json::from_reader(stripped)
                 .with_context(|| format!("parsing {file_name} as json"))
                 .map_err(any_err)?;
-            Ok(lua.to_value(&obj))
+            Ok(lua.to_value_with(&obj, serialize_options()))
         })?,
     )?;
 
@@ -194,7 +196,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let obj: serde_json::Value = serde_json::from_reader(stripped)
                 .with_context(|| format!("parsing {text} as json"))
                 .map_err(any_err)?;
-            Ok(lua.to_value(&obj))
+            Ok(lua.to_value_with(&obj, serialize_options()))
         })?,
     )?;
 

@@ -7,7 +7,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
-use config::{any_err, load_config, CallbackSignature, LuaConfig};
+use config::{any_err, load_config, serialize_options, CallbackSignature, LuaConfig};
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
@@ -1562,7 +1562,7 @@ impl UserData for ConnectionMetaData {
 
         methods.add_method("get_meta", move |lua, this, name: String| {
             match this.get_meta(name) {
-                Some(value) => Ok(lua.to_value(&value)?),
+                Some(value) => Ok(lua.to_value_with(&value, serialize_options())?),
                 None => Ok(mlua::Value::Nil),
             }
         });

@@ -1,4 +1,4 @@
-use config::{any_err, from_lua_value, get_or_create_module};
+use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
 use mlua::{FromLua, Function, Lua, LuaSerdeExt, MultiValue, ToLua, UserData, UserDataMethods};
 use once_cell::sync::Lazy;
@@ -125,7 +125,7 @@ impl<'lua> ToLua<'lua> for CacheValue {
 impl CacheValue {
     pub fn as_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
         match self {
-            Self::Json(j) => lua.to_value(j),
+            Self::Json(j) => lua.to_value_with(j, serialize_options()),
             Self::Memoized(m) => (m.to_value)(lua),
             Self::Table(m) => {
                 let result = lua.create_table()?;

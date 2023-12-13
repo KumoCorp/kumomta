@@ -159,7 +159,9 @@ impl UserData for Conn {
                     .map_err(any_err)?
                     .map_err(any_err)?;
 
-                let result: Value = lua.to_value(&result).map_err(any_err)?;
+                let result: Value = lua
+                    .to_value_with(&result, config::serialize_options())
+                    .map_err(any_err)?;
                 Ok(result)
             },
         );

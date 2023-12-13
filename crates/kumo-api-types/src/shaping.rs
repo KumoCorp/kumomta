@@ -1,6 +1,6 @@
 use crate::egress_path::EgressPathConfig;
 use anyhow::Context;
-use config::any_err;
+use config::{any_err, serialize_options};
 use dns_resolver::{fully_qualify, MailExchanger};
 use kumo_log_types::JsonLogRecord;
 use mlua::prelude::LuaUserData;
@@ -486,7 +486,7 @@ impl LuaUserData for Shaping {
             "get_egress_path_config",
             move |lua, this, (domain, egress_source, site_name): (String, String, String)| {
                 let params = this.get_egress_path_config(&domain, &egress_source, &site_name);
-                lua.to_value(&params.params)
+                lua.to_value_with(&params.params, serialize_options())
             },
         );
         methods.add_method("get_warnings", move |_lua, this, ()| {
