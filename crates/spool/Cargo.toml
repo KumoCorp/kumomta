@@ -12,9 +12,9 @@ rocksdb = ["dep:rocksdb"]
 anyhow = "1.0"
 async-trait = "0.1"
 chrono = {version="0.4", default-features=false}
+duration-serde = {path="../duration-serde"}
 flume = "0.10"
 getrandom = "0.2"
-humantime-serde = "1.1"
 jwalk = "0.8"
 lazy_static = "1.4"
 libc = "0.2.139"

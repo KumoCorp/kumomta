@@ -56,7 +56,7 @@ pub struct EgressSource {
     /// a connection
     pub socks5_proxy_source_address: Option<IpAddr>,
 
-    #[serde(default = "default_ttl", with = "humantime_serde")]
+    #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
 }
 
@@ -229,7 +229,7 @@ pub struct EgressPool {
     /// and the sources the constitute this pool
     pub entries: Vec<EgressPoolEntry>,
 
-    #[serde(default = "default_ttl", with = "humantime_serde")]
+    #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
 }
 

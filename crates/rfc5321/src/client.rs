@@ -76,59 +76,59 @@ pub struct EsmtpCapability {
 pub struct SmtpClientTimeouts {
     #[serde(
         default = "SmtpClientTimeouts::default_connect_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub connect_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_ehlo_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub ehlo_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_mail_from_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub mail_from_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_rcpt_to_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub rcpt_to_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_data_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub data_timeout: Duration,
     #[serde(
         default = "SmtpClientTimeouts::default_data_dot_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub data_dot_timeout: Duration,
     #[serde(
         default = "SmtpClientTimeouts::default_rset_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub rset_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_idle_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub idle_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_starttls_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub starttls_timeout: Duration,
 
     #[serde(
         default = "SmtpClientTimeouts::default_auth_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub auth_timeout: Duration,
 }

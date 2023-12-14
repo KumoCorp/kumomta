@@ -77,18 +77,18 @@ pub struct QueueConfig {
     /// Base retry interval to use in exponential backoff
     #[serde(
         default = "QueueConfig::default_retry_interval",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub retry_interval: Duration,
 
     /// Optional cap on the computed retry interval.
     /// Set to the same number as retry_interval to
     /// prevent using exponential backoff
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, with = "duration_serde")]
     pub max_retry_interval: Option<Duration>,
 
     /// Limits how long a message can remain in the queue
-    #[serde(default = "QueueConfig::default_max_age", with = "humantime_serde")]
+    #[serde(default = "QueueConfig::default_max_age", with = "duration_serde")]
     pub max_age: Duration,
 
     /// Specifies which egress pool should be used when

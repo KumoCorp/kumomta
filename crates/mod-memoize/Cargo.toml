@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
-humantime-serde = "1.1"
+duration-serde = {path="../duration-serde"}
 lruttl = {path="../lruttl"}
 once_cell = "1.17"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

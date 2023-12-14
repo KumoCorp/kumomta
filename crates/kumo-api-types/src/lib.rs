@@ -45,7 +45,7 @@ pub struct BounceV1Request {
     /// will also be bounced.
     #[serde(
         default,
-        with = "humantime_serde",
+        with = "duration_serde",
         skip_serializing_if = "Option::is_none"
     )]
     #[schema(example = "20m")]
@@ -123,7 +123,7 @@ pub struct BounceV1ListEntry {
 
     /// The time remaining until this entry expires and is automatically
     /// removed.
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     pub duration: Duration,
 
     /// A map of queue name to number of bounced messages that
@@ -162,7 +162,7 @@ pub struct SuspendV1Request {
     /// Specifies how long this suspension remains active.
     #[serde(
         default,
-        with = "humantime_serde",
+        with = "duration_serde",
         skip_serializing_if = "Option::is_none"
     )]
     pub duration: Option<Duration>,
@@ -207,7 +207,7 @@ pub struct SuspendV1ListEntry {
     #[schema(example = "pause while working on resolving a deliverability issue")]
     pub reason: String,
 
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     /// Specifies how long this suspension remains active.
     pub duration: Duration,
 }
@@ -222,7 +222,7 @@ pub struct SuspendReadyQueueV1Request {
     /// Specifies how long this suspension remains active.
     #[serde(
         default,
-        with = "humantime_serde",
+        with = "duration_serde",
         skip_serializing_if = "Option::is_none"
     )]
     pub duration: Option<Duration>,
@@ -245,7 +245,7 @@ pub struct SuspendReadyQueueV1ListEntry {
     pub reason: String,
 
     /// how long until this suspension expires and is automatically removed
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     pub duration: Duration,
 }
 

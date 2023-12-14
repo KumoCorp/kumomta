@@ -1375,6 +1375,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "duration-serde"
+version = "0.1.0"
+dependencies = [
+ "humantime",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2070,16 +2079,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
-name = "humantime-serde"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57a3db5ea5923d99402c94e9feb261dc5ee9b4efa158b0315f788cf549cc200c"
-dependencies = [
- "humantime",
- "serde",
-]
-
-[[package]]
 name = "hyper"
 version = "0.14.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2422,8 +2421,8 @@ dependencies = [
  "config",
  "data-loader",
  "dns-resolver",
+ "duration-serde",
  "fancy-regex",
- "humantime-serde",
  "k9",
  "kumo-log-types",
  "mlua",
@@ -2605,11 +2604,11 @@ dependencies = [
  "config",
  "data-loader",
  "dns-resolver",
+ "duration-serde",
  "flume 0.10.14",
  "gcd",
  "gethostname",
  "humansize",
- "humantime-serde",
  "k9",
  "kumo-api-types",
  "kumo-log-types",
@@ -3306,7 +3305,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
- "humantime-serde",
+ "duration-serde",
  "mlua",
  "rdkafka",
  "serde",
@@ -3318,7 +3317,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
- "humantime-serde",
+ "duration-serde",
  "lruttl",
  "mlua",
  "once_cell",
@@ -4585,8 +4584,8 @@ name = "rfc5321"
 version = "0.1.0"
 dependencies = [
  "base64 0.13.1",
+ "duration-serde",
  "hickory-proto",
- "humantime-serde",
  "memchr",
  "once_cell",
  "openssl",
@@ -5192,9 +5191,9 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "duration-serde",
  "flume 0.10.14",
  "getrandom",
- "humantime-serde",
  "jwalk",
  "lazy_static",
  "libc",

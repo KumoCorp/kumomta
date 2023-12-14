@@ -55,7 +55,7 @@ impl UserData for Memoized {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MemoizeParams {
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     pub ttl: Duration,
     pub capacity: usize,
     pub name: String,

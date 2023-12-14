@@ -18,3 +18,8 @@
 * Assigning `nil` via `msg:set_meta` would return a userdata wrapper around the
   underlying json `null` value when `msg:get_meta` was called for that key.  We
   now map that as `nil`.
+* Various duration options (such as `idle_timeout`) once again accept bare
+  integer values to mean that number of seconds as stated in the docs.
+  Previously, you would have to use a string like `"10 seconds"`. Now you can
+  simply write `10`.  This regressed long long ago, but is now resolved. #108
+

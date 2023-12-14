@@ -199,7 +199,7 @@ pub struct Rule {
     #[serde(default)]
     pub trigger: Trigger,
 
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     pub duration: Duration,
 
     #[serde(skip)]

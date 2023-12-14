@@ -40,7 +40,7 @@ struct Record {
     /// but in kumomta we don't allow that; we can retry later without
     /// keeping the system occupied for an indefinite time.
     #[serde(default)]
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "duration_serde")]
     timeout: Option<Duration>,
 }
 

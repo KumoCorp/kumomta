@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
-humantime-serde = "1.1"
+duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rdkafka = "0.34"
 serde = {version="1.0", features=["derive"]}

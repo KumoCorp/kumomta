@@ -142,7 +142,7 @@ pub struct LogFileParams {
     #[serde(default = "LogFileParams::default_compression_level")]
     pub compression_level: i32,
 
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, with = "duration_serde")]
     pub max_segment_duration: Option<Duration>,
 
     /// List of meta fields to capture in the log

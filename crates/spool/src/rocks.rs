@@ -38,13 +38,13 @@ pub struct RocksSpoolParams {
     pub memtable_huge_page_size: Option<usize>,
 
     #[serde(
-        with = "humantime_serde",
+        with = "duration_serde",
         default = "RocksSpoolParams::default_log_file_time_to_roll"
     )]
     pub log_file_time_to_roll: Duration,
 
     #[serde(
-        with = "humantime_serde",
+        with = "duration_serde",
         default = "RocksSpoolParams::default_obsolete_files_period"
     )]
     pub obsolete_files_period: Duration,

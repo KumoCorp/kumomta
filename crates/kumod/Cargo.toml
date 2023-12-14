@@ -21,11 +21,11 @@ clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver"}
+duration-serde = {path="../duration-serde"}
 flume = "0.10"
 gcd = "2.3"
 gethostname = "0.4"
 humansize = "2.1" # for printing
-humantime-serde = "1.1"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}

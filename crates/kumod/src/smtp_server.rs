@@ -59,7 +59,7 @@ pub struct EsmtpDomain {
     #[serde(default)]
     pub relay_from: CidrSet,
 
-    #[serde(default = "default_ttl", with = "humantime_serde")]
+    #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
 }
 
@@ -141,7 +141,7 @@ pub struct EsmtpListenerParams {
 
     #[serde(
         default = "EsmtpListenerParams::default_client_timeout",
-        with = "humantime_serde"
+        with = "duration_serde"
     )]
     pub client_timeout: Duration,
 
