@@ -11,7 +11,7 @@ use std::str::FromStr;
 pub struct ARFReport {
     pub feedback_type: String,
     pub user_agent: String,
-    pub version: u32,
+    pub version: String,
 
     #[serde(default)]
     pub arrival_date: Option<DateTime<Utc>>,
@@ -124,8 +124,11 @@ impl ARFReport {
         let feedback_type = extract_single_req("feedback-type", &mut extensions)?;
         let user_agent = extract_single_req("user-agent", &mut extensions)?;
         let version = extract_single_req("version", &mut extensions)?;
-        let arrival_date =
-            extract_single_conv::<DateTimeRfc2822, DateTime<Utc>>("arrival-date", &mut extensions)?;
+        let arrival_date = extract_single_conv_fallback::<DateTimeRfc2822, DateTime<Utc>>(
+            "arrival-date",
+            "received-date",
+            &mut extensions,
+        )?;
         let incidents = extract_single("incidents", &mut extensions)?;
         let original_envelope_id = extract_single("original-envelope-id", &mut extensions)?;
         let original_mail_from = extract_single("original-mail-from", &mut extensions)?;
@@ -233,6 +236,24 @@ where
     Ok(extract_single::<R>(name, extensions)?.map(|v| v.into()))
 }
 
+pub(crate) fn extract_single_conv_fallback<R, T>(
+    name: &str,
+    fallback: &str,
+    extensions: &mut HashMap<String, Vec<String>>,
+) -> anyhow::Result<Option<T>>
+where
+    R: FromStr,
+    <R as FromStr>::Err: std::fmt::Display,
+    R: Into<T>,
+{
+    let maybe = extract_single::<R>(name, extensions)?;
+    let value = match maybe {
+        Some(value) => Some(value.into()),
+        None => extract_single::<R>(fallback, extensions)?.map(Into::into),
+    };
+    Ok(value)
+}
+
 pub(crate) fn extract_multiple<R>(
     name: &str,
     extensions: &mut HashMap<String, Vec<String>>,
@@ -270,7 +291,7 @@ Some(
     ARFReport {
         feedback_type: "abuse",
         user_agent: "SomeGenerator/1.0",
-        version: 1,
+        version: "1",
         arrival_date: None,
         incidents: None,
         original_envelope_id: None,
@@ -318,7 +339,7 @@ Some(
     ARFReport {
         feedback_type: "abuse",
         user_agent: "SomeGenerator/1.0",
-        version: 1,
+        version: "1",
         arrival_date: Some(
             2005-03-08T18:00:00Z,
         ),
@@ -378,6 +399,52 @@ Spam Spam Spam
                 "recipient": String("test@example.com"),
             },
         ),
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn rfc5965_3() {
+        let result = ARFReport::parse(include_bytes!("../data/rfc5965/3.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    ARFReport {
+        feedback_type: "abuse",
+        user_agent: "Yahoo!-Mail-Feedback/2.0",
+        version: "0.1",
+        arrival_date: Some(
+            2023-12-14T16:16:15Z,
+        ),
+        incidents: None,
+        original_envelope_id: None,
+        original_mail_from: Some(
+            "<test1@example.com>",
+        ),
+        reporting_mta: None,
+        source_ip: None,
+        authentication_results: [],
+        original_rcpto_to: [
+            "user@example.com",
+        ],
+        reported_domain: [
+            "bounce.kumo.example.com",
+        ],
+        reported_uri: [],
+        extensions: {},
+        original_message: Some(
+            "Date: Thu, 14 Dec 2023 16:16:14 +0000
+To: user@example.com
+Subject: test Thu, 14 Dec 2023 16:16:14 +0000
+
+This is a test mailing
+
+",
+        ),
+        supplemental_trace: None,
     },
 )
 "#

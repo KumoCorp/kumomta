@@ -22,4 +22,5 @@
   integer values to mean that number of seconds as stated in the docs.
   Previously, you would have to use a string like `"10 seconds"`. Now you can
   simply write `10`.  This regressed long long ago, but is now resolved. #108
-
+* ARF parser now accepts historic feedback reports using version `0.1` and
+  the deprecated `Received-Date` header.

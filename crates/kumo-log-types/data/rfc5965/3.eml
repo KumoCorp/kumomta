@@ -1,0 +1,37 @@
+Date: Thu, 14 Dec 2023 17:16:15 +0100
+Subject: FW:test Thu, 14 Dec 2023 16:16:14 +0000
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=feedback-report; 
+	boundary="----=_Part_5903806_123377560.1477885569558"
+
+------=_Part_5903806_123377560.1477885569558
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline
+
+This is an email abuse report for an email message from bounce.kumo.example.com on Thu, 14 Dec 2023 17:16:15 +0100
+
+------=_Part_5903806_123377560.1477885569558
+Content-Type: message/feedback-report
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline
+
+Feedback-Type: abuse
+User-Agent: Yahoo!-Mail-Feedback/2.0
+Version: 0.1
+Original-Mail-From: <test1@example.com>
+Original-Rcpt-To: user@example.com
+Received-Date: Thu, 14 Dec 2023 17:16:15 +0100
+Reported-Domain: bounce.kumo.example.com
+
+------=_Part_5903806_123377560.1477885569558
+Content-Type: message/rfc822
+Content-Disposition: inline
+
+Date: Thu, 14 Dec 2023 16:16:14 +0000
+To: user@example.com
+Subject: test Thu, 14 Dec 2023 16:16:14 +0000
+
+This is a test mailing
+
+------=_Part_5903806_123377560.1477885569558--
