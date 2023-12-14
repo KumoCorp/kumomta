@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use mailparsing::{Header, HeaderParseResult, MimePart};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -35,7 +35,7 @@ pub struct ARFReport {
     #[serde(default)]
     pub reported_uri: Vec<String>,
 
-    pub extensions: HashMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<String>>,
 
     pub original_message: Option<String>,
     pub supplemental_trace: Option<serde_json::Value>,
@@ -160,10 +160,10 @@ impl ARFReport {
     }
 }
 
-pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<HashMap<String, Vec<String>>> {
+pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Vec<String>>> {
     let HeaderParseResult { headers, .. } = Header::parse_headers(part)?;
 
-    let mut extensions = HashMap::new();
+    let mut extensions = BTreeMap::new();
 
     for hdr in headers.iter() {
         let name = hdr.get_name().to_ascii_lowercase();
@@ -193,7 +193,7 @@ impl Into<DateTime<Utc>> for DateTimeRfc2822 {
 
 pub(crate) fn extract_single_req<R>(
     name: &str,
-    extensions: &mut HashMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<String>>,
 ) -> anyhow::Result<R>
 where
     R: FromStr,
@@ -205,7 +205,7 @@ where
 
 pub(crate) fn extract_single<R>(
     name: &str,
-    extensions: &mut HashMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<String>>,
 ) -> anyhow::Result<Option<R>>
 where
     R: FromStr,
@@ -226,7 +226,7 @@ where
 
 pub(crate) fn extract_single_conv<R, T>(
     name: &str,
-    extensions: &mut HashMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<String>>,
 ) -> anyhow::Result<Option<T>>
 where
     R: FromStr,
@@ -239,7 +239,7 @@ where
 pub(crate) fn extract_single_conv_fallback<R, T>(
     name: &str,
     fallback: &str,
-    extensions: &mut HashMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<String>>,
 ) -> anyhow::Result<Option<T>>
 where
     R: FromStr,
@@ -256,7 +256,7 @@ where
 
 pub(crate) fn extract_multiple<R>(
     name: &str,
-    extensions: &mut HashMap<String, Vec<String>>,
+    extensions: &mut BTreeMap<String, Vec<String>>,
 ) -> anyhow::Result<Vec<R>>
 where
     R: FromStr,
@@ -488,11 +488,11 @@ Some(
             "abuse-type": [
                 "complaint",
             ],
-            "subscription-link": [
-                "https://fbl.returnpath.net/manage/subscriptions/xxxx",
-            ],
             "source": [
                 "Comcast",
+            ],
+            "subscription-link": [
+                "https://fbl.returnpath.net/manage/subscriptions/xxxx",
             ],
         },
         original_message: Some(

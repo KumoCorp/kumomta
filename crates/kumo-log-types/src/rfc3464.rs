@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use mailparsing::MimePart;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
@@ -147,7 +147,7 @@ pub struct PerRecipientReportEntry {
     pub last_attempt_date: Option<DateTime<Utc>>,
     pub final_log_id: Option<String>,
     pub will_retry_until: Option<DateTime<Utc>>,
-    pub extensions: HashMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<String>>,
 }
 
 impl PerRecipientReportEntry {
@@ -194,7 +194,7 @@ pub struct PerMessageReportEntry {
     pub dsn_gateway: Option<RemoteMta>,
     pub received_from_mta: Option<RemoteMta>,
     pub arrival_date: Option<DateTime<Utc>>,
-    pub extensions: HashMap<String, Vec<String>>,
+    pub extensions: BTreeMap<String, Vec<String>>,
 }
 
 impl PerMessageReportEntry {
