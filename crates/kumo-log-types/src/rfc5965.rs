@@ -426,7 +426,9 @@ Some(
         ),
         reporting_mta: None,
         source_ip: None,
-        authentication_results: [],
+        authentication_results: [
+            "authentication result string is not available",
+        ],
         original_rcpto_to: [
             "user@example.com",
         ],
@@ -435,6 +437,64 @@ Some(
         ],
         reported_uri: [],
         extensions: {},
+        original_message: Some(
+            "Date: Thu, 14 Dec 2023 16:16:14 +0000
+To: user@example.com
+Subject: test Thu, 14 Dec 2023 16:16:14 +0000
+
+This is a test mailing
+
+",
+        ),
+        supplemental_trace: None,
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn rfc5965_4() {
+        let result = ARFReport::parse(include_bytes!("../data/rfc5965/4.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    ARFReport {
+        feedback_type: "abuse",
+        user_agent: "ReturnPathFBL/2.0",
+        version: "1",
+        arrival_date: Some(
+            2023-12-13T19:03:30Z,
+        ),
+        incidents: None,
+        original_envelope_id: None,
+        original_mail_from: Some(
+            "foo@bounce.example.com",
+        ),
+        reporting_mta: None,
+        source_ip: Some(
+            "x.x.x.x",
+        ),
+        authentication_results: [],
+        original_rcpto_to: [
+            "cb4a01a48251d4765f489076aa81e2a4@comcast.net",
+        ],
+        reported_domain: [
+            "bounce.example.com",
+        ],
+        reported_uri: [],
+        extensions: {
+            "abuse-type": [
+                "complaint",
+            ],
+            "subscription-link": [
+                "https://fbl.returnpath.net/manage/subscriptions/xxxx",
+            ],
+            "source": [
+                "Comcast",
+            ],
+        },
         original_message: Some(
             "Date: Thu, 14 Dec 2023 16:16:14 +0000
 To: user@example.com

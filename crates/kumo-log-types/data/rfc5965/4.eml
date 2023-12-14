@@ -13,17 +13,20 @@ This is an email abuse report for an email message from bounce.kumo.example.com 
 
 ------=_Part_5903806_123377560.1477885569558
 Content-Type: message/feedback-report
-Content-Transfer-Encoding: 7bit
+Content-Transfer-Encoding: 8bit
 Content-Disposition: inline
 
+User-Agent: ReturnPathFBL/2.0
+Version: 1
+Arrival-Date: Wed, 13 Dec 2023 19:03:30 +0000
+Original-Rcpt-To: cb4a01a48251d4765f489076aa81e2a4@comcast.net
+Source: Comcast
+Abuse-Type: complaint
 Feedback-Type: abuse
-User-Agent: Yahoo!-Mail-Feedback/2.0
-Version: 0.1
-Original-Mail-From: <test1@example.com>
-Original-Rcpt-To: user@example.com
-Received-Date: Thu, 14 Dec 2023 17:16:15 +0100
-Reported-Domain: bounce.kumo.example.com
-Authentication-Results: authentication result string is not available
+Original-Mail-From: foo@bounce.example.com
+Reported-Domain: bounce.example.com
+Source-Ip: x.x.x.x
+Subscription-Link: https://fbl.returnpath.net/manage/subscriptions/xxxx
 
 ------=_Part_5903806_123377560.1477885569558
 Content-Type: message/rfc822
@@ -36,3 +39,4 @@ Subject: test Thu, 14 Dec 2023 16:16:14 +0000
 This is a test mailing
 
 ------=_Part_5903806_123377560.1477885569558--
+
