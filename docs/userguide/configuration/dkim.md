@@ -22,6 +22,7 @@ This diagram gives a graphical view of how DKIM works.
 title: DKIM Process flow
 ---
 graph TD
+    SENDER["Sender"]
     SMTA["Sending MTA"]
     SIGN["Sign Message Using Private Key"]
     VALIDATE["Validate Signature using Public Key"]
@@ -32,8 +33,8 @@ graph TD
     SMTA --> SIGN
     SIGN --> RMTA
     RMTA --> VALIDATE
-    SMTA -- 1. Publish Public Key --> DNS
-    DNS -- 3. Get Sender's Public Key --> RMTA
+    SENDER -- Publish Public Key --> DNS
+    DNS -- Get Sender's Public Key --> RMTA
     VALIDATE -- Valid Signature --> MBOX
     VALIDATE -- Invalid Signature --> SPAM
 

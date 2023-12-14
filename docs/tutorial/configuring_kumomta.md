@@ -29,10 +29,12 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 1. Copy the default Traffic Shaping helper configuration files into place. The helpers are designed to provide simple configuration for standard use cases:
 
     ```bash
-    sudo cp /opt/kumomta/share/policy-extras/shaping.toml /opt/kumomta/etc/
+    sudo cp /opt/kumomta/share/policy-extras/shaping.toml /opt/kumomta/etc/policy/shaping.toml
     ```
 
-1. Configure the listener_domains.toml file, written to `/opt/kumomta/etc/listener_domains.toml` in the following format, substituting your own sending domain information:
+    For more information, see the [Configure Traffic Shaping Automation](../userguide/configuration/trafficshapingautomation.md) section of the User Guide.
+
+1. Configure the listener_domains.toml file, written to `/opt/kumomta/etc/policy/listener_domains.toml` in the following format, substituting your own sending domain information:
 
     ```toml
     ["bounce.example.com"]
@@ -41,11 +43,12 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     log_arf = true
     relay_to = false
     ```
+    For more information, see the [Configuring Inbound and Relay Domains](../userguide/configuration/domains.md) page of the User Guide.
 
     !!!note
         The preceding example configures the server to accept traffic from the outside world addressed to the bounce.example.com domain, as long as the incoming messages are either Out-Of-Band DSN (bounce) notifications, or Feedback Loop messages, but will not accept regular mail for inbound relay such as with a corporate mail environment.
 
-1. Configure the sources.toml file, written to `/opt/kumomta/etc/sources.toml` in the following format, substituting your own IP and ehlo information:
+1. Configure the sources.toml file, written to `/opt/kumomta/etc/policy/sources.toml` in the following format, substituting your own IP and ehlo information:
 
     ```toml
     [source."ip-1"]
@@ -54,11 +57,42 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     [source."ip-2"]
     source_address = "10.0.0.2"
     ehlo_domain = 'mta2.examplecorp.com'
-    # Pool containing our two IPs, round-robin assigned with equal weighting
+
     [pool."Default"]
     [pool."Default"."ip-1"]
-    [pool."Default"."ip-2"]
+
+    [pool."pool-1"]
+    [pool."pool-1"."ip-2]
     ```
+
+    For more information, see the [Configuring Sending IPs](../userguide/configuration/sendingips.md) page of the User Guide.
+
+1. Configure the queues.toml file, written to `/opt/kumomta/etc/policy/queues.toml` in the following format, substituting your own tenant names and header names:
+
+    ```toml
+
+    scheduling_header = "X-Schedule"
+    tenant_header = "X-Tenant"
+    remove_tenant_header = true
+
+    campaign_header = "X-Campaign"
+    remove_campaign_header = true
+
+    default_tenant = "default-tenant"
+
+    [tenant.'default-tenant']
+    egress_pool = 'default'
+
+    [tenant.'mytenant']
+    egress_pool = 'pool-1'
+    max_age = '10 hours'
+
+    [queue.'gmail.com']
+    max_age = '22 hours'
+    retry_interval = '17 mins'
+    ```
+
+    For More information, see the [Configuring Queue Management](../userguide/configuration/queuemanagement.md) page of the User Guide.
 
 1. Configure DKIM signing keys. [Read the guide](https://docs.kumomta.com/userguide/configuration/dkim/) for details, but the short version is below:
 
@@ -73,7 +107,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     sudo chown kumod:kumod /opt/kumomta/etc/dkim/$DOMAIN -R
     ```
 
-1. Configure the dkim_data.toml file, written to `/opt/kumomta/etc/dkim_data.toml` in the following format, substituting your own DKIM signing information:
+1. Configure the dkim_data.toml file, written to `/opt/kumomta/etc/policy/dkim_data.toml` in the following format, substituting your own DKIM signing information:
 
     ```toml
     [base]
