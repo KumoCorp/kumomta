@@ -20,23 +20,26 @@ While KumoMTA will work with any compliant SOCKS5 proxy server, we have built Ku
 
 ### Configuring an egress_source for SOCKS5 Proxy Use
 
-Configuring an egress_source to use a SOCKS5 proxy server is done as part of the `define_egress_source`
-function call:
+Configuring an egress_source to use a SOCKS5 proxy server is done as part of
+the [make_egress_source](../../reference/kumo/make_egress_source.md) function
+call:
 
 ```lua
-kumo.on('init', function()
-  -- Make a source that will emit from 10.0.0.1, via a proxy server
-  kumo.define_egress_source {
-    name = 'ip-1',
+kumo.on('kumo.get_egress_source', function(source_name)
+  if source_name == 'ip-1' then
+    -- Make a source that will emit from 10.0.0.1, via a proxy server
+    return kumo.make_egress_source {
+      name = 'ip-1',
 
-    -- The SOCKS5 proxy server address and port
-    socks5_proxy_server = '10.0.5.10:5000',
+      -- The SOCKS5 proxy server address and port
+      socks5_proxy_server = '10.0.5.10:5000',
 
-    -- Used by the SOCKS5 proxy server to connect to the destination address
-    socks5_proxy_source_address = '10.0.0.1',
+      -- Used by the SOCKS5 proxy server to connect to the destination address
+      socks5_proxy_source_address = '10.0.0.1',
 
-    ehlo_domain = 'mta1.examplecorp.com',
-  }
+      ehlo_domain = 'mta1.examplecorp.com',
+    }
+  end
 end)
 ```
 
@@ -59,23 +62,25 @@ messages via IP addresses on the HAProxy host.
 
 ### Configuring an egress_source for HAProxy Use
 
-Configuring an egress_source to use an HAProxy server is done as part of the `define_egress_source`
-function call:
+Configuring an egress_source to use an HAProxy server is done as part of the
+[make_egress_source](../../reference/kumo/make_egress_source.md) function call:
 
 ```lua
-kumo.on('init', function()
-  -- Make a source that will emit from 10.0.0.1, via a proxy server
-  kumo.define_egress_source {
-    name = 'ip-1',
+kumo.on('kumo.get_egress_source', function(source_name)
+  if source_name == 'ip-1' then
+    -- Make a source that will emit from 10.0.0.1, via a proxy server
+    kumo.define_egress_source {
+      name = 'ip-1',
 
-    -- The HAProxy server address and port
-    ha_proxy_server = '10.0.5.10:5000',
+      -- The HAProxy server address and port
+      ha_proxy_server = '10.0.5.10:5000',
 
-    -- Used by HAProxy to connect to the destination address
-    ha_proxy_source_address = '10.0.0.1',
+      -- Used by HAProxy to connect to the destination address
+      ha_proxy_source_address = '10.0.0.1',
 
-    ehlo_domain = 'mta1.examplecorp.com',
-  }
+      ehlo_domain = 'mta1.examplecorp.com',
+    }
+  end
 end)
 ```
 

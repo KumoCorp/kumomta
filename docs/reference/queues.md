@@ -62,41 +62,48 @@ a local IP address or configured to use an alternative destination port
 traffic to the destination domain.
 
 ```lua
-kumo.on('init', function()
-  kumo.define_egress_source {
-    name = 'ip-1',
+local SOURCES = {
+  ['ip-1'] = {
     source_address = '10.0.0.1',
-  }
-  kumo.define_egress_source {
-    name = 'ip-2',
+  },
+  ['ip-2'] = {
     source_address = '10.0.0.2',
-  }
-  kumo.define_egress_source {
-    name = 'ip-3',
+  },
+  ['ip-3'] = {
     source_address = '10.0.0.3',
-  }
+  },
+}
 
-  kumo.define_egress_pool {
-    name = 'pool1',
-    entries = {
-      { name = 'ip-1' },
-    },
-  }
-  kumo.define_egress_pool {
-    name = 'pool2',
-    entries = {
-      { name = 'ip-2', weight = 2 },
-      -- we're warming up ip-3, so use it less frequently than ip-2
-      { name = 'ip-3', weight = 1 },
-    },
-  }
-end)
+local POOLS = {
+  ['pool1'] = {
+    { name = 'ip-1' },
+  },
+  ['pool2'] = {
+    { name = 'ip-2', weight = 2 },
+    -- we're warming up ip-3, so use it less frequently than ip-2
+    { name = 'ip-3', weight = 1 },
+  },
+}
 
 local TENANT_TO_POOL = {
   ['tenant-1'] = 'pool1',
   ['tenant-2'] = 'pool2',
   ['tenant-3'] = 'pool1',
 }
+
+kumo.on('get_egress_pool', function(pool_name)
+  local pool = {
+    name = pool_name,
+    entries = POOLS[pool_name],
+  }
+  return kumo.make_egress_pool(pool)
+end)
+
+kumo.on('get_egress_source', function(source_name)
+  local params = SOURCES[source_name]
+  params.name = source_name
+  return kumo.make_egress_source(params)
+end)
 
 kumo.on(
   'get_queue_config',
