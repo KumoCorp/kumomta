@@ -177,6 +177,16 @@ kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 -- Processing of incoming messages via SMTP
 kumo.on('smtp_server_message_received', function(msg)
+  -- Protect against SMTP Smuggling (https://sec-consult.com/blog/detail/smtp-smuggling-spoofing-e-mails-worldwide/)
+  local failed = msg:check_fix_conformance(
+    -- check for and reject messages with these issues:
+    'NON_CANONICAL_LINE_ENDINGS',
+    -- fix messages with these issues:
+    ''
+  )
+  if failed then
+    kumo.reject(552, string.format('5.6.0 %s', failed))
+  end
   -- Call the queue helper to set up the queue for the message.
   queue_helper:apply(msg)
   -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
