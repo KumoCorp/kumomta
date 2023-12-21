@@ -12,6 +12,8 @@ users in developing their server policy file.
 The content of this example will be detailed in the following sections of this
 chapter, links will be in the comments of the example policy.
 
+<iframe width="560" height="315" src="https://www.youtube.com/embed/pTnJQZtzsSg?si=aEpytrMLD5y6_NVn" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+
 ## The Example Server Policy
 
 ```lua
