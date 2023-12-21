@@ -26,7 +26,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     ```
 
     !!!note
-       If you are going to allow the HTTP listener on any IP other than localhost, you should also configure [TLS](https://docs.kumomta.com/reference/kumo/start_http_listener/?h=tls#tls_private_key) and [HTTP Validation](https://docs.kumomta.com/reference/events/http_server_validate_auth_basic/).
+        If you are going to allow the HTTP listener on any IP other than localhost, you should also configure [TLS](https://docs.kumomta.com/reference/kumo/start_http_listener/?h=tls#tls_private_key) and [HTTP Validation](https://docs.kumomta.com/reference/events/http_server_validate_auth_basic/).
 
 1. Create a local copy of the Traffic Shaping Helper configuration file. The helpers are designed to provide simple configuration for standard use cases, but the Traffic Shaping Helper in particular uses a community-managed settings file located in `policy-extras` that is subject to change when your KumoMTA installation is updated. By copying it to a separate location, you can add your own rules or replace ones from the community file without your changes being lost during an update. The example config is designed so that both files are used. Only edit `/opt/kumomta/etc/policy/shaping.toml` when you want to make changes.
 
