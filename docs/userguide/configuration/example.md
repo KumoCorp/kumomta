@@ -54,7 +54,7 @@ local dkim_signer =
 -- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
 -- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
 -- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
--- local get_shaping_config = shaping:setup()
+-- local get_shaping_config = shaping:setup { '/opt/kumomta/etc/policy/shaping.toml' }
 
 -- Load Traffic Shaping Automation Helper
 local shaper = shaping:setup_with_automation {
