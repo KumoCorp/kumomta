@@ -57,11 +57,10 @@ local dkim_signer =
 -- local get_shaping_config = shaping:setup()
 
 -- Load Traffic Shaping Automation Helper
-local shaping_config = '/opt/kumomta/etc/policy/shaping.toml'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
-  extra_files = { shaping_config },
+  extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
 }
 
 -- Send a JSON webhook to a local network host.
