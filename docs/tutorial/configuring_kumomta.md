@@ -4,6 +4,8 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
 1. Create an initial core configuration by copying the example at [https://docs.kumomta.com/userguide/configuration/example/](../userguide/configuration/example.md) and writing it to `/opt/kumomta/etc/policy/init.lua`.
 
+    <iframe width="560" height="315" src="https://www.youtube.com/embed/pTnJQZtzsSg?si=aEpytrMLD5y6_NVn" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+
 1. Update the relay_hosts configuration within the start_esmtp_listener function to reflect which networks are authorized to inject mail:
 
     ```lua
