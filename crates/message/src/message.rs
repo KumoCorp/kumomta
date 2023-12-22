@@ -1,24 +1,27 @@
 use crate::address::HeaderAddressList;
+#[cfg(feature = "impl")]
 use crate::dkim::Signer;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+#[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
+#[cfg(feature = "impl")]
 use dns_resolver::resolver::Resolver;
+#[cfg(feature = "impl")]
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
-use mailparsing::{
-    AuthenticationResult, AuthenticationResults, EncodeHeaderValue, Header, HeaderParseResult,
-    MessageConformance, MimePart,
-};
+#[cfg(feature = "impl")]
+use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
+use mailparsing::{Header, HeaderParseResult, MessageConformance, MimePart};
+#[cfg(feature = "impl")]
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
-use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
@@ -559,6 +562,7 @@ impl Message {
         })
     }
 
+    #[cfg(feature = "impl")]
     pub async fn dkim_verify(&self) -> anyhow::Result<Vec<AuthenticationResult>> {
         let resolver = dns_resolver::get_resolver();
         let data = self.get_data();
@@ -771,6 +775,7 @@ impl Message {
         self.retain_headers(|hdr| !hdr.get_name().eq_ignore_ascii_case(name))
     }
 
+    #[cfg(feature = "impl")]
     pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
         let data = self.get_data();
         let header = signer.sign(&data)?;
@@ -890,6 +895,7 @@ fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
     }
 }
 
+#[cfg(feature = "impl")]
 impl UserData for Message {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method(
@@ -939,6 +945,7 @@ impl UserData for Message {
             Ok(this.set_recipient(recipient).map_err(any_err)?)
         });
 
+        #[cfg(feature = "impl")]
         methods.add_method("dkim_sign", move |_, this, signer: Signer| {
             Ok(this.dkim_sign(&signer).map_err(any_err)?)
         });
@@ -959,6 +966,7 @@ impl UserData for Message {
             },
         );
 
+        #[cfg(feature = "impl")]
         methods.add_async_method("dkim_verify", |lua, this, ()| async move {
             let results = this.dkim_verify().await.map_err(any_err)?;
             lua.to_value_with(&results, serialize_options())
@@ -1077,6 +1085,7 @@ impl UserData for Message {
         methods.add_async_method(
             "check_fix_conformance",
             |_, this, (check, fix): (String, String)| async move {
+                use std::str::FromStr;
                 let check = MessageConformance::from_str(&check).map_err(any_err)?;
                 let fix = MessageConformance::from_str(&fix).map_err(any_err)?;
 

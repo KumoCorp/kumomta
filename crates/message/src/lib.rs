@@ -1,4 +1,5 @@
 pub mod address;
+#[cfg(feature = "impl")]
 pub mod dkim;
 pub mod message;
 pub mod scheduling;

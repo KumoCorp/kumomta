@@ -1,5 +1,6 @@
 use config::any_err;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
+#[cfg(feature = "impl")]
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,7 @@ impl TryInto<ReversePath> for EnvelopeAddress {
     }
 }
 
+#[cfg(feature = "impl")]
 impl UserData for EnvelopeAddress {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| Ok(this.user().to_string()));
@@ -153,6 +155,7 @@ impl From<AddressList> for HeaderAddressList {
     }
 }
 
+#[cfg(feature = "impl")]
 impl UserData for HeaderAddressList {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| {
@@ -225,22 +228,22 @@ impl From<&Mailbox> for HeaderAddress {
 }
 
 impl HeaderAddress {
-    fn user(&self) -> anyhow::Result<&str> {
+    pub fn user(&self) -> anyhow::Result<&str> {
         let (user, _domain) = self.crack_address().map_err(any_err)?;
         Ok(user)
     }
-    fn domain(&self) -> anyhow::Result<&str> {
+    pub fn domain(&self) -> anyhow::Result<&str> {
         let (_user, domain) = self.crack_address().map_err(any_err)?;
         Ok(domain)
     }
-    fn email(&self) -> Option<&str> {
+    pub fn email(&self) -> Option<&str> {
         self.address.as_deref()
     }
-    fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
 
-    fn crack_address(&self) -> anyhow::Result<(&str, &str)> {
+    pub fn crack_address(&self) -> anyhow::Result<(&str, &str)> {
         let address = self
             .address
             .as_ref()
@@ -252,6 +255,7 @@ impl HeaderAddress {
     }
 }
 
+#[cfg(feature = "impl")]
 impl UserData for HeaderAddress {
     fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| {

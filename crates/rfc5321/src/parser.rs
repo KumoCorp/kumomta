@@ -1,4 +1,4 @@
-use crate::client::SmtpClientTimeouts;
+use crate::client_types::SmtpClientTimeouts;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser as _;
 use pest_derive::*;

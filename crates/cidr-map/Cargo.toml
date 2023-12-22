@@ -5,13 +5,17 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["lua"]
+lua = ["dep:config", "dep:mlua", "dep:mod-memoize"]
+
 [dependencies]
 anyhow = "1.0"
 bitstring = "0.1"
 cidr = {version="0.2", features=["serde", "bitstring"]}
-config = {path="../config"}
-mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-mod-memoize = {path="../mod-memoize"}
+config = {path="../config", optional=true}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
+mod-memoize = {path="../mod-memoize", optional=true}
 serde = {version="1.0", features=["derive"]}
 
 [dev-dependencies]

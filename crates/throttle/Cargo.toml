@@ -5,11 +5,15 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["impl"]
+impl = ["dep:redis-cell-impl", "dep:mod-redis"]
+
 [dependencies]
 anyhow = "1.0"
-mod-redis = {path="../mod-redis"}
+mod-redis = {path="../mod-redis", optional=true}
 once_cell = "1.17"
-redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="97d409c3a62f2a0f5518c31fc9b4b65afbce2053" }
+redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="97d409c3a62f2a0f5518c31fc9b4b65afbce2053" , optional=true}
 serde = {version="1.0", features=["derive"]}
 thiserror = "1.0"
 tokio = {workspace=true, features=["full"]}

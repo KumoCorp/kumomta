@@ -6,13 +6,15 @@
 // radix tree.
 use bitstring::BitString;
 pub use cidr::{AnyIpCidr, IpCidr};
+#[cfg(feature = "lua")]
 use config::{any_err, get_or_create_sub_module};
+#[cfg(feature = "lua")]
 use mlua::prelude::LuaUserData;
+#[cfg(feature = "lua")]
 use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
+#[cfg(feature = "lua")]
 use mod_memoize::CacheValue;
-use std::collections::HashMap;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct CidrMap<V>
@@ -535,6 +537,7 @@ impl<V: Clone> Into<Vec<(AnyIpCidr, V)>> for CidrMap<V> {
     }
 }
 
+#[cfg(feature = "lua")]
 impl LuaUserData for CidrMap<CacheValue> {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
@@ -559,7 +562,9 @@ impl LuaUserData for CidrMap<CacheValue> {
     }
 }
 
+#[cfg(feature = "lua")]
 fn parse_cidr_from_ip_and_or_port(s: &str) -> anyhow::Result<AnyIpCidr> {
+    use std::str::FromStr;
     match AnyIpCidr::from_str(s) {
         Ok(c) => Ok(c),
         Err(err) => {
@@ -586,7 +591,9 @@ fn parse_cidr_from_ip_and_or_port(s: &str) -> anyhow::Result<AnyIpCidr> {
     }
 }
 
+#[cfg(feature = "lua")]
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    use std::collections::HashMap;
     let cidr_mod = get_or_create_sub_module(lua, "cidr")?;
 
     cidr_mod.set(

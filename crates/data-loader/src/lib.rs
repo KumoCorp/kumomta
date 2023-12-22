@@ -1,7 +1,11 @@
+#[cfg(feature = "impl")]
 use anyhow::{anyhow, Context};
+#[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, get_or_create_sub_module};
+#[cfg(feature = "impl")]
 use mlua::Lua;
 use serde::Deserialize;
+#[cfg(feature = "impl")]
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
 #[derive(Deserialize, Clone, Hash, PartialEq, Eq, Debug)]
@@ -19,6 +23,7 @@ pub enum KeySource {
     },
 }
 
+#[cfg(feature = "impl")]
 impl KeySource {
     pub async fn get(&self) -> anyhow::Result<Vec<u8>> {
         match self {
@@ -73,6 +78,7 @@ impl KeySource {
     }
 }
 
+#[cfg(feature = "impl")]
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let secrets_mod = get_or_create_sub_module(lua, "secrets")?;
 
@@ -88,6 +94,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+#[cfg(feature = "impl")]
 mod test {
     use super::*;
     use anyhow::Context;

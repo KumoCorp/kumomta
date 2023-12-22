@@ -1,5 +1,6 @@
 use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
+#[cfg(feature = "lua")]
 use mlua::prelude::*;
 use rfc5321::SmtpClientTimeouts;
 use serde::{Deserialize, Serialize};
@@ -99,6 +100,7 @@ pub struct EgressPathConfig {
     pub suspended: bool,
 }
 
+#[cfg(feature = "lua")]
 impl LuaUserData for EgressPathConfig {}
 
 impl Default for EgressPathConfig {

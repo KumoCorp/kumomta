@@ -11,18 +11,19 @@ edition = "2021"
 # has changed their records, may be wrong.
 live-dns-tests = []
 # Make the default configuration use unbound
-default-unbound = []
+default-unbound = ["unbound"]
 #default = ["default-unbound"]
+unbound = ["dep:libunbound"]
 
 [dependencies]
 anyhow = "1.0"
 arc-swap = "1.6"
 kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
-libunbound = {workspace=true}
+libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
 serde = {version="1.0", features=["derive"]}
-tokio = {workspace=true}
+tokio = {workspace=true, features=["macros"]}
 tracing = "0.1"
 hickory-resolver = {workspace=true}
 

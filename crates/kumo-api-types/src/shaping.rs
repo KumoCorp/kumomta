@@ -1,13 +1,24 @@
 use crate::egress_path::EgressPathConfig;
+#[cfg(feature = "lua")]
 use anyhow::Context;
-use config::{any_err, serialize_options};
+#[cfg(feature = "lua")]
+use config::any_err;
+#[cfg(feature = "lua")]
+use config::serialize_options;
+#[cfg(feature = "lua")]
 use dns_resolver::{fully_qualify, MailExchanger};
+#[cfg(feature = "lua")]
 use kumo_log_types::JsonLogRecord;
+#[cfg(feature = "lua")]
 use mlua::prelude::LuaUserData;
+#[cfg(feature = "lua")]
 use mlua::{LuaSerdeExt, UserDataMethods};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "lua")]
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+#[cfg(feature = "lua")]
 use std::sync::Arc;
 use std::time::Duration;
 use throttle::ThrottleSpec;
@@ -218,6 +229,7 @@ impl Rule {
     }
 }
 
+#[cfg(feature = "lua")]
 #[derive(Debug)]
 struct ShapingInner {
     by_site: HashMap<String, PartialEntry>,
@@ -225,6 +237,7 @@ struct ShapingInner {
     warnings: Vec<String>,
 }
 
+#[cfg(feature = "lua")]
 impl ShapingInner {
     pub fn get_egress_path_config(
         &self,
@@ -310,11 +323,13 @@ impl ShapingInner {
     }
 }
 
+#[cfg(feature = "lua")]
 #[derive(Debug, Clone)]
 pub struct Shaping {
     inner: Arc<ShapingInner>,
 }
 
+#[cfg(feature = "lua")]
 impl Shaping {
     async fn load_from_file(path: &str) -> anyhow::Result<HashMap<String, PartialEntry>> {
         let data: String = if path.starts_with("http://") || path.starts_with("https://") {
@@ -479,6 +494,7 @@ impl Shaping {
     }
 }
 
+#[cfg(feature = "lua")]
 impl LuaUserData for Shaping {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
@@ -503,6 +519,7 @@ pub struct MergedEntry {
     pub automation: Vec<Rule>,
 }
 
+#[cfg(feature = "lua")]
 #[derive(Deserialize, Debug, Clone, Default)]
 struct PartialEntry {
     #[serde(skip)]
@@ -524,12 +541,14 @@ struct PartialEntry {
     pub sources: HashMap<String, toml::Table>,
 }
 
+#[cfg(feature = "lua")]
 fn toml_table_merge_from(tbl: &mut toml::Table, source: &toml::Table) {
     for (k, v) in source {
         tbl.insert(k.clone(), v.clone());
     }
 }
 
+#[cfg(feature = "lua")]
 impl PartialEntry {
     fn merge_from(&mut self, mut other: Self) {
         if other.replace_base {
@@ -582,10 +601,12 @@ impl PartialEntry {
     }
 }
 
+#[cfg(feature = "lua")]
 fn default_true() -> bool {
     true
 }
 
+#[cfg(feature = "lua")]
 pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
     let shaping_mod = config::get_or_create_sub_module(lua, "shaping")?;
 

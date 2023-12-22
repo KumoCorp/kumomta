@@ -2,18 +2,25 @@
 //! The implementation uses an in-memory store, but can be adjusted in the future
 //! to support using a redis-cell equipped redis server to share the throttles
 //! among multiple machines.
+#[cfg(feature = "impl")]
 use mod_redis::{Cmd, FromRedisValue, RedisConnection, RedisError};
+#[cfg(feature = "impl")]
 use once_cell::sync::OnceCell;
+#[cfg(feature = "impl")]
 use redis_cell_impl::{time, MemoryStore, Rate, RateLimiter, RateQuota};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
+#[cfg(feature = "impl")]
 use std::sync::Mutex;
 use std::time::Duration;
 use thiserror::Error;
 
+#[cfg(feature = "impl")]
 pub mod limit;
 
+#[cfg(feature = "impl")]
 static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
+#[cfg(feature = "impl")]
 static REDIS: OnceCell<RedisConnection> = OnceCell::new();
 
 #[derive(Error, Debug)]
@@ -22,6 +29,7 @@ pub enum Error {
     Generic(String),
     #[error("{0}")]
     AnyHow(#[from] anyhow::Error),
+    #[cfg(feature = "impl")]
     #[error("{0}")]
     Redis(#[from] RedisError),
     #[error("TooManyLeases, try again in {0:?}")]
@@ -39,6 +47,7 @@ pub struct ThrottleSpec {
     pub max_burst: Option<u64>,
 }
 
+#[cfg(feature = "impl")]
 impl ThrottleSpec {
     pub async fn throttle<S: AsRef<str>>(&self, key: S) -> Result<ThrottleResult, Error> {
         let key = key.as_ref();
@@ -110,6 +119,7 @@ pub struct ThrottleResult {
     pub retry_after: Option<Duration>,
 }
 
+#[cfg(feature = "impl")]
 fn local_throttle(
     key: &str,
     limit: u64,
@@ -162,6 +172,7 @@ fn local_throttle(
     })
 }
 
+#[cfg(feature = "impl")]
 async fn redis_throttle(
     conn: RedisConnection,
     key: &str,
@@ -209,6 +220,7 @@ async fn redis_throttle(
 ///                 to spread out across time.
 /// * `quantity` - how many tokens to add to the throttle. If omitted,
 ///                1 token is added.
+#[cfg(feature = "impl")]
 pub async fn throttle(
     key: &str,
     limit: u64,
@@ -223,6 +235,7 @@ pub async fn throttle(
     }
 }
 
+#[cfg(feature = "impl")]
 pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
     REDIS
         .set(conn)
@@ -230,6 +243,7 @@ pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(feature = "impl")]
 #[cfg(test)]
 mod test {
     use super::*;

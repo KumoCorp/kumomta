@@ -11,4 +11,4 @@ config = {path="../config"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde_json = "1.0"
 sqlite = "0.31"
-tokio = {workspace=true, features=["rt"]}
+tokio = {workspace=true, features=["rt", "tracing"]}

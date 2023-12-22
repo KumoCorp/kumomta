@@ -1,7 +1,10 @@
 use hickory_resolver::error::ResolveErrorKind;
 use hickory_resolver::proto::op::response_code::ResponseCode;
-use hickory_resolver::proto::rr::{DNSClass, RData, RecordType};
+#[cfg(feature = "unbound")]
+use hickory_resolver::proto::rr::DNSClass;
+use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
+#[cfg(feature = "unbound")]
 use libunbound::AsyncContext;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
@@ -46,6 +49,7 @@ impl Answer {
 
 pub enum Resolver {
     Tokio(TokioAsyncResolver),
+    #[cfg(feature = "unbound")]
     Unbound(AsyncContext),
 }
 
@@ -94,6 +98,7 @@ impl Resolver {
                     _ => Err(err.into()),
                 },
             },
+            #[cfg(feature = "unbound")]
             Self::Unbound(ctx) => {
                 let name = name.into_name()?;
                 let name = name.to_ascii();

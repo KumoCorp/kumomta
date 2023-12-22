@@ -3076,7 +3076,6 @@ dependencies = [
  "prometheus",
  "rand",
  "rfc5321",
- "rsa",
  "serde",
  "serde_json",
  "slog",

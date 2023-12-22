@@ -1,8 +1,21 @@
 check:
 	cargo check
 
-test:
-	cargo build
+build:
+	cargo build $(BUILD_OPTS) -p kumod
+	cargo build $(BUILD_OPTS) -p tsa-daemon
+	cargo build $(BUILD_OPTS) -p kcli
+	cargo build $(BUILD_OPTS) -p validate-shaping
+	cargo build $(BUILD_OPTS) -p proxy-server
+	cargo build $(BUILD_OPTS) -p tailer
+	cargo build $(BUILD_OPTS) -p traffic-gen
+
+# Check compilation with all possible feature combinations
+# Requires: cargo install --locked cargo-feature-combinations
+fc:
+	RUSTFLAGS="--cfg tokio_unstable -D warnings" cargo fc check --fail-fast
+
+test: build
 	./docs/update-openapi.sh
 	cargo nextest run
 

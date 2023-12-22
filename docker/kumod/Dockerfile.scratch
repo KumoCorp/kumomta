@@ -1,7 +1,8 @@
 FROM alpine:latest as builder
 WORKDIR /work
 RUN    apk --no-cache add rust cargo g++ openssl openssl-dev clang \
-            ca-certificates bash linux-headers make
+            ca-certificates bash linux-headers make clang-libclang \
+            rustfmt
 RUN update-ca-certificates
 ENV OPENSSL_STATIC=yes \
     PKG_CONFIG_ALLOW_CROSS=true \
@@ -24,7 +25,8 @@ RUN --mount=type=ssh \
     --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/work/target \
-    cargo build --target x86_64-alpine-linux-musl --release ; \
+    set -e ; \
+    make build BUILD_OPTS="--target x86_64-alpine-linux-musl --release" ; \
     TRIPLE=x86_64-alpine-linux-musl/ ./assets/install.sh ; \
     cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua ; \
     cp /opt/kumomta/share/minimal-tsa_init.lua /opt/kumomta/etc/policy/tsa_init.lua
