@@ -1,0 +1,51 @@
+FROM alpine:latest as builder
+WORKDIR /work
+RUN    apk --no-cache add rust cargo g++ openssl openssl-dev clang \
+            ca-certificates bash linux-headers make
+RUN update-ca-certificates
+ENV OPENSSL_STATIC=yes \
+    PKG_CONFIG_ALLOW_CROSS=true \
+    PKG_CONFIG_ALL_STATIC=true \
+    RUSTFLAGS="-C target-feature=-crt-static --cfg tokio_unstable"
+
+COPY . .
+RUN bash ./get-deps.sh
+
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/var/spool/kumod" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "1000" \
+    "kumod"
+
+RUN --mount=type=ssh \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/work/target \
+    cargo build --target x86_64-alpine-linux-musl --release ; \
+    TRIPLE=x86_64-alpine-linux-musl/ ./assets/install.sh ; \
+    cp /opt/kumomta/share/minimal-init.lua /opt/kumomta/etc/policy/init.lua ; \
+    cp /opt/kumomta/share/minimal-tsa_init.lua /opt/kumomta/etc/policy/tsa_init.lua
+
+
+FROM scratch
+
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /etc/group /etc/group
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+
+WORKDIR /opt/kumomta/sbin
+ENV PATH=/opt/kumomta/sbin:${PATH}
+COPY --from=builder /opt/kumomta /opt/kumomta
+COPY --from=builder --chown=kumod:kumod --chmod=2770 /var/log/kumomta /var/log/kumomta
+COPY --from=builder --chown=kumod:kumod --chmod=2770 /var/spool/kumomta /var/spool/kumomta
+COPY --from=builder /lib/ld-musl*.so* /lib/libssl*.so* /lib/libcrypto*.so* /lib/libz*.so* /usr/lib/libstdc*.so* /usr/lib/libgcc*.so* /lib/libc.musl* /usr/lib/libm*.so* /lib/
+EXPOSE 25/tcp
+EXPOSE 587/tcp
+EXPOSE 465/tcp
+EXPOSE 2525/tcp
+EXPOSE 2026/tcp
+CMD ["/opt/kumomta/sbin/kumod", "--user", "kumod"]
+

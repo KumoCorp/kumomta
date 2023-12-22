@@ -7,13 +7,13 @@ set -ex
 PREFIX="${1:-/opt/kumomta}"
 
 mkdir -p ${PREFIX}/sbin ${PREFIX}/share/bounce_classifier ${PREFIX}/share/policy-extras
-install -Dsm755 target/release/validate-shaping -t ${PREFIX}/sbin
-install -Dsm755 target/release/tsa-daemon -t ${PREFIX}/sbin
-install -Dsm755 target/release/proxy-server -t ${PREFIX}/sbin
-install -Dsm755 target/release/kumod -t ${PREFIX}/sbin
-install -Dsm755 target/release/kcli -t ${PREFIX}/sbin
-install -Dsm755 target/release/traffic-gen -t ${PREFIX}/sbin
-install -Dsm755 target/release/tailer -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/validate-shaping -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/tsa-daemon -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/proxy-server -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/kumod -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/kcli -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/traffic-gen -t ${PREFIX}/sbin
+install -Dsm755 target/${TRIPLE}release/tailer -t ${PREFIX}/sbin
 install -Dm755 assets/accounting.sh -t ${PREFIX}/sbin
 install -Dm644 assets/bounce_classifier/* -t ${PREFIX}/share/bounce_classifier
 install -Dm644 assets/init.lua -T ${PREFIX}/share/minimal-init.lua

@@ -1,0 +1,6 @@
+target
+.git
+docs
+gh_pages
+__py_cache__
+.cache
