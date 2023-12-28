@@ -33,7 +33,10 @@ fn default_resolver() -> Resolver {
 
 #[cfg(not(feature = "default-unbound"))]
 fn default_resolver() -> Resolver {
-    Resolver::Tokio(hickory_resolver::TokioAsyncResolver::tokio_from_system_conf().unwrap())
+    Resolver::Tokio(
+        hickory_resolver::TokioAsyncResolver::tokio_from_system_conf()
+            .expect("Parsing /etc/resolv.conf failed"),
+    )
 }
 
 #[derive(Clone, Debug, Serialize)]
