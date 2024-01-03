@@ -41,7 +41,7 @@ The following classifications are pre-defined:
 |AuthenticationFailed|authentication policy was not met|
 |Uncategorized|messages rejected due to other reasons|4.X.X or 5.X.X error|
 
-{{since('dev', indent=True)}}
+{{since('2023.12.28-63cde9c7', indent=True)}}
     It is now possible to define your own classification labels. You can do so
     simply by using whatever label you like.  It is more efficient (uses less memory)
     to use one of the predefined codes.

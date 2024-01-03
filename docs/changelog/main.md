@@ -4,23 +4,5 @@
 
 ## Other Changes and Enhancements
 
-* You may now use arbitrary bounce classification labels when defining bounce classification rules. #98
-* queue helper: Added `setup_with_options` method that allows skipping the registration of the
-  `get_queue_config` event handler. This helps when building a more complex configuration
-  policy, such as using the rollup helper. Thanks to @cai-n! #101
-* You may now use simple suffix based wildcards like `X-*` to match header
-  names to capture in log records. See
-  [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md). #74
-
 ## Fixes
 
-* MTA-STS policy may fail to match due to trailing periods in mx host names
-* Assigning `nil` via `msg:set_meta` would return a userdata wrapper around the
-  underlying json `null` value when `msg:get_meta` was called for that key.  We
-  now map that as `nil`.
-* Various duration options (such as `idle_timeout`) once again accept bare
-  integer values to mean that number of seconds as stated in the docs.
-  Previously, you would have to use a string like `"10 seconds"`. Now you can
-  simply write `10`.  This regressed long long ago, but is now resolved. #108
-* ARF parser now accepts historic feedback reports using version `0.1` and
-  the deprecated `Received-Date` header.
