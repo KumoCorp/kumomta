@@ -8,12 +8,17 @@ matrix:
       AMAZON_IMAGE: amazonlinux:2023
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2023
 
-#when:
-# path:
-#   exclude:
-#     - docs/**
-#     - mkdocs-base.yml
-#     - stylua.toml
+when:
+ path:
+   include:
+     - assets/**/*.lua
+     - assets/*.service
+     - assets/*rpm*.sh
+     - assets/accounting.sh
+     - assets/bounce_classifier
+     - assets/install.sh
+     - assets/policy-extras
+     - crates
 
 variables:
   - &docker_credentials
