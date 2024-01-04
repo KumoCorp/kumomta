@@ -54,17 +54,21 @@ The install instructions for supported platforms are shown below. If your platfo
 
 === "Amazon Linux 2"
 
-    !!! note
-        There are no stable versions available for this platform,
-        so if you want a pre-built binary you could consider
-        installing a `-dev` build, see instructions below
+    ```console
+    $ sudo yum install -y yum-utils
+    $ sudo yum-config-manager --add-repo=\
+        https://openrepo.kumomta.com/files/kumomta-amazon.repo
+    $ sudo yum install kumomta
+    ```
 
 === "Amazon Linux 2023"
 
-    !!! note
-        There are no stable versions available for this platform,
-        so if you want a pre-built binary you could consider
-        installing a `-dev` build, see instructions below
+    ```console
+    $ sudo dnf -y install dnf-plugins-core
+    $ sudo dnf config-manager --add-repo \
+        https://openrepo.kumomta.com/files/kumomta-amazon2023.repo
+    $ sudo yum install kumomta
+    ```
 
 ## Installing from a Dev Repository
 
