@@ -8,7 +8,7 @@ There are get and set functions available for both connection and message metada
 
 The following metadata values are predefined by KumoMTA and are available to retrieve:
 
-|Scope|Name|Purpose|Since|
+|Scope|`       Name       `|Purpose|Since|
 |----|----|-------|-----|
 |Connection|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('2023.08.22-4d895015', inline=True)}}|
 |Connection|`received_via`|indicates the IP:port of the KumoMTA listener that is handling this session|{{since('2023.08.22-4d895015', inline=True)}}|
