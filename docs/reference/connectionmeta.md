@@ -23,6 +23,21 @@ metadata values.
 
 The following values are predefined by KumoMTA:
 
+<style>
+table th:first-of-type {
+    width: 15%;
+}
+table th:nth-of-type(2) {
+    width: 25%;
+}
+table th:nth-of-type(3) {
+    width: 50%;
+}
+table th:nth-of-type(4) {
+    width: 20%;
+}
+</style>
+
 |Scope|Name|Purpose|Since|
 |----|----|-------|-----|
 |Connection|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('2023.08.22-4d895015', inline=True)}}|
@@ -40,7 +55,7 @@ The following values are predefined by KumoMTA:
 ### `conn_meta:get_meta(name)`
 
 Returns the value associated with *name*, or `nil` if no such value has been defined.
-Values may be predefined by KumoMTA, or may be set by policy scripts using `conn_meta:set_meta()`.
+Values may be predefined by KumoMTA or may be set by policy scripts using `conn_meta:set_meta()`.
 
 ### `conn_meta:set_meta(name, value)`
 
