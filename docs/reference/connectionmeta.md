@@ -48,7 +48,7 @@ table th:nth-of-type(4) {
 |Connection|`authz_id`|the authorization id if the message was received via authenticated SMTP||
 
 !!! Note
-        Additional metadata is available at the Message scope, for a full list of all available metadata, see the [Predefined Metadata](./metadata.md) page.
+    Additional metadata is available at the Message scope, for a full list of all available metadata, see the [Predefined Metadata](./metadata.md) page.
 
 ## Available Methods
 

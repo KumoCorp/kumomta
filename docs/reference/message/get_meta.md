@@ -24,4 +24,4 @@ The following meta values are unique to the message scope:
 |Message|`routing_domain`|Overrides the domain of the recipient domain for routing purposes.|{{since('2023.08.22-4d895015', inline=True)}}|
 
 !!! Note
-        Additional metadata is available in the message scope that is copied in from the connection scope, for a full list of all available metadata, see the [Predefined Metadata](../metadata.md) page.
+    Additional metadata is available in the message scope that is copied in from the connection scope, for a full list of all available metadata, see the [Predefined Metadata](../metadata.md) page.
