@@ -26,15 +26,14 @@ You can retrieve a metadata value via [message:get_meta](get_meta.md).
 
 ## Pre-defined meta values
 
-The following meta values have meaning to KumoMTA:
+The following meta values are unique to the message scope:
 
-* `"queue"` - specify the name of the queue to which the message will be queued. Must be a string value.
-* `"tenant"` - specify the name/identifier of the tenant, if any. Must be a string value.
-* `"campaign"` - specify the name/identifier of the campaign. Must be a string value.
-* `"authz_id"` - the authorization id if the message was received via authenticated SMTP
-* `"authn_id"` - the authentication id if the message was received via authenticated SMTP
-* `"reception_protocol"` - `"ESMTP"` or `"HTTP"`
-* `"received_via"` - the address:port of the local machine which received the message. Currently only set for SMTP receptions.
-* `"received_from"` - the address:port of the peer address from which we received the message
-* `"routing_domain"` - {{since('2023.08.22-4d895015', inline=True)}}. Overrides the domain of the recipient domain for routing purposes.
-* `"hostname"` - {{since('2023.11.28-b5252a41', inline=True)}}. A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](../kumo/start_esmtp_listener.md#hostname)
+|Scope|Name|Purpose|Since|
+|----|----|-------|-----|
+|Message|`queue`|specify the name of the queue to which the message will be queued. Must be a string value.||
+|Message|`tenant`|specify the name/identifier of the tenant, if any. Must be a string value.||
+|Message|`campaign`|specify the name/identifier of the campaign. Must be a string value.||
+|Message|`routing_domain`|Overrides the domain of the recipient domain for routing purposes.|{{since('2023.08.22-4d895015', inline=True)}}|
+
+!!! Note
+        Additional metadata is available in the message scope that is copied in from the connection scope, for a full list of all available metadata, see the [Predefined Metadata](../metadata.md) page.

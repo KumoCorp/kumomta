@@ -11,3 +11,17 @@ print(msg:get_meta 'foo') -- prints 'bar'
 ```
 
 See also [msg:set_meta](set_meta.md).
+
+## Pre-defined meta values
+
+The following meta values are unique to the message scope:
+
+|Scope|Name|Purpose|Since|
+|----|----|-------|-----|
+|Message|`queue`|specify the name of the queue to which the message will be queued. Must be a string value.||
+|Message|`tenant`|specify the name/identifier of the tenant, if any. Must be a string value.||
+|Message|`campaign`|specify the name/identifier of the campaign. Must be a string value.||
+|Message|`routing_domain`|Overrides the domain of the recipient domain for routing purposes.|{{since('2023.08.22-4d895015', inline=True)}}|
+
+!!! Note
+        Additional metadata is available in the message scope that is copied in from the connection scope, for a full list of all available metadata, see the [Predefined Metadata](../metadata.md) page.

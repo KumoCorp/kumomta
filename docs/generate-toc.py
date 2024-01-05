@@ -298,6 +298,7 @@ TOC = [
         "Reference Manual",
         "reference/index.md",
         children=[
+            Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
             Gen(
                 "module: kumo",
