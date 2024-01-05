@@ -17,17 +17,8 @@ See also [msg:set_meta](set_meta.md).
 The following meta values are unique to the message scope:
 
 <style>
-table th:first-of-type {
-    width: 15%;
-}
-table th:nth-of-type(2) {
-    width: 25%;
-}
-table th:nth-of-type(3) {
-    width: 50%;
-}
-table th:nth-of-type(4) {
-    width: 20%;
+table tbody tr td:nth-of-type(2) {
+  white-space: nowrap;
 }
 </style>
 
