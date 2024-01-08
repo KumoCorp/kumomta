@@ -11,6 +11,8 @@ matrix:
 when:
  path:
    include:
+     - "**/Cargo.toml"
+     - Cargo.lock
      - assets/**/*.lua
      - assets/*.service
      - assets/*deb*.sh
