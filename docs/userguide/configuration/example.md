@@ -52,12 +52,6 @@ sources:setup { '/opt/kumomta/etc/policy/sources.toml' }
 local dkim_signer =
   dkim_sign:setup { '/opt/kumomta/etc/policy/dkim_data.toml' }
 
--- Configure traffic shaping using the shaping.lua policy helper.
--- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
--- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
--- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
--- local get_shaping_config = shaping:setup { '/opt/kumomta/etc/policy/shaping.toml' }
-
 -- Load Traffic Shaping Automation Helper
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
@@ -172,6 +166,12 @@ kumo.on(
   'get_listener_domain',
   listener_domains:setup { '/opt/kumomta/etc/policy/listener_domains.toml' }
 )
+
+-- Configure traffic shaping using the shaping.lua policy helper.
+-- Commented out by default since we recommend using the Traffic Shaping Automation helper loaded below.
+-- WARNING: THIS WILL NOT LOAD WITHOUT AN ADDITIONAL SCRIPT IN PLACE
+-- SEE https://docs.kumomta.com/userguide/configuration/trafficshaping/
+-- kumo.on('get_egress_path_config', shaping:setup { '/opt/kumomta/share/policy-extras/shaping.toml', '/opt/kumomta/etc/policy/shaping.toml', })
 
 -- Call the Traffic Shaping Automation Helper to configure shaping rules.
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
