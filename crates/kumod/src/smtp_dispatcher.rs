@@ -478,7 +478,6 @@ impl QueueDispatcher for SmtpDispatcher {
             .try_into()
             .map_err(|err| anyhow::anyhow!("{err}"))?;
 
-        dispatcher.delivered_this_connection += 1;
         match self
             .client
             .as_mut()
