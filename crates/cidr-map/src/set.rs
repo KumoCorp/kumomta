@@ -1,5 +1,5 @@
 use crate::map::CidrMap;
-pub use cidr::{AnyIpCidr, IpCidr};
+pub use cidr::AnyIpCidr;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
