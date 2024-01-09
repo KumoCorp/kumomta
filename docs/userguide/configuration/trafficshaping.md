@@ -1,5 +1,7 @@
 # Configuring Traffic Shaping
 
+<iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+
 By default, the KumoMTA server will send messages in the Ready Queue as fast as possible, with unlimited messages per connection. Because each Mailbox Provider (MBP) has their own expectations around how remote hosts should behave, best practices require that a sender employ a number of different traffic shaping throttles dependent on the destination provider and the reputation of the source IP.
 
 When KumoMTA needs to connect to a remote host to deliver messages, the [get_egress_path_config](../../reference/events/get_egress_path_config.md) is fired in order to define what configuration to use for the path.
