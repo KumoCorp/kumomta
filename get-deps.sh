@@ -175,19 +175,19 @@ debian_deps() {
   APT="$SUDO apt-get"
   $APT install -y --no-install-recommends \
     'bsdutils' \
+    'clang' \
     'cmake' \
     'dpkg-dev' \
     'fakeroot' \
-    'gcc' \
     'g++' \
+    'gcc' \
+    'libclang-dev' \
     'libssl-dev' \
+    'llvm-dev' \
     'lsb-release' \
     'pkg-config' \
     'python3' \
-    'redis' \
-    'llvm-dev' \
-    'libclang-dev' \
-    'clang'
+    'redis'
 }
 
 arch_deps() {
