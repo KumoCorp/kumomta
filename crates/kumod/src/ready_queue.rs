@@ -1013,8 +1013,22 @@ impl Dispatcher {
             );
             let closed = queue_dispatcher.close_connection(self).await?;
             if closed {
-                // Close out this dispatcher and let the maintainer spawn
-                // a new connection
+                // Close out this dispatcher and arrange for the maintainer
+                // to spawn a new connection in a few moments.
+
+                let name = self.name.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let ready_queue = {
+                        let mgr = ReadyQueueManager::get().await;
+                        mgr.queues.get(&name).cloned()
+                    };
+
+                    if let Some(q) = ready_queue {
+                        q.lock().await.maintain().await;
+                    }
+                });
+
                 return Ok(false);
             }
         }
