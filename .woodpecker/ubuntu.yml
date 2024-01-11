@@ -76,7 +76,7 @@ steps:
       - ./assets/build-deb.sh
 
   save-build-cache:
-    depends_on: [save-build-cache]
+    depends_on: [build]
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: *cache_image
