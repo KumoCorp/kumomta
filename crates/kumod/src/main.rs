@@ -56,7 +56,7 @@ struct Opt {
     tokio_console: bool,
 
     /// Instead of running the daemon, output the openapi spec json
-    /// to stdout
+    /// to stdout.
     #[arg(long)]
     dump_openapi_spec: bool,
 
