@@ -11,15 +11,16 @@ matrix:
 when:
  path:
    include:
+     - .woodpecker/rocky.yml
      - "**/Cargo.toml"
      - Cargo.lock
      - assets/**/*.lua
      - assets/*.service
      - assets/*rpm*.sh
      - assets/accounting.sh
-     - assets/bounce_classifier
+     - assets/bounce_classifier/**
      - assets/install.sh
-     - assets/policy-extras
+     - assets/policy-extras/**
      - crates/**
 
 variables:
