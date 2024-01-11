@@ -59,7 +59,12 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
-        let components = QueueNameComponents::parse(&dispatcher.queue_name);
+        // Normally, a QueueDispatcher would use dispatcher.path_config rather
+        // than resolving through queue_name_for_config_change_purposes_only.
+        // In this case, since LuaQueueDispatcher doesn't have multiple egress
+        // sources, it is acceptable to use queue_name_for_config_change_purposes_only.
+        let components =
+            QueueNameComponents::parse(&dispatcher.queue_name_for_config_change_purposes_only);
         let sig = CallbackSignature::<(&str, Option<&str>, Option<&str>), Value>::new(
             self.proto_config.constructor.to_string(),
         );

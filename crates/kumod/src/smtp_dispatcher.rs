@@ -486,7 +486,8 @@ impl QueueDispatcher for SmtpDispatcher {
             .await
         {
             Err(ClientError::Rejected(mut response)) => {
-                let components = QueueNameComponents::parse(&dispatcher.queue_name);
+                let queue_name = msg.get_queue_name()?;
+                let components = QueueNameComponents::parse(&queue_name);
                 let mut config = load_config().await?;
 
                 let sig = CallbackSignature::<

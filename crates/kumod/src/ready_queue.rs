@@ -206,7 +206,7 @@ impl ReadyQueueManager {
             let notify = Arc::new(Notify::new());
             ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {
                 name: name.clone(),
-                queue_name: queue_name.to_string(),
+                queue_name_for_config_change_purposes_only: queue_name.to_string(),
                 ready,
                 mx,
                 notify,
@@ -248,7 +248,7 @@ impl ReadyQueueManager {
 
                     if refresh_config && !queue.activity.is_shutting_down() {
                         match Self::compute_config(
-                            &queue.queue_name,
+                            &queue.queue_name_for_config_change_purposes_only,
                             &queue.queue_config,
                             &queue.egress_source.name,
                         )
@@ -309,7 +309,7 @@ impl ReadyQueueHandle {
 
 pub struct ReadyQueue {
     name: String,
-    queue_name: String,
+    queue_name_for_config_change_purposes_only: String,
     ready: Arc<StdMutex<VecDeque<Message>>>,
     mx: Option<Arc<MailExchanger>>,
     notify: Arc<Notify>,
@@ -450,7 +450,8 @@ impl ReadyQueue {
             if let Ok(lease) = limit.acquire_lease(&self.name).await {
                 // Open a new connection
                 let name = self.name.clone();
-                let queue_name = self.queue_name.clone();
+                let queue_name_for_config_change_purposes_only =
+                    self.queue_name_for_config_change_purposes_only.clone();
                 let mx = self.mx.clone();
                 let ready = Arc::clone(&self.ready);
                 let notify = self.notify.clone();
@@ -466,7 +467,7 @@ impl ReadyQueue {
                     Ok(async move {
                         if let Err(err) = Dispatcher::run(
                             &name,
-                            queue_name,
+                            queue_name_for_config_change_purposes_only,
                             mx,
                             ready,
                             notify,
@@ -523,7 +524,13 @@ pub trait QueueDispatcher: Debug + Send {
 
 pub struct Dispatcher {
     pub name: String,
-    pub queue_name: String,
+    /// You probably do not want to use queue_name_for_config_change_purposes_only
+    /// in an SMTP Dispatcher, because it is a snapshot of the queue name of
+    /// the very first scheduled queue to feed into the associated ReadyQueue.
+    /// There may be many different scheduled queues feeding in, so if you
+    /// want to resolve to the appropriate scheduled queue, you must do so
+    /// via msg.get_queue_name() instead of using this stashed value.
+    pub queue_name_for_config_change_purposes_only: String,
     pub ready: Arc<StdMutex<VecDeque<Message>>>,
     pub notify: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
@@ -562,7 +569,7 @@ impl Dispatcher {
     #[instrument(skip(ready, metrics, notify))]
     async fn run(
         name: &str,
-        queue_name: String,
+        queue_name_for_config_change_purposes_only: String,
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
         notify: Arc<Notify>,
@@ -584,7 +591,7 @@ impl Dispatcher {
 
         let mut dispatcher = Self {
             name: name.to_string(),
-            queue_name,
+            queue_name_for_config_change_purposes_only,
             ready,
             notify,
             mx,
