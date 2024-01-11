@@ -20,8 +20,8 @@ when:
      - assets/bounce_classifier
      - assets/install.sh
      - assets/policy-extras
-     - crates
-     - docker
+     - crates/**
+     - docker/**
 
 variables:
   - &docker_credentials
