@@ -181,6 +181,7 @@ debian_deps() {
     'fakeroot' \
     'g++' \
     'gcc' \
+    'jq' \
     'libclang-dev' \
     'libssl-dev' \
     'llvm-dev' \
