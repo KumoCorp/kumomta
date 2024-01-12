@@ -9,6 +9,7 @@ matrix:
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:9
 
 when:
+ event: [push, pull_request, manual]
  path:
    include:
      - .woodpecker/rocky.yml

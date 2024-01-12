@@ -9,6 +9,7 @@ matrix:
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:20.04
 
 when:
+ event: [push, pull_request, manual]
  path:
    include:
      - .woodpecker/ubuntu.yml
