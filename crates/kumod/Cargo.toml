@@ -7,22 +7,22 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-async-channel = "1.8"
+async-channel = "2.1"
 async-recursion = "1.0"
 async-trait = "0.1"
 axum = {workspace=true, features=["ws"]}
-axum-client-ip = "0.4"
+axum-client-ip = "0.5"
 axum-server = {workspace=true, features=["tls-rustls"]}
-base64 = "0.13"
+base64 = "0.21"
 bounce-classify = {path="../bounce-classify"}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
-clap = {version="4.1", features=["derive"]}
+clap = {version="4.4", features=["derive"]}
 config = {path="../config"}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
-flume = "0.10"
+flume = "0.11"
 gcd = "2.3"
 gethostname = "0.4"
 humansize = "2.1" # for printing
@@ -36,15 +36,15 @@ lazy_static = "1.4"
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
-memchr = "2.5"
+memchr = "2.7"
 message = {path="../message"}
-metrics = "0.20"
-minijinja-contrib = {version="1.0.9",features=["datetime", "timezone"]}
+metrics = "0.22"
+minijinja-contrib = {version="1.0.11",features=["datetime", "timezone"]}
 minijinja = {version="1.0.9",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
-nix = {version="0.26", features=["resource"]}
-once_cell = "1.17"
+nix = {version="0.27", features=["resource"]}
+once_cell = "1.19"
 ppp = "2.2"
 prometheus = "0.13"
 rand = "0.8"
@@ -55,7 +55,7 @@ serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 spool = {path="../spool", features=["rocksdb"]}
-sqlite = "0.31"
+sqlite = "0.32"
 thiserror = "1.0"
 throttle = {path="../throttle"}
 timeq = {path="../timeq"}
@@ -66,11 +66,11 @@ utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
 webpki-roots = {workspace=true}
-zstd = "0.12"
+zstd = "0.13"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5"
 
 [dev-dependencies]
-k9 = "0.11"
+k9 = "0.12"
 maplit = "1.0"
