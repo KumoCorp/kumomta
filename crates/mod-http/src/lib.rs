@@ -99,6 +99,21 @@ impl LuaUserData for RequestWrapper {
             Ok(this.clone())
         });
 
+        methods.add_method("timeout", |_, this, duration: Value| {
+            let duration = match duration {
+                Value::Number(n) => std::time::Duration::from_secs_f64(n),
+                Value::String(s) => {
+                    let s = s.to_str()?;
+                    humantime::parse_duration(&s).map_err(any_err)?
+                }
+                _ => {
+                    return Err(mlua::Error::external("invalid timeout duration"));
+                }
+            };
+            this.apply(|b| Ok(b.timeout(duration)))?;
+            Ok(this.clone())
+        });
+
         methods.add_method(
             "basic_auth",
             |_, this, (username, password): (String, Option<String>)| {
@@ -350,7 +365,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "build_client",
         lua.create_function(|lua, options: Value| {
             let options: ClientOptions = from_lua_value(lua, options)?;
-            let mut builder = ClientBuilder::new();
+            let mut builder = ClientBuilder::new().timeout(std::time::Duration::from_secs(60));
 
             if let Some(user_agent) = options.user_agent {
                 builder = builder.user_agent(user_agent);

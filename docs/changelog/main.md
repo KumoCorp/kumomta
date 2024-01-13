@@ -4,6 +4,11 @@
 
 ## Other Changes and Enhancements
 
+* Added a default timeout of 60 seconds to the HTTP client returned from
+  [kumo.http.build_client](../reference/kumo.http/build_client.md).
+  Added [request:timeout()](../reference/kumo.http/Request.md#requestimeout)
+  method to explicitly set a timeout value.
+
 ## Fixes
 
 * The `delivered_this_connection` counter was incorrectly double-counted for

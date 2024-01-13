@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
+humantime = "2.1"
 mail-builder = "0.2"
 mailparse = "0.14"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

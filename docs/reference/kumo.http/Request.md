@@ -98,3 +98,13 @@ request:form_multipart_data {
 Sends the request and returns [Response](Response.md) object representing
 the result of the request.
 
+## request:timeout(duration)
+
+{{since('dev', indent=True)}}
+    Sets the timeout duration for the request.  If no response is received
+    within the specified duration, the request will raise an error.
+
+    The default timeout is `"1 minute"`.
+
+    You may pass a number specifying the number of seconds (fractional
+    numbers like `1.5` are accepted), or a string like "1 minute".
