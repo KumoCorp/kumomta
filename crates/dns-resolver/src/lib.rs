@@ -48,6 +48,7 @@ pub struct MailExchanger {
     pub is_domain_literal: bool,
     /// DNSSEC verified
     pub is_secure: bool,
+    pub is_mx: bool,
 }
 
 pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
@@ -196,6 +197,7 @@ impl MailExchanger {
                             by_pref,
                             is_domain_literal: true,
                             is_secure: false,
+                            is_mx: false,
                         }));
                     }
                     Err(err) => {
@@ -218,6 +220,7 @@ impl MailExchanger {
                         by_pref,
                         is_domain_literal: true,
                         is_secure: false,
+                        is_mx: false,
                     }));
                 }
                 Err(err) => {
@@ -244,6 +247,7 @@ impl MailExchanger {
         }
 
         let is_secure = by_pref.iter().all(|p| p.is_secure);
+        let is_mx = by_pref.iter().all(|p| p.is_mx);
 
         let by_pref = by_pref
             .into_iter()
@@ -258,6 +262,7 @@ impl MailExchanger {
             by_pref,
             is_domain_literal: false,
             is_secure,
+            is_mx,
         };
 
         let mx = Arc::new(mx);
@@ -316,6 +321,7 @@ struct ByPreference {
     hosts: Vec<String>,
     pref: u16,
     is_secure: bool,
+    is_mx: bool,
 }
 
 async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
@@ -335,6 +341,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
                 hosts: vec![domain_name.to_string()],
                 pref: 1,
                 is_secure: false,
+                is_mx: false,
             }],
             mx_lookup.expires,
         ));
@@ -354,6 +361,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
                     hosts: vec![host],
                     pref,
                     is_secure: mx_lookup.secure,
+                    is_mx: true,
                 });
             }
         }
@@ -553,6 +561,7 @@ MailExchanger {
     },
     is_domain_literal: true,
     is_secure: false,
+    is_mx: false,
 }
 "#
         );
@@ -587,6 +596,7 @@ MailExchanger {
     },
     is_domain_literal: true,
     is_secure: false,
+    is_mx: false,
 }
 "#
         );
@@ -621,6 +631,7 @@ MailExchanger {
     },
     is_domain_literal: true,
     is_secure: false,
+    is_mx: false,
 }
 "#
         );
@@ -733,6 +744,7 @@ MailExchanger {
     },
     is_domain_literal: false,
     is_secure: false,
+    is_mx: true,
 }
 "#
         );
@@ -768,6 +780,7 @@ MailExchanger {
     },
     is_domain_literal: false,
     is_secure: true,
+    is_mx: true,
 }
 "#
         );
@@ -793,6 +806,7 @@ MailExchanger {
     },
     is_domain_literal: false,
     is_secure: true,
+    is_mx: true,
 }
 "#
         );
@@ -910,6 +924,7 @@ MailExchanger {
     },
     is_domain_literal: false,
     is_secure: false,
+    is_mx: false,
 }
 "#
         );

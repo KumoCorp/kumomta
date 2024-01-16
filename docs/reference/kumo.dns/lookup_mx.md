@@ -72,6 +72,8 @@ local example = {
   -- true if the domain is a literal IPv4 or IPv6 address such as
   -- `[10.0.0.1]` or `[IPv6:::1]`
   is_domain_literal = false,
+  -- true if the hosts are mx records
+  is_mx = true,
 }
 
 assert(gmail_mx == example)
