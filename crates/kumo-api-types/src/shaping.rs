@@ -690,7 +690,7 @@ mod test {
             .unwrap();
         k9::snapshot!(
             default,
-            "
+            r#"
 MergedEntry {
     params: EgressPathConfig {
         connection_limit: 10,
@@ -768,9 +768,54 @@ MergedEntry {
         suspended: false,
     },
     sources: {},
-    automation: [],
+    automation: [
+        Rule {
+            regex: [
+                Regex(
+                    /Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/,
+                ),
+                Regex(
+                    /All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/,
+                ),
+                Regex(
+                    /has been temporarily rate limited due to IP reputation/,
+                ),
+                Regex(
+                    /Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/,
+                ),
+                Regex(
+                    /Server busy\. Please try again later from/,
+                ),
+            ],
+            action: [
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "max_message_rate",
+                        value: HashableTomlValue {
+                            value: String(
+                                "1/minute",
+                            ),
+                        },
+                    },
+                ),
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "connection_limit",
+                        value: HashableTomlValue {
+                            value: Integer(
+                                1,
+                            ),
+                        },
+                    },
+                ),
+            ],
+            trigger: Immediate,
+            duration: 5400s,
+            was_rollup: false,
+        },
+    ],
 }
-"
+"#
         );
 
         let example_com = shaping
@@ -921,7 +966,52 @@ MergedEntry {
             suspended: false,
         },
     },
-    automation: [],
+    automation: [
+        Rule {
+            regex: [
+                Regex(
+                    /Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/,
+                ),
+                Regex(
+                    /All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/,
+                ),
+                Regex(
+                    /has been temporarily rate limited due to IP reputation/,
+                ),
+                Regex(
+                    /Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/,
+                ),
+                Regex(
+                    /Server busy\. Please try again later from/,
+                ),
+            ],
+            action: [
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "max_message_rate",
+                        value: HashableTomlValue {
+                            value: String(
+                                "1/minute",
+                            ),
+                        },
+                    },
+                ),
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "connection_limit",
+                        value: HashableTomlValue {
+                            value: Integer(
+                                1,
+                            ),
+                        },
+                    },
+                ),
+            ],
+            trigger: Immediate,
+            duration: 5400s,
+            was_rollup: false,
+        },
+    ],
 }
 "#
         );
@@ -1017,6 +1107,50 @@ MergedEntry {
     },
     sources: {},
     automation: [
+        Rule {
+            regex: [
+                Regex(
+                    /Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/,
+                ),
+                Regex(
+                    /All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/,
+                ),
+                Regex(
+                    /has been temporarily rate limited due to IP reputation/,
+                ),
+                Regex(
+                    /Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/,
+                ),
+                Regex(
+                    /Server busy\. Please try again later from/,
+                ),
+            ],
+            action: [
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "max_message_rate",
+                        value: HashableTomlValue {
+                            value: String(
+                                "1/minute",
+                            ),
+                        },
+                    },
+                ),
+                SetConfig(
+                    EgressPathConfigValue {
+                        name: "connection_limit",
+                        value: HashableTomlValue {
+                            value: Integer(
+                                1,
+                            ),
+                        },
+                    },
+                ),
+            ],
+            trigger: Immediate,
+            duration: 5400s,
+            was_rollup: false,
+        },
         Rule {
             regex: [
                 Regex(
