@@ -96,9 +96,24 @@ kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 ## Changes to the `shaping.toml` File
 
-In addition to the domain-level traffic shaping rules currently in your `shaping.toml` file, you add additional automation entries based on the event you are targeting.
+In addition to the domain-level traffic shaping rules currently in your `shaping.toml` file, you add additional automation entries based on the event you are targeting. The `regex` and `action` attributes can be passed as either single values or arrays.
 
 ```toml
+[["default".automation]]
+regex=[
+        '/Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/',
+        '/All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/',
+        '/has been temporarily rate limited due to IP reputation/',
+        '/Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/',
+        '/Server busy\. Please try again later from/'
+]
+action = [
+        {SetConfig={name="max_message_rate", value="1/minute"}},
+        {SetConfig={name="connection_limit", value=1}}
+]
+trigger = "Immediate"
+duration = "90m"
+
 [["example.com".automation]]
 regex = "250 2\\.0\\.0 Ok"
 # There is no "trigger" here, so the action is taken immediately

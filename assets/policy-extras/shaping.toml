@@ -51,6 +51,20 @@ data_dot_timeout = "60s"
 enable_tls = "Opportunistic"
 consecutive_connection_failures_before_delay = 100
 
+[["default".automation]]
+regex=[
+        '/Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/',
+        '/All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/',
+        '/has been temporarily rate limited due to IP reputation/',
+        '/Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/',
+        '/Server busy\. Please try again later from/'
+]
+action = [
+        {SetConfig={name="max_message_rate", value="1/minute"}},
+        {SetConfig={name="connection_limit", value=1}}
+]
+duration = "90m"
+
 # https://support.google.com/mail/answer/81126
 ["gmail.com"]
 max_deliveries_per_connection = 50
