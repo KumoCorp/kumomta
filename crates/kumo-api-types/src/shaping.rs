@@ -13,11 +13,15 @@ use kumo_log_types::JsonLogRecord;
 use mlua::prelude::LuaUserData;
 #[cfg(feature = "lua")]
 use mlua::{LuaSerdeExt, UserDataMethods};
-use serde::{Deserialize, Serialize};
+use serde::de::{SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use std::collections::HashMap;
 #[cfg(feature = "lua")]
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 #[cfg(feature = "lua")]
 use std::sync::Arc;
 use std::time::Duration;
@@ -201,11 +205,14 @@ pub enum Trigger {
     Threshold(ThrottleSpec),
 }
 
+#[serde_as]
 #[derive(Deserialize, Serialize, Debug, Hash, Clone)]
 pub struct Rule {
-    pub regex: Regex,
+    #[serde(deserialize_with = "string_or_array")]
+    pub regex: Vec<Regex>,
 
-    pub action: Action,
+    #[serde_as(deserialize_as = "OneOrMany<_, PreferOne>")]
+    pub action: Vec<Action>,
 
     #[serde(default)]
     pub trigger: Trigger,
@@ -219,7 +226,9 @@ pub struct Rule {
 
 impl Rule {
     pub fn matches(&self, response: &str) -> bool {
-        self.regex.is_match(response).unwrap_or(false)
+        self.regex
+            .iter()
+            .any(|r| r.is_match(response).unwrap_or(false))
     }
 
     pub fn clone_and_set_rollup(&self) -> Self {
@@ -601,6 +610,50 @@ impl PartialEntry {
     }
 }
 
+fn string_or_array<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    T: Deserialize<'de> + TryFrom<String>,
+    <T as TryFrom<String>>::Error: std::fmt::Debug,
+    D: Deserializer<'de>,
+{
+    // This is a Visitor that forwards string types to T's `TryFrom<String>` impl and
+    // forwards map types to T's `Deserialize` impl. The `PhantomData` is to
+    // keep the compiler from complaining about T being an unused generic type
+    // parameter. We need T in order to know the Value type for the Visitor
+    // impl.
+    struct StringOrArray<T>(PhantomData<fn() -> T>);
+
+    impl<'de, T> Visitor<'de> for StringOrArray<T>
+    where
+        T: Deserialize<'de> + TryFrom<String>,
+        <T as TryFrom<String>>::Error: std::fmt::Debug,
+    {
+        type Value = Vec<T>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("string or array")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Vec<T>, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![
+                T::try_from(value.to_string()).map_err(|e| E::custom(format!("{e:?}")))?
+            ])
+        }
+
+        fn visit_seq<S>(self, seq: S) -> Result<Vec<T>, S::Error>
+        where
+            S: SeqAccess<'de>,
+        {
+            Deserialize::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
+        }
+    }
+
+    deserializer.deserialize_any(StringOrArray(PhantomData))
+}
+
 #[cfg(feature = "lua")]
 fn default_true() -> bool {
     true
@@ -965,10 +1018,14 @@ MergedEntry {
     sources: {},
     automation: [
         Rule {
-            regex: Regex(
-                \[TS04\],
-            ),
-            action: Suspend,
+            regex: [
+                Regex(
+                    \[TS04\],
+                ),
+            ],
+            action: [
+                Suspend,
+            ],
             trigger: Immediate,
             duration: 7200s,
             was_rollup: false,

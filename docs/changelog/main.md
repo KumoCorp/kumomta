@@ -8,6 +8,8 @@
   [kumo.http.build_client](../reference/kumo.http/build_client.md).
   Added [request:timeout()](../reference/kumo.http/Request.md#requestimeout)
   method to explicitly set a timeout value.
+* You may now list multiple `regex`s and/or multiple `action`s for TSA rules
+  by using an array in your toml file. Single values are still supported. #99
 
 ## Fixes
 

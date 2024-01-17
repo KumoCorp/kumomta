@@ -3,7 +3,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::CallbackSignature;
 use dns_resolver::MailExchanger;
-use kumo_api_types::shaping::{Action, EgressPathConfigValue, Rule, Shaping, Trigger};
+use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
@@ -97,7 +97,22 @@ fn create_config(
     let value = serde_json::to_string(&config.value)?;
     upsert.bind(("$value", value.as_str()))?;
 
-    let reason = format!("automation rule: {}", rule.regex.to_string());
+    fn regex_list_to_string(list: &[Regex]) -> String {
+        if list.len() == 1 {
+            list[0].to_string()
+        } else {
+            let mut result = "(".to_string();
+            for (n, r) in list.iter().enumerate() {
+                if n > 0 {
+                    result.push(',');
+                }
+                result.push_str(&r.to_string());
+            }
+            result
+        }
+    }
+
+    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
     upsert.bind(("$reason", reason.as_str()))?;
     upsert.bind(("$expires", expires.as_str()))?;
 
@@ -225,22 +240,24 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
         // To enact the action, we need to generate (or update) a row
         // in the db with its effects and its expiry
         if triggered {
-            match &m.action {
-                Action::Suspend => {
-                    create_config(
-                        &rule_hash,
-                        m,
-                        &record,
-                        &EgressPathConfigValue {
-                            name: "suspended".to_string(),
-                            value: toml::Value::Boolean(true).into(),
-                        },
-                        &domain,
-                        &source,
-                    )?;
-                }
-                Action::SetConfig(config) => {
-                    create_config(&rule_hash, m, &record, config, &domain, &source)?;
+            for action in &m.action {
+                match action {
+                    Action::Suspend => {
+                        create_config(
+                            &rule_hash,
+                            m,
+                            &record,
+                            &EgressPathConfigValue {
+                                name: "suspended".to_string(),
+                                value: toml::Value::Boolean(true).into(),
+                            },
+                            &domain,
+                            &source,
+                        )?;
+                    }
+                    Action::SetConfig(config) => {
+                        create_config(&rule_hash, m, &record, config, &domain, &source)?;
+                    }
                 }
             }
         }
