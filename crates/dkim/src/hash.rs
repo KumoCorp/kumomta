@@ -132,6 +132,34 @@ impl HeaderList {
         }
     }
 
+    /// Computes the header list that should be used to over-sign
+    /// the provided email message, and returns it
+    pub fn compute_over_signed(&self, email: &ParsedEmail) -> Self {
+        let unique_header_names = match self {
+            Self::Unique(names) => names.clone(),
+            Self::MaybeMultiple(names) => {
+                // Note that Self::new() normalized the names, so we can
+                // simply dedup without further concern for normalization
+                let mut n = names.clone();
+                n.sort();
+                n.dedup();
+                n
+            }
+        };
+
+        let email_headers = email.get_headers();
+
+        let mut result = vec![];
+        for name in unique_header_names {
+            for _ in email_headers.iter_named(&name) {
+                result.push(name.clone());
+            }
+            result.push(name);
+        }
+
+        Self::MaybeMultiple(result)
+    }
+
     /// Build a header list.
     /// Analyzes the list to determine whether it is a unique list or not
     pub fn new(list: Vec<String>) -> Self {

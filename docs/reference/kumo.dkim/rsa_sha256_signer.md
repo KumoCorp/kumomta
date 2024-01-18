@@ -108,3 +108,33 @@ cache.  The default is `300` seconds.
 Each call to this function with the same parameters is cached for up to the
 specified TTL in order to avoid the overhead of repeatedly load the key from
 disk.
+
+## over_sign
+
+{{since('dev', indent=True)}}
+
+    Optional boolean. If `true` then the list of `headers` will be adjusted
+    to match the email message being signed so that the message is signed
+    in such a way that a replay attack cannot forge additional headers
+    without invalidating the signature.
+
+    The way this works is by counting the number of headers in the message,
+    so if you set:
+
+    ```lua
+    headers = {'From', 'To', 'Subject'},
+    ```
+
+    and the message had 1 instance each of `From` and `To`, but was, for whatever
+    reason, missing the `Subject` header, it would compute the effective header
+    list as:
+
+    ```
+    headers = {'From', 'From', 'To', 'To', 'Subject'},
+    ```
+
+    In other words, it will compute `N` as the number of times each of your listed
+    headers are found in the email to be signed, then treat it as though you listed
+    that name `N+1` times in your configuration.
+
+

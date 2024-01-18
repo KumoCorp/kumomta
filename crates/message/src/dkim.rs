@@ -54,6 +54,7 @@ pub struct SignerConfig {
     body_canonicalization: Canon,
 
     key: KeySource,
+    over_sign: bool,
 
     #[serde(default = "SignerConfig::default_ttl")]
     ttl: u64,
@@ -87,6 +88,7 @@ impl SignerConfig {
             .with_private_key(key)
             .with_selector(&self.selector)
             .with_signing_domain(&self.domain)
+            .with_over_signing(self.over_sign)
             .with_header_canonicalization(match self.header_canonicalization {
                 Canon::Relaxed => kumo_dkim::canonicalization::Type::Relaxed,
                 Canon::Simple => kumo_dkim::canonicalization::Type::Simple,

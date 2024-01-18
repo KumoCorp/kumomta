@@ -17,6 +17,7 @@ pub struct SignerBuilder {
     header_canonicalization: canonicalization::Type,
     body_canonicalization: canonicalization::Type,
     expiry: Option<chrono::Duration>,
+    over_sign: bool,
 }
 
 impl SignerBuilder {
@@ -29,6 +30,7 @@ impl SignerBuilder {
             signing_domain: None,
             expiry: None,
             time: None,
+            over_sign: false,
 
             header_canonicalization: canonicalization::Type::Simple,
             body_canonicalization: canonicalization::Type::Simple,
@@ -49,6 +51,15 @@ impl SignerBuilder {
 
         self.signed_headers = Some(headers);
         Ok(self)
+    }
+
+    /// Enable automatic over-signing. Each configured header in the list of headers
+    /// to sign will be counted in the message, and it will be signed N+1 times
+    /// so that the resultant signature will be proof against a replay attack
+    /// that inserts an additional header of the same name.
+    pub fn with_over_signing(mut self, over_sign: bool) -> Self {
+        self.over_sign = over_sign;
+        self
     }
 
     /// Specify the private key used to sign the email
@@ -126,6 +137,7 @@ impl SignerBuilder {
             expiry: self.expiry,
             hash_algo,
             time: self.time,
+            over_sign: self.over_sign,
         })
     }
 }
@@ -146,6 +158,7 @@ pub struct Signer {
     expiry: Option<chrono::Duration>,
     hash_algo: hash::HashAlgo,
     time: Option<chrono::DateTime<chrono::offset::Utc>>,
+    over_sign: bool,
 }
 
 /// DKIM signer. Use the [SignerBuilder] to build an instance.
@@ -153,10 +166,19 @@ impl Signer {
     /// Sign a message
     /// As specified in <https://datatracker.ietf.org/doc/html/rfc6376#section-5>
     pub fn sign<'b>(&self, email: &'b ParsedEmail<'b>) -> Result<String, DKIMError> {
-        let body_hash = self.compute_body_hash(email)?;
-        let dkim_header_builder = self.dkim_header_builder(&body_hash)?;
+        let over_sign_header_list;
+        let effective_header_list = if self.over_sign {
+            over_sign_header_list = self.signed_headers.compute_over_signed(email);
+            &over_sign_header_list
+        } else {
+            &self.signed_headers
+        };
 
-        let header_hash = self.compute_header_hash(email, dkim_header_builder.clone())?;
+        let body_hash = self.compute_body_hash(email)?;
+        let dkim_header_builder = self.dkim_header_builder(&body_hash, effective_header_list)?;
+
+        let header_hash =
+            self.compute_header_hash(email, effective_header_list, dkim_header_builder.clone())?;
 
         let signature = match &self.private_key {
             DkimPrivateKey::Rsa(private_key) => private_key
@@ -227,7 +249,11 @@ impl Signer {
         Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
     }
 
-    fn dkim_header_builder(&self, body_hash: &str) -> Result<DKIMHeaderBuilder, DKIMError> {
+    fn dkim_header_builder(
+        &self,
+        body_hash: &str,
+        effective_header_list: &HeaderList,
+    ) -> Result<DKIMHeaderBuilder, DKIMError> {
         let now = chrono::offset::Utc::now();
 
         let mut builder = DKIMHeaderBuilder::new()
@@ -244,7 +270,7 @@ impl Signer {
                 ),
             )
             .add_tag("bh", body_hash)
-            .set_signed_headers(&self.signed_headers);
+            .set_signed_headers(effective_header_list);
         if let Some(expiry) = self.expiry {
             builder = builder.set_expiry(expiry)?;
         }
@@ -266,6 +292,7 @@ impl Signer {
     fn compute_header_hash<'b>(
         &self,
         email: &'b ParsedEmail<'b>,
+        effective_header_list: &HeaderList,
         dkim_header_builder: DKIMHeaderBuilder,
     ) -> Result<Vec<u8>, DKIMError> {
         let canonicalization = self.header_canonicalization;
@@ -275,7 +302,7 @@ impl Signer {
 
         hash::compute_headers_hash(
             canonicalization,
-            &self.signed_headers,
+            effective_header_list,
             self.hash_algo,
             &dkim_header,
             email,
@@ -288,6 +315,46 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use std::fs;
+
+    #[test]
+    fn test_over_sign_rsa() {
+        let raw_email = r#"Subject: subject
+From: Sven Sauleau <sven@cloudflare.com>
+
+Hello Alice
+        "#
+        .replace("\n", "\r\n");
+        let email = ParsedEmail::parse(raw_email).unwrap();
+
+        let private_key = DkimPrivateKey::rsa_key_file("./test/keys/2022.private").unwrap();
+        let time = chrono::Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 1).unwrap();
+
+        let signer = SignerBuilder::new()
+            .with_signed_headers(["From", "Subject"])
+            .unwrap()
+            .with_private_key(private_key)
+            .with_selector("s20")
+            .with_signing_domain("example.com")
+            .with_time(time)
+            .with_over_signing(true)
+            .build()
+            .unwrap();
+        let header = signer.sign(&email).unwrap();
+
+        k9::snapshot!(
+            header,
+            r#"
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
+\tbh=KXQwQpX2zFwgixPbV6Dd18ZMJU04lLeRnwqzUp8uGwI=;\r
+\th=from:from:subject:subject; t=1609459201;\r
+\tb=RIi7B309UuepQL7XMSlbGxdAQR6suGh6aiLwXFY+7q+JkuB/Le3a4OL9nvF5jZ8sM84D2o/JR\r
+\t4G9scGNr9CzdtvPFRiAQJvo7RfMmMwIYKWdvVEzdsm83h/P04FzU8sHBUONNc6LPfl65nMQuLbE\r
+\tXJc+5grPAvvFTyAN3F7z/ZTGVNDS2SAHMwwACCEq1zzmqjMAiBm6KpBQCN3siYsIwOgiBbk8Vwz\r
+\tv4auuTPeeHQNE1luTpZhakC6SxX+iiBo1sHIoU+3J9gU0ye2QescQNPWFCw53XSqlYUtNsEx8OB\r
+\tQyUd7c5MfN/w29d1CCCtPqJfnKvy2CkVUbavPPdMVdBw==;
+"#
+        );
+    }
 
     #[test]
     fn test_sign_rsa() {

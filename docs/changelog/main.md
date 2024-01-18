@@ -10,6 +10,10 @@
   method to explicitly set a timeout value.
 * You may now list multiple `regex`s and/or multiple `action`s for TSA rules
   by using an array in your toml file. Single values are still supported. #99
+* Added [over_sign](../reference/kumo.dkim/rsa_sha256_signer.md#over_sign)
+  optional to easily enabled DKIM over-signing to protect your messages
+  against replay attacks. The same option can be set for the ed25519_signer
+  as well. #111
 
 ## Fixes
 
