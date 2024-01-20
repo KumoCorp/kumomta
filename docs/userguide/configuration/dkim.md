@@ -204,6 +204,10 @@ headers = [
   "List-Owner", "List-Archive"
   ]
 
+# Automatic oversigning can help prevent certain DKIM replay attacks by asserting
+# absence of any additional copies of a given header.
+over_sign = true
+
 # Domain blocks match based on the sender domain of the
 # incoming message
 [domain."example.com"]
