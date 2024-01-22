@@ -33,13 +33,12 @@ key = '/opt/kumomta/etc/dkim/mydomain.com/myselector.key'
 
 msg:dkim_sign (signer_one)
 
-local signer_two kumo.dkim.rsa_sha256_signer ( domain = `my_esp_domain.com`,
+local signer_two kumo.dkim.rsa_sha256_signer ( domain = 'my_esp_domain.com',
 selector = 'my_esp_selector',
 headers = ('Content-Type', 'Message-Id','Subject'),
 key = '/opt/kumomta/etc/dkim/my_esp_domain.com/my_esp_selector.key'
 
 msg:dkim_sign (signer_two)
-
 ```
 
 Because you have granular control in Lua for signing, you can add as many signers as you wish, and set them either programmatically or arbitrarily depending on your needs.
