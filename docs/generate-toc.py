@@ -114,7 +114,7 @@ TOC = [
         "FAQ",
         None,
         children=[
-
+            Page("How do I resolve a `Permission Denied` error?", "faq/permission_denied.md"),
         ],
     ),
     Page(
