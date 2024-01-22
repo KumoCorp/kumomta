@@ -112,7 +112,7 @@ The following crates are part of the KumoMTA workspace:
 TOC = [
     Page(
         "FAQ",
-        Page("FAQ","faq/index.md"),
+        "faq/index.md",
         children=[
             Page("How Do I Resolve a `Permission Denied` Error?", "faq/permission_denied.md"),
             Page("How Can I Apply Multiple DKIM Signatures to a Message?","faq/multiple_dkim_signatures.md"),
