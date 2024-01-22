@@ -28,14 +28,14 @@ If you are directly controlling DKIM signing using Lua, additional signatures ar
 kumo.on('smtp_server_message_received', function(msg)
 local signer_one kumo.dkim.rsa_sha256_signer ( domain = msg:from_header().domain,
 selector = 'myselector',
-headers = ("Content-Type', 'Message-Id','Subject',)
+headers = ('Content-Type', 'Message-Id','Subject')
 key = '/opt/kumomta/etc/dkim/mydomain.com/myselector.key
 
 msg:dkim_sign (signer_one)
 
 local signer_two kumo.dkim.rsa_sha256_signer ( domain = `my_esp_domain.com`,
 selector = 'my_esp_selector',
-headers = ("Content-Type', 'Message-Id','Subject',)
+headers = ('Content-Type', 'Message-Id','Subject')
 key = '/opt/kumomta/etc/dkim/my_esp_domain.com/my_esp_selector.key
 
 msg:dkim_sign (signer_two)
