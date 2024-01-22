@@ -114,7 +114,9 @@ TOC = [
         "FAQ",
         None,
         children=[
-            Page("How do I resolve a `Permission Denied` error?", "faq/permission_denied.md"),
+            Page("How Do I Resolve a `Permission Denied` Error?", "faq/permission_denied.md"),
+            Page("How Can I Apply Multiple DKIM Signatures to a Message?","faq/multiple_dkim_signatures.md"),
+            Page("How Can I Test TLS Message Injection?", "faq/test_tls_injection.md"),
         ],
     ),
     Page(
