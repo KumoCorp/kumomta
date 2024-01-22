@@ -118,6 +118,7 @@ TOC = [
             Page("How Can I Apply Multiple DKIM Signatures to a Message?","faq/multiple_dkim_signatures.md"),
             Page("How Can I Test TLS Message Injection?", "faq/test_tls_injection.md"),
             Page("How Do I Configure POP3/IMAP?", "faq/pop3_imap.md"),
+            Page("Why is KumoMTA Accepting Connections From Systems Not Listed in relay_hosts?","faq/non_relay_hosts.md"),
         ],
     ),
     Page(
