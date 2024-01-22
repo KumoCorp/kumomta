@@ -111,6 +111,13 @@ The following crates are part of the KumoMTA workspace:
 
 TOC = [
     Page(
+        "FAQ",
+        None,
+        children=[
+
+        ],
+    ),
+    Page(
         "Tutorial",
         None,
         children=[
