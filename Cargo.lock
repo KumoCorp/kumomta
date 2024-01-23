@@ -979,7 +979,7 @@ dependencies = [
  "bitstring",
  "cidr",
  "config",
- "k9",
+ "k9 0.12.0",
  "mlua",
  "mod-memoize",
  "serde",
@@ -1060,6 +1060,17 @@ name = "colorchoice"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
+
+[[package]]
+name = "colored"
+version = "1.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a5f741c91823341bebf717d4c71bda820630ce065443b58bd1b7451af008355"
+dependencies = [
+ "is-terminal",
+ "lazy_static",
+ "winapi",
+]
 
 [[package]]
 name = "colored"
@@ -1596,7 +1607,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "hickory-resolver",
- "k9",
+ "k9 0.12.0",
  "kumo-log-types",
  "libunbound",
  "lruttl",
@@ -1629,7 +1640,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
- "k9",
+ "k9 0.12.0",
  "mlua",
  "mod-memoize",
  "serde",
@@ -2667,7 +2678,7 @@ dependencies = [
  "axum-server",
  "chrono",
  "futures-lite 2.3.0",
- "k9",
+ "k9 0.12.0",
  "kumo-api-types",
  "kumo-log-types",
  "lapin",
@@ -2803,12 +2814,29 @@ dependencies = [
 
 [[package]]
 name = "k9"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32ddb58b0079a063218472916af599f2753ccb40942cdaba9d1f3fefccef17a9"
+dependencies = [
+ "anyhow",
+ "colored 1.9.4",
+ "diff",
+ "lazy_static",
+ "libc",
+ "proc-macro2 1.0.86",
+ "regex",
+ "syn 1.0.109",
+ "term_size",
+]
+
+[[package]]
+name = "k9"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "088bcebb5b68b1b14b64d7f05b0f802719250b97fdc0338ec42529ea777ed614"
 dependencies = [
  "anyhow",
- "colored",
+ "colored 2.1.0",
  "diff",
  "lazy_static",
  "libc",
@@ -2886,7 +2914,7 @@ dependencies = [
  "duration-serde",
  "fancy-regex 0.11.0",
  "futures-util",
- "k9",
+ "k9 0.12.0",
  "kumo-log-types",
  "mlua",
  "mod-memoize",
@@ -2931,7 +2959,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "indexmap 2.5.0",
- "k9",
+ "k9 0.12.0",
  "mailparsing",
  "memchr",
  "nom 7.1.3",
@@ -2954,7 +2982,7 @@ dependencies = [
  "bounce-classify",
  "chrono",
  "data-encoding",
- "k9",
+ "k9 0.12.0",
  "mailparsing",
  "rfc5321",
  "serde",
@@ -3084,6 +3112,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-spf"
+version = "0.1.0"
+dependencies = [
+ "cidr",
+ "k9 0.11.6",
+]
+
+[[package]]
 name = "kumod"
 version = "0.1.0"
 dependencies = [
@@ -3111,7 +3147,7 @@ dependencies = [
  "gcd",
  "gethostname",
  "humansize",
- "k9",
+ "k9 0.12.0",
  "kumo-api-types",
  "kumo-chrono-helper",
  "kumo-log-types",
@@ -3455,7 +3491,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "data-encoding-macro",
- "k9",
+ "k9 0.12.0",
  "memchr",
  "nom 7.1.3",
  "nom_locate",
@@ -3557,7 +3593,7 @@ dependencies = [
  "data-loader",
  "dns-resolver",
  "futures",
- "k9",
+ "k9 0.12.0",
  "kumo-chrono-helper",
  "kumo-dkim",
  "kumo-log-types",
@@ -3952,7 +3988,7 @@ dependencies = [
  "dns-resolver",
  "futures",
  "hickory-resolver",
- "k9",
+ "k9 0.12.0",
  "lruttl",
  "reqwest 0.12.7",
  "tokio",
@@ -6228,6 +6264,16 @@ dependencies = [
  "once_cell",
  "rustix 0.38.37",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "term_size"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e4129646ca0ed8f45d09b929036bafad5377103edd06e50bf574b353d2b08d9"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
