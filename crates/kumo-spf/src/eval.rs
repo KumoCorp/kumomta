@@ -183,6 +183,7 @@ mod test {
                  .0.0.0.0.8.b.d.0.1.0.0.2.ip6._spf.example.com",
             ),
             ("%{c}", "2001:db8::cb01"),
+            ("%{C}", "2001:db8::cb01"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
             let output = ctx.evaluate(&spec.elements).unwrap();

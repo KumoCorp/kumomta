@@ -456,17 +456,17 @@ pub enum MacroName {
 impl MacroName {
     fn parse(s: &str) -> Result<Self, String> {
         Ok(match s {
-            "s" => Self::Sender,
-            "l" => Self::LocalPart,
-            "o" => Self::SenderDomain,
-            "d" => Self::Domain,
-            "i" => Self::Ip,
-            "p" => Self::ValidatedDomainName,
-            "v" => Self::ReverseDns,
-            "h" => Self::HeloDomain,
-            "c" => Self::ClientIp,
-            "r" => Self::RelayingHostName,
-            "t" => Self::CurrentUnixTimeStamp,
+            "s" | "S" => Self::Sender,
+            "l" | "L" => Self::LocalPart,
+            "o" | "O" => Self::SenderDomain,
+            "d" | "D" => Self::Domain,
+            "i" | "I" => Self::Ip,
+            "p" | "P" => Self::ValidatedDomainName,
+            "v" | "V" => Self::ReverseDns,
+            "h" | "H" => Self::HeloDomain,
+            "c" | "C" => Self::ClientIp,
+            "r" | "R" => Self::RelayingHostName,
+            "t" | "T" => Self::CurrentUnixTimeStamp,
             _ => return Err(format!("invalid macro name {s}")),
         })
     }
