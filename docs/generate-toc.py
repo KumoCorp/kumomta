@@ -403,6 +403,7 @@ TOC = [
             Page("What Is KumoMTA?", "faq/what_is_kumomta.md"),
             Page("Who is KumoMTA For?", "faq/who_is_kumomta_for.md"),
             Page("How Can I Get Help With KumoMTA?", "faq/how_can_I_get_help_with_kumomta.md"),
+            Page("Is There a SaaS Version of KumoMTA?", "is_there_a_saas_version_of_kumomta.md"),
             Page("How Do I Resolve a `Permission Denied` Error?", "faq/permission_denied.md"),
             Page("How Can I Apply Multiple DKIM Signatures to a Message?","faq/multiple_dkim_signatures.md"),
             Page("How Can I Test TLS Message Injection?", "faq/test_tls_injection.md"),
