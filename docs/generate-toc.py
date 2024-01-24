@@ -409,6 +409,8 @@ TOC = [
             Page("How Can I Test TLS Message Injection?", "faq/test_tls_injection.md"),
             Page("How Do I Configure POP3/IMAP?", "faq/pop3_imap.md"),
             Page("Why is KumoMTA Accepting Connections From Systems Not Listed in relay_hosts?","faq/non_relay_hosts.md"),
+            Page("Can I Migrate From PowerMTA to KumoMTA?", "faq/can_i_migrate_from_powermta_to_kumomta.md"),
+            Page("Can I Migrate From Momentum (Ecelerity) to KumoMTA?", "faq/can_i_migrate_from_momentum_ecelerity_to_kumomta.md"),
         ],
     ),
     Gen("Changelog", "changelog", extract_title=True, reverse=True),
