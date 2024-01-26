@@ -54,6 +54,7 @@ pub struct SignerConfig {
     body_canonicalization: Canon,
 
     key: KeySource,
+    #[serde(default)]
     over_sign: bool,
 
     #[serde(default = "SignerConfig::default_ttl")]
