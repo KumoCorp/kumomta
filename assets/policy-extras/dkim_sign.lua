@@ -231,6 +231,7 @@ local function do_dkim_sign(msg, data)
             or base.header_canonicalization,
           body_canonicalization = sig_config.body_canonicalization
             or base.body_canonicalization,
+          over_sign = sig_config.over_sign or base.over_sign,
         }
 
         if base.vault_mount then
