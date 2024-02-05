@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = {workspace=true}
-axum-client-ip = "0.4"
+axum-client-ip = "0.5"
 axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
-clap = {version="4.1", features=["derive"]}
+clap = {version="4.4", features=["derive"]}
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver"}
 hex = "0.4"
@@ -21,18 +21,18 @@ kumo-server-common = {path="../kumo-server-common"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-once_cell = "1.17"
+once_cell = "1.19"
 rfc5321= {path="../rfc5321"}
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 sha2 = "0.10"
-sqlite = "0.31"
+sqlite = "0.32"
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 tikv-jemallocator = "0.5"
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
-toml = "0.7"
-toml_edit = "0.19"
+toml = "0.8"
+toml_edit = "0.21"
 tracing = "0.1"
 utoipa = {workspace=true}
 version-info = {path="../version-info"}
