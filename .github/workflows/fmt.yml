@@ -40,7 +40,7 @@ jobs:
       with:
         toolchain: stable
     - name: Install stylua
-      uses: baptiste0928/cargo-install@v2
+      uses: baptiste0928/cargo-install@v3
       with:
         crate: stylua
         features: lua54
