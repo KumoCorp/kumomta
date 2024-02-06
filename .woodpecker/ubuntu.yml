@@ -109,10 +109,7 @@ steps:
       - "./assets/upload-package.sh ${UBUNTU_IMAGE} *.deb"
 
   dry-run-build-docker-image:
-    # Note that this cannot verify the debs we just built,
-    # it can only verify that the docker file seems to work
-    # with whatever currently published debs happen to
-    # be in our apt repo
+    depends_on: [build]
     when:
       - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && (CI_PIPELINE_EVENT == "pull_request" || (CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH != "main"))'
     image: plugins/docker
