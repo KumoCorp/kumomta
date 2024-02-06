@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = {workspace=true}
-axum-client-ip = "0.4"
+axum-client-ip = "=0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
 backtrace = "0.3"
 cidr-map = {path="../cidr-map"}
