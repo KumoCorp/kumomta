@@ -31,7 +31,7 @@ tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on
 tikv-jemallocator = "0.5"
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
-toml = "0.7"
+toml = "0.8"
 toml_edit = "0.22"
 tracing = "0.1"
 utoipa = {workspace=true}
