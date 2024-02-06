@@ -38,6 +38,7 @@ once_cell = "1.17"
 openssl = { version="=0.10.60" } # pinned; see patch below
 openssl-sys = { version="0.9" }
 rustls = "0.21"
+sqlite = "0.32"
 tempfile = "3.8"
 tokio = "1.32"
 tokio-rustls = "0.24"

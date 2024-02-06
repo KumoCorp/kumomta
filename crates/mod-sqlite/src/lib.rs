@@ -2,7 +2,7 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
 use serde_json::{Map, Value as JsonValue};
-use sqlite::{Connection, ConnectionWithFullMutex, ParameterIndex, State, Statement, Type};
+use sqlite::{Connection, ConnectionThreadSafe, ParameterIndex, State, Statement, Type};
 use std::sync::Arc;
 
 fn bind_param<I: ParameterIndex>(
@@ -92,7 +92,7 @@ fn get_column(stmt: &Statement, index: usize) -> anyhow::Result<JsonValue> {
 }
 
 #[derive(Clone)]
-struct Conn(Arc<ConnectionWithFullMutex>);
+struct Conn(Arc<ConnectionThreadSafe>);
 
 impl Conn {
     // Sqlite queries are blocking and we cannot safely block an async
@@ -174,7 +174,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     sqlite_mod.set(
         "open",
         lua.create_function(move |_, (path, busy_timeout): (String, Option<usize>)| {
-            let mut db = Connection::open_with_full_mutex(path).map_err(any_err)?;
+            let mut db = Connection::open_thread_safe(path).map_err(any_err)?;
             db.set_busy_timeout(busy_timeout.unwrap_or(500))
                 .map_err(any_err)?;
             Ok(Conn(Arc::new(db)))

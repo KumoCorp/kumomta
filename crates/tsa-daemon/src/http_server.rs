@@ -13,7 +13,7 @@ use rfc5321::ForwardPath;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
-use sqlite::{Connection, ConnectionWithFullMutex};
+use sqlite::{Connection, ConnectionThreadSafe};
 use std::hash::Hash;
 use std::sync::Mutex;
 use toml_edit::{value, Value as TomlValue};
@@ -21,11 +21,11 @@ use utoipa::OpenApi;
 
 pub static DB_PATH: Lazy<Mutex<String>> =
     Lazy::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
-static HISTORY: Lazy<ConnectionWithFullMutex> = Lazy::new(|| open_history_db().unwrap());
+static HISTORY: Lazy<ConnectionThreadSafe> = Lazy::new(|| open_history_db().unwrap());
 
-fn open_history_db() -> anyhow::Result<ConnectionWithFullMutex> {
+fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();
-    let db = Connection::open_with_full_mutex(&path)
+    let db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening TSA database {path}"))?;
 
     let query = r#"

@@ -474,7 +474,7 @@ impl KumoDaemon {
     pub fn accounting_stats(&self) -> anyhow::Result<AccountingStats> {
         let path = self.dir.path().join("accounting.db");
 
-        let db = Connection::open_with_full_mutex(&path)
+        let db = Connection::open_thread_safe(&path)
             .with_context(|| format!("opening accounting database {path:?}"))?;
 
         let mut stmt = db

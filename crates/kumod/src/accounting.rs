@@ -7,7 +7,7 @@ use chrono::prelude::*;
 use core::sync::atomic::AtomicUsize;
 use kumo_server_lifecycle::ShutdownSubcription;
 use once_cell::sync::Lazy;
-use sqlite::{Connection, ConnectionWithFullMutex};
+use sqlite::{Connection, ConnectionThreadSafe};
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -139,10 +139,10 @@ pub fn account_delivery(protocol: &str) {
     ACCT.inc_delivered(1);
 }
 
-fn open_accounting_db() -> anyhow::Result<ConnectionWithFullMutex> {
+fn open_accounting_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();
     tracing::trace!("using path {path:?} for accounting db");
-    let db = Connection::open_with_full_mutex(&path)
+    let db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening accounting database {path}"))?;
 
     let query = r#"
