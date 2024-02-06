@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = {workspace=true}
-axum-client-ip = "0.4"
+axum-client-ip = "0.5"
 axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 clap = {version="4.1", features=["derive"]}
@@ -31,8 +31,8 @@ tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on
 tikv-jemallocator = "0.5"
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
-toml = "0.7"
-toml_edit = "0.19"
+toml = "0.8"
+toml_edit = "0.22"
 tracing = "0.1"
 utoipa = {workspace=true}
 version-info = {path="../version-info"}
