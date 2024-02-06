@@ -409,8 +409,9 @@ async fn do_get_config() -> anyhow::Result<String> {
         let item = Item::Value(config_value);
         source_entry.insert(&name, item);
 
-        if let Some(decor) = source_entry.key_decor_mut(&name) {
-            decor.set_prefix(format!("# reason: {reason}\n# expires: {expires}\n"));
+        if let Some(mut key) = source_entry.key_mut(&name) {
+            key.leaf_decor_mut()
+                .set_prefix(format!("# reason: {reason}\n# expires: {expires}\n"));
         }
     }
 

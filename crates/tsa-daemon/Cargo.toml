@@ -32,7 +32,7 @@ tikv-jemallocator = "0.5"
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
 toml = "0.7"
-toml_edit = "0.19"
+toml_edit = "0.22"
 tracing = "0.1"
 utoipa = {workspace=true}
 version-info = {path="../version-info"}

@@ -4116,7 +4116,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
 dependencies = [
  "once_cell",
- "toml_edit",
+ "toml_edit 0.19.15",
 ]
 
 [[package]]
@@ -5789,7 +5789,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit",
+ "toml_edit 0.19.15",
 ]
 
 [[package]]
@@ -5810,6 +5810,17 @@ dependencies = [
  "indexmap 2.2.2",
  "serde",
  "serde_spanned",
+ "toml_datetime",
+ "winnow",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c9ffdf896f8daaabf9b66ba8e77ea1ed5ed0f72821b398aba62352e95062951"
+dependencies = [
+ "indexmap 2.2.2",
  "toml_datetime",
  "winnow",
 ]
@@ -6037,7 +6048,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "toml",
- "toml_edit",
+ "toml_edit 0.22.4",
  "tracing",
  "utoipa",
  "version-info",
