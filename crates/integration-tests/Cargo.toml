@@ -9,10 +9,10 @@ edition = "2021"
 anyhow = "1.0"
 axum = {workspace=true}
 axum-server = {workspace=true}
-k9 = "0.11"
+k9 = "0.12"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
-lipsum = "0.8"
+lipsum = "0.9"
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 nix = {version="0.27", features=["signal"]}
@@ -23,4 +23,4 @@ sqlite = {workspace=true}
 tempfile = {workspace=true}
 textwrap = "0.16"
 tokio = {workspace=true, features=["full"]}
-zstd = "0.12"
+zstd = "0.13"
