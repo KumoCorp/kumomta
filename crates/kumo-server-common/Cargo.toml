@@ -39,7 +39,7 @@ mod-kafka = {path="../mod-kafka"}
 mod-memoize = {path="../mod-memoize"}
 mod-redis = {path="../mod-redis"}
 mod-sqlite = {path="../mod-sqlite"}
-nix = "0.26"
+nix = {version="0.27", features=["signal"]}
 once_cell = "1.17"
 prometheus = "0.13"
 rcgen = "0.10"

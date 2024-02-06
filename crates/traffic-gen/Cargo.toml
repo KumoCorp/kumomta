@@ -13,7 +13,7 @@ futures = "0.3"
 humansize = "2.1" # for printing
 humanize-rs = "0.1" # for parsing
 lipsum = "0.8"
-nix = {version="0.26", features=["resource"]}
+nix = {version="0.27", features=["resource"]}
 num-format = "0.4"
 once_cell = "1.17"
 rand = "0.8"
