@@ -367,7 +367,7 @@ impl SmtpClient {
         // [authzid] NUL authcid NUL passwd
         let password = password.unwrap_or("");
         let payload = format!("\x00{username}\x00{password}");
-        let payload = base64::encode(&payload);
+        let payload = data_encoding::BASE64.encode(payload.as_bytes());
 
         let response = self
             .send_command(&Command::Auth {

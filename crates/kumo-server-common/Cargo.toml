@@ -11,11 +11,11 @@ axum = {workspace=true}
 axum-client-ip = "0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
 backtrace = "0.3"
-base64 = "0.13"
 cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
 console-subscriber = "0.1"
+data-encoding = "2.5"
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
 gethostname = "0.4"

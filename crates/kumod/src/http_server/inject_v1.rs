@@ -418,7 +418,7 @@ impl InjectV1Request {
                     let part = MimePart::new_binary(
                         &a.content_type,
                         if a.base64 {
-                            decoded_data = base64::decode(&a.data)?;
+                            decoded_data = data_encoding::BASE64.decode(a.data.as_bytes())?;
                             &decoded_data
                         } else {
                             a.data.as_bytes()

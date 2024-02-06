@@ -2470,9 +2470,9 @@ dependencies = [
 name = "kumo-dkim"
 version = "0.3.0"
 dependencies = [
- "base64 0.21.7",
  "chrono",
  "criterion",
+ "data-encoding",
  "ed25519-dalek",
  "foreign-types",
  "futures",
@@ -2500,9 +2500,9 @@ name = "kumo-log-types"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.13.1",
  "bounce-classify",
  "chrono",
+ "data-encoding",
  "k9",
  "mailparsing",
  "rfc5321",
@@ -2520,11 +2520,11 @@ dependencies = [
  "axum-client-ip",
  "axum-server",
  "backtrace",
- "base64 0.13.1",
  "cidr-map",
  "clap 4.4.18",
  "config",
  "console-subscriber",
+ "data-encoding",
  "data-loader",
  "domain-map",
  "gethostname",
@@ -2620,13 +2620,13 @@ dependencies = [
  "axum",
  "axum-client-ip",
  "axum-server",
- "base64 0.13.1",
  "bounce-classify",
  "caps",
  "chrono",
  "cidr-map",
  "clap 4.4.18",
  "config",
+ "data-encoding",
  "data-loader",
  "dns-resolver",
  "duration-serde",
@@ -3065,7 +3065,6 @@ name = "message"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.13.1",
  "bitflags 2.4.2",
  "chrono",
  "chrono-tz",
@@ -4580,7 +4579,7 @@ dependencies = [
 name = "rfc5321"
 version = "0.1.0"
 dependencies = [
- "base64 0.13.1",
+ "data-encoding",
  "duration-serde",
  "hickory-proto",
  "memchr",

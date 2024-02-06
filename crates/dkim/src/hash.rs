@@ -1,7 +1,6 @@
 use crate::header::HEADER;
 use crate::{canonicalization, DKIMError, DKIMHeader, ParsedEmail};
-use base64::engine::general_purpose;
-use base64::Engine;
+use data_encoding::BASE64;
 use sha1::{Digest as _, Sha1};
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -78,8 +77,8 @@ impl HashImpl {
 
     pub fn finalize(self) -> String {
         match self {
-            Self::Sha1(hasher) => general_purpose::STANDARD.encode(hasher.finalize()),
-            Self::Sha256(hasher) => general_purpose::STANDARD.encode(hasher.finalize()),
+            Self::Sha1(hasher) => BASE64.encode(&hasher.finalize()),
+            Self::Sha256(hasher) => BASE64.encode(&hasher.finalize()),
             #[cfg(test)]
             Self::Copy(data) => String::from_utf8_lossy(&data).into(),
         }

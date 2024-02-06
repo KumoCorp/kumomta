@@ -15,8 +15,8 @@ openssl = ["dep:openssl", "dep:openssl-sys", "dep:foreign-types"]
 default = ["openssl"]
 
 [dependencies]
-base64 = "0.21.0"
 chrono = { version = "0.4.26", default-features = false, features = ["clock", "std"] }
+data-encoding = "2.5"
 ed25519-dalek = {workspace=true, features=["pkcs8"]}
 futures = {workspace=true}
 indexmap = "1.9.3"

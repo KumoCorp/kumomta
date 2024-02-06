@@ -1,5 +1,3 @@
-use base64::engine::general_purpose;
-use base64::Engine;
 use rsa::{pkcs1, pkcs8};
 use std::collections::HashMap;
 
@@ -51,8 +49,8 @@ pub(crate) async fn retrieve_public_key(
     };
 
     let tag = tags_map.get("p").ok_or(DKIMError::NoKeyForSignature)?;
-    let bytes = general_purpose::STANDARD
-        .decode(&tag.value)
+    let bytes = data_encoding::BASE64
+        .decode(tag.value.as_bytes())
         .map_err(|err| {
             DKIMError::KeyUnavailable(format!("failed to decode public key: {}", err))
         })?;

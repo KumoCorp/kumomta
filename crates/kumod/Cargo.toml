@@ -13,12 +13,12 @@ async-trait = "0.1"
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = "=0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
-base64 = "0.13"
 bounce-classify = {path="../bounce-classify"}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
+data-encoding = "2.5"
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}

@@ -10,7 +10,7 @@ default = ["client"]
 client = ["dep:openssl", "dep:tokio-rustls", "dep:tokio-openssl", "dep:tracing", "dep:tokio", "dep:hickory-proto", "dep:webpki-roots"]
 
 [dependencies]
-base64 = "0.13"
+data-encoding = "2.5"
 duration-serde = {path="../duration-serde"}
 memchr = "2.5"
 once_cell = "1.17"

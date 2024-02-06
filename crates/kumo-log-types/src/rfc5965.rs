@@ -73,7 +73,9 @@ impl ARFReport {
                         if !(hdr.get_name().starts_with("X-") || hdr.get_name().starts_with("x-")) {
                             continue;
                         }
-                        if let Ok(decoded) = base64::decode(hdr.get_raw_value()) {
+                        if let Ok(decoded) =
+                            data_encoding::BASE64.decode(hdr.get_raw_value().as_bytes())
+                        {
                             #[derive(Deserialize)]
                             struct Wrap {
                                 #[serde(rename = "_@_")]

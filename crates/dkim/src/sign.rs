@@ -1,7 +1,6 @@
 use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
-use base64::engine::general_purpose;
-use base64::Engine;
+use data_encoding::BASE64;
 use ed25519_dalek::Signer as _;
 use rsa::Pkcs1v15Sign;
 use sha1::Sha1;
@@ -243,7 +242,7 @@ impl Signer {
 
         // add the signature into the DKIM header and generate the header
         let dkim_header = dkim_header_builder
-            .add_tag("b", &general_purpose::STANDARD.encode(signature))
+            .add_tag("b", &BASE64.encode(&signature))
             .build();
 
         Ok(format!("{}: {}", HEADER, dkim_header.raw_bytes))
@@ -461,7 +460,7 @@ Joe."#
         let email = ParsedEmail::parse(raw_email).unwrap();
 
         let file_content = fs::read("./test/keys/ed.private").unwrap();
-        let file_decoded = general_purpose::STANDARD.decode(file_content).unwrap();
+        let file_decoded = BASE64.decode(&file_content).unwrap();
         let mut key_bytes = [0u8; ed25519_dalek::SECRET_KEY_LENGTH];
         key_bytes.copy_from_slice(&file_decoded);
         let secret_key = ed25519_dalek::SigningKey::from_bytes(&key_bytes);

@@ -2,8 +2,6 @@
 
 use crate::errors::Status;
 use crate::hash::HeaderList;
-use base64::engine::general_purpose;
-use base64::Engine;
 use ed25519_dalek::SigningKey;
 use hickory_resolver::TokioAsyncResolver;
 use mailparsing::AuthenticationResult;
@@ -210,8 +208,8 @@ async fn verify_email_header<'a>(
         return Err(DKIMError::BodyHashDidNotVerify);
     }
 
-    let signature = general_purpose::STANDARD
-        .decode(dkim_header.get_required_tag("b"))
+    let signature = data_encoding::BASE64
+        .decode(dkim_header.get_required_tag("b").as_bytes())
         .map_err(|err| {
             DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
         })?;

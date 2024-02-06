@@ -28,7 +28,7 @@ impl AuthKind {
         let (kind, contents) = authorization.split_once(' ')?;
         match kind {
             "Basic" => {
-                let decoded = base64::decode(contents).ok()?;
+                let decoded = data_encoding::BASE64.decode(contents.as_bytes()).ok()?;
                 let decoded = String::from_utf8(decoded).ok()?;
                 let (user, password) = if let Some((id, password)) = decoded.split_once(':') {
                     (id.to_string(), Some(password.to_string()))

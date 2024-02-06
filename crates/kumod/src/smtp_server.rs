@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
 use config::{any_err, load_config, serialize_options, CallbackSignature, LuaConfig};
+use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
@@ -1028,7 +1029,7 @@ impl SmtpServer {
                         continue;
                     }
 
-                    match base64::decode(&response) {
+                    match BASE64.decode(response.as_bytes()) {
                         Ok(payload) => {
                             // RFC 4616 says that the message is:
                             // [authzid] NUL authcid NUL passwd
@@ -1432,7 +1433,7 @@ impl SmtpServer {
                     }
                 }
 
-                let value = base64::encode(serde_json::to_string(&object)?);
+                let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
                 message.prepend_header(Some(&self.params.trace_headers.header_name), &value);
             }
 
