@@ -22,4 +22,4 @@ thiserror = "1.0"
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 
 [dev-dependencies]
-k9 = "0.11"
+k9 = "0.12"

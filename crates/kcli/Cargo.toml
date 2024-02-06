@@ -21,6 +21,6 @@ serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 tabout = "0.3"
 tokio = {workspace=true, features=["full", "tracing"]}
-tungstenite = "0.20"
+tungstenite = "0.21"
 uuid = {workspace=true}
 version-info = {path="../version-info"}
