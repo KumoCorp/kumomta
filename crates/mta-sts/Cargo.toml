@@ -16,4 +16,4 @@ hickory-resolver = {workspace=true}
 
 [dev-dependencies]
 tokio = {workspace=true}
-k9 = "0.11"
+k9 = "0.12"

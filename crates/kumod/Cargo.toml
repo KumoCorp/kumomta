@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-async-channel = "1.8"
+async-channel = "2.1"
 async-recursion = "1.0"
 async-trait = "0.1"
 axum = {workspace=true, features=["ws"]}
@@ -22,7 +22,7 @@ data-encoding = "2.5"
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
-flume = "0.10"
+flume = "0.11"
 gcd = "2.3"
 gethostname = "0.4"
 humansize = "2.1" # for printing
@@ -38,7 +38,7 @@ maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
-metrics = "0.20"
+metrics = "0.22"
 minijinja-contrib = {version="1.0.9",features=["datetime", "timezone"]}
 minijinja = {version="1.0.9",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
@@ -66,11 +66,11 @@ utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
 webpki-roots = {workspace=true}
-zstd = "0.12"
+zstd = "0.13"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 caps = "0.5"
 
 [dev-dependencies]
-k9 = "0.11"
+k9 = "0.12"
 maplit = "1.0"

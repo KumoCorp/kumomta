@@ -20,4 +20,4 @@ tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 
 [dev-dependencies]
-which = "4.4"
+which = "6.0"

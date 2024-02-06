@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = {workspace=true}
-axum-client-ip = "0.4"
+axum-client-ip = "0.5"
 axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 clap = {version="4.1", features=["derive"]}
