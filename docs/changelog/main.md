@@ -26,4 +26,6 @@
   only do this once every minute. #116
 * The `smtp_client_rewrite_delivery_status` event could trigger with incorrect
   scheduled queue name components.
+* webhooks and other lua delivery handlers didn't reuse connections correctly.
+  Thanks to @cai-n! #135
 
