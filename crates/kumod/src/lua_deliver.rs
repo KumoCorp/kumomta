@@ -58,6 +58,10 @@ impl QueueDispatcher for LuaQueueDispatcher {
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+        if self.connection.is_some() {
+            dispatcher.delivered_this_connection = 0;
+            return Ok(());
+        }
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
         // Normally, a QueueDispatcher would use dispatcher.path_config rather
         // than resolving through queue_name_for_config_change_purposes_only.
@@ -79,6 +83,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
         self.connection
             .replace(connection_wrapper.map_connection(connection));
+        dispatcher.delivered_this_connection = 0;
         Ok(())
     }
 
