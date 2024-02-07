@@ -59,7 +59,6 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         if self.connection.is_some() {
-            dispatcher.delivered_this_connection = 0;
             return Ok(());
         }
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
