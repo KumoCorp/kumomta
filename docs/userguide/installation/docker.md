@@ -1,7 +1,10 @@
 # Installing KumoMTA in a Docker container
 
 Our CI builds the latest version of our image and publishes it
-to the GitHub Container registry.
+to the GitHub Container registry:
+
+* `ghcr.io/kumocorp/kumomta:latest` - the most recent stable release.
+* `ghcr.io/kumocorp/kumomta-dev:latest` - the most recent dev release.
 
 You'll need a policy script in order to start kumo.
 
@@ -49,10 +52,13 @@ and tell it to use it.  The default location for this is `/opt/kumomta/etc/polic
 $ sudo docker run --rm -p 2025:25 \
     -v .:/opt/kumomta/etc/policy \
     --name kumo-sink \
-    ghcr.io/kumocorp/kumomta-dev:latest
+    ghcr.io/kumocorp/kumomta:latest
 ```
 
 ## Building your own KumoMTA container image
+
+!!! note
+    Most users will not need to do this
 
 You need `git` to clone the repo:
 
