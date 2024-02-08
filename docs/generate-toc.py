@@ -404,11 +404,11 @@ TOC = [
             Page("Who is KumoMTA For?", "faq/who_is_kumomta_for.md"),
             Page(
                 "How Can I Get Help With KumoMTA?",
-                "faq/how_can_I_get_help_with_kumomta.md",
+                "faq/how_can_i_get_help_with_kumomta.md",
             ),
             Page(
                 "Is There a SaaS Version of KumoMTA?",
-                "is_there_a_saas_version_of_kumomta.md",
+                "faq/is_there_a_saas_version_of_kumomta.md",
             ),
             Page(
                 "How Do I Resolve a `Permission Denied` Error?",

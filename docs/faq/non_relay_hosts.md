@@ -3,10 +3,10 @@
 Let's say you have the following configured for your listeners:
 
 ```lua
-kumo.start_esmtp_listener({
-listen = "0.0.0.0:25",
-relay_hosts = { "127.0.0.1", "192.168.1.0/24" },
-})
+kumo.start_esmtp_listener {
+  listen = '0.0.0.0:25',
+  relay_hosts = { '127.0.0.1', '192.168.1.0/24' },
+}
 ```
 
 And the following configured for your `listener_domains`` helper:
