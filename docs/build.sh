@@ -43,27 +43,18 @@ cargo tree --depth 0 -e normal --prefix none | \
 
 python3 docs/generate-toc.py || exit 1
 
-PIP=pip
-if command -v pip3 >/dev/null ; then
-  PIP=pip3
-fi
-
 # Adjust path to pick up pip-installed binaries
 PATH="$HOME/.local/bin;$PATH"
-${PIP} install --quiet \
-  mkdocs-material \
-  mkdocs-git-revision-date-localized-plugin \
-  black \
-  mkdocs-exclude \
-  mkdocs-macros-plugin \
-  pillow \
-  cairosvg
 
 # Keep the toc generator formatted
-black docs/generate-toc.py
+if hash black 2>/dev/null ; then
+  black docs/generate-toc.py
+fi
+
+docker build -t kumomta/mkdocs-material -f docs/Dockerfile .
 
 if [ "$SERVE" == "yes" ] ; then
-  mkdocs "$@"
+  docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material serve
 else
-  mkdocs build
+  docker run --rm -e CARDS=true -v ${PWD}:/docs kumomta/mkdocs-material build
 fi
