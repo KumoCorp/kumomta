@@ -37,11 +37,13 @@ LABEL org.opencontainers.image.licenses="Apache"
     ]
 
     if "ubuntu" in container:
-        doc_deps = [
-            "libcairo2-dev",
-            "libffi-dev",
-            "libfreetype6-dev",
-            "pip",
+        docker_commands = [
+            "install -m 0755 -d /etc/apt/keyrings",
+            "curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc",
+            "chmod a+r /etc/apt/keyrings/docker.asc",
+            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list',
+            "apt update",
+            "apt install -yqq --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
         ]
         commands = (
             [
@@ -52,10 +54,11 @@ LABEL org.opencontainers.image.licenses="Apache"
                         "ca-certificates",
                         "curl",
                         "git",
+                        "pip",
                     ]
-                    + doc_deps
                 ),
             ]
+            + docker_commands
             + commands
             + ["cargo install --locked gelatyx"]
             + [
@@ -63,12 +66,6 @@ LABEL org.opencontainers.image.licenses="Apache"
                 + " ".join(
                     [
                         "black",
-                        "cairosvg",
-                        "mkdocs-exclude",
-                        "mkdocs-git-revision-date-localized-plugin",
-                        "mkdocs-macros-plugin",
-                        "mkdocs-material",
-                        "pillow",
                     ]
                 )
             ]
