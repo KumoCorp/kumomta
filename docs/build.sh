@@ -51,10 +51,15 @@ if hash black 2>/dev/null ; then
   black docs/generate-toc.py
 fi
 
-docker build -t kumomta/mkdocs-material -f docs/Dockerfile .
+DOCKER=docker
+if hash podman 2>/dev/null ; then
+  DOCKER=podman
+fi
+
+$DOCKER build -t kumomta/mkdocs-material -f docs/Dockerfile .
 
 if [ "$SERVE" == "yes" ] ; then
-  docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material serve
+  $DOCKER run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material serve
 else
-  docker run --rm -e CARDS=true -v ${PWD}:/docs kumomta/mkdocs-material build
+  $DOCKER run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
 fi
