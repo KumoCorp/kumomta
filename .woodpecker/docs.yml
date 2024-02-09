@@ -50,9 +50,6 @@ steps:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
-    secrets:
-      - source: gh_pages_deploy_token
-        target: TOKEN
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - CI=true ./docs/build.sh
@@ -62,6 +59,7 @@ steps:
     pull: true
     environment:
       CARDS: "true"
+      CI: "false"
     settings:
       config: mkdocs.yml
       pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"

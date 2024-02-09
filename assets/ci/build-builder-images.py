@@ -37,16 +37,13 @@ LABEL org.opencontainers.image.licenses="Apache"
     ]
 
     if "ubuntu" in container:
-        docker_commands = [
-            "install -m 0755 -d /etc/apt/keyrings",
-            "curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc",
-            "chmod a+r /etc/apt/keyrings/docker.asc",
-            'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list',
-            "apt update",
-            "apt install -yqq --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-        ]
+        doc_deps = []
+        if "ubuntu:22.04" in container:
+            doc_deps += ["podman"]
+
         commands = (
             [
+                "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
                 "apt update",
                 "apt install -yqq --no-install-recommends "
                 + " ".join(
@@ -55,10 +52,9 @@ LABEL org.opencontainers.image.licenses="Apache"
                         "curl",
                         "git",
                         "pip",
-                    ]
+                    ] + doc_deps
                 ),
             ]
-            + docker_commands
             + commands
             + ["cargo install --locked gelatyx"]
             + [
