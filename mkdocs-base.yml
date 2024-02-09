@@ -46,7 +46,7 @@ plugins:
   - social:
       cards: !ENV [CARDS, False]
   - git-revision-date-localized:
-      enabled: !ENV [CI, False]
+      #enabled: !ENV [CI, False]
       enable_creation_date: true
       type: timeago
   - macros:
