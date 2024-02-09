@@ -69,7 +69,7 @@ steps:
         target: TOKEN
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
-      - systemctl start docker
+      - dockerd &
       - CI=true CARDS=true ./docs/build.sh
       - ./assets/ci/push-gh-pages.sh
 
