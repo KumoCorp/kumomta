@@ -36,7 +36,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
     For more information, see the [Configure Traffic Shaping Automation](../userguide/configuration/trafficshapingautomation.md) section of the User Guide.
 
-        <iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+    <iframe width="560" height="315" src="https://www.youtube.com/embed/Vxbe5ExMOXk?si=2SC7o8FObyvWqavl" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
 1. Configure the listener_domains.toml file, written to `/opt/kumomta/etc/policy/listener_domains.toml` in the following format, substituting your own sending domain information:
 
