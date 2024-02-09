@@ -61,7 +61,7 @@ steps:
     image: woodpeckerci/plugin-mkdocs:latest
     pull: true
     environment:
-      CARDS: true
+      CARDS: "true"
     settings:
       config: mkdocs.yml
       pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"
