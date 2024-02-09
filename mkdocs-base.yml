@@ -46,9 +46,13 @@ plugins:
   - social:
       cards: !ENV [CARDS, False]
   - git-revision-date-localized:
-      #enabled: !ENV [CI, False]
+      enabled: !ENV [GIT_DATES, False]
       enable_creation_date: true
       type: timeago
+      # Don't emit warnings for our generated files that have no git log,
+      # because we run overall in strict mode and those warnings would
+      # be promoted to errors
+      strict: false
   - macros:
       module_name: mkdocs_macros
   - exclude:

@@ -59,6 +59,7 @@ steps:
     pull: true
     environment:
       CARDS: "true"
+      GIT_DATES: "true"
     settings:
       config: mkdocs.yml
       pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"
