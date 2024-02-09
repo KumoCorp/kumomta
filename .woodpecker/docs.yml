@@ -69,7 +69,7 @@ steps:
         target: TOKEN
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
-      - dockerd &
+      - sudo dockerd &
       - CI=true CARDS=true ./docs/build.sh
       - ./assets/ci/push-gh-pages.sh
 
