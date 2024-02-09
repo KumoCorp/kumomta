@@ -70,6 +70,7 @@ steps:
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - sudo dockerd &
+      - sleep 5
       - sudo chmod a+rw /var/run/docker.sock
       - CI=true CARDS=true ./docs/build.sh
       - ./assets/ci/push-gh-pages.sh
