@@ -71,6 +71,7 @@ steps:
       OPENSSL_LIB_DIR: /usr/lib64
       OPENSSL_INCLUDE_DIR: /usr/include
     image: ${BUILDER_IMAGE}
+    pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
@@ -99,6 +100,7 @@ steps:
 
   publish_rpm:
     image: ${BUILDER_IMAGE}
+    pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
     secrets:

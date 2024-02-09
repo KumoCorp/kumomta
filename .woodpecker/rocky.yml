@@ -66,6 +66,7 @@ steps:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
+    pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
@@ -94,6 +95,7 @@ steps:
 
   publish_rpm:
     image: ${BUILDER_IMAGE}
+    pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
     secrets:

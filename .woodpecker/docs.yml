@@ -48,6 +48,7 @@ steps:
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "pull_request"'
     image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    pull: true
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
@@ -59,6 +60,7 @@ steps:
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    pull: true
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always

@@ -68,6 +68,7 @@ steps:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
+    pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
