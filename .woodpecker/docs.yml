@@ -44,21 +44,7 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  verify-docs:
-    when:
-      - evaluate: 'CI_PIPELINE_EVENT == "pull_request"'
-    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
-    pull: true
-    environment:
-      CARGO_HOME: .ci-cargo
-      CARGO_TERM_COLOR: always
-    commands:
-      - PATH=$PATH:$HOME/.cargo/bin
-      - CI=false CARDS=false CHECK_ONLY=1 ./docs/build.sh
-
   build-docs:
-    when:
-      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
     pull: true
     environment:
@@ -69,7 +55,25 @@ steps:
         target: TOKEN
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
-      - CI=true CARDS=true ./docs/build.sh
+      - CI=true ./docs/build.sh
+
+  run-mkdocs:
+    image: woodpeckerci/plugin-mkdocs:latest
+    pull: true
+    environment:
+      CARDS: true
+    settings:
+      config: mkdocs.yml
+      pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"
+
+  push-docs:
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    secrets:
+      - source: gh_pages_deploy_token
+        target: TOKEN
+    commands:
       - ./assets/ci/push-gh-pages.sh
 
   save-doc-cache:
