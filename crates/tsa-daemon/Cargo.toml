@@ -11,7 +11,7 @@ axum = {workspace=true}
 axum-client-ip = "=0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
-clap = {version="4.1", features=["derive"]}
+clap = {version="4.5", features=["derive"]}
 config = {path="../config"}
 dns-resolver = {path="../dns-resolver"}
 hex = "0.4"
