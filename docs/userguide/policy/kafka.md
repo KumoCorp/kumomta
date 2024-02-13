@@ -8,7 +8,7 @@ The process to queue log events and make them available for sending via `custom_
 
 ## Configuring A Queue Handler for Kafka
 
-When a message is ready to be queued, the `get_queue_config` event is fired, at which point we can specify the protocol of the queue, in this case `custom_lua`. In the example below, we check whether the message is queued to the `kafka` queue and acts accordingly:
+When a message is ready to be queued, the `get_queue_config` event is fired, at which point we can specify the protocol of the queue, in this case, `custom_lua`. In the example below, we check whether the message is queued to the `kafka` queue and acts accordingly:
 
 ```lua
 kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
