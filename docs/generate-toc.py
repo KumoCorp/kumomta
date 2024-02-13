@@ -337,6 +337,10 @@ TOC = [
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
+                Gen(
+                "module: kumo.kafka",
+                "reference/kumo.kafka",
+            ),
             Gen(
                 "module: kumo.regex_set_map",
                 "reference/kumo.regex_set_map",
