@@ -1,4 +1,6 @@
-# Routing Messages via AMQP
+# Routing Messages via Kafka
+
+{{ since('dev') }}
 
 In addition to local logging and Webhooks, KumoMTA can relay log events (or other queued messages) via [Apache Kafka](https://kafka.apache.org/).
 
