@@ -268,6 +268,7 @@ TOC = [
                         "Routing Messages via HTTP Request", "userguide/policy/http.md"
                     ),
                     Page("Routing Messages via AMQP", "userguide/policy/amqp.md"),
+                    Page("Routing Messages via Kafka", "userguide/policy/kafka.md"),
                     Page(
                         "Storing Secrets in Hashicorp Vault",
                         "userguide/policy/hashicorp_vault.md",

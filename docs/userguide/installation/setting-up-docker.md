@@ -51,5 +51,3 @@ After completing Step 3, you can use Docker by prepending each command with sudo
   ```
 
 It is a good idea to restart to make sure it is all set correctly.
-
-
