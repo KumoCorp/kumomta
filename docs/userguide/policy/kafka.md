@@ -1,6 +1,6 @@
 # Routing Messages via Kafka
 
-{{ since('dev') }}
+{{since('2023.12.28-63cde9c7')}}
 
 In addition to local logging and Webhooks, KumoMTA can relay log events (or other queued messages) via [Apache Kafka](https://kafka.apache.org/).
 
