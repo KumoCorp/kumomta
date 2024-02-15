@@ -33,11 +33,11 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
 end)
 ```
 
-## Sending Messages via AMQP
+## Sending Messages via Kafka
 
-With the custom_lua protocol defined and a custom event trigger declared, the next step is to catch the `make.amqp` event with code that sends the message contents over HTTP.
+With the custom_lua protocol defined and a custom event trigger declared, the next step is to catch the `make.kafka` event with code that sends the message contents over HTTP.
 
-The following example sends the content of the log message via AMQP:
+The following example sends the content of the log message via Kafka:
 
 ```lua
 -- This is a user-defined event that matches up to the custom_lua
