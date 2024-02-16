@@ -220,6 +220,27 @@ impl LuaConfig {
             .set("_KUMO_CURRENT_EVENT", name.to_string())
     }
 
+    /// Intended to be used together with kumo.spawn_task
+    pub async fn convert_args_and_call_callback<'lua, A: Serialize>(
+        &'lua mut self,
+        sig: &CallbackSignature<'lua, Value<'lua>, ()>,
+        args: A,
+    ) -> anyhow::Result<()> {
+        let lua = self.inner.as_mut().unwrap();
+        let args = lua.lua.to_value(&args)?;
+
+        let name = sig.name();
+        let decorated_name = sig.decorated_name();
+
+        match lua
+            .lua
+            .named_registry_value::<_, mlua::Function>(&decorated_name)
+        {
+            Ok(func) => Ok(func.call_async(args).await?),
+            _ => anyhow::bail!("{name} has not been registered"),
+        }
+    }
+
     pub async fn async_call_callback<
         'lua,
         A: ToLuaMulti<'lua> + Clone,
