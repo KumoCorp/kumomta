@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 pub mod egress_path;
 pub mod shaping;
+pub mod tsa;
 
 /// Describes which messages should be bounced.
 /// The criteria apply to the scheduled queue associated

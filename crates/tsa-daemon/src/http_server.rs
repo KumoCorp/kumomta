@@ -4,6 +4,7 @@ use axum::{Json, Router};
 use config::CallbackSignature;
 use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
+use kumo_api_types::tsa::{ReadyQSuspension, Suspensions};
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
@@ -14,6 +15,7 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use sqlite::{Connection, ConnectionThreadSafe};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
 use toml_edit::{value, Value as TomlValue};
@@ -49,6 +51,15 @@ CREATE TABLE IF NOT EXISTS config (
     PRIMARY KEY (rule_hash, site_name)
 );
 
+CREATE TABLE IF NOT EXISTS ready_q_suspensions (
+    rule_hash text,
+    site_name text,
+    reason text,
+    source text,
+    expires DATETIME,
+    PRIMARY KEY (rule_hash, site_name)
+);
+
     "#;
 
     db.execute(query)?;
@@ -64,7 +75,8 @@ pub fn make_router() -> RouterAndDocs {
     RouterAndDocs {
         router: Router::new()
             .route("/publish_log_v1", post(publish_log_v1))
-            .route("/get_config_v1/shaping.toml", get(get_config_v1)),
+            .route("/get_config_v1/shaping.toml", get(get_config_v1))
+            .route("/get_suspension_v1/suspended.json", get(get_suspension_v1)),
         docs: ApiDoc::openapi(),
     }
 }
@@ -97,20 +109,50 @@ fn create_config(
     let value = serde_json::to_string(&config.value)?;
     upsert.bind(("$value", value.as_str()))?;
 
-    fn regex_list_to_string(list: &[Regex]) -> String {
-        if list.len() == 1 {
-            list[0].to_string()
-        } else {
-            let mut result = "(".to_string();
-            for (n, r) in list.iter().enumerate() {
-                if n > 0 {
-                    result.push(',');
-                }
-                result.push_str(&r.to_string());
+    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+    upsert.bind(("$reason", reason.as_str()))?;
+    upsert.bind(("$expires", expires.as_str()))?;
+
+    upsert.next()?;
+
+    Ok(())
+}
+
+fn regex_list_to_string(list: &[Regex]) -> String {
+    if list.len() == 1 {
+        list[0].to_string()
+    } else {
+        let mut result = "(".to_string();
+        for (n, r) in list.iter().enumerate() {
+            if n > 0 {
+                result.push(',');
             }
-            result
+            result.push_str(&r.to_string());
         }
+        result
     }
+}
+
+fn create_ready_q_suspension(
+    rule_hash: &str,
+    rule: &Rule,
+    record: &JsonLogRecord,
+    source: &str,
+) -> anyhow::Result<()> {
+    let mut upsert = HISTORY.prepare(
+        "INSERT INTO ready_q_suspensions
+                 (rule_hash, site_name, source, reason, expires)
+                 VALUES
+                 ($hash, $site, $source, $reason, $expires)
+                 ON CONFLICT (rule_hash, site_name)
+                 DO UPDATE SET expires=$expires",
+    )?;
+
+    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
+
+    upsert.bind(("$hash", rule_hash))?;
+    upsert.bind(("$site", record.site.as_str()))?;
+    upsert.bind(("$source", source))?;
 
     let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
     upsert.bind(("$reason", reason.as_str()))?;
@@ -243,17 +285,7 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
             for action in &m.action {
                 match action {
                     Action::Suspend => {
-                        create_config(
-                            &rule_hash,
-                            m,
-                            &record,
-                            &EgressPathConfigValue {
-                                name: "suspended".to_string(),
-                                value: toml::Value::Boolean(true).into(),
-                            },
-                            &domain,
-                            &source,
-                        )?;
+                        create_ready_q_suspension(&rule_hash, m, &record, &source)?;
                     }
                     Action::SetConfig(config) => {
                         create_config(&rule_hash, m, &record, config, &domain, &source)?;
@@ -423,5 +455,58 @@ async fn do_get_config() -> anyhow::Result<String> {
 
 async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
     let result = do_get_config().await?;
+    Ok(result)
+}
+
+async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
+    let mut suspensions = Suspensions::default();
+
+    let mut stmt = HISTORY.prepare(
+        "SELECT * from ready_q_suspensions where
+                                   unixepoch(expires) - unixepoch() > 0
+                                   order by expires, source",
+    )?;
+
+    let mut by_rule_hash = HashMap::new();
+
+    fn add_readyq_susp(
+        by_rule_hash: &mut HashMap<String, ReadyQSuspension>,
+        item: ReadyQSuspension,
+    ) {
+        let entry = by_rule_hash
+            .entry(item.rule_hash.to_string())
+            .or_insert_with(|| item.clone());
+
+        if item.expires > entry.expires {
+            entry.expires = item.expires;
+        }
+    }
+
+    while let Ok(sqlite::State::Row) = stmt.next() {
+        let rule_hash: String = stmt.read("rule_hash")?;
+        let site_name: String = stmt.read("site_name")?;
+        let reason: String = stmt.read("reason")?;
+        let source: String = stmt.read("source")?;
+        let expires: String = stmt.read("expires")?;
+
+        add_readyq_susp(
+            &mut by_rule_hash,
+            ReadyQSuspension {
+                rule_hash,
+                site_name,
+                reason,
+                source,
+                expires,
+            },
+        );
+    }
+
+    suspensions.ready_q = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+
+    Ok(Json(suspensions))
+}
+
+async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
+    let result = do_get_suspension().await?;
     Ok(result)
 }
