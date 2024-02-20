@@ -21,6 +21,26 @@ local queue_helper =
   queue_module:setup { '/opt/kumomta/etc/policy/queues.toml' }
 ```
 
+In addition, add a call to perform queue management via the `queue_helper:apply(msg)` method to your incoming message events:
+
+```lua
+-- Processing of incoming messages via SMTP
+kumo.on('smtp_server_message_received', function(msg)
+  -- Call the queue helper to set up the queue for the message.
+  queue_helper:apply(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_signer(msg)
+end)
+
+-- Processing of incoming messages via HTTP
+kumo.on('http_message_generated', function(msg)
+  -- Call the queue helper to set up the queue for the message.
+  queue_helper:apply(msg)
+  -- SIGNING MUST COME LAST OR YOU COULD BREAK YOUR DKIM SIGNATURES
+  dkim_signer(msg)
+end)
+```
+
 In addition, create a file at `/opt/kumomta/etc/queues.toml` and populate it
 as follows:
 
