@@ -1,11 +1,13 @@
 use config::{any_err, from_lua_value, get_or_create_sub_module};
+use futures_util::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, MetaMethod, UserDataMethods, Value};
 use reqwest::header::HeaderMap;
-use reqwest::{Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
+use reqwest::{Body, Client, ClientBuilder, RequestBuilder, Response, StatusCode, Url};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tokio_tungstenite::tungstenite::Message;
 
 // Client ----
 
@@ -349,6 +351,39 @@ impl LuaUserData for HeaderMapWrapper {
     }
 }
 
+#[derive(Clone)]
+struct WebSocketStream {
+    stream: Arc<
+        Mutex<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+    >,
+}
+
+impl LuaUserData for WebSocketStream {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_async_method("recv", |lua, this, ()| async move {
+            let maybe_msg = this.stream.lock().unwrap().next().await;
+            let msg = match maybe_msg {
+                Some(msg) => msg.map_err(any_err)?,
+                None => return Ok(None),
+            };
+            Ok(match msg {
+                Message::Text(s) => Some(lua.create_string(&s)?),
+                Message::Close(_close_frame) => {
+                    return Ok(None);
+                }
+                Message::Pong(s) | Message::Binary(s) => Some(lua.create_string(&s)?),
+                Message::Ping(_) | Message::Frame(_) => {
+                    unreachable!()
+                }
+            })
+        });
+    }
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let http_mod = get_or_create_sub_module(lua, "http")?;
 
@@ -375,6 +410,32 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             Ok(ClientWrapper {
                 client: Arc::new(client),
             })
+        })?,
+    )?;
+
+    http_mod.set(
+        "connect_websocket",
+        lua.create_async_function(|_, url: String| async move {
+            let (stream, response) = tokio_tungstenite::connect_async(url)
+                .await
+                .map_err(any_err)?;
+            let stream = WebSocketStream {
+                stream: Arc::new(Mutex::new(stream)),
+            };
+
+            // Adapt the retured http::response into a reqwest::Response
+            // so that we can use our existing ResponseWrapper type with it
+            let status = response.status();
+            let (parts, body) = response.into_parts();
+            let body = Body::from(body.unwrap_or_else(|| vec![]));
+            let response = tokio_tungstenite::tungstenite::http::Response::from_parts(parts, body);
+
+            let response = ResponseWrapper {
+                status,
+                response: Arc::new(Mutex::new(Some(Response::from(response)))),
+            };
+
+            Ok((stream, response))
         })?,
     )?;
 

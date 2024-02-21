@@ -400,7 +400,7 @@ dependencies = [
  "sha1",
  "sync_wrapper",
  "tokio",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.20.1",
  "tower",
  "tower-layer",
  "tower-service",
@@ -3437,12 +3437,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "futures-util",
  "humantime",
  "mail-builder",
  "mailparse",
  "mlua",
  "reqwest 0.12.2",
  "serde",
+ "tokio",
+ "tokio-tungstenite 0.21.0",
 ]
 
 [[package]]
@@ -5951,6 +5954,18 @@ dependencies = [
  "log",
  "tokio",
  "tungstenite 0.20.1",
+]
+
+[[package]]
+name = "tokio-tungstenite"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c83b561d025642014097b66e6c1bb422783339e0909e4429cde4749d1990bc38"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite 0.21.0",
 ]
 
 [[package]]
