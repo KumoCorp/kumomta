@@ -27,6 +27,41 @@ your HTTP listener in your environment.
 
     In earlier versions, you need to explicitly pass `--endpoint`.
 
+## Monitoring Queue Status
+
+The `kcli` client can be used to report on messages currently
+queued in the server with the following format:
+
+```console
+$ kcli --endpoint http://127.0.0.1:8000 queue-summary
+{
+SITE                                              SOURCE       PROTO       D T C   Q
+(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com hdfc.s-ip102 smtp_client 0 0 5 995
+(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com hdfc.s-ip103 smtp_client 0 0 5 995
+...
+}
+```
+
+!!! note
+    This output format is subject to change and is not suitable for a machine to parse. It is expressly unstable and you must not depend upon it in automation.
+
+    The data behind this output is pulled from the metrics.json endpoint, which is machine readable.
+
+ The output is presented in two sections:
+
+1. The ready queues
+2. The scheduled queues
+
+The ready queue data is presented in columns that are mostly self explanatory, but the numeric counts are labelled with single character labels:
+
+* D - the total number of delivered messages
+* T - the total number of transiently failed messages
+* C - the number of open connections
+* Q - the number of ready messages in the queue
+
+Note that the ready queue counter values reset whenever the ready queue is reaped, which occurs within a few minutes of the ready queue being idle, so those numbers are only useful to get a sense of recent/current activity. Accurate accounting must be performed using the delivery logs and not via this utility.
+
+The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
 
 ## Bouncing Messages
 
@@ -139,13 +174,10 @@ See the [Set Diagnostic Log
 Filter](../../reference/kumo/set_diagnostic_log_filter.md) page of the
 Reference Manual for more information.
 
-## Monitoring inbound SMTP handshaking 
+## Monitoring inbound SMTP handshaking
 
 When debugging, it is often helpful to monitor the full SMTP handshaking process in real-time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
 
 ```console
 $ kcli trace-smtp-server
 ```
-
-
-
