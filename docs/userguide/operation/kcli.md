@@ -63,7 +63,9 @@ Note that the ready queue counter values reset whenever the ready queue is reape
 
 The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
 
-## Bouncing Messages
+## Managing Bounces
+
+### Bouncing Messages
 
 The `kcli` client can be used to administratively bounce messages currently
 queued in the server with the following format:
@@ -79,17 +81,17 @@ $ kcli --endpoint http://127.0.0.1:8000 bounce --everything --reason purge
 
 Allowed arguments for the bounce command include:
 
-### domain
+#### domain
 
 Optional string. The domain name to match.
 If omitted, any domain will match.
 
-### campaign
+#### campaign
 
 Optional string. The campaign name to match.
 If omitted, any campaign will match.
 
-### tenant
+#### tenant
 
 Optional string. The tenant to match.
 If omitted, any tenant will match.
@@ -100,11 +102,11 @@ If omitted, any tenant will match.
 
     With great power, comes great responsibility!
 
-### reason
+#### reason
 
 Required. Reason to log in the delivery log.
 
-### duration
+#### duration
 
 Optional duration string. Defaults to `"5m"`.
 Specifies how long this bounce directive remains active.
@@ -115,7 +117,7 @@ bounce criteria will also be bounced.
 See the [Bounce API](../../reference/http/api_admin_bounce_v1.md) page of the
 Reference Manual for more information.
 
-## Listing Current Bounces
+### Listing Current Bounces
 
 You can list the currently active bounce commands with the following command:
 
@@ -141,7 +143,7 @@ See the [Admin Bounce List
 API](../../reference/http/api_admin_bounce_list_v1.md) page of the Reference
 Manual for more information.
 
-## Removing a Bounce
+### Removing a Bounce
 
 Because bounce commands default to a five-minute duration, messages will
 continue to bounce after the command has been issued. This helps with scenarios
@@ -159,6 +161,9 @@ removed 0234c7c9-afd3-49f9-9a4c-a1cc37fcc53b
 ```
 
 See the [Bounce Cancel API](../../reference/http/api_admin_bounce_cancel_v1.md) page of the Reference Manual for more information.
+
+## Managing Suspensions
+
 
 ## Setting The Diagnostic Log Level
 

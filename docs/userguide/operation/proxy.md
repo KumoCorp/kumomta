@@ -69,7 +69,7 @@ Configuring an egress_source to use an HAProxy server is done as part of the
 kumo.on('kumo.get_egress_source', function(source_name)
   if source_name == 'ip-1' then
     -- Make a source that will emit from 10.0.0.1, via a proxy server
-    kumo.define_egress_source {
+    kumo.make_egress_source {
       name = 'ip-1',
 
       -- The HAProxy server address and port
