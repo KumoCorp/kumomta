@@ -9,4 +9,4 @@ build = "build.rs"
 [dependencies]
 
 [build-dependencies]
-git2 = { version = "0.18", default-features = false }
+git2 = { version = "0.18.2", default-features = false }
