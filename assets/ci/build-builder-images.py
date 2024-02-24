@@ -52,7 +52,8 @@ LABEL org.opencontainers.image.licenses="Apache"
                         "curl",
                         "git",
                         "pip",
-                    ] + doc_deps
+                    ]
+                    + doc_deps
                 ),
             ]
             + commands

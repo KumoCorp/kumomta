@@ -337,7 +337,7 @@ TOC = [
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
-                Gen(
+            Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
             ),
