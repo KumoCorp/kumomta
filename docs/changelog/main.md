@@ -14,6 +14,7 @@
   optional to easily enabled DKIM over-signing to protect your messages
   against replay attacks. The same option can be set for the ed25519_signer
   as well. #111
+* Updated RocksDB from 8.1 to 8.10
 
 ## Fixes
 

@@ -10,7 +10,7 @@ anyhow = "1.0"
 humansize = "2.1" # for printing
 lazy_static = "1.4"
 metrics = "0.20"
-nix = {version="0.27", features=["resource", "feature"]}
+nix = {version="0.28", features=["resource", "feature"]}
 tikv-jemallocator = "0.5"
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
 tokio = {workspace=true, features=["full", "tracing"]}
