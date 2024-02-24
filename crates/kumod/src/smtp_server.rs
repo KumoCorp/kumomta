@@ -373,6 +373,7 @@ struct TransactionState {
     recipients: Vec<EnvelopeAddress>,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct RelayDisposition {
     /// Should queue for onward delivery
     pub relay: bool,
@@ -1487,7 +1488,7 @@ impl SmtpServer {
                 },
                 egress_pool: None,
                 egress_source: None,
-                relay_disposition: None,
+                relay_disposition: Some(relay_disposition),
                 delivery_protocol: None,
                 tls_info: None, // TODO: populate with peer info
             })

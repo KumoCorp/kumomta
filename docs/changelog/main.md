@@ -28,4 +28,5 @@
   scheduled queue name components.
 * webhooks and other lua delivery handlers didn't reuse connections correctly.
   Thanks to @cai-n! #135
+* `OOB` and `ARF` reports were incorrectly logged as `Reception` records
 

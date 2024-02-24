@@ -22,6 +22,7 @@ pub struct MailGenParams<'a> {
     pub wrap: Option<usize>,
     pub subject: Option<&'a str>,
     pub body: Option<&'a str>,
+    pub full_content: Option<&'a str>,
 }
 
 /// Generate a single nonsense string with no spaces with
@@ -79,6 +80,11 @@ impl MailGenParams<'_> {
     }
 
     pub fn generate(&self) -> anyhow::Result<String> {
+        if let Some(full) = &self.full_content {
+            return Ok(String::from_utf8(mailparsing::normalize_crlf(
+                full.as_bytes(),
+            ))?);
+        }
         let body_owner;
         let body = if let Some(b) = self.body {
             b

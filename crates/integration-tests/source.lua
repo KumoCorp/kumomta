@@ -78,6 +78,14 @@ if WEBHOOK_PORT then
   end)
 end
 
+kumo.on('get_listener_domain', function(domain, listener, conn_meta)
+  return kumo.make_listener_domain {
+    relay_to = true,
+    log_oob = true,
+    log_arf = true,
+  }
+end)
+
 kumo.on('smtp_server_message_received', function(msg) end)
 
 kumo.on('get_queue_config', function(domain, _tenant, _campaign)
