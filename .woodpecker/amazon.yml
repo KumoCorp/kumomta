@@ -61,6 +61,27 @@ steps:
       rebuild: "false"
       restore: "true"
 
+  build-dind:
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+      # These are needed because amazonlinux:2 has both `openssl-devel`
+      # and `openssl11-devel` and the latter, newer version, isn't
+      # automatically found by the rust openssl-sys build machinery
+      OPENSSL_LIB_DIR: /usr/lib64
+      OPENSSL_INCLUDE_DIR: /usr/include
+    image: quay.io/testcontainers/dind-drone-plugin
+    build_image: ${BUILDER_IMAGE}
+    pull: true
+    cmd:
+      - PATH=$PATH:$HOME/.cargo/bin
+      - ./get-deps.sh
+      - git config --global --add safe.directory /woodpecker/src
+      - cargo build --release
+      - cargo nextest run --release
+      - ./assets/build-rpm.sh
+      - "mv ~/rpmbuild/RPMS/*/*.rpm ."
+
   build:
     environment:
       CARGO_HOME: .ci-cargo
@@ -77,7 +98,6 @@ steps:
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
       - cargo build --release
-      - /usr/bin/dockerd &
       - cargo nextest run --release
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
