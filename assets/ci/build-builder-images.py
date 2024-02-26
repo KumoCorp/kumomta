@@ -34,13 +34,10 @@ LABEL org.opencontainers.image.licenses="Apache"
         ". $HOME/.cargo/env",
         "/tmp/get-deps.sh",
         "curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin",
+        "curl -LsSf https://download.docker.com/linux/static/stable/$(uname -i)/docker-25.0.3.tgz | tar zxf - -C /tmp && mv /tmp/docker/* /usr/bin",
     ]
 
     if "ubuntu" in container:
-        doc_deps = []
-        if "ubuntu:22.04" in container:
-            doc_deps += ["podman"]
-
         commands = (
             [
                 "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
@@ -53,7 +50,6 @@ LABEL org.opencontainers.image.licenses="Apache"
                         "git",
                         "pip",
                     ]
-                    + doc_deps
                 ),
             ]
             + commands

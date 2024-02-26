@@ -77,6 +77,7 @@ steps:
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
       - cargo build --release
+      - /usr/bin/dockerd &
       - cargo nextest run --release
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
