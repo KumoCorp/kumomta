@@ -19,3 +19,5 @@ tempfile = {workspace=true}
 
 [dev-dependencies]
 which = "4.4"
+testcontainers-modules = {version="0.3", features=["redis"]}
+testcontainers = "0.15"

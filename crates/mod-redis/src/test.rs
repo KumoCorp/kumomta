@@ -134,14 +134,27 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+    use testcontainers::clients;
+    use testcontainers_modules::redis::{Redis, REDIS_PORT};
 
     #[tokio::test]
     async fn test_basic_operation() -> anyhow::Result<()> {
-        if which::which("redis-server").is_err() {
-            return Ok(());
+        let docker = clients::Cli::default();
+        let redis_instance = docker.run(Redis::default());
+        let host_port = redis_instance.get_host_port_ipv4(REDIS_PORT);
+
+        pub async fn connection(host_port: u16) -> anyhow::Result<RedisConnection> {
+            let key = RedisConnKey {
+                node: NodeSpec::Single(format!("redis://127.0.0.1:{host_port}")),
+                read_from_replicas: false,
+                username: None,
+                password: None,
+                pool_size: None,
+            };
+            key.open().await
         }
-        let daemon = RedisServer::spawn().await?;
-        let connection = daemon.connection().await?;
+
+        let connection = connection(host_port).await?;
 
         let mut cmd = redis::cmd("SET");
         cmd.arg("my_key").arg(42);
