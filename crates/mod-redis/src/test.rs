@@ -139,6 +139,10 @@ mod test {
 
     #[tokio::test]
     async fn test_basic_operation() -> anyhow::Result<()> {
+        if which::which("docker").is_err() {
+            return Ok(());
+        }
+
         let docker = clients::Cli::default();
         let redis_instance = docker.run(Redis::default());
         let host_port = redis_instance.get_host_port_ipv4(REDIS_PORT);

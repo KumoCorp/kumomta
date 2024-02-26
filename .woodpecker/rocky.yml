@@ -71,7 +71,6 @@ steps:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
-      - /usr/bin/dockerd &
       - make test
       - make build BUILD_OPTS="--release"
       - ./assets/build-rpm.sh

@@ -34,10 +34,16 @@ LABEL org.opencontainers.image.licenses="Apache"
         ". $HOME/.cargo/env",
         "/tmp/get-deps.sh",
         "curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin",
-        "curl -LsSf https://download.docker.com/linux/static/stable/$(uname -i)/docker-25.0.3.tgz | tar zxf - -C /tmp && mv /tmp/docker/* /usr/bin",
+        # "curl -LsSf https://download.docker.com/linux/static/stable/$(uname -i)/docker-25.0.3.tgz | tar zxf - -C /tmp && mv /tmp/docker/* /usr/bin",
     ]
 
     if "ubuntu" in container:
+        podman = []
+        if container == "ubuntu:22.04":
+            podman = [
+                "podman",
+                "podman-docker",
+            ]
         commands = (
             [
                 "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
@@ -50,6 +56,7 @@ LABEL org.opencontainers.image.licenses="Apache"
                         "git",
                         "pip",
                     ]
+                    + podman
                 ),
             ]
             + commands
@@ -85,6 +92,7 @@ LABEL org.opencontainers.image.licenses="Apache"
             gpg = "yum install -y gnupg2"
         else:
             gpg = "yum install -y gnupg2 --allowerasing"
+
         commands = [
             gpg,
             "yum install -y git rpm-sign",
