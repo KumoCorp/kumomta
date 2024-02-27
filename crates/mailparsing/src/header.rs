@@ -247,12 +247,14 @@ impl<'a> Header<'a> {
         DateTime::parse_from_rfc2822(self.get_raw_value()).map_err(MailParsingError::ChronoError)
     }
 
-    pub fn parse_headers<S: TryInto<SharedString<'a>>>(
-        header_block: S,
-    ) -> Result<HeaderParseResult<'a>> {
+    pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
+    where
+        S: TryInto<SharedString<'a>>,
+        <S as TryInto<SharedString<'a>>>::Error: std::fmt::Display,
+    {
         let header_block = header_block
             .try_into()
-            .map_err(|_| MailParsingError::NotAscii)?;
+            .map_err(|err| MailParsingError::HeaderNotAscii(err.to_string()))?;
         let mut headers = vec![];
         let mut idx = 0;
         let mut overall_conformance = MessageConformance::default();

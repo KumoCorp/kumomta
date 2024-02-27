@@ -189,7 +189,8 @@ pub struct CFSigner {
 
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
-        let message_str = std::str::from_utf8(message).context("message is not ASCII or UTF-8")?;
+        let message_str =
+            std::str::from_utf8(message).context("DKIM signer: message is not ASCII or UTF-8")?;
         let mail = kumo_dkim::ParsedEmail::parse(message_str)
             .context("failed to parse message to pass to dkim signer")?;
 

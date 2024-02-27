@@ -98,8 +98,14 @@ impl Rfc2045Info {
 
 impl<'a> MimePart<'a> {
     /// Parse some data into a tree of MimeParts
-    pub fn parse<S: TryInto<SharedString<'a>>>(bytes: S) -> Result<Self> {
-        let bytes = bytes.try_into().map_err(|_| MailParsingError::NotAscii)?;
+    pub fn parse<S>(bytes: S) -> Result<Self>
+    where
+        S: TryInto<SharedString<'a>>,
+        <S as TryInto<SharedString<'a>>>::Error: std::fmt::Display,
+    {
+        let bytes = bytes
+            .try_into()
+            .map_err(|err| MailParsingError::MimePartNotAscii(err.to_string()))?;
         Self::parse_impl(bytes, true)
     }
 
