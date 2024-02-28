@@ -1,11 +1,11 @@
 use crate::headermap::{EncodeHeaderValue, HeaderMap};
 use crate::rfc5322_parser::Parser;
+use crate::strings::IntoSharedString;
 use crate::{
     AddressList, AuthenticationResults, MailParsingError, Mailbox, MailboxList, MessageID,
     MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset};
-use std::convert::TryInto;
 use std::str::FromStr;
 
 bitflags::bitflags! {
@@ -249,15 +249,11 @@ impl<'a> Header<'a> {
 
     pub fn parse_headers<S>(header_block: S) -> Result<HeaderParseResult<'a>>
     where
-        S: TryInto<SharedString<'a>>,
-        <S as TryInto<SharedString<'a>>>::Error: std::fmt::Display,
+        S: IntoSharedString<'a>,
     {
-        let header_block = header_block
-            .try_into()
-            .map_err(|err| MailParsingError::HeaderNotAscii(err.to_string()))?;
+        let (header_block, mut overall_conformance) = header_block.into_shared_string();
         let mut headers = vec![];
         let mut idx = 0;
-        let mut overall_conformance = MessageConformance::default();
 
         while idx < header_block.len() {
             let b = header_block[idx];

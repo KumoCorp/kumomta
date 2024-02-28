@@ -1,10 +1,10 @@
 use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
+use crate::strings::IntoSharedString;
 use crate::{
     has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameters, Result, SharedString,
 };
 use charset::Charset;
-use std::convert::TryInto;
 use std::str::FromStr;
 
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
@@ -100,21 +100,24 @@ impl<'a> MimePart<'a> {
     /// Parse some data into a tree of MimeParts
     pub fn parse<S>(bytes: S) -> Result<Self>
     where
-        S: TryInto<SharedString<'a>>,
-        <S as TryInto<SharedString<'a>>>::Error: std::fmt::Display,
+        S: IntoSharedString<'a>,
     {
-        let bytes = bytes
-            .try_into()
-            .map_err(|err| MailParsingError::MimePartNotAscii(err.to_string()))?;
-        Self::parse_impl(bytes, true)
+        let (bytes, base_conformance) = bytes.into_shared_string();
+        Self::parse_impl(bytes, base_conformance, true)
     }
 
-    fn parse_impl(bytes: SharedString<'a>, is_top_level: bool) -> Result<Self> {
+    fn parse_impl(
+        bytes: SharedString<'a>,
+        base_conformance: MessageConformance,
+        is_top_level: bool,
+    ) -> Result<Self> {
         let HeaderParseResult {
             headers,
             body_offset,
             overall_conformance: mut conformance,
         } = Header::parse_headers(bytes.clone())?;
+
+        conformance = conformance | base_conformance;
 
         let body_len = bytes.len();
 
@@ -211,7 +214,11 @@ impl<'a> MimePart<'a> {
                         })
                         .unwrap_or(raw_body.len());
 
-                    let child = Self::parse_impl(raw_body.slice(part_start..part_end), false)?;
+                    let child = Self::parse_impl(
+                        raw_body.slice(part_start..part_end),
+                        MessageConformance::default(),
+                        false,
+                    )?;
                     self.conformance |= child.conformance;
                     self.parts.push(child);
 
@@ -299,12 +306,9 @@ impl<'a> MimePart<'a> {
             {
                 return Ok(DecodedBody::Text(self.raw_body()));
             }
-            ContentTransferEncoding::SevenBit | ContentTransferEncoding::EightBit => {
-                let mut bytes = self.raw_body().as_bytes().to_vec();
-                bytes.retain(|&b| !b.is_ascii_whitespace());
-                return Ok(DecodedBody::Binary(bytes));
-            }
-            ContentTransferEncoding::Binary => {
+            ContentTransferEncoding::SevenBit
+            | ContentTransferEncoding::EightBit
+            | ContentTransferEncoding::Binary => {
                 return Ok(DecodedBody::Binary(self.raw_body().as_bytes().to_vec()))
             }
         };

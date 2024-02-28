@@ -12,10 +12,6 @@ pub enum MailParsingError {
     InvalidContentTransferEncoding(String),
     #[error("parsing body: {0}")]
     BodyParse(String),
-    #[error("Header::parser_headers: Data is not ASCII or UTF-8: {0}")]
-    HeaderNotAscii(String),
-    #[error("MimePart::parse: Data is not ASCII or UTF-8: {0}")]
-    MimePartNotAscii(String),
     #[error("Unexpected MimePart structure during write_message: {0}")]
     WriteMessageWtf(&'static str),
     #[error("IO error during write_message")]

@@ -15,6 +15,15 @@
   against replay attacks. The same option can be set for the ed25519_signer
   as well. #111
 * Updated RocksDB from 8.1 to 8.10
+* Slightly relaxed the MIME parser so that we can tolerate non-conforming 8-bit
+  message bodies with missing transfer encoding when all we need is to parse
+  headers. The invalid messages will trigger `NEEDS_TRANSFER_ENCODING` when
+  using
+  [msg:check_fix_conformance()](../reference/message/check_fix_conformance.md)
+  to validate messages, but won't cause header parsing to fail in general.
+  These non-compliant messages will be parsed (or fixed) using a lossy decode
+  to UTF-8 that will remap invalid bytes to `U+FFFD` the Unicode Replacement
+  Character.
 
 ## Fixes
 
@@ -30,4 +39,5 @@
 * webhooks and other lua delivery handlers didn't reuse connections correctly.
   Thanks to @cai-n! #135
 * `OOB` and `ARF` reports were incorrectly logged as `Reception` records
-
+* MIME Parser would discard whitespace from improperly encoded `message/rfc822`
+  parts when rebuilding messages.

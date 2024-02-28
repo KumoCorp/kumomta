@@ -1,3 +1,4 @@
+use crate::MessageConformance;
 use std::sync::Arc;
 
 /// Helper for holding either an owned or borrowed string,
@@ -128,5 +129,42 @@ impl<'a> TryFrom<&'a [u8]> for SharedString<'a> {
     fn try_from(s: &'a [u8]) -> Result<Self, Self::Error> {
         let s = std::str::from_utf8(s)?;
         Ok(Self::Borrowed(s))
+    }
+}
+
+pub trait IntoSharedString<'a> {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance);
+}
+
+impl<'a> IntoSharedString<'a> for SharedString<'a> {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        (self, MessageConformance::default())
+    }
+}
+
+impl<'a> IntoSharedString<'a> for String {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        (
+            SharedString::Owned(Arc::new(self)),
+            MessageConformance::default(),
+        )
+    }
+}
+
+impl<'a> IntoSharedString<'a> for &'a str {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        (SharedString::Borrowed(self), MessageConformance::default())
+    }
+}
+
+impl<'a> IntoSharedString<'a> for &'a [u8] {
+    fn into_shared_string(self) -> (SharedString<'a>, MessageConformance) {
+        match std::str::from_utf8(self) {
+            Ok(s) => (SharedString::Borrowed(s), MessageConformance::default()),
+            Err(_) => (
+                SharedString::Owned(Arc::new(String::from_utf8_lossy(self).to_string())),
+                MessageConformance::NEEDS_TRANSFER_ENCODING,
+            ),
+        }
     }
 }
