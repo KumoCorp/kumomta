@@ -411,8 +411,8 @@ impl<'a> Header<'a> {
         });
 
         let name = header_block.slice(0..name_end);
-        let value = header_block.slice(value_start..value_end);
-        let separator = header_block.slice(name_end..value_start);
+        let value = header_block.slice(value_start..value_end.max(value_start));
+        let separator = header_block.slice(name_end..value_start.max(name_end));
 
         let header = Self {
             name,
