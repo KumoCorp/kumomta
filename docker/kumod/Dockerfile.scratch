@@ -49,5 +49,6 @@ EXPOSE 587/tcp
 EXPOSE 465/tcp
 EXPOSE 2525/tcp
 EXPOSE 2026/tcp
+ENV PATH="/opt/kumomta/sbin:$PATH"
 CMD ["/opt/kumomta/sbin/kumod", "--user", "kumod"]
 
