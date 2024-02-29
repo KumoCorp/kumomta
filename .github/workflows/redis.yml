@@ -2,6 +2,9 @@ on:
   pull_request:
     branches:
       - main
+    paths:
+      - "docker/redis/Dockerfile"
+      - ".github/workflows/redis.yml"
   push:
     branches:
       - main
@@ -83,7 +86,7 @@ jobs:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     needs:
-      - build:
+      - build
     permissions:
       contents: read
       packages: write
