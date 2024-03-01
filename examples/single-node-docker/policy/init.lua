@@ -23,7 +23,6 @@ local shaper = shaping:setup_with_automation {
   extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
 }
 
-
 --[[ Start of INIT section ]]
 --
 
