@@ -1,0 +1,80 @@
+---
+version: "3.8"
+services:
+  kumod:
+    # use the latest build from `main`
+    image: ghcr.io/kumocorp/kumomta-dev:latest
+    hostname: "kumod-{{.Task.Slot}}"
+    # alternatively, use the latest stable release
+    #image: ghcr.io/kumocorp/kumomta:latest
+    environment:
+      SWARM_SLOT: "{{.Task.Slot}}"
+      HOSTNAME: "kumod-{{.Task.Slot}}"
+    configs:
+      - source: init.lua
+        target: /opt/kumomta/etc/policy/init.lua
+      - source: docker_utils.lua
+        target: /opt/kumomta/etc/policy/docker_utils.lua
+      - source: shaping.toml
+        target: /opt/kumomta/etc/policy/shaping.toml
+      - source: listener_domains.toml
+        target: /opt/kumomta/etc/policy/listener_domains.toml
+    ports:
+      - 25:2525
+    depends_on:
+      - tsa
+      - redis
+    deploy:
+      replicas: 4
+      restart_policy:
+        condition: on-failure
+
+  # tsa is the traffic shaping automation daemon that is used to
+  # track and trigger shaping rules defined in your shaping.toml
+  tsa:
+    image: ghcr.io/kumocorp/kumomta-dev:latest
+    hostname: "tsa-{{.Task.Slot}}"
+    command: runuser -u kumod -- /opt/kumomta/sbin/tsa-daemon --policy /opt/kumomta/etc/policy/tsa_init.lua
+    environment:
+      SWARM_SLOT: "{{.Task.Slot}}"
+      HOSTNAME: "kumod-{{.Task.Slot}}"
+    configs:
+      - source: tsa_init.lua
+        target: /opt/kumomta/etc/policy/tsa_init.lua
+      - source: docker_utils.lua
+        target: /opt/kumomta/etc/policy/docker_utils.lua
+      - source: shaping.toml
+        target: /opt/kumomta/etc/policy/shaping.toml
+    deploy:
+      # NOTE: Increasing replicas requires restarting kumod nodes
+      replicas: 2
+      # dnsrr mode is required in order for us to be able to list
+      # all the tsa nodes through an A lookup
+      endpoint_mode: dnsrr
+      restart_policy:
+        condition: on-failure
+
+  # redis is used to share throttle and shaping state across the
+  # kumod service instances.
+  redis:
+    image: ghcr.io/kumocorp/redis
+    hostname: "redis"
+    deploy:
+      replicas: 1 # MUST be 1. If you want redundancy or need to
+                  # scale to multiple nodes, you must configure
+                  # a redis cluster separately and remove this
+                  # basic redis service from your stack
+      restart_policy:
+        condition: on-failure
+
+configs:
+  docker_utils.lua:
+    file: ./policy/docker_utils.lua
+  init.lua:
+    file: ./policy/init.lua
+  tsa_init.lua:
+    file: ./policy/tsa_init.lua
+  shaping.toml:
+    file: ./policy/shaping.toml
+  listener_domains.toml:
+    file: ./policy/listener_domains.toml

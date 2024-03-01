@@ -1,0 +1,15 @@
+# See https://docs.kumomta.com/userguide/configuration/domains/
+# for information on this file
+
+["*"]
+# You can specify * as a default, overridden by any more explicitly defined domains.
+# Since all options are false by default, this would only be needed to default
+# An option to true for all domains.
+relay_to = false
+log_oob = true
+log_arf = true
+
+["example.com"]
+# allow relaying mail from anyone, so long as it is
+# addressed to example.com
+relay_to = true
