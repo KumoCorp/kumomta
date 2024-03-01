@@ -1,0 +1,25 @@
+---
+version: "3"
+services:
+  kumod:
+    container_name: kumod
+    hostname: kumod
+    # use the latest build from `main`
+    image: ghcr.io/kumocorp/kumomta-dev:latest
+    # alternatively, use the latest stable release
+    #image: ghcr.io/kumocorp/kumomta:latest
+    volumes:
+      - ./policy:/opt/kumomta/etc/policy
+    restart: unless-stopped
+    ports:
+      - 25:2525
+    depends_on:
+      - tsa
+  tsa:
+    container_name: kumo-tsa
+    hostname: tsa # The kumod policy scripts rely on this name
+    image: ghcr.io/kumocorp/kumomta-dev:latest
+    command: runuser -u kumod -- /opt/kumomta/sbin/tsa-daemon --policy /opt/kumomta/etc/policy/tsa_init.lua
+    volumes:
+      - ./policy:/opt/kumomta/etc/policy
+    restart: unless-stopped
