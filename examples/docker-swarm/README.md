@@ -58,7 +58,7 @@ kumomta   3
 $ docker service ls
 ID             NAME            MODE         REPLICAS   IMAGE                                 PORTS
 mufkyv9dp0th   kumomta_kumod   replicated   4/4        ghcr.io/kumocorp/kumomta-dev:latest   *:25->2525/tcp
-ssee44osaugy   kumomta_redis   global       1/1        ghcr.io/kumocorp/redis:latest
+ssee44osaugy   kumomta_redis   replicated   1/1        ghcr.io/kumocorp/redis:latest
 zad4zz1unn5t   kumomta_tsa     replicated   2/2        ghcr.io/kumocorp/kumomta-dev:latest
 ```
 
