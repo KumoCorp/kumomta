@@ -39,5 +39,6 @@
 * webhooks and other lua delivery handlers didn't reuse connections correctly.
   Thanks to @cai-n! #135
 * `OOB` and `ARF` reports were incorrectly logged as `Reception` records
+* `OOB` reports did not respect `headers` and `meta` configured in the logger
 * MIME Parser would discard whitespace from improperly encoded `message/rfc822`
   parts when rebuilding messages.
