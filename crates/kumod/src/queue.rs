@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use throttle::ThrottleSpec;
 use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::instrument;
@@ -96,6 +97,11 @@ pub struct QueueConfig {
     #[serde(default)]
     pub egress_pool: Option<String>,
 
+    /// The rate at which messages are allowed to move from
+    /// the scheduled queue and into the ready queue
+    #[serde(default)]
+    pub max_message_rate: Option<ThrottleSpec>,
+
     #[serde(default)]
     pub protocol: DeliveryProto,
 }
@@ -110,6 +116,7 @@ impl Default for QueueConfig {
             max_age: Self::default_max_age(),
             egress_pool: None,
             protocol: DeliveryProto::default(),
+            max_message_rate: None,
         }
     }
 }
@@ -585,6 +592,44 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+
+        if let Some(throttle) = &self.queue_config.borrow().max_message_rate {
+            let result = throttle
+                .throttle(format!("schedq-{}-message-rate", self.name))
+                .await?;
+
+            if let Some(delay) = result.retry_after {
+                tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
+                let delay = chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
+                // We're not using jitter here because the throttle should
+                // ideally result in smooth message flow and the jitte will
+                // (intentionally) perturb that.
+                msg.delay_by(delay).await?;
+                return Ok(());
+            }
+        }
+
+        if let Err(err) = self.insert_ready_impl(msg.clone()).await {
+            tracing::debug!("insert_ready: {err:#}");
+
+            if err.downcast_ref::<ReadyQueueFull>().is_none() {
+                // It was a legit error while trying to do something useful
+                match self.increment_attempts_and_update_delay(msg).await? {
+                    Some(msg) => {
+                        self.force_into_delayed(msg).await?;
+                    }
+                    None => {}
+                }
+            } else {
+                // Queue is full; try again shortly
+                self.force_into_delayed(msg).await?;
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self, msg))]
+    async fn insert_ready_impl(&mut self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
         let protocol = {
@@ -827,22 +872,7 @@ impl Queue {
                         continue;
                     }
 
-                    if let Err(err) = self.insert_ready(msg.clone()).await {
-                        tracing::debug!("insert_ready: {err:#}");
-
-                        if err.downcast_ref::<ReadyQueueFull>().is_none() {
-                            // It was a legit error while trying to do something useful
-                            match self.increment_attempts_and_update_delay(msg).await? {
-                                Some(msg) => {
-                                    self.force_into_delayed(msg).await?;
-                                }
-                                None => {}
-                            }
-                        } else {
-                            // Queue is full; try again shortly
-                            self.force_into_delayed(msg).await?;
-                        }
-                    }
+                    self.insert_ready(msg.clone()).await?;
                     return Ok(());
                 }
             }
@@ -972,23 +1002,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
 
                     for msg in messages {
                         let msg = (*msg).clone();
-
-                        if let Err(err) = q.insert_ready(msg.clone()).await {
-                            tracing::debug!("insert_ready: {err:#}");
-
-                            if err.downcast_ref::<ReadyQueueFull>().is_none() {
-                                // It was a legit error while trying to do something useful
-                                match q.increment_attempts_and_update_delay(msg).await? {
-                                    Some(msg) => {
-                                        q.force_into_delayed(msg).await?;
-                                    }
-                                    None => {}
-                                }
-                            } else {
-                                // Queue is full; try again shortly
-                                q.force_into_delayed(msg).await?;
-                            }
-                        }
+                        q.insert_ready(msg.clone()).await?;
                     }
                 }
                 PopResult::Sleep(duration) => {
