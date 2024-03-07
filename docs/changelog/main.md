@@ -24,6 +24,10 @@
   These non-compliant messages will be parsed (or fixed) using a lossy decode
   to UTF-8 that will remap invalid bytes to `U+FFFD` the Unicode Replacement
   Character.
+* Added `max_message_rate` option to
+  [kumo:make_queue_config](../reference/kumo/make_queue_config.md)
+  to configure the rate at which a given Scheduled Queue can feed
+  into the Ready Queue.
 
 ## Fixes
 
