@@ -592,7 +592,6 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
-
         if let Some(throttle) = &self.queue_config.borrow().max_message_rate {
             let result = throttle
                 .throttle(format!("schedq-{}-message-rate", self.name))
@@ -600,7 +599,8 @@ impl Queue {
 
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
-                let delay = chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
+                let delay =
+                    chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
                 // We're not using jitter here because the throttle should
                 // ideally result in smooth message flow and the jitte will
                 // (intentionally) perturb that.
