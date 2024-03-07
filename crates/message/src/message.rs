@@ -919,6 +919,19 @@ impl UserData for Message {
             Ok(this.sender().map_err(any_err)?)
         });
 
+        methods.add_method("num_attempts", move |_, this, _: ()| {
+            Ok(this.get_num_attempts())
+        });
+
+        methods.add_method("queue_name", move |_, this, _: ()| {
+            Ok(this.get_queue_name().map_err(any_err)?)
+        });
+
+        methods.add_async_method("set_due", move |lua, this, due: mlua::Value| async move {
+            let due: Option<DateTime<Utc>> = lua.from_value(due)?;
+            this.set_due(due).await.map_err(any_err)
+        });
+
         methods.add_method("set_sender", move |lua, this, value: mlua::Value| {
             let sender = match value {
                 mlua::Value::String(s) => {
