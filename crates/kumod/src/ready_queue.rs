@@ -31,6 +31,8 @@ use tracing::instrument; // TODO move to here
 
 lazy_static::lazy_static! {
     static ref MANAGER: Mutex<ReadyQueueManager> = Mutex::new(ReadyQueueManager::new());
+    pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
+        Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
 }
 
 pub struct ReadyQueueName {
@@ -795,13 +797,65 @@ impl Dispatcher {
     #[instrument(skip(msg))]
     pub async fn requeue_message(
         msg: Message,
-        increment_attempts: bool,
-        delay: Option<chrono::Duration>,
+        mut increment_attempts: bool,
+        mut delay: Option<chrono::Duration>,
     ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
         }
-        let queue_name = msg.get_queue_name()?;
+        let mut queue_name = msg.get_queue_name()?;
+
+        // When increment_attempts is true, the intent is to handle a transient
+        // failure for this message. In that circumstance we want to allow
+        // the requeue_message event the opportunity to rebind the message
+        // to an alternative scheduled queue.
+        // Moving to another queue will make the message immediately eligible
+        // for delivery in that new queue.
+        if increment_attempts {
+            match load_config().await {
+                Ok(mut config) => {
+                    let result: anyhow::Result<()> = config
+                        .async_call_callback_non_default(&REQUEUE_MESSAGE_SIG, msg.clone())
+                        .await;
+
+                    match result {
+                        Ok(()) => {
+                            let queue_name_after = msg.get_queue_name()?;
+                            if queue_name != queue_name_after {
+                                // We want to avoid the normal due-time adjustment
+                                // that would kick in when incrementing attempts
+                                // in Queue::requeue_message, but we still want the
+                                // number to be incremented.
+                                msg.increment_num_attempts();
+                                increment_attempts = false;
+
+                                // Avoid adding jitter as part of the queue change
+                                delay = Some(chrono::Duration::seconds(0));
+                                // and ensure that the message is due now
+                                msg.set_due(None).await?;
+
+                                // and use the new queue name
+                                queue_name = queue_name_after;
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                "Error while calling requeue_message event: {err:#}. \
+                                 will reuse current queue"
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "ReadyQueue::requeue_message: error getting \
+                         lua config in order to call requeue_message event: \
+                         {err:#}, will reuse current queue"
+                    );
+                }
+            }
+        }
+
         let queue = QueueManager::resolve(&queue_name).await?;
         let mut queue = queue.lock().await;
         queue.requeue_message(msg, increment_attempts, delay).await
