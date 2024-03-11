@@ -12,6 +12,7 @@ use dns_resolver::resolver::Resolver;
 #[cfg(feature = "impl")]
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use kumo_chrono_helper::*;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 #[cfg(feature = "impl")]
@@ -194,7 +195,7 @@ impl Message {
     pub async fn delay_with_jitter(&self, limit: i64) -> anyhow::Result<()> {
         let scale = rand::random::<f32>();
         let value = (scale * limit as f32) as i64;
-        self.delay_by(chrono::Duration::seconds(value)).await
+        self.delay_by(seconds(value)?).await
     }
 
     pub async fn delay_by(&self, duration: chrono::Duration) -> anyhow::Result<()> {
@@ -206,7 +207,7 @@ impl Message {
     pub async fn delay_by_and_jitter(&self, duration: chrono::Duration) -> anyhow::Result<()> {
         let scale = rand::random::<f32>();
         let value = (scale * 60.) as i64;
-        let due = Utc::now() + duration + chrono::Duration::seconds(value);
+        let due = Utc::now() + duration + seconds(value)?;
         self.set_due(Some(due)).await
     }
 

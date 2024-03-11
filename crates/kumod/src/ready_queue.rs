@@ -830,7 +830,7 @@ impl Dispatcher {
                                 increment_attempts = false;
 
                                 // Avoid adding jitter as part of the queue change
-                                delay = Some(chrono::Duration::seconds(0));
+                                delay = Some(chrono::Duration::zero());
                                 // and ensure that the message is due now
                                 msg.set_due(None).await?;
 
@@ -921,7 +921,7 @@ impl Dispatcher {
                 tracing::error!(
                     "error creating duration from {delay:?}: {err:#}. Using 1 minute instead"
                 );
-                chrono::Duration::seconds(60)
+                kumo_chrono_helper::MINUTE
             });
             rt_spawn("requeue for throttle".to_string(), move || {
                 Ok(async move {

@@ -436,9 +436,9 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
     #[test]
     fn test_validate_header_expired_in_drift() {
         let mut now = chrono::Utc::now().naive_utc();
-        now -= chrono::Duration::seconds(1);
+        now -= chrono::Duration::try_seconds(1).expect("1 second to be valid");
 
-        let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.timestamp());
+        let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.and_utc().timestamp());
 
         assert!(DKIMHeader::parse(&header).is_ok());
     }
@@ -446,9 +446,9 @@ b=dzdVyOfAKCdLXdJOc9G2q8LoXSlEniSbav+yuU4zGeeruD00lszZ
     #[test]
     fn test_validate_header_expired() {
         let mut now = chrono::Utc::now().naive_utc();
-        now -= chrono::Duration::hours(3);
+        now -= chrono::Duration::try_hours(3).expect("3 hours to be legit");
 
-        let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.timestamp());
+        let header = format!("v=1; a=rsa-sha256; d=example.net; s=brisbane; i=foo@example.net; h=From:B; bh=hash; b=hash; x={}", now.and_utc().timestamp());
 
         assert_eq!(
             DKIMHeader::parse(&header).unwrap_err(),

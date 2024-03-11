@@ -135,7 +135,7 @@ impl QueueConfig {
     }
 
     pub fn infer_num_attempts(&self, age: chrono::Duration) -> u16 {
-        let mut elapsed = chrono::Duration::seconds(0);
+        let mut elapsed = chrono::Duration::zero();
         let mut num_attempts = 0;
 
         loop {
@@ -156,7 +156,7 @@ impl QueueConfig {
             Some(limit) => delay.min(limit),
         };
 
-        chrono::Duration::seconds(delay as i64)
+        chrono::Duration::try_seconds(delay as i64).unwrap_or_else(chrono::Duration::zero)
     }
 
     pub fn compute_delay_based_on_age(
@@ -173,13 +173,13 @@ impl QueueConfig {
             .into_iter()
             .map(|i| self.delay_for_attempt(i).num_seconds())
             .sum();
-        let overall_delay = chrono::Duration::seconds(overall_delay);
+        let overall_delay = chrono::Duration::try_seconds(overall_delay)?;
 
         if overall_delay >= max_age {
             None
         } else if overall_delay <= age {
             // Ready now
-            Some(chrono::Duration::seconds(0))
+            Some(chrono::Duration::zero())
         } else {
             Some(overall_delay - age)
         }
@@ -247,7 +247,7 @@ mod test {
         let mut schedule = vec![];
         let mut age = 2;
         loop {
-            let age_chrono = chrono::Duration::seconds(age);
+            let age_chrono = chrono::Duration::try_seconds(age).expect("age to be in range");
             let num_attempts = config.infer_num_attempts(age_chrono);
             match config.compute_delay_based_on_age(num_attempts, age_chrono) {
                 Some(delay) => schedule.push((age, num_attempts, delay.num_seconds())),
@@ -339,7 +339,7 @@ mod test {
         let mut schedule = vec![];
         let mut age = 1200;
         loop {
-            let age_chrono = chrono::Duration::seconds(age);
+            let age_chrono = chrono::Duration::try_seconds(age).expect("age to be in range");
             let num_attempts = config.infer_num_attempts(age_chrono);
             match config.compute_delay_based_on_age(num_attempts, age_chrono) {
                 Some(delay) => schedule.push((age, num_attempts, delay.num_seconds())),
@@ -474,7 +474,7 @@ impl Queue {
             .borrow()
             .delay_for_attempt(msg.get_num_attempts());
         let jitter = (rand::random::<f32>() * 60.) - 30.0;
-        let delay = chrono::Duration::seconds(delay.num_seconds() + jitter as i64);
+        let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
         let now = Utc::now();
         let max_age = self.queue_config.borrow().get_max_age();
@@ -599,8 +599,7 @@ impl Queue {
 
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
-                let delay =
-                    chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(60));
+                let delay = chrono::Duration::from_std(delay).unwrap_or(kumo_chrono_helper::MINUTE);
                 // We're not using jitter here because the throttle should
                 // ideally result in smooth message flow and the jitte will
                 // (intentionally) perturb that.

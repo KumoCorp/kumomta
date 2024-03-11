@@ -28,7 +28,7 @@ pub struct AdminSuspendEntry {
 impl AdminSuspendEntry {
     pub fn get_duration(&self) -> chrono::Duration {
         let duration = self.expires.saturating_duration_since(Instant::now());
-        chrono::Duration::from_std(duration).unwrap_or_else(|_| chrono::Duration::seconds(1))
+        chrono::Duration::from_std(duration).unwrap_or(kumo_chrono_helper::SECOND)
     }
 }
 

@@ -2545,6 +2545,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-chrono-helper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+]
+
+[[package]]
 name = "kumo-dkim"
 version = "0.3.0"
 dependencies = [
@@ -2714,6 +2722,7 @@ dependencies = [
  "humansize",
  "k9 0.12.0",
  "kumo-api-types",
+ "kumo-chrono-helper",
  "kumo-log-types",
  "kumo-server-common",
  "kumo-server-lifecycle",
@@ -3151,6 +3160,7 @@ dependencies = [
  "dns-resolver",
  "futures",
  "k9 0.11.6",
+ "kumo-chrono-helper",
  "kumo-dkim",
  "kumo-log-types",
  "lazy_static",

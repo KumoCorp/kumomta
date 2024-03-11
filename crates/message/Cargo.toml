@@ -19,6 +19,7 @@ chrono-tz = {version="0.8", features=["serde"]}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver", optional=true}
 futures = "0.3"
+kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
 lazy_static = "1.4"
 lruttl = {path="../lruttl", optional=true}

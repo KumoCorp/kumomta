@@ -1,6 +1,7 @@
 use chrono::naive::NaiveTime;
 use chrono::{DateTime, Datelike, FixedOffset, LocalResult, TimeZone, Timelike, Utc, Weekday};
 use chrono_tz::Tz;
+use kumo_chrono_helper::*;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -96,7 +97,7 @@ impl Scheduling {
             let mut dt = dt.with_timezone(&restrict.timezone);
             println!("start with {dt:?}");
 
-            let one_day = chrono::Duration::days(1);
+            let one_day = chrono::Duration::try_days(1).expect("always able to represent 1 day");
 
             // Worst case is 1 week off the current time; if we
             // can't find a time in a reasonable number of iterations,

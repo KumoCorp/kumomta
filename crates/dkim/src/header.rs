@@ -66,13 +66,12 @@ impl DKIMHeader {
 
         // Check that "x=" tag isn't expired
         if let Some(expiration) = header.get_tag("x") {
-            let mut expiration = chrono::NaiveDateTime::from_timestamp_opt(
-                expiration.parse::<i64>().unwrap_or_default(),
-                0,
-            )
-            .ok_or(DKIMError::SignatureExpired)?;
-            expiration += chrono::Duration::minutes(SIGN_EXPIRATION_DRIFT_MINS);
-            let now = chrono::Utc::now().naive_utc();
+            let mut expiration =
+                chrono::DateTime::from_timestamp(expiration.parse::<i64>().unwrap_or_default(), 0)
+                    .ok_or(DKIMError::SignatureExpired)?;
+            expiration += chrono::Duration::try_minutes(SIGN_EXPIRATION_DRIFT_MINS)
+                .expect("drift to be in-range");
+            let now = chrono::Utc::now();
             if now > expiration {
                 return Err(DKIMError::SignatureExpired);
             }
@@ -305,7 +304,7 @@ v=2;\r
 
         let header = DKIMHeaderBuilder::new()
             .set_time(time)
-            .set_expiry(chrono::Duration::hours(3))
+            .set_expiry(chrono::Duration::try_hours(3).expect("3 hours ok"))
             .unwrap()
             .build();
         k9::snapshot!(header.raw_bytes, "t=1609459201; x=1609470001;");

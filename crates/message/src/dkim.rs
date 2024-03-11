@@ -99,7 +99,10 @@ impl SignerConfig {
                 Canon::Simple => kumo_dkim::canonicalization::Type::Simple,
             });
         if let Some(exp) = self.expiration {
-            signer = signer.with_expiry(chrono::Duration::seconds(exp as i64));
+            signer =
+                signer.with_expiry(chrono::Duration::try_seconds(exp as i64).ok_or_else(|| {
+                    anyhow::anyhow!("{exp} is out of range for chrono::Duration::try_seconds")
+                })?);
         }
 
         signer.build().context("build signer")

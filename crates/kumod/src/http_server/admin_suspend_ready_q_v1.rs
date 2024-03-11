@@ -29,8 +29,7 @@ impl AdminSuspendReadyQEntry {
         self.expires.saturating_duration_since(Instant::now())
     }
     pub fn get_duration_chrono(&self) -> chrono::Duration {
-        chrono::Duration::from_std(self.get_duration())
-            .unwrap_or_else(|_| chrono::Duration::seconds(60))
+        chrono::Duration::from_std(self.get_duration()).unwrap_or(kumo_chrono_helper::MINUTE)
     }
 }
 
