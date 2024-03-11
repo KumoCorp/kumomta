@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-clap = {version="4.1", features=["derive"]}
+clap = {version="4.5", features=["derive"]}
 kumo-api-types = {path="../kumo-api-types", features=["lua"]}
 tokio = {workspace=true, features=["full"]}
