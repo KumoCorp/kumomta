@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 camino = "1.1"
-clap = {version="4.1", features=["derive"]}
+clap = {version="4.5", features=["derive"]}
 filenamegen = "0.2"
 memchr = "2.5"
 notify = "6.1"
