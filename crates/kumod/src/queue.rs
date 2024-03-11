@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use throttle::ThrottleSpec;
+use throttle::{ThrottleResult, ThrottleSpec};
 use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::instrument;
@@ -35,6 +35,9 @@ lazy_static::lazy_static! {
     pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
         (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
         QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
+    pub static ref THROTTLE_INSERT_READY_SIG: CallbackSignature::<'static,
+        Message,
+        ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -590,21 +593,43 @@ impl Queue {
         Self::save_if_needed(&msg).await
     }
 
-    #[instrument(skip(self, msg))]
-    async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+    async fn check_message_rate_throttle(&mut self) -> anyhow::Result<Option<ThrottleResult>> {
         if let Some(throttle) = &self.queue_config.borrow().max_message_rate {
             let result = throttle
                 .throttle(format!("schedq-{}-message-rate", self.name))
                 .await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
 
+    #[instrument(skip(self, msg))]
+    async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+        if let Some(result) = self.check_message_rate_throttle().await? {
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
                 let delay = chrono::Duration::from_std(delay).unwrap_or(kumo_chrono_helper::MINUTE);
                 // We're not using jitter here because the throttle should
-                // ideally result in smooth message flow and the jitte will
+                // ideally result in smooth message flow and the jitter will
                 // (intentionally) perturb that.
                 msg.delay_by(delay).await?;
-                return Ok(());
+                return self.force_into_delayed(msg).await;
+            }
+        }
+
+        let mut config = load_config().await?;
+        config
+            .async_call_callback(&THROTTLE_INSERT_READY_SIG, msg.clone())
+            .await?;
+        if let Some(due) = msg.get_due() {
+            let now = Utc::now();
+            if due > now {
+                tracing::trace!(
+                    "{}: throttle_insert_ready_queue event throttled message rate, due={due:?}",
+                    self.name
+                );
+                return self.force_into_delayed(msg).await;
             }
         }
 

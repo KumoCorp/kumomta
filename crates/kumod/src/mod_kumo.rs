@@ -4,8 +4,12 @@ use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::http_server::HttpListenerParams;
+use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn;
-use mlua::{Lua, Value};
+use message::Message;
+use mlua::prelude::*;
+use mlua::{Lua, UserDataMethods, Value};
+use throttle::ThrottleSpec;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
@@ -96,5 +100,75 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    kumo_mod.set(
+        "make_throttle",
+        lua.create_function(move |_lua, (name, spec): (String, String)| {
+            let spec = ThrottleSpec::try_from(spec.as_str()).map_err(any_err)?;
+            let name = format!("lua-user-throttle-{name}");
+            Ok(UserThrottle { name, spec })
+        })?,
+    )?;
+
     Ok(())
+}
+
+#[derive(Clone)]
+struct UserThrottle {
+    name: String,
+    spec: ThrottleSpec,
+}
+
+impl LuaUserData for UserThrottle {
+    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+        methods.add_async_method("throttle", |lua, this, ()| async move {
+            let result = this.spec.throttle(&this.name).await.map_err(any_err)?;
+            lua.to_value(&result)
+        });
+
+        methods.add_async_method(
+            "sleep_if_throttled", |_, this, ()| async move {
+                let mut was_throttled = false;
+
+                let mut shutdown = ShutdownSubcription::get();
+
+                loop {
+                    let result = this.spec.throttle(&this.name).await.map_err(any_err)?;
+                    match result.retry_after {
+                        Some(delay) => {
+                            was_throttled = true;
+                            tokio::select! {
+                                _ = tokio::time::sleep(delay) => {},
+                                _ = shutdown.shutting_down() => {
+                                    return Err(mlua::Error::external("sleep_if_throttled: aborted due to shutdown"));
+                                }
+                            };
+                        }
+                        None => break
+                    }
+                }
+
+                Ok(was_throttled)
+            }
+        );
+
+        methods.add_async_method(
+            "delay_message_if_throttled",
+            |_, this, msg: Message| async move {
+                let result = this.spec.throttle(&this.name).await.map_err(any_err)?;
+
+                match result.retry_after {
+                    Some(delay) => {
+                        let delay =
+                            chrono::Duration::from_std(delay).unwrap_or(kumo_chrono_helper::MINUTE);
+                        // We're not using jitter here because the throttle should
+                        // ideally result in smooth message flow and the jitter will
+                        // (intentionally) perturb that.
+                        msg.delay_by(delay).await.map_err(any_err)?;
+                        Ok(true)
+                    }
+                    None => Ok(false),
+                }
+            },
+        );
+    }
 }

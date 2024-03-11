@@ -102,7 +102,7 @@ impl TryFrom<&str> for ThrottleSpec {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct ThrottleResult {
     /// true if the action was limited
     pub throttled: bool,
