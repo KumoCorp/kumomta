@@ -73,6 +73,12 @@ Oct 19 22:09:07 localhost.localdomain systemd[1]: Failed to start KumoMTA SMTP s
 
 This error message makes it clear that there was an issue with permissions on the spool folder that prevented the kumomta service from starting.
 
+## Reviewing the KumoMTA Logs
+
+If KumoMTA is starting but you are encountering issues when connecting with KumoMTA or how it processes your messages, refer to the KumoMTA logs.
+
+For information on how to read the logs, see the [Viewing Logs](./logs.md) page.
+
 ## Changing the Log Level
 
 Sometimes the default logging level will not expose sufficient information to troubleshoot certain issues.
