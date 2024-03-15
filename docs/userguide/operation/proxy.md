@@ -16,7 +16,7 @@ Due to the limitations inherent in the HAProxy protocol when used as a forward p
 
 While KumoMTA will work with any compliant SOCKS5 proxy server, we have built KumoProxy to serve as an integrated and supported proxy server specifically for use with KumoMTA.
 
-*TODO** Install instructions are pending for the Beta 3 release.
+Follow the instructions on the [KumoProxy](../../operation/kumo-proxy.md) page for install and usage.
 
 ### Configuring an egress_source for SOCKS5 Proxy Use
 
