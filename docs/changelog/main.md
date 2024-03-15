@@ -46,3 +46,4 @@
 * `OOB` reports did not respect `headers` and `meta` configured in the logger
 * MIME Parser would discard whitespace from improperly encoded `message/rfc822`
   parts when rebuilding messages.
+* proxy-server didn't actually bind to the requested source address

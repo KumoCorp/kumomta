@@ -171,6 +171,7 @@ async fn handle_request(
                 SocketAddr::V6(_) => TcpSocket::new_v6(),
             }?;
 
+            socket.bind(host)?;
             let addr = socket.local_addr()?;
 
             *state = ClientState::Bound(socket);
