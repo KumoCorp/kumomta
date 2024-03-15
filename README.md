@@ -10,7 +10,7 @@ Learn more in our [FAQ](https://docs.kumomta.com/faq/).
 
 ## Documentation
 
-You can learn more about KumoMTA from the [Documentation](https://docs.kumomta.com/)
+You can learn more about KumoMTA from the [Documentation](https://docs.kumomta.com/).
 
 ## Community
 
@@ -23,11 +23,11 @@ If you are interested in contributing/extending KumoMTA, take a look at
 
 ## Reporting Bugs
 
-Please see [How to Report Bugs](https://docs.kumomta.com/userguide/general/report/).
+See [How to Report Bugs](https://docs.kumomta.com/userguide/general/report/).
 
 ## Getting Help
 
-Please see [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/)
+See [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/).
 
 ## Talk to Us
 
