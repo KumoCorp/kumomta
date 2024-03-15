@@ -16,8 +16,6 @@ You can learn more about KumoMTA from the [Documentation](https://docs.kumomta.c
 
 Real-time discussion is available on [Our Discord](https://kumomta.com/discord).
 
-<iframe src="https://discord.com/widget?id=1072980126737907824&theme=dark" width="350" height="500" allowtransparency="true" frameborder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
-
 ## Developers
 
 If you are interested in contributing/extending KumoMTA, take a look at
