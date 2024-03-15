@@ -123,27 +123,41 @@ end)
         }
     end)
     ```
-
-## connect_timeout
-## starttls_timeout
-## ehlo_timeout
-## mail_from_timeout
-## rcpt_to_timeout
-## data_timeout
-## data_dot_timeout
-## rset_timeout
-
-Controls the timeouts waiting for responses to various SMTP commands.
+The following nine settings control the timeouts waiting for responses to various SMTP commands.
 
 The value is specified as a integer in seconds, or as a string using syntax
 like `"2min"` for a two minute duration.
 
+## connect_timeout
+How long to wait between starting an SMTP connection and receiving a 220 from a receiving host. The default is `60s`.
+
+## starttls_timeout
+How long to wait for a response after issuing a STARTTLS comand. The default is `5s`.
+
+## ehlo_timeout
+How long to wait for a response after issuing an EHLO command.  The default is `300s`.
+
+## mail_from_timeout
+How long to wait for a response after issuing a MAIL FROM command. The default is `300s`.
+
+## rcpt_to_timeout
+How long to wait for a response after issuing a RCPT TO command. The default is `300s`.
+
+## data_timeout
+How long to wait for a response after issuing a DATA command. The default is `30s`.
+
+## data_dot_timeout
+How long to wait for a response after issuing a closing "." at the end of the DATA field. The default is `60s`.
+
+## rset_timeout
+How long to wait for a response after issuing a RSET command. The default is `5s`.
+
 ## idle_timeout
-how long a connection will remain open and idle, waiting to be
+How long a connection will remain open and idle, waiting to be
 reused for another delivery attempt, before being closed.
 
 The value is specified as a integer in seconds, or as a string using syntax
-like `"2min"` for a two minute duration.
+like `"2min"` for a two minute duration. The default is `60s`.
 
 
 ```lua
