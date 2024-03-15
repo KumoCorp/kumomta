@@ -226,29 +226,16 @@ TOC = [
                 children=[
                     Page("Starting KumoMTA", "userguide/operation/starting.md"),
                     Page("Getting Server Status", "userguide/operation/status.md"),
-                    Page(
-                        "Troubleshooting KumoMTA",
-                        "userguide/operation/troubleshooting.md",
-                    ),
-                    Page(
-                        "Using the kcli Command-Line Client",
-                        "userguide/operation/kcli.md",
-                    ),
-                    Page(
-                        "Injecting Messages using SMTP",
-                        "userguide/operation/smtpinjection.md",
-                    ),
-                    Page(
-                        "Injecting Messages using HTTP",
-                        "userguide/operation/httpinjection.md",
-                    ),
-                    Page(
-                        "Routing Messages Via Proxy Servers",
-                        "userguide/operation/proxy.md",
-                    ),
+                    Page("Troubleshooting KumoMTA", "userguide/operation/troubleshooting.md"),
+                    Page("Injecting Messages using SMTP", "userguide/operation/smtpinjection.md"),
+                    Page("Injecting Messages using HTTP", "userguide/operation/httpinjection.md"),
+                    Page("Routing Messages Via Proxy Servers", "userguide/operation/proxy.md"),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
                     Page("Performance Tuning", "userguide/operation/performance.md"),
+                    Page("Additional Utilities", "userguide/operation/command-line-index.md"),
+                    Page("Using the kcli Command-Line Client", "userguide/operation/kcli.md"),
+                    Page("KumoProxy SOCKS5 Server", "userguide/operation/kumo-proxy.md"),
                 ],
             ),
             Page(
