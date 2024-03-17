@@ -127,3 +127,13 @@ kumo.start_http_listener {
 
 If true, the listener will start with TLS enabled and require clients to use
 `https`.
+
+## request_body_limit
+
+{{since('dev')}}
+
+Specifies the maximum acceptable size of an incoming HTTP request, in bytes.
+The default is 2MB.
+
+If an incoming request exceeds this limit, a `413 Payload Too Large` HTTP
+response will be returned.

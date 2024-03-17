@@ -1,6 +1,6 @@
 use crate::diagnostic_logging::set_diagnostic_log_filter;
 use anyhow::Context;
-use axum::extract::Json;
+use axum::extract::{DefaultBodyLimit, Json};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -69,6 +69,9 @@ pub struct HttpListenerParams {
 
     #[serde(default)]
     pub use_tls: bool,
+
+    #[serde(default)]
+    pub request_body_limit: Option<usize>,
 
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
@@ -146,6 +149,9 @@ impl HttpListenerParams {
 
         let app = router_and_docs
             .router
+            .layer(DefaultBodyLimit::max(
+                self.request_body_limit.unwrap_or(2 * 1024 * 1024),
+            ))
             .merge(RapiDoc::with_openapi("/api-docs/openapi.json", api_docs).path("/rapidoc"))
             .route(
                 "/api/admin/set_diagnostic_log_filter/v1",
