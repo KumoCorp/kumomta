@@ -131,7 +131,7 @@ local function resolve_config(data, domain, tenant, campaign)
   local domain_config = data.queues[domain]
   if domain_config then
     for k, v in pairs(domain_config) do
-      if type(v) ~= 'table' then
+      if k == 'protocol' or type(v) ~= 'table' then
         params[k] = v
       end
     end
@@ -140,7 +140,7 @@ local function resolve_config(data, domain, tenant, campaign)
   local tenant_definition = data.tenants[tenant]
   if tenant_definition then
     for k, v in pairs(tenant_definition) do
-      if type(v) ~= 'table' then
+      if k == 'protocol' or type(v) ~= 'table' then
         params[k] = v
       end
     end
@@ -150,7 +150,7 @@ local function resolve_config(data, domain, tenant, campaign)
     local tenant_config = domain_config[tenant]
     if tenant_config then
       for k, v in pairs(tenant_config) do
-        if type(v) ~= 'table' then
+        if k == 'protocol' or type(v) ~= 'table' then
           params[k] = v
         end
       end
@@ -159,7 +159,7 @@ local function resolve_config(data, domain, tenant, campaign)
 
       if campaign then
         for k, v in pairs(campaign) do
-          if type(v) ~= 'table' then
+          if k == 'protocol' or type(v) ~= 'table' then
             params[k] = v
           end
         end
