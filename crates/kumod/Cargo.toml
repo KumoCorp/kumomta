@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-channel = "2.1"
-async-recursion = "1.0"
+async-recursion = "1.1"
 async-trait = "0.1"
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = "=0.4"
@@ -40,7 +40,7 @@ mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
 metrics = "0.22"
-minijinja-contrib = {version="1.0.9",features=["datetime", "timezone"]}
+minijinja-contrib = {version="1.0.13",features=["datetime", "timezone"]}
 minijinja = {version="1.0.9",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
