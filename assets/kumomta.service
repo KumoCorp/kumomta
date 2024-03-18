@@ -1,7 +1,6 @@
 [Unit]
 Description=KumoMTA SMTP service
 After=syslog.target network.target
-Conflicts=sendmail.service exim.service postfix.service
 
 [Service]
 Type=simple
