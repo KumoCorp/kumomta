@@ -32,6 +32,8 @@
   [request_body_limit](../reference/kumo/start_http_listener.md#request_body_limit)
   option to raise the default HTTP request size, which is useful when
   performing HTTP based injection with large message payloads.
+* It is now possible to use `protocol` in the `queues.toml` lua helper
+  configuration file. Thanks to @aryeh! #155
 
 ## Fixes
 
