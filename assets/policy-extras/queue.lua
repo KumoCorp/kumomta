@@ -109,8 +109,13 @@ local function merge_data(loaded_files)
   return result
 end
 
+-- Return true if the `name` and `value` pair provided
+-- is a valid queue configuration option.
+-- It does this by asking the internal rust code to validate it.
 local function is_queue_config_option(name, value)
-  return name == 'protocol' or type(value) ~= 'table'
+  local p = { [name] = value }
+  local status, err = pcall(kumo.make_queue_config, p)
+  return status
 end
 
 local function load_queue_config(file_names)
@@ -179,6 +184,28 @@ local function resolve_config(data, domain, tenant, campaign)
   return params
 end
 
+local function resolve_overall_throttle_specs(
+  data,
+  tenant_name,
+  campaign_name
+)
+  local results = {}
+  local tenant = data.tenants[tenant_name]
+  if tenant then
+    local rate = tenant.overall_max_message_rate
+    if rate then
+      results.tenant = rate
+    end
+
+    local campaign = tenant.campaigns[campaign_name]
+    if campaign then
+      results.campaign = campaign.overall_max_message_rate
+    end
+  end
+
+  return results
+end
+
 function mod:setup(file_names)
   return self:setup_with_options {
     skip_queue_config_hook = false,
@@ -215,6 +242,46 @@ function mod:setup_with_options(options)
       end
     )
   end
+
+  -- Apply any overall_max_message_rate option that may have been
+  -- specified for the tenant or its campaign(s)
+  kumo.on('throttle_insert_ready_queue', function(msg)
+    local tenant_name = msg:get_meta 'tenant'
+    local campaign_name = msg:get_meta 'campaign'
+
+    if tenant_name or campaign_name then
+      local data = cached_load_data(options.file_names)
+      local throttles =
+        resolve_overall_throttle_specs(data, tenant_name, campaign_name)
+
+      if throttles.tenant then
+        local throttle = kumo.make_throttle(
+          string.format(
+            'queue-helper-tenant-overall_max_message_rate-%s',
+            tenant_name
+          ),
+          throttles.tenant
+        )
+        if throttle:delay_message_if_throttled(msg) then
+          return
+        end
+      end
+
+      if throttles.campaign then
+        local throttle = kumo.make_throttle(
+          string.format(
+            'queue-helper-tenant-campaign-overall_max_message_rate-%s-%s',
+            tenant_name,
+            campaign_name
+          ),
+          throttles.tenant
+        )
+        if throttle:delay_message_if_throttled(msg) then
+          return
+        end
+      end
+    end
+  end)
 
   function helper:apply(msg)
     local data = cached_load_data(options.file_names)
@@ -294,8 +361,7 @@ end
 Run some basic unit tests for the data parsing/merging; use it like this:
 
 ```
-local queue_module = require 'policy-extras.queue'
-queue_module:test()
+KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --policy assets/policy-extras/queue.lua
 ```
 ]]
 function mod:test()
@@ -307,6 +373,10 @@ max_age = '24 hours'
 
 [tenant.'mytenant']
 egress_pool = 'tpool'
+overall_max_message_rate = "100/s"
+
+[tenant.'mytenant'.campaigns.'mycampaign']
+overall_max_message_rate = "50/s"
 
 [queue.'gmail.com'.'mytenant']
 egress_pool = "foo"
@@ -349,6 +419,26 @@ egress_pool = "bar"
     resolve_config(data, 'gmail.com', 'mytenant', 'campaign', nil).egress_pool,
     'bar'
   )
+
+  utils.assert_eq(resolve_overall_throttle_specs(data, nil, nil), {})
+  utils.assert_eq(
+    resolve_overall_throttle_specs(data, 'some-tenant', nil),
+    {}
+  )
+  utils.assert_eq(
+    resolve_overall_throttle_specs(data, 'mytenant', nil),
+    { tenant = '100/s' }
+  )
+  utils.assert_eq(
+    resolve_overall_throttle_specs(data, 'mytenant', 'mycampaign'),
+    { tenant = '100/s', campaign = '50/s' }
+  )
+end
+
+if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
+  kumo.configure_accounting_db_path(os.tmpname())
+  mod:test()
+  os.exit(0)
 end
 
 return mod
