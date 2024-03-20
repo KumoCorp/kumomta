@@ -359,7 +359,7 @@ fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
 
 async fn do_get_config() -> anyhow::Result<String> {
     use toml_edit::Item;
-    let mut doc = toml_edit::Document::new();
+    let mut doc = toml_edit::DocumentMut::new();
 
     let mut stmt = HISTORY.prepare(
         "SELECT * from config where

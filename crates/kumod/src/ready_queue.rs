@@ -815,7 +815,7 @@ impl Dispatcher {
             match load_config().await {
                 Ok(mut config) => {
                     let result: anyhow::Result<()> = config
-                        .async_call_callback_non_default(&REQUEUE_MESSAGE_SIG, msg.clone())
+                        .async_call_callback(&REQUEUE_MESSAGE_SIG, msg.clone())
                         .await;
 
                     match result {

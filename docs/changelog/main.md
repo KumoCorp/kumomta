@@ -28,6 +28,10 @@
   [kumo:make_queue_config](../reference/kumo/make_queue_config.md)
   to configure the rate at which a given Scheduled Queue can feed
   into the Ready Queue.
+* Added
+  [request_body_limit](../reference/kumo/start_http_listener.md#request_body_limit)
+  option to raise the default HTTP request size, which is useful when
+  performing HTTP based injection with large message payloads.
 
 ## Fixes
 
