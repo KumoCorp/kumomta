@@ -109,6 +109,10 @@ local function merge_data(loaded_files)
   return result
 end
 
+local function is_queue_config_option(name, value)
+  return name == 'protocol' or type(value) ~= 'table'
+end
+
 local function load_queue_config(file_names)
   local data = {}
   for _, file_name in ipairs(file_names) do
@@ -131,7 +135,7 @@ local function resolve_config(data, domain, tenant, campaign)
   local domain_config = data.queues[domain]
   if domain_config then
     for k, v in pairs(domain_config) do
-      if type(v) ~= 'table' then
+      if is_queue_config_option(k, v) then
         params[k] = v
       end
     end
@@ -140,7 +144,7 @@ local function resolve_config(data, domain, tenant, campaign)
   local tenant_definition = data.tenants[tenant]
   if tenant_definition then
     for k, v in pairs(tenant_definition) do
-      if type(v) ~= 'table' then
+      if is_queue_config_option(k, v) then
         params[k] = v
       end
     end
@@ -150,7 +154,7 @@ local function resolve_config(data, domain, tenant, campaign)
     local tenant_config = domain_config[tenant]
     if tenant_config then
       for k, v in pairs(tenant_config) do
-        if type(v) ~= 'table' then
+        if is_queue_config_option(k, v) then
           params[k] = v
         end
       end
@@ -159,7 +163,7 @@ local function resolve_config(data, domain, tenant, campaign)
 
       if campaign then
         for k, v in pairs(campaign) do
-          if type(v) ~= 'table' then
+          if is_queue_config_option(k, v) then
             params[k] = v
           end
         end
