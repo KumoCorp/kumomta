@@ -16,7 +16,7 @@ fc:
 	RUSTFLAGS="--cfg tokio_unstable -D warnings" cargo fc check --fail-fast
 
 test: build
-	KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --policy assets/policy-extras/queue.lua
+	KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --user $(USER) --policy assets/policy-extras/queue.lua
 	./docs/update-openapi.sh
 	cargo nextest run
 
