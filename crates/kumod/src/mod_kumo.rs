@@ -6,9 +6,11 @@ use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn;
-use message::Message;
+use message::{EnvelopeAddress, Message};
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
+use spool::SpoolId;
+use std::sync::Arc;
 use throttle::ThrottleSpec;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -107,6 +109,22 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let name = format!("lua-user-throttle-{name}");
             Ok(UserThrottle { name, spec })
         })?,
+    )?;
+
+    kumo_mod.set(
+        "make_message",
+        lua.create_function(
+            move |_lua, (sender, recip, body): (String, String, String)| {
+                Message::new_dirty(
+                    SpoolId::new(),
+                    EnvelopeAddress::parse(&sender).map_err(any_err)?,
+                    EnvelopeAddress::parse(&recip).map_err(any_err)?,
+                    serde_json::json!({}),
+                    Arc::new(body.into_bytes().into_boxed_slice()),
+                )
+                .map_err(any_err)
+            },
+        )?,
     )?;
 
     Ok(())

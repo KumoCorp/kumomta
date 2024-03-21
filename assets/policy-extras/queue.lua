@@ -127,20 +127,29 @@ local function load_queue_config(file_names)
   return merge_data(data)
 end
 
-local function resolve_config(data, domain, tenant, campaign)
+-- Resolve the merged value of the config that matches the provided
+-- domain, tenant and campaign.
+-- If allow_all is true, all fields are merged and returned.
+-- Otherwise (the default), only valid make_queue_config option values
+-- are returned.
+local function resolve_config(data, domain, tenant, campaign, allow_all)
   -- print('resolve_config', domain, tenant, campaign)
 
   local params = {}
 
   local default_config = data.queues.default
   if default_config then
-    utils.merge_into(default_config, params)
+    for k, v in pairs(default_config) do
+      if allow_all or is_queue_config_option(k, v) then
+        params[k] = v
+      end
+    end
   end
 
   local domain_config = data.queues[domain]
   if domain_config then
     for k, v in pairs(domain_config) do
-      if is_queue_config_option(k, v) then
+      if allow_all or is_queue_config_option(k, v) then
         params[k] = v
       end
     end
@@ -149,7 +158,7 @@ local function resolve_config(data, domain, tenant, campaign)
   local tenant_definition = data.tenants[tenant]
   if tenant_definition then
     for k, v in pairs(tenant_definition) do
-      if is_queue_config_option(k, v) then
+      if allow_all or is_queue_config_option(k, v) then
         params[k] = v
       end
     end
@@ -159,7 +168,7 @@ local function resolve_config(data, domain, tenant, campaign)
     local tenant_config = domain_config[tenant]
     if tenant_config then
       for k, v in pairs(tenant_config) do
-        if is_queue_config_option(k, v) then
+        if allow_all or is_queue_config_option(k, v) then
           params[k] = v
         end
       end
@@ -168,7 +177,7 @@ local function resolve_config(data, domain, tenant, campaign)
 
       if campaign then
         for k, v in pairs(campaign) do
-          if is_queue_config_option(k, v) then
+          if allow_all or is_queue_config_option(k, v) then
             params[k] = v
           end
         end
@@ -204,6 +213,92 @@ local function resolve_overall_throttle_specs(
   end
 
   return results
+end
+
+local function apply_impl(msg, data)
+  if data.options.scheduling_header then
+    msg:import_scheduling_header(data.options.scheduling_header, true)
+  end
+  if data.options.campaign_header then
+    local campaign =
+      msg:get_first_named_header_value(data.options.campaign_header)
+    if campaign then
+      msg:set_meta('campaign', campaign)
+      if data.options.remove_campaign_header then
+        msg:remove_all_named_headers(data.options.campaign_header)
+      end
+    end
+  end
+  local tenant = nil
+  local tenant_source = nil
+  if data.options.tenant_header then
+    tenant = msg:get_first_named_header_value(data.options.tenant_header)
+    if tenant then
+      tenant_source = string.format("'%s' header", data.options.tenant_header)
+      if data.options.remove_tenant_header then
+        msg:remove_all_named_headers(data.options.tenant_header)
+      end
+    end
+  end
+  if not tenant and data.options.default_tenant then
+    tenant = data.options.default_tenant
+    tenant_source = 'default_tenant option'
+  end
+  if tenant then
+    local tenant_config = data.tenants[tenant]
+
+    if not tenant_config then
+      kumo.reject(
+        500,
+        string.format(
+          "tenant '%s' specified by %s is not defined in your queue config",
+          tenant,
+          tenant_source
+        )
+      )
+    end
+
+    if tenant_config.require_authz then
+      local my_auth = msg:get_meta 'authz_id'
+
+      if not my_auth then
+        kumo.reject(
+          500,
+          string.format("tenant '%s' requires SMTP AUTH", tenant)
+        )
+      end
+
+      if not utils.table_contains(tenant_config.require_authz, my_auth) then
+        kumo.reject(
+          500,
+          string.format(
+            "authz_id '%s' is not authorized to send as tenant '%s'",
+            my_auth,
+            tenant
+          )
+        )
+      end
+    end
+
+    msg:set_meta('tenant', tenant)
+  end
+
+  local recip = msg:recipient()
+  if recip then
+    local composed = resolve_config(
+      data,
+      recip.domain,
+      msg:get_meta 'tenant',
+      msg:get_meta 'campaign',
+      true -- allow non-queue-config options
+    )
+    if composed then
+      local routing_domain = composed.routing_domain
+      if routing_domain then
+        msg:set_meta('routing_domain', routing_domain)
+      end
+    end
+  end
 end
 
 function mod:setup(file_names)
@@ -285,73 +380,7 @@ function mod:setup_with_options(options)
 
   function helper:apply(msg)
     local data = cached_load_data(options.file_names)
-    if data.options.scheduling_header then
-      msg:import_scheduling_header(data.options.scheduling_header, true)
-    end
-    if data.options.campaign_header then
-      local campaign =
-        msg:get_first_named_header_value(data.options.campaign_header)
-      if campaign then
-        msg:set_meta('campaign', campaign)
-        if data.options.remove_campaign_header then
-          msg:remove_all_named_headers(data.options.campaign_header)
-        end
-      end
-    end
-    local tenant = nil
-    local tenant_source = nil
-    if data.options.tenant_header then
-      tenant = msg:get_first_named_header_value(data.options.tenant_header)
-      if tenant then
-        tenant_source =
-          string.format("'%s' header", data.options.tenant_header)
-        if data.options.remove_tenant_header then
-          msg:remove_all_named_headers(data.options.tenant_header)
-        end
-      end
-    end
-    if not tenant and data.options.default_tenant then
-      tenant = data.options.default_tenant
-      tenant_source = 'default_tenant option'
-    end
-    if tenant then
-      local tenant_config = data.tenants[tenant]
-
-      if not tenant_config then
-        kumo.reject(
-          500,
-          string.format(
-            "tenant '%s' specified by %s is not defined in your queue config",
-            tenant,
-            tenant_source
-          )
-        )
-      end
-
-      if tenant_config.require_authz then
-        local my_auth = msg:get_meta 'authz_id'
-
-        if not my_auth then
-          kumo.reject(
-            500,
-            string.format("tenant '%s' requires SMTP AUTH", tenant)
-          )
-        end
-
-        if not utils.table_contains(tenant_config.require_authz, my_auth) then
-          kumo.reject(
-            500,
-            string.format(
-              "authz_id '%s' is not authorized to send as tenant '%s'",
-              my_auth,
-              tenant
-            )
-          )
-        end
-      end
-
-      msg:set_meta('tenant', tenant)
-    end
+    apply_impl(msg, data)
   end
 
   return helper
@@ -370,6 +399,9 @@ default_tenant = 'mytenant'
 
 [queue.default]
 max_age = '24 hours'
+
+[queue.'my.own.hostname']
+routing_domain = '[10.0.0.1]'
 
 [tenant.'mytenant']
 egress_pool = 'tpool'
@@ -433,6 +465,23 @@ egress_pool = "bar"
     resolve_overall_throttle_specs(data, 'mytenant', 'mycampaign'),
     { tenant = '100/s', campaign = '50/s' }
   )
+
+  local function new_msg(recip)
+    return kumo.make_message(
+      'sender@example.com',
+      recip,
+      'Subject: hello\r\n\r\nHi'
+    )
+  end
+
+  local msg = new_msg 'recip@example.com'
+  apply_impl(msg, data)
+  utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
+
+  local msg = new_msg 'recip@my.own.hostname'
+  apply_impl(msg, data)
+  utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
+  utils.assert_eq(msg:get_meta 'routing_domain', '[10.0.0.1]')
 end
 
 if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
