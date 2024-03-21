@@ -188,15 +188,14 @@ fn remove_line_break(line: &String) -> String {
             '\r' => {
                 new_line.push_str(" ");
                 cr_to_space = true;
-            },
+            }
             '\n' => {
                 if !cr_to_space {
                     new_line.push_str(" ");
-                }
-                else {
+                } else {
                     cr_to_space = false;
                 }
-            },
+            }
             c => new_line.push(c),
         }
     }
