@@ -76,8 +76,8 @@ steps:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
-      - cargo build --release
-      - cargo nextest run --release
+      - make test
+      - make build BUILD_OPTS="--release"
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
 
