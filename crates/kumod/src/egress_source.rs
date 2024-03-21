@@ -174,13 +174,10 @@ impl EgressSource {
 
         if let Some(source) = self.source_address {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
-                // Always log failure to bind: it indicates a critical
-                // misconfiguration issue
                 let error = format!(
                     "bind {source:?} for source:{source_name} failed: {err:#} \
                     while attempting to connect to {transport_address:?}"
                 );
-                tracing::error!("{error}");
                 anyhow::bail!("{error}");
             }
         }
