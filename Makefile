@@ -17,6 +17,7 @@ fc:
 
 test: build
 	KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --user `id -un` --policy assets/policy-extras/queue.lua
+	KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --user `id -un` --policy assets/policy-extras/listener_domains.lua
 	./docs/update-openapi.sh
 	cargo nextest run
 

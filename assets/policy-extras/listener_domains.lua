@@ -2,9 +2,7 @@ local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
 
-local function load_data_from_file(file_name, target)
-  local data = utils.load_json_or_toml_file(file_name)
-
+local function process_loaded_data(data, target)
   local by_listener = data.listener or {}
   data.listener = nil
   for domain, params in pairs(data) do
@@ -49,19 +47,99 @@ local function load_data_from_file(file_name, target)
   end
 end
 
-local function load_data(data_files)
-  local by_listener = {}
-  for _, file_name in ipairs(data_files) do
-    load_data_from_file(file_name, by_listener)
-  end
+local function load_data_from_file(file_name, target)
+  local data = utils.load_json_or_toml_file(file_name)
+  return process_loaded_data(data, target)
+end
 
-  -- and compile the domain lookups
+-- compile the domain lookups
+local function compile_data(by_listener)
   local compiled = {}
   for listener, mapping in pairs(by_listener) do
     compiled[listener] = kumo.domain_map.new(mapping)
   end
 
   return compiled
+end
+
+local function load_data(data_files)
+  local by_listener = {}
+  for _, file_name in ipairs(data_files) do
+    load_data_from_file(file_name, by_listener)
+  end
+
+  return compile_data(by_listener)
+end
+
+local function parse_toml_data(toml_text)
+  local data = kumo.toml_parse(toml_text)
+  local by_listener = {}
+  process_loaded_data(data, by_listener)
+  print('compiling', kumo.json_encode_pretty(by_listener))
+  return compile_data(by_listener)
+end
+
+local function lookup_impl(
+  by_listener,
+  domain_name,
+  listener,
+  conn_meta,
+  skip_make
+)
+  local listener_map = by_listener[listener]
+  if listener_map then
+    local listener_domain = listener_map[domain_name]
+    if listener_domain then
+      local relay_from_authz = listener_domain.relay_from_authz
+      -- Don't try and pass relay_from_authz into make_listener_domain
+      listener_domain.relay_from_authz = nil
+
+      if
+        relay_from_authz
+        and utils.table_contains(
+          relay_from_authz,
+          conn_meta:get_meta 'authz_id'
+        )
+      then
+        if not listener_domain.relay_from then
+          listener_domain.relay_from = {}
+        end
+        -- Add the peer to the relay_from list
+        local peer_ip, _peer_port =
+          utils.split_ip_port(conn_meta:get_meta 'received_from')
+        table.insert(listener_domain.relay_from, peer_ip)
+      end
+
+      if skip_make then
+        return listener_domain
+      end
+      return kumo.make_listener_domain(listener_domain)
+    end
+  end
+
+  return nil
+end
+
+local function get_listener_domain_impl(
+  by_listener,
+  domain_name,
+  listener,
+  conn_meta,
+  skip_make
+)
+  local result =
+    lookup_impl(by_listener, domain_name, listener, conn_meta, skip_make)
+  if result then
+    return result
+  end
+  -- Now try that domain against the '*' listener entry
+  local result =
+    lookup_impl(by_listener, domain_name, '*', conn_meta, skip_make)
+  if result then
+    return result
+  end
+  -- Now try the '*' domain and '*' listener
+  return lookup_impl(by_listener, '*', '*', conn_meta, skip_make)
 end
 
 --[[
@@ -143,49 +221,82 @@ function mod:setup(data_files)
     capacity = 10,
   })
 
-  local function lookup(domain_name, listener, conn_meta)
-    local by_listener = cached_load_data(data_files)
-
-    local listener_map = by_listener[listener]
-    if listener_map then
-      local listener_domain = listener_map[domain_name]
-      if listener_domain then
-        local relay_from_authz = listener_domain.relay_from_authz
-        -- Don't try and pass relay_from_authz into make_listener_domain
-        listener_domain.relay_from_authz = nil
-
-        if
-          relay_from_authz
-          and utils.table_contains(
-            relay_from_authz,
-            conn_meta:get_meta 'authz_id'
-          )
-        then
-          if not listener_domain.relay_from then
-            listener_domain.relay_from = {}
-          end
-          -- Add the peer to the relay_from list
-          local peer_ip, _peer_port =
-            utils.split_ip_port(conn_meta:get_meta 'received_from')
-          table.insert(listener_domain.relay_from, peer_ip)
-        end
-
-        return kumo.make_listener_domain(listener_domain)
-      end
-    end
-
-    return nil
-  end
-
   local function get_listener_domain(domain_name, listener, conn_meta)
-    local result = lookup(domain_name, listener, conn_meta)
-    if result then
-      return result
-    end
-    return lookup(domain_name, '*', conn_meta)
+    local by_listener = cached_load_data(data_files)
+    return get_listener_domain_impl(
+      by_listener,
+      domain_name,
+      listener,
+      conn_meta
+    )
   end
 
   return get_listener_domain
+end
+
+--[[
+Run some basic unit tests for the data parsing/merging; use it like this:
+
+```
+KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --policy assets/policy-extras/listener_domains.lua
+```
+]]
+function mod:test()
+  local open_relay = [=[
+['*']
+relay_to = true
+
+['somewhere.com']
+relay_to = false
+relay_from = ['10.0.0.0/24']
+
+# Define a per-listener configuration
+[listener."127.0.0.1:25"."*.example.com"]
+log_oob = false
+
+]=]
+
+  local data = parse_toml_data(open_relay)
+  local skip_make = true
+
+  utils.assert_eq(
+    get_listener_domain_impl(
+      data,
+      'example.com',
+      '127.0.0.1:25',
+      {},
+      skip_make
+    ),
+    { relay_to = true }
+  )
+
+  utils.assert_eq(
+    get_listener_domain_impl(
+      data,
+      'woof.example.com',
+      '127.0.0.1:25',
+      {},
+      skip_make
+    ),
+    { log_oob = false }
+  )
+
+  utils.assert_eq(
+    get_listener_domain_impl(
+      data,
+      'somewhere.com',
+      '127.0.0.1:25',
+      { received_from = '10.0.0.1' },
+      skip_make
+    ),
+    { relay_from = { '10.0.0.0/24' }, relay_to = false }
+  )
+end
+
+if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
+  kumo.configure_accounting_db_path(os.tmpname())
+  mod:test()
+  os.exit(0)
 end
 
 return mod

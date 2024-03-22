@@ -53,3 +53,5 @@
 * MIME Parser would discard whitespace from improperly encoded `message/rfc822`
   parts when rebuilding messages.
 * proxy-server didn't actually bind to the requested source address
+* `listener_domains.lua` helper didn't always fallback to full wildcard/default
+  (`*`) entries correctly. #128
