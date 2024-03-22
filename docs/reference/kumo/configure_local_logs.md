@@ -227,6 +227,12 @@ The JSON log record fields shown in the section below are assigned as template
 variables, so using `{{ id }}` in your log template will be substituted with
 the `id` field from the log record section below.
 
+{% raw %}
+To reference headers in a template, note that the header name is transformed to
+lowercase as part of adding it to the `headers` object, so to access a header
+named `X-FooBar` you would use `{{ headers['x-foobar'] }}` in your template.
+{% endraw %}
+
 {{since('2023.11.28-b5252a41', indent=True)}}
     You may now use `log_record` to reference the entire log record,
     which is useful if you want to replicate the default json representation
