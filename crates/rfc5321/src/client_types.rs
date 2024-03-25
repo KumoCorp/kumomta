@@ -179,27 +179,52 @@ pub struct EnhancedStatusCode {
     pub detail: u16,
 }
 
-fn remove_line_break(line: &String) -> String {
-    let mut new_line = String::new();
-    let mut cr_to_space = false;
+fn remove_line_break(data: &str) -> String {
+    let data = data.as_bytes();
+    let mut normalized = Vec::with_capacity(data.len());
+    let mut last_idx = 0;
 
-    for c in line.chars() {
-        match c {
-            '\r' => {
-                new_line.push_str(" ");
-                cr_to_space = true;
-            }
-            '\n' => {
-                if !cr_to_space {
-                    new_line.push_str(" ");
-                } else {
-                    cr_to_space = false;
+    for i in memchr::memchr2_iter(b'\r', b'\n', data) {
+        match data[i] {
+            b'\r' => {
+                normalized.extend_from_slice(&data[last_idx..i]);
+                if data.get(i + 1).copied() != Some(b'\n') {
+                    normalized.push(b' ');
                 }
             }
-            c => new_line.push(c),
+            b'\n' => {
+                normalized.extend_from_slice(&data[last_idx..i]);
+                normalized.push(b' ');
+            }
+            _ => unreachable!(),
         }
+        last_idx = i + 1;
     }
-    new_line
+
+    normalized.extend_from_slice(&data[last_idx..]);
+    // This is safe because data comes from str, which is
+    // guaranteed to be valid utf8, and all we're manipulating
+    // above is whitespace which won't invalidate the utf8
+    // byte sequences in the data byte array
+    unsafe { String::from_utf8_unchecked(normalized) }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn remove_crlf() {
+        fn remove(s: &str, expect: &str) {
+            assert_eq!(remove_line_break(s), expect, "input: {s:?}");
+        }
+
+        remove("hello\r\nthere\r\n", "hello there ");
+        remove("hello\r", "hello ");
+        remove("hello\nthere\r\n", "hello there ");
+        remove("hello\r\nthere\n", "hello there ");
+        remove("hello\r\r\r\nthere\n", "hello   there ");
+    }
 }
 
 fn as_single_line<S>(content: &String, serializer: S) -> Result<S::Ok, S::Error>
