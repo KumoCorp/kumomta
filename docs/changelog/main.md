@@ -1,6 +1,15 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* We now normalize line breaks in SMTP client responses into spaces, to make it
+  a little easier to deal with multi-line responses in both TSA automation,
+  response rewriting and bounce classification. Thanks to @cai-n! #157
+* We now also strip the enhanced status code prefix from each subsequent line
+  of multi-line responses, rather than just the first line. This may influence
+  your classification or TSA automation regexes.  For example, for a response
+  like `500-5.5.5 foo\n500 5.5.5 bar` we would previously represent that
+  with a logged `response.content` value of `foo\n5.5.5 bar`, but will now
+  encode it as `foo bar`. See #157 for more context.
 
 ## Other Changes and Enhancements
 
@@ -34,12 +43,6 @@
   performing HTTP based injection with large message payloads.
 * It is now possible to use `protocol` in the `queues.toml` lua helper
   configuration file. Thanks to @aryeh! #155
-* We now strip the enhanced status code prefix from each subsequent line
-  of multi-line responses, rather than just the first line. This may influence
-  your classification or TSA automation regexes.  For example, for a response
-  like `500-5.5.5 foo\n500 5.5.5 bar` we would previously represent that
-  with a logged `response.content` value of `foo\n5.5.5 bar`, but will now
-  encode it as `foo\nbar`. See #157 for more context.
 
 ## Fixes
 
