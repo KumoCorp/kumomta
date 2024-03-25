@@ -191,12 +191,7 @@ impl SmtpClient {
         let mut line = self.read_line(timeout_duration, command).await?;
         tracing::trace!("recv<-{}: {line}", self.hostname);
         let mut parsed = parse_response_line(&line)?;
-        let code = parsed.code;
-        let (enhanced_code, mut response_string) = match parse_enhanced_status_code(parsed.content)
-        {
-            Some((enhanced, content)) => (Some(enhanced), content.to_string()),
-            None => (None, parsed.content.to_string()),
-        };
+        let mut response_builder = ResponseBuilder::new(&parsed)?;
 
         let subsequent_line_timeout_duration = Duration::from_secs(60).min(timeout_duration);
         while !parsed.is_final {
@@ -204,24 +199,14 @@ impl SmtpClient {
                 .read_line(subsequent_line_timeout_duration, command)
                 .await?;
             parsed = parse_response_line(&line)?;
-            if parsed.code != code {
-                return Err(ClientError::MalformedResponseLine(line.to_string()));
-            }
-            response_string.push('\n');
-            response_string.push_str(parsed.content);
+            response_builder.add_line(&parsed)?;
         }
 
-        tracing::trace!(
-            "{}: {command:?} response: {code} {enhanced_code:?} {response_string}",
-            self.hostname
-        );
+        let response = response_builder.build(command.map(|cmd| cmd.encode()));
 
-        Ok(Response {
-            code,
-            content: response_string,
-            enhanced_code,
-            command: command.map(|cmd| cmd.encode()),
-        })
+        tracing::trace!("{}: {response:?}", self.hostname);
+
+        Ok(response)
     }
 
     pub async fn send_command(&mut self, command: &Command) -> Result<Response, ClientError> {
@@ -633,6 +618,18 @@ struct ResponseLine<'a> {
     pub content: &'a str,
 }
 
+impl<'a> ResponseLine<'a> {
+    /// Reconsitute the original line that we parsed
+    fn to_original_line(&self) -> String {
+        format!(
+            "{}{}{}",
+            self.code,
+            if self.is_final { " " } else { "-" },
+            self.content
+        )
+    }
+}
+
 fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     if line.len() < 4 {
         return Err(ClientError::MalformedResponseLine(line.to_string()));
@@ -648,6 +645,59 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
             Err(_) => Err(ClientError::MalformedResponseLine(line.to_string())),
         },
         _ => Err(ClientError::MalformedResponseLine(line.to_string())),
+    }
+}
+
+struct ResponseBuilder {
+    pub code: u16,
+    pub enhanced_code: Option<EnhancedStatusCode>,
+    pub content: String,
+}
+
+impl ResponseBuilder {
+    pub fn new(parsed: &ResponseLine) -> Result<Self, ClientError> {
+        let code = parsed.code;
+        let (enhanced_code, content) = match parse_enhanced_status_code(parsed.content) {
+            Some((enhanced, content)) => (Some(enhanced), content.to_string()),
+            None => (None, parsed.content.to_string()),
+        };
+
+        Ok(Self {
+            code,
+            enhanced_code,
+            content,
+        })
+    }
+
+    pub fn add_line(&mut self, parsed: &ResponseLine) -> Result<(), ClientError> {
+        if parsed.code != self.code {
+            return Err(ClientError::MalformedResponseLine(
+                parsed.to_original_line(),
+            ));
+        }
+
+        self.content.push('\n');
+
+        let mut content = parsed.content;
+
+        if let Some(enh) = &self.enhanced_code {
+            let prefix = format!("{}.{}.{} ", enh.class, enh.subject, enh.detail);
+            if let Some(remainder) = parsed.content.strip_prefix(&prefix) {
+                content = remainder;
+            }
+        }
+
+        self.content.push_str(content);
+        Ok(())
+    }
+
+    pub fn build(self, command: Option<String>) -> Response {
+        Response {
+            code: self.code,
+            content: self.content,
+            enhanced_code: self.enhanced_code,
+            command,
+        }
     }
 }
 
@@ -877,6 +927,92 @@ mod test {
             parse_response_line("not really"),
             Err(ClientError::MalformedResponseLine(_))
         ));
+    }
+
+    fn parse_multi_line(lines: &[&str]) -> Result<Response, ClientError> {
+        let mut parsed = parse_response_line(lines[0])?;
+        let mut b = ResponseBuilder::new(&parsed)?;
+        for line in &lines[1..] {
+            parsed = parse_response_line(line)?;
+            b.add_line(&parsed)?;
+        }
+        assert!(parsed.is_final);
+        Ok(b.build(None))
+    }
+
+    #[test]
+    fn multi_line_response() {
+        assert_eq!(
+            parse_multi_line(&["220-woot", "220-more", "220 done",]).unwrap(),
+            Response {
+                code: 220,
+                enhanced_code: None,
+                content: "woot\nmore\ndone".to_string(),
+                command: None
+            }
+        );
+
+        let res = parse_multi_line(&["220-woot", "221-more", "220 done"]).unwrap_err();
+        assert!(
+            matches!(
+                    res,
+                ClientError::MalformedResponseLine(ref err) if err == "221-more"
+            ),
+            "got error {res:?}"
+        );
+
+        let res = parse_multi_line(&["220-woot", "220-more", "221 done"]).unwrap_err();
+        assert!(
+            matches!(
+                    res,
+                ClientError::MalformedResponseLine(ref err) if err == "221 done"
+            ),
+            "got error {res:?}"
+        );
+
+        assert_eq!(
+            parse_multi_line(&["220-4.1.0 woot", "220-more", "220 done",]).unwrap(),
+            Response {
+                code: 220,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 1,
+                    detail: 0
+                }),
+                content: "woot\nmore\ndone".to_string(),
+                command: None
+            }
+        );
+
+        // Confirm that we strip the enhanced status code from each line
+        assert_eq!(
+            parse_multi_line(&["220-4.1.0 woot", "220-4.1.0 more", "220 done",]).unwrap(),
+            Response {
+                code: 220,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 1,
+                    detail: 0
+                }),
+                content: "woot\nmore\ndone".to_string(),
+                command: None
+            }
+        );
+
+        // ... but only if the code matches that of the first line
+        assert_eq!(
+            parse_multi_line(&["220-4.1.0 woot", "220-4.1.0 more", "220 5.5.5 done",]).unwrap(),
+            Response {
+                code: 220,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 1,
+                    detail: 0
+                }),
+                content: "woot\nmore\n5.5.5 done".to_string(),
+                command: None
+            }
+        );
     }
 
     #[test]
