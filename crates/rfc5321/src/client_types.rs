@@ -145,6 +145,7 @@ impl SmtpClientTimeouts {
 pub struct Response {
     pub code: u16,
     pub enhanced_code: Option<EnhancedStatusCode>,
+    #[serde(serialize_with = "as_single_line")]
     pub content: String,
     pub command: Option<String>,
 }
@@ -157,13 +158,7 @@ impl Response {
             line.push_str(&format!("{}.{}.{} ", enh.class, enh.subject, enh.detail));
         }
 
-        for c in self.content.chars() {
-            match c {
-                '\r' => line.push_str("\\r"),
-                '\n' => line.push_str("\\n"),
-                c => line.push(c),
-            }
-        }
+        line.push_str(&remove_line_break(&self.content));
 
         line
     }
@@ -182,4 +177,34 @@ pub struct EnhancedStatusCode {
     pub class: u8,
     pub subject: u16,
     pub detail: u16,
+}
+
+fn remove_line_break(line: &String) -> String {
+    let mut new_line = String::new();
+    let mut cr_to_space = false;
+
+    for c in line.chars() {
+        match c {
+            '\r' => {
+                new_line.push_str(" ");
+                cr_to_space = true;
+            }
+            '\n' => {
+                if !cr_to_space {
+                    new_line.push_str(" ");
+                } else {
+                    cr_to_space = false;
+                }
+            }
+            c => new_line.push(c),
+        }
+    }
+    new_line
+}
+
+fn as_single_line<S>(content: &String, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&remove_line_break(content))
 }
