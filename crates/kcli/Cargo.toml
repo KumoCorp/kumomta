@@ -16,7 +16,7 @@ humantime = "2.1"
 lexicmp = "0.1"
 message = {path="../message", default-features=false}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
-reqwest = {version="0.11", default-features=false, features=["json", "rustls-tls"]}
+reqwest = {version="0.12", default-features=false, features=["json", "rustls-tls"]}
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 tabout = "0.3"

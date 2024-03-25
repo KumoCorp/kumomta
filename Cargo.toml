@@ -49,7 +49,7 @@ hickory-resolver = "0.24"
 hickory-proto = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="1.0", features = ["axum"] }
-uuid = "1.4"
+uuid = "1.8"
 webpki-roots = "0.25"
 
 [patch.crates-io]
