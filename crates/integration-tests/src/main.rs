@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod kumod;
 #[cfg(test)]
+mod tsa;
+#[cfg(test)]
 mod webhook;
 
 fn main() {
@@ -12,7 +14,7 @@ mod test {
     use super::kumod::*;
     use anyhow::Context;
     use k9::assert_equal;
-    use kumo_api_types::SuspendV1Response;
+    use kumo_api_types::{SuspendReadyQueueV1ListEntry, SuspendV1Response};
     use kumo_log_types::RecordType;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
     use mailparsing::DecodedBody;
@@ -1006,6 +1008,63 @@ DeliverySummary {
 }
 "
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tsa_basic_automation() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithTsa::start().await?;
+
+        let mut client = daemon.smtp_client().await?;
+
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            recip: Some("450-go-away@foo.mx-sink.wezfurlong.org"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .with_maildir
+            .wait_for_source_summary(
+                |summary| {
+                    summary.get(&TransientFailure).copied().unwrap_or(0) > 0
+                        && summary.get(&Delivery).copied().unwrap_or(0) > 0
+                },
+                Duration::from_secs(5),
+            )
+            .await;
+
+        let delivery_summary = daemon.with_maildir.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+
+        // Confirm kumod sees a suspension
+        let status: Vec<SuspendReadyQueueV1ListEntry> = daemon
+            .with_maildir
+            .kcli_json(["suspend-ready-q-list"])
+            .await?;
+        println!("kcli status: {status:?}");
+        assert!(!status.is_empty(), "did suspend");
+        assert_eq!(status[0].name, "unspecified->localhost@smtp_client");
+        let reason = &status[0].reason;
+        assert!(reason.contains("you said"), "{reason}");
+
+        daemon.stop().await?;
         Ok(())
     }
 }

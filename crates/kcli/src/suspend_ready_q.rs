@@ -29,6 +29,7 @@ impl SuspendReadyQCommand {
                 name: self.name.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),
+                expires: None,
             },
         )
         .await?;

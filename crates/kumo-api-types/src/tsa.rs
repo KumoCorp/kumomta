@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 #[derive(Serialize, Default)]
@@ -11,7 +12,7 @@ pub struct ReadyQSuspension {
     pub site_name: String,
     pub reason: String,
     pub source: String,
-    pub expires: String,
+    pub expires: DateTime<Utc>,
 }
 
 #[derive(Serialize, Clone)]

@@ -227,11 +227,19 @@ pub struct SuspendReadyQueueV1Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub duration: Option<Duration>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<DateTime<Utc>>,
 }
 
 impl SuspendReadyQueueV1Request {
     pub fn duration(&self) -> Duration {
-        self.duration.unwrap_or_else(default_duration)
+        if let Some(expires) = &self.expires {
+            let duration = expires.signed_duration_since(Utc::now());
+            duration.to_std().unwrap_or(Duration::ZERO)
+        } else {
+            self.duration.unwrap_or_else(default_duration)
+        }
     }
 }
 

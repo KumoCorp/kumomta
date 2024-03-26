@@ -215,6 +215,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             serde_json::to_string_pretty(&value).map_err(any_err)
         })?,
     )?;
+    kumo_mod.set(
+        "sleep",
+        lua.create_async_function(|_, seconds: f64| async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs_f64(seconds)).await;
+            Ok(())
+        })?,
+    )?;
 
     // TODO: options like restarting on error, delay between
     // restarts and so on

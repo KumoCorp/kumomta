@@ -1,5 +1,7 @@
-local kumo = require 'kumo'
 -- This config acts as a sink that capture all received mail into a maildir
+local kumo = require 'kumo'
+package.path = '../../assets/?.lua;' .. package.path
+local utils = require 'policy-extras.policy_utils'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 
@@ -33,6 +35,9 @@ kumo.on('smtp_server_rcpt_to', function(recipient)
   end
   if string.find(recipient.user, 'permfail') then
     kumo.reject(500, 'permfail requested')
+  end
+  if utils.starts_with(recipient.user, '450-') then
+    kumo.reject(450, 'you said ' .. recipient.user)
   end
 end)
 

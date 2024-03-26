@@ -121,6 +121,59 @@ local function get_queue_cfg(publish, domain, tenant, campaign)
   end
 end
 
+local function apply_ready_q_suspension(item)
+  local current_suspensions = kumo.api.admin.suspend_ready_q.list()
+  local seen = false
+  local reason =
+    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+  -- avoid conflating/overriding existing entries
+  for _, v in ipairs(current_suspensions) do
+    if v.reason == reason then
+      seen = true
+      break
+    end
+  end
+
+  if not seen then
+    kumo.api.admin.suspend_ready_q.suspend {
+      name = item.site_name,
+      reason = reason,
+      expires = item.expires,
+    }
+  end
+end
+
+local function process_suspension_subscriptions(url)
+  -- Generate the websocket URL from the user-provided HTTP URL
+  local endpoint =
+    string.format('%s/subscribe_suspension_v1', url):gsub('^http', 'ws')
+  local stream, response = kumo.http.connect_websocket(endpoint)
+
+  -- Loop and consume all suspensions from the host; the initial
+  -- connection will pre-populate the stream with any current
+  -- suspensions, and then will later deliver any subsequently
+  -- generated suspension events in realtime.
+  while true do
+    local data = kumo.json_parse(stream:recv())
+    if data.ReadyQ then
+      apply_ready_q_suspension(data.ReadyQ)
+    end
+  end
+end
+
+kumo.on('kumo.tsa.suspension.subscriber', function(args)
+  local url = args[1]
+
+  -- If we encounter an error (likely cause: tsa-daemon restarting),
+  -- then we'll try again after a short sleep
+  while true do
+    local status, err = pcall(process_suspension_subscriptions, url)
+    print('TSA Error, will retry in 30 seconds', status, err)
+    kumo.sleep(30)
+  end
+end)
+
 --[[
 local shaper = shaping:setup_with_automation {
   publish = {"http://10.0.0.1:8008"},
@@ -140,14 +193,15 @@ kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
-    ttl = '1 minute',
+    ttl = options.cache_ttl or '1 minute',
     capacity = 10,
   })
 
-  local file_names = {
-    -- './assets/policy-extras/shaping.toml',
-    '/opt/kumomta/share/policy-extras/shaping.toml',
-  }
+  local file_names = {}
+  if not options.no_default_files then
+    table.insert(file_names, '/opt/kumomta/share/policy-extras/shaping.toml')
+  end
+
   if options.extra_files then
     for _, filename in ipairs(options.extra_files) do
       table.insert(file_names, filename)
@@ -198,9 +252,23 @@ function mod:setup_with_automation(options)
         },
       }
     end
+
+    if options.subscribe then
+      for _, url in ipairs(options.subscribe) do
+        kumo.spawn_task {
+          event_name = 'kumo.tsa.suspension.subscriber',
+          args = { url },
+        }
+      end
+    end
   end
 
-  local function get_egress_path_config(domain, egress_source, site_name)
+  local function get_egress_path_config(
+    domain,
+    egress_source,
+    site_name,
+    skip_make
+  )
     local data = cached_load_data(file_names, options.subscribe)
     local params =
       data:get_egress_path_config(domain, egress_source, site_name)
@@ -215,6 +283,11 @@ function mod:setup_with_automation(options)
     )
     ]]
 
+    if skip_make then
+      -- For test harness purposes, we can set skip_make to true so that
+      -- we can manipulate the params before constructing an egress path
+      return params
+    end
     return kumo.make_egress_path(params)
   end
 

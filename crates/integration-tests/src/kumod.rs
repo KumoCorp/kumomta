@@ -1,3 +1,4 @@
+use crate::tsa::{TsaArgs, TsaDaemon};
 use crate::webhook::WebHookServer;
 use anyhow::Context;
 use kumo_log_types::*;
@@ -542,5 +543,50 @@ impl DaemonWithMaildirAndWebHook {
 
     pub async fn wait_for_webhook_record_count(&self, count: usize, timeout: Duration) -> bool {
         self.webhook.wait_for_record_count(count, timeout).await
+    }
+}
+
+pub struct DaemonWithTsa {
+    pub with_maildir: DaemonWithMaildir,
+    pub tsa: TsaDaemon,
+}
+
+impl DaemonWithTsa {
+    pub async fn start() -> anyhow::Result<Self> {
+        let tsa = TsaDaemon::spawn(TsaArgs {
+            policy_file: "tsa_init.lua".to_string(),
+            env: vec![],
+        })
+        .await?;
+        let tsa_listener = tsa.listener("http");
+
+        let sink = KumoDaemon::spawn_maildir().await?;
+        let smtp = sink.listener("smtp");
+        let source = KumoDaemon::spawn(KumoArgs {
+            policy_file: "tsa_source.lua".to_string(),
+            env: vec![
+                ("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()),
+                (
+                    "KUMOD_TSA_PORT".to_string(),
+                    tsa_listener.port().to_string(),
+                ),
+            ],
+        })
+        .await?;
+
+        Ok(Self {
+            with_maildir: DaemonWithMaildir { source, sink },
+            tsa,
+        })
+    }
+
+    pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
+        self.with_maildir.source.smtp_client().await
+    }
+
+    pub async fn stop(&mut self) -> anyhow::Result<()> {
+        self.with_maildir.stop_both().await?;
+        self.tsa.stop().await?;
+        Ok(())
     }
 }

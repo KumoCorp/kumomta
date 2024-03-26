@@ -842,6 +842,14 @@
             "description": "Specifies how long this suspension remains active.",
             "nullable": true
           },
+          "expires": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              }
+            ],
+            "nullable": true
+          },
           "name": {
             "type": "string",
             "description": "The name of the ready queue that should be suspended"

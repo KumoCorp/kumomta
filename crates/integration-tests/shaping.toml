@@ -1,0 +1,7 @@
+["default"]
+enable_tls = "OpportunisticInsecure"
+
+[["default".automation]]
+regex = "you said 450-go-away"
+action = "Suspend"
+duration = "1 hour"

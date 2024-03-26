@@ -3,6 +3,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::DateTime;
 use config::CallbackSignature;
 use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
@@ -153,7 +154,8 @@ fn create_ready_q_suspension(
                  DO UPDATE SET expires=$expires",
     )?;
 
-    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
+    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
+    let expires_str = expires.to_rfc3339();
 
     upsert.bind(("$hash", rule_hash))?;
     upsert.bind(("$site", record.site.as_str()))?;
@@ -161,7 +163,7 @@ fn create_ready_q_suspension(
 
     let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
     upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires.as_str()))?;
+    upsert.bind(("$expires", expires_str.as_str()))?;
 
     upsert.next()?;
 
@@ -501,6 +503,8 @@ async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
         let reason: String = stmt.read("reason")?;
         let source: String = stmt.read("source")?;
         let expires: String = stmt.read("expires")?;
+
+        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
 
         add_readyq_susp(
             &mut by_rule_hash,
