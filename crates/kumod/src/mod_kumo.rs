@@ -19,6 +19,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     crate::queue::GET_Q_CONFIG_SIG.register();
     crate::logging::SHOULD_ENQ_LOG_RECORD_SIG.register();
     crate::PRE_INIT_SIG.register();
+    crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
+    crate::http_server::admin_suspend_v1::register(lua)?;
 
     kumo_mod.set(
         "start_http_listener",

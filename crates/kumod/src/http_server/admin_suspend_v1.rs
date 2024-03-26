@@ -1,12 +1,14 @@
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use config::get_or_create_sub_module;
 use kumo_api_types::{
     SuspendV1CancelRequest, SuspendV1ListEntry, SuspendV1Request, SuspendV1Response,
 };
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use message::message::QueueNameComponents;
+use mlua::{Lua, LuaSerdeExt, Value};
 use std::sync::Mutex;
 use std::time::Instant;
 use uuid::Uuid;
@@ -52,6 +54,26 @@ impl AdminSuspendEntry {
         let now = Instant::now();
         entries.retain(|ent| ent.expires > now);
         entries.clone()
+    }
+
+    pub fn get_all_v1() -> Vec<SuspendV1ListEntry> {
+        let now = Instant::now();
+        Self::get_all()
+            .into_iter()
+            .filter_map(|entry| {
+                entry
+                    .expires
+                    .checked_duration_since(now)
+                    .map(|duration| SuspendV1ListEntry {
+                        id: entry.id,
+                        campaign: entry.campaign,
+                        tenant: entry.tenant,
+                        domain: entry.domain,
+                        reason: entry.reason,
+                        duration,
+                    })
+            })
+            .collect()
     }
 
     pub fn remove_by_id(id: &Uuid) -> bool {
@@ -155,25 +177,7 @@ pub async fn suspend(
     ),
 )]
 pub async fn list(_: TrustedIpRequired) -> Result<Json<Vec<SuspendV1ListEntry>>, AppError> {
-    let now = Instant::now();
-    Ok(Json(
-        AdminSuspendEntry::get_all()
-            .into_iter()
-            .filter_map(|entry| {
-                entry
-                    .expires
-                    .checked_duration_since(now)
-                    .map(|duration| SuspendV1ListEntry {
-                        id: entry.id,
-                        campaign: entry.campaign,
-                        tenant: entry.tenant,
-                        domain: entry.domain,
-                        reason: entry.reason,
-                        duration,
-                    })
-            })
-            .collect(),
-    ))
+    Ok(Json(AdminSuspendEntry::get_all_v1()))
 }
 
 /// Remove a scheduled-queue suspension
@@ -197,4 +201,48 @@ pub async fn delete(_: TrustedIpRequired, Json(request): Json<SuspendV1CancelReq
         )
     }
     .into_response()
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let module = get_or_create_sub_module(lua, "api.admin.suspend")?;
+
+    module.set(
+        "list",
+        lua.create_function(move |lua, ()| {
+            let result = AdminSuspendEntry::get_all_v1();
+            lua.to_value(&result)
+        })?,
+    )?;
+
+    module.set(
+        "suspend",
+        lua.create_function(move |lua, request: Value| {
+            let request: SuspendV1Request = lua.from_value(request)?;
+
+            let duration = request.duration();
+            let id = Uuid::new_v4();
+            let entry = AdminSuspendEntry {
+                id,
+                campaign: request.campaign,
+                tenant: request.tenant,
+                domain: request.domain,
+                reason: request.reason,
+                expires: Instant::now() + duration,
+            };
+
+            AdminSuspendEntry::add(entry);
+            lua.to_value(&id)
+        })?,
+    )?;
+
+    module.set(
+        "delete",
+        lua.create_function(move |lua, id: Value| {
+            let id: Uuid = lua.from_value(id)?;
+            let removed = AdminSuspendEntry::remove_by_id(&id);
+            Ok(removed)
+        })?,
+    )?;
+
+    Ok(())
 }

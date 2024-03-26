@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2023.11.22-c814b960"
+    "version": "2024.03.26-2bc409e5"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -803,12 +803,16 @@
           "id",
           "name",
           "reason",
-          "duration"
+          "duration",
+          "expires"
         ],
         "properties": {
           "duration": {
             "type": "string",
             "description": "how long until this suspension expires and is automatically removed"
+          },
+          "expires": {
+            "$ref": "#/components/schemas/DateTime"
           },
           "id": {
             "type": "string",

@@ -248,6 +248,9 @@ pub struct SuspendReadyQueueV1ListEntry {
     /// how long until this suspension expires and is automatically removed
     #[serde(with = "duration_serde")]
     pub duration: Duration,
+
+    /// The time at which the suspension will expire
+    pub expires: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Debug, IntoParams)]

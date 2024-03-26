@@ -464,24 +464,41 @@ pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<
     }
 }
 
+/// Given a name path like `foo` or `foo.bar.baz`, sets up the module
+/// registry hierarchy to instantiate that path.
+/// Returns the leaf node of that path to allow the caller to
+/// register/assign functions etc. into it
 pub fn get_or_create_sub_module<'lua>(
     lua: &'lua Lua,
-    name: &str,
+    name_path: &str,
 ) -> anyhow::Result<mlua::Table<'lua>> {
-    let kumo_mod = get_or_create_module(lua, "kumo")?;
-    let sub = kumo_mod.get(name)?;
-    match sub {
-        Value::Nil => {
-            let sub = lua.create_table()?;
-            kumo_mod.set(name, sub.clone())?;
-            Ok(sub)
+    let mut parent = get_or_create_module(lua, "kumo")?;
+    let mut path_so_far = String::new();
+
+    for name in name_path.split('.') {
+        if !path_so_far.is_empty() {
+            path_so_far.push('.');
         }
-        Value::Table(sub) => Ok(sub),
-        wat => anyhow::bail!(
-            "cannot register module kumo.{name} as it is already set to a value of type {}",
-            wat.type_name()
-        ),
+        path_so_far.push_str(name);
+
+        let sub = parent.get(name)?;
+        match sub {
+            Value::Nil => {
+                let sub = lua.create_table()?;
+                parent.set(name, sub.clone())?;
+                parent = sub;
+            }
+            Value::Table(sub) => {
+                parent = sub;
+            }
+            wat => anyhow::bail!(
+                "cannot register module kumo.{path_so_far} as it is already set to a value of type {}",
+                wat.type_name()
+            ),
+        }
     }
+
+    Ok(parent)
 }
 
 /// Helper for mapping back to lua errors
