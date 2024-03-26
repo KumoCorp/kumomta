@@ -13,3 +13,8 @@ pub struct ReadyQSuspension {
     pub source: String,
     pub expires: String,
 }
+
+#[derive(Serialize, Clone)]
+pub enum SuspensionEntry {
+    ReadyQ(ReadyQSuspension),
+}

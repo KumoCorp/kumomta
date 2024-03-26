@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-axum = {workspace=true}
+axum = {workspace=true, features=["ws"]}
 axum-client-ip = "=0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}

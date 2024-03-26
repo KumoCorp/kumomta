@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Context};
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use config::CallbackSignature;
 use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
-use kumo_api_types::tsa::{ReadyQSuspension, Suspensions};
+use kumo_api_types::tsa::{ReadyQSuspension, SuspensionEntry, Suspensions};
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
@@ -18,12 +20,14 @@ use sqlite::{Connection, ConnectionThreadSafe};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
+use tokio::sync::broadcast::{channel, Sender};
 use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
 
 pub static DB_PATH: Lazy<Mutex<String>> =
     Lazy::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
 static HISTORY: Lazy<ConnectionThreadSafe> = Lazy::new(|| open_history_db().unwrap());
+static SUSPENSION_TX: Lazy<SuspensionSubscriberMgr> = Lazy::new(|| SuspensionSubscriberMgr::new());
 
 fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();
@@ -76,7 +80,8 @@ pub fn make_router() -> RouterAndDocs {
         router: Router::new()
             .route("/publish_log_v1", post(publish_log_v1))
             .route("/get_config_v1/shaping.toml", get(get_config_v1))
-            .route("/get_suspension_v1/suspended.json", get(get_suspension_v1)),
+            .route("/get_suspension_v1/suspended.json", get(get_suspension_v1))
+            .route("/subscribe_suspension_v1", get(subscribe_suspension_v1)),
         docs: ApiDoc::openapi(),
     }
 }
@@ -159,6 +164,14 @@ fn create_ready_q_suspension(
     upsert.bind(("$expires", expires.as_str()))?;
 
     upsert.next()?;
+
+    SuspensionSubscriberMgr::submit(SuspensionEntry::ReadyQ(ReadyQSuspension {
+        rule_hash: rule_hash.to_string(),
+        site_name: record.site.to_string(),
+        reason,
+        source: source.to_string(),
+        expires,
+    }));
 
     Ok(())
 }
@@ -509,4 +522,55 @@ async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
 async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
     let result = do_get_suspension().await?;
     Ok(result)
+}
+
+struct SuspensionSubscriberMgr {
+    tx: Sender<SuspensionEntry>,
+}
+
+impl SuspensionSubscriberMgr {
+    pub fn new() -> Self {
+        let (tx, _rx) = channel(16);
+        Self { tx }
+    }
+
+    pub fn submit(entry: SuspensionEntry) {
+        let mgr = &SUSPENSION_TX;
+        if mgr.tx.receiver_count() > 0 {
+            mgr.tx.send(entry).ok();
+        }
+    }
+}
+
+async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
+    let mut rx = SUSPENSION_TX.tx.subscribe();
+
+    // send the current set of suspensions first
+    {
+        let suspensions = do_get_suspension().await?;
+        for record in &suspensions.ready_q {
+            let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record.clone()))?;
+            socket.send(Message::Text(json)).await?;
+        }
+    }
+
+    // then wait for more to show up
+    loop {
+        let event = rx.recv().await?;
+        let json = serde_json::to_string(&event)?;
+        socket.send(Message::Text(json)).await?;
+    }
+}
+
+async fn process_suspension_subscription(socket: WebSocket) {
+    if let Err(err) = process_suspension_subscription_inner(socket).await {
+        tracing::error!("error in websocket: {err:#}");
+    }
+}
+
+pub async fn subscribe_suspension_v1(
+    _: TrustedIpRequired,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| process_suspension_subscription(socket))
 }
