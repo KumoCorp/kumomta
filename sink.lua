@@ -2,6 +2,7 @@
 local kumo = require 'kumo'
 
 kumo.on('init', function()
+  kumo.configure_accounting_db_path(os.tmpname())
   -- Define a listener.
   -- Can be used multiple times with different parameters to
   -- define multiple listeners!

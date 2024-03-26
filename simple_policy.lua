@@ -8,7 +8,7 @@ local shaping = require 'policy-extras.shaping'
 
 -- Called on startup to initialize the system
 kumo.on('init', function()
-  kumo.configure_accounting_db_path '/tmp/acct.db'
+  kumo.configure_accounting_db_path(os.tmpname())
 
   -- Define a listener.
   -- Can be used multiple times with different parameters to
