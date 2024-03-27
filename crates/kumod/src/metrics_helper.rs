@@ -37,6 +37,12 @@ lazy_static::lazy_static! {
             "number of messages in the ready queue",
             &["service"]).unwrap()
     };
+    pub static ref TOTAL_MSGS_RECVD: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_messages_received",
+            "total number of messages ever received",
+            &["service"]).unwrap()
+    };
 }
 
 pub fn ready_count_gauge_for_service(service: &str) -> IntGauge {
@@ -51,6 +57,12 @@ pub fn connection_gauge_for_service(service: &str) -> IntGauge {
 
 pub fn connection_total_for_service(service: &str) -> IntCounter {
     TOTAL_CONN.get_metric_with_label_values(&[service]).unwrap()
+}
+
+pub fn total_msgs_received_for_service(service: &str) -> IntCounter {
+    TOTAL_MSGS_RECVD
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 pub fn total_msgs_delivered_for_service(service: &str) -> IntCounter {

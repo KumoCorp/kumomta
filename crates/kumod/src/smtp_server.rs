@@ -20,7 +20,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, LuaSerdeExt, ToLuaMulti, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
-use prometheus::IntGauge;
+use prometheus::{IntCounter, IntGauge};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -365,6 +365,8 @@ pub struct SmtpServer {
     authorization_id: Option<String>,
     authentication_id: Option<String>,
     meta: ConnectionMetaData,
+    global_reception_count: IntCounter,
+    reception_count: IntCounter,
 }
 
 #[derive(Debug)]
@@ -408,6 +410,8 @@ impl SmtpServer {
         meta.set_meta("received_from", peer_address.to_string());
         meta.set_meta("hostname", params.hostname.to_string());
 
+        let service = format!("esmtp_listener:{my_address}");
+
         let mut server = SmtpServer {
             socket: Some(socket),
             state: None,
@@ -423,6 +427,10 @@ impl SmtpServer {
             authorization_id: None,
             authentication_id: None,
             meta,
+            reception_count: crate::metrics_helper::total_msgs_received_for_service(&service),
+            global_reception_count: crate::metrics_helper::total_msgs_received_for_service(
+                "esmtp_listener",
+            ),
         };
 
         server.params.connection_gauge().inc();
@@ -1310,6 +1318,8 @@ impl SmtpServer {
     }
 
     async fn process_data(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+        self.reception_count.inc();
+        self.global_reception_count.inc();
         let state = self
             .state
             .take()
