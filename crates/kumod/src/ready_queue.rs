@@ -1157,7 +1157,8 @@ impl Dispatcher {
 /// Visualize on wolframalpha: "plot 32 * (1-exp(-x * 0.023)), x from 0 to 100, y from 0 to 32"
 pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usize {
     let factor = 0.023;
-    let goal = (connection_limit as f32) * (1. - (-1.0 * queue_size as f32 * factor).exp());
+    let goal = (connection_limit as f32)
+        * (1. - (-1.0 * queue_size as f32 * factor).exp()).min(queue_size as f32);
     goal.ceil() as usize
 }
 
