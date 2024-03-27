@@ -1,5 +1,9 @@
+-- THIS IS NOT THE FILE YOU ARE LOOKING FOR!
+-- This file is wez's local hacking/testing config.
+-- You do not want to use this. It is not appropriate
+-- for your production needs.
 local kumo = require 'kumo'
-
+package.path = 'assets/?.lua;' .. package.path
 local shaping = require 'policy-extras.shaping'
 
 -- Called on startup to initialize the system
@@ -41,7 +45,7 @@ kumo.on('init', function()
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
     -- allowed to access any http endpoint without additional auth
-    trusted_hosts = { '127.0.0.1', '::1' },
+    trusted_hosts = { '127.0.0.1', '::1', '192.168.1.0/24' },
   }
   kumo.start_http_listener {
     use_tls = true,
@@ -87,7 +91,7 @@ end)
 kumo.on('get_egress_pool', function(pool_name)
   if pool_name == 'pool0' then
     local entries = {}
-    for i = 1, 10 do
+    for i = 1, 3 do
       local source_name = 'source' .. tostring(i)
       table.insert(entries, { name = source_name, weight = i * 10 })
     end
@@ -105,6 +109,8 @@ kumo.on('get_egress_source', function(source_name)
     name = source_name,
   }
 end)
+
+--[[
 
 -- Called to validate the helo and/or ehlo domain
 kumo.on('smtp_server_ehlo', function(domain)
@@ -124,6 +130,8 @@ kumo.on('smtp_server_rcpt_to', function(rcpt)
   -- print('rcpt', tostring(rcpt))
 end)
 
+]]
+
 -- Called once the body has been received.
 -- For multi-recipient mail, this is called for each recipient.
 kumo.on('smtp_server_message_received', function(msg)
@@ -135,11 +143,11 @@ kumo.on('smtp_server_message_received', function(msg)
     )
   end
 
-  local verify = msg:dkim_verify()
-  print('dkim', kumo.json_encode_pretty(verify))
-  msg:add_authentication_results(msg:get_meta 'hostname', verify)
-  print(msg:get_first_named_header_value 'Authentication-Results')
-  print(msg:get_data())
+  -- local verify = msg:dkim_verify()
+  -- print('dkim', kumo.json_encode_pretty(verify))
+  -- msg:add_authentication_results(msg:get_meta 'hostname', verify)
+  -- print(msg:get_first_named_header_value 'Authentication-Results')
+  -- print(msg:get_data())
 
   --[[
   local failed = msg:check_fix_conformance(
@@ -177,6 +185,8 @@ kumo.on('smtp_server_message_received', function(msg)
   }
   msg:dkim_sign(signer)
 
+  -- msg:set_meta('queue', 'null')
+
   -- set/get metadata fields
   -- msg:set_meta('X-TestMSG', 'true')
   -- print('meta X-TestMSG is', msg:get_meta 'X-TestMSG')
@@ -188,14 +198,18 @@ end)
 kumo.on(
   'get_egress_path_config',
   function(routing_domain, egress_source, site_name)
-    print('get_egress_path_config', routing_domain, egress_source, site_name)
+    -- print('get_egress_path_config', routing_domain, egress_source, site_name)
     return kumo.make_egress_path {
-      enable_tls = 'OpportunisticInsecure',
+      -- enable_tls = 'OpportunisticInsecure',
+      enable_tls = 'Disabled',
       -- max_message_rate = '5/min',
-      idle_timeout = '5s',
-      data_timeout = '10s',
-      data_dot_timeout = '15s',
-      connection_limit = 1024,
+      idle_timeout = '25s',
+      data_timeout = '20s',
+      data_dot_timeout = '25s',
+      connection_limit = 32,
+      -- max_connection_rate = '1/s',
+      -- max_ready = 16,
+      smtp_port = 2026,
       -- max_deliveries_per_connection = 5,
 
       -- hosts that we should consider to be poison because
@@ -209,10 +223,10 @@ kumo.on(
   end
 )
 
+--[[
 -- Not the final form of this API, but this is currently how
 -- we retrieve configuration used for managing a queue.
 kumo.on('get_queue_config', function(domain, tenant, campaign)
-  print('get_queue_config:1', domain, tenant, campaign)
   if domain == 'maildir.example.com' then
     -- Store this domain into a maildir, rather than attempting
     -- to deliver via SMTP
@@ -223,9 +237,9 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     }
   end
 end)
+]]
 
 kumo.on('get_queue_config', function(domain, tenant, campaign)
-  print('get_queue_config:2', domain, tenant, campaign)
   return kumo.make_queue_config {
     -- Age out messages after being in the queue for 2 minutes
     -- max_age = "2 minutes"

@@ -1,12 +1,11 @@
-local kumo = require 'kumo'
-
 -- This config acts as a sink that will discard all received mail
+local kumo = require 'kumo'
 
 kumo.on('init', function()
   -- Define a listener.
   -- Can be used multiple times with different parameters to
   -- define multiple listeners!
-  for _, port in ipairs { 25, 2026 } do
+  for _, port in ipairs { 2026 } do
     kumo.start_esmtp_listener {
       listen = '0:' .. tostring(port),
       relay_hosts = { '0.0.0.0/0' },
@@ -14,6 +13,7 @@ kumo.on('init', function()
   end
   kumo.start_http_listener {
     listen = '0.0.0.0:8002',
+    trusted_hosts = { '127.0.0.1', '::1', '192.168.1.0/24' },
   }
 
   -- Define the default "data" spool location.
