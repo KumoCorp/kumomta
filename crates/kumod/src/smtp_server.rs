@@ -12,7 +12,7 @@ use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::{rt_spawn, spawn_local};
+use kumo_server_runtime::rt_spawn;
 use lruttl::LruCacheWithTtl;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
@@ -1501,19 +1501,9 @@ impl SmtpServer {
         }
 
         if !messages.is_empty() {
-            spawn_local(
-                format!(
-                    "SmtpServer: insert {} msgs for {:?}",
-                    messages.len(),
-                    self.peer_address
-                ),
-                async move {
-                    for (queue_name, msg) in messages {
-                        QueueManager::insert(&queue_name, msg).await?;
-                    }
-                    Ok::<(), anyhow::Error>(())
-                },
-            )?;
+            for (queue_name, msg) in messages {
+                QueueManager::insert(&queue_name, msg).await?;
+            }
         }
 
         let ids = ids.join(" ");
