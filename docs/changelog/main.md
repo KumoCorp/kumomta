@@ -64,3 +64,5 @@
 * proxy-server didn't actually bind to the requested source address
 * `listener_domains.lua` helper didn't always fallback to full wildcard/default
   (`*`) entries correctly. #128
+* smtp client did not always wait for the full extent of the idle timeout for
+  new messages before closing the connection.

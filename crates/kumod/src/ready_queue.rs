@@ -1136,16 +1136,23 @@ impl Dispatcher {
             return Ok(true);
         }
 
+        let idle_start = Instant::now();
         let idle_timeout = self.path_config.borrow().client_timeouts.idle_timeout;
-        tokio::select! {
-            _ = tokio::time::sleep(idle_timeout) => {},
-            _ = self.notify.notified() => {}
-            _ = self.shutting_down.shutting_down() => {
+        let idle_deadline = idle_start + idle_timeout;
+        while Instant::now() < idle_deadline {
+            tokio::select! {
+                _ = tokio::time::sleep(idle_deadline - Instant::now()) => {},
+                _ = self.notify.notified() => {}
+                _ = self.shutting_down.shutting_down() => {
+                    return Ok(false);
+                }
+            };
+            if self.activity.is_shutting_down() {
                 return Ok(false);
             }
-        };
-        if self.activity.is_shutting_down() {
-            return Ok(false);
+            if self.obtain_message().await {
+                return Ok(true);
+            }
         }
         Ok(self.obtain_message().await)
     }
