@@ -98,6 +98,10 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     pub suspended: bool,
+
+    // TODO: decide if we want to keep this and then document
+    #[serde(default)]
+    pub aggressive_connection_opening: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -125,6 +129,7 @@ impl Default for EgressPathConfig {
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
             suspended: false,
+            aggressive_connection_opening: false,
         }
     }
 }

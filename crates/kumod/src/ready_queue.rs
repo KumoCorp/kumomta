@@ -628,12 +628,20 @@ impl Dispatcher {
             }
         };
 
-        dispatcher.obtain_message().await;
-        if dispatcher.msg.is_none() {
-            // We raced with another dispatcher and there is no
-            // more work to be done; no need to open a new connection.
-            dispatcher.lease.release().await;
-            return Ok(());
+        // We get better throughput by being more aggressive with establishing
+        // connections.
+        if !dispatcher
+            .path_config
+            .borrow()
+            .aggressive_connection_opening
+        {
+            dispatcher.obtain_message().await;
+            if dispatcher.msg.is_none() {
+                // We raced with another dispatcher and there is no
+                // more work to be done; no need to open a new connection.
+                dispatcher.lease.release().await;
+                return Ok(());
+            }
         }
 
         let mut connection_failures = vec![];
