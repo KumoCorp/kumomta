@@ -196,16 +196,17 @@ impl ReadyQueueManager {
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
+            let notify = Arc::new(Notify::new());
             rt_spawn_non_blocking(format!("maintain {name}"), {
                 let name = name.clone();
-                move || Ok(async move { Self::maintainer_task(name).await })
+                let notify = notify.clone();
+                move || Ok(async move { Self::maintainer_task(name, notify).await })
             })
             .expect("failed to spawn maintainer");
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
-            let notify = Arc::new(Notify::new());
             ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {
                 name: name.clone(),
                 queue_name_for_config_change_purposes_only: queue_name.to_string(),
@@ -226,7 +227,7 @@ impl ReadyQueueManager {
         Ok(handle.clone())
     }
 
-    async fn maintainer_task(name: String) -> anyhow::Result<()> {
+    async fn maintainer_task(name: String, notify: Arc<Notify>) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
         let mut interval = Duration::from_secs(60);
         let mut memory = subscribe_to_memory_status_changes();
@@ -240,6 +241,7 @@ impl ReadyQueueManager {
                     interval = Duration::from_secs(1);
                 },
                 _ = memory.changed() => {},
+                _ = notify.notified() => {},
             };
             let mut mgr = Self::get().await;
             let queue = { mgr.queues.get(&name).cloned() };
@@ -345,9 +347,8 @@ impl ReadyQueue {
             self.metrics.ready_count.inc();
         }
 
-        self.notify.notify_waiters();
-        self.maintain().await;
         self.last_change = Instant::now();
+        self.notify.notify_waiters();
 
         Ok(())
     }
