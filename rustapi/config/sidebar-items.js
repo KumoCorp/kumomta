@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["any_err","decorate_callback_name","does_callback_allow_multiple","from_lua_value","get_or_create_module","get_or_create_sub_module","load_config","register","serialize_options","set_max_age","set_max_spare","set_max_use","set_policy_path"],"struct":["CallbackSignature","LuaConfig"],"type":["RegisterFunc"]};

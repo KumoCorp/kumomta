@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ClientError","TlsStatus"],"fn":["build_dane_connector","build_tls_connector"],"struct":["EsmtpCapability","SmtpClient","TlsInformation","TlsOptions"]};

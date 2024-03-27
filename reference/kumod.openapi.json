@@ -1,0 +1,1072 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "kumod",
+    "description": "",
+    "license": {
+      "name": "Apache-2.0"
+    },
+    "version": "2023.11.22-c814b960"
+  },
+  "paths": {
+    "/api/admin/bounce/v1": {
+      "get": {
+        "tags": [
+          "bounce"
+        ],
+        "summary": "Allows the system operator to list all currently active administrative bounces that have been",
+        "description": "Allows the system operator to list all currently active administrative bounces that have been\nconfigured.",
+        "operationId": "bounce_v1_list",
+        "responses": {
+          "200": {
+            "description": "Returned information about current admin bounces",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BounceV1ListEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "bounce"
+        ],
+        "summary": "Allows the system operator to administratively bounce messages that match",
+        "description": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
+        "operationId": "bounce_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BounceV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Bounce added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BounceV1Response"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "bounce"
+        ],
+        "summary": "Allows the system operator to delete an administrative bounce entry by its id.",
+        "description": "Allows the system operator to delete an administrative bounce entry by its id.",
+        "operationId": "bounce_v1_delete",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BounceV1CancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Removed the requested bounce id"
+          },
+          "404": {
+            "description": "The requested bounce id is no longer, or never was, valid"
+          }
+        }
+      }
+    },
+    "/api/admin/inspect-message/v1": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Retrieve information about a message given its spool id.",
+        "description": "Retrieve information about a message given its spool id.",
+        "operationId": "inspect_v1",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "query",
+            "description": "The spool identifier for the message whose information\nis being requested",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/SpoolId"
+            }
+          },
+          {
+            "name": "want_body",
+            "in": "query",
+            "description": "If true, return the message body in addition to the\nmetadata",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Obtained message information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectMessageV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/set_diagnostic_log_filter/v1": {
+      "post": {
+        "tags": [
+          "logging"
+        ],
+        "summary": "Changes the diagnostic log filter dynamically.",
+        "description": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
+        "operationId": "set_diagnostic_log_filter_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDiagnosticFilterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Diagnostic level set successfully"
+          }
+        }
+      }
+    },
+    "/api/admin/suspend-ready-q/v1": {
+      "get": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "List the active ready-queue suspensions",
+        "description": "List the active ready-queue suspensions",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "Suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendReadyQueueV1ListEntry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "Define a suspension for a ready queue",
+        "description": "Define a suspension for a ready queue",
+        "operationId": "suspend",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendReadyQueueV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendV1Response"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "Remove a ready-queue suspension",
+        "description": "Remove a ready-queue suspension",
+        "operationId": "delete",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendV1CancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Removed the suspension"
+          },
+          "404": {
+            "description": "Suspension either expired or was never valid"
+          }
+        }
+      }
+    },
+    "/api/admin/suspend/v1": {
+      "get": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "List the active scheduled-queue suspensions",
+        "description": "List the active scheduled-queue suspensions",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "Suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendV1ListEntry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "Define a suspension for a scheduled queue",
+        "description": "Define a suspension for a scheduled queue",
+        "operationId": "suspend",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Suspended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuspendV1Response"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "suspend"
+        ],
+        "summary": "Remove a scheduled-queue suspension",
+        "description": "Remove a scheduled-queue suspension",
+        "operationId": "delete",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuspendV1CancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Removed the suspension"
+          },
+          "404": {
+            "description": "Suspension either expired or was never valid"
+          }
+        }
+      }
+    },
+    "/api/inject/v1": {
+      "post": {
+        "tags": [
+          "inject"
+        ],
+        "summary": "Inject a message using a given message body, with template expansion,",
+        "description": "Inject a message using a given message body, with template expansion,\nto a list of recipients.",
+        "operationId": "inject_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InjectV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Message(s) injected successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InjectV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Attachment": {
+        "type": "object",
+        "required": [
+          "data",
+          "content_type"
+        ],
+        "properties": {
+          "base64": {
+            "type": "boolean",
+            "description": "If true, the `data` field must be encoded as base64"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Set the `Content-ID` header for this attachment.\nThis is used in multipart/related messages to\nembed inline images in text/html parts.",
+            "nullable": true
+          },
+          "content_type": {
+            "type": "string",
+            "description": "The MIME `Content-Type` header that should be\nset for this attachment."
+          },
+          "data": {
+            "type": "string",
+            "description": "The content of the payload.\nThis is interpreted as UTF-8 text unless the\n`base64` field is set to `true`."
+          },
+          "file_name": {
+            "type": "string",
+            "description": "The the preferred filename for the attachment",
+            "nullable": true
+          }
+        }
+      },
+      "BounceV1CancelRequest": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "BounceV1ListEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "reason",
+          "duration",
+          "bounced",
+          "total_bounced"
+        ],
+        "properties": {
+          "bounced": {
+            "type": "object",
+            "description": "A map of queue name to number of bounced messages that\nwere processed by this entry since it was created.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "example": {
+              "gmail.com": 200,
+              "yahoo.com": 100
+            }
+          },
+          "campaign": {
+            "type": "string",
+            "description": "The campaign field of the original request, if any.",
+            "nullable": true
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain field of the original request, if any.",
+            "nullable": true
+          },
+          "duration": {
+            "type": "string",
+            "description": "The time remaining until this entry expires and is automatically\nremoved."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of this bounce rule. Corresponds to the `id` field\nreturned by the originating request that set up the bounce,\nand can be used to identify this particular entry if you\nwish to delete it later.",
+            "example": "552016f1-08e7-4e90-9da3-fd5c25acd069"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason field of the original request"
+          },
+          "routing_domain": {
+            "type": "string",
+            "description": "The routing_domain field of the original request, if any.",
+            "nullable": true
+          },
+          "tenant": {
+            "type": "string",
+            "description": "The tenant field of the original request, if any.",
+            "nullable": true
+          },
+          "total_bounced": {
+            "type": "integer",
+            "description": "The sum of the number of bounced messages reported by\nthe `bounced` field.",
+            "minimum": 0
+          }
+        }
+      },
+      "BounceV1Request": {
+        "type": "object",
+        "description": "Describes which messages should be bounced.\nThe criteria apply to the scheduled queue associated\nwith a given message.",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "campaign": {
+            "type": "string",
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "nullable": true
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com",
+            "nullable": true
+          },
+          "duration": {
+            "type": "string",
+            "description": "Defaults to \"5m\". Specifies how long this bounce directive remains active.\nWhile active, newly injected messages that match the bounce criteria\nwill also be bounced.",
+            "example": "20m",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason to log in the delivery log. Each matching message will be bounced\nwith an AdminBounce record unless you suppress logging.\nThe reason will also be shown in the list of currently active admin\nbounces.",
+            "example": "Cleaning up a bad send"
+          },
+          "routing_domain": {
+            "type": "string",
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
+            "nullable": true
+          },
+          "suppress_logging": {
+            "type": "boolean",
+            "description": "If true, do not generate AdminBounce delivery logs for matching\nmessages."
+          },
+          "tenant": {
+            "type": "string",
+            "description": "The tenant to match. If omitted, any tenant will match.",
+            "nullable": true
+          }
+        }
+      },
+      "BounceV1Response": {
+        "type": "object",
+        "required": [
+          "id",
+          "bounced",
+          "total_bounced"
+        ],
+        "properties": {
+          "bounced": {
+            "type": "object",
+            "description": "A map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "example": {
+              "gmail.com": 200,
+              "yahoo.com": 100
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the bounce rule that was registered.\nThis can be used later to delete the rule if desired.",
+            "example": "552016f1-08e7-4e90-9da3-fd5c25acd069"
+          },
+          "total_bounced": {
+            "type": "integer",
+            "description": "The sum of the number of bounced messages reported by\nthe `bounced` field.",
+            "example": 300,
+            "minimum": 0
+          }
+        }
+      },
+      "Content": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "A complete MIME message string"
+          },
+          {
+            "type": "object",
+            "description": "Describe the MIME structure to be created",
+            "properties": {
+              "attachments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Attachment"
+                },
+                "description": "Optional list of attachments"
+              },
+              "from": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/FromHeader"
+                  }
+                ],
+                "nullable": true
+              },
+              "headers": {
+                "type": "object",
+                "description": "Optional map of headers to include in the message.\nThis is a map of header name to header value",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "example": {
+                  "X-Tenant": "MyTenant"
+                }
+              },
+              "html_body": {
+                "type": "string",
+                "description": "If set, will be used to create a text/html part",
+                "nullable": true
+              },
+              "reply_to": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/FromHeader"
+                  }
+                ],
+                "nullable": true
+              },
+              "subject": {
+                "type": "string",
+                "description": "Set the Subject: header",
+                "nullable": true
+              },
+              "text_body": {
+                "type": "string",
+                "description": "If set, will be used to create a text/plain part",
+                "nullable": true
+              }
+            }
+          }
+        ],
+        "description": "The message content.\nCan either be a fully formed MIME message, or a json\nobject describing the MIME structure that should be created."
+      },
+      "FromHeader": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The email address of the sender",
+            "example": "sales@sender-example.com"
+          },
+          "name": {
+            "type": "string",
+            "description": "The displayable name of the sender",
+            "example": "Sales",
+            "nullable": true
+          }
+        }
+      },
+      "Header": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "",
+            "maxItems": 2,
+            "minItems": 2
+          }
+        ],
+        "description": "An email header."
+      },
+      "InjectV1Request": {
+        "type": "object",
+        "required": [
+          "envelope_sender",
+          "recipients",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "$ref": "#/components/schemas/Content"
+          },
+          "envelope_sender": {
+            "type": "string",
+            "description": "Specify the envelope sender that will be sent in the\nMAIL FROM portion of SMTP.",
+            "example": "some.id@bounces.sender-example.com"
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Recipient"
+            },
+            "description": "The list of recipients"
+          },
+          "substitutions": {
+            "type": "object",
+            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by\nthe templating engine.  This map applies to all\nrecipients, with the per-recipient substitutions\ntaking precedence.",
+            "additionalProperties": {},
+            "example": {
+              "campaign_title": "Fall Campaign"
+            }
+          }
+        }
+      },
+      "InjectV1Response": {
+        "type": "object",
+        "required": [
+          "success_count",
+          "fail_count",
+          "failed_recipients",
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The list of error messages"
+          },
+          "fail_count": {
+            "type": "integer",
+            "description": "The number of messages that failed to inject",
+            "minimum": 0
+          },
+          "failed_recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The list of failed recipients"
+          },
+          "success_count": {
+            "type": "integer",
+            "description": "The number of messages that were injected successfully",
+            "minimum": 0
+          }
+        }
+      },
+      "InspectMessageV1Response": {
+        "type": "object",
+        "required": [
+          "id",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/SpoolId"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessageInformation"
+          }
+        }
+      },
+      "MessageInformation": {
+        "type": "object",
+        "required": [
+          "sender",
+          "recipient",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "If `want_body` was set in the original request,\nholds the message body",
+            "nullable": true
+          },
+          "meta": {
+            "description": "The message metadata"
+          },
+          "recipient": {
+            "type": "string",
+            "description": "The envelope-to address",
+            "example": "recipient@example.com"
+          },
+          "sender": {
+            "type": "string",
+            "description": "The envelope sender",
+            "example": "sender@sender.example.com"
+          }
+        }
+      },
+      "Recipient": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "The email address of the recipient",
+            "example": "john.smith@mailbox-example.com"
+          },
+          "name": {
+            "type": "string",
+            "description": "The displayable name of the recipient",
+            "example": "John Smith",
+            "nullable": true
+          },
+          "substitutions": {
+            "type": "object",
+            "description": "When using templating, this is the map of placeholder\nname to replacement value that should be used by the\ntemplating engine when processing just this recipient.\nNote that `name` is implicitly set from the `name`\nfield, so you do not need to duplicate it here.",
+            "additionalProperties": {},
+            "example": {
+              "age": 42,
+              "gender": "male"
+            }
+          }
+        }
+      },
+      "SetDiagnosticFilterRequest": {
+        "type": "object",
+        "required": [
+          "filter"
+        ],
+        "properties": {
+          "filter": {
+            "type": "string",
+            "description": "The diagnostic filter spec to use",
+            "example": "kumod=trace"
+          }
+        }
+      },
+      "SpoolId": {
+        "type": "string",
+        "description": "Identifies a message within the spool of its host node.",
+        "example": "d7ef132b5d7711eea8c8000c29c33806"
+      },
+      "SuspendReadyQueueV1ListEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "reason",
+          "duration"
+        ],
+        "properties": {
+          "duration": {
+            "type": "string",
+            "description": "how long until this suspension expires and is automatically removed"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id for the suspension. Can be used to cancel the suspension."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the ready queue that is suspended"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the suspension",
+            "example": "pause while working on resolving a block with the destination postmaster"
+          }
+        }
+      },
+      "SuspendReadyQueueV1Request": {
+        "type": "object",
+        "required": [
+          "name",
+          "reason"
+        ],
+        "properties": {
+          "duration": {
+            "type": "string",
+            "description": "Specifies how long this suspension remains active.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the ready queue that should be suspended"
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the suspension",
+            "example": "pause while working on resolving a block with the destination postmaster"
+          }
+        }
+      },
+      "SuspendV1CancelRequest": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the suspension to cancel"
+          }
+        }
+      },
+      "SuspendV1ListEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "reason",
+          "duration"
+        ],
+        "properties": {
+          "campaign": {
+            "type": "string",
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "nullable": true
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "nullable": true
+          },
+          "duration": {
+            "type": "string",
+            "description": "Specifies how long this suspension remains active."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the suspension. This can be used later to cancel\nthe suspension."
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the suspension",
+            "example": "pause while working on resolving a deliverability issue"
+          },
+          "tenant": {
+            "type": "string",
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "nullable": true
+          }
+        }
+      },
+      "SuspendV1Request": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "campaign": {
+            "type": "string",
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "nullable": true
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "nullable": true
+          },
+          "duration": {
+            "type": "string",
+            "description": "Specifies how long this suspension remains active.",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "The reason for the suspension",
+            "example": "pause while working on resolving a block with the destination postmaster"
+          },
+          "tenant": {
+            "type": "string",
+            "description": "The tenant name to match. If omitted, any tenant will match.",
+            "nullable": true
+          }
+        }
+      },
+      "SuspendV1Response": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the suspension. This can be used later to cancel\nthe suspension."
+          }
+        }
+      }
+    },
+    "responses": {
+      "BounceV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "bounced",
+                "total_bounced"
+              ],
+              "properties": {
+                "bounced": {
+                  "type": "object",
+                  "description": "A map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "example": {
+                    "gmail.com": 200,
+                    "yahoo.com": 100
+                  }
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "The id of the bounce rule that was registered.\nThis can be used later to delete the rule if desired.",
+                  "example": "552016f1-08e7-4e90-9da3-fd5c25acd069"
+                },
+                "total_bounced": {
+                  "type": "integer",
+                  "description": "The sum of the number of bounced messages reported by\nthe `bounced` field.",
+                  "example": 300,
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "InjectV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "success_count",
+                "fail_count",
+                "failed_recipients",
+                "errors"
+              ],
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The list of error messages"
+                },
+                "fail_count": {
+                  "type": "integer",
+                  "description": "The number of messages that failed to inject",
+                  "minimum": 0
+                },
+                "failed_recipients": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "The list of failed recipients"
+                },
+                "success_count": {
+                  "type": "integer",
+                  "description": "The number of messages that were injected successfully",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "InspectMessageV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "id",
+                "message"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/SpoolId"
+                },
+                "message": {
+                  "$ref": "#/components/schemas/MessageInformation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "basic_auth": {
+        "type": "http",
+        "scheme": "basic"
+      }
+    }
+  },
+  "security": [
+    {
+      "basic_auth": [
+        ""
+      ]
+    }
+  ]
+}
