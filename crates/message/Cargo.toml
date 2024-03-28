@@ -36,4 +36,4 @@ timeq = {path="../timeq"}
 tokio = {workspace=true, features=["sync"]}
 
 [dev-dependencies]
-k9 = "0.11"
+k9 = "0.12"

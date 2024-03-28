@@ -35,5 +35,5 @@ utoipa = {workspace=true}
 uuid = {workspace=true, features=["serde"]}
 
 [dev-dependencies]
-k9 = "0.11.6"
+k9 = "0.12"
 tokio = {workspace=true, features=["full"]}
