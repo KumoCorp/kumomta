@@ -231,6 +231,20 @@ impl ReadyQueueManager {
         let mut shutdown = ShutdownSubcription::get();
         let mut interval = Duration::from_secs(60);
         let mut memory = subscribe_to_memory_status_changes();
+
+        // Trigger an initial maintainer run; this case is hit when
+        // traffic is low and we get eg: just a single message
+        // enqueued. In that case we don't notice the wakup on
+        // `notify` in a timely manner and we'll sit waiting
+        // for a subsequent message.
+        {
+            let mgr = Self::get().await;
+            if let Some(queue) = mgr.queues.get(&name).cloned() {
+                let mut queue = queue.lock().await;
+                queue.maintain().await;
+            }
+        }
+
         loop {
             let mut refresh_config = false;
             tokio::select! {
