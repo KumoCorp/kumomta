@@ -36,7 +36,7 @@ tracing = "0.1"
 hickory-resolver = {workspace=true}
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.5"
 k9 = "0.11"
 regex = "1"
 tokio = { workspace=true, features = ["macros"] }

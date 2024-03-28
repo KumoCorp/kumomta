@@ -53,7 +53,7 @@ ipsum dolor sit a.
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let email_text = email_text();
-    let email = ParsedEmail::parse_bytes(email_text.as_bytes()).unwrap();
+    let email = ParsedEmail::parse(email_text.clone()).unwrap();
 
     for canon in [Type::Simple, Type::Relaxed] {
         let private_key =
