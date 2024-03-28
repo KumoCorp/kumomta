@@ -144,6 +144,31 @@ local function apply_ready_q_suspension(item)
   end
 end
 
+local function apply_sched_q_suspension(item)
+  local current_suspensions = kumo.api.admin.suspend.list()
+  local seen = false
+  local reason =
+    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+  -- avoid conflating/overriding existing entries
+  for _, v in ipairs(current_suspensions) do
+    if v.reason == reason then
+      seen = true
+      break
+    end
+  end
+
+  if not seen then
+    kumo.api.admin.suspend.suspend {
+      campaign = item.campaign,
+      domain = item.domain,
+      tenant = item.tenant,
+      reason = reason,
+      expires = item.expires,
+    }
+  end
+end
+
 local function process_suspension_subscriptions(url)
   -- Generate the websocket URL from the user-provided HTTP URL
   local endpoint =
@@ -158,6 +183,8 @@ local function process_suspension_subscriptions(url)
     local data = kumo.json_parse(stream:recv())
     if data.ReadyQ then
       apply_ready_q_suspension(data.ReadyQ)
+    elseif data.SchedQ then
+      apply_sched_q_suspension(data.SchedQ)
     end
   end
 end

@@ -6,11 +6,12 @@ use axum::{Json, Router};
 use chrono::DateTime;
 use config::CallbackSignature;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
-use kumo_api_types::tsa::{ReadyQSuspension, SuspensionEntry, Suspensions};
+use kumo_api_types::tsa::{ReadyQSuspension, SchedQSuspension, SuspensionEntry, Suspensions};
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use kumo_server_runtime::rt_spawn;
+use message::message::QueueNameComponents;
 use once_cell::sync::Lazy;
 use rfc5321::ForwardPath;
 use serde::Serialize;
@@ -62,6 +63,16 @@ CREATE TABLE IF NOT EXISTS ready_q_suspensions (
     source text,
     expires DATETIME,
     PRIMARY KEY (rule_hash, site_name)
+);
+
+CREATE TABLE IF NOT EXISTS sched_q_suspensions (
+    rule_hash text,
+    campaign text,
+    tenant text,
+    domain text,
+    reason text,
+    expires DATETIME,
+    PRIMARY KEY (rule_hash, campaign, tenant, domain)
 );
 
     "#;
@@ -136,6 +147,74 @@ fn regex_list_to_string(list: &[Regex]) -> String {
         }
         result
     }
+}
+
+fn create_tenant_suspension(
+    rule_hash: &str,
+    rule: &Rule,
+    record: &JsonLogRecord,
+    use_campaign: bool,
+) -> anyhow::Result<()> {
+    let components = QueueNameComponents::parse(&record.queue);
+    let Some(tenant) = components.tenant else {
+        tracing::error!(
+            "Cannot create tenant based suspension for {rule:?} \
+             because the incoming record queue {} has no tenant component",
+            record.queue
+        );
+        return Ok(());
+    };
+
+    let campaign = if use_campaign {
+        components.campaign
+    } else {
+        None
+    };
+
+    let mut upsert = HISTORY
+        .prepare(
+            "INSERT INTO sched_q_suspensions
+                 (rule_hash, campaign, tenant, domain, reason, expires)
+                 VALUES
+                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
+                 ON CONFLICT (rule_hash, campaign, tenant, domain)
+                 DO UPDATE SET expires=$expires",
+        )
+        .context("prepare sched_q_suspensions upsert")?;
+
+    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
+    let expires_str = expires.to_rfc3339();
+
+    upsert.bind(("$hash", rule_hash))?;
+    upsert.bind(("$campaign", campaign))?;
+    upsert.bind(("$tenant", tenant))?;
+    upsert.bind(("$domain", components.domain))?;
+
+    let mut reason = format!(
+        "automation rule: {} tenant={tenant} domain={}",
+        regex_list_to_string(&rule.regex),
+        components.domain
+    );
+    if let Some(campaign) = &campaign {
+        reason.push_str(&format!(" campaign={campaign}"));
+    }
+    upsert.bind(("$reason", reason.as_str()))?;
+    upsert.bind(("$expires", expires_str.as_str()))?;
+
+    upsert
+        .next()
+        .context("execute sched_q_suspensions upsert")?;
+
+    SuspensionSubscriberMgr::submit(SuspensionEntry::SchedQ(SchedQSuspension {
+        rule_hash: rule_hash.to_string(),
+        domain: components.domain.to_string(),
+        tenant: tenant.to_string(),
+        campaign: campaign.map(|s| s.to_string()),
+        reason,
+        expires,
+    }));
+
+    Ok(())
 }
 
 fn create_ready_q_suspension(
@@ -221,7 +300,7 @@ fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
     }
 }
 
-async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
+async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
 
     // Extract the domain from the recipient.
@@ -276,9 +355,16 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
         // in the db with its effects and its expiry
         if triggered {
             for action in &m.action {
+                tracing::info!("{action:?} for {record:?}");
                 match action {
                     Action::Suspend => {
                         create_ready_q_suspension(&rule_hash, m, &record, &source)?;
+                    }
+                    Action::SuspendTenant => {
+                        create_tenant_suspension(&rule_hash, m, &record, false)?;
+                    }
+                    Action::SuspendCampaign => {
+                        create_tenant_suspension(&rule_hash, m, &record, true)?;
                     }
                     Action::SetConfig(config) => {
                         create_config(&rule_hash, m, &record, config, &domain, &source)?;
@@ -343,11 +429,16 @@ async fn publish_log_v1(
 
     // Bounce to the thread pool where we can run async lua
     rt_spawn("process record".to_string(), move || {
-        Ok(async move { tx.send(publish_log_v1_impl(record).await) })
+        Ok(async move {
+            tx.send(publish_log_v1_impl(record).await.map_err(|err| {
+                tracing::error!("while processing /publish_log_v1: {err:#}");
+                let app_err: AppError = err.into();
+                app_err
+            }))
+        })
     })
-    .await
-    .context("while processing /publish_log_v1")?;
-    rx.await.context("while processing /publish_log_v1")?
+    .await?;
+    rx.await?
 }
 
 fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
@@ -497,6 +588,52 @@ async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
     }
 
     suspensions.ready_q = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+
+    let mut stmt = HISTORY.prepare(
+        "SELECT * from sched_q_suspensions where
+                                   unixepoch(expires) - unixepoch() > 0
+                                   order by expires, tenant, domain, campaign",
+    )?;
+
+    let mut by_rule_hash = HashMap::new();
+
+    fn add_schedq_susp(
+        by_rule_hash: &mut HashMap<String, SchedQSuspension>,
+        item: SchedQSuspension,
+    ) {
+        let entry = by_rule_hash
+            .entry(item.rule_hash.to_string())
+            .or_insert_with(|| item.clone());
+
+        if item.expires > entry.expires {
+            entry.expires = item.expires;
+        }
+    }
+
+    while let Ok(sqlite::State::Row) = stmt.next() {
+        let rule_hash: String = stmt.read("rule_hash")?;
+        let tenant: String = stmt.read("tenant")?;
+        let domain: String = stmt.read("domain")?;
+        let campaign: Option<String> = stmt.read("campaign")?;
+        let reason: String = stmt.read("reason")?;
+        let expires: String = stmt.read("expires")?;
+
+        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+
+        add_schedq_susp(
+            &mut by_rule_hash,
+            SchedQSuspension {
+                rule_hash,
+                domain,
+                tenant,
+                campaign,
+                reason,
+                expires,
+            },
+        );
+    }
+
+    suspensions.sched_q = by_rule_hash.into_iter().map(|(_, v)| v).collect();
 
     Ok(Json(suspensions))
 }

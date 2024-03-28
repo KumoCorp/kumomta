@@ -54,6 +54,11 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
 end)
 
 kumo.on('smtp_server_message_received', function(msg)
+  local tenant = msg:get_first_named_header_value 'X-Tenant'
+  local campaign = msg:get_first_named_header_value 'X-campaign'
+  print('****** tenant', tenant, 'camp', campaign)
+  msg:set_meta('tenant', tenant)
+  msg:set_meta('campaign', campaign)
   msg:set_meta('routing_domain', 'localhost')
 end)
 

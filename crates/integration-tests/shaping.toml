@@ -5,3 +5,8 @@ enable_tls = "OpportunisticInsecure"
 regex = "you said 450-go-away"
 action = "Suspend"
 duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 450-suspend-campaign"
+action = "SuspendCampaign"
+duration = "1 hour"

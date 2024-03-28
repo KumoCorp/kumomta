@@ -19,6 +19,7 @@ kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
+message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 once_cell = "1.17"
 rfc5321= {path="../rfc5321"}

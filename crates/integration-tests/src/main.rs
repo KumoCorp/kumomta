@@ -14,7 +14,7 @@ mod test {
     use super::kumod::*;
     use anyhow::Context;
     use k9::assert_equal;
-    use kumo_api_types::{SuspendReadyQueueV1ListEntry, SuspendV1Response};
+    use kumo_api_types::{SuspendReadyQueueV1ListEntry, SuspendV1ListEntry, SuspendV1Response};
     use kumo_log_types::RecordType;
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
     use mailparsing::DecodedBody;
@@ -1053,16 +1053,104 @@ DeliverySummary {
 "
         );
 
+        async fn get_suspensions(
+            daemon: &DaemonWithTsa,
+        ) -> anyhow::Result<Vec<SuspendReadyQueueV1ListEntry>> {
+            daemon
+                .with_maildir
+                .kcli_json(["suspend-ready-q-list"])
+                .await
+        }
+
+        for _ in 0..5 {
+            let status = get_suspensions(&daemon).await?;
+            if status.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            } else {
+                break;
+            }
+        }
+
         // Confirm kumod sees a suspension
-        let status: Vec<SuspendReadyQueueV1ListEntry> = daemon
-            .with_maildir
-            .kcli_json(["suspend-ready-q-list"])
-            .await?;
+        let status = get_suspensions(&daemon).await?;
         println!("kcli status: {status:?}");
+
         assert!(!status.is_empty(), "did suspend");
         assert_eq!(status[0].name, "unspecified->localhost@smtp_client");
         let reason = &status[0].reason;
         assert!(reason.contains("you said"), "{reason}");
+
+        daemon.stop().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tsa_tenant_suspension() -> anyhow::Result<()> {
+        let mut daemon = DaemonWithTsa::start().await?;
+
+        let mut client = daemon.smtp_client().await?;
+
+        let body = "X-Tenant: mytenant\r\nX-Campaign: mycamp\r\n\r\nFoo";
+        let response = MailGenParams {
+            full_content: Some(body),
+            recip: Some("450-suspend-campaign@foo.mx-sink.wezfurlong.org"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .with_maildir
+            .wait_for_source_summary(
+                |summary| {
+                    summary.get(&TransientFailure).copied().unwrap_or(0) > 0
+                        && summary.get(&Delivery).copied().unwrap_or(0) > 0
+                },
+                Duration::from_secs(5),
+            )
+            .await;
+
+        let delivery_summary = daemon.with_maildir.dump_logs()?;
+        k9::snapshot!(
+            delivery_summary,
+            "
+DeliverySummary {
+    source_counts: {
+        Reception: 1,
+        Delivery: 1,
+        TransientFailure: 1,
+    },
+    sink_counts: {},
+}
+"
+        );
+
+        async fn get_suspensions(
+            daemon: &DaemonWithTsa,
+        ) -> anyhow::Result<Vec<SuspendV1ListEntry>> {
+            daemon.with_maildir.kcli_json(["suspend-list"]).await
+        }
+
+        for _ in 0..5 {
+            let status = get_suspensions(&daemon).await?;
+            if status.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            } else {
+                break;
+            }
+        }
+
+        // Confirm kumod sees a suspension
+        let status = get_suspensions(&daemon).await?;
+        println!("kcli status: {status:?}");
+
+        assert!(!status.is_empty(), "did suspend");
+        let item = &status[0];
+        let reason = &item.reason;
+        assert!(reason.contains("you said"), "{reason}");
+        assert_eq!(item.campaign.as_deref(), Some("mycamp"));
+        assert_eq!(item.tenant.as_deref(), Some("mytenant"));
 
         daemon.stop().await?;
         Ok(())

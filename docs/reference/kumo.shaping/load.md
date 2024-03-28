@@ -139,4 +139,16 @@ The following fields are possible in an automation rule:
     * `{Threshold="10/hr"}` - defines a threshold; the action won't trigger in this case until 10 events have occurred in the preceding hour.
  * `duration` - required string specifying the duration of the effects of the action.
 
+{{since('dev')}}
+
+The following new actions are now supported:
+
+ * `"SuspendTenant"` - Generate a suspension for all scheduled queues that have
+   both the *tenant* and the destination domain of the triggering record. If no
+   tenant was assigned, this action has no effect.
+ * `"SuspendCampaign"` - Generate a suspension for all scheduled queues that
+   have both the *tenant*, *campaign* and the destination domain of the
+   triggering record.  If no tenant was assigned, this action has no effect.
+   If no campaign was assigned, behave as though `"SuspendTenant"` was the
+   action.
 

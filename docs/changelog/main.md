@@ -43,6 +43,11 @@
   performing HTTP based injection with large message payloads.
 * It is now possible to use `protocol` in the `queues.toml` lua helper
   configuration file. Thanks to @aryeh! #155
+* The TSA `Suspend` action will now generate suspensions that are visible
+  via the HTTP API and kcli utility, and that will take effect in realtime.
+* TSA now supports `SuspendTenant` and `SuspendCampaign` actions that allow
+  reacting to source-domain-specific tempfails. These will also be visible
+  via the HTTP API and kcli utility, and also take effect in realtime.
 
 ## Fixes
 

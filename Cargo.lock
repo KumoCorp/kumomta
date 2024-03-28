@@ -6238,6 +6238,7 @@ dependencies = [
  "kumo-server-common",
  "kumo-server-memory",
  "kumo-server-runtime",
+ "message",
  "mlua",
  "once_cell",
  "rfc5321",

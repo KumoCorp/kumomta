@@ -193,6 +193,8 @@ impl From<EgressPathConfigValue> for EgressPathConfigValueUnchecked {
 pub enum Action {
     Suspend,
     SetConfig(EgressPathConfigValue),
+    SuspendTenant,
+    SuspendCampaign,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
