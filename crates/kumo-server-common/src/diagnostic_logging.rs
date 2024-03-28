@@ -93,10 +93,10 @@ impl<'a> LoggingConfig<'a> {
             }))
             .map_err(|_| anyhow::anyhow!("failed to assign reloadable logging filter"))?;
 
-        metrics::set_boxed_recorder(Box::new(
+        metrics::set_global_recorder(
             metrics_tracing_context::TracingContextLayer::all()
                 .layer(metrics_prometheus::Recorder::builder().build()),
-        ))?;
+        )?;
         Ok(())
     }
 }
