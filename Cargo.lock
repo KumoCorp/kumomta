@@ -6232,7 +6232,6 @@ dependencies = [
  "chrono",
  "clap",
  "config",
- "dns-resolver",
  "hex",
  "kumo-api-types",
  "kumo-log-types",

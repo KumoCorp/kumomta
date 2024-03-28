@@ -13,7 +13,6 @@ axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {version="0.4", default-features=false, features=["serde"]}
 clap = {version="4.5", features=["derive"]}
 config = {path="../config"}
-dns-resolver = {path="../dns-resolver"}
 hex = "0.4"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}

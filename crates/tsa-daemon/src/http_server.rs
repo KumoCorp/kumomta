@@ -5,7 +5,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::DateTime;
 use config::CallbackSignature;
-use dns_resolver::MailExchanger;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
 use kumo_api_types::tsa::{ReadyQSuspension, SuspensionEntry, Suspensions};
 use kumo_log_types::*;
@@ -239,31 +238,10 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
     };
     let domain = recipient.domain.to_string();
 
-    // From there we'll compute the site_name for ourselves, even though
-    // the record includes its own idea of the site_name. The rationale for
-    // this is that we prefer our understanding of domain->site_name so that
-    // we are more likely to have a consistent mapping in case we are handed
-    // stale data and the MX records changed, and also to isolate us from
-    // other weird stuff in the future; for example, if we change the format
-    // of the computed site_name in the future and there is a rolling deploy
-    // of the changed code, it is safer for us to re-derive it for ourselves
-    // so that we don't end up in a situation where we can't match any rollup
-    // rules.
-    let mx = match MailExchanger::resolve(&domain).await {
-        Ok(mx) => mx,
-        Err(err) => {
-            tracing::trace!("domain {domain} failed to resolve, ignoring record. {err:#}");
-            return Ok(());
-        }
-    };
-
     // Track events/outcomes by site.
-    // At the time of writing, `record.site` looks like `source->site_name`
-    // which may technically be a bug (it should probably just be `site_name`),
-    // so we explicitly include the source in our key to future proof against
-    // fixing that bug later on.
     let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    let store_key = format!("{source}->{}", mx.site_name);
+    let site_name = record.site.to_string();
+    let store_key = &site_name;
 
     let mut config = config::load_config().await?;
     let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
@@ -272,7 +250,7 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> Result<(), AppError> {
         .await
         .context("in tsa_load_shaping_data event")?;
 
-    let matches = shaping.match_rules(&record, &domain, &mx.site_name);
+    let matches = shaping.match_rules(&record, &domain, &site_name);
     let record_hash = sha256hex(&record)?;
 
     for m in &matches {
