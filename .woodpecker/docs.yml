@@ -58,7 +58,7 @@ steps:
     image: woodpeckerci/plugin-mkdocs:latest
     pull: true
     environment:
-      CARDS: "true"
+      CARDS: "false" # disabled for now due to https://github.com/squidfunk/mkdocs-material/issues/6983
       GIT_DATES: "true"
     settings:
       config: mkdocs.yml
