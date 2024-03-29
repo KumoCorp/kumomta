@@ -3,7 +3,7 @@ use crate::queue::QueueManager;
 use anyhow::Context;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
-use config::{load_config, CallbackSignature, LuaConfig};
+use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
 use kumo_log_types::ResolvedAddress;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
@@ -12,13 +12,14 @@ use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder,
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
+use mlua::{Lua, LuaSerdeExt};
 use rfc5321::Response;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spool::SpoolId;
 use std::collections::{BTreeMap, HashMap};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use utoipa::{ToResponse, ToSchema};
 
@@ -549,6 +550,28 @@ async fn inject_v1_impl(
         failed_recipients,
         errors,
     }))
+}
+
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
+    let module = get_or_create_sub_module(lua, "api.inject")?;
+
+    module.set(
+        "inject_v1",
+        lua.create_async_function(|lua, request: mlua::Value| async move {
+            let request: InjectV1Request = lua.from_value(request)?;
+            let sender = EnvelopeAddress::parse(&request.envelope_sender)
+                .context("envelope_sender")
+                .map_err(any_err)?;
+            let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+            let result = inject_v1_impl(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
+                .await
+                .map_err(|err| any_err(err.0))?;
+
+            lua.to_value(&result.0)
+        })?,
+    )?;
+
+    Ok(())
 }
 
 /// Inject a message using a given message body, with template expansion,

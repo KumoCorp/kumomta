@@ -52,6 +52,8 @@
   [read_dir](../reference/kumo/read_dir.md) and
   [uncached_glob](../reference/kumo/uncached_glob.md) filesystem functions.
   #161
+* New [kumo.api.inject.inject_v1](../reference/kumo.api.inject/inject_v1.md) lua
+  function for constructing and injecting arbitrary messages via policy. #102
 
 ## Fixes
 

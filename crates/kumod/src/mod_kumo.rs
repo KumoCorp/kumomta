@@ -21,6 +21,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     crate::PRE_INIT_SIG.register();
     crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
     crate::http_server::admin_suspend_v1::register(lua)?;
+    crate::http_server::inject_v1::register(lua)?;
 
     kumo_mod.set(
         "start_http_listener",

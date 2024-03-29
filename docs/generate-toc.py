@@ -317,6 +317,10 @@ TOC = [
                 "reference/kumo.amqp",
             ),
             Gen(
+                "module: kumo.api.inject",
+                "reference/kumo.api.inject",
+            ),
+            Gen(
                 "module: kumo.digest",
                 "reference/kumo.digest",
             ),
