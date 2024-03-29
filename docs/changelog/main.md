@@ -54,6 +54,8 @@
   #161
 * New [kumo.api.inject.inject_v1](../reference/kumo.api.inject/inject_v1.md) lua
   function for constructing and injecting arbitrary messages via policy. #102
+* 4xx and 5xx rejections made by the SMTP server are now logged as `Rejection`
+  log records. #88
 
 ## Fixes
 

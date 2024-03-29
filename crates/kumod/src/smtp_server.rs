@@ -1,7 +1,7 @@
 use crate::http_server::admin_trace_smtp_server_v1::{
     SmtpServerTraceEvent, SmtpServerTraceEventPayload, SmtpServerTraceManager,
 };
-use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::logging::{log_disposition, log_rejection, LogDisposition, LogRejection, RecordType};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
@@ -587,6 +587,35 @@ impl SmtpServer {
         message: S,
     ) -> Result<(), WriteError> {
         if let Some(socket) = self.socket.as_mut() {
+            if status >= 400
+                && status < 600
+                // Don't log the shutting down message; the main purpose
+                // of Rejection logging is to see what unexpected and
+                // unsuccessful results are being returned to the peer.
+                && !(status == 421 && message.as_ref().ends_with("shutting down"))
+            {
+                let response = Response::with_code_and_message(status, message.as_ref());
+
+                let mut sender = None;
+                let mut recipient = None;
+                if let Some(state) = &self.state {
+                    sender.replace(state.sender.to_string());
+                    recipient = state.recipients.last().map(|r| r.to_string());
+                }
+
+                log_rejection(LogRejection {
+                    meta: self.meta.clone_inner(),
+                    peer_address: ResolvedAddress {
+                        name: self.said_hello.as_deref().unwrap_or("").to_string(),
+                        addr: self.peer_address.ip(),
+                    },
+                    response,
+                    sender,
+                    recipient,
+                })
+                .await;
+            }
+
             let mut lines = message.as_ref().lines().peekable();
             while let Some(line) = lines.next() {
                 let is_last = lines.peek().is_none();

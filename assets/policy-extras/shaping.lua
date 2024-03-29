@@ -276,6 +276,10 @@ function mod:setup_with_automation(options)
           Reception = {
             enable = false,
           },
+          -- Likewise, rejections don't make sense to pass to TSA
+          Rejection = {
+            enable = false,
+          },
         },
       }
     end

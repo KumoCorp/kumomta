@@ -9,6 +9,7 @@ use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts
 use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -235,6 +236,7 @@ impl DaemonWithMaildir {
         let (res_1, res_2) = tokio::join!(self.source.stop(), self.sink.stop());
         res_1?;
         res_2?;
+        eprintln!("stopped_both");
         Ok(())
     }
 
@@ -447,12 +449,35 @@ impl KumoDaemon {
         let dir = self.dir.path().join("logs");
         let mut counts = BTreeMap::new();
 
+        fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
+            let f = std::fs::File::open(&path).with_context(|| format!("open {path:?}"))?;
+            let data = zstd::stream::decode_all(f)
+                .with_context(|| format!("decoding zstd from {path:?}"))?;
+            let text = String::from_utf8(data)?;
+            Ok(text)
+        }
+
+        fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
+            let mut error = None;
+            for _ in 0..10 {
+                match read_zstd_file(&path) {
+                    Ok(t) => {
+                        return Ok(t);
+                    }
+                    Err(err) => {
+                        eprintln!("Error reading {path:?}: {err:#}");
+                        error.replace(err);
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                }
+            }
+            anyhow::bail!("Failed: {error:?}");
+        }
+
         for entry in std::fs::read_dir(&dir)? {
             let entry = entry?;
             if entry.file_type()?.is_file() {
-                let f = std::fs::File::open(entry.path())?;
-                let data = zstd::stream::decode_all(f)?;
-                let text = String::from_utf8(data)?;
+                let text = read_zstd_file_with_retry(&entry.path())?;
                 eprintln!("{text}");
 
                 for line in text.lines() {

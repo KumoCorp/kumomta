@@ -35,6 +35,9 @@ pub enum RecordType {
     /// Contains a feedback report
     Feedback,
 
+    /// SMTP Listener responded with a 4xx or 5xx
+    Rejection,
+
     /// Special for matching anything in the logging config
     Any,
 }

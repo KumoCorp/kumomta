@@ -170,6 +170,28 @@ impl Response {
     pub fn is_permanent(&self) -> bool {
         self.code >= 500 && self.code < 600
     }
+
+    pub fn with_code_and_message(code: u16, message: &str) -> Self {
+        let lines: Vec<&str> = message.lines().collect();
+
+        let mut builder = ResponseBuilder::new(&ResponseLine {
+            code,
+            content: lines[0],
+            is_final: lines.len() == 1,
+        });
+
+        for (n, line) in lines.iter().enumerate().skip(1) {
+            builder
+                .add_line(&ResponseLine {
+                    code,
+                    content: line,
+                    is_final: n == lines.len() - 1,
+                })
+                .ok();
+        }
+
+        builder.build(None)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone, Copy, Hash)]
@@ -177,6 +199,30 @@ pub struct EnhancedStatusCode {
     pub class: u8,
     pub subject: u16,
     pub detail: u16,
+}
+
+fn parse_enhanced_status_code(line: &str) -> Option<(EnhancedStatusCode, &str)> {
+    let mut fields = line.splitn(3, '.');
+    let class = fields.next()?.parse::<u8>().ok()?;
+    if !matches!(class, 2 | 4 | 5) {
+        // No other classes are defined
+        return None;
+    }
+    let subject = fields.next()?.parse::<u16>().ok()?;
+
+    let remainder = fields.next()?;
+    let mut fields = remainder.splitn(2, ' ');
+    let detail = fields.next()?.parse::<u16>().ok()?;
+    let remainder = fields.next()?;
+
+    Some((
+        EnhancedStatusCode {
+            class,
+            subject,
+            detail,
+        },
+        remainder,
+    ))
 }
 
 fn remove_line_break(data: &str) -> String {
@@ -209,6 +255,76 @@ fn remove_line_break(data: &str) -> String {
     unsafe { String::from_utf8_unchecked(normalized) }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ResponseLine<'a> {
+    pub code: u16,
+    pub is_final: bool,
+    pub content: &'a str,
+}
+
+impl<'a> ResponseLine<'a> {
+    /// Reconsitute the original line that we parsed
+    fn to_original_line(&self) -> String {
+        format!(
+            "{}{}{}",
+            self.code,
+            if self.is_final { " " } else { "-" },
+            self.content
+        )
+    }
+}
+
+pub(crate) struct ResponseBuilder {
+    pub code: u16,
+    pub enhanced_code: Option<EnhancedStatusCode>,
+    pub content: String,
+}
+
+impl ResponseBuilder {
+    pub fn new(parsed: &ResponseLine) -> Self {
+        let code = parsed.code;
+        let (enhanced_code, content) = match parse_enhanced_status_code(parsed.content) {
+            Some((enhanced, content)) => (Some(enhanced), content.to_string()),
+            None => (None, parsed.content.to_string()),
+        };
+
+        Self {
+            code,
+            enhanced_code,
+            content,
+        }
+    }
+
+    pub fn add_line(&mut self, parsed: &ResponseLine) -> Result<(), String> {
+        if parsed.code != self.code {
+            return Err(parsed.to_original_line());
+        }
+
+        self.content.push('\n');
+
+        let mut content = parsed.content;
+
+        if let Some(enh) = &self.enhanced_code {
+            let prefix = format!("{}.{}.{} ", enh.class, enh.subject, enh.detail);
+            if let Some(remainder) = parsed.content.strip_prefix(&prefix) {
+                content = remainder;
+            }
+        }
+
+        self.content.push_str(content);
+        Ok(())
+    }
+
+    pub fn build(self, command: Option<String>) -> Response {
+        Response {
+            code: self.code,
+            content: self.content,
+            enhanced_code: self.enhanced_code,
+            command,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -224,6 +340,27 @@ mod test {
         remove("hello\nthere\r\n", "hello there ");
         remove("hello\r\nthere\n", "hello there ");
         remove("hello\r\r\r\nthere\n", "hello   there ");
+    }
+
+    #[test]
+    fn response_parsing() {
+        assert_eq!(
+            parse_enhanced_status_code("2.0.1 w00t"),
+            Some((
+                EnhancedStatusCode {
+                    class: 2,
+                    subject: 0,
+                    detail: 1
+                },
+                "w00t"
+            ))
+        );
+
+        assert_eq!(parse_enhanced_status_code("3.0.0 w00t"), None);
+
+        assert_eq!(parse_enhanced_status_code("2.0.0.1 w00t"), None);
+
+        assert_eq!(parse_enhanced_status_code("2.0.0.1w00t"), None);
     }
 }
 

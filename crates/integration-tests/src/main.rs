@@ -53,7 +53,9 @@ DeliverySummary {
         Reception: 1,
         TransientFailure: 1,
     },
-    sink_counts: {},
+    sink_counts: {
+        Rejection: 2,
+    },
 }
 "
         );
@@ -411,7 +413,9 @@ DeliverySummary {
         Reception: 1,
         Bounce: 1,
     },
-    sink_counts: {},
+    sink_counts: {
+        Rejection: 2,
+    },
 }
 "
         );
@@ -818,7 +822,9 @@ DeliverySummary {
         Reception: 1,
         TransientFailure: 1,
     },
-    sink_counts: {},
+    sink_counts: {
+        Rejection: 1,
+    },
 }
 "
         );
@@ -1048,7 +1054,9 @@ DeliverySummary {
         Delivery: 1,
         TransientFailure: 1,
     },
-    sink_counts: {},
+    sink_counts: {
+        Rejection: 2,
+    },
 }
 "
         );
@@ -1121,7 +1129,9 @@ DeliverySummary {
         Delivery: 1,
         TransientFailure: 1,
     },
-    sink_counts: {},
+    sink_counts: {
+        Rejection: 2,
+    },
 }
 "
         );

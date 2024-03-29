@@ -191,7 +191,7 @@ impl SmtpClient {
         let mut line = self.read_line(timeout_duration, command).await?;
         tracing::trace!("recv<-{}: {line}", self.hostname);
         let mut parsed = parse_response_line(&line)?;
-        let mut response_builder = ResponseBuilder::new(&parsed)?;
+        let mut response_builder = ResponseBuilder::new(&parsed);
 
         let subsequent_line_timeout_duration = Duration::from_secs(60).min(timeout_duration);
         while !parsed.is_final {
@@ -199,7 +199,9 @@ impl SmtpClient {
                 .read_line(subsequent_line_timeout_duration, command)
                 .await?;
             parsed = parse_response_line(&line)?;
-            response_builder.add_line(&parsed)?;
+            response_builder
+                .add_line(&parsed)
+                .map_err(ClientError::MalformedResponseLine)?;
         }
 
         let response = response_builder.build(command.map(|cmd| cmd.encode()));
@@ -587,49 +589,6 @@ pub struct TlsInformation {
     pub subject_name: Vec<String>,
 }
 
-fn parse_enhanced_status_code(line: &str) -> Option<(EnhancedStatusCode, &str)> {
-    let mut fields = line.splitn(3, '.');
-    let class = fields.next()?.parse::<u8>().ok()?;
-    if !matches!(class, 2 | 4 | 5) {
-        // No other classes are defined
-        return None;
-    }
-    let subject = fields.next()?.parse::<u16>().ok()?;
-
-    let remainder = fields.next()?;
-    let mut fields = remainder.splitn(2, ' ');
-    let detail = fields.next()?.parse::<u16>().ok()?;
-    let remainder = fields.next()?;
-
-    Some((
-        EnhancedStatusCode {
-            class,
-            subject,
-            detail,
-        },
-        remainder,
-    ))
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct ResponseLine<'a> {
-    pub code: u16,
-    pub is_final: bool,
-    pub content: &'a str,
-}
-
-impl<'a> ResponseLine<'a> {
-    /// Reconsitute the original line that we parsed
-    fn to_original_line(&self) -> String {
-        format!(
-            "{}{}{}",
-            self.code,
-            if self.is_final { " " } else { "-" },
-            self.content
-        )
-    }
-}
-
 fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     if line.len() < 4 {
         return Err(ClientError::MalformedResponseLine(line.to_string()));
@@ -645,59 +604,6 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
             Err(_) => Err(ClientError::MalformedResponseLine(line.to_string())),
         },
         _ => Err(ClientError::MalformedResponseLine(line.to_string())),
-    }
-}
-
-struct ResponseBuilder {
-    pub code: u16,
-    pub enhanced_code: Option<EnhancedStatusCode>,
-    pub content: String,
-}
-
-impl ResponseBuilder {
-    pub fn new(parsed: &ResponseLine) -> Result<Self, ClientError> {
-        let code = parsed.code;
-        let (enhanced_code, content) = match parse_enhanced_status_code(parsed.content) {
-            Some((enhanced, content)) => (Some(enhanced), content.to_string()),
-            None => (None, parsed.content.to_string()),
-        };
-
-        Ok(Self {
-            code,
-            enhanced_code,
-            content,
-        })
-    }
-
-    pub fn add_line(&mut self, parsed: &ResponseLine) -> Result<(), ClientError> {
-        if parsed.code != self.code {
-            return Err(ClientError::MalformedResponseLine(
-                parsed.to_original_line(),
-            ));
-        }
-
-        self.content.push('\n');
-
-        let mut content = parsed.content;
-
-        if let Some(enh) = &self.enhanced_code {
-            let prefix = format!("{}.{}.{} ", enh.class, enh.subject, enh.detail);
-            if let Some(remainder) = parsed.content.strip_prefix(&prefix) {
-                content = remainder;
-            }
-        }
-
-        self.content.push_str(content);
-        Ok(())
-    }
-
-    pub fn build(self, command: Option<String>) -> Response {
-        Response {
-            code: self.code,
-            content: self.content,
-            enhanced_code: self.enhanced_code,
-            command,
-        }
     }
 }
 
@@ -880,27 +786,6 @@ mod test {
     */
 
     #[test]
-    fn response_parsing() {
-        assert_eq!(
-            parse_enhanced_status_code("2.0.1 w00t"),
-            Some((
-                EnhancedStatusCode {
-                    class: 2,
-                    subject: 0,
-                    detail: 1
-                },
-                "w00t"
-            ))
-        );
-
-        assert_eq!(parse_enhanced_status_code("3.0.0 w00t"), None);
-
-        assert_eq!(parse_enhanced_status_code("2.0.0.1 w00t"), None);
-
-        assert_eq!(parse_enhanced_status_code("2.0.0.1w00t"), None);
-    }
-
-    #[test]
     fn response_line_parsing() {
         assert_eq!(
             parse_response_line("220 woot").unwrap(),
@@ -931,10 +816,11 @@ mod test {
 
     fn parse_multi_line(lines: &[&str]) -> Result<Response, ClientError> {
         let mut parsed = parse_response_line(lines[0])?;
-        let mut b = ResponseBuilder::new(&parsed)?;
+        let mut b = ResponseBuilder::new(&parsed);
         for line in &lines[1..] {
             parsed = parse_response_line(line)?;
-            b.add_line(&parsed)?;
+            b.add_line(&parsed)
+                .map_err(ClientError::MalformedResponseLine)?;
         }
         assert!(parsed.is_final);
         Ok(b.build(None))
