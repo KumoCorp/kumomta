@@ -105,7 +105,7 @@ impl SmtpServerTraceEventPayload {
 
 impl SmtpServerTraceManager {
     pub fn new() -> Self {
-        let (tx, _rx) = channel(16);
+        let (tx, _rx) = channel(128);
         Self { tx }
     }
 
