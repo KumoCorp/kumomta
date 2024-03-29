@@ -2681,6 +2681,7 @@ dependencies = [
  "mod-digest",
  "mod-dns-resolver",
  "mod-encode",
+ "mod-filesystem",
  "mod-http",
  "mod-kafka",
  "mod-memoize",
@@ -3429,6 +3430,19 @@ dependencies = [
  "config",
  "data-encoding",
  "mlua",
+]
+
+[[package]]
+name = "mod-filesystem"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "filenamegen",
+ "lruttl",
+ "mlua",
+ "once_cell",
+ "tokio",
 ]
 
 [[package]]

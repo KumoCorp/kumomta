@@ -48,6 +48,10 @@
 * TSA now supports `SuspendTenant` and `SuspendCampaign` actions that allow
   reacting to source-domain-specific tempfails. These will also be visible
   via the HTTP API and kcli utility, and also take effect in realtime.
+* New [glob](../reference/kumo/glob.md),
+  [read_dir](../reference/kumo/read_dir.md) and
+  [uncached_glob](../reference/kumo/uncached_glob.md) filesystem functions.
+  #161
 
 ## Fixes
 

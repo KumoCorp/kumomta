@@ -25,6 +25,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         cidr_map::register,
         domain_map::register,
         mod_amqp::register,
+        mod_filesystem::register,
         mod_http::register,
         mod_sqlite::register,
         mod_dns_resolver::register,
