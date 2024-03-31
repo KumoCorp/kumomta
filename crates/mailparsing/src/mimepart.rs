@@ -437,6 +437,15 @@ impl<'a> MimePart<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
+    pub fn replace_text_body(&mut self, content_type: &str, content: &str) {
+        let mut new_part = Self::new_text(content_type, content);
+        self.bytes = new_part.bytes;
+        self.body_offset = new_part.body_offset;
+        self.body_len = new_part.body_len;
+        self.headers.remove_all_named("Content-Type");
+        self.headers.append(&mut new_part.headers.headers);
+    }
+
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64

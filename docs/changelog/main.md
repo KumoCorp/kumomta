@@ -56,6 +56,11 @@
   function for constructing and injecting arbitrary messages via policy. #102
 * 4xx and 5xx rejections made by the SMTP server are now logged as `Rejection`
   log records. #88
+* New [msg:set_data](../reference/message/set_data.md),
+  [msg:append_text_plain](../reference/message/append_text_plain.md),
+  [msg:append_text_html](../reference/message/append_text_html.md) message
+  methods for amending the message content, which can be used to inject
+  tracking pixels. #120
 
 ## Fixes
 

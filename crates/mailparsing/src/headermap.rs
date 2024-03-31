@@ -93,6 +93,11 @@ impl<'a> HeaderMap<'a> {
         Self { headers }
     }
 
+    pub fn remove_all_named(&mut self, name: &str) {
+        self.headers
+            .retain(|hdr| !hdr.get_name().eq_ignore_ascii_case(name));
+    }
+
     pub fn prepend<V: Into<SharedString<'a>>>(&mut self, name: &str, v: V) {
         self.headers
             .insert(0, Header::new_unstructured(name.to_string(), v));

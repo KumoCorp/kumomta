@@ -17,7 +17,7 @@ use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
 #[cfg(feature = "impl")]
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
-use mailparsing::{Header, HeaderParseResult, MessageConformance, MimePart};
+use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::IntGauge;
@@ -799,6 +799,67 @@ impl Message {
         Ok(())
     }
 
+    pub fn append_text_plain(&self, content: &str) -> anyhow::Result<bool> {
+        let data = self.get_data();
+        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
+        let parts = msg.simplified_structure_pointers()?;
+        if let Some(p) = parts.text_part.and_then(|p| msg.resolve_ptr_mut(p)) {
+            match p.body()? {
+                DecodedBody::Text(text) => {
+                    let mut text = text.as_str().to_string();
+                    text.push_str("\r\n");
+                    text.push_str(content);
+                    p.replace_text_body("text/plain", &text);
+
+                    let new_data = msg.to_message_string();
+                    self.assign_data(new_data.into_bytes());
+                    Ok(true)
+                }
+                DecodedBody::Binary(_) => {
+                    anyhow::bail!("expected text/plain part to be text, but it is binary");
+                }
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub fn append_text_html(&self, content: &str) -> anyhow::Result<bool> {
+        let data = self.get_data();
+        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
+        let parts = msg.simplified_structure_pointers()?;
+        if let Some(p) = parts.html_part.and_then(|p| msg.resolve_ptr_mut(p)) {
+            match p.body()? {
+                DecodedBody::Text(text) => {
+                    let mut text = text.as_str().to_string();
+
+                    match text.rfind("</body>").or_else(|| text.rfind("</BODY>")) {
+                        Some(idx) => {
+                            text.insert_str(idx, content);
+                            text.insert_str(idx, "\r\n");
+                        }
+                        None => {
+                            // Just append
+                            text.push_str("\r\n");
+                            text.push_str(content);
+                        }
+                    }
+
+                    p.replace_text_body("text/html", &text);
+
+                    let new_data = msg.to_message_string();
+                    self.assign_data(new_data.into_bytes());
+                    Ok(true)
+                }
+                DecodedBody::Binary(_) => {
+                    anyhow::bail!("expected text/html part to be text, but it is binary");
+                }
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
     pub fn check_fix_conformance(
         &self,
         check: MessageConformance,
@@ -919,6 +980,15 @@ impl UserData for Message {
             this.assign_data(data.as_bytes().to_vec());
             Ok(())
         });
+
+        methods.add_method("append_text_plain", move |_lua, this, data: String| {
+            this.append_text_plain(&data).map_err(any_err)
+        });
+
+        methods.add_method("append_text_html", move |_lua, this, data: String| {
+            this.append_text_html(&data).map_err(any_err)
+        });
+
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
         methods.add_method("sender", move |_, this, _: ()| {
             Ok(this.sender().map_err(any_err)?)
@@ -1465,6 +1535,186 @@ QueueNameComponents {
         k9::assert_equal!(
             data_as_string(&msg),
             "X-Hello: there\r\nSubject: Hello\r\nFrom :Someone@somewhere\r\n\r\nBody"
+        );
+    }
+
+    #[test]
+    fn append_text_plain() {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        msg.append_text_plain("I am at the bottom").unwrap();
+        k9::assert_equal!(
+            data_as_string(&msg),
+            "X-Hello: there\r\n\
+             X-Header: value\r\n\
+             Subject: Hello\r\n\
+             X-Header: another value\r\n\
+             From :Someone@somewhere\r\n\
+             Content-Type: text/plain;\r\n\
+             \tcharset=\"us-ascii\"\r\n\
+             \r\n\
+             Body\r\n\
+             I am at the bottom\r\n"
+        );
+    }
+
+    const MIXED_CONTENT: &str = "Content-Type: multipart/mixed;\r\n\
+\tboundary=\"my-boundary\"\r\n\
+\r\n\
+--my-boundary\r\n\
+Content-Type: text/plain;\r\n\
+\tcharset=\"us-ascii\"\r\n\
+\r\n\
+plain text\r\n\
+--my-boundary\r\n\
+Content-Type: text/html;\r\n\
+\tcharset=\"us-ascii\"\r\n\
+\r\n\
+<b>rich</b> text\r\n\
+--my-boundary\r\n\
+Content-Type: application/octet-stream\r\n\
+Content-Transfer-Encoding: base64\r\n\
+Content-Disposition: attachment;\r\n\
+\tfilename=\"woot.bin\"\r\n\
+Content-ID: <woot.id>\r\n\
+\r\n\
+AAECAw==\r\n\
+--my-boundary--\r\n\
+\r\n";
+
+    const MIXED_CONTENT_ENCLOSING_BODY: &str = "Content-Type: multipart/mixed;\r\n\
+\tboundary=\"my-boundary\"\r\n\
+\r\n\
+--my-boundary\r\n\
+Content-Type: text/plain;\r\n\
+\tcharset=\"us-ascii\"\r\n\
+\r\n\
+plain text\r\n\
+--my-boundary\r\n\
+Content-Type: text/html;\r\n\
+\tcharset=\"us-ascii\"\r\n\
+\r\n\
+<BODY>\r\n\
+<b>rich</b> text\r\n\
+</BODY>\r\n\
+--my-boundary\r\n\
+Content-Type: application/octet-stream\r\n\
+Content-Transfer-Encoding: base64\r\n\
+Content-Disposition: attachment;\r\n\
+\tfilename=\"woot.bin\"\r\n\
+Content-ID: <woot.id>\r\n\
+\r\n\
+AAECAw==\r\n\
+--my-boundary--\r\n\
+\r\n";
+
+    #[test]
+    fn append_text_html() {
+        let msg = new_msg_body(MIXED_CONTENT);
+        msg.append_text_html("bottom html").unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="my-boundary"\r
+\r
+--my-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+plain text\r
+--my-boundary\r
+Content-Type: text/html;\r
+\tcharset="us-ascii"\r
+\r
+<b>rich</b> text\r
+\r
+bottom html\r
+--my-boundary\r
+Content-Type: application/octet-stream\r
+Content-Transfer-Encoding: base64\r
+Content-Disposition: attachment;\r
+\tfilename="woot.bin"\r
+Content-ID: <woot.id>\r
+\r
+AAECAw==\r
+--my-boundary--\r
+\r
+
+"#
+        );
+
+        let msg = new_msg_body(MIXED_CONTENT_ENCLOSING_BODY);
+        msg.append_text_html("bottom html 👻").unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="my-boundary"\r
+\r
+--my-boundary\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+plain text\r
+--my-boundary\r
+Content-Type: text/html;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+<BODY>\r
+<b>rich</b> text\r
+\r
+bottom html =F0=9F=91=BB</BODY>\r
+--my-boundary\r
+Content-Type: application/octet-stream\r
+Content-Transfer-Encoding: base64\r
+Content-Disposition: attachment;\r
+\tfilename="woot.bin"\r
+Content-ID: <woot.id>\r
+\r
+AAECAw==\r
+--my-boundary--\r
+\r
+
+"#
+        );
+    }
+
+    #[test]
+    fn append_text_plain_mixed() {
+        let msg = new_msg_body(MIXED_CONTENT);
+        msg.append_text_plain("bottom text 👾").unwrap();
+        k9::snapshot!(
+            data_as_string(&msg),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="my-boundary"\r
+\r
+--my-boundary\r
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+plain text\r
+\r
+bottom text =F0=9F=91=BE\r
+--my-boundary\r
+Content-Type: text/html;\r
+\tcharset="us-ascii"\r
+\r
+<b>rich</b> text\r
+--my-boundary\r
+Content-Type: application/octet-stream\r
+Content-Transfer-Encoding: base64\r
+Content-Disposition: attachment;\r
+\tfilename="woot.bin"\r
+Content-ID: <woot.id>\r
+\r
+AAECAw==\r
+--my-boundary--\r
+\r
+
+"#
         );
     }
 
