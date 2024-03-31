@@ -915,6 +915,10 @@ impl UserData for Message {
             let data = this.get_data();
             lua.create_string(&*data)
         });
+        methods.add_method("set_data", move |_lua, this, data: mlua::String| {
+            this.assign_data(data.as_bytes().to_vec());
+            Ok(())
+        });
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
         methods.add_method("sender", move |_, this, _: ()| {
             Ok(this.sender().map_err(any_err)?)
