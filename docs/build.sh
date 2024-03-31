@@ -55,7 +55,7 @@ if [ "$CI" == true ] ; then
   exit 0
 fi
 
-docker build -t kumomta/mkdocs-material -f docs/Dockerfile .
+docker build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
 
 if [ "$SERVE" == "yes" ] ; then
   docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material serve
