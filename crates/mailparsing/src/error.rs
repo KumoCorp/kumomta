@@ -20,4 +20,6 @@ pub enum MailParsingError {
     BuildError(&'static str),
     #[error("Error parsing Date header: {0}")]
     ChronoError(chrono::format::ParseError),
+    #[error("Mime Tree has too many child parts")]
+    TooManyParts,
 }

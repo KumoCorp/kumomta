@@ -575,87 +575,223 @@ impl<'a> MimePart<'a> {
     /// pulled out, and the remaining parts recorded as a flat
     /// attachments array
     pub fn simplified_structure(&'a self) -> Result<SimplifiedStructure<'a>> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let parts = self.simplified_structure_pointers()?;
 
-        if let Some(ct) = &info.content_type {
-            if ct.value == "text/plain" {
-                return Ok(SimplifiedStructure {
-                    text: match self.body()? {
-                        DecodedBody::Text(t) => Some(t),
-                        DecodedBody::Binary(_) => {
-                            return Err(MailParsingError::BodyParse(
-                                "expected text/plain part to be text, but it is binary".to_string(),
-                            ))
-                        }
-                    },
-                    html: None,
-                    headers: &self.headers,
-                    attachments: vec![],
-                });
-            }
-            if ct.value == "text/html" {
-                return Ok(SimplifiedStructure {
-                    html: match self.body()? {
-                        DecodedBody::Text(t) => Some(t),
-                        DecodedBody::Binary(_) => {
-                            return Err(MailParsingError::BodyParse(
-                                "expected text/html part to be text, but it is binary".to_string(),
-                            ))
-                        }
-                    },
-                    text: None,
-                    headers: &self.headers,
-                    attachments: vec![],
-                });
-            }
-            if ct.value.starts_with("multipart/") {
-                let mut text = None;
-                let mut html = None;
-                let mut attachments = vec![];
+        let mut text = None;
+        let mut html = None;
 
-                for p in &self.parts {
-                    if let Ok(mut s) = p.simplified_structure() {
-                        if s.text.is_some() && text.is_none() {
-                            text = s.text;
-                        }
-                        if s.html.is_some() && html.is_none() {
-                            html = s.html;
-                        }
-                        attachments.append(&mut s.attachments);
-                    }
-                }
+        let headers = &self
+            .resolve_ptr(parts.header_part)
+            .expect("header part to always be valid")
+            .headers;
 
-                return Ok(SimplifiedStructure {
-                    html,
-                    text,
-                    headers: &self.headers,
-                    attachments,
-                });
-            }
-
-            return Ok(SimplifiedStructure {
-                html: None,
-                text: None,
-                headers: &self.headers,
-                attachments: vec![self.clone()],
-            });
-        }
-
-        // Assume text/plain content-type
-        Ok(SimplifiedStructure {
-            text: match self.body()? {
+        if let Some(p) = parts.text_part.and_then(|p| self.resolve_ptr(p)) {
+            text = match p.body()? {
                 DecodedBody::Text(t) => Some(t),
                 DecodedBody::Binary(_) => {
                     return Err(MailParsingError::BodyParse(
                         "expected text/plain part to be text, but it is binary".to_string(),
                     ))
                 }
-            },
-            html: None,
-            headers: &self.headers,
+            };
+        }
+        if let Some(p) = parts.html_part.and_then(|p| self.resolve_ptr(p)) {
+            html = match p.body()? {
+                DecodedBody::Text(t) => Some(t),
+                DecodedBody::Binary(_) => {
+                    return Err(MailParsingError::BodyParse(
+                        "expected text/html part to be text, but it is binary".to_string(),
+                    ))
+                }
+            };
+        }
+
+        let mut attachments = vec![];
+        for ptr in parts.attachments {
+            attachments.push(self.resolve_ptr(ptr).expect("pointer to be valid").clone());
+        }
+
+        Ok(SimplifiedStructure {
+            text,
+            html,
+            headers,
+            attachments,
+        })
+    }
+
+    /// Resolve a PartPointer to the corresponding MimePart
+    pub fn resolve_ptr(&self, ptr: PartPointer) -> Option<&Self> {
+        let mut current = self;
+        let mut cursor = ptr.0.as_slice();
+
+        loop {
+            match cursor.get(0) {
+                Some(&idx) => {
+                    current = current.parts.get(idx as usize)?;
+                    cursor = &cursor[1..];
+                }
+                None => {
+                    // We have completed the walk
+                    return Some(current);
+                }
+            }
+        }
+    }
+
+    /// Resolve a PartPointer to the corresponding MimePart, for mutable access
+    pub fn resolve_ptr_mut(&mut self, ptr: PartPointer) -> Option<&mut Self> {
+        let mut current = self;
+        let mut cursor = ptr.0.as_slice();
+
+        loop {
+            match cursor.get(0) {
+                Some(&idx) => {
+                    current = current.parts.get_mut(idx as usize)?;
+                    cursor = &cursor[1..];
+                }
+                None => {
+                    // We have completed the walk
+                    return Some(current);
+                }
+            }
+        }
+    }
+
+    /// Returns a set of PartPointers that locate the (probable) primary
+    /// text/plain and text/html parts, and the remaining parts recorded
+    /// as a flat attachments array.  The resulting
+    /// PartPointers can be resolved to their actual instances for both
+    /// immutable and mutable operations via resolve_ptr and resolve_ptr_mut.
+    pub fn simplified_structure_pointers(&self) -> Result<SimplifiedStructurePointers> {
+        self.simplified_structure_pointers_impl(None)
+    }
+
+    fn simplified_structure_pointers_impl(
+        &self,
+        my_idx: Option<u8>,
+    ) -> Result<SimplifiedStructurePointers> {
+        let info = Rfc2045Info::new(&self.headers)?;
+        let is_inline = info
+            .attachment_options
+            .as_ref()
+            .map(|ao| ao.inline)
+            .unwrap_or(true);
+
+        if let Some(ct) = &info.content_type {
+            if is_inline {
+                if ct.value == "text/plain" {
+                    return Ok(SimplifiedStructurePointers {
+                        text_part: Some(PartPointer::root_or_nth(my_idx)),
+                        html_part: None,
+                        header_part: PartPointer::root_or_nth(my_idx),
+                        attachments: vec![],
+                    });
+                }
+                if ct.value == "text/html" {
+                    return Ok(SimplifiedStructurePointers {
+                        html_part: Some(PartPointer::root_or_nth(my_idx)),
+                        text_part: None,
+                        header_part: PartPointer::root_or_nth(my_idx),
+                        attachments: vec![],
+                    });
+                }
+            }
+
+            if ct.value.starts_with("multipart/") {
+                let mut text_part = None;
+                let mut html_part = None;
+                let mut attachments = vec![];
+
+                for (i, p) in self.parts.iter().enumerate() {
+                    let part_idx = i.try_into().map_err(|_| MailParsingError::TooManyParts)?;
+                    if let Ok(mut s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
+                        if text_part.is_none() {
+                            if let Some(p) = s.text_part {
+                                text_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                            }
+                        }
+                        if html_part.is_none() {
+                            if let Some(p) = s.html_part {
+                                html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                            }
+                        }
+                        attachments.append(&mut s.attachments);
+                    }
+                }
+
+                return Ok(SimplifiedStructurePointers {
+                    html_part,
+                    text_part,
+                    header_part: PartPointer::root_or_nth(my_idx),
+                    attachments,
+                });
+            }
+
+            return Ok(SimplifiedStructurePointers {
+                html_part: None,
+                text_part: None,
+                header_part: PartPointer::root_or_nth(my_idx),
+                attachments: vec![PartPointer::root_or_nth(my_idx)],
+            });
+        }
+
+        // Assume text/plain content-type
+        Ok(SimplifiedStructurePointers {
+            text_part: Some(PartPointer::root_or_nth(my_idx)),
+            html_part: None,
+            header_part: PartPointer::root_or_nth(my_idx),
             attachments: vec![],
         })
     }
+}
+
+/// References the position of a MimePart by encoding the steps in
+/// a tree walking operation. The encoding of PartPointer is a
+/// sequence of integers that identify the index of a child part
+/// by its level within the mime tree, selecting the current node
+/// when no more indices remain. eg: `[]` indicates the
+/// root part, while `[0]` is the 0th child of the root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartPointer(Vec<u8>);
+
+impl PartPointer {
+    /// Construct a PartPointer that references the root node
+    pub fn root() -> Self {
+        Self(vec![])
+    }
+
+    /// Construct a PartPointer that references either the nth
+    /// or the root node depending upon the passed parameter
+    pub fn root_or_nth(n: Option<u8>) -> Self {
+        match n {
+            Some(n) => Self::nth(n),
+            None => Self::root(),
+        }
+    }
+
+    /// Construct a PartPointer that references the nth child
+    pub fn nth(n: u8) -> Self {
+        Self(vec![n])
+    }
+
+    /// Join other onto self, consuming self and producing
+    /// a pointer that makes other relative to self
+    pub fn append(mut self, mut other: Self) -> Self {
+        self.0.append(&mut other.0);
+        Self(self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SimplifiedStructurePointers {
+    /// The primary text/plain part
+    pub text_part: Option<PartPointer>,
+    /// The primary text/html part
+    pub html_part: Option<PartPointer>,
+    /// The "top level" set of headers for the message
+    pub header_part: PartPointer,
+    /// all other (terminal) parts are attachments
+    pub attachments: Vec<PartPointer>,
 }
 
 #[derive(Debug, Clone)]
@@ -965,6 +1101,25 @@ t's see how that turns out!\r
         let parsed_part = MimePart::parse(encoded.clone()).unwrap();
         k9::assert_equal!(encoded.as_str(), parsed_part.to_message_string().as_str());
         k9::assert_equal!(part.body().unwrap(), DecodedBody::Text(input_text.into()));
+        k9::snapshot!(
+            parsed_part.simplified_structure_pointers(),
+            "
+Ok(
+    SimplifiedStructurePointers {
+        text_part: Some(
+            PartPointer(
+                [],
+            ),
+        ),
+        html_part: None,
+        header_part: PartPointer(
+            [],
+        ),
+        attachments: [],
+    },
+)
+"
+        );
     }
 
     #[test]
@@ -1013,6 +1168,40 @@ AAECAw==\r
 --my-boundary--\r
 
 "#
+        );
+
+        k9::snapshot!(
+            msg.simplified_structure_pointers(),
+            "
+Ok(
+    SimplifiedStructurePointers {
+        text_part: Some(
+            PartPointer(
+                [
+                    0,
+                ],
+            ),
+        ),
+        html_part: Some(
+            PartPointer(
+                [
+                    1,
+                ],
+            ),
+        ),
+        header_part: PartPointer(
+            [],
+        ),
+        attachments: [
+            PartPointer(
+                [
+                    2,
+                ],
+            ),
+        ],
+    },
+)
+"
         );
     }
 
