@@ -32,6 +32,17 @@ When having issues with injecting messages, use the `kcli trace-smtp-server` com
 [2xx.xxx.xx.xx:40422->1xx.x.xxx.xx:587]    1s === Closed
 ```
 
+## Obtaining a Stack Trace
+
+In some cases, the `kumod` process may hang without outputting relevant logs. When this occurs a stack trace should be obtained and provided as part of a help request:
+
+```console
+$ lldb -p $(pgrep kumod) -o 'bt all' -o 'quit' > /tmp/kumo-bt.txt
+```
+Note that lldb needs to be installed to collect the stack trace.
+
+When providing a stack trace you should also provide the output of `kumod --version` to help with interpreting the output.
+
 ## Reviewing the System Journal
 
 KumoMTA logs to the system journal for all error and status messages during operation, to view the log entries use journalctl:

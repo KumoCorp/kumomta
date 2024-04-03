@@ -84,8 +84,9 @@ duration = "2 hours"
 
 # PROVIDED BY COMCAST DIRECTLY
 # https://spa.xfinity.com/postmaster
+# https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
 ["comcast.net"]
-connection_limit = 10
+connection_limit = 25
 max_deliveries_per_connection = 250
 enable_tls = "Required"
 idle_timeout = "30s"
@@ -99,6 +100,10 @@ max_deliveries_per_connection = 100
 ["orange.fr"]
 connection_limit = 3
 
+# PROVIDED DIRECTLY FROM MAILGUN FOR SENDERS WHO SMARTHOST VIA MAILGUN
+["smtp.mailgun.com"]
+connection_limit = 7000
+max_deliveries_per_connection = 3
 
 #############################################################
 # example.com is used by our integration tests, while also demonstrating

@@ -27,6 +27,8 @@ If the troubleshooting steps do not help you resolve your issue, please make sur
 
 1. Relevant log lines from the KumoMTA logs.
 
+1. If the kumod process is unresponsive, provide a stack trace, see [more here](../operation/troubleshooting.md#obtaining-a-stack-trace) on how to collect a stack trace.
+
 ## Discord
 
 The KumoMTA Discord server is intended for real-time communication about
