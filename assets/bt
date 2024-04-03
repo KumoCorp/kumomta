@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+import re
+import sys
+
+# This script reads the `bt all` output from lldb and groups
+# threads by similar backtrace, making it a little easier
+# to reason about the state described by the trace
+
+IS_THREAD = re.compile("^[* ] thread #\d+")
+EPOLL = re.compile("epoll_wait\\(.+\\)")
+
+
+def process_bt(lines):
+    threads = {}
+    thread_name = None
+    thread_bt = []
+
+    for line in lines:
+        if IS_THREAD.match(line):
+            # We have a new thread
+            if thread_name:
+                threads[thread_name] = "\n".join(thread_bt)
+            thread_name = line
+            thread_bt = []
+        else:
+            thread_bt.append(line)
+
+    thread_by_bt = {}
+    for thread_name, thread_bt in threads.items():
+
+        norm = EPOLL.sub("epoll_wait(PARAMS)", thread_bt)
+
+        if not thread_by_bt.get(norm):
+            thread_by_bt[norm] = [thread_name]
+        else:
+            thread_by_bt[norm].append(thread_name)
+
+    for bt, thread_names in thread_by_bt.items():
+        if len(thread_names) > 1:
+            names = "\n".join(thread_names)
+            print(f"{names} have the same bt")
+        else:
+            print(f"{thread_names[0]} has a distinct bt")
+        print(bt)
+
+
+def parse_segment(data):
+    lines = data.split("\n")
+    data = lines[1:]
+    command = lines[0].strip()
+    print(f"(lldb) {command}")
+    if command == "bt all":
+        process_bt(data)
+    else:
+        # print('\n'.join(data))
+        pass
+
+
+def parse_lldb_session(data):
+    segments = ("\n" + data).split("\n(lldb)")
+    for s in segments:
+        if len(s) > 0:
+            parse_segment(s)
+
+
+def load_lldb_session_file(filename):
+    with open(filename) as f:
+        data = f.read()
+        return parse_lldb_session(data)
+
+
+if len(sys.argv) == 1:
+    print("USAGE: bt /path/to/lldb-output")
+    sys.exit(1)
+else:
+    load_lldb_session_file(sys.argv[1])
