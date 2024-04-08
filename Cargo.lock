@@ -1875,9 +1875,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.12"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "190092ea657667030ac6a35e305e62fc4dd69fd98ac98631e5d3a2b1575a12b5"
+checksum = "a06fddc2749e0528d2813f95e050e87e52c8cbbae56223b9babf73b3e53b0cc6"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -2698,7 +2698,7 @@ dependencies = [
  "prometheus",
  "rcgen",
  "regex-set-map",
- "rustls 0.21.10",
+ "rustls 0.22.3",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -2805,7 +2805,7 @@ dependencies = [
  "prometheus",
  "rand",
  "rfc5321",
- "rustls 0.21.10",
+ "rustls 0.22.3",
  "self_cell",
  "serde",
  "serde_json",
@@ -2821,7 +2821,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "version-info",
- "webpki-roots 0.25.4",
+ "webpki-roots 0.26.1",
  "zstd",
 ]
 
@@ -4781,7 +4781,7 @@ dependencies = [
  "tokio-openssl",
  "tokio-rustls 0.24.1",
  "tracing",
- "webpki-roots 0.25.4",
+ "webpki-roots 0.26.1",
 ]
 
 [[package]]
