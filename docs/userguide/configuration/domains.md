@@ -91,6 +91,13 @@ log_oob = false
 log_oob = false
 ```
 
+!!! note
+    If you configure a domain for `relay_to = true` you will need to configure a routing domain in the [Queues Helper](../configuration/queuemanagement.md) so that KumoMTA knows where to relay the messages to internally, since an MX lookup will return the IP for your KumoMTA instance:
+
+    ```toml
+    [queue.'my.own.hostname']
+    routing_domain = '[10.0.0.1]'
+    ```
 ## Configuring Domains for Relaying, Bounces, and Feedback Loops
 
 By default, if a host connects to the listener and is not listed in the
