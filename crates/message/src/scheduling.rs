@@ -50,26 +50,26 @@ impl ScheduleRestriction {
         let m = dt.month();
         let d = dt.day();
 
-        let start = match dbg!(self.timezone.with_ymd_and_hms(
+        let start = match self.timezone.with_ymd_and_hms(
             y,
             m,
             d,
             self.start.hour(),
             self.start.minute(),
             self.start.second(),
-        )) {
+        ) {
             LocalResult::Single(t) => t,
             _ => return None,
         };
 
-        let end = match dbg!(self.timezone.with_ymd_and_hms(
+        let end = match self.timezone.with_ymd_and_hms(
             y,
             m,
             d,
             self.end.hour(),
             self.end.minute(),
             self.end.second(),
-        )) {
+        ) {
             LocalResult::Single(t) => t,
             _ => return None,
         };
@@ -95,16 +95,14 @@ impl Scheduling {
 
         if let Some(restrict) = &self.restriction {
             let mut dt = dt.with_timezone(&restrict.timezone);
-            println!("start with {dt:?}");
 
             let one_day = chrono::Duration::try_days(1).expect("always able to represent 1 day");
 
             // Worst case is 1 week off the current time; if we
             // can't find a time in a reasonable number of iterations,
             // something is wrong!
-            for iter in 0..8 {
+            for _ in 0..8 {
                 let weekday = dt.weekday();
-                println!("iter {iter} {weekday:?}");
                 let dow: DaysOfWeek = weekday.into();
 
                 let (start, end) = match restrict.start_end_on_day(dt) {
@@ -112,7 +110,6 @@ impl Scheduling {
                     None => {
                         // Wonky date/time, try the next day
                         dt = dt + one_day;
-                        println!("WONKY! using {dt:?}");
                         continue;
                     }
                 };
@@ -120,24 +117,20 @@ impl Scheduling {
                 if restrict.days_of_week.contains(dow) {
                     if dt < start {
                         // Delay until the start time
-                        println!("round up to start");
                         dt = start;
                         break;
                     }
 
                     if dt < end {
                         // We're within the permitted range
-                        println!("we are within range");
                         break;
                     }
                 }
 
                 // Try the same start time the next day
                 dt = start + one_day;
-                println!("try {start:?} + 1 day -> {dt:?}");
             }
-            println!("selected {dt:?}");
-            dbg!(dt.with_timezone(&Utc))
+            dt.with_timezone(&Utc)
         } else {
             dt
         }
