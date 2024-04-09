@@ -182,6 +182,10 @@ impl Message {
                 inner
                     .flags
                     .set(MessageFlags::SCHEDULED, scheduling.is_some());
+                if let Some(sched) = scheduling {
+                    let due = inner.due.unwrap_or_else(|| Utc::now());
+                    inner.due = Some(sched.adjust_for_schedule(due));
+                }
                 Ok(())
             }
         }
@@ -1762,5 +1766,24 @@ Body\r
 
 "#
         );
+    }
+
+    #[test]
+    fn set_scheduling() -> anyhow::Result<()> {
+        let msg = new_msg_body(MULTI_HEADER_CONTENT);
+        assert!(msg.get_due().is_none(), "due is implicitly now");
+
+        let now = Utc::now();
+        let one_day = chrono::Duration::try_days(1).expect("1 day to be valid");
+
+        msg.set_scheduling(Some(Scheduling {
+            restriction: None,
+            first_attempt: Some((now + one_day).into()),
+        }))?;
+
+        let due = msg.get_due().expect("due to now be set");
+        assert!(due - now >= one_day, "due time is at least 1 day away");
+
+        Ok(())
     }
 }

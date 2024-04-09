@@ -67,6 +67,8 @@
 * The `delivered_this_connection` counter was incorrectly double-counted for
   SMTP sessions, effectively halving the effective value of
   `max_deliveries_per_connection`.
+* [msg:set_scheduling](../reference/message/set_scheduling.md) wouldn't take
+  effect until after the first transient failure.
 * Re-run the ready queue maintainer immediately after closing a connection
   due to reaching the `max_deliveries_per_connection`, so that new connection(s)
   can be established to replace the one that just closed. Previously, we would
