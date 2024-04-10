@@ -26,7 +26,7 @@ kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 libc = "0.2.139"
 mac_address = "1.1"
-metrics = "0.22"
+metrics = {workspace=true}
 metrics-prometheus = "0.6"
 metrics-tracing-context = "0.15"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

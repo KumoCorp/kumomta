@@ -19,17 +19,6 @@ checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
 name = "ahash"
-version = "0.7.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891477e0c6a8957309ee5c45a6368af3ae14bb510732d2684ffa19af310920f9"
-dependencies = [
- "getrandom",
- "once_cell",
- "version_check",
-]
-
-[[package]]
-name = "ahash"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e89da841a80418a9b391ebaea17f5c112ffaaa96f621d2c285b5174da76b9011"
@@ -930,7 +919,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "lazy_static",
- "metrics 0.20.1",
+ "metrics",
  "mlua",
  "serde",
  "serde_json",
@@ -1952,7 +1941,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
- "ahash 0.8.11",
+ "ahash",
 ]
 
 [[package]]
@@ -2679,7 +2668,7 @@ dependencies = [
  "kumo-server-runtime",
  "libc",
  "mac_address",
- "metrics 0.22.3",
+ "metrics",
  "metrics-prometheus",
  "metrics-tracing-context",
  "mlua",
@@ -2734,7 +2723,7 @@ dependencies = [
  "cgroups-rs",
  "humansize",
  "lazy_static",
- "metrics 0.20.1",
+ "metrics",
  "nix 0.28.0",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
@@ -2794,7 +2783,7 @@ dependencies = [
  "maplit",
  "memchr",
  "message",
- "metrics 0.22.3",
+ "metrics",
  "minijinja",
  "minijinja-contrib",
  "mlua",
@@ -3229,34 +3218,12 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "0.20.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b9b8653cec6897f73b519a43fba5ee3d50f62fe9af80b428accdcc093b4a849"
-dependencies = [
- "ahash 0.7.8",
- "metrics-macros",
- "portable-atomic 0.3.20",
-]
-
-[[package]]
-name = "metrics"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2be3cbd384d4e955b231c895ce10685e3d8260c5ccffae898c96c723b0772835"
 dependencies = [
- "ahash 0.8.11",
- "portable-atomic 1.6.0",
-]
-
-[[package]]
-name = "metrics-macros"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "731f8ecebd9f3a4aa847dfe75455e4757a45da40a7793d2f0b1f9b6ed18b23f3"
-dependencies = [
- "proc-macro2 1.0.79",
- "quote 1.0.35",
- "syn 1.0.109",
+ "ahash",
+ "portable-atomic",
 ]
 
 [[package]]
@@ -3266,7 +3233,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3e1316f9ef05b91f4d0e0a0da5b620ba919d336280b83b36be096b86c030fdd"
 dependencies = [
  "arc-swap",
- "metrics 0.22.3",
+ "metrics",
  "metrics-util",
  "once_cell",
  "prometheus",
@@ -3284,7 +3251,7 @@ dependencies = [
  "indexmap 2.2.6",
  "itoa",
  "lockfree-object-pool",
- "metrics 0.22.3",
+ "metrics",
  "metrics-util",
  "once_cell",
  "tracing",
@@ -3303,7 +3270,7 @@ dependencies = [
  "crossbeam-utils",
  "hashbrown 0.14.3",
  "indexmap 2.2.6",
- "metrics 0.22.3",
+ "metrics",
  "num_cpus",
  "ordered-float 4.2.0",
  "quanta",
@@ -4219,15 +4186,6 @@ dependencies = [
  "rustix 0.38.32",
  "tracing",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "portable-atomic"
-version = "0.3.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e30165d31df606f5726b090ec7592c308a0eaf61721ff64c9a3018e344a8753e"
-dependencies = [
- "portable-atomic 1.6.0",
 ]
 
 [[package]]

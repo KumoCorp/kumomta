@@ -27,17 +27,17 @@ lazy_static::lazy_static! {
         metrics::describe_counter!(
             "memory_over_limit_count",
             "how many times the soft memory limit was exceeded");
-        metrics::register_counter!("memory_over_limit_count")
+        metrics::counter!("memory_over_limit_count")
     };
     static ref MEM_USAGE: metrics::Gauge = {
         metrics::describe_gauge!(
             "memory_usage", "number of bytes of used memory");
-        metrics::register_gauge!("memory_usage")
+        metrics::gauge!("memory_usage")
     };
     static ref MEM_LIMIT: metrics::Gauge = {
         metrics::describe_gauge!(
             "memory_limit", "soft memory limit measured in bytes");
-        metrics::register_gauge!("memory_limit")
+        metrics::gauge!("memory_limit")
     };
     static ref SUBSCRIBER: Mutex<Option<Receiver<()>>> = Mutex::new(None);
 }

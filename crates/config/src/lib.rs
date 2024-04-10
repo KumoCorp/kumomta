@@ -17,18 +17,18 @@ lazy_static::lazy_static! {
             "lua_load_count",
             "how many times the policy lua script has been \
              loaded into a new context");
-        metrics::register_counter!("lua_load_count")
+        metrics::counter!("lua_load_count")
     };
     static ref LUA_COUNT: metrics::Gauge = {
         metrics::describe_gauge!(
             "lua_count", "the number of lua contexts currently alive");
-        metrics::register_gauge!("lua_count")
+        metrics::gauge!("lua_count")
     };
     static ref LUA_SPARE_COUNT: metrics::Gauge = {
         metrics::describe_gauge!(
             "lua_spare_count",
             "the number of lua contexts available for reuse in the pool");
-        metrics::register_gauge!("lua_spare_count")
+        metrics::gauge!("lua_spare_count")
     };
     static ref CALLBACK_ALLOWS_MULTIPLE: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }

@@ -39,7 +39,7 @@ maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
-metrics = "0.22"
+metrics = {workspace=true}
 minijinja-contrib = {version="1.0.9",features=["datetime", "timezone"]}
 minijinja = {version="1.0.9",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
