@@ -29,7 +29,10 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new() -> anyhow::Result<Self> {
-        let n_threads = std::thread::available_parallelism()?;
+        let n_threads = match std::env::var("TOKIO_WORKER_THREADS") {
+            Ok(n) => n.parse()?,
+            Err(_) => std::thread::available_parallelism()?,
+        };
         let (tx, rx) = unbounded::<Command>();
 
         for n in 0..n_threads.into() {
