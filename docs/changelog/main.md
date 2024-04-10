@@ -86,3 +86,5 @@
   (`*`) entries correctly. #128
 * smtp client did not always wait for the full extent of the idle timeout for
   new messages before closing the connection.
+* Potential deadlock on systems with very low core counts when MTA-STS is enabled,
+  and sending to domain(s) with an MTA-STS policy.

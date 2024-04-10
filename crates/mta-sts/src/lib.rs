@@ -76,6 +76,10 @@ pub async fn get_policy_for_domain(policy_domain: &str) -> anyhow::Result<Arc<Mt
     get_policy_for_domain_impl(policy_domain, &*resolver, &Getter {}).await
 }
 
+fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
+    CACHE.lock().unwrap().get(&name).map(|p| p.clone())
+}
+
 async fn get_policy_for_domain_impl(
     policy_domain: &str,
     resolver: &dyn dns::Lookup,
@@ -83,7 +87,7 @@ async fn get_policy_for_domain_impl(
 ) -> anyhow::Result<Arc<MtaStsPolicy>> {
     let name = Name::from_str_relaxed(policy_domain)?.to_lowercase();
 
-    if let Some(cached) = CACHE.lock().unwrap().get(&name) {
+    if let Some(cached) = cache_lookup(&name) {
         // Removal of the DNS record does not invalidate our
         // cached result, only updating it with a different id
         let still_valid = dns::resolve_dns_record(policy_domain, resolver)
