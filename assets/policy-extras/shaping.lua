@@ -107,16 +107,20 @@ local function construct_publisher(publish, domain)
   return connection
 end
 
-local function get_queue_cfg(publish, domain, tenant, campaign)
+local function get_queue_cfg(options, publish, domain, tenant, campaign)
   for _, data in pairs(publish) do
     if data.hook_name == domain then
-      return kumo.make_queue_config {
-        protocol = {
-          custom_lua = {
-            constructor = data.constructor,
-          },
+      local params = {
+        retry_interval = '1m',
+        max_retry_interval = '20m',
+      }
+      utils.merge_into(options.tsa_queue_config, params)
+      params.protocol = {
+        custom_lua = {
+          constructor = data.constructor,
         },
       }
+      return kumo.make_queue_config(params)
     end
   end
 end
@@ -209,6 +213,13 @@ local shaper = shaping:setup_with_automation {
   -- the additional files beyond /opt/kumomta/share/policy-extras/shaping.toml in your
   -- tsa config
   extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
+
+  -- optional; override the queue config for talking to the TSA daemon.
+  -- These are the default values.
+  tsa_queue_config = {
+    retry_interval = '1m',
+    max_retry_interval = '20m',
+  },
 }
 
 kumo.on('init', function()
@@ -333,7 +344,7 @@ function mod:setup_with_automation(options)
   kumo.on(
     'get_queue_config',
     function(domain, tenant, campaign, routing_domain)
-      return get_queue_cfg(publish, domain, tenant, campaign)
+      return get_queue_cfg(options, publish, domain, tenant, campaign)
     end
   )
 
