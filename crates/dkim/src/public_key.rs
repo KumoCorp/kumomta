@@ -1,4 +1,5 @@
-use rsa::{pkcs1, pkcs8};
+use openssl::pkey::PKey;
+use openssl::rsa::Rsa;
 use std::collections::HashMap;
 
 use crate::{dns, parser, DKIMError, DkimPublicKey, DNS_NAMESPACE};
@@ -56,11 +57,16 @@ pub(crate) async fn retrieve_public_key(
         })?;
     let key = if key_type == RSA_KEY_TYPE {
         DkimPublicKey::Rsa(
-            pkcs8::DecodePublicKey::from_public_key_der(&bytes)
-                .or_else(|_| pkcs1::DecodeRsaPublicKey::from_pkcs1_der(&bytes))
-                .map_err(|err| {
-                    DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
-                })?,
+            PKey::from_rsa(
+                Rsa::public_key_from_der(&bytes)
+                    .or_else(|_| Rsa::public_key_from_der_pkcs1(&bytes))
+                    .map_err(|err| {
+                        DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+                    })?,
+            )
+            .map_err(|err| {
+                DKIMError::KeyUnavailable(format!("failed to parse public key: {}", err))
+            })?,
         )
     } else {
         let mut key_bytes = [0u8; ed25519_dalek::PUBLIC_KEY_LENGTH];

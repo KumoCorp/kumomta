@@ -2,14 +2,14 @@
 
 use crate::errors::Status;
 use crate::hash::HeaderList;
+use ed25519_dalek::pkcs8::DecodePrivateKey;
 use ed25519_dalek::SigningKey;
 use hickory_resolver::TokioAsyncResolver;
 use mailparsing::AuthenticationResult;
-use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::pkcs8::DecodePrivateKey;
-use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey};
-use sha1::Sha1;
-use sha2::Sha256;
+use openssl::md::Md;
+use openssl::pkey::PKey;
+use openssl::pkey_ctx::PkeyCtx;
+use openssl::rsa::{Padding, Rsa};
 use std::collections::BTreeMap;
 
 #[macro_use]
@@ -37,16 +37,14 @@ const DNS_NAMESPACE: &str = "_domainkey";
 
 #[derive(Debug)]
 pub(crate) enum DkimPublicKey {
-    Rsa(RsaPublicKey),
+    Rsa(PKey<openssl::pkey::Public>),
     Ed25519(ed25519_dalek::VerifyingKey),
 }
 
 #[derive(Debug)]
 pub enum DkimPrivateKey {
-    Rsa(RsaPrivateKey),
     Ed25519(SigningKey),
-    #[cfg(feature = "openssl")]
-    OpenSSLRsa(openssl::rsa::Rsa<openssl::pkey::Private>),
+    OpenSSLRsa(Rsa<openssl::pkey::Private>),
 }
 
 impl DkimPrivateKey {
@@ -54,41 +52,14 @@ impl DkimPrivateKey {
     pub fn rsa_key(data: &[u8]) -> Result<Self, DKIMError> {
         let mut errors = vec![];
 
-        #[cfg(feature = "openssl")]
-        {
-            use openssl::rsa::Rsa;
-
-            match Rsa::private_key_from_pem(data) {
-                Ok(key) => return Ok(Self::OpenSSLRsa(key)),
-                Err(err) => errors.push(format!("openssl private_key_from_pem: {err:#}")),
-            };
-            match Rsa::private_key_from_der(data) {
-                Ok(key) => return Ok(Self::OpenSSLRsa(key)),
-                Err(err) => errors.push(format!("openssl private_key_from_der: {err:#}")),
-            };
-        }
-        match RsaPrivateKey::from_pkcs1_der(data) {
-            Ok(key) => return Ok(Self::Rsa(key)),
-            Err(err) => errors.push(format!("from_pkcs1_der: {err:#}")),
-        }
-        match RsaPrivateKey::from_pkcs8_der(data) {
-            Ok(key) => return Ok(Self::Rsa(key)),
-            Err(err) => errors.push(format!("from_pkcs8_der: {err:#}")),
-        }
-
-        match std::str::from_utf8(data) {
-            Ok(s) => {
-                match RsaPrivateKey::from_pkcs1_pem(s) {
-                    Ok(key) => return Ok(Self::Rsa(key)),
-                    Err(err) => errors.push(format!("from_pkcs1_pem: {err:#}")),
-                }
-                match RsaPrivateKey::from_pkcs8_pem(s) {
-                    Ok(key) => return Ok(Self::Rsa(key)),
-                    Err(err) => errors.push(format!("from_pkcs8_pem: {err:#}")),
-                }
-            }
-            Err(err) => errors.push(format!("from_pkcs1_pem: data is not UTF-8: {err:#}")),
-        }
+        match Rsa::private_key_from_pem(data) {
+            Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+            Err(err) => errors.push(format!("openssl private_key_from_pem: {err:#}")),
+        };
+        match Rsa::private_key_from_der(data) {
+            Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+            Err(err) => errors.push(format!("openssl private_key_from_der: {err:#}")),
+        };
 
         Err(DKIMError::PrivateKeyLoadError(errors.join(". ")))
     }
@@ -134,17 +105,31 @@ fn verify_signature(
     public_key: DkimPublicKey,
 ) -> Result<bool, DKIMError> {
     Ok(match public_key {
-        DkimPublicKey::Rsa(public_key) => public_key
-            .verify(
-                match hash_algo {
-                    hash::HashAlgo::RsaSha1 => Pkcs1v15Sign::new::<Sha1>(),
-                    hash::HashAlgo::RsaSha256 => Pkcs1v15Sign::new::<Sha256>(),
-                    hash => return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash))),
-                },
-                header_hash,
-                signature,
-            )
-            .is_ok(),
+        DkimPublicKey::Rsa(public_key) => {
+            let md = match hash_algo {
+                hash::HashAlgo::RsaSha1 => Md::sha1(),
+                hash::HashAlgo::RsaSha256 => Md::sha256(),
+                hash => return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash))),
+            };
+
+            let mut ctx = PkeyCtx::new(&public_key).map_err(|err| {
+                DKIMError::SignatureSyntaxError(format!("Error loading RSA public key: {err}"))
+            })?;
+
+            ctx.verify_init().map_err(|err| {
+                DKIMError::UnknownInternalError(format!("ctx.verify_init failed: {err}"))
+            })?;
+            ctx.set_rsa_padding(Padding::PKCS1).map_err(|err| {
+                DKIMError::UnknownInternalError(format!("ctx.set_rsa_padding failed: {err}"))
+            })?;
+            ctx.set_signature_md(&md).map_err(|err| {
+                DKIMError::UnknownInternalError(format!("ctx.set_signature_md failed: {err}"))
+            })?;
+            match ctx.verify(header_hash, signature) {
+                Ok(result) => result,
+                Err(_) => false,
+            }
+        }
         DkimPublicKey::Ed25519(public_key) => {
             let mut sig_bytes = [0u8; ed25519_dalek::Signature::BYTE_SIZE];
             if signature.len() != sig_bytes.len() {

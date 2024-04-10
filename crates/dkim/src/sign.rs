@@ -2,9 +2,6 @@ use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
 use data_encoding::BASE64;
 use ed25519_dalek::Signer as _;
-use rsa::Pkcs1v15Sign;
-use sha1::Sha1;
-use sha2::Sha256;
 
 /// Builder for the Signer
 pub struct SignerBuilder {
@@ -113,8 +110,6 @@ impl SignerBuilder {
             .private_key
             .ok_or(BuilderError("missing required private key"))?;
         let hash_algo = match private_key {
-            DkimPrivateKey::Rsa(_) => hash::HashAlgo::RsaSha256,
-            #[cfg(feature = "openssl")]
             DkimPrivateKey::OpenSSLRsa(_) => hash::HashAlgo::RsaSha256,
             DkimPrivateKey::Ed25519(_) => hash::HashAlgo::Ed25519Sha256,
         };
@@ -180,22 +175,9 @@ impl Signer {
             self.compute_header_hash(email, effective_header_list, dkim_header_builder.clone())?;
 
         let signature = match &self.private_key {
-            DkimPrivateKey::Rsa(private_key) => private_key
-                .sign(
-                    match &self.hash_algo {
-                        hash::HashAlgo::RsaSha1 => Pkcs1v15Sign::new::<Sha1>(),
-                        hash::HashAlgo::RsaSha256 => Pkcs1v15Sign::new::<Sha256>(),
-                        hash => {
-                            return Err(DKIMError::UnsupportedHashAlgorithm(format!("{:?}", hash)))
-                        }
-                    },
-                    &header_hash,
-                )
-                .map_err(|err| DKIMError::FailedToSign(err.to_string()))?,
             DkimPrivateKey::Ed25519(signing_key) => {
                 signing_key.sign(&header_hash).to_bytes().into()
             }
-            #[cfg(feature = "openssl")]
             DkimPrivateKey::OpenSSLRsa(private_key) => {
                 use foreign_types::ForeignType;
 
@@ -394,7 +376,6 @@ DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=s20; c=simple/simple;\r
         );
     }
 
-    #[cfg(feature = "openssl")]
     #[test]
     fn test_sign_rsa_openssl() {
         let raw_email = r#"Subject: subject
