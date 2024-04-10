@@ -11,7 +11,7 @@ use chrono::Utc;
 use config::{load_config, CallbackSignature, LuaConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::{rt_spawn, spawn, spawn_blocking};
+use kumo_server_runtime::{rt_spawn, rt_spawn_non_blocking, spawn, spawn_blocking};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
@@ -458,11 +458,29 @@ impl Queue {
         let msgs = self.queue.drain();
         let count = msgs.len();
         self.delayed_gauge.sub(count as i64);
-        for msg in msgs {
-            let msg = (*msg).clone();
-            let id = *msg.id();
-            bounce.log(msg, Some(&self.name)).await;
-            SpoolManager::remove_from_spool(id).await.ok();
+        if count > 0 {
+            let name = self.name.clone();
+            let bounce = bounce.clone();
+            // Spawn the remove into a new task, to avoid holding the
+            // mutable scope of self across a potentially very large
+            // set of spool removal operations.  The downside is that the
+            // reported numbers shown the to initial bounce request will
+            // likely be lower, but it is better for the server to be
+            // healthy than for that command to block and show 100% stats.
+            let result =
+                rt_spawn_non_blocking("bounce_all remove_from_spool".to_string(), move || {
+                    Ok(async move {
+                        for msg in msgs {
+                            let msg = (*msg).clone();
+                            let id = *msg.id();
+                            bounce.log(msg, Some(&name)).await;
+                            SpoolManager::remove_from_spool(id).await.ok();
+                        }
+                    })
+                });
+            if let Err(err) = result {
+                tracing::error!("Unable to schedule spool removal for {count} messages! {err:#}");
+            }
         }
     }
 

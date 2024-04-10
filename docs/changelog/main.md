@@ -61,6 +61,14 @@
   [msg:append_text_html](../reference/message/append_text_html.md) message
   methods for amending the message content, which can be used to inject
   tracking pixels. #120
+* `kcli bounce` (and the underlying [bounce HTTP
+  API](../reference/http/api_admin_bounce_v1.md)) no longer wait for the
+  contents of matching scheduled queues to be removed from the spool. This
+  reduces contention in the system for large queues, but means that the stats
+  returned to the initial request will generally be lower than in previous
+  releases. You can use `kcli bounce-list` or the corresponding [bounce HTTP
+  API](../reference/http/api_admin_bounce_list_v1.md) to retrieve the totals
+  asynchronously.
 
 ## Fixes
 
