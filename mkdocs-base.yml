@@ -43,9 +43,8 @@ theme:
     - toc.follow
 plugins:
   - search
-  # disabled for now due to https://github.com/squidfunk/mkdocs-material/issues/6983
-  #- social:
-  #    cards: !ENV [CARDS, False]
+  - social:
+      cards: !ENV [CARDS, False]
   - git-revision-date-localized:
       enabled: !ENV [GIT_DATES, False]
       enable_creation_date: true
