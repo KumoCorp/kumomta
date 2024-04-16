@@ -27,25 +27,20 @@ To implement the helper, add the following to your init.lua:
 
 ```lua
 local log_hooks = require 'policy-extras.log_hooks'
+
+-- Send a JSON webhook to a local network host.
+-- See https://docs.kumomta.com/userguide/operation/webhooks/
 log_hooks:new_json {
   name = 'webhook',
-  -- log_parameters are combined with the name and
-  -- passed through to kumo.configure_log_hook
+  url = 'http://10.0.0.1:4242/log',
   log_parameters = {
     headers = { 'Subject', 'X-Customer-ID' },
   },
-  -- queue config are passed to kumo.make_queue_config.
-  -- You can use these to override the retry parameters
-  -- if you wish.
-  -- The defaults are shown below.
-  queue_config = {
-    retry_interval = '1m',
-    max_retry_interval = '20m',
-  },
-  -- The URL to POST the JSON to
-  url = 'http://10.0.0.1:4242/log',
 }
 ```
+
+!!!!Warning
+    The call to `new_json` must appear before the queues helper for it to work properly. See the [Example Config](../configuration/example.md) to see a working layout for the `init.lua` file.
 
 More advanced usage is possible by implementing the full call to the log_hooks.lua helper, in the following format:
 
