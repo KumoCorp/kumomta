@@ -8,12 +8,14 @@ on:
       - "docs/**"
       - "mkdocs-base.yml"
       - "stylua.toml"
+      - ".github/workflows/docs.yml"
   pull_request:
     branches: [ "main" ]
     paths:
       - "docs/**"
       - "mkdocs-base.yml"
       - "stylua.toml"
+      - ".github/workflows/docs.yml"
 env:
   CARGO_TERM_COLOR: always
 
