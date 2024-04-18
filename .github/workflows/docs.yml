@@ -29,6 +29,20 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
+    - name: "Compile with sccache"
+      uses: mozilla-actions/sccache-action@v0.0.4
+    - name: "Cache Rust Dependencies"
+      uses: actions/cache@v4
+      id: cache-cargo-vendor
+      with:
+        path: |
+          vendor
+          .cargo/config
+        key: "cargo-deps-${{ hashFiles('**/Cargo.lock') }}"
+    - name: "Vendor dependecies"
+      if: steps.cache-cargo-vendor.outputs.cache-hit != 'true'
+      shell: bash
+      run: "cargo vendor --locked --versioned-dirs >> .cargo/config"
     - name: Install stylua
       uses: baptiste0928/cargo-install@v3
       with:
