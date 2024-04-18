@@ -26,7 +26,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: "Install deps for arc"
-      run: sudo apt update && sudo env DEBIAN_FRONTEND=noninteractive apt install -y curl
+      run: sudo apt update && sudo env DEBIAN_FRONTEND=noninteractive apt install -y curl build-essential
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
       with:
