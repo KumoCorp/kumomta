@@ -25,13 +25,12 @@ steps:
   restore-doc-cache:
     environment: &cache_environment
       AWS_DISABLESSL: "true"
-    secrets: &cache_secrets
-      - source: s3_access_key_id
-        target: AWS_ACCESS_KEY_ID
-      - source: s3_secret_key
-        target: AWS_SECRET_ACCESS_KEY
-      - source: s3_endpoint
-        target: S3_ENDPOINT
+      AWS_ACCESS_KEY_ID:
+        from_secret: s3_access_key_id
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: s3_secret_key
+      S3_ENDPOINT:
+        from_secret: s3_endpoint
     image: &cache_image meltwater/drone-cache
     settings: &cache_settings
       bucket: kumomta-cache
@@ -68,9 +67,9 @@ steps:
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
-    secrets:
-      - source: gh_pages_deploy_token
-        target: TOKEN
+    environment:
+      TOKEN:
+        from_secret: gh_pages_deploy_token
     commands:
       - ./assets/ci/push-gh-pages.sh
 
@@ -79,7 +78,6 @@ steps:
       - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: *cache_image
     environment: *cache_environment
-    secrets: *cache_secrets
     settings:
       <<: *cache_settings
       rebuild: "true"
