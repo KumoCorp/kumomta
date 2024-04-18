@@ -1,0 +1,17 @@
+name: Test ARC Runner Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    
+jobs:
+  build:
+    runs-on: arc-runner-set
+    steps:
+    - name: Hello
+      run: |
+        echo hello there
+        uname -a
