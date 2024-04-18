@@ -20,11 +20,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-code-formatting:
-    runs-on: ubuntu-latest
-    #runs-on: arc-runner-set
+  build_docs:
+    #runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
     - uses: actions/checkout@v4
+    - name: "Install deps for arc"
+      run: apt install -y curl
     - name: "Install Rust"
       uses: dtolnay/rust-toolchain@stable
       with:
