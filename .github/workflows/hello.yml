@@ -2,7 +2,11 @@ name: Testing
 
 on:
   workflow_dispatch:
-
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    
 jobs:
   build:
     runs-on: arc-runner-set
