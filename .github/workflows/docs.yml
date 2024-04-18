@@ -1,0 +1,39 @@
+name: Build Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "docs/**"
+      - "mkdocs-base.yml"
+      - "stylua.toml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "docs/**"
+      - "mkdocs-base.yml"
+      - "stylua.toml"
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-code-formatting:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: "Install Rust"
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: Install stylua
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: stylua
+        features: lua54
+    - name: Install gelatyx
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: gelatyx
+    - name: Run build
+      run: CI=true ./docs/build.sh
