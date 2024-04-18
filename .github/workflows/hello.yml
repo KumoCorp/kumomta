@@ -1,14 +1,11 @@
 name: Testing
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: arc-runner-set
     steps:
     - name: Hello
       run: |
