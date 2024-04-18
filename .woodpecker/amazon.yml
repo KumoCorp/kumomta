@@ -42,13 +42,12 @@ steps:
   restore-build-cache:
     environment: &cache_environment
       AWS_DISABLESSL: "true"
-    secrets: &cache_secrets
-      - source: s3_access_key_id
-        target: AWS_ACCESS_KEY_ID
-      - source: s3_secret_key
-        target: AWS_SECRET_ACCESS_KEY
-      - source: s3_endpoint
-        target: S3_ENDPOINT
+      AWS_ACCESS_KEY_ID:
+        from_secret: s3_access_key_id
+      AWS_SECRET_ACCESS_KEY:
+        from_secret: s3_secret_key
+      S3_ENDPOINT:
+        from_secret: s3_endpoint
     image: &cache_image meltwater/drone-cache
     settings: &cache_settings
       bucket: kumomta-cache
@@ -86,7 +85,6 @@ steps:
       - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: *cache_image
     environment: *cache_environment
-    secrets: *cache_secrets
     #detach: true
     settings:
       <<: *cache_settings
@@ -103,13 +101,13 @@ steps:
     pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
-    secrets:
-      - source: openrepo_publish_token
-        target: TOKEN
-      - source: openrepo_gpg_public
-        target: PUB
-      - source: openrepo_gpg_private
-        target: PRIV
+    environment:
+      TOKEN:
+        from_secret: openrepo_publish_token
+      PUB:
+        from_secret: openrepo_gpg_public
+      PRIV:
+        from_secret: openrepo_gpg_private
     commands:
       - "./assets/sign-rpm.sh *.rpm"
       - "./assets/upload-package.sh ${AMAZON_IMAGE} *.rpm"
