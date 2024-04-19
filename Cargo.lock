@@ -2177,7 +2177,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.6",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2529,7 +2529,7 @@ dependencies = [
  "kumo-api-types",
  "lexicmp",
  "message",
- "reqwest 0.12.3",
+ "reqwest 0.12.4",
  "serde",
  "serde_json",
  "tabout",
@@ -2575,7 +2575,7 @@ dependencies = [
  "kumo-log-types",
  "mlua",
  "mod-memoize",
- "reqwest 0.12.3",
+ "reqwest 0.12.4",
  "rfc5321",
  "serde",
  "serde_json",
@@ -2685,7 +2685,7 @@ dependencies = [
  "prometheus",
  "rcgen",
  "regex-set-map",
- "rustls 0.21.11",
+ "rustls 0.22.4",
  "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
@@ -2792,7 +2792,7 @@ dependencies = [
  "prometheus",
  "rand",
  "rfc5321",
- "rustls 0.21.11",
+ "rustls 0.22.4",
  "self_cell",
  "serde",
  "serde_json",
@@ -2808,7 +2808,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "version-info",
- "webpki-roots 0.25.4",
+ "webpki-roots 0.26.1",
  "zstd",
 ]
 
@@ -2880,7 +2880,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.5",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3424,7 +3424,7 @@ dependencies = [
  "mail-builder",
  "mailparse",
  "mlua",
- "reqwest 0.12.3",
+ "reqwest 0.12.4",
  "serde",
  "tokio",
  "tokio-tungstenite 0.21.0",
@@ -3497,7 +3497,7 @@ dependencies = [
  "k9",
  "lruttl",
  "once_cell",
- "reqwest 0.12.3",
+ "reqwest 0.12.4",
  "tokio",
 ]
 
@@ -4628,9 +4628,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.12.3"
+version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e6cc1e89e689536eb5aeede61520e874df5a4707df811cd5da4aa5fbb2aae19"
+checksum = "566cafdd92868e0939d3fb961bd0dc25fcfaaed179291093b3d43e6b3150ea10"
 dependencies = [
  "base64 0.22.0",
  "bytes",
@@ -4695,7 +4695,7 @@ dependencies = [
  "tokio-openssl",
  "tokio-rustls 0.24.1",
  "tracing",
- "webpki-roots 0.25.4",
+ "webpki-roots 0.26.1",
 ]
 
 [[package]]
