@@ -9,21 +9,26 @@ matrix:
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:20.04
 
 when:
- event: [push, pull_request, manual]
- path:
-   include:
-     - .woodpecker/ubuntu.yml
-     - "**/Cargo.toml"
-     - Cargo.lock
-     - assets/**/*.lua
-     - assets/*.service
-     - assets/*deb*.sh
-     - assets/accounting.sh
-     - assets/bounce_classifier/**
-     - assets/install.sh
-     - assets/policy-extras/**
-     - crates/**
-     - docker/**
+  - event: push
+    branch:
+      - main
+    path: &paths
+      include:
+        - .woodpecker/ubuntu.yml
+        - "**/Cargo.toml"
+        - Cargo.lock
+        - assets/**/*.lua
+        - assets/*.service
+        - assets/*deb*.sh
+        - assets/accounting.sh
+        - assets/bounce_classifier/**
+        - assets/install.sh
+        - assets/policy-extras/**
+        - crates/**
+        - docker/**
+  - event: pull_request
+    path: *paths
+  - event: manual
 
 variables:
   - &docker_credentials
