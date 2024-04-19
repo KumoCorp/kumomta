@@ -13,7 +13,7 @@ use lru_cache::LruCache;
 use parking_lot::Mutex;
 use std::borrow::Borrow;
 use std::hash::Hash;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 struct Item<V> {
@@ -68,6 +68,27 @@ impl<K: Hash + Eq, V: Clone> LruCacheWithTtl<K, V> {
             Item {
                 item: item.clone(),
                 expiration,
+            },
+        );
+        item
+    }
+
+    /// Get an existing item, but if that item doesn't already exist,
+    /// call `func` to provide a value that will be inserted and then
+    /// returned.  This is done atomically wrt. other callers.
+    pub fn get_or_insert<F: FnOnce() -> V>(&self, name: K, ttl: Duration, func: F) -> V {
+        let mut cache = self.cache.lock();
+        if let Some(entry) = cache.get_mut(&name) {
+            if Instant::now() < entry.expiration {
+                return entry.item.clone();
+            }
+        }
+        let item = func();
+        cache.insert(
+            name,
+            Item {
+                item: item.clone(),
+                expiration: Instant::now() + ttl,
             },
         );
         item

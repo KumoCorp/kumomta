@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 /// Memoized is a helper type that allows native Rust types to be captured
 /// in memoization caches.
@@ -195,6 +196,90 @@ fn get_cache_by_name(name: &str) -> Option<(Arc<LruCacheWithTtl<String, CacheEnt
         .map(|item| (item.cache.clone(), item.params.ttl))
 }
 
+const REAP_EVERY: usize = 1024;
+
+struct SemaphoreManager {
+    map: HashMap<String, Arc<Semaphore>>,
+    counter: usize,
+}
+
+impl SemaphoreManager {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            counter: 0,
+        }
+    }
+
+    /// Prune any unreferenced/unusable entries
+    fn expire(&mut self) {
+        self.map.retain(|_, item| {
+            match item.try_acquire() {
+                Ok(_) => {
+                    // No one is currently using this one, so we can reap it
+                    false
+                }
+                Err(TryAcquireError::Closed) => {
+                    // It is not usable, so reap it
+                    false
+                }
+                Err(TryAcquireError::NoPermits) => {
+                    // In-use, so we must keep it
+                    true
+                }
+            }
+        });
+    }
+
+    fn resolve_semaphore(&mut self, name: String) -> Arc<Semaphore> {
+        if let Some(s) = self.map.get(&name) {
+            if !s.is_closed() {
+                return s.clone();
+            }
+        }
+
+        // To avoid excessive growth (keep in mind that `name` is composed
+        // from a cache key which is effectively part of an unbounded,
+        // unknowable key space), we occasionally prune out any
+        // idle semaphores. We don't do this on every "miss"
+        // as the expiration operation is `O(N)` and we'd like
+        // to avoid situations where an abusive client can trigger
+        // excessive CPU work when running through here.
+        // That said, we expect the caller to be responsible for
+        // constraining overall concurrency of calls into memoize,
+        // as we can't reasonably perform that from this module
+        // because we simply do not have enough context to make
+        // that work appropriately in every situation.
+        // So, this expiration operation is more about keeping the
+        // memory overhead reasonably constrained.
+
+        self.counter += 1;
+        if self.counter >= REAP_EVERY {
+            self.expire();
+            self.counter = 0;
+        }
+
+        let semaphore = Arc::new(Semaphore::new(1));
+        self.map.insert(name, semaphore.clone());
+        semaphore
+    }
+}
+
+static SEMAPHORES: Lazy<Mutex<SemaphoreManager>> =
+    Lazy::new(|| Mutex::new(SemaphoreManager::new()));
+
+/// acquire a semaphore permit for a specific cache and cache key combination.
+/// This function will await until the caller is the only caller to hold
+/// the semaphore permit.
+/// This is used to constrain concurrency of workers on a cache miss
+/// and avoid/minimize the thundering herd problem.
+async fn acquire_semaphore(cache_name: &str, key: &str) -> anyhow::Result<OwnedSemaphorePermit> {
+    let key = format!("{cache_name}_@_{key}");
+    let semaphore = SEMAPHORES.lock().unwrap().resolve_semaphore(key);
+    let permit = semaphore.acquire_owned().await?;
+    Ok(permit)
+}
+
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
     let mut values = multi.into_vec();
     if values.is_empty() {
@@ -252,12 +337,26 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         return Ok(value.to_value(lua)?);
                     }
 
+                    let permit = acquire_semaphore(&cache_name, &key)
+                        .await
+                        .map_err(any_err)?;
+
+                    // Check cache again in case we raced with someone else
+                    // while waiting for the semaphore
+                    if let Some(value) = cache.get(&key) {
+                        return Ok(value.to_value(lua)?);
+                    }
+
                     let result: MultiValue = (func?).call_async(params).await?;
 
                     let value = CacheEntry::from_multi_value(lua, result.clone())?;
                     let return_value = value.to_value(lua)?;
 
                     cache.insert(key, value, Instant::now() + ttl);
+
+                    // Explicit release the semaphore to allow others to
+                    // also consume the value
+                    drop(permit);
 
                     Ok(return_value)
                 }

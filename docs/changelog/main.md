@@ -69,6 +69,9 @@
   releases. You can use `kcli bounce-list` or the corresponding [bounce HTTP
   API](../reference/http/api_admin_bounce_list_v1.md) to retrieve the totals
   asynchronously.
+* [kumo.memoize](../reference/kumo/memoize.md) now includes thundering herd
+  protection, which constrains the concurrency of the cache population function
+  when there is a cache miss.
 
 ## Fixes
 
