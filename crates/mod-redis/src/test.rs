@@ -106,6 +106,7 @@ impl RedisServer {
             username: None,
             password: None,
             pool_size: None,
+            connect_timeout: None,
         };
         key.open().await
     }

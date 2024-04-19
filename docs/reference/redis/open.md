@@ -30,6 +30,9 @@ print(conn:query('incr', 'test-count'))
   that you only need to specify the password once. This is not used for connecting
   to a single node.
 
+* `connect_timeout` - optional string. Specify how long to keep attempting
+  to connect to redis. The default is `30 seconds`. {{since('dev', inline=True)}}
+
 The returned connection handle has a single `"query"` method:
 
 ## `conn:query(CMD, [ARGS])`

@@ -72,6 +72,8 @@
 * [kumo.memoize](../reference/kumo/memoize.md) now includes thundering herd
   protection, which constrains the concurrency of the cache population function
   when there is a cache miss.
+* [redis.open](../reference/redis/open.md) now also supports a `connect_timeout`
+  option. #168
 
 ## Fixes
 

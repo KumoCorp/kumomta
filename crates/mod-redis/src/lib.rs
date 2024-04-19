@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub mod test;
 
@@ -152,6 +153,8 @@ pub struct RedisConnKey {
     /// Default is 10
     #[serde(default)]
     pub pool_size: Option<u32>,
+    #[serde(default, with = "duration_serde")]
+    pub connect_timeout: Option<Duration>,
 }
 
 pub enum ClientWrapper {
@@ -284,6 +287,10 @@ impl RedisConnKey {
         let mut p = Pool::builder();
         if let Some(size) = self.pool_size {
             p = p.max_size(size);
+        }
+
+        if let Some(timeout) = self.connect_timeout {
+            p = p.connection_timeout(timeout);
         }
 
         let client = self.build_client()?;

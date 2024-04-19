@@ -3463,6 +3463,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "duration-serde",
  "mlua",
  "once_cell",
  "r2d2",
