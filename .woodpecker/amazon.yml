@@ -15,7 +15,7 @@ when:
      - main
  - event: manual
 
- path:
+ - path:
    include:
      - .woodpecker/amazon.yml
      - "**/Cargo.toml"

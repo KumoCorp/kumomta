@@ -11,7 +11,7 @@ when:
     branch:
       - main
   - event: manual
-  path:
+  - path:
     include:
       - .woodpecker/docs.yml
       - docs/**
