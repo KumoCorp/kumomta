@@ -8,11 +8,11 @@ clone:
 when:
   - event: [push, pull_request, manual]
   - path:
-    include:
-      - .woodpecker/docs.yml
-      - docs/**
-      - mkdocs-base.yml
-      - stylua.toml
+      include:
+        - .woodpecker/docs.yml
+        - docs/**
+        - mkdocs-base.yml
+        - stylua.toml
 
 steps:
   restore-mtime:
