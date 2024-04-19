@@ -6,13 +6,16 @@ clone:
       depth: 0 # Need full history for doc build
 
 when:
-  - event: [push, pull_request, manual]
-  - path:
+  - event: push
+    path: &paths
       include:
         - .woodpecker/docs.yml
         - docs/**
         - mkdocs-base.yml
         - stylua.toml
+  - event: pull_request
+    path: *paths
+  - event: manual
 
 steps:
   restore-mtime:
