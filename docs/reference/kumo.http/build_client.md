@@ -5,10 +5,19 @@ Constructs an HTTP client object.
 The client maintains state, including a connection pool, that can be used
 across multiple HTTP requests.
 
-`PARAMS` is an object-style table with the follow keys:
+`PARAMS` is an object-style table with the following keys:
 
 * `user_agent` - optional string that will be used to set the `User-Agent` header
   for all requests made by the client
+* `connection_verbose` - optional boolean. If true, additional diagnostics
+  around the connection attempt will be logged and can be seen by setting the
+  diagnostic filter to include `reqwest=trace`. {{since('dev', inline=True)}}
+* `pool_idle_timeout` - optional duration. Sets the maximum time that an idle
+  connection remains in the connection pool. The default is `90 seconds`.
+  {{since('dev', inline=True)}}.
+* `timeout` - optional duration. Sets the default timeout to use for each
+  request made by the client. Can be overridden using the Request object.
+  The default is `60 seconds`. {{since('dev', inline=True)}}.
 
 ```lua
 local response = kumo.http.build_client({}):get('https://example.com/'):send()

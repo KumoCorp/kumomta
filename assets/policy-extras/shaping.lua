@@ -80,9 +80,13 @@ local function should_enq(publish, msg, hook_name)
   return true
 end
 
-local function construct_publisher(publish, domain)
+local function construct_publisher(publish, domain, options)
   local connection = {}
-  local client = kumo.http.build_client {}
+  local client = kumo.http.build_client {
+    timeout = options.publish_timeout or '1 minute',
+    pool_idle_timeout = options.publish_pool_idle_timeout or '90 seconds',
+    connection_verbose = options.publish_connection_verbose,
+  }
   function connection:send(message)
     local response = client
       :post(string.format('%s/publish_log_v1', publish.endpoint))
@@ -272,7 +276,7 @@ function mod:setup_with_automation(options)
     -- events, so we can simply bind the event handlers here
     -- without returning them to the caller to deal with
     kumo.on(constructor, function(domain, _tenant, _campaign)
-      return construct_publisher(publish[hook_name], domain)
+      return construct_publisher(publish[hook_name], domain, options)
     end)
   end
 

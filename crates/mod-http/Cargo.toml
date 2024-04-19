@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 config = {path="../config"}
 humantime = "2.1"
+duration-serde = {path="../duration-serde"}
 mail-builder = "0.2"
 mailparse = "0.14"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

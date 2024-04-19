@@ -7,13 +7,21 @@ use reqwest::{Body, Client, ClientBuilder, RequestBuilder, Response, StatusCode,
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
 // Client ----
 
 #[derive(Deserialize, Debug, Clone)]
 struct ClientOptions {
+    #[serde(default)]
     user_agent: Option<String>,
+    #[serde(default)]
+    connection_verbose: Option<bool>,
+    #[serde(default, with = "duration_serde")]
+    pool_idle_timeout: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    timeout: Option<Duration>,
 }
 
 #[derive(Clone)]
@@ -400,7 +408,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "build_client",
         lua.create_function(|lua, options: Value| {
             let options: ClientOptions = from_lua_value(lua, options)?;
-            let mut builder = ClientBuilder::new().timeout(std::time::Duration::from_secs(60));
+            let mut builder = ClientBuilder::new().timeout(
+                options
+                    .timeout
+                    .unwrap_or_else(|| std::time::Duration::from_secs(60)),
+            );
+
+            if let Some(verbose) = options.connection_verbose {
+                builder = builder.connection_verbose(verbose);
+            }
+
+            if let Some(idle) = options.pool_idle_timeout {
+                builder = builder.pool_idle_timeout(idle);
+            }
 
             if let Some(user_agent) = options.user_agent {
                 builder = builder.user_agent(user_agent);

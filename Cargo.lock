@@ -3419,6 +3419,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "duration-serde",
  "futures-util",
  "humantime",
  "mail-builder",
