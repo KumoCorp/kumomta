@@ -52,7 +52,7 @@ hickory-proto = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="1.0", features = ["axum"] }
 uuid = "1.4"
-webpki-roots = "0.25"
+webpki-roots = "0.26"
 
 [patch.crates-io]
 # Can be removed once dane support is upstreamed
