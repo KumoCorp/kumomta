@@ -6,12 +6,8 @@ clone:
       depth: 0 # Need full history for doc build
 
 when:
-  - event: pull_request
-  - event: push
-    branch:
-      - main
-  - event: manual
-  - path:
+  event: [push, pull_request, manual]
+  path:
     include:
       - .woodpecker/docs.yml
       - docs/**

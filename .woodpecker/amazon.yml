@@ -9,13 +9,8 @@ matrix:
       BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2023
 
 when:
- - event: pull_request
- - event: push
-   branch:
-     - main
- - event: manual
-
- - path:
+ event: [push, pull_request, manual]
+ path:
    include:
      - .woodpecker/amazon.yml
      - "**/Cargo.toml"
