@@ -30,5 +30,7 @@ blank_out_openapi_spec_version() {
   jq --arg version 'blank' '.info.version = $version'
 }
 
-update_if_different ./target/debug/kumod docs/reference/kumod.openapi.json
-update_if_different ./target/debug/tsa-daemon docs/reference/tsa-daemon.openapi.json
+if hash jq 2>/dev/null ; then
+  update_if_different ./target/debug/kumod docs/reference/kumod.openapi.json
+  update_if_different ./target/debug/tsa-daemon docs/reference/tsa-daemon.openapi.json
+fi
