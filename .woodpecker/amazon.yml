@@ -67,7 +67,7 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  build:
+  test:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
@@ -83,13 +83,26 @@ steps:
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
       - make test
+  build:
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+      # These are needed because amazonlinux:2 has both `openssl-devel`
+      # and `openssl11-devel` and the latter, newer version, isn't
+      # automatically found by the rust openssl-sys build machinery
+      OPENSSL_LIB_DIR: /usr/lib64
+      OPENSSL_INCLUDE_DIR: /usr/include
+    image: ${BUILDER_IMAGE}
+    pull: true
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
       - make build BUILD_OPTS="--release"
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
 
   save-build-cache:
     when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron")'
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
     image: *cache_image
     environment: *cache_environment
     #detach: true

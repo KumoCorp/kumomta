@@ -68,7 +68,7 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  build:
+  test:
     depends_on: [restore-mtime, restore-build-cache]
     environment:
       CARGO_HOME: .ci-cargo
@@ -80,13 +80,23 @@ steps:
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
       - make test
+
+  build:
+    depends_on: [test]
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    image: ${BUILDER_IMAGE}
+    pull: true
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
       - make build BUILD_OPTS="--release"
       - ./assets/build-deb.sh
 
   save-build-cache:
     depends_on: [build]
     when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron")'
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
     image: *cache_image
     environment: *cache_environment
     #detach: true
