@@ -6,6 +6,16 @@ on:
 jobs:
   build-images:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - "ubuntu:20.04"
+          - "ubuntu:22.04"
+          - "rockylinux:8"
+          - "rockylinux:9"
+          - "amazonlinux:2"
+          - "amazonlinux:2023"
+
     permissions:
       contents: read
       packages: write
@@ -19,4 +29,4 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build images
-        run: python3 assets/ci/build-builder-images.py ghcr.io
+        run: python3 assets/ci/build-builder-images.py ghcr.io ${{ matrix.image }}

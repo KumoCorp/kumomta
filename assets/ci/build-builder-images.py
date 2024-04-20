@@ -4,6 +4,8 @@ import sys
 
 # Pass the registry hostname:port as argv[1]
 REGISTRY = sys.argv[1]
+# argv[2] is the optional image name to build; if not specified,
+# all images are built.
 
 # This script builds a docker image that helps to speed up running
 # the build. It is not required to run kumomta itself.
@@ -18,6 +20,12 @@ IMAGES = [
     "amazonlinux:2",
     "amazonlinux:2023",
 ]
+
+if len(sys.argv) > 2:
+    IMAGE_NAME = sys.argv[2]
+    if IMAGE_NAME not in IMAGES:
+        raise Exception(f"invalid image name {IMAGE_NAME}")
+    IMAGES = [IMAGE_NAME]
 
 for container in IMAGES:
     dockerfile = f"""
