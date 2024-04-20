@@ -67,7 +67,7 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  test:
+  get-deps:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
@@ -76,10 +76,20 @@ steps:
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
+
+  test:
+    depends_on: [restore-mtime, restore-build-cache, get-deps]
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    image: ${BUILDER_IMAGE}
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
       - git config --global --add safe.directory /woodpecker/src
       - make test
 
   build:
+    depends_on: [test]
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
@@ -92,6 +102,7 @@ steps:
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
 
   save-build-cache:
+    depends_on: [build]
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
     image: *cache_image
@@ -103,11 +114,13 @@ steps:
       restore: "false"
 
   verify-installable:
+    depends_on: [build]
     image: ${ROCKY_IMAGE}
     commands:
       - dnf install -y ./kumomta*.rpm
 
   publish_rpm:
+    depends_on: [verify-installable]
     image: ${BUILDER_IMAGE}
     pull: true
     when:

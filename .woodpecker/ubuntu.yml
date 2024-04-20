@@ -68,8 +68,7 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  test:
-    depends_on: [restore-mtime, restore-build-cache]
+  get-deps:
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
@@ -78,6 +77,15 @@ steps:
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - ./get-deps.sh
+
+  test:
+    depends_on: [restore-mtime, restore-build-cache, get-deps]
+    environment:
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+    image: ${BUILDER_IMAGE}
+    commands:
+      - PATH=$PATH:$HOME/.cargo/bin
       - git config --global --add safe.directory /woodpecker/src
       - make test
 
@@ -87,7 +95,6 @@ steps:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
-    pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - make build BUILD_OPTS="--release"
