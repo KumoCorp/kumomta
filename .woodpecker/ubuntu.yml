@@ -4,9 +4,9 @@ matrix:
     - UBUNTU_VERSION: 22.04
       UBUNTU_IMAGE: ubuntu:22.04
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
-    - UBUNTU_VERSION: 20.04
-      UBUNTU_IMAGE: ubuntu:20.04
-      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:20.04
+    #- UBUNTU_VERSION: 20.04
+    #  UBUNTU_IMAGE: ubuntu:20.04
+    #  BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:20.04
 
 when:
   - event: push
@@ -45,65 +45,39 @@ steps:
       - ./assets/ci/git-restore-mtime crates
       - git diff-index --name-status HEAD --
 
-  restore-build-cache:
-    environment: &cache_environment
-      AWS_DISABLESSL: "true"
+  test:
+    depends_on: [restore-mtime, restore-build-cache]
+    environment: &cargo_environment
+      CARGO_HOME: .ci-cargo
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: false
       AWS_ACCESS_KEY_ID:
         from_secret: s3_access_key_id
       AWS_SECRET_ACCESS_KEY:
         from_secret: s3_secret_key
-      S3_ENDPOINT:
+      SCCACHE_BUCKET: test-sccache
+      SCCACHE_ENDPOINT:
         from_secret: s3_endpoint
-    image: &cache_image meltwater/drone-cache
-    when:
-      - evaluate: 'CI_PIPELINE_EVENT != "cron"'
-    settings: &cache_settings
-      bucket: kumomta-cache
-      cache_key: ubuntu:${UBUNTU_VERSION}_{{ arch }}_{{ os }}
-      mount:
-        - .ci-cargo
-        - target
-      path_style: "true"
-      region: eu-west-2
-      rebuild: "false"
-      restore: "true"
-
-  test:
-    depends_on: [restore-mtime, restore-build-cache]
-    environment:
-      CARGO_HOME: .ci-cargo
-      CARGO_TERM_COLOR: always
+      SCCACHE_REGION: auto
+      SCCACHE_C_CUSTOM_CACHE_BUSTER: ubuntu:${UBUNTU_VERSION}_{{ arch }}_{{ os }}
     image: ${BUILDER_IMAGE}
     pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
+      - export RUSTC_WRAPPER=$HOME/.cargo/bin/sccache
       - ./get-deps.sh
       - git config --global --add safe.directory /woodpecker/src
       - make test
 
   build:
     depends_on: [test]
-    environment:
-      CARGO_HOME: .ci-cargo
-      CARGO_TERM_COLOR: always
+    environment: *cargo_environment
     image: ${BUILDER_IMAGE}
     pull: true
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - make build BUILD_OPTS="--release"
       - ./assets/build-deb.sh
-
-  save-build-cache:
-    depends_on: [build]
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
-    image: *cache_image
-    environment: *cache_environment
-    #detach: true
-    settings:
-      <<: *cache_settings
-      rebuild: "true"
-      restore: "false"
 
   verify-installable:
     depends_on: [build]
@@ -112,54 +86,3 @@ steps:
       - apt update
       - apt-get install -y ./kumomta*.deb
 
-  publish_deb:
-    depends_on: [verify-installable]
-    image: alpine:3.14
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
-    environment:
-      TOKEN:
-        from_secret: openrepo_publish_token
-    commands:
-      - "apk --no-cache add curl bash"
-      - "./assets/upload-package.sh ${UBUNTU_IMAGE} *.deb"
-
-  dry-run-build-docker-image:
-    depends_on: [build]
-    when:
-      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && (CI_PIPELINE_EVENT == "pull_request" || (CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH != "main"))'
-    image: plugins/docker
-    settings:
-      registry: ghcr.io
-      repo: "ghcr.io/kumocorp/kumomta-dev"
-      dry_run: true
-      tags:
-        - dry-run
-      dockerfile: docker/kumod/Dockerfile.incremental
-
-  build-dev-docker-image:
-    depends_on: [publish_deb]
-    when:
-      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
-    image: plugins/docker
-    settings:
-      <<: *docker_credentials
-      registry: ghcr.io
-      repo: "ghcr.io/kumocorp/kumomta-dev"
-      tags:
-        - latest
-      dockerfile: docker/kumod/Dockerfile.incremental
-
-  build-docker-image:
-    depends_on: [publish_deb]
-    when:
-      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
-    image: plugins/docker
-    settings:
-      <<: *docker_credentials
-      registry: ghcr.io
-      repo: "ghcr.io/kumocorp/kumomta"
-      tags:
-        - latest
-        - ${CI_COMMIT_TAG}
-      dockerfile: docker/kumod/Dockerfile.incremental
