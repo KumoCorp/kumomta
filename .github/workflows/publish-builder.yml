@@ -3,9 +3,15 @@ name: Publish Builder Images
 on:
   workflow_dispatch:
   schedule:
-    # Weekly rebuild
-    - cron: "15 2 * * 0"
-
+    # Weekly rebuild on saturday (UTC).
+    # Woodpecker will kick off a cache-pruning build
+    # shortly after this runs (midnight sunday UTC)
+    - cron: "0 23 * * 6"
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/publish-builder.yml"
+      - "assets/ci/build-builder-images.py"
 
 jobs:
   build-images:
