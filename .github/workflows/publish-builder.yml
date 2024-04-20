@@ -2,6 +2,10 @@ name: Publish Builder Images
 
 on:
   workflow_dispatch:
+  schedule:
+    # Weekly rebuild
+    - cron: "15 2 * * 0"
+
 
 jobs:
   build-images:
