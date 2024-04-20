@@ -46,7 +46,7 @@ steps:
       - git diff-index --name-status HEAD --
 
   test:
-    depends_on: [restore-mtime, restore-build-cache]
+    depends_on: [restore-mtime]
     environment: &cargo_environment
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
