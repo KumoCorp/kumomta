@@ -54,6 +54,8 @@ steps:
       S3_ENDPOINT:
         from_secret: s3_endpoint
     image: &cache_image meltwater/drone-cache
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT != "cron"'
     settings: &cache_settings
       bucket: kumomta-cache
       cache_key: amazonlinux:${AMAZON_VERSION}_{{ arch }}_{{ os }}
@@ -87,7 +89,7 @@ steps:
 
   save-build-cache:
     when:
-      - evaluate: 'CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron")'
     image: *cache_image
     environment: *cache_environment
     #detach: true
