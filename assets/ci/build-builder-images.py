@@ -42,6 +42,7 @@ LABEL org.opencontainers.image.licenses="Apache"
         ". $HOME/.cargo/env",
         "/tmp/get-deps.sh",
         "curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin",
+        "cargo install --locked sccache --no-default-features --features s3",
     ]
 
     if "ubuntu" in container:
