@@ -3,10 +3,10 @@ matrix:
   include:
     - UBUNTU_VERSION: 22.04
       UBUNTU_IMAGE: ubuntu:22.04
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     - UBUNTU_VERSION: 20.04
       UBUNTU_IMAGE: ubuntu:20.04
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:20.04
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:20.04
 
 when:
   - event: push

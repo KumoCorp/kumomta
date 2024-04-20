@@ -51,7 +51,7 @@ steps:
       restore: "true"
 
   build-docs:
-    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     pull: true
     environment:
       CARGO_HOME: .ci-cargo
@@ -73,7 +73,7 @@ steps:
   push-docs:
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron")'
-    image: docker-registry.wezfurlong.org/kumocorp/builder-for-ubuntu:22.04
+    image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     environment:
       TOKEN:
         from_secret: gh_pages_deploy_token

@@ -3,10 +3,10 @@ matrix:
   include:
     - ROCKY_VERSION: 8
       ROCKY_IMAGE: rockylinux:8
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:8
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-rockylinux:8
     - ROCKY_VERSION: 9
       ROCKY_IMAGE: rockylinux:9
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-rockylinux:9
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-rockylinux:9
 
 when:
   - event: push

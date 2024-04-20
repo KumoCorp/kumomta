@@ -3,10 +3,10 @@ matrix:
   include:
     - AMAZON_VERSION: 2
       AMAZON_IMAGE: amazonlinux:2
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2
     - AMAZON_VERSION: 2023
       AMAZON_IMAGE: amazonlinux:2023
-      BUILDER_IMAGE: docker-registry.wezfurlong.org/kumocorp/builder-for-amazonlinux:2023
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2023
 
 when:
   - event: push
