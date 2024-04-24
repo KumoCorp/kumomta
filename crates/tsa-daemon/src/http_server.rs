@@ -320,7 +320,11 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
 
     // Track events/outcomes by site.
     let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    let site_name = record.site.trim_start_matches(&format!("{source}->")).trim_end_matches("@smtp_client").to_string();
+    let site_name = record
+        .site
+        .trim_start_matches(&format!("{source}->"))
+        .trim_end_matches("@smtp_client")
+        .to_string();
     let store_key = record.site.to_string();
 
     let mut config = config::load_config().await?;
