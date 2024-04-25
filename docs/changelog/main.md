@@ -101,3 +101,5 @@
   new messages before closing the connection.
 * Potential deadlock on systems with very low core counts when MTA-STS is enabled,
   and sending to domain(s) with an MTA-STS policy.
+* If a TSA rule suspends a ready queue in response to a 421-before-MAIL-FROM,
+  the contents of the corresponding ready queue could get stuck

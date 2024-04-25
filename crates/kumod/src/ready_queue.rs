@@ -296,6 +296,7 @@ impl ReadyQueueManager {
 
                     if queue.reapable().await {
                         tracing::debug!("reaping site {name}");
+                        queue.reinsert_ready_queue("reap").await;
                         mgr.queues.remove(&name);
                         crate::metrics_helper::remove_metrics_for_service(&format!(
                             "smtp_client:{name}"
@@ -425,16 +426,40 @@ impl ReadyQueue {
         );
     }
 
+    async fn reinsert_ready_queue(&mut self, reason: &str) {
+        let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
+        if !msgs.is_empty() {
+            let activity = self.activity.clone();
+            rt_spawn(
+                format!("reinserting {} due to {reason}", self.name),
+                move || {
+                    Ok(async move {
+                        for msg in msgs {
+                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                                tracing::error!("error reinserting message: {err:#}");
+                            }
+                        }
+                        drop(activity);
+                    })
+                },
+            )
+            .await
+            .expect("failed to spawn reinsertion");
+        }
+    }
+
     #[async_recursion::async_recursion]
     pub async fn maintain(&mut self) {
         // Prune completed connection tasks
         self.connections.retain(|handle| !handle.is_finished());
+        let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
-            "maintain {}: there are now {} connections, suspended(via config)={}, suspended(admin)={}, queue_size={}",
+            "maintain {}: there are now {} connections, suspended(via config)={}, \
+             suspended(admin)={}, queue_size={}",
             self.name,
             self.connections.len(),
             self.path_config.borrow().suspended,
-            AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some(),
+            suspend.is_some(),
             self.ready_count(),
         );
 
@@ -453,6 +478,16 @@ impl ReadyQueue {
                 .expect("failed to spawn save_if_needed_and_log");
             }
 
+            return;
+        }
+
+        if let Some(suspend) = suspend {
+            let duration = suspend.get_duration();
+            tracing::trace!(
+                "{} is suspended until {duration:?}, throttling ready queue",
+                self.name,
+            );
+            self.reinsert_ready_queue("suspend").await;
             return;
         }
 
@@ -536,6 +571,7 @@ impl ReadyQueue {
             && self.connections.is_empty()
             && (self.last_change.elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down()
+            && self.ready_count() == 0
     }
 }
 
