@@ -131,6 +131,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "available_parallelism",
+        lua.create_function(move |_, _: ()| {
+            Ok(std::thread::available_parallelism().map_err(any_err)?.get())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "configure_redis_throttles",
         lua.create_async_function(|lua, params: Value| async move {
             let key: RedisConnKey = from_lua_value(lua, params)?;
