@@ -30,7 +30,7 @@ debug = 1 # include line tables for more meaningful backtraces
 [workspace.dependencies]
 axum = "0.6"
 axum-server = "0.5"
-data-encoding = "2.4"
+data-encoding = "2.6"
 ed25519-dalek = "2.0"
 futures = "0.3.28"
 libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="1f629e81919d8aae7e95fff82dc1390912b4ba53"}
