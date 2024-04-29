@@ -12,4 +12,4 @@ caused by: Permission denied (os error 13)
 
 The error is caused when the files referenced (*and/or* their containing directory) are not readable or writable by the `kumod` user. In the example above, this refers to TLS certificates used in the HTTP listener.
 
-Check that all files referenced to in your `init.lua` file (including the init.lua file itself), as well as their parent directories, are readable to the `kumod` user.
+Check that all files referenced to in your `init.lua` file (including the init.lua file itself), as well as their parent directories, are readable to the `kumod` user. These directories should have `g+x` permissions.
