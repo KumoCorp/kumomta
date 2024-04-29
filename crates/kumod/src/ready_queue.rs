@@ -113,6 +113,10 @@ impl ReadyQueueManager {
         // Factor in the delivery protocol so that we don't falsely share
         // different custom protocols when someone is using eg: just the
         // tenant or campaign to vary the protocol.
+        // NOTE: this is coupled with the logic in
+        // tsa-daemon/src/http_server that reverses/extracts the site_name
+        // portion of this string.
+        // If you change this then you must update that other logic accordingly.
         let name = format!(
             "{egress_source}->{site_name}@{}",
             queue_config.borrow().protocol.ready_queue_name()
