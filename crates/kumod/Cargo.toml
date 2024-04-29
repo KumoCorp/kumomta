@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-channel = "2.1"
-async-recursion = "1.0"
+async-recursion = "1.1"
 async-trait = "0.1"
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = "=0.4"
@@ -18,7 +18,7 @@ chrono = {version="0.4", default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {version="4.5", features=["derive"]}
 config = {path="../config"}
-data-encoding = "2.5"
+data-encoding = "2.6"
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
@@ -40,8 +40,8 @@ mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
 metrics = {workspace=true}
-minijinja-contrib = {version="1.0.9",features=["datetime", "timezone"]}
-minijinja = {version="1.0.9",features=["loader", "builtins", "json"]}
+minijinja-contrib = {version="2.0.1",features=["datetime", "timezone"]}
+minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
 nix = {version="0.28", features=["resource", "user"]}
