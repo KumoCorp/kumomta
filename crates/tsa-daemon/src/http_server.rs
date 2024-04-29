@@ -145,6 +145,7 @@ fn regex_list_to_string(list: &[Regex]) -> String {
             }
             result.push_str(&r.to_string());
         }
+        result.push(')');
         result
     }
 }
@@ -319,8 +320,12 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
 
     // Track events/outcomes by site.
     let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    let site_name = record.site.to_string();
-    let store_key = &site_name;
+    let site_name = record
+        .site
+        .trim_start_matches(&format!("{source}->"))
+        .trim_end_matches("@smtp_client")
+        .to_string();
+    let store_key = record.site.to_string();
 
     let mut config = config::load_config().await?;
     let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
