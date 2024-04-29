@@ -14,7 +14,7 @@ license = "MIT"
 
 [dependencies]
 chrono = { version = "0.4.26", default-features = false, features = ["clock", "std"] }
-data-encoding = "2.5"
+data-encoding = {workspace=true}
 ed25519-dalek = {workspace=true, features=["pkcs8", "pem"]}
 futures = {workspace=true}
 indexmap = "1.9.3"

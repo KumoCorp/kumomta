@@ -9,7 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 bounce-classify = {path="../bounce-classify"}
 chrono = {version="0.4", default-features=false, features=["serde", "std"]}
-data-encoding = "2.5"
+data-encoding = {workspace=true}
 mailparsing = {path="../mailparsing"}
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {version="1.0", features=["derive"]}

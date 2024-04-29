@@ -18,7 +18,7 @@ chrono = {version="0.4", default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {version="4.5", features=["derive"]}
 config = {path="../config"}
-data-encoding = "2.6"
+data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
