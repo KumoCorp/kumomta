@@ -368,8 +368,8 @@ impl ReadyQueue {
                 return Err(msg);
             }
             ready.push_back(msg);
-            self.metrics.ready_count.inc();
         }
+        self.metrics.ready_count.inc();
 
         self.last_change = Instant::now();
         self.notify.notify_waiters();
@@ -385,8 +385,10 @@ impl ReadyQueue {
         ready: &Arc<StdMutex<VecDeque<Message>>>,
         metrics: &DeliveryMetrics,
     ) -> Vec<Message> {
-        let mut locked = ready.lock().unwrap();
-        let messages: Vec<Message> = locked.drain(..).collect();
+        let messages: Vec<Message> = {
+            let mut locked = ready.lock().unwrap();
+            locked.drain(..).collect()
+        };
         metrics.ready_count.sub(messages.len() as i64);
         messages
     }
@@ -1109,13 +1111,17 @@ impl Dispatcher {
         .await;
     }
 
+    fn pop_ready_queue(&mut self) -> Option<Message> {
+        self.ready.lock().unwrap().pop_front()
+    }
+
     #[instrument(skip(self))]
     async fn obtain_message(&mut self) -> bool {
         if self.msg.is_some() {
             return true;
         }
         loop {
-            self.msg = self.ready.lock().unwrap().pop_front();
+            self.msg = self.pop_ready_queue();
             if let Some(msg) = &self.msg {
                 self.metrics.ready_count.dec();
 
@@ -1169,7 +1175,7 @@ impl Dispatcher {
                     };
 
                     if let Some(q) = ready_queue {
-                        q.lock().await.maintain().await;
+                        q.lock().await.notify.notify_waiters();
                     }
                 });
 
