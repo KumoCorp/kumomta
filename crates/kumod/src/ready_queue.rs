@@ -815,7 +815,8 @@ impl Dispatcher {
             loop {
                 let result = throttle
                     .throttle(format!("{}-message-rate", self.name))
-                    .await?;
+                    .await
+                    .context("apply max_message_rate throttle")?;
 
                 if let Some(delay) = result.retry_after {
                     if delay >= path_config.client_timeouts.idle_timeout {

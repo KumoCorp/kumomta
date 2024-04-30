@@ -465,8 +465,8 @@ impl QueueDispatcher for SmtpDispatcher {
         msg: Message,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
-        msg.load_meta_if_needed().await?;
-        msg.load_data_if_needed().await?;
+        msg.load_meta_if_needed().await.context("loading meta")?;
+        msg.load_data_if_needed().await.context("loading data")?;
 
         let data = msg.get_data();
         let sender: ReversePath = msg
@@ -488,7 +488,7 @@ impl QueueDispatcher for SmtpDispatcher {
             Err(ClientError::Rejected(mut response)) => {
                 let queue_name = msg.get_queue_name()?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let mut config = load_config().await?;
+                let mut config = load_config().await.context("load_config")?;
 
                 let sig = CallbackSignature::<
                     (String, &str, Option<&str>, Option<&str>, &str),
