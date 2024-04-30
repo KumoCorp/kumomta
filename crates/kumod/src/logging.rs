@@ -62,7 +62,7 @@ impl ClassifierParams {
 
         CLASSIFY
             .set(classifier)
-            .map_err(|_| anyhow::anyhow!("classifieer already initialized"))?;
+            .map_err(|_| anyhow::anyhow!("classifier already initialized"))?;
 
         Ok(())
     }

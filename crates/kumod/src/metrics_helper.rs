@@ -103,4 +103,5 @@ pub fn remove_metrics_for_service(service: &str) {
     TOTAL_MSGS_DELIVERED.remove_label_values(&[service]).ok();
     TOTAL_MSGS_TRANSFAIL.remove_label_values(&[service]).ok();
     TOTAL_MSGS_FAIL.remove_label_values(&[service]).ok();
+    READY_COUNT_GAUGE.remove_label_values(&[service]).ok();
 }
