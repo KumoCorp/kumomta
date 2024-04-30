@@ -94,6 +94,12 @@ impl TryFrom<&str> for ThrottleSpec {
             .parse::<u64>()
             .map_err(|err| format!("invalid limit '{limit}': {err:#}"))?;
 
+        if limit == 0 {
+            return Err(format!(
+                "invalid ThrottleSpec `{s}`: limit must be greater than 0!"
+            ));
+        }
+
         Ok(Self {
             limit,
             period,
