@@ -42,3 +42,23 @@ $ sudo KUMOD_LOG=kumod=info /opt/kumomta/sbin/kumod \
 If all goes well, it should return a PID and drop you back to a Linux prompt.
 
 If KumoMTA does not start, refer to the [Troubleshooting Page](./troubleshooting.md) of the User Guide.
+
+NOTE that if you are also planning to use the TSA shaping service, you should enable that as well:
+
+```console
+$ sudo systemctl start kumo-tsa-daemon
+```
+
+It can be enabled as a service with:
+
+```console
+$ sudo systemctl enable kumo-tsa-daemon
+```
+
+You can check the status with:
+
+```console
+$ sudo systemctl status kumo-tsa-daemon
+```
+
+

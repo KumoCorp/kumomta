@@ -156,4 +156,10 @@ To start KumoMTA using systemd, execute the following command:
 $ sudo systemctl start kumomta
 ```
 
+If you also intend to use the TSA shaping service, start that as well:
+
+```console
+$ sudo systemctl start kumo-tsa-daemon
+```
+
 For additional details on starting KumoMTA, including as a persistent service, see the [Starting KumoMTA](../operation/starting.md) chapter.
