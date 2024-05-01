@@ -3,6 +3,7 @@ use crate::queue::QueueConfig;
 use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::{CallbackSignature, LuaConfig};
+use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
@@ -15,7 +16,7 @@ use std::cell::RefCell;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
 lazy_static::lazy_static! {
@@ -23,7 +24,7 @@ lazy_static::lazy_static! {
     static ref POOLS: Mutex<LruCacheWithTtl<String, EgressPool>> = Mutex::new(LruCacheWithTtl::new(128));
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EgressSource {
     /// Give it a friendly name for use in reporting and referencing
@@ -56,6 +57,9 @@ pub struct EgressSource {
     /// a connection
     pub socks5_proxy_source_address: Option<IpAddr>,
 
+    pub socks5_proxy_username: Option<String>,
+    pub socks5_proxy_password: Option<KeySource>,
+
     #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
 }
@@ -78,6 +82,8 @@ impl EgressSource {
                 remote_port: None,
                 socks5_proxy_server: None,
                 socks5_proxy_source_address: None,
+                socks5_proxy_username: None,
+                socks5_proxy_password: None,
                 source_address: None,
             }
         } else {
@@ -143,6 +149,13 @@ impl EgressSource {
                         server,
                         source,
                         destination: address,
+                        username_and_password: match (
+                            &self.socks5_proxy_username,
+                            &self.socks5_proxy_password,
+                        ) {
+                            (Some(user), Some(pass)) => Some((user, pass)),
+                            _ => None,
+                        },
                     })
                 }
                 _ => anyhow::bail!(
@@ -459,7 +472,7 @@ mod test {
 }
 
 #[derive(Debug)]
-enum ProxyProto {
+enum ProxyProto<'a> {
     None,
     HA {
         server: SocketAddr,
@@ -470,10 +483,11 @@ enum ProxyProto {
         server: SocketAddr,
         source: IpAddr,
         destination: SocketAddr,
+        username_and_password: Option<(&'a str, &'a KeySource)>,
     },
 }
 
-impl ProxyProto {
+impl<'a> ProxyProto<'a> {
     fn transport_address(&self, addr: SocketAddr) -> SocketAddr {
         match self {
             Self::Socks5 { server, .. } | Self::HA { server, .. } => *server,
@@ -520,12 +534,60 @@ impl ProxyProto {
             Self::Socks5 {
                 source,
                 destination,
+                ref username_and_password,
                 ..
             } => {
-                socksv5::v5::write_handshake(&mut stream, vec![SocksV5AuthMethod::Noauth]).await?;
+                let mut auth_methods = vec![SocksV5AuthMethod::Noauth];
+                if username_and_password.is_some() {
+                    auth_methods.push(SocksV5AuthMethod::UsernamePassword);
+                }
+                socksv5::v5::write_handshake(&mut stream, auth_methods).await?;
                 let method = socksv5::v5::read_auth_method(&mut stream).await?;
-                if method != SocksV5AuthMethod::Noauth {
-                    anyhow::bail!("incompatible SOCKS5 authentication {method:?}");
+                match method {
+                    SocksV5AuthMethod::Noauth => {}
+                    SocksV5AuthMethod::UsernamePassword => {
+                        // <https://www.rfc-editor.org/rfc/rfc1929>
+                        let (user, pass) = username_and_password.as_ref().ok_or_else(||{
+                            anyhow::anyhow!("server responded with UsernamePassword method when we didn't ask for it")
+                        })?;
+
+                        let pass = pass.get().await?;
+
+                        anyhow::ensure!(
+                            user.len() < 256,
+                            "username is too long for SOCKS5 protocol"
+                        );
+                        anyhow::ensure!(
+                            pass.len() < 256,
+                            "username is too long for SOCKS5 protocol"
+                        );
+
+                        {
+                            let mut auth_request = vec![];
+                            auth_request.push(1); // RFC1929 version 1
+                            auth_request.push(user.len() as u8);
+                            auth_request.extend_from_slice(user.as_bytes());
+                            auth_request.push(pass.len() as u8);
+                            auth_request.extend_from_slice(&pass);
+
+                            stream.write_all(&auth_request).await?;
+                        }
+
+                        let mut auth_response = [0u8; 2];
+                        stream.read_exact(&mut auth_response).await?;
+                        anyhow::ensure!(
+                            auth_response[0] == 1, // version
+                            "invalid SOCKS5 UsernamePassword response packet {auth_response:?}"
+                        );
+
+                        anyhow::ensure!(
+                            auth_response[1] == 1, // status
+                            "SOCKS5 username/password was incorrect"
+                        );
+                    }
+                    _ => {
+                        anyhow::bail!("incompatible SOCKS5 authentication {method:?}");
+                    }
                 }
 
                 let (source_host, source_port) = socket_ip_to_host(source);
