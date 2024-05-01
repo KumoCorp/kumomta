@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+arc-swap = "1.6"
 axum = {workspace=true}
 axum-client-ip = "=0.4"
 axum-server = {workspace=true, features=["tls-rustls"]}
