@@ -551,7 +551,10 @@ impl<'a> ProxyProto<'a> {
                             anyhow::anyhow!("server responded with UsernamePassword method when we didn't ask for it")
                         })?;
 
-                        let pass = pass.get().await?;
+                        let pass = pass
+                            .get()
+                            .await
+                            .context("failed to retrieve socks5 password")?;
 
                         anyhow::ensure!(
                             user.len() < 256,
@@ -570,18 +573,31 @@ impl<'a> ProxyProto<'a> {
                             auth_request.push(pass.len() as u8);
                             auth_request.extend_from_slice(&pass);
 
-                            stream.write_all(&auth_request).await?;
+                            tracing::debug!("Sending SOCKS5 auth request: {auth_request:#x?}");
+                            stream
+                                .write_all(&auth_request)
+                                .await
+                                .context("failed to write SOCKS5 auth request")?;
                         }
 
-                        let mut auth_response = [0u8; 2];
-                        stream.read_exact(&mut auth_response).await?;
+                        let mut auth_response_version = [0u8];
+                        stream
+                            .read_exact(&mut auth_response_version)
+                            .await
+                            .context("failed to read SOCKS5 auth response (version)")?;
                         anyhow::ensure!(
-                            auth_response[0] == 1, // version
-                            "invalid SOCKS5 UsernamePassword response packet {auth_response:?}"
+                            auth_response_version == [1],
+                            "invalid SOCKS5 UsernamePassword response packet {auth_response_version:?}"
                         );
 
+                        let mut auth_response_status = [0u8];
+                        stream
+                            .read_exact(&mut auth_response_status)
+                            .await
+                            .context("failed to read SOCKS5 auth response (status)")?;
+
                         anyhow::ensure!(
-                            auth_response[1] == 1, // status
+                            auth_response_status == [0],
                             "SOCKS5 username/password was incorrect"
                         );
                     }
