@@ -241,12 +241,15 @@ impl ReadyQueueManager {
         // enqueued. In that case we don't notice the wakup on
         // `notify` in a timely manner and we'll sit waiting
         // for a subsequent message.
-        {
+        // We'll do this a couple of times at startup before
+        // falling into the main loop below
+        for _ in 0..4 {
             let mgr = Self::get().await;
             if let Some(queue) = mgr.queues.get(&name).cloned() {
                 let mut queue = queue.lock().await;
                 queue.maintain().await;
             }
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
         loop {
