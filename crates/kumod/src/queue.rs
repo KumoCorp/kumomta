@@ -767,7 +767,6 @@ impl Queue {
                     .await
                     {
                         Ok(site) => {
-                            let mut site = site.lock().await;
                             return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
                         }
                         Err(err) => {

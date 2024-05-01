@@ -211,14 +211,14 @@ impl ReadyQueueManager {
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
-            ReadyQueueHandle(Arc::new(Mutex::new(ReadyQueue {
+            Arc::new(ReadyQueue {
                 name: name.clone(),
                 queue_name_for_config_change_purposes_only: queue_name.to_string(),
                 ready,
                 mx,
                 notify,
-                connections: vec![],
-                last_change: Instant::now(),
+                connections: StdMutex::new(vec![]),
+                last_change: StdMutex::new(Instant::now()),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
                 egress_source,
@@ -226,7 +226,7 @@ impl ReadyQueueManager {
                 activity,
                 consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
                 egress_pool: egress_pool.to_string(),
-            })))
+            })
         });
         Ok(handle.clone())
     }
@@ -247,7 +247,6 @@ impl ReadyQueueManager {
             {
                 let mgr = Self::get().await;
                 if let Some(queue) = mgr.queues.get(&name).cloned() {
-                    let mut queue = queue.lock().await;
                     queue.maintain().await;
                 }
             }
@@ -271,8 +270,6 @@ impl ReadyQueueManager {
             match queue {
                 None => break,
                 Some(queue) => {
-                    let mut queue = queue.lock().await;
-
                     if refresh_config && !queue.activity.is_shutting_down() {
                         match Self::compute_config(
                             &queue.queue_name_for_config_change_purposes_only,
@@ -303,6 +300,8 @@ impl ReadyQueueManager {
                         }
                     }
 
+                    queue.maintain().await;
+
                     if queue.reapable().await {
                         tracing::debug!("reaping site {name}");
                         queue.reinsert_ready_queue("reap").await;
@@ -314,7 +313,7 @@ impl ReadyQueueManager {
                     } else if get_headroom() == 0 {
                         queue.shrink_ready_queue_due_to_low_mem().await;
                     } else if queue.activity.is_shutting_down() {
-                        let n = queue.connections.len();
+                        let n = queue.connections.lock().unwrap().len();
                         tracing::debug!(
                             "{name}: waiting for {n} connections to closed before reaping"
                         );
@@ -326,14 +325,7 @@ impl ReadyQueueManager {
     }
 }
 
-#[derive(Clone)]
-pub struct ReadyQueueHandle(Arc<Mutex<ReadyQueue>>);
-
-impl ReadyQueueHandle {
-    pub async fn lock(&self) -> MutexGuard<ReadyQueue> {
-        self.0.lock().await
-    }
-}
+pub type ReadyQueueHandle = Arc<ReadyQueue>;
 
 pub struct ReadyQueue {
     name: String,
@@ -341,8 +333,8 @@ pub struct ReadyQueue {
     ready: Arc<StdMutex<VecDeque<Message>>>,
     mx: Option<Arc<MailExchanger>>,
     notify: Arc<Notify>,
-    connections: Vec<JoinHandle<()>>,
-    last_change: Instant,
+    connections: StdMutex<Vec<JoinHandle<()>>>,
+    last_change: StdMutex<Instant>,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
@@ -358,7 +350,7 @@ impl ReadyQueue {
         &self.name
     }
 
-    pub async fn insert(&mut self, msg: Message) -> Result<(), Message> {
+    pub async fn insert(&self, msg: Message) -> Result<(), Message> {
         if low_memory() {
             msg.shrink().ok();
         }
@@ -371,7 +363,7 @@ impl ReadyQueue {
         }
         self.metrics.ready_count.inc();
 
-        self.last_change = Instant::now();
+        *self.last_change.lock().unwrap() = Instant::now();
         self.notify.notify_waiters();
 
         Ok(())
@@ -414,7 +406,7 @@ impl ReadyQueue {
     }
 
     #[instrument(skip(self))]
-    async fn shrink_ready_queue_due_to_low_mem(&mut self) {
+    async fn shrink_ready_queue_due_to_low_mem(&self) {
         let mut ready = self.ready.lock().unwrap();
         ready.shrink_to_fit();
         if ready.is_empty() {
@@ -437,7 +429,7 @@ impl ReadyQueue {
         );
     }
 
-    async fn reinsert_ready_queue(&mut self, reason: &str) {
+    async fn reinsert_ready_queue(&self, reason: &str) {
         let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
         if !msgs.is_empty() {
             let activity = self.activity.clone();
@@ -459,16 +451,18 @@ impl ReadyQueue {
         }
     }
 
-    #[async_recursion::async_recursion]
-    pub async fn maintain(&mut self) {
+    pub async fn maintain(&self) {
         // Prune completed connection tasks
-        self.connections.retain(|handle| !handle.is_finished());
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|handle| !handle.is_finished());
         let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
             "maintain {}: there are now {} connections, suspended(via config)={}, \
              suspended(admin)={}, queue_size={}",
             self.name,
-            self.connections.len(),
+            self.connections.lock().unwrap().len(),
             self.path_config.borrow().suspended,
             suspend.is_some(),
             self.ready_count(),
@@ -515,7 +509,8 @@ impl ReadyQueue {
             duration: timeouts.total_message_send_duration(),
         };
 
-        for _ in self.connections.len()..ideal {
+        let mut connections = self.connections.lock().unwrap();
+        for _ in connections.len()..ideal {
             match limit.acquire_lease(&self.name).await {
                 Ok(lease) => {
                     // Open a new connection
@@ -561,7 +556,7 @@ impl ReadyQueue {
                     })
                     .await
                     {
-                        self.connections.push(handle);
+                        connections.push(handle);
                     }
                 }
                 Err(err) => {
@@ -575,12 +570,11 @@ impl ReadyQueue {
         }
     }
 
-    pub async fn reapable(&mut self) -> bool {
-        self.maintain().await;
+    async fn reapable(&self) -> bool {
         let ideal = self.ideal_connection_count();
         ideal == 0
-            && self.connections.is_empty()
-            && (self.last_change.elapsed() > Duration::from_secs(10 * 60))
+            && self.connections.lock().unwrap().is_empty()
+            && (self.last_change.lock().unwrap().elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down()
             && self.ready_count() == 0
     }
@@ -1175,7 +1169,7 @@ impl Dispatcher {
                     };
 
                     if let Some(q) = ready_queue {
-                        q.lock().await.notify.notify_waiters();
+                        q.notify.notify_waiters();
                     }
                 });
 
