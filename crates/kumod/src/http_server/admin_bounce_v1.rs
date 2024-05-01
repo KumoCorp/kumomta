@@ -218,7 +218,7 @@ pub async fn bounce_v1(
         Ok(async move {
             for name in &queue_names {
                 if let Some(q) = QueueManager::get_opt(name).await {
-                    q.lock().await.bounce_all(&entry).await;
+                    q.bounce_all(&entry).await;
                 }
             }
             tx.send(entry)

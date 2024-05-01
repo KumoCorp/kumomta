@@ -936,7 +936,6 @@ impl Dispatcher {
         }
 
         let queue = QueueManager::resolve(&queue_name).await?;
-        let mut queue = queue.lock().await;
         queue.requeue_message(msg, increment_attempts, delay).await
     }
 
@@ -947,7 +946,6 @@ impl Dispatcher {
         }
         let queue_name = msg.get_queue_name()?;
         let queue = QueueManager::resolve(&queue_name).await?;
-        let mut queue = queue.lock().await;
         queue.insert(msg).await
     }
 

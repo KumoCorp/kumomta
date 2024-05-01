@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
-use std::cell::RefCell;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -294,8 +293,13 @@ pub struct EgressPoolRoundRobin {
     pub name: String,
     entries: Vec<EgressPoolEntry>,
 
-    current_index: RefCell<usize>,
-    current_weight: RefCell<u32>,
+    index_and_weight: Mutex<IndexAndWeight>,
+}
+
+#[derive(Debug)]
+struct IndexAndWeight {
+    current_index: usize,
+    current_weight: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -323,8 +327,10 @@ impl EgressPoolRoundRobin {
         Self {
             name: pool.name.to_string(),
             entries,
-            current_index: RefCell::new(0),
-            current_weight: RefCell::new(0),
+            index_and_weight: Mutex::new(IndexAndWeight {
+                current_index: 0,
+                current_weight: 0,
+            }),
         }
     }
 
@@ -334,7 +340,8 @@ impl EgressPoolRoundRobin {
 
     #[cfg(test)]
     fn next_ignoring_suspend(&self) -> Option<String> {
-        self.next_impl(&self.entries)
+        let entries = self.entries.clone();
+        self.next_impl(&entries)
     }
 
     fn next_impl(&self, entries: &[EgressPoolEntry]) -> Option<String> {
@@ -357,20 +364,19 @@ impl EgressPoolRoundRobin {
             return None;
         }
 
-        let mut current_index = self.current_index.borrow_mut();
-        let mut current_weight = self.current_weight.borrow_mut();
+        let mut iaw = self.index_and_weight.lock().unwrap();
 
         loop {
-            *current_index = (*current_index + 1) % entries.len();
-            if *current_index == 0 {
-                *current_weight = current_weight.saturating_sub(gcd);
-                if *current_weight == 0 {
-                    *current_weight = max_weight;
+            iaw.current_index = (iaw.current_index + 1) % entries.len();
+            if iaw.current_index == 0 {
+                iaw.current_weight = iaw.current_weight.saturating_sub(gcd);
+                if iaw.current_weight == 0 {
+                    iaw.current_weight = max_weight;
                 }
             }
 
-            if let Some(entry) = entries.get(*current_index) {
-                if entry.weight >= *current_weight {
+            if let Some(entry) = entries.get(iaw.current_index) {
+                if entry.weight >= iaw.current_weight {
                     return Some(entry.name.to_string());
                 }
             }

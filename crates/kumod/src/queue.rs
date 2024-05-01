@@ -19,7 +19,7 @@ use prometheus::{IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
@@ -375,19 +375,12 @@ struct ReadyQueueFull;
 #[error("The Ready Queue is suspend by configuration")]
 pub struct ReadyQueueSuspended;
 
-#[derive(Clone)]
-pub struct QueueHandle(Arc<Mutex<Queue>>);
-
-impl QueueHandle {
-    pub async fn lock(&self) -> MutexGuard<Queue> {
-        self.0.lock().await
-    }
-}
+type QueueHandle = Arc<Queue>;
 
 pub struct Queue {
     name: String,
-    queue: TimeQ<Message>,
-    last_change: Instant,
+    queue: StdMutex<TimeQ<Message>>,
+    last_change: StdMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
     delayed_gauge: IntGauge,
     activity: Activity,
@@ -427,24 +420,21 @@ impl Queue {
 
         let activity = Activity::get(format!("Queue {name}"))?;
 
-        let handle = QueueHandle(Arc::new(Mutex::new(Queue {
+        let handle = Arc::new(Queue {
             name: name.clone(),
-            queue: TimeQ::new(),
-            last_change: Instant::now(),
+            queue: StdMutex::new(TimeQ::new()),
+            last_change: StdMutex::new(Instant::now()),
             queue_config: ConfigHandle::new(queue_config),
             delayed_gauge,
             activity,
             rr,
-        })));
+        });
 
         let queue_clone = handle.clone();
         rt_spawn(format!("maintain {name}"), move || {
             Ok(async move {
                 if let Err(err) = maintain_named_queue(&queue_clone).await {
-                    tracing::error!(
-                        "maintain_named_queue {}: {err:#}",
-                        queue_clone.lock().await.name
-                    );
+                    tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
                 }
             })
         })
@@ -454,8 +444,8 @@ impl Queue {
     }
 
     #[instrument(skip(self))]
-    pub async fn bounce_all(&mut self, bounce: &AdminBounceEntry) {
-        let msgs = self.queue.drain();
+    pub async fn bounce_all(&self, bounce: &AdminBounceEntry) {
+        let msgs = self.queue.lock().unwrap().drain();
         let count = msgs.len();
         self.delayed_gauge.sub(count as i64);
         if count > 0 {
@@ -535,7 +525,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     pub async fn requeue_message(
-        &mut self,
+        &self,
         msg: Message,
         increment_attempts: bool,
         delay: Option<chrono::Duration>,
@@ -559,9 +549,9 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_delayed(&mut self, msg: Message) -> anyhow::Result<InsertResult> {
+    async fn insert_delayed(&self, msg: Message) -> anyhow::Result<InsertResult> {
         tracing::trace!("insert_delayed {}", msg.id());
-        match self.queue.insert(Arc::new(msg.clone())) {
+        match self.queue.lock().unwrap().insert(Arc::new(msg.clone())) {
             Ok(_) => {
                 self.delayed_gauge.inc();
                 if let Err(err) = self.did_insert_delayed(msg.clone()).await {
@@ -575,7 +565,7 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn force_into_delayed(&mut self, msg: Message) -> anyhow::Result<()> {
+    async fn force_into_delayed(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("force_into_delayed {}", msg.id());
         loop {
             match self.insert_delayed(msg.clone()).await? {
@@ -611,7 +601,7 @@ impl Queue {
         Self::save_if_needed(&msg).await
     }
 
-    async fn check_message_rate_throttle(&mut self) -> anyhow::Result<Option<ThrottleResult>> {
+    async fn check_message_rate_throttle(&self) -> anyhow::Result<Option<ThrottleResult>> {
         if let Some(throttle) = &self.queue_config.borrow().max_message_rate {
             let result = throttle
                 .throttle(format!("schedq-{}-message-rate", self.name))
@@ -623,7 +613,7 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_ready(&mut self, msg: Message) -> anyhow::Result<()> {
+    async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
         if let Some(result) = self.check_message_rate_throttle().await? {
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
@@ -671,7 +661,7 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_ready_impl(&mut self, msg: Message) -> anyhow::Result<()> {
+    async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
         let protocol = {
@@ -691,6 +681,7 @@ impl Queue {
                 // So for the moment, we're going to make a number of attempts
                 // to figure out the source.
                 let mut rr_attempts = self.rr.len();
+
                 loop {
                     rr_attempts -= 1;
 
@@ -883,9 +874,9 @@ impl Queue {
     }
 
     #[instrument(fields(self.name), skip(self, msg))]
-    pub async fn insert(&mut self, msg: Message) -> anyhow::Result<()> {
+    pub async fn insert(&self, msg: Message) -> anyhow::Result<()> {
         loop {
-            self.last_change = Instant::now();
+            *self.last_change.lock().unwrap() = Instant::now();
 
             tracing::trace!("insert msg {}", msg.id());
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
@@ -947,7 +938,6 @@ impl QueueManager {
     pub async fn insert(name: &str, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("QueueManager::insert");
         let entry = Self::resolve(name).await?;
-        let mut entry = entry.lock().await;
         entry.insert(msg).await
     }
 
@@ -955,7 +945,7 @@ impl QueueManager {
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
         let mut mgr = MANAGER.lock().await;
         match mgr.named.get(name) {
-            Some(e) => Ok((*e).clone()),
+            Some(e) => Ok(e.clone()),
             None => {
                 let entry = Queue::new(name.to_string()).await?;
                 mgr.named.insert(name.to_string(), entry.clone());
@@ -979,8 +969,8 @@ impl QueueManager {
     }
 }
 
-#[instrument(skip(queue))]
-async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
+#[instrument(skip(q))]
+async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut sleep_duration = Duration::from_secs(60);
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
@@ -994,11 +984,10 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
         };
 
         {
-            let mut q = queue.lock().await;
             tracing::debug!(
                 "maintaining queue {} which has {} entries",
                 q.name,
-                q.queue.len()
+                q.queue.lock().unwrap().len()
             );
 
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&q.name) {
@@ -1007,7 +996,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
 
             if q.activity.is_shutting_down() {
                 sleep_duration = Duration::from_secs(1);
-                for msg in q.queue.drain() {
+                for msg in q.queue.lock().unwrap().drain() {
                     Queue::save_if_needed_and_log(&msg).await;
                     drop(msg);
                 }
@@ -1036,7 +1025,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 }
             }
 
-            match q.queue.pop() {
+            match q.queue.lock().unwrap().pop() {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
                     tracing::trace!("{} msgs are now ready", messages.len());
@@ -1056,10 +1045,8 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Empty => {
                     sleep_duration = Duration::from_secs(60);
 
-                    let mut mgr = QueueManager::get().await;
-                    if q.last_change.elapsed() > Duration::from_secs(60 * 10) {
-                        mgr.named.remove(&q.name);
-                        drop(mgr);
+                    if q.last_change.lock().unwrap().elapsed() > Duration::from_secs(60 * 10) {
+                        QueueManager::get().await.named.remove(&q.name);
                         tracing::debug!("idling out queue {}", q.name);
                         // Remove any metrics that go with it, so that we don't
                         // end up using a lot of memory remembering stats from
@@ -1068,7 +1055,7 @@ async fn maintain_named_queue(queue: &QueueHandle) -> anyhow::Result<()> {
                         return Ok(());
                     }
                 }
-            }
+            };
         }
     }
 }

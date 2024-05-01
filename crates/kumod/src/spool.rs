@@ -239,8 +239,6 @@ impl SpoolManager {
                                     );
                                 }
                                 Ok(queue) => {
-                                    let mut queue = queue.lock().await;
-
                                     let queue_config = queue.get_config();
                                     let max_age = queue_config.borrow().get_max_age();
                                     let age = msg.age(now);
