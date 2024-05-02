@@ -253,16 +253,23 @@ impl ReadyQueueManager {
     }
 
     async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
+        const ONE_MINUTE: Duration = Duration::from_secs(60);
         let mut shutdown = ShutdownSubcription::get();
-        let mut interval = Duration::from_secs(60);
+        let mut interval = ONE_MINUTE;
         let mut memory = subscribe_to_memory_status_changes();
         let mut last_change = Instant::now();
+        let mut last_config_refresh = tokio::time::Instant::now();
+
+        let queue = {
+            let mgr = Self::get().await;
+            mgr.queues.get(&name).cloned().ok_or_else(|| {
+                anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
+            })?
+        };
 
         loop {
-            let mut refresh_config = false;
             tokio::select! {
-                _ = tokio::time::sleep(interval) => {
-                    refresh_config = true;
+                _ = tokio::time::sleep_until(last_config_refresh + interval) => {
                 },
                 _ = shutdown.shutting_down() => {
                     interval = Duration::from_secs(1);
@@ -272,63 +279,50 @@ impl ReadyQueueManager {
                     last_change = Instant::now();
                 },
             };
-            let mut mgr = Self::get().await;
-            let queue = { mgr.queues.get(&name).cloned() };
-            match queue {
-                None => break,
-                Some(queue) => {
-                    if refresh_config && !queue.activity.is_shutting_down() {
-                        match Self::compute_config(
-                            &queue.queue_name_for_config_change_purposes_only,
-                            &queue.queue_config,
-                            &queue.egress_source.name,
-                        )
-                        .await
+
+            if last_config_refresh.elapsed() >= ONE_MINUTE && !queue.activity.is_shutting_down() {
+                last_config_refresh = tokio::time::Instant::now();
+                match Self::compute_config(
+                    &queue.queue_name_for_config_change_purposes_only,
+                    &queue.queue_config,
+                    &queue.egress_source.name,
+                )
+                .await
+                {
+                    Ok(ReadyQueueConfig { path_config, .. }) => {
+                        // TODO: ideally we'd impl PartialEq for path_config
+                        // and its recursive types, but that is currently
+                        // non-trivial, so we do a gross debug repr comparison
+                        // to avoid inflating the generation count and falsely
+                        // waking up tasks
+                        if format!("{path_config:?}") != format!("{:?}", queue.path_config.borrow())
                         {
-                            Ok(ReadyQueueConfig { path_config, .. }) => {
-                                // TODO: ideally we'd impl PartialEq for path_config
-                                // and its recursive types, but that is currently
-                                // non-trivial, so we do a gross debug repr comparison
-                                // to avoid inflating the generation count and falsely
-                                // waking up tasks
-                                if format!("{path_config:?}")
-                                    != format!("{:?}", queue.path_config.borrow())
-                                {
-                                    let generation = queue.path_config.update(path_config);
-                                    tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
-                                    queue.notify_dispatcher.notify_waiters();
-                                }
-                            }
-                            Err(err) => {
-                                tracing::error!(
-                                    "{name}: refreshing get_egress_path_config: {err:#}"
-                                );
-                            }
+                            let generation = queue.path_config.update(path_config);
+                            tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
+                            queue.notify_dispatcher.notify_waiters();
                         }
                     }
-
-                    queue.maintain().await;
-
-                    if queue.reapable(&last_change).await {
-                        tracing::debug!("reaping site {name}");
-                        queue.reinsert_ready_queue("reap").await;
-                        mgr.queues.remove(&name);
-                        crate::metrics_helper::remove_metrics_for_service(&format!(
-                            "smtp_client:{name}"
-                        ));
-                        break;
-                    } else if get_headroom() == 0 {
-                        queue.shrink_ready_queue_due_to_low_mem().await;
-                    } else if queue.activity.is_shutting_down() {
-                        let n = queue.connections.lock().unwrap().len();
-                        tracing::debug!(
-                            "{name}: waiting for {n} connections to closed before reaping"
-                        );
+                    Err(err) => {
+                        tracing::error!("{name}: refreshing get_egress_path_config: {err:#}");
                     }
                 }
             }
+
+            queue.maintain().await;
+
+            if queue.reapable(&last_change).await {
+                tracing::debug!("reaping site {name}");
+                queue.reinsert_ready_queue("reap").await;
+                Self::get().await.queues.remove(&name);
+                crate::metrics_helper::remove_metrics_for_service(&format!("smtp_client:{name}"));
+                return Ok(());
+            } else if get_headroom() == 0 {
+                queue.shrink_ready_queue_due_to_low_mem().await;
+            } else if queue.activity.is_shutting_down() {
+                let n = queue.connections.lock().unwrap().len();
+                tracing::debug!("{name}: waiting for {n} connections to closed before reaping");
+            }
         }
-        Ok(())
     }
 }
 
