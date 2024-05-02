@@ -219,24 +219,26 @@ impl ReadyQueueManager {
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
-            let notify = Arc::new(Notify::new());
+            let notify_maintainer = Arc::new(Notify::new());
             READYQ_RUNTIME
                 .spawn_non_blocking(format!("maintain {name}"), {
                     let name = name.clone();
-                    let notify = notify.clone();
-                    move || Ok(async move { Self::maintainer_task(name, notify).await })
+                    let notify_maintainer = notify_maintainer.clone();
+                    move || Ok(async move { Self::maintainer_task(name, notify_maintainer).await })
                 })
                 .expect("failed to spawn maintainer");
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
             let ready = Arc::new(StdMutex::new(VecDeque::new()));
+            let notify_dispatcher = Arc::new(Notify::new());
             Arc::new(ReadyQueue {
                 name: name.clone(),
                 queue_name_for_config_change_purposes_only: queue_name.to_string(),
                 ready,
                 mx,
-                notify,
+                notify_dispatcher,
+                notify_maintainer,
                 connections: StdMutex::new(vec![]),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
@@ -250,28 +252,11 @@ impl ReadyQueueManager {
         Ok(handle.clone())
     }
 
-    async fn maintainer_task(name: String, notify: Arc<Notify>) -> anyhow::Result<()> {
+    async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
         let mut interval = Duration::from_secs(60);
         let mut memory = subscribe_to_memory_status_changes();
         let mut last_change = Instant::now();
-
-        // Trigger an initial maintainer run; this case is hit when
-        // traffic is low and we get eg: just a single message
-        // enqueued. In that case we don't notice the wakup on
-        // `notify` in a timely manner and we'll sit waiting
-        // for a subsequent message.
-        // We'll do this a couple of times at startup before
-        // falling into the main loop below
-        for _ in 0..4 {
-            {
-                let mgr = Self::get().await;
-                if let Some(queue) = mgr.queues.get(&name).cloned() {
-                    queue.maintain().await;
-                }
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
 
         loop {
             let mut refresh_config = false;
@@ -283,7 +268,7 @@ impl ReadyQueueManager {
                     interval = Duration::from_secs(1);
                 },
                 _ = memory.changed() => {},
-                _ = notify.notified() => {
+                _ = notify_maintainer.notified() => {
                     last_change = Instant::now();
                 },
             };
@@ -311,7 +296,7 @@ impl ReadyQueueManager {
                                 {
                                     let generation = queue.path_config.update(path_config);
                                     tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
-                                    queue.notify.notify_waiters();
+                                    queue.notify_dispatcher.notify_waiters();
                                 }
                             }
                             Err(err) => {
@@ -354,7 +339,8 @@ pub struct ReadyQueue {
     queue_name_for_config_change_purposes_only: String,
     ready: Arc<StdMutex<VecDeque<Message>>>,
     mx: Option<Arc<MailExchanger>>,
-    notify: Arc<Notify>,
+    notify_maintainer: Arc<Notify>,
+    notify_dispatcher: Arc<Notify>,
     connections: StdMutex<Vec<JoinHandle<()>>>,
     metrics: DeliveryMetrics,
     activity: Activity,
@@ -383,7 +369,8 @@ impl ReadyQueue {
             ready.push_back(msg);
         }
         self.metrics.ready_count.inc();
-        self.notify.notify_waiters();
+        self.notify_maintainer.notify_one();
+        self.notify_dispatcher.notify_waiters();
 
         Ok(())
     }
@@ -539,7 +526,7 @@ impl ReadyQueue {
                         self.queue_name_for_config_change_purposes_only.clone();
                     let mx = self.mx.clone();
                     let ready = Arc::clone(&self.ready);
-                    let notify = self.notify.clone();
+                    let notify_dispatcher = self.notify_dispatcher.clone();
                     let path_config = self.path_config.clone();
                     let queue_config = self.queue_config.clone();
                     let metrics = self.metrics.clone();
@@ -557,7 +544,7 @@ impl ReadyQueue {
                                     queue_name_for_config_change_purposes_only,
                                     mx,
                                     ready,
-                                    notify,
+                                    notify_dispatcher,
                                     queue_config,
                                     path_config,
                                     metrics,
@@ -625,7 +612,7 @@ pub struct Dispatcher {
     /// via msg.get_queue_name() instead of using this stashed value.
     pub queue_name_for_config_change_purposes_only: String,
     pub ready: Arc<StdMutex<VecDeque<Message>>>,
-    pub notify: Arc<Notify>,
+    pub notify_dispatcher: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
     pub mx: Option<Arc<MailExchanger>>,
     pub metrics: DeliveryMetrics,
@@ -661,13 +648,13 @@ impl Drop for Dispatcher {
 }
 
 impl Dispatcher {
-    #[instrument(skip(ready, metrics, notify))]
+    #[instrument(skip(ready, metrics, notify_dispatcher))]
     async fn run(
         name: &str,
         queue_name_for_config_change_purposes_only: String,
         mx: Option<Arc<MailExchanger>>,
         ready: Arc<StdMutex<VecDeque<Message>>>,
-        notify: Arc<Notify>,
+        notify_dispatcher: Arc<Notify>,
         queue_config: ConfigHandle<QueueConfig>,
         path_config: ConfigHandle<EgressPathConfig>,
         metrics: DeliveryMetrics,
@@ -688,7 +675,7 @@ impl Dispatcher {
             name: name.to_string(),
             queue_name_for_config_change_purposes_only,
             ready,
-            notify,
+            notify_dispatcher,
             mx,
             msg: None,
             path_config,
@@ -1193,7 +1180,7 @@ impl Dispatcher {
                     };
 
                     if let Some(q) = ready_queue {
-                        q.notify.notify_waiters();
+                        q.notify_maintainer.notify_waiters();
                     }
                 });
 
@@ -1249,7 +1236,7 @@ impl Dispatcher {
         while Instant::now() < idle_deadline {
             tokio::select! {
                 _ = tokio::time::sleep(idle_deadline - Instant::now()) => {},
-                _ = self.notify.notified() => {}
+                _ = self.notify_dispatcher.notified() => {}
                 _ = self.shutting_down.shutting_down() => {
                     return Ok(false);
                 }
