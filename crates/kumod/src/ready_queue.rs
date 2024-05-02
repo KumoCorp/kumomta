@@ -238,7 +238,6 @@ impl ReadyQueueManager {
                 mx,
                 notify,
                 connections: StdMutex::new(vec![]),
-                last_change: StdMutex::new(Instant::now()),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
                 egress_source,
@@ -255,6 +254,7 @@ impl ReadyQueueManager {
         let mut shutdown = ShutdownSubcription::get();
         let mut interval = Duration::from_secs(60);
         let mut memory = subscribe_to_memory_status_changes();
+        let mut last_change = Instant::now();
 
         // Trigger an initial maintainer run; this case is hit when
         // traffic is low and we get eg: just a single message
@@ -283,7 +283,9 @@ impl ReadyQueueManager {
                     interval = Duration::from_secs(1);
                 },
                 _ = memory.changed() => {},
-                _ = notify.notified() => {},
+                _ = notify.notified() => {
+                    last_change = Instant::now();
+                },
             };
             let mut mgr = Self::get().await;
             let queue = { mgr.queues.get(&name).cloned() };
@@ -322,7 +324,7 @@ impl ReadyQueueManager {
 
                     queue.maintain().await;
 
-                    if queue.reapable().await {
+                    if queue.reapable(&last_change).await {
                         tracing::debug!("reaping site {name}");
                         queue.reinsert_ready_queue("reap").await;
                         mgr.queues.remove(&name);
@@ -354,7 +356,6 @@ pub struct ReadyQueue {
     mx: Option<Arc<MailExchanger>>,
     notify: Arc<Notify>,
     connections: StdMutex<Vec<JoinHandle<()>>>,
-    last_change: StdMutex<Instant>,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
@@ -382,8 +383,6 @@ impl ReadyQueue {
             ready.push_back(msg);
         }
         self.metrics.ready_count.inc();
-
-        *self.last_change.lock().unwrap() = Instant::now();
         self.notify.notify_waiters();
 
         Ok(())
@@ -592,11 +591,11 @@ impl ReadyQueue {
         }
     }
 
-    async fn reapable(&self) -> bool {
+    async fn reapable(&self, last_change: &Instant) -> bool {
         let ideal = self.ideal_connection_count();
         ideal == 0
             && self.connections.lock().unwrap().is_empty()
-            && (self.last_change.lock().unwrap().elapsed() > Duration::from_secs(10 * 60))
+            && (last_change.elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down()
             && self.ready_count() == 0
     }
