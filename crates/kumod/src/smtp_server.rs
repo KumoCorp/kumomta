@@ -7,7 +7,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
-use config::{any_err, load_config, serialize_options, CallbackSignature, LuaConfig};
+use config::{any_err, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
@@ -354,7 +354,6 @@ pub struct SmtpServer {
     socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
-    config: LuaConfig,
     peer_address: SocketAddr,
     my_address: SocketAddr,
     tls_active: bool,
@@ -402,7 +401,6 @@ impl SmtpServer {
         T: AsyncReadAndWrite + Debug + Send + 'static,
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
-        let config = load_config().await?;
 
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
@@ -416,7 +414,6 @@ impl SmtpServer {
             socket: Some(socket),
             state: None,
             said_hello: None,
-            config,
             peer_address,
             my_address,
             tls_active: false,
@@ -481,12 +478,13 @@ impl SmtpServer {
             return Ok(opt_dom);
         }
 
+        let mut config = load_config().await?;
+
         let sig =
             CallbackSignature::<(String, String, ConnectionMetaData), Option<EsmtpDomain>>::new(
                 "get_listener_domain",
             );
-        let value: anyhow::Result<Option<EsmtpDomain>> = self
-            .config
+        let value: anyhow::Result<Option<EsmtpDomain>> = config
             .async_call_callback_non_default_opt(
                 &sig,
                 (key.domain.clone(), key.listener.clone(), self.meta.clone()),
@@ -853,8 +851,9 @@ impl SmtpServer {
         args: A,
     ) -> anyhow::Result<Result<R, RejectError>> {
         let name = name.into();
+        let mut config = load_config().await?;
         let sig = CallbackSignature::<A, R>::new(name.clone());
-        match self.config.async_call_callback(&sig, args).await {
+        match config.async_call_callback(&sig, args).await {
             Ok(r) => {
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
@@ -911,7 +910,7 @@ impl SmtpServer {
             return Ok(());
         }
 
-        if !SpoolManager::get().await.spool_started() {
+        if !SpoolManager::get().spool_started() {
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.
             self.write_response(
@@ -1456,6 +1455,8 @@ impl SmtpServer {
         // get to work on logging and injecting into the queues
 
         let mut messages = vec![];
+        let mut was_arf_or_oob = false;
+
         for message in accepted_messages {
             if self.params.trace_headers.supplemental_header {
                 let mut object = json!({
@@ -1511,6 +1512,13 @@ impl SmtpServer {
                     message.save().await?;
                 }
             }
+
+            if relay_disposition.log_arf && matches!(message.parse_rfc5965(), Ok(Some(_))) {
+                was_arf_or_oob = true;
+            } else if relay_disposition.log_oob && matches!(message.parse_rfc3464(), Ok(Some(_))) {
+                was_arf_or_oob = true;
+            }
+
             log_disposition(LogDisposition {
                 kind: RecordType::Reception,
                 msg: message.clone(),
@@ -1539,14 +1547,20 @@ impl SmtpServer {
             }
         }
 
-        if !messages.is_empty() {
-            for (queue_name, msg) in messages {
-                QueueManager::insert(&queue_name, msg).await?;
-            }
+        let relayed_any = !messages.is_empty();
+
+        for (queue_name, msg) in messages {
+            QueueManager::insert(&queue_name, msg).await?;
         }
 
-        let ids = ids.join(" ");
-        self.write_response(250, format!("OK ids={ids}")).await?;
+        if !relayed_any && !was_arf_or_oob {
+            self.write_response(550, "5.7.1 relaying not permitted")
+                .await?;
+        } else {
+            let ids = ids.join(" ");
+            self.write_response(250, format!("OK ids={ids}")).await?;
+        }
+
         Ok(())
     }
 }

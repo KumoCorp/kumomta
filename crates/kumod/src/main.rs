@@ -169,7 +169,6 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
             .context("call init callback")?;
 
         crate::spool::SpoolManager::get()
-            .await
             .start_spool()
             .await
             .context("start_spool")?;

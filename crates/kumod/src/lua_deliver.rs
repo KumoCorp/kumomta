@@ -6,7 +6,7 @@ use crate::spool::SpoolManager;
 use async_trait::async_trait;
 use config::{CallbackSignature, LuaConfig};
 use kumo_log_types::{RecordType, ResolvedAddress};
-use kumo_server_runtime::{spawn, spawn_local};
+use kumo_server_runtime::spawn_local;
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::{RegistryKey, Value};
@@ -171,9 +171,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 tls_info: None,
                             })
                             .await;
-                            spawn("remove from spool", async move {
-                                SpoolManager::remove_from_spool(*msg.id()).await
-                            })?;
+                            SpoolManager::remove_from_spool(*msg.id()).await?;
                         }
                     }
                 } else {
@@ -205,9 +203,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                         tls_info: None,
                     })
                     .await;
-                    spawn("remove from spool", async move {
-                        SpoolManager::remove_from_spool(*msg.id()).await
-                    })?;
+                    SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
                 dispatcher.metrics.inc_delivered();
             }

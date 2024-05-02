@@ -602,6 +602,8 @@ impl<'a> ProxyProto<'a> {
                             auth_response_status == [0],
                             "SOCKS5 username/password was incorrect"
                         );
+
+                        tracing::debug!("SOCKS5 authentication succeeded!");
                     }
                     _ => {
                         anyhow::bail!("incompatible SOCKS5 authentication {method:?}");
@@ -611,6 +613,7 @@ impl<'a> ProxyProto<'a> {
                 let (source_host, source_port) = socket_ip_to_host(source);
                 let (dest_host, dest_port) = socket_addr_to_host(destination);
 
+                tracing::debug!("SOCKS5: requesting Bind of {source_host:?}:{source_port}");
                 socksv5::v5::write_request(
                     &mut stream,
                     SocksV5Command::Bind,
@@ -621,10 +624,13 @@ impl<'a> ProxyProto<'a> {
 
                 let bind_status = socksv5::v5::read_request_status(&mut stream).await?;
                 match bind_status.status {
-                    SocksV5RequestStatus::Success => {}
+                    SocksV5RequestStatus::Success => {
+                        tracing::debug!("SOCKS5: bind response: {bind_status:?}");
+                    }
                     _ => anyhow::bail!("failed to bind {source:?} via {self:?}: {bind_status:?}"),
                 }
 
+                tracing::debug!("SOCKS5: requesting connect to {dest_host:?}:{dest_port}");
                 socksv5::v5::write_request(
                     &mut stream,
                     SocksV5Command::Connect,
@@ -636,7 +642,9 @@ impl<'a> ProxyProto<'a> {
                 let connect_status = socksv5::v5::read_request_status(&mut stream).await?;
 
                 match connect_status.status {
-                    SocksV5RequestStatus::Success => {},
+                    SocksV5RequestStatus::Success => {
+                        tracing::debug!("SOCKS5: connected with status {connect_status:?}");
+                    },
                     _ => anyhow::bail!("failed to connect {source:?} -> {destination} via {self:?}: {connect_status:?}"),
                 }
 

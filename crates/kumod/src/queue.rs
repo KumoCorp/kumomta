@@ -441,9 +441,21 @@ impl Queue {
         Ok(handle)
     }
 
+    fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
+        self.queue.lock().unwrap().insert(Arc::new(msg))
+    }
+
+    fn drain_timeq(&self) -> Vec<Arc<Message>> {
+        self.queue.lock().unwrap().drain()
+    }
+
+    fn pop_timeq(&self) -> PopResult<Message> {
+        self.queue.lock().unwrap().pop()
+    }
+
     #[instrument(skip(self))]
     pub async fn bounce_all(&self, bounce: &AdminBounceEntry) {
-        let msgs = self.queue.lock().unwrap().drain();
+        let msgs = self.drain_timeq();
         let count = msgs.len();
         self.delayed_gauge.sub(count as i64);
         if count > 0 {
@@ -560,7 +572,7 @@ impl Queue {
                     Ok(InsertResult::Ready(msg))
                 } else {
                     tracing::trace!("insert_delayed, locking timeq {}", msg.id());
-                    match self.queue.lock().unwrap().insert(Arc::new(msg.clone())) {
+                    match self.timeq_insert(msg.clone()) {
                         Ok(_) => {
                             self.delayed_gauge.inc();
                             if let Err(err) = self.did_insert_delayed(msg.clone()).await {
@@ -976,7 +988,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
             if q.activity.is_shutting_down() {
                 sleep_duration = Duration::from_secs(1);
-                for msg in q.queue.lock().unwrap().drain() {
+                for msg in q.drain_timeq() {
                     Queue::save_if_needed_and_log(&msg).await;
                     drop(msg);
                 }
@@ -1005,7 +1017,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 }
             }
 
-            match q.queue.lock().unwrap().pop() {
+            match q.pop_timeq() {
                 PopResult::Items(messages) => {
                     q.delayed_gauge.sub(messages.len() as i64);
                     tracing::trace!("{} msgs are now ready", messages.len());

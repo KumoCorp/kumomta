@@ -49,7 +49,7 @@ impl Runtime {
                     let local_set = LocalSet::new();
 
                     local_set.block_on(&runtime, async move {
-                        tracing::trace!("localset-{n} started up!");
+                        tracing::trace!("{name_prefix}-{n} started up!");
                         while let Ok(cmd) = rx.recv().await {
                             match cmd {
                                 Command::Run(func) => (func)(),

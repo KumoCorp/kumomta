@@ -4,13 +4,20 @@ local kumo = require 'kumo'
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
+local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
 
+  local relay_hosts = { '0.0.0.0/0' }
+  local RELAY_HOSTS = os.getenv 'KUMOD_RELAY_HOSTS'
+  if RELAY_HOSTS then
+    relay_hosts = kumo.json_parse(RELAY_HOSTS)
+  end
+
   kumo.start_esmtp_listener {
     listen = '127.0.0.1:0',
-    relay_hosts = { '0.0.0.0/0' },
+    relay_hosts = relay_hosts,
   }
 
   kumo.start_http_listener {
@@ -79,6 +86,14 @@ if WEBHOOK_PORT then
 end
 
 kumo.on('get_listener_domain', function(domain, listener, conn_meta)
+  if LISTENER_MAP then
+    local map = kumo.json_parse(LISTENER_MAP)
+    local params = map[domain]
+    if params then
+      return kumo.make_listener_domain(params)
+    end
+  end
+
   return kumo.make_listener_domain {
     relay_to = true,
     log_oob = true,

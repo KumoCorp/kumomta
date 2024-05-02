@@ -9,7 +9,7 @@ use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
-use kumo_server_runtime::{spawn, spawn_local};
+use kumo_server_runtime::spawn_local;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
@@ -568,9 +568,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             tls_info: self.tls_info.as_ref(),
                         })
                         .await;
-                        spawn("remove from spool", async move {
-                            SpoolManager::remove_from_spool(*msg.id()).await
-                        })?;
+                        SpoolManager::remove_from_spool(*msg.id()).await?;
                     }
                     dispatcher.metrics.inc_delivered();
                 } else {
@@ -594,9 +592,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             tls_info: self.tls_info.as_ref(),
                         })
                         .await;
-                        spawn("remove from spool", async move {
-                            SpoolManager::remove_from_spool(*msg.id()).await
-                        })?;
+                        SpoolManager::remove_from_spool(*msg.id()).await?;
                     }
                 }
             }
@@ -706,9 +702,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         tls_info: self.tls_info.as_ref(),
                     })
                     .await;
-                    spawn("remove from spool", async move {
-                        SpoolManager::remove_from_spool(*msg.id()).await
-                    })?;
+                    SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
                 dispatcher.metrics.inc_delivered();
             }
