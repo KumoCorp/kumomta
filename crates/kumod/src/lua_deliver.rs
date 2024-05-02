@@ -6,7 +6,7 @@ use crate::spool::SpoolManager;
 use async_trait::async_trait;
 use config::{CallbackSignature, LuaConfig};
 use kumo_log_types::{RecordType, ResolvedAddress};
-use kumo_server_runtime::{rt_spawn, spawn};
+use kumo_server_runtime::{spawn, spawn_local};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::{RegistryKey, Value};
@@ -145,10 +145,10 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 tls_info: None,
                             })
                             .await;
-                            rt_spawn("requeue message".to_string(), move || {
-                                Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
-                            })
-                            .await?;
+                            spawn_local(
+                                "requeue message".to_string(),
+                                Dispatcher::requeue_message(msg, true, None),
+                            )?;
                         }
                         dispatcher.metrics.inc_transfail();
                     } else {

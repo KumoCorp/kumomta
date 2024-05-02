@@ -9,7 +9,7 @@ use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::ShutdownSubcription;
-use kumo_server_runtime::{rt_spawn, spawn};
+use kumo_server_runtime::{spawn, spawn_local};
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
@@ -546,10 +546,10 @@ impl QueueDispatcher for SmtpDispatcher {
                             tls_info: self.tls_info.as_ref(),
                         })
                         .await;
-                        rt_spawn("requeue message".to_string(), move || {
-                            Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
-                        })
-                        .await?;
+                        spawn_local(
+                            "requeue message".to_string(),
+                            Dispatcher::requeue_message(msg, true, None),
+                        )?;
                     }
                     dispatcher.metrics.inc_transfail();
                 } else if response.code >= 200 && response.code < 300 {
@@ -631,10 +631,10 @@ impl QueueDispatcher for SmtpDispatcher {
                         tls_info: self.tls_info.as_ref(),
                     })
                     .await;
-                    rt_spawn("requeue message".to_string(), move || {
-                        Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
-                    })
-                    .await?;
+                    spawn_local(
+                        "requeue message".to_string(),
+                        Dispatcher::requeue_message(msg, true, None),
+                    )?;
                 }
                 dispatcher.metrics.inc_transfail();
                 // Move on to the next host
@@ -672,10 +672,10 @@ impl QueueDispatcher for SmtpDispatcher {
                         tls_info: self.tls_info.as_ref(),
                     })
                     .await;
-                    rt_spawn("requeue message".to_string(), move || {
-                        Ok(async move { Dispatcher::requeue_message(msg, true, None).await })
-                    })
-                    .await?;
+                    spawn_local(
+                        "requeue message".to_string(),
+                        Dispatcher::requeue_message(msg, true, None),
+                    )?;
                 }
                 dispatcher.metrics.inc_transfail();
                 // Move on to the next host

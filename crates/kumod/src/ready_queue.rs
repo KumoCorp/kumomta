@@ -15,7 +15,7 @@ use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
-use kumo_server_runtime::{rt_spawn, rt_spawn_non_blocking, spawn};
+use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -33,6 +33,7 @@ lazy_static::lazy_static! {
     static ref MANAGER: Mutex<ReadyQueueManager> = Mutex::new(ReadyQueueManager::new());
     pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
+    pub static ref READYQ_RUNTIME: Runtime = Runtime::new("readyq").unwrap();
 }
 
 pub struct ReadyQueueName {
@@ -201,12 +202,13 @@ impl ReadyQueueManager {
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
             let notify = Arc::new(Notify::new());
-            rt_spawn_non_blocking(format!("maintain {name}"), {
-                let name = name.clone();
-                let notify = notify.clone();
-                move || Ok(async move { Self::maintainer_task(name, notify).await })
-            })
-            .expect("failed to spawn maintainer");
+            READYQ_RUNTIME
+                .spawn_non_blocking(format!("maintain {name}"), {
+                    let name = name.clone();
+                    let notify = notify.clone();
+                    move || Ok(async move { Self::maintainer_task(name, notify).await })
+                })
+                .expect("failed to spawn maintainer");
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
@@ -433,21 +435,22 @@ impl ReadyQueue {
         let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
         if !msgs.is_empty() {
             let activity = self.activity.clone();
-            rt_spawn(
-                format!("reinserting {} due to {reason}", self.name),
-                move || {
-                    Ok(async move {
-                        for msg in msgs {
-                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
-                                tracing::error!("error reinserting message: {err:#}");
+            READYQ_RUNTIME
+                .spawn(
+                    format!("reinserting {} due to {reason}", self.name),
+                    move || {
+                        Ok(async move {
+                            for msg in msgs {
+                                if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                                    tracing::error!("error reinserting message: {err:#}");
+                                }
                             }
-                        }
-                        drop(activity);
-                    })
-                },
-            )
-            .await
-            .expect("failed to spawn reinsertion");
+                            drop(activity);
+                        })
+                    },
+                )
+                .await
+                .expect("failed to spawn reinsertion");
         }
     }
 
@@ -529,32 +532,33 @@ impl ReadyQueue {
                         self.consecutive_connection_failures.clone();
 
                     tracing::trace!("spawning client for {name}");
-                    if let Ok(handle) = rt_spawn(format!("smtp client {name}"), move || {
-                        Ok(async move {
-                            if let Err(err) = Dispatcher::run(
-                                &name,
-                                queue_name_for_config_change_purposes_only,
-                                mx,
-                                ready,
-                                notify,
-                                queue_config,
-                                path_config,
-                                metrics,
-                                consecutive_connection_failures.clone(),
-                                egress_source,
-                                egress_pool,
-                                lease,
-                            )
-                            .await
-                            {
-                                tracing::debug!(
-                                    "Error in Dispatcher::run for {name}: {err:#} \
+                    if let Ok(handle) = READYQ_RUNTIME
+                        .spawn(format!("smtp client {name}"), move || {
+                            Ok(async move {
+                                if let Err(err) = Dispatcher::run(
+                                    &name,
+                                    queue_name_for_config_change_purposes_only,
+                                    mx,
+                                    ready,
+                                    notify,
+                                    queue_config,
+                                    path_config,
+                                    metrics,
+                                    consecutive_connection_failures.clone(),
+                                    egress_source,
+                                    egress_pool,
+                                    lease,
+                                )
+                                .await
+                                {
+                                    tracing::debug!(
+                                        "Error in Dispatcher::run for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
-                                );
-                            }
+                                    );
+                                }
+                            })
                         })
-                    })
-                    .await
+                        .await
                     {
                         connections.push(handle);
                     }
@@ -623,16 +627,18 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
-            rt_spawn_non_blocking("Dispatcher::drop".to_string(), move || {
-                Ok(async move {
-                    if activity.is_shutting_down() {
-                        Queue::save_if_needed_and_log(&msg).await;
-                    } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
-                        tracing::error!("error requeuing message: {err:#}");
-                    }
+            READYQ_RUNTIME
+                .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
+                    Ok(async move {
+                        if activity.is_shutting_down() {
+                            Queue::save_if_needed_and_log(&msg).await;
+                        } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await
+                        {
+                            tracing::error!("error requeuing message: {err:#}");
+                        }
+                    })
                 })
-            })
-            .ok();
+                .ok();
         }
     }
 }
@@ -967,18 +973,19 @@ impl Dispatcher {
                 msgs.len()
             );
             let activity = self.activity.clone();
-            rt_spawn("reinserting".to_string(), move || {
-                Ok(async move {
-                    for msg in msgs {
-                        if let Err(err) = Self::reinsert_message(msg).await {
-                            tracing::error!("error reinserting message: {err:#}");
+            READYQ_RUNTIME
+                .spawn("reinserting".to_string(), move || {
+                    Ok(async move {
+                        for msg in msgs {
+                            if let Err(err) = Self::reinsert_message(msg).await {
+                                tracing::error!("error reinserting message: {err:#}");
+                            }
                         }
-                    }
-                    drop(activity);
+                        drop(activity);
+                    })
                 })
-            })
-            .await
-            .expect("failed to spawn reinsertion");
+                .await
+                .expect("failed to spawn reinsertion");
         }
     }
 
@@ -1000,18 +1007,19 @@ impl Dispatcher {
                 );
                 kumo_chrono_helper::MINUTE
             });
-            rt_spawn("requeue for throttle".to_string(), move || {
-                Ok(async move {
-                    for msg in msgs {
-                        if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                            tracing::error!("error requeuing message: {err:#}");
+            READYQ_RUNTIME
+                .spawn("requeue for throttle".to_string(), move || {
+                    Ok(async move {
+                        for msg in msgs {
+                            if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
+                                tracing::error!("error requeuing message: {err:#}");
+                            }
                         }
-                    }
-                    drop(activity);
+                        drop(activity);
+                    })
                 })
-            })
-            .await
-            .expect("failed to spawn requeue");
+                .await
+                .expect("failed to spawn requeue");
         }
     }
 
@@ -1035,49 +1043,50 @@ impl Dispatcher {
             } else {
                 self.metrics.inc_fail_by(msgs.len());
             }
-            rt_spawn(
-                format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),
-                move || {
-                    Ok(async move {
-                        let increment_attempts = true;
-                        for msg in msgs {
-                            log_disposition(LogDisposition {
-                                kind: if response.is_transient() {
-                                    RecordType::TransientFailure
-                                } else {
-                                    RecordType::Bounce
-                                },
-                                msg: msg.clone(),
-                                site: &name,
-                                peer_address: None,
-                                response: response.clone(),
-                                egress_pool: Some(&egress_pool),
-                                egress_source: Some(&egress_source),
-                                relay_disposition: None,
-                                delivery_protocol: None,
-                                tls_info: None,
-                            })
-                            .await;
-
-                            if response.is_transient() {
-                                if let Err(err) =
-                                    Self::requeue_message(msg, increment_attempts, None).await
-                                {
-                                    tracing::error!("error requeuing message: {err:#}");
-                                }
-                            } else if response.is_permanent() {
-                                spawn("remove msg from spool", async move {
-                                    SpoolManager::remove_from_spool(*msg.id()).await
+            READYQ_RUNTIME
+                .spawn(
+                    format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),
+                    move || {
+                        Ok(async move {
+                            let increment_attempts = true;
+                            for msg in msgs {
+                                log_disposition(LogDisposition {
+                                    kind: if response.is_transient() {
+                                        RecordType::TransientFailure
+                                    } else {
+                                        RecordType::Bounce
+                                    },
+                                    msg: msg.clone(),
+                                    site: &name,
+                                    peer_address: None,
+                                    response: response.clone(),
+                                    egress_pool: Some(&egress_pool),
+                                    egress_source: Some(&egress_source),
+                                    relay_disposition: None,
+                                    delivery_protocol: None,
+                                    tls_info: None,
                                 })
-                                .ok();
+                                .await;
+
+                                if response.is_transient() {
+                                    if let Err(err) =
+                                        Self::requeue_message(msg, increment_attempts, None).await
+                                    {
+                                        tracing::error!("error requeuing message: {err:#}");
+                                    }
+                                } else if response.is_permanent() {
+                                    spawn("remove msg from spool", async move {
+                                        SpoolManager::remove_from_spool(*msg.id()).await
+                                    })
+                                    .ok();
+                                }
                             }
-                        }
-                        drop(activity);
-                    })
-                },
-            )
-            .await
-            .expect("bulk queue spawned");
+                            drop(activity);
+                        })
+                    },
+                )
+                .await
+                .expect("bulk queue spawned");
         }
     }
 

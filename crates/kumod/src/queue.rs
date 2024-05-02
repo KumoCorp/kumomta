@@ -11,7 +11,7 @@ use chrono::Utc;
 use config::{load_config, CallbackSignature, LuaConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::{rt_spawn, rt_spawn_non_blocking, spawn, spawn_blocking};
+use kumo_server_runtime::{spawn, spawn_blocking, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
@@ -32,6 +32,7 @@ lazy_static::lazy_static! {
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
+    static ref MAINT_RUNTIME: Runtime = Runtime::new("schedqmaint").unwrap();
     pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
         (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
         QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
@@ -431,14 +432,15 @@ impl Queue {
         });
 
         let queue_clone = handle.clone();
-        rt_spawn(format!("maintain {name}"), move || {
-            Ok(async move {
-                if let Err(err) = maintain_named_queue(&queue_clone).await {
-                    tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
-                }
+        MAINT_RUNTIME
+            .spawn(format!("maintain {name}"), move || {
+                Ok(async move {
+                    if let Err(err) = maintain_named_queue(&queue_clone).await {
+                        tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
+                    }
+                })
             })
-        })
-        .await?;
+            .await?;
 
         Ok(handle)
     }
@@ -457,8 +459,9 @@ impl Queue {
             // reported numbers shown the to initial bounce request will
             // likely be lower, but it is better for the server to be
             // healthy than for that command to block and show 100% stats.
-            let result =
-                rt_spawn_non_blocking("bounce_all remove_from_spool".to_string(), move || {
+            let result = MAINT_RUNTIME.spawn_non_blocking(
+                "bounce_all remove_from_spool".to_string(),
+                move || {
                     Ok(async move {
                         for msg in msgs {
                             let msg = (*msg).clone();
@@ -467,7 +470,8 @@ impl Queue {
                             SpoolManager::remove_from_spool(id).await.ok();
                         }
                     })
-                });
+                },
+            );
             if let Err(err) = result {
                 tracing::error!("Unable to schedule spool removal for {count} messages! {err:#}");
             }
