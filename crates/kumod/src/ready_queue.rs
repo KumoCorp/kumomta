@@ -446,19 +446,22 @@ impl ReadyQueue {
         }
     }
 
-    pub async fn maintain(&self) {
-        // Prune completed connection tasks
-        self.connections
-            .lock()
-            .unwrap()
-            .retain(|handle| !handle.is_finished());
+    async fn maintain(&self) {
+        // Prune completed connection tasks and obtain the number of connections
+        let current_connection_count = {
+            let mut connections = self.connections.lock().unwrap();
+            connections.retain(|handle| !handle.is_finished());
+            connections.len()
+        };
+
+        let path_config = self.path_config.borrow();
+
         let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
-            "maintain {}: there are now {} connections, suspended(via config)={}, \
+            "maintain {}: there are now {current_connection_count} connections, suspended(via config)={}, \
              suspended(admin)={}, queue_size={}",
             self.name,
-            self.connections.lock().unwrap().len(),
-            self.path_config.borrow().suspended,
+            path_config.suspended,
             suspend.is_some(),
             self.ready_count(),
         );
@@ -491,76 +494,77 @@ impl ReadyQueue {
             return;
         }
 
-        // TODO: throttle rate at which connections are opened
         let ideal = self.ideal_connection_count();
         tracing::trace!(
-            "maintain {}: computed ideal connection count as {ideal}",
+            "maintain {}: computed ideal connection count as {ideal} \
+            vs current {current_connection_count}",
             self.name
         );
 
-        let timeouts = self.path_config.borrow().client_timeouts.clone();
-        let limit = LimitSpec {
-            limit: self.path_config.borrow().connection_limit,
-            duration: timeouts.total_message_send_duration(),
-        };
+        if current_connection_count < ideal {
+            let timeouts = path_config.client_timeouts.clone();
+            let limit = LimitSpec {
+                limit: path_config.connection_limit,
+                duration: timeouts.total_message_send_duration(),
+            };
 
-        let mut connections = self.connections.lock().unwrap();
-        for _ in connections.len()..ideal {
-            match limit.acquire_lease(&self.name).await {
-                Ok(lease) => {
-                    // Open a new connection
-                    let name = self.name.clone();
-                    let queue_name_for_config_change_purposes_only =
-                        self.queue_name_for_config_change_purposes_only.clone();
-                    let mx = self.mx.clone();
-                    let ready = Arc::clone(&self.ready);
-                    let notify_dispatcher = self.notify_dispatcher.clone();
-                    let path_config = self.path_config.clone();
-                    let queue_config = self.queue_config.clone();
-                    let metrics = self.metrics.clone();
-                    let egress_source = self.egress_source.clone();
-                    let egress_pool = self.egress_pool.clone();
-                    let consecutive_connection_failures =
-                        self.consecutive_connection_failures.clone();
+            for _ in current_connection_count..ideal {
+                match limit.acquire_lease(&self.name).await {
+                    Ok(lease) => {
+                        // Open a new connection
+                        let name = self.name.clone();
+                        let queue_name_for_config_change_purposes_only =
+                            self.queue_name_for_config_change_purposes_only.clone();
+                        let mx = self.mx.clone();
+                        let ready = Arc::clone(&self.ready);
+                        let notify_dispatcher = self.notify_dispatcher.clone();
+                        let path_config = self.path_config.clone();
+                        let queue_config = self.queue_config.clone();
+                        let metrics = self.metrics.clone();
+                        let egress_source = self.egress_source.clone();
+                        let egress_pool = self.egress_pool.clone();
+                        let consecutive_connection_failures =
+                            self.consecutive_connection_failures.clone();
 
-                    tracing::trace!("spawning client for {name}");
-                    if let Ok(handle) = READYQ_RUNTIME
-                        .spawn(format!("smtp client {name}"), move || {
-                            Ok(async move {
-                                if let Err(err) = Dispatcher::run(
-                                    &name,
-                                    queue_name_for_config_change_purposes_only,
-                                    mx,
-                                    ready,
-                                    notify_dispatcher,
-                                    queue_config,
-                                    path_config,
-                                    metrics,
-                                    consecutive_connection_failures.clone(),
-                                    egress_source,
-                                    egress_pool,
-                                    lease,
-                                )
-                                .await
-                                {
-                                    tracing::debug!(
-                                        "Error in Dispatcher::run for {name}: {err:#} \
+                        tracing::trace!("spawning client for {name}");
+                        if let Ok(handle) = READYQ_RUNTIME
+                            .spawn(format!("smtp client {name}"), move || {
+                                Ok(async move {
+                                    if let Err(err) = Dispatcher::run(
+                                        &name,
+                                        queue_name_for_config_change_purposes_only,
+                                        mx,
+                                        ready,
+                                        notify_dispatcher,
+                                        queue_config,
+                                        path_config,
+                                        metrics,
+                                        consecutive_connection_failures.clone(),
+                                        egress_source,
+                                        egress_pool,
+                                        lease,
+                                    )
+                                    .await
+                                    {
+                                        tracing::debug!(
+                                            "Error in Dispatcher::run for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
-                                    );
-                                }
+                                        );
+                                    }
+                                })
                             })
-                        })
-                        .await
-                    {
-                        connections.push(handle);
+                            .await
+                        {
+                            self.connections.lock().unwrap().push(handle);
+                        }
                     }
-                }
-                Err(err) => {
-                    tracing::debug!(
-                        "maintain {}: could not acquire connection lease: {err:#}",
-                        self.name
-                    );
-                    break;
+                    Err(err) => {
+                        tracing::debug!(
+                            "maintain {}: could not acquire connection lease: {err:#}",
+                            self.name
+                        );
+                        break;
+                    }
                 }
             }
         }
