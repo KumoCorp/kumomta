@@ -290,13 +290,7 @@ impl ReadyQueueManager {
                 .await
                 {
                     Ok(ReadyQueueConfig { path_config, .. }) => {
-                        // TODO: ideally we'd impl PartialEq for path_config
-                        // and its recursive types, but that is currently
-                        // non-trivial, so we do a gross debug repr comparison
-                        // to avoid inflating the generation count and falsely
-                        // waking up tasks
-                        if format!("{path_config:?}") != format!("{:?}", queue.path_config.borrow())
-                        {
+                        if path_config != **queue.path_config.borrow() {
                             let generation = queue.path_config.update(path_config);
                             tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
                             queue.notify_dispatcher.notify_waiters();

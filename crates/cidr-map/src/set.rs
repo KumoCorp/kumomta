@@ -3,7 +3,7 @@ pub use cidr::AnyIpCidr;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(from = "Vec<AnyIpCidr>", into = "Vec<AnyIpCidr>")]
 pub struct CidrSet(CidrMap<()>);
 

@@ -16,7 +16,7 @@ use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
 use mod_memoize::CacheValue;
 use std::net::IpAddr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CidrMap<V>
 where
     V: Clone,
@@ -26,7 +26,7 @@ where
 
 /// Nodes of a CidrMap can be either an InnerNode (with two children)
 /// or a leaf node.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Node<V>
 where
     V: Clone,
@@ -38,7 +38,7 @@ where
 }
 
 /// Leaf nodes represent prefixes part of the set
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Leaf<V>
 where
     V: Clone,
@@ -48,7 +48,7 @@ where
 }
 
 /// Inner node with two direct children.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InnerNode<V>
 where
     V: Clone,
@@ -57,7 +57,7 @@ where
     children: Box<Children<V>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Children<V>
 where
     V: Clone,
