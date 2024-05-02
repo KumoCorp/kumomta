@@ -1,6 +1,6 @@
 use crate::diagnostic_logging::set_diagnostic_log_filter;
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Json};
+use axum::extract::{DefaultBodyLimit, Json, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -9,7 +9,8 @@ use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
-use serde::Deserialize;
+use serde::{de, Deserialize, Deserializer};
+use std::fmt;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -229,9 +230,37 @@ where
     }
 }
 
-async fn report_metrics(_: TrustedIpRequired) -> Result<String, AppError> {
-    let report = prometheus::TextEncoder::new()
-        .encode_to_string(&prometheus::default_registry().gather())?;
+#[derive(Deserialize)]
+struct PrometheusMetrics {
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    prefix: Option<String>,
+}
+
+fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: fmt::Display,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
+    }
+}
+
+async fn report_metrics(
+    _: TrustedIpRequired,
+    Query(params): Query<PrometheusMetrics>,
+) -> Result<String, AppError> {
+    let mut metrics = prometheus::default_registry().gather();
+    if let Some(prefix) = params.prefix {
+        metrics.iter_mut().for_each(|metric| {
+            let name = format!("{prefix}{}", metric.get_name());
+            metric.set_name(name);
+        });
+    }
+    let report = prometheus::TextEncoder::new().encode_to_string(&metrics)?;
     Ok(report)
 }
 
