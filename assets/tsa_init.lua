@@ -6,7 +6,6 @@ kumo.on('tsa_init', function()
     listen = '0.0.0.0:8008',
     trusted_hosts = { '127.0.0.1', '::1' },
   }
-  tsa.configure_tsa_db_path '/tmp/tsa.db'
 end)
 
 local cached_load_shaping_data = kumo.memoize(kumo.shaping.load, {
@@ -17,8 +16,7 @@ local cached_load_shaping_data = kumo.memoize(kumo.shaping.load, {
 
 kumo.on('tsa_load_shaping_data', function()
   local shaping = cached_load_shaping_data {
-    '/home/wez/kumocorp/kumomta/assets/policy-extras/shaping.toml',
-    -- '/opt/kumomta/share/policy-extras/shaping.toml',
+    '/opt/kumomta/share/policy-extras/shaping.toml',
     --    '/opt/kumomta/etc/policy/shaping.toml',
   }
   return shaping
