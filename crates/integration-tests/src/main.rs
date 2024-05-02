@@ -19,6 +19,7 @@ mod test {
     use kumo_log_types::RecordType::{Bounce, Delivery, Reception, TransientFailure};
     use mailparsing::DecodedBody;
     use rfc5321::*;
+    use serde_json::json;
     use std::collections::BTreeMap;
     use std::time::Duration;
 
@@ -577,11 +578,28 @@ Some(
         Ok(())
     }
 
+    fn json_string(v: serde_json::Value) -> String {
+        serde_json::to_string(&v).unwrap()
+    }
+
     #[tokio::test]
     async fn log_oob_arf() -> anyhow::Result<()> {
-        let mut daemon = DaemonWithMaildir::start()
-            .await
-            .context("DaemonWithMaildir::start")?;
+        let mut daemon = DaemonWithMaildir::start_with_env(vec![
+            (
+                "KUMOD_LISTENER_DOMAIN_MAP",
+                &json_string(json!({
+                    "example.com": {
+                        "relay_to": false,
+                        "log_oob": true,
+                        "log_arf": true,
+                    }
+
+                })),
+            ),
+            ("KUMOD_RELAY_HOSTS", &json_string(json!([]))),
+        ])
+        .await
+        .context("DaemonWithMaildir::start")?;
 
         eprintln!("sending message");
         let mut client = daemon.smtp_client().await.context("make smtp_client")?;
@@ -600,6 +618,40 @@ Some(
             anyhow::ensure!(response.code == 250);
         }
 
+        {
+            // and verify that relaying for !report is not allowed
+            let body = generate_message_text(1024, 78);
+            let response = MailGenParams {
+                body: Some(&body),
+                ..Default::default()
+            }
+            .send(&mut client)
+            .await
+            .unwrap_err();
+            k9::snapshot!(
+                response,
+                r#"
+Rejected(
+    Response {
+        code: 550,
+        enhanced_code: Some(
+            EnhancedStatusCode {
+                class: 5,
+                subject: 7,
+                detail: 1,
+            },
+        ),
+        content: "relaying not permitted",
+        command: Some(
+            ".\r
+",
+        ),
+    },
+)
+"#
+            );
+        }
+
         daemon
             .wait_for_maildir_count(2, Duration::from_secs(10))
             .await;
@@ -613,15 +665,12 @@ Some(
             "
 DeliverySummary {
     source_counts: {
-        Reception: 1,
-        Delivery: 2,
+        Reception: 2,
         OOB: 1,
         Feedback: 1,
+        Rejection: 1,
     },
-    sink_counts: {
-        Reception: 2,
-        Delivery: 2,
-    },
+    sink_counts: {},
 }
 "
         );
@@ -629,8 +678,8 @@ DeliverySummary {
             daemon.source.accounting_stats()?,
             "
 AccountingStats {
-    received: 1,
-    delivered: 2,
+    received: 2,
+    delivered: 0,
 }
 "
         );

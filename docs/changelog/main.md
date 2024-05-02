@@ -103,3 +103,7 @@
   and sending to domain(s) with an MTA-STS policy.
 * If a TSA rule suspends a ready queue in response to a 421-before-MAIL-FROM,
   the contents of the corresponding ready queue could get stuck
+* When `log_arf` or `log_oob` are set to true with `relay_to=false`, we now return
+  a 550 error response for messages that are not ARF or OOB reports.
+  Previously, we would return a 250 response and silently drop the message in this case,
+  which gave the false impression that it was accepted for relaying.

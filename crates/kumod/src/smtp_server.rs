@@ -1456,6 +1456,8 @@ impl SmtpServer {
         // get to work on logging and injecting into the queues
 
         let mut messages = vec![];
+        let mut was_arf_or_oob = false;
+
         for message in accepted_messages {
             if self.params.trace_headers.supplemental_header {
                 let mut object = json!({
@@ -1511,6 +1513,13 @@ impl SmtpServer {
                     message.save().await?;
                 }
             }
+
+            if relay_disposition.log_arf && matches!(message.parse_rfc5965(), Ok(Some(_))) {
+                was_arf_or_oob = true;
+            } else if relay_disposition.log_oob && matches!(message.parse_rfc3464(), Ok(Some(_))) {
+                was_arf_or_oob = true;
+            }
+
             log_disposition(LogDisposition {
                 kind: RecordType::Reception,
                 msg: message.clone(),
@@ -1539,14 +1548,20 @@ impl SmtpServer {
             }
         }
 
-        if !messages.is_empty() {
-            for (queue_name, msg) in messages {
-                QueueManager::insert(&queue_name, msg).await?;
-            }
+        let relayed_any = !messages.is_empty();
+
+        for (queue_name, msg) in messages {
+            QueueManager::insert(&queue_name, msg).await?;
         }
 
-        let ids = ids.join(" ");
-        self.write_response(250, format!("OK ids={ids}")).await?;
+        if !relayed_any && !was_arf_or_oob {
+            self.write_response(550, "5.7.1 relaying not permitted")
+                .await?;
+        } else {
+            let ids = ids.join(" ");
+            self.write_response(250, format!("OK ids={ids}")).await?;
+        }
+
         Ok(())
     }
 }
