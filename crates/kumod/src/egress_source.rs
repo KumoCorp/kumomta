@@ -334,10 +334,6 @@ impl EgressPoolRoundRobin {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
     #[cfg(test)]
     fn next_ignoring_suspend(&self) -> Option<String> {
         let entries = self.entries.clone();

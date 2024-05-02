@@ -4,7 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
-use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, ReadyQueueSuspended};
+use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager};
 use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -210,11 +210,6 @@ impl ReadyQueueManager {
             mx,
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
-        if path_config.suspended {
-            // FIXME: remove this legacy config concept
-            return Err(ReadyQueueSuspended.into());
-        }
-
         let mut manager = Self::get().await;
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
@@ -382,9 +377,7 @@ impl ReadyQueue {
     pub fn ideal_connection_count(&self) -> usize {
         if self.activity.is_shutting_down() {
             0
-        } else if self.path_config.borrow().suspended
-            || AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some()
-        {
+        } else if AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some() {
             0
         } else {
             let n = ideal_connection_count(
@@ -458,10 +451,9 @@ impl ReadyQueue {
 
         let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
-            "maintain {}: there are now {current_connection_count} connections, suspended(via config)={}, \
+            "maintain {}: there are now {current_connection_count} connections, \
              suspended(admin)={}, queue_size={}",
             self.name,
-            path_config.suspended,
             suspend.is_some(),
             self.ready_count(),
         );
@@ -803,10 +795,6 @@ impl Dispatcher {
                 self.name,
                 suspend.get_duration()
             );
-            return Ok(());
-        }
-        if self.path_config.borrow().suspended {
-            tracing::trace!("{} is suspended by configuration", self.name);
             return Ok(());
         }
 
@@ -1184,15 +1172,6 @@ impl Dispatcher {
             let duration = suspend.get_duration();
             tracing::trace!(
                 "{} is suspended until {duration:?}, throttling ready queue",
-                self.name,
-            );
-            self.reinsert_ready_queue().await;
-            // Close the connection and stop trying to deliver
-            return Ok(false);
-        }
-        if self.path_config.borrow().suspended {
-            tracing::trace!(
-                "{} is suspended by configuration, throttling ready queue",
                 self.name,
             );
             self.reinsert_ready_queue().await;

@@ -96,6 +96,9 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub ehlo_domain: Option<String>,
 
+    /// Deprecated and unused. This used to facilitate suspension setting
+    /// by the TSA-daemon, but it was very awkward to implement and manage
+    /// and has been replaced by realtime suspension updates via websocket
     #[serde(default)]
     pub suspended: bool,
 
