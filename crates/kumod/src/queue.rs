@@ -555,16 +555,28 @@ impl Queue {
     #[instrument(skip(self, msg))]
     async fn insert_delayed(&self, msg: Message) -> anyhow::Result<InsertResult> {
         tracing::trace!("insert_delayed {}", msg.id());
-        match self.queue.lock().unwrap().insert(Arc::new(msg.clone())) {
-            Ok(_) => {
-                self.delayed_gauge.inc();
-                if let Err(err) = self.did_insert_delayed(msg.clone()).await {
-                    tracing::error!("while shrinking: {}: {err:#}", msg.id());
+
+        match msg.get_due() {
+            None => Ok(InsertResult::Ready(msg)),
+            Some(due) => {
+                let now = Utc::now();
+                if due <= now {
+                    Ok(InsertResult::Ready(msg))
+                } else {
+                    tracing::trace!("insert_delayed, locking timeq {}", msg.id());
+                    match self.queue.lock().unwrap().insert(Arc::new(msg.clone())) {
+                        Ok(_) => {
+                            self.delayed_gauge.inc();
+                            if let Err(err) = self.did_insert_delayed(msg.clone()).await {
+                                tracing::error!("while shrinking: {}: {err:#}", msg.id());
+                            }
+                            Ok(InsertResult::Delayed)
+                        }
+                        Err(TimerError::Expired(msg)) => Ok(InsertResult::Ready((*msg).clone())),
+                        Err(err) => anyhow::bail!("queue insert error: {err:#?}"),
+                    }
                 }
-                Ok(InsertResult::Delayed)
             }
-            Err(TimerError::Expired(msg)) => Ok(InsertResult::Ready((*msg).clone())),
-            Err(err) => anyhow::bail!("queue insert error: {err:#?}"),
         }
     }
 
@@ -668,12 +680,7 @@ impl Queue {
     async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
-        let protocol = {
-            let config = self.queue_config.borrow();
-            config.protocol.clone()
-        };
-
-        match protocol {
+        match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. } | DeliveryProto::Lua { .. } => {
                 // rr_attempts is a bit gross; ideally rr.next would know how
                 // to inspect the egress_path.suspended configuration and reflect
@@ -949,7 +956,7 @@ impl QueueManager {
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
         let mut mgr = MANAGER.lock().await;
         match mgr.named.get(name) {
-            Some(e) => Ok(e.clone()),
+            Some(e) => Ok(Arc::clone(e)),
             None => {
                 let entry = Queue::new(name.to_string()).await?;
                 mgr.named.insert(name.to_string(), entry.clone());

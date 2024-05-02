@@ -185,6 +185,23 @@ impl ReadyQueueManager {
         egress_source: &str,
         egress_pool: &str,
     ) -> anyhow::Result<ReadyQueueHandle> {
+        // Assumption: that the queue likely already exists.
+        // We do a smaller amount of work for that case, even
+        // though the creation case below may need to repeat
+        // some of it.
+        let ReadyQueueName {
+            name,
+            site_name: _,
+            mx: _,
+        } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
+
+        {
+            let manager = MANAGER.lock().await;
+            if let Some(handle) = manager.queues.get(&name) {
+                return Ok(handle.clone());
+            }
+        }
+
         let ReadyQueueConfig {
             name,
             site_name: _,
@@ -194,6 +211,7 @@ impl ReadyQueueManager {
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
         if path_config.suspended {
+            // FIXME: remove this legacy config concept
             return Err(ReadyQueueSuspended.into());
         }
 
