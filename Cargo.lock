@@ -6126,6 +6126,7 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
+ "futures-util",
  "humanize-rs",
  "humansize",
  "lipsum",

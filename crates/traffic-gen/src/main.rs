@@ -1,10 +1,13 @@
 use anyhow::Context;
 use chrono::Utc;
 use clap::Parser;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use once_cell::sync::OnceCell;
 use rfc5321::*;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -247,7 +250,7 @@ impl Opt {
                     }
                     Err(err) => {
                         self.release_one(&counter);
-                        return Err(err).context("sending mail");
+                        return Err(err).context("Error sending mail");
                     }
                 };
             }
@@ -276,7 +279,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let mut clients = vec![];
+    let mut clients = FuturesUnordered::new();
     for _ in 0..concurrency {
         let opts = opts.clone();
         let counter = Arc::clone(&counter);
@@ -288,24 +291,82 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
-    tokio::select! {
-        _ = tokio::time::sleep(duration) => {},
-        _ = futures::future::join_all(clients) => {}
-    };
+    let deadline = tokio::time::Instant::now() + duration;
+    let update_interval = Duration::from_secs(1);
+    let mut last_update_time = Instant::now();
+    let mut last_sent = 0;
+
+    #[allow(dead_code)]
+    struct Rates {
+        msgs_per_second: usize,
+        msgs_per_minute: usize,
+        msgs_per_hour: usize,
+        per_minute: String,
+        per_hour: String,
+    }
+
+    impl Rates {
+        fn new(total_sent: usize, elapsed: Duration) -> Self {
+            let msgs_per_second = (total_sent as f64 / elapsed.as_secs_f64()) as usize;
+            let msgs_per_minute = msgs_per_second * 60;
+            let msgs_per_hour = msgs_per_minute * 60;
+
+            let per_minute = msgs_per_minute.to_formatted_string(&Locale::en);
+            let per_hour = msgs_per_hour.to_formatted_string(&Locale::en);
+
+            Self {
+                msgs_per_second,
+                msgs_per_minute,
+                msgs_per_hour,
+                per_minute,
+                per_hour,
+            }
+        }
+
+        fn print(&self, prefix: &str, suffix: &str) {
+            let mut out = std::io::stdout();
+            write!(out,
+                "{prefix}{per_second} msgs/s, {per_minute} msgs/minute, {per_hour} msgs/hour{suffix}",
+                per_second = self.msgs_per_second,
+                per_minute = self.per_minute,
+                per_hour = self.per_hour
+            ).unwrap();
+            out.flush().unwrap();
+        }
+    }
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => {
+                println!("\nDeadline reached, stopping");
+                break;
+            },
+            _ = tokio::time::sleep(update_interval) => {
+                let now = Instant::now();
+                let total_sent = counter.load(Ordering::Acquire);
+                let elapsed = now - last_update_time;
+                last_update_time = now;
+
+                let rate = Rates::new(total_sent - last_sent, elapsed);
+                rate.print("\rcurrent rate: ", &format!(" (sent={total_sent})"));
+                last_sent = total_sent;
+            },
+            item = clients.next() => {
+                if item.is_none(){
+                    println!("\nAll clients finished");
+                    break;
+                }
+            }
+        };
+    }
 
     let total_sent = counter.load(Ordering::Acquire);
     let elapsed = started.elapsed();
-
-    let msgs_per_second = total_sent as f64 / elapsed.as_secs_f64();
-
-    let msgs_per_minute = msgs_per_second * 60.;
-    let msgs_per_hour = msgs_per_minute * 60.;
-
-    let msgs_per_minute = (msgs_per_minute as usize).to_formatted_string(&Locale::en);
-    let msgs_per_hour = (msgs_per_hour as usize).to_formatted_string(&Locale::en);
+    let rates = Rates::new(total_sent, elapsed);
 
     println!("did {total_sent} messages over {elapsed:?}.");
-    println!("{msgs_per_second} msgs/s, {msgs_per_minute} msgs/minute, {msgs_per_hour} msgs/hour");
+    rates.print("overall rate: ", "");
+    println!();
 
     Ok(())
 }
