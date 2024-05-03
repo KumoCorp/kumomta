@@ -122,7 +122,7 @@ impl AdminBounceEntry {
     }
 
     pub async fn list_matching_queues(&self) -> Vec<String> {
-        let mut names = QueueManager::all_queue_names().await;
+        let mut names = QueueManager::all_queue_names();
         names.retain(|queue_name| {
             let components = QueueNameComponents::parse(queue_name);
             self.matches(
@@ -217,7 +217,7 @@ pub async fn bounce_v1(
     rt_spawn_non_blocking("process_bounce_v1".to_string(), move || {
         Ok(async move {
             for name in &queue_names {
-                if let Some(q) = QueueManager::get_opt(name).await {
+                if let Some(q) = QueueManager::get_opt(name) {
                     q.bounce_all(&entry).await;
                 }
             }

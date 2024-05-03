@@ -24,11 +24,11 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
 use timeq::{PopResult, TimeQ, TimerError};
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Notify;
 use tracing::instrument;
 
 lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
+    static ref MANAGER: StdMutex<QueueManager> = StdMutex::new(QueueManager::new());
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
@@ -915,7 +915,12 @@ enum InsertResult {
 }
 
 pub struct QueueManager {
-    named: HashMap<String, QueueHandle>,
+    named: HashMap<String, QueueSlot>,
+}
+
+enum QueueSlot {
+    Handle(QueueHandle),
+    Resolving(Arc<Notify>),
 }
 
 impl QueueManager {
@@ -933,31 +938,68 @@ impl QueueManager {
         entry.insert(msg).await
     }
 
+    /// Resolve a scheduled queue name to a handle,
+    /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
-        let mut mgr = MANAGER.lock().await;
+        let mut mgr = MANAGER.lock().unwrap();
         match mgr.named.get(name) {
-            Some(e) => Ok(Arc::clone(e)),
+            Some(QueueSlot::Handle(e)) => Ok(Arc::clone(e)),
+            Some(QueueSlot::Resolving(notify)) => {
+                let notify = notify.clone();
+                drop(mgr);
+
+                notify.notified().await;
+                Self::get_opt(name)
+                    .ok_or_else(|| anyhow::anyhow!("other actor failed to resolve {name}"))
+            }
             None => {
-                let entry = Queue::new(name.to_string()).await?;
-                mgr.named.insert(name.to_string(), entry.clone());
-                Ok(entry)
+                // Insert a Resolving slot, so that other actors know to wait
+                let notify = Arc::new(Notify::new());
+                mgr.named
+                    .insert(name.to_string(), QueueSlot::Resolving(notify.clone()));
+
+                // release the lock so that we can take our time without
+                // blocking other Self::resolve calls for other names
+                drop(mgr);
+
+                let result = Queue::new(name.to_string()).await;
+                let mut mgr = MANAGER.lock().unwrap();
+                // Wake up any other waiters, regardless of the outcome
+                notify.notify_waiters();
+
+                match result {
+                    Ok(entry) => {
+                        // Success! move from Resolving -> Handle
+                        mgr.named
+                            .insert(name.to_string(), QueueSlot::Handle(entry.clone()));
+                        Ok(entry)
+                    }
+                    Err(err) => {
+                        // Failed! remove the Resolving slot
+                        mgr.named.remove(name);
+                        Err(err)
+                    }
+                }
             }
         }
     }
 
-    pub async fn get_opt(name: &str) -> Option<QueueHandle> {
-        let mgr = MANAGER.lock().await;
-        mgr.named.get(name).cloned()
+    pub fn get_opt(name: &str) -> Option<QueueHandle> {
+        let mgr = MANAGER.lock().unwrap();
+        match mgr.named.get(name)? {
+            QueueSlot::Handle(h) => Some(h.clone()),
+            QueueSlot::Resolving(_) => None,
+        }
     }
 
-    pub async fn all_queue_names() -> Vec<String> {
-        let mgr = Self::get().await;
+    pub fn all_queue_names() -> Vec<String> {
+        let mgr = MANAGER.lock().unwrap();
         mgr.named.keys().map(|s| s.to_string()).collect()
     }
 
-    async fn get() -> MutexGuard<'static, Self> {
-        MANAGER.lock().await
+    pub fn remove(name: &str) {
+        MANAGER.lock().unwrap().named.remove(name);
     }
 }
 
@@ -999,8 +1041,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                         "{}: there are no more queues and the delayed queue is empty, reaping",
                         q.name
                     );
-                    let mut mgr = QueueManager::get().await;
-                    mgr.named.remove(&q.name);
+                    QueueManager::remove(&q.name);
                     return Ok(());
                 }
                 continue;
@@ -1038,7 +1079,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     sleep_duration = Duration::from_secs(60);
 
                     if q.last_change.lock().unwrap().elapsed() > Duration::from_secs(60 * 10) {
-                        QueueManager::get().await.named.remove(&q.name);
+                        QueueManager::remove(&q.name);
                         tracing::debug!("idling out queue {}", q.name);
                         // Remove any metrics that go with it, so that we don't
                         // end up using a lot of memory remembering stats from
