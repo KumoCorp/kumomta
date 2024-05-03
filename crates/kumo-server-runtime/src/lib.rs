@@ -29,9 +29,13 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(name_prefix: &'static str) -> anyhow::Result<Self> {
-        let n_threads = match std::env::var("TOKIO_WORKER_THREADS") {
+        let env_name = format!("KUMOD_{}_THREADS", name_prefix.to_uppercase());
+        let n_threads = match std::env::var(env_name) {
             Ok(n) => n.parse()?,
-            Err(_) => std::thread::available_parallelism()?,
+            Err(_) => match std::env::var("TOKIO_WORKER_THREADS") {
+                Ok(n) => n.parse()?,
+                Err(_) => std::thread::available_parallelism()?,
+            },
         };
         let (tx, rx) = unbounded::<Command>();
 
