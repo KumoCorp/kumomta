@@ -650,6 +650,7 @@ impl Drop for Dispatcher {
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
             let name = self.name.to_string();
+            let notify_dispatcher = self.notify_dispatcher.clone();
             READYQ_RUNTIME
                 .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
                     Ok(async move {
@@ -664,6 +665,7 @@ impl Drop for Dispatcher {
                                 if let Some(q) = ready_queue {
                                     q.notify_maintainer.notify_one();
                                 }
+                                notify_dispatcher.notify_one();
                             }
                         }
                     })
