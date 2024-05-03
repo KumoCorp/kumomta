@@ -254,6 +254,8 @@ impl ReadyQueueManager {
         let mut memory = subscribe_to_memory_status_changes();
         let mut last_change = Instant::now();
         let mut last_config_refresh = tokio::time::Instant::now();
+        let mut reap_deadline = None;
+        let mut done_abort = false;
 
         let queue = {
             let mgr = Self::get().await;
@@ -268,6 +270,11 @@ impl ReadyQueueManager {
                 },
                 _ = shutdown.shutting_down() => {
                     interval = Duration::from_secs(1);
+                    if reap_deadline.is_none() {
+                        let duration = queue.path_config.borrow().client_timeouts.total_message_send_duration();
+                        reap_deadline.replace(tokio::time::Instant::now() + duration);
+                        tracing::debug!("{name}: reap deadline in {duration:?}");
+                    }
                 },
                 _ = memory.changed() => {},
                 _ = notify_maintainer.notified() => {
@@ -299,17 +306,33 @@ impl ReadyQueueManager {
 
             queue.maintain().await;
 
-            if queue.reapable(&last_change).await {
-                tracing::debug!("reaping site {name}");
-                queue.reinsert_ready_queue("reap").await;
-                Self::get().await.queues.remove(&name);
-                crate::metrics_helper::remove_metrics_for_service(&format!("smtp_client:{name}"));
-                return Ok(());
+            if queue.reapable(&last_change) {
+                let mut mgr = Self::get().await;
+                if queue.reapable(&last_change) {
+                    tracing::debug!("reaping site {name}");
+                    queue.reinsert_ready_queue("reap").await;
+                    mgr.queues.remove(&name);
+                    crate::metrics_helper::remove_metrics_for_service(&format!(
+                        "smtp_client:{name}"
+                    ));
+                    return Ok(());
+                }
+            } else if reap_deadline
+                .as_ref()
+                .map(|deadline| *deadline <= tokio::time::Instant::now())
+                .unwrap_or(false)
+                && !done_abort
+            {
+                let n = queue.abort_all_connections();
+                tracing::warn!(
+                    "{name}: {n} connections are outstanding, aborting them before reaping"
+                );
+                done_abort = true;
             } else if get_headroom() == 0 {
                 queue.shrink_ready_queue_due_to_low_mem().await;
             } else if queue.activity.is_shutting_down() {
                 let n = queue.connections.lock().unwrap().len();
-                tracing::debug!("{name}: waiting for {n} connections to closed before reaping");
+                tracing::debug!("{name}: waiting for {n} connections to close before reaping");
             }
         }
     }
@@ -344,14 +367,15 @@ impl ReadyQueue {
         if low_memory() {
             msg.shrink().ok();
         }
+        let path_config = self.path_config.borrow();
         {
             let mut ready = self.ready.lock().unwrap();
-            if ready.len() + 1 >= self.path_config.borrow().max_ready {
+            if ready.len() + 1 >= path_config.max_ready {
                 return Err(msg);
             }
             ready.push_back(msg);
+            self.metrics.ready_count.set(ready.len() as i64);
         }
-        self.metrics.ready_count.inc();
         self.notify_maintainer.notify_one();
         self.notify_dispatcher.notify_waiters();
 
@@ -366,12 +390,9 @@ impl ReadyQueue {
         ready: &Arc<StdMutex<VecDeque<Message>>>,
         metrics: &DeliveryMetrics,
     ) -> Vec<Message> {
-        let messages: Vec<Message> = {
-            let mut locked = ready.lock().unwrap();
-            locked.drain(..).collect()
-        };
-        metrics.ready_count.sub(messages.len() as i64);
-        messages
+        let mut locked = ready.lock().unwrap();
+        metrics.ready_count.set(0);
+        locked.drain(..).collect()
     }
 
     pub fn ideal_connection_count(&self) -> usize {
@@ -439,6 +460,14 @@ impl ReadyQueue {
         }
     }
 
+    fn abort_all_connections(&self) -> usize {
+        let connections = self.connections.lock().unwrap();
+        for handle in connections.iter() {
+            handle.abort();
+        }
+        connections.len()
+    }
+
     async fn maintain(&self) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
@@ -452,10 +481,11 @@ impl ReadyQueue {
         let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
             "maintain {}: there are now {current_connection_count} connections, \
-             suspended(admin)={}, queue_size={}",
+             suspended(admin)={}, queue_size={} (metrics.ready_count={})",
             self.name,
             suspend.is_some(),
             self.ready_count(),
+            self.metrics.ready_count.get(),
         );
 
         if self.activity.is_shutting_down() {
@@ -494,10 +524,9 @@ impl ReadyQueue {
         );
 
         if current_connection_count < ideal {
-            let timeouts = path_config.client_timeouts.clone();
             let limit = LimitSpec {
                 limit: path_config.connection_limit,
-                duration: timeouts.total_message_send_duration(),
+                duration: path_config.client_timeouts.total_message_send_duration(),
             };
 
             for _ in current_connection_count..ideal {
@@ -562,13 +591,22 @@ impl ReadyQueue {
         }
     }
 
-    async fn reapable(&self, last_change: &Instant) -> bool {
+    fn reapable(&self, last_change: &Instant) -> bool {
         let ideal = self.ideal_connection_count();
         ideal == 0
             && self.connections.lock().unwrap().is_empty()
-            && (last_change.elapsed() > Duration::from_secs(10 * 60))
-                | self.activity.is_shutting_down()
+            && ((last_change.elapsed() > Duration::from_secs(10 * 60))
+                | self.activity.is_shutting_down())
             && self.ready_count() == 0
+    }
+}
+
+impl Drop for ReadyQueue {
+    fn drop(&mut self) {
+        let n = self.ready_count();
+        if n > 0 {
+            tracing::error!("ReadyQueue::drop: {}: has {n} messages in queue", self.name);
+        }
     }
 }
 
@@ -1097,7 +1135,10 @@ impl Dispatcher {
     }
 
     fn pop_ready_queue(&mut self) -> Option<Message> {
-        self.ready.lock().unwrap().pop_front()
+        let mut ready = self.ready.lock().unwrap();
+        let msg = ready.pop_front()?;
+        self.metrics.ready_count.set(ready.len() as i64);
+        Some(msg)
     }
 
     #[instrument(skip(self))]
@@ -1108,8 +1149,6 @@ impl Dispatcher {
         loop {
             self.msg = self.pop_ready_queue();
             if let Some(msg) = &self.msg {
-                self.metrics.ready_count.dec();
-
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
                         let id = *msg.id();
