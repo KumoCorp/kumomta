@@ -7,7 +7,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::{AnyIpCidr, CidrSet};
-use config::{any_err, load_config, serialize_options, CallbackSignature, LuaConfig};
+use config::{any_err, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
@@ -354,7 +354,6 @@ pub struct SmtpServer {
     socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
-    config: LuaConfig,
     peer_address: SocketAddr,
     my_address: SocketAddr,
     tls_active: bool,
@@ -402,7 +401,6 @@ impl SmtpServer {
         T: AsyncReadAndWrite + Debug + Send + 'static,
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
-        let config = load_config().await?;
 
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
@@ -416,7 +414,6 @@ impl SmtpServer {
             socket: Some(socket),
             state: None,
             said_hello: None,
-            config,
             peer_address,
             my_address,
             tls_active: false,
@@ -481,12 +478,13 @@ impl SmtpServer {
             return Ok(opt_dom);
         }
 
+        let mut config = load_config().await?;
+
         let sig =
             CallbackSignature::<(String, String, ConnectionMetaData), Option<EsmtpDomain>>::new(
                 "get_listener_domain",
             );
-        let value: anyhow::Result<Option<EsmtpDomain>> = self
-            .config
+        let value: anyhow::Result<Option<EsmtpDomain>> = config
             .async_call_callback_non_default_opt(
                 &sig,
                 (key.domain.clone(), key.listener.clone(), self.meta.clone()),
@@ -853,8 +851,9 @@ impl SmtpServer {
         args: A,
     ) -> anyhow::Result<Result<R, RejectError>> {
         let name = name.into();
+        let mut config = load_config().await?;
         let sig = CallbackSignature::<A, R>::new(name.clone());
-        match self.config.async_call_callback(&sig, args).await {
+        match config.async_call_callback(&sig, args).await {
             Ok(r) => {
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
