@@ -193,7 +193,7 @@ impl QueueDispatcher for SmtpDispatcher {
 
         let mut shutdown = ShutdownSubcription::get();
 
-        let path_config = dispatcher.path_config.borrow().clone();
+        let path_config = dispatcher.path_config.borrow();
         if let Some(throttle) = path_config.max_connection_rate {
             loop {
                 let result = throttle
@@ -230,16 +230,16 @@ impl QueueDispatcher for SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let mut enable_tls = dispatcher.path_config.borrow().enable_tls;
+        let mut enable_tls = path_config.enable_tls;
         let port = dispatcher
             .egress_source
             .remote_port
-            .unwrap_or(dispatcher.path_config.borrow().smtp_port);
+            .unwrap_or(path_config.smtp_port);
         let connect_context = format!("connect to {address:?} port {port} and read initial banner");
 
         let make_connection = async {
             let address = address.clone();
-            let timeouts = dispatcher.path_config.borrow().client_timeouts.clone();
+            let timeouts = path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
             async move {
                 let (stream, source_address) = egress_source
@@ -265,11 +265,7 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         };
 
-        let connect_timeout = dispatcher
-            .path_config
-            .borrow()
-            .client_timeouts
-            .connect_timeout;
+        let connect_timeout = path_config.client_timeouts.connect_timeout;
         let mut client = tokio::select! {
             _ = tokio::time::sleep(connect_timeout) => {
                 anyhow::bail!("exceeded timeout of {connect_timeout:?}");
@@ -292,7 +288,7 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
-        if dispatcher.path_config.borrow().enable_dane {
+        if path_config.enable_dane {
             if let Some(mx) = &dispatcher.mx {
                 match dns_resolver::resolve_dane(&mx.domain_name, port).await {
                     Ok(tlsa) => {
@@ -314,7 +310,7 @@ impl QueueDispatcher for SmtpDispatcher {
         }
 
         // Figure out MTA-STS policy.
-        if mta_sts_eligible && dispatcher.path_config.borrow().enable_mta_sts {
+        if mta_sts_eligible && path_config.enable_mta_sts {
             if let Some(mx) = &dispatcher.mx {
                 if let Ok(policy) = mta_sts::get_policy_for_domain(&mx.domain_name).await {
                     match policy.mode {
@@ -413,31 +409,25 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         };
 
-        if let Some(username) = &dispatcher.path_config.borrow().smtp_auth_plain_username {
-            if !tls_enabled
-                && !dispatcher
-                    .path_config
-                    .borrow()
-                    .allow_smtp_auth_plain_without_tls
-            {
+        if let Some(username) = &path_config.smtp_auth_plain_username {
+            if !tls_enabled && !path_config.allow_smtp_auth_plain_without_tls {
                 anyhow::bail!(
                     "TLS is not enabled and AUTH PLAIN is required. Skipping ({address:?}:{port})"
                 );
             }
 
-            let password =
-                if let Some(pw) = &dispatcher.path_config.borrow().smtp_auth_plain_password {
-                    Some(
-                        String::from_utf8(
-                            pw.get()
-                                .await
-                                .context("fetching smtp_auth_plain_password")?,
-                        )
-                        .context("smtp_auth_plain_password is not UTF8")?,
+            let password = if let Some(pw) = &path_config.smtp_auth_plain_password {
+                Some(
+                    String::from_utf8(
+                        pw.get()
+                            .await
+                            .context("fetching smtp_auth_plain_password")?,
                     )
-                } else {
-                    None
-                };
+                    .context("smtp_auth_plain_password is not UTF8")?,
+                )
+            } else {
+                None
+            };
 
             client
                 .auth_plain(username, password.as_deref())
