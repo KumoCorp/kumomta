@@ -363,7 +363,7 @@ impl ReadyQueue {
         &self.name
     }
 
-    pub async fn insert(&self, msg: Message) -> Result<(), Message> {
+    pub fn insert(&self, msg: Message) -> Result<(), Message> {
         if low_memory() {
             msg.shrink().ok();
         }

@@ -760,7 +760,7 @@ impl Queue {
                 .await
                 {
                     Ok(site) => {
-                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
+                        return site.insert(msg).map_err(|_| ReadyQueueFull.into());
                     }
                     Err(err) => {
                         log_disposition(LogDisposition {
