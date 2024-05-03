@@ -285,7 +285,7 @@ async fn main() -> anyhow::Result<()> {
         let counter = Arc::clone(&counter);
         clients.push(tokio::spawn(async move {
             if let Err(err) = opts.run(counter).await {
-                eprintln!("{err:#}");
+                eprintln!("\n{err:#}");
             }
             Ok::<(), anyhow::Error>(())
         }));
@@ -348,7 +348,7 @@ async fn main() -> anyhow::Result<()> {
                 last_update_time = now;
 
                 let rate = Rates::new(total_sent - last_sent, elapsed);
-                rate.print("\rcurrent rate: ", &format!(" (sent={total_sent})"));
+                rate.print("\r\x1b[Kcurrent rate: ", &format!(" (sent={total_sent})"));
                 last_sent = total_sent;
             },
             item = clients.next() => {
