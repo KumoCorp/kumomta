@@ -377,7 +377,7 @@ impl ReadyQueue {
             self.metrics.ready_count.set(ready.len() as i64);
         }
         self.notify_maintainer.notify_one();
-        self.notify_dispatcher.notify_waiters();
+        self.notify_dispatcher.notify_one();
 
         Ok(())
     }
@@ -653,14 +653,26 @@ impl Drop for Dispatcher {
         // Ensure that we re-queue any message that we had popped
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
+            let name = self.name.to_string();
             READYQ_RUNTIME
                 .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
                     Ok(async move {
                         if activity.is_shutting_down() {
                             Queue::save_if_needed_and_log(&msg).await;
-                        } else if let Err(err) = Dispatcher::requeue_message(msg, false, None).await
-                        {
-                            tracing::error!("error requeuing message: {err:#}");
+                        } else {
+                            if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
+                                tracing::error!("error requeuing message: {err:#}");
+                            } else {
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                let ready_queue = {
+                                    let mgr = ReadyQueueManager::get().await;
+                                    mgr.queues.get(&name).cloned()
+                                };
+
+                                if let Some(q) = ready_queue {
+                                    q.notify_maintainer.notify_one();
+                                }
+                            }
                         }
                     })
                 })
@@ -1097,10 +1109,7 @@ impl Dispatcher {
                                         tracing::error!("error requeuing message: {err:#}");
                                     }
                                 } else if response.is_permanent() {
-                                    spawn("remove msg from spool", async move {
-                                        SpoolManager::remove_from_spool(*msg.id()).await
-                                    })
-                                    .ok();
+                                    SpoolManager::remove_from_spool(*msg.id()).await.ok();
                                 }
                             }
                             drop(activity);
@@ -1151,10 +1160,9 @@ impl Dispatcher {
             if let Some(msg) = &self.msg {
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
-                        let id = *msg.id();
-                        entry.log(self.msg.take().unwrap(), None).await;
-                        SpoolManager::remove_from_spool(id).await.ok();
-
+                        let msg = self.msg.take().unwrap();
+                        entry.log(msg.clone(), None).await;
+                        SpoolManager::remove_from_spool(*msg.id()).await.ok();
                         continue;
                     }
                 }
@@ -1187,22 +1195,6 @@ impl Dispatcher {
             );
             let closed = queue_dispatcher.close_connection(self).await?;
             if closed {
-                // Close out this dispatcher and arrange for the maintainer
-                // to spawn a new connection in a few moments.
-
-                let name = self.name.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    let ready_queue = {
-                        let mgr = ReadyQueueManager::get().await;
-                        mgr.queues.get(&name).cloned()
-                    };
-
-                    if let Some(q) = ready_queue {
-                        q.notify_maintainer.notify_waiters();
-                    }
-                });
-
                 return Ok(false);
             }
         }

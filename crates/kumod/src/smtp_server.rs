@@ -910,7 +910,7 @@ impl SmtpServer {
             return Ok(());
         }
 
-        if !SpoolManager::get().await.spool_started() {
+        if !SpoolManager::get().spool_started() {
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.
             self.write_response(

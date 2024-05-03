@@ -13,7 +13,7 @@ use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
 use spool::local_disk::LocalDiskSpool;
 use spool::rocks::{RocksSpool, RocksSpoolParams};
-use spool::{Spool as SpoolTrait, SpoolEntry, SpoolId};
+use spool::{get_data_spool, get_meta_spool, Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -82,7 +82,6 @@ pub struct DefineSpoolParams {
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
     crate::spool::SpoolManager::get()
-        .await
         .new_local_disk(params)
         .await
 }
@@ -120,7 +119,7 @@ impl SpoolManager {
         }
     }
 
-    pub async fn get() -> &'static Self {
+    pub fn get() -> &'static Self {
         &MANAGER
     }
 
@@ -151,7 +150,7 @@ impl SpoolManager {
 
     #[allow(unused)]
     pub async fn get_named(name: &str) -> anyhow::Result<SpoolHandle> {
-        Self::get().await.get_named_impl(name).await
+        Self::get().get_named_impl(name).await
     }
 
     pub async fn get_named_impl(&self, name: &str) -> anyhow::Result<SpoolHandle> {
@@ -163,18 +162,19 @@ impl SpoolManager {
             .ok_or_else(|| anyhow::anyhow!("no spool named '{name}' has been defined"))
     }
 
+    pub fn get_data_meta() -> (
+        &'static Arc<dyn spool::Spool + Send + Sync>,
+        &'static Arc<dyn spool::Spool + Send + Sync>,
+    ) {
+        (get_meta_spool(), get_data_spool())
+    }
+
     pub fn spool_started(&self) -> bool {
         self.spooled_in.load(Ordering::SeqCst)
     }
 
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
-        let (data_spool, meta_spool) = {
-            let mgr = Self::get().await;
-            (
-                mgr.get_named_impl("data").await?,
-                mgr.get_named_impl("meta").await?,
-            )
-        };
+        let (data_spool, meta_spool) = Self::get_data_meta();
         let res_data = data_spool.remove(id).await;
         let res_meta = meta_spool.remove(id).await;
         if let Err(err) = res_data {
@@ -189,8 +189,7 @@ impl SpoolManager {
     }
 
     pub async fn remove_from_spool_impl(&self, id: SpoolId) -> anyhow::Result<()> {
-        let data_spool = self.get_named_impl("data").await?;
-        let meta_spool = self.get_named_impl("meta").await?;
+        let (data_spool, meta_spool) = Self::get_data_meta();
         let res_data = data_spool.remove(id).await;
         let res_meta = meta_spool.remove(id).await;
         if let Err(err) = res_data {
@@ -408,7 +407,7 @@ impl SpoolManager {
             let complete_tx = complete_tx.clone();
             rt_spawn(format!("spool_in-{n}"), move || {
                 Ok(async move {
-                    let mgr = Self::get().await;
+                    let mgr = Self::get();
                     let result = mgr.spool_in_thread(rx, spooled_in).await;
                     complete_tx.send_async(result).await
                 })
