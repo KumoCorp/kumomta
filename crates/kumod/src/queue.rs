@@ -3,7 +3,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
-use crate::ready_queue::ReadyQueueManager;
+use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -374,6 +374,12 @@ struct ReadyQueueFull;
 
 type QueueHandle = Arc<Queue>;
 
+struct CachedReadyQueueName {
+    name: ReadyQueueName,
+    /// queue_config.generation()
+    generation: usize,
+}
+
 pub struct Queue {
     name: String,
     queue: StdMutex<TimeQ<Message>>,
@@ -382,6 +388,7 @@ pub struct Queue {
     delayed_gauge: IntGauge,
     activity: Activity,
     rr: EgressPoolRoundRobin,
+    ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
 }
 
 impl Queue {
@@ -425,6 +432,7 @@ impl Queue {
             delayed_gauge,
             activity,
             rr,
+            ready_queue_names: StdMutex::new(HashMap::new()),
         });
 
         let queue_clone = handle.clone();
@@ -684,6 +692,41 @@ impl Queue {
         Ok(())
     }
 
+    fn get_ready_queue_for_source(&self, source: &str) -> Option<Arc<CachedReadyQueueName>> {
+        let mut ready_queue_names = self.ready_queue_names.lock().unwrap();
+        let name = ready_queue_names.get(source)?;
+
+        if self.queue_config.generation() != name.generation || name.name.has_expired() {
+            ready_queue_names.remove(source);
+            return None;
+        }
+
+        Some(Arc::clone(name))
+    }
+
+    async fn compute_ready_queue_name(
+        &self,
+        source: &str,
+    ) -> anyhow::Result<Arc<CachedReadyQueueName>> {
+        if let Some(entry) = self.get_ready_queue_for_source(source) {
+            return Ok(entry);
+        }
+
+        let generation = self.queue_config.generation();
+
+        let name =
+            ReadyQueueManager::compute_queue_name(&self.name, &self.queue_config, source).await?;
+
+        let cached = Arc::new(CachedReadyQueueName { name, generation });
+
+        self.ready_queue_names
+            .lock()
+            .unwrap()
+            .insert(source.to_string(), cached.clone());
+
+        Ok(cached)
+    }
+
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
@@ -751,6 +794,13 @@ impl Queue {
                     }
                 };
 
+                // Hot path: use cached source -> ready queue mapping
+                let ready_name = self.compute_ready_queue_name(&egress_source).await?;
+                if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
+                    return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                }
+
+                // Miss: compute and establish a new queue
                 match ReadyQueueManager::resolve_by_queue_name(
                     &self.name,
                     &self.queue_config,
@@ -1035,8 +1085,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     drop(msg);
                 }
 
-                let queue_mgr = ReadyQueueManager::get().await;
-                if queue_mgr.number_of_queues() == 0 {
+                if ReadyQueueManager::number_of_queues() == 0 {
                     tracing::debug!(
                         "{}: there are no more queues and the delayed queue is empty, reaping",
                         q.name

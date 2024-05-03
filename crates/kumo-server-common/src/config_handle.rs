@@ -40,6 +40,10 @@ impl<T: Clone + Send> ConfigHandle<T> {
         }
     }
 
+    pub fn generation(&self) -> usize {
+        self.inner.generation.load(Ordering::SeqCst)
+    }
+
     /// Updates the upstream, shared value.
     /// Other config handles will notice the change when borrow() is subsequently called.
     pub fn update(&self, new_value: T) -> usize {

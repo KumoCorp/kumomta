@@ -49,6 +49,8 @@ pub struct MailExchanger {
     /// DNSSEC verified
     pub is_secure: bool,
     pub is_mx: bool,
+    #[serde(skip)]
+    expires: Option<Instant>,
 }
 
 pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
@@ -198,6 +200,7 @@ impl MailExchanger {
                             is_domain_literal: true,
                             is_secure: false,
                             is_mx: false,
+                            expires: None,
                         }));
                     }
                     Err(err) => {
@@ -221,6 +224,7 @@ impl MailExchanger {
                         is_domain_literal: true,
                         is_secure: false,
                         is_mx: false,
+                        expires: None,
                     }));
                 }
                 Err(err) => {
@@ -263,6 +267,7 @@ impl MailExchanger {
             is_domain_literal: false,
             is_secure,
             is_mx,
+            expires: Some(expires),
         };
 
         let mx = Arc::new(mx);
@@ -271,6 +276,13 @@ impl MailExchanger {
             .unwrap()
             .insert(name_fq, mx.clone(), expires);
         Ok(mx)
+    }
+
+    pub fn has_expired(&self) -> bool {
+        match self.expires {
+            Some(deadline) => deadline <= Instant::now(),
+            None => false,
+        }
     }
 
     pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
@@ -562,6 +574,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );
@@ -597,6 +610,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );
@@ -632,6 +646,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );

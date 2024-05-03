@@ -25,12 +25,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpec};
-use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::instrument; // TODO move to here
 
 lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<ReadyQueueManager> = Mutex::new(ReadyQueueManager::new());
+    static ref MANAGER: StdMutex<ReadyQueueManager> = StdMutex::new(ReadyQueueManager::new());
     pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
     pub static ref READYQ_RUNTIME: Runtime = Runtime::new("readyq").unwrap();
@@ -40,6 +40,15 @@ pub struct ReadyQueueName {
     pub name: String,
     pub site_name: String,
     pub mx: Option<Arc<MailExchanger>>,
+}
+
+impl ReadyQueueName {
+    pub fn has_expired(&self) -> bool {
+        match &self.mx {
+            Some(mx) => mx.has_expired(),
+            None => false,
+        }
+    }
 }
 
 pub struct ReadyQueueConfig {
@@ -60,12 +69,8 @@ impl ReadyQueueManager {
         Self::default()
     }
 
-    pub fn number_of_queues(&self) -> usize {
-        self.queues.len()
-    }
-
-    pub async fn get() -> MutexGuard<'static, Self> {
-        MANAGER.lock().await
+    pub fn number_of_queues() -> usize {
+        MANAGER.lock().unwrap().queues.len()
     }
 
     pub async fn compute_queue_name(
@@ -179,29 +184,21 @@ impl ReadyQueueManager {
         })
     }
 
+    pub fn get_by_name(name: &str) -> Option<ReadyQueueHandle> {
+        let manager = MANAGER.lock().unwrap();
+        manager.queues.get(name).cloned()
+    }
+
+    pub fn get_by_ready_queue_name(name: &ReadyQueueName) -> Option<ReadyQueueHandle> {
+        Self::get_by_name(&name.name)
+    }
+
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
         egress_pool: &str,
     ) -> anyhow::Result<ReadyQueueHandle> {
-        // Assumption: that the queue likely already exists.
-        // We do a smaller amount of work for that case, even
-        // though the creation case below may need to repeat
-        // some of it.
-        let ReadyQueueName {
-            name,
-            site_name: _,
-            mx: _,
-        } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
-
-        {
-            let manager = MANAGER.lock().await;
-            if let Some(handle) = manager.queues.get(&name) {
-                return Ok(handle.clone());
-            }
-        }
-
         let ReadyQueueConfig {
             name,
             site_name: _,
@@ -210,7 +207,7 @@ impl ReadyQueueManager {
             mx,
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
-        let mut manager = Self::get().await;
+        let mut manager = MANAGER.lock().unwrap();
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
@@ -257,12 +254,9 @@ impl ReadyQueueManager {
         let mut reap_deadline = None;
         let mut done_abort = false;
 
-        let queue = {
-            let mgr = Self::get().await;
-            mgr.queues.get(&name).cloned().ok_or_else(|| {
-                anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
-            })?
-        };
+        let queue = ReadyQueueManager::get_by_name(&name).ok_or_else(|| {
+            anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
+        })?;
 
         loop {
             tokio::select! {
@@ -307,11 +301,13 @@ impl ReadyQueueManager {
             queue.maintain().await;
 
             if queue.reapable(&last_change) {
-                let mut mgr = Self::get().await;
+                let mut mgr = MANAGER.lock().unwrap();
                 if queue.reapable(&last_change) {
                     tracing::debug!("reaping site {name}");
-                    queue.reinsert_ready_queue("reap").await;
                     mgr.queues.remove(&name);
+                    drop(mgr);
+
+                    queue.reinsert_ready_queue("reap").await;
                     crate::metrics_helper::remove_metrics_for_service(&format!(
                         "smtp_client:{name}"
                     ));
@@ -664,11 +660,7 @@ impl Drop for Dispatcher {
                                 tracing::error!("error requeuing message: {err:#}");
                             } else {
                                 tokio::time::sleep(Duration::from_secs(1)).await;
-                                let ready_queue = {
-                                    let mgr = ReadyQueueManager::get().await;
-                                    mgr.queues.get(&name).cloned()
-                                };
-
+                                let ready_queue = ReadyQueueManager::get_by_name(&name);
                                 if let Some(q) = ready_queue {
                                     q.notify_maintainer.notify_one();
                                 }
