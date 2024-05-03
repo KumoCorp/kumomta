@@ -7,9 +7,9 @@ use chrono::prelude::*;
 use core::sync::atomic::AtomicUsize;
 use kumo_server_lifecycle::ShutdownSubcription;
 use once_cell::sync::Lazy;
+use parking_lot::FairMutex as Mutex;
 use sqlite::{Connection, ConnectionThreadSafe};
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
 use tokio::task::JoinHandle;
 
 pub static ACCT: Lazy<Accounting> = Lazy::new(|| Accounting::default());
@@ -140,7 +140,7 @@ pub fn account_delivery(protocol: &str) {
 }
 
 fn open_accounting_db() -> anyhow::Result<ConnectionThreadSafe> {
-    let path = DB_PATH.lock().unwrap().clone();
+    let path = DB_PATH.lock().clone();
     tracing::trace!("using path {path:?} for accounting db");
     let db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening accounting database {path}"))?;

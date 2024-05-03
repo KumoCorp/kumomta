@@ -19,12 +19,13 @@ use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_ch
 use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
+use parking_lot::FairMutex as StdMutex;
 use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpec};
 use tokio::sync::Notify;
@@ -111,7 +112,7 @@ impl ReadyQueueManager {
     }
 
     pub fn number_of_queues() -> usize {
-        MANAGER.lock().unwrap().queues.len()
+        MANAGER.lock().queues.len()
     }
 
     pub async fn compute_queue_name(
@@ -226,7 +227,7 @@ impl ReadyQueueManager {
     }
 
     pub fn get_by_name(name: &str) -> Option<ReadyQueueHandle> {
-        let manager = MANAGER.lock().unwrap();
+        let manager = MANAGER.lock();
         manager.queues.get(name).cloned()
     }
 
@@ -248,7 +249,7 @@ impl ReadyQueueManager {
             mx,
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
-        let mut manager = MANAGER.lock().unwrap();
+        let mut manager = MANAGER.lock();
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
@@ -349,7 +350,7 @@ impl ReadyQueueManager {
             queue.maintain().await;
 
             if queue.reapable(&last_change) {
-                let mut mgr = MANAGER.lock().unwrap();
+                let mut mgr = MANAGER.lock();
                 if queue.reapable(&last_change) {
                     tracing::debug!("reaping site {name}");
                     mgr.queues.remove(&name);
@@ -375,7 +376,7 @@ impl ReadyQueueManager {
             } else if get_headroom() == 0 {
                 queue.shrink_ready_queue_due_to_low_mem().await;
             } else if queue.activity.is_shutting_down() {
-                let n = queue.connections.lock().unwrap().len();
+                let n = queue.connections.lock().len();
                 tracing::debug!("{name}: waiting for {n} connections to close before reaping");
             }
         }
@@ -444,7 +445,7 @@ impl ReadyQueue {
     async fn shrink_ready_queue_due_to_low_mem(&self) {
         return;
         /*
-        let mut ready = self.ready.lock().unwrap();
+        let mut ready = self.ready.lock();
         ready.shrink_to_fit();
         if ready.is_empty() {
             return;
@@ -491,7 +492,7 @@ impl ReadyQueue {
     }
 
     fn abort_all_connections(&self) -> usize {
-        let connections = self.connections.lock().unwrap();
+        let connections = self.connections.lock();
         for handle in connections.iter() {
             handle.abort();
         }
@@ -501,7 +502,7 @@ impl ReadyQueue {
     async fn maintain(&self) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
-            let mut connections = self.connections.lock().unwrap();
+            let mut connections = self.connections.lock();
             connections.retain(|handle| !handle.is_finished());
             connections.len()
         };
@@ -606,7 +607,7 @@ impl ReadyQueue {
                             })
                             .await
                         {
-                            self.connections.lock().unwrap().push(handle);
+                            self.connections.lock().push(handle);
                         }
                     }
                     Err(err) => {
@@ -624,7 +625,7 @@ impl ReadyQueue {
     fn reapable(&self, last_change: &Instant) -> bool {
         let ideal = self.ideal_connection_count();
         ideal == 0
-            && self.connections.lock().unwrap().is_empty()
+            && self.connections.lock().is_empty()
             && ((last_change.elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down())
             && self.ready_count() == 0

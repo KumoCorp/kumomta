@@ -47,6 +47,7 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 mta-sts = {path="../mta-sts"}
 nix = {version="0.28", features=["resource", "user"]}
 once_cell = "1.17"
+parking_lot = "0.12"
 ppp = "2.2"
 prometheus = "0.13"
 rand = "0.8"

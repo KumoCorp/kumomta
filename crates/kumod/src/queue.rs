@@ -15,11 +15,12 @@ use kumo_server_runtime::{spawn, spawn_blocking, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
+use parking_lot::FairMutex as StdMutex;
 use prometheus::{IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
@@ -450,15 +451,15 @@ impl Queue {
     }
 
     fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
-        self.queue.lock().unwrap().insert(Arc::new(msg))
+        self.queue.lock().insert(Arc::new(msg))
     }
 
     fn drain_timeq(&self) -> Vec<Arc<Message>> {
-        self.queue.lock().unwrap().drain()
+        self.queue.lock().drain()
     }
 
     fn pop_timeq(&self) -> PopResult<Message> {
-        self.queue.lock().unwrap().pop()
+        self.queue.lock().pop()
     }
 
     #[instrument(skip(self))]
@@ -693,7 +694,7 @@ impl Queue {
     }
 
     fn get_ready_queue_for_source(&self, source: &str) -> Option<Arc<CachedReadyQueueName>> {
-        let mut ready_queue_names = self.ready_queue_names.lock().unwrap();
+        let mut ready_queue_names = self.ready_queue_names.lock();
         let name = ready_queue_names.get(source)?;
 
         if self.queue_config.generation() != name.generation || name.name.has_expired() {
@@ -721,7 +722,6 @@ impl Queue {
 
         self.ready_queue_names
             .lock()
-            .unwrap()
             .insert(source.to_string(), cached.clone());
 
         Ok(cached)
@@ -918,7 +918,7 @@ impl Queue {
     #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(&self, msg: Message) -> anyhow::Result<()> {
         loop {
-            *self.last_change.lock().unwrap() = Instant::now();
+            *self.last_change.lock() = Instant::now();
 
             tracing::trace!("insert msg {}", msg.id());
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
@@ -992,7 +992,7 @@ impl QueueManager {
     /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
-        let mut mgr = MANAGER.lock().unwrap();
+        let mut mgr = MANAGER.lock();
         match mgr.named.get(name) {
             Some(QueueSlot::Handle(e)) => Ok(Arc::clone(e)),
             Some(QueueSlot::Resolving(notify)) => {
@@ -1014,7 +1014,7 @@ impl QueueManager {
                 drop(mgr);
 
                 let result = Queue::new(name.to_string()).await;
-                let mut mgr = MANAGER.lock().unwrap();
+                let mut mgr = MANAGER.lock();
                 // Wake up any other waiters, regardless of the outcome
                 notify.notify_waiters();
 
@@ -1036,7 +1036,7 @@ impl QueueManager {
     }
 
     pub fn get_opt(name: &str) -> Option<QueueHandle> {
-        let mgr = MANAGER.lock().unwrap();
+        let mgr = MANAGER.lock();
         match mgr.named.get(name)? {
             QueueSlot::Handle(h) => Some(h.clone()),
             QueueSlot::Resolving(_) => None,
@@ -1044,12 +1044,12 @@ impl QueueManager {
     }
 
     pub fn all_queue_names() -> Vec<String> {
-        let mgr = MANAGER.lock().unwrap();
+        let mgr = MANAGER.lock();
         mgr.named.keys().map(|s| s.to_string()).collect()
     }
 
     pub fn remove(name: &str) {
-        MANAGER.lock().unwrap().named.remove(name);
+        MANAGER.lock().named.remove(name);
     }
 }
 
@@ -1071,7 +1071,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             tracing::debug!(
                 "maintaining queue {} which has {} entries",
                 q.name,
-                q.queue.lock().unwrap().len()
+                q.queue.lock().len()
             );
 
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&q.name) {
@@ -1127,7 +1127,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Empty => {
                     sleep_duration = Duration::from_secs(60);
 
-                    if q.last_change.lock().unwrap().elapsed() > Duration::from_secs(60 * 10) {
+                    if q.last_change.lock().elapsed() > Duration::from_secs(60 * 10) {
                         QueueManager::remove(&q.name);
                         tracing::debug!("idling out queue {}", q.name);
                         // Remove any metrics that go with it, so that we don't

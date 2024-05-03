@@ -2790,6 +2790,7 @@ dependencies = [
  "mta-sts",
  "nix 0.28.0",
  "once_cell",
+ "parking_lot",
  "ppp",
  "prometheus",
  "rand",

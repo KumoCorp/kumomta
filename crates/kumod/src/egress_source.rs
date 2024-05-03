@@ -8,12 +8,12 @@ use gcd::Gcd;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
+use parking_lot::FairMutex as Mutex;
 use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
@@ -67,7 +67,7 @@ impl LuaUserData for EgressSource {}
 
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
-        if let Some(source) = SOURCES.lock().unwrap().get(name) {
+        if let Some(source) = SOURCES.lock().get(name) {
             return Ok(source.clone());
         }
 
@@ -93,7 +93,7 @@ impl EgressSource {
                 .with_context(|| format!("get_egress_source '{name}'"))?
         };
 
-        SOURCES.lock().unwrap().insert(
+        SOURCES.lock().insert(
             name.to_string(),
             source.clone(),
             Instant::now() + source.ttl,
@@ -248,7 +248,7 @@ impl EgressPool {
     pub async fn resolve(name: Option<&str>, config: &mut LuaConfig) -> anyhow::Result<Self> {
         let name = name.unwrap_or("unspecified");
 
-        if let Some(pool) = POOLS.lock().unwrap().get(name) {
+        if let Some(pool) = POOLS.lock().get(name) {
             return Ok(pool.clone());
         }
 
@@ -279,7 +279,6 @@ impl EgressPool {
 
         POOLS
             .lock()
-            .unwrap()
             .insert(name.to_string(), pool.clone(), Instant::now() + pool.ttl);
 
         Ok(pool)
@@ -360,7 +359,7 @@ impl EgressPoolRoundRobin {
             return None;
         }
 
-        let mut iaw = self.index_and_weight.lock().unwrap();
+        let mut iaw = self.index_and_weight.lock();
 
         loop {
             iaw.current_index = (iaw.current_index + 1) % entries.len();

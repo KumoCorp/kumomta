@@ -100,7 +100,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_accounting_db_path",
         lua.create_function(|_lua, file_name: String| {
-            *crate::accounting::DB_PATH.lock().unwrap() = file_name;
+            *crate::accounting::DB_PATH.lock() = file_name;
             Ok(())
         })?,
     )?;

@@ -20,6 +20,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, LuaSerdeExt, ToLuaMulti, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
+use parking_lot::FairMutex as Mutex;
 use prometheus::{IntCounter, IntGauge};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
@@ -29,7 +30,7 @@ use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -474,7 +475,7 @@ impl SmtpServer {
             listener: self.my_address.to_string(),
         };
 
-        if let Some(opt_dom) = DOMAINS.lock().unwrap().get(&key) {
+        if let Some(opt_dom) = DOMAINS.lock().get(&key) {
             return Ok(opt_dom);
         }
 
@@ -518,7 +519,7 @@ impl SmtpServer {
             }
         };
 
-        DOMAINS.lock().unwrap().insert(
+        DOMAINS.lock().insert(
             key,
             value.clone(),
             Instant::now() + value.as_ref().map(|v| v.ttl).unwrap_or_else(default_ttl),
@@ -1581,19 +1582,19 @@ impl ConnectionMetaData {
     }
 
     pub fn set_meta<N: Into<String>, V: Into<serde_json::Value>>(&mut self, name: N, value: V) {
-        let mut map = self.map.lock().unwrap();
+        let mut map = self.map.lock();
         let meta = map.as_object_mut().expect("map is always an object");
         meta.insert(name.into(), value.into());
     }
 
     pub fn get_meta<N: AsRef<str>>(&self, name: N) -> Option<serde_json::Value> {
-        let map = self.map.lock().unwrap();
+        let map = self.map.lock();
         let meta = map.as_object().expect("map is always an object");
         meta.get(name.as_ref()).cloned()
     }
 
     pub fn clone_inner(&self) -> serde_json::Value {
-        self.map.lock().unwrap().clone()
+        self.map.lock().clone()
     }
 }
 
