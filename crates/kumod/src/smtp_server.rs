@@ -1456,6 +1456,7 @@ impl SmtpServer {
 
         let mut messages = vec![];
         let mut was_arf_or_oob = false;
+        let mut black_holed = false;
 
         for message in accepted_messages {
             if self.params.trace_headers.supplemental_header {
@@ -1544,6 +1545,8 @@ impl SmtpServer {
                 if relay_disposition.relay {
                     messages.push((queue_name, message));
                 }
+            } else {
+                black_holed = true;
             }
         }
 
@@ -1553,7 +1556,7 @@ impl SmtpServer {
             QueueManager::insert(&queue_name, msg).await?;
         }
 
-        if !relayed_any && !was_arf_or_oob {
+        if !black_holed && !relayed_any && !was_arf_or_oob {
             self.write_response(550, "5.7.1 relaying not permitted")
                 .await?;
         } else {
