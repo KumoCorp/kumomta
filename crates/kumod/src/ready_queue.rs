@@ -845,7 +845,7 @@ impl Dispatcher {
         // Process throttling before we acquire the Activity
         // guard, so that a delay due to throttling doesn't result
         // in a delay of shutdown
-        let path_config = self.path_config.borrow().clone();
+        let path_config = self.path_config.borrow();
         if let Some(throttle) = &path_config.max_message_rate {
             loop {
                 let result = throttle
@@ -872,7 +872,7 @@ impl Dispatcher {
             }
         }
 
-        let msg = self.msg.as_ref().unwrap();
+        let msg = self.msg.as_ref().unwrap().clone();
 
         msg.load_meta_if_needed().await?;
         msg.load_data_if_needed().await?;
@@ -889,14 +889,11 @@ impl Dispatcher {
 
         self.delivered_this_connection += 1;
 
-        if let Err(err) = queue_dispatcher
-            .deliver_message(self.msg.as_ref().unwrap().clone(), self)
-            .await
-        {
+        if let Err(err) = queue_dispatcher.deliver_message(msg.clone(), self).await {
             // Transient failure; continue with another host
             tracing::debug!(
                 "failed to send message id {:?} to {}: {err:#}",
-                self.msg.as_ref().map(|msg| format!("{}", msg.id())),
+                msg.id(),
                 self.name,
             );
             return Err(err.into());
