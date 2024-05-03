@@ -10,6 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
+use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::config_handle::ConfigHandle;
@@ -18,8 +19,9 @@ use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_ch
 use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
+use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -34,6 +36,45 @@ lazy_static::lazy_static! {
     pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
     pub static ref READYQ_RUNTIME: Runtime = Runtime::new("readyq").unwrap();
+}
+
+pub struct Fifo {
+    queue: ArrayQueue<Message>,
+    count: IntGauge,
+}
+
+impl Fifo {
+    pub fn new(capacity: usize, count: IntGauge) -> Self {
+        Self {
+            queue: ArrayQueue::new(capacity),
+            count,
+        }
+    }
+
+    pub fn push(&self, msg: Message) -> Result<(), Message> {
+        self.queue.push(msg)?;
+        self.count.inc();
+        Ok(())
+    }
+
+    pub fn pop(&self) -> Option<Message> {
+        let msg = self.queue.pop()?;
+        self.count.dec();
+        Some(msg)
+    }
+
+    pub fn drain(&self) -> Vec<Message> {
+        let mut messages = Vec::with_capacity(self.queue.len());
+        while let Some(msg) = self.queue.pop() {
+            messages.push(msg);
+        }
+        self.count.sub(messages.len() as i64);
+        messages
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 pub struct ReadyQueueName {
@@ -222,7 +263,10 @@ impl ReadyQueueManager {
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
-            let ready = Arc::new(StdMutex::new(VecDeque::new()));
+            let ready = Arc::new(Fifo::new(
+                path_config.max_ready,
+                metrics.ready_count.clone(),
+            ));
             let notify_dispatcher = Arc::new(Notify::new());
             Arc::new(ReadyQueue {
                 name: name.clone(),
@@ -288,6 +332,10 @@ impl ReadyQueueManager {
                     Ok(ReadyQueueConfig { path_config, .. }) => {
                         if path_config != **queue.path_config.borrow() {
                             let generation = queue.path_config.update(path_config);
+                            // Note that the Fifo type doesn't allow for dynamically
+                            // changing the capacity of the ready queue, so you will
+                            // need to allow the ready queue to be reaped before that
+                            // change takes effect
                             tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
                             queue.notify_dispatcher.notify_waiters();
                         }
@@ -339,7 +387,7 @@ pub type ReadyQueueHandle = Arc<ReadyQueue>;
 pub struct ReadyQueue {
     name: String,
     queue_name_for_config_change_purposes_only: String,
-    ready: Arc<StdMutex<VecDeque<Message>>>,
+    ready: Arc<Fifo>,
     mx: Option<Arc<MailExchanger>>,
     notify_maintainer: Arc<Notify>,
     notify_dispatcher: Arc<Notify>,
@@ -363,15 +411,7 @@ impl ReadyQueue {
         if low_memory() {
             msg.shrink().ok();
         }
-        let path_config = self.path_config.borrow();
-        {
-            let mut ready = self.ready.lock().unwrap();
-            if ready.len() + 1 >= path_config.max_ready {
-                return Err(msg);
-            }
-            ready.push_back(msg);
-            self.metrics.ready_count.set(ready.len() as i64);
-        }
+        self.ready.push(msg)?;
         self.notify_maintainer.notify_one();
         self.notify_dispatcher.notify_one();
 
@@ -379,16 +419,7 @@ impl ReadyQueue {
     }
 
     pub fn ready_count(&self) -> usize {
-        self.ready.lock().unwrap().len()
-    }
-
-    fn take_ready_queue(
-        ready: &Arc<StdMutex<VecDeque<Message>>>,
-        metrics: &DeliveryMetrics,
-    ) -> Vec<Message> {
-        let mut locked = ready.lock().unwrap();
-        metrics.ready_count.set(0);
-        locked.drain(..).collect()
+        self.ready.len()
     }
 
     pub fn ideal_connection_count(&self) -> usize {
@@ -411,6 +442,8 @@ impl ReadyQueue {
 
     #[instrument(skip(self))]
     async fn shrink_ready_queue_due_to_low_mem(&self) {
+        return;
+        /*
         let mut ready = self.ready.lock().unwrap();
         ready.shrink_to_fit();
         if ready.is_empty() {
@@ -431,10 +464,11 @@ impl ReadyQueue {
             ready.len(),
             self.name
         );
+        */
     }
 
     async fn reinsert_ready_queue(&self, reason: &str) {
-        let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
+        let msgs = self.ready.drain();
         if !msgs.is_empty() {
             let activity = self.activity.clone();
             READYQ_RUNTIME
@@ -486,7 +520,7 @@ impl ReadyQueue {
 
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.
-            let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
+            let msgs = self.ready.drain();
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
@@ -629,7 +663,7 @@ pub struct Dispatcher {
     /// want to resolve to the appropriate scheduled queue, you must do so
     /// via msg.get_queue_name() instead of using this stashed value.
     pub queue_name_for_config_change_purposes_only: String,
-    pub ready: Arc<StdMutex<VecDeque<Message>>>,
+    pub ready: Arc<Fifo>,
     pub notify_dispatcher: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
     pub mx: Option<Arc<MailExchanger>>,
@@ -681,7 +715,7 @@ impl Dispatcher {
         name: &str,
         queue_name_for_config_change_purposes_only: String,
         mx: Option<Arc<MailExchanger>>,
-        ready: Arc<StdMutex<VecDeque<Message>>>,
+        ready: Arc<Fifo>,
         notify_dispatcher: Arc<Notify>,
         queue_config: ConfigHandle<QueueConfig>,
         path_config: ConfigHandle<EgressPathConfig>,
@@ -987,7 +1021,7 @@ impl Dispatcher {
     /// The insertion logic will take care of logging a transient failure
     /// if it transpires that no sources are enabled for the message.
     pub async fn reinsert_ready_queue(&mut self) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1015,7 +1049,7 @@ impl Dispatcher {
     }
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1048,13 +1082,9 @@ impl Dispatcher {
         }
     }
 
-    fn take_ready_queue(&self) -> Vec<Message> {
-        ReadyQueue::take_ready_queue(&self.ready, &self.metrics)
-    }
-
     #[instrument(skip(self))]
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1134,20 +1164,13 @@ impl Dispatcher {
         .await;
     }
 
-    fn pop_ready_queue(&mut self) -> Option<Message> {
-        let mut ready = self.ready.lock().unwrap();
-        let msg = ready.pop_front()?;
-        self.metrics.ready_count.set(ready.len() as i64);
-        Some(msg)
-    }
-
     #[instrument(skip(self))]
     async fn obtain_message(&mut self) -> bool {
         if self.msg.is_some() {
             return true;
         }
         loop {
-            self.msg = self.pop_ready_queue();
+            self.msg = self.ready.pop();
             if let Some(msg) = &self.msg {
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {

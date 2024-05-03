@@ -2759,6 +2759,7 @@ dependencies = [
  "cidr-map",
  "clap",
  "config",
+ "crossbeam-queue",
  "data-encoding",
  "data-loader",
  "dns-resolver",
