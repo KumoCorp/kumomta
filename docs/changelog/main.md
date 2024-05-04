@@ -74,6 +74,8 @@
   when there is a cache miss.
 * [redis.open](../reference/redis/open.md) now also supports a `connect_timeout`
   option. #168
+* Added `kcli top` command for watching system status from the comfort of
+  your terminal.
 
 ## Fixes
 

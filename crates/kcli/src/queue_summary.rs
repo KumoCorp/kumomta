@@ -60,48 +60,62 @@ pub struct QueueSummaryCommand {
 }
 
 #[derive(Deserialize, Serialize)]
-struct CounterGroup {
-    help: String,
+pub struct IndividualCounter {
+    pub help: String,
     #[serde(rename = "type")]
-    type_: String,
-    value: ServiceMap,
+    pub type_: String,
+    pub value: f64,
 }
 
 #[derive(Deserialize, Serialize)]
-struct ServiceMap {
-    service: HashMap<String, f64>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct QueueCounterGroup {
-    help: String,
+pub struct CounterGroup {
+    pub help: String,
     #[serde(rename = "type")]
-    type_: String,
-    value: QueueMap,
+    pub type_: String,
+    pub value: ServiceMap,
 }
 
 #[derive(Deserialize, Serialize)]
-struct QueueMap {
-    queue: HashMap<String, f64>,
+pub struct ServiceMap {
+    pub service: HashMap<String, f64>,
 }
 
 #[derive(Deserialize, Serialize)]
-struct Metrics {
-    connection_count: Option<CounterGroup>,
-    ready_count: Option<CounterGroup>,
-    scheduled_count: Option<QueueCounterGroup>,
-    total_connection_count: Option<CounterGroup>,
-    total_messages_delivered: Option<CounterGroup>,
-    total_messages_transfail: Option<CounterGroup>,
+pub struct QueueCounterGroup {
+    pub help: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub value: QueueMap,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct QueueMap {
+    pub queue: HashMap<String, f64>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Metrics {
+    pub connection_count: Option<CounterGroup>,
+    pub ready_count: Option<CounterGroup>,
+    pub scheduled_count: Option<QueueCounterGroup>,
+    pub total_connection_count: Option<CounterGroup>,
+    pub total_messages_delivered: Option<CounterGroup>,
+    pub total_messages_transfail: Option<CounterGroup>,
+    pub total_messages_received: Option<CounterGroup>,
+    pub message_count: Option<IndividualCounter>,
+    pub message_data_resident_count: Option<IndividualCounter>,
+    pub message_meta_resident_count: Option<IndividualCounter>,
+    pub memory_usage: Option<IndividualCounter>,
+    pub memory_limit: Option<IndividualCounter>,
 }
 
 #[derive(Default, Debug)]
-struct ReadyQueueMetrics {
-    name: String,
-    delivered: usize,
-    transfail: usize,
-    connection_count: usize,
-    queue_size: usize,
+pub struct ReadyQueueMetrics {
+    pub name: String,
+    pub delivered: usize,
+    pub transfail: usize,
+    pub connection_count: usize,
+    pub queue_size: usize,
 }
 
 impl ReadyQueueMetrics {
@@ -112,7 +126,7 @@ impl ReadyQueueMetrics {
         }
     }
 
-    fn site_name(&self) -> &str {
+    pub fn site_name(&self) -> &str {
         let source_len = self
             .source()
             .map(|s| s.len() + 2 /* for the "->" */)
@@ -125,12 +139,12 @@ impl ReadyQueueMetrics {
         &self.name[source_len..source_len + len]
     }
 
-    fn source(&self) -> Option<&str> {
+    pub fn source(&self) -> Option<&str> {
         let pos = self.name.find("->")?;
         Some(&self.name[0..pos])
     }
 
-    fn protocol(&self) -> Option<&str> {
+    pub fn protocol(&self) -> Option<&str> {
         if self.name.ends_with("@smtp_client") {
             return Some("smtp_client");
         }
@@ -143,19 +157,19 @@ impl ReadyQueueMetrics {
         None
     }
 
-    fn volume(&self) -> usize {
+    pub fn volume(&self) -> usize {
         self.delivered + self.transfail + self.connection_count + self.queue_size
     }
 
-    fn compare_volume(&self, other: &Self) -> Ordering {
+    pub fn compare_volume(&self, other: &Self) -> Ordering {
         self.volume().cmp(&other.volume()).reverse()
     }
 }
 
 #[derive(Default, Debug)]
-struct ScheduledQueueMetrics {
-    name: String,
-    queue_size: usize,
+pub struct ScheduledQueueMetrics {
+    pub name: String,
+    pub queue_size: usize,
 }
 
 impl ScheduledQueueMetrics {
@@ -166,24 +180,114 @@ impl ScheduledQueueMetrics {
         }
     }
 
-    fn volume(&self) -> usize {
+    pub fn volume(&self) -> usize {
         self.queue_size
     }
 
-    fn compare_volume(&self, other: &Self) -> Ordering {
+    pub fn compare_volume(&self, other: &Self) -> Ordering {
         self.volume().cmp(&other.volume()).reverse()
     }
 }
 
+pub struct ProcessedMetrics {
+    pub ready: Vec<ReadyQueueMetrics>,
+    pub scheduled: Vec<ScheduledQueueMetrics>,
+    pub raw: Metrics,
+}
+
+pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<ProcessedMetrics> {
+    let result: Metrics = crate::request_with_json_response(
+        reqwest::Method::GET,
+        endpoint.join("/metrics.json")?,
+        &(),
+    )
+    .await?;
+
+    let mut ready_metrics = HashMap::new();
+    if let Some(conn_count) = &result.connection_count {
+        for (service, &count) in conn_count.value.service.iter() {
+            if let Some((_protocol, queue_name)) = service.split_once(':') {
+                let entry = ready_metrics
+                    .entry(queue_name)
+                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                entry.connection_count += count as usize;
+            }
+        }
+    }
+    if let Some(delivered_count) = &result.total_messages_delivered {
+        for (service, &count) in delivered_count.value.service.iter() {
+            if let Some((_protocol, queue_name)) = service.split_once(':') {
+                let entry = ready_metrics
+                    .entry(queue_name)
+                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                entry.delivered += count as usize;
+            }
+        }
+    }
+    if let Some(transfail_count) = &result.total_messages_transfail {
+        for (service, &count) in transfail_count.value.service.iter() {
+            if let Some((_protocol, queue_name)) = service.split_once(':') {
+                let entry = ready_metrics
+                    .entry(queue_name)
+                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                entry.transfail += count as usize;
+            }
+        }
+    }
+    if let Some(ready_count) = &result.ready_count {
+        for (service, &count) in ready_count.value.service.iter() {
+            if let Some((_protocol, queue_name)) = service.split_once(':') {
+                let entry = ready_metrics
+                    .entry(queue_name)
+                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                entry.queue_size += count as usize;
+            }
+        }
+    }
+
+    let mut ready_metrics: Vec<ReadyQueueMetrics> =
+        ready_metrics.into_iter().map(|(_k, v)| v).collect();
+
+    if by_volume {
+        ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
+            Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
+            ordering => ordering,
+        });
+    } else {
+        ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
+    }
+
+    let mut scheduled_metrics = HashMap::new();
+    if let Some(item) = &result.scheduled_count {
+        for (domain, &count) in item.value.queue.iter() {
+            let entry = scheduled_metrics
+                .entry(domain)
+                .or_insert_with(|| ScheduledQueueMetrics::with_name(domain));
+            entry.queue_size += count as usize;
+        }
+    }
+
+    let mut scheduled_metrics: Vec<ScheduledQueueMetrics> =
+        scheduled_metrics.into_iter().map(|(_k, v)| v).collect();
+
+    if by_volume {
+        scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
+            Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
+            ordering => ordering,
+        });
+    } else {
+        scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
+    }
+
+    Ok(ProcessedMetrics {
+        ready: ready_metrics,
+        scheduled: scheduled_metrics,
+        raw: result,
+    })
+}
+
 impl QueueSummaryCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        let result: Metrics = crate::request_with_json_response(
-            reqwest::Method::GET,
-            endpoint.join("/metrics.json")?,
-            &(),
-        )
-        .await?;
-
         let suspended_domains: Vec<SuspendV1ListEntry> = crate::request_with_json_response(
             reqwest::Method::GET,
             endpoint.join("/api/admin/suspend/v1")?,
@@ -205,91 +309,17 @@ impl QueueSummaryCommand {
         )
         .await?;
 
-        let mut ready_metrics = HashMap::new();
-        if let Some(conn_count) = &result.connection_count {
-            for (service, &count) in conn_count.value.service.iter() {
-                if let Some((_protocol, queue_name)) = service.split_once(':') {
-                    let entry = ready_metrics
-                        .entry(queue_name)
-                        .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                    entry.connection_count += count as usize;
-                }
-            }
-        }
-        if let Some(delivered_count) = &result.total_messages_delivered {
-            for (service, &count) in delivered_count.value.service.iter() {
-                if let Some((_protocol, queue_name)) = service.split_once(':') {
-                    let entry = ready_metrics
-                        .entry(queue_name)
-                        .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                    entry.delivered += count as usize;
-                }
-            }
-        }
-        if let Some(transfail_count) = &result.total_messages_transfail {
-            for (service, &count) in transfail_count.value.service.iter() {
-                if let Some((_protocol, queue_name)) = service.split_once(':') {
-                    let entry = ready_metrics
-                        .entry(queue_name)
-                        .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                    entry.transfail += count as usize;
-                }
-            }
-        }
-        if let Some(ready_count) = &result.ready_count {
-            for (service, &count) in ready_count.value.service.iter() {
-                if let Some((_protocol, queue_name)) = service.split_once(':') {
-                    let entry = ready_metrics
-                        .entry(queue_name)
-                        .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                    entry.queue_size += count as usize;
-                }
-            }
-        }
-
-        let mut ready_metrics: Vec<ReadyQueueMetrics> =
-            ready_metrics.into_iter().map(|(_k, v)| v).collect();
-
-        if self.by_volume {
-            ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
-                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
-                ordering => ordering,
-            });
-        } else {
-            ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
-        }
-
-        let mut scheduled_metrics = HashMap::new();
-        if let Some(item) = &result.scheduled_count {
-            for (domain, &count) in item.value.queue.iter() {
-                let entry = scheduled_metrics
-                    .entry(domain)
-                    .or_insert_with(|| ScheduledQueueMetrics::with_name(domain));
-                entry.queue_size += count as usize;
-            }
-        }
-
-        let mut scheduled_metrics: Vec<ScheduledQueueMetrics> =
-            scheduled_metrics.into_iter().map(|(_k, v)| v).collect();
-
-        if self.by_volume {
-            scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
-                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
-                ordering => ordering,
-            });
-        } else {
-            scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
-        }
+        let mut metrics = obtain_metrics(endpoint, self.by_volume).await?;
 
         if let Some(domain) = &self.domain {
             let mx = MailExchanger::resolve(domain).await?;
 
             // Include all ready queues for the same site
-            ready_metrics.retain(|m| m.site_name() == mx.site_name);
+            metrics.ready.retain(|m| m.site_name() == mx.site_name);
 
             // Resolve the sites of all the scheduled queue domains
             let mut futures = vec![];
-            for m in &scheduled_metrics {
+            for m in &metrics.scheduled {
                 futures.push(MailExchanger::resolve(&m.name));
             }
 
@@ -303,7 +333,7 @@ impl QueueSummaryCommand {
             // Include all the scheduled queues that either directly match
             // the requested domain name, or which have the same site name
             // as the requested domain name
-            scheduled_metrics.retain(|m| {
+            metrics.scheduled.retain(|m| {
                 m.name == *domain
                     || domain_to_site
                         .get(&m.name)
@@ -313,8 +343,8 @@ impl QueueSummaryCommand {
         }
 
         if let Some(limit) = self.limit {
-            ready_metrics.truncate(limit);
-            scheduled_metrics.truncate(limit);
+            metrics.ready.truncate(limit);
+            metrics.scheduled.truncate(limit);
         }
 
         let ready_columns = [
@@ -353,7 +383,7 @@ impl QueueSummaryCommand {
         ];
 
         let mut ready_rows = vec![];
-        for m in &ready_metrics {
+        for m in &metrics.ready {
             let paused = suspended_sites.iter().any(|s| s.name == m.name);
             let status = if paused { "🛑" } else { "" };
 
@@ -387,7 +417,7 @@ impl QueueSummaryCommand {
         ];
 
         let mut sched_rows = vec![];
-        for m in &scheduled_metrics {
+        for m in &metrics.scheduled {
             let components = QueueNameComponents::parse(&m.name);
             let paused = suspended_domains
                 .iter()
