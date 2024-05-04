@@ -1,4 +1,3 @@
-use ratatui::widgets::Wrap;
 use clap::Parser;
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use futures::StreamExt;
@@ -6,7 +5,7 @@ use human_bytes::human_bytes;
 use num_format::{Locale, ToFormattedString};
 use ratatui::prelude::*;
 use ratatui::symbols::bar::NINE_LEVELS;
-use ratatui::widgets::{Block, Borders, Paragraph, RenderDirection, WidgetRef};
+use ratatui::widgets::{Block, Borders, Paragraph, RenderDirection, WidgetRef, Wrap};
 use ratatui::Terminal;
 use reqwest::Url;
 use std::time::Duration;
@@ -90,7 +89,7 @@ impl TopCommand {
     }
 }
 
-fn push_value(target:&mut Vec<u64>, value: u64) {
+fn push_value(target: &mut Vec<u64>, value: u64) {
     target.insert(0, value);
     target.truncate(1024);
 }
@@ -140,8 +139,7 @@ impl State {
                     ),
                     (&mut self.memory, &metrics.raw.memory_usage),
                 ] {
-                    push_value(target,
-                    source.as_ref().map_or(0, |m| m.value as u64));
+                    push_value(target, source.as_ref().map_or(0, |m| m.value as u64));
                     target.truncate(1024);
                 }
 
@@ -309,7 +307,7 @@ impl State {
         }
 
         let status = Paragraph::new(self.error.to_string())
-            .wrap(Wrap {trim:true})
+            .wrap(Wrap { trim: true })
             .style(Style::default().fg(Color::Red));
         f.render_widget(status, top_bottom[1]);
     }
