@@ -20,6 +20,7 @@ use prometheus::{IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -33,13 +34,22 @@ lazy_static::lazy_static! {
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
-    static ref MAINT_RUNTIME: Runtime = Runtime::new("schedqmaint").unwrap();
+
+    pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
+        "qmaint", |cpus| cpus/4, &QMAINT_THREADS).unwrap();
+
     pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
         (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
         QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
     pub static ref THROTTLE_INSERT_READY_SIG: CallbackSignature::<'static,
         Message,
         ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
+}
+
+static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_qmaint_threads(n: usize) {
+    QMAINT_THREADS.store(n, Ordering::SeqCst);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -437,7 +447,7 @@ impl Queue {
         });
 
         let queue_clone = handle.clone();
-        MAINT_RUNTIME
+        QMAINT_RUNTIME
             .spawn(format!("maintain {name}"), move || {
                 Ok(async move {
                     if let Err(err) = maintain_named_queue(&queue_clone).await {
@@ -476,7 +486,7 @@ impl Queue {
             // reported numbers shown the to initial bounce request will
             // likely be lower, but it is better for the server to be
             // healthy than for that command to block and show 100% stats.
-            let result = MAINT_RUNTIME.spawn_non_blocking(
+            let result = QMAINT_RUNTIME.spawn_non_blocking(
                 "bounce_all remove_from_spool".to_string(),
                 move || {
                     Ok(async move {

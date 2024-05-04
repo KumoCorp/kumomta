@@ -2738,6 +2738,7 @@ dependencies = [
  "async-channel 1.9.0",
  "kumo-server-memory",
  "lazy_static",
+ "prometheus",
  "tokio",
  "tracing",
 ]

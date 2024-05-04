@@ -4,7 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
-use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager};
+use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
 use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -36,7 +36,14 @@ lazy_static::lazy_static! {
     static ref MANAGER: StdMutex<ReadyQueueManager> = StdMutex::new(ReadyQueueManager::new());
     pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
-    pub static ref READYQ_RUNTIME: Runtime = Runtime::new("readyq").unwrap();
+    pub static ref READYQ_RUNTIME: Runtime = Runtime::new(
+        "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
+}
+
+static READYQ_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_readyq_threads(n: usize) {
+    READYQ_THREADS.store(n, Ordering::SeqCst);
 }
 
 pub struct Fifo {
@@ -254,7 +261,7 @@ impl ReadyQueueManager {
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
             let notify_maintainer = Arc::new(Notify::new());
-            READYQ_RUNTIME
+            QMAINT_RUNTIME
                 .spawn_non_blocking(format!("maintain {name}"), {
                     let name = name.clone();
                     let notify_maintainer = notify_maintainer.clone();

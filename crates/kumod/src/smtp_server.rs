@@ -12,7 +12,7 @@ use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::rt_spawn;
+use kumo_server_runtime::Runtime;
 use lruttl::LruCacheWithTtl;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
@@ -30,6 +30,7 @@ use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -48,6 +49,15 @@ struct DomainAndListener {
 
 static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
     Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
+
+static SMTPSRV: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());
+
+static SMTPSRV_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_smtpsrv_threads(n: usize) {
+    SMTPSRV_THREADS.store(n, Ordering::SeqCst);
+}
 
 #[derive(Deserialize, Clone, Debug, Default, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -268,7 +278,7 @@ impl EsmtpListenerParams {
                     socket.set_nodelay(true)?;
                     let my_address = socket.local_addr()?;
                     let params = self.clone();
-                    rt_spawn(
+                    SMTPSRV.spawn(
                         format!("SmtpServer {peer_address:?}"),
                         move || Ok(async move {
                             if let Err(err) =
