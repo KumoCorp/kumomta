@@ -3,7 +3,6 @@ use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
-use kumo_server_runtime::rt_spawn;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use once_cell::sync::Lazy;

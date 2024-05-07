@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::task::{JoinHandle, LocalSet};
 
 lazy_static::lazy_static! {
-    static ref RUNTIME: Runtime = Runtime::new(
+    pub static ref RUNTIME: Runtime = Runtime::new(
         "localset", |cpus| cpus/4, &LOCALSET_THREADS).unwrap();
 
     static ref PARKED_THREADS: IntGaugeVec = {
@@ -47,6 +47,15 @@ enum Command {
 
 pub struct Runtime {
     jobs: Sender<Command>,
+    n_threads: usize,
+    name_prefix: &'static str,
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        PARKED_THREADS.remove_label_values(&[self.name_prefix]).ok();
+        NUM_THREADS.remove_label_values(&[self.name_prefix]).ok();
+    }
 }
 
 impl Runtime {
@@ -117,7 +126,15 @@ impl Runtime {
                 })?;
         }
 
-        Ok(Self { jobs: tx })
+        Ok(Self {
+            jobs: tx,
+            n_threads,
+            name_prefix,
+        })
+    }
+
+    pub fn get_num_threads(&self) -> usize {
+        self.n_threads
     }
 
     /// Schedule func to run in the runtime pool.

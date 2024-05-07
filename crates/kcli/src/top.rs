@@ -221,6 +221,29 @@ impl State {
                     let utilization_percent = (100 * (pool.size - pool.parked)) / pool.size;
                     push_value(entry, utilization_percent as u64);
                 }
+                let mut dead_pools = vec![];
+                for (key, entry) in self.thread_pools.iter_mut() {
+                    if metrics
+                        .thread_pools
+                        .iter()
+                        .find(|entry| entry.name == *key)
+                        .is_none()
+                    {
+                        // The pool has gone away.
+                        // This can happen for eg: the spoolin pool once
+                        // it has completed its work.
+                        // We'll treat this as clocking a 0 through.
+                        // Once all the data is zero, we'll remove it
+                        push_value(entry, 0);
+                        if entry.iter().sum::<u64>() == 0 {
+                            dead_pools.push(key.to_string());
+                        }
+                    }
+                }
+                // Remove any dead thread pools
+                for name in dead_pools {
+                    self.thread_pools.remove(&name);
+                }
 
                 if let Some(prior) = self.diff_state.take() {
                     let elapsed = prior.when.elapsed().as_secs_f64();

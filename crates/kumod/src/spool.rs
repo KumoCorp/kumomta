@@ -1,11 +1,10 @@
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
-use crate::rt_spawn;
 use anyhow::Context;
 use chrono::Utc;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
-use kumo_server_runtime::spawn;
+use kumo_server_runtime::{spawn, Runtime};
 use message::Message;
 use mlua::{Lua, Value};
 use once_cell::sync::Lazy;
@@ -23,6 +22,11 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 static MANAGER: Lazy<SpoolManager> = Lazy::new(|| SpoolManager::new());
+static SPOOLIN_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_spoolin_threads(n: usize) {
+    SPOOLIN_THREADS.store(n, Ordering::SeqCst);
+}
 
 #[derive(Clone)]
 pub struct SpoolHandle(Arc<Spool>);
@@ -397,22 +401,24 @@ impl SpoolManager {
 
         let (complete_tx, complete_rx) = flume::bounded(1);
 
-        let n_threads = (std::thread::available_parallelism()?.get() / 2).max(1);
-        tracing::debug!("Using concurrency {n_threads} for spooling in");
-
         let mut num_tasks = 0;
+        let spool_in = Runtime::new("spoolin", |cpus| cpus / 2, &SPOOLIN_THREADS)?;
+        let n_threads = spool_in.get_num_threads();
+        tracing::info!("Using concurrency {n_threads} for spooling in");
+
         for n in 0..n_threads {
             let spooled_in = Arc::clone(&spooled_in);
             let rx = rx.clone();
             let complete_tx = complete_tx.clone();
-            rt_spawn(format!("spool_in-{n}"), move || {
-                Ok(async move {
-                    let mgr = Self::get();
-                    let result = mgr.spool_in_thread(rx, spooled_in).await;
-                    complete_tx.send_async(result).await
+            spool_in
+                .spawn(format!("spool_in-{n}"), move || {
+                    Ok(async move {
+                        let mgr = Self::get();
+                        let result = mgr.spool_in_thread(rx, spooled_in).await;
+                        complete_tx.send_async(result).await
+                    })
                 })
-            })
-            .await?;
+                .await?;
             num_tasks += 1;
         }
 
@@ -420,18 +426,19 @@ impl SpoolManager {
 
         while num_tasks > 0 {
             tokio::select! {
-                _ = tokio::time::sleep(interval) => {},
+                _ = tokio::time::sleep(interval) => {
+                    let elapsed = start.elapsed();
+                    let total =
+                        spooled_in.load(Ordering::SeqCst);
+                    let rate = (total as f64 / elapsed.as_secs_f64()).ceil() as u64;
+                    tracing::info!(
+                        "start_spool: still enumerating. {total} items in {elapsed:?} {rate}/s"
+                    );
+                }
                 _ = complete_rx.recv_async() => {
                     num_tasks -= 1;
-                    continue;
                 }
             };
-
-            tracing::info!(
-                "start_spool: still enumerating. {} items in {:?}",
-                spooled_in.load(Ordering::SeqCst),
-                start.elapsed()
-            );
         }
 
         self.spooled_in.store(true, Ordering::SeqCst);
@@ -441,10 +448,12 @@ impl SpoolManager {
             "done"
         };
         drop(activity);
+
+        let elapsed = start.elapsed();
+        let total = spooled_in.load(Ordering::SeqCst);
+        let rate = (total as f64 / elapsed.as_secs_f64()).ceil() as u64;
         tracing::info!(
-            "start_spool: enumeration {label}, spooled in {} msgs over {:?}",
-            spooled_in.load(Ordering::SeqCst),
-            start.elapsed()
+            "start_spool: enumeration {label}, spooled in {total} msgs over {elapsed:?} {rate}/s"
         );
         Ok(())
     }

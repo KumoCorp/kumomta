@@ -74,6 +74,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_spoolin_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::spool::set_spoolin_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
             Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
