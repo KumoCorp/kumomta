@@ -5,9 +5,10 @@ use human_bytes::human_bytes;
 use num_format::{Locale, ToFormattedString};
 use ratatui::prelude::*;
 use ratatui::symbols::bar::NINE_LEVELS;
-use ratatui::widgets::{Block, Borders, Paragraph, RenderDirection, WidgetRef, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, RenderDirection, WidgetRef, Wrap};
 use ratatui::Terminal;
 use reqwest::Url;
+use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::time::Instant;
@@ -105,6 +106,7 @@ struct State {
     received: Vec<u64>,
     delivered: Vec<u64>,
     transfail: Vec<u64>,
+    fail: Vec<u64>,
 
     diff_state: Option<DiffState>,
 
@@ -112,6 +114,8 @@ struct State {
     ready: Vec<u64>,
     memory: Vec<u64>,
     error: String,
+
+    thread_pools: BTreeMap<String, Vec<u64>>,
 }
 
 struct DiffState {
@@ -119,6 +123,7 @@ struct DiffState {
     delivered: f64,
     received: f64,
     transfail: f64,
+    fail: f64,
 }
 
 impl State {
@@ -155,6 +160,13 @@ impl State {
                     transfail: metrics
                         .raw
                         .total_messages_transfail
+                        .as_ref()
+                        .and_then(|m| m.value.service.get("smtp_client"))
+                        .copied()
+                        .unwrap_or(0.),
+                    fail: metrics
+                        .raw
+                        .total_messages_fail
                         .as_ref()
                         .and_then(|m| m.value.service.get("smtp_client"))
                         .copied()
@@ -201,17 +213,28 @@ impl State {
                     push_value(target, value as u64);
                 }
 
+                for pool in &metrics.thread_pools {
+                    let entry = self
+                        .thread_pools
+                        .entry(pool.name.to_string())
+                        .or_insert_with(Vec::new);
+                    let utilization_percent = (100 * (pool.size - pool.parked)) / pool.size;
+                    push_value(entry, utilization_percent as u64);
+                }
+
                 if let Some(prior) = self.diff_state.take() {
                     let elapsed = prior.when.elapsed().as_secs_f64();
 
                     // Compute msgs/s
                     let delivered = (new_state.delivered - prior.delivered) / elapsed;
                     let transfail = (new_state.transfail - prior.transfail) / elapsed;
+                    let fail = (new_state.fail - prior.fail) / elapsed;
                     let received = (new_state.received - prior.received) / elapsed;
 
                     // and add to historical data
                     push_value(&mut self.delivered, delivered as u64);
                     push_value(&mut self.transfail, transfail as u64);
+                    push_value(&mut self.fail, fail as u64);
                     push_value(&mut self.received, received as u64);
                 }
                 self.diff_state.replace(new_state);
@@ -227,6 +250,7 @@ impl State {
                 push_value(&mut self.smtp_conns, 0);
                 push_value(&mut self.delivered, 0);
                 push_value(&mut self.transfail, 0);
+                push_value(&mut self.fail, 0);
                 push_value(&mut self.received, 0);
             }
         }
@@ -243,73 +267,232 @@ impl State {
     }
 
     fn draw_ui(&self, f: &mut Frame, _options: &TopCommand) {
-        let sparklines = [
-            ("Delivered", &self.delivered, Color::Green, false, "/s"),
-            ("Received", &self.received, Color::LightGreen, true, "/s"),
-            ("Transfail", &self.transfail, Color::Red, false, "/s"),
-            ("Scheduled", &self.scheduled, Color::Yellow, false, ""),
-            ("Ready", &self.ready, Color::Gray, false, ""),
-            ("Messages", &self.message_count, Color::Blue, false, ""),
-            (
-                "Resident",
-                &self.message_data_resident,
-                Color::LightBlue,
-                true,
-                "",
-            ),
-            ("Memory", &self.memory, Color::Reset, false, "b"),
-            ("Conn Out", &self.smtp_conns, Color::DarkGray, false, ""),
-            ("Conn In", &self.listener_conns, Color::Gray, true, ""),
-        ];
-
-        let top_bottom = Layout::vertical([
-            Constraint::Length(sparklines.len() as u16 * 2),
-            Constraint::Fill(1),
-        ])
-        .split(f.size());
-
-        let throughput_layout =
-            Layout::horizontal([Constraint::Fill(1), Constraint::Length(12)]).split(top_bottom[0]);
-
-        let spark_chunks = Layout::vertical(sparklines.iter().map(|_| Constraint::Length(2)))
-            .split(throughput_layout[0]);
-
-        let throughput_summary = Layout::vertical(sparklines.iter().map(|_| Constraint::Length(2)))
-            .split(throughput_layout[1]);
-
-        for (idx, (label, data, color, inverted, unit)) in sparklines.into_iter().enumerate() {
-            let sparkline = Sparkline::default()
-                .block(Block::new().borders(Borders::RIGHT))
-                .data(data)
-                .direction(RenderDirection::RightToLeft)
-                .inverted(inverted)
-                .style(Style::default().fg(color));
-            f.render_widget(sparkline, spark_chunks[idx]);
-
-            let label = Paragraph::new(
-                data.get(0)
-                    .map(|v| {
-                        if unit == "b" {
-                            human_bytes(*v as f64)
-                        } else if unit == "" {
-                            v.to_formatted_string(&Locale::en)
-                        } else if unit == "/s" {
-                            format!("{}/s", v.to_formatted_string(&Locale::en))
-                        } else {
-                            format!("{v}{unit}")
-                        }
-                    })
-                    .unwrap_or_else(String::new),
-            )
-            .right_aligned()
-            .block(Block::new().title(label).title_alignment(Alignment::Left));
-            f.render_widget(label, throughput_summary[idx]);
+        struct Entry<'a> {
+            label: &'a str,
+            data: &'a [u64],
+            color: Color,
+            inverted: bool,
+            unit: &'a str,
+            base_height: u16,
         }
 
-        let status = Paragraph::new(self.error.to_string())
-            .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::Red));
-        f.render_widget(status, top_bottom[1]);
+        impl<'a> Entry<'a> {
+            fn new(
+                label: &'a str,
+                data: &'a [u64],
+                color: Color,
+                inverted: bool,
+                unit: &'a str,
+                base_height: u16,
+            ) -> Self {
+                Self {
+                    label,
+                    data,
+                    color,
+                    inverted,
+                    unit,
+                    base_height,
+                }
+            }
+
+            fn current_value(&self) -> String {
+                if self.base_height == 1 {
+                    String::new()
+                } else {
+                    self.current_value_impl()
+                }
+            }
+
+            fn current_value_impl(&self) -> String {
+                self.data
+                    .get(0)
+                    .map(|v| {
+                        if self.unit == "b" {
+                            human_bytes(*v as f64)
+                        } else if self.unit == "" {
+                            v.to_formatted_string(&Locale::en)
+                        } else if self.unit == "/s" {
+                            format!("{}/s", v.to_formatted_string(&Locale::en))
+                        } else if self.unit == "%" {
+                            format!("{v:3}%")
+                        } else {
+                            format!("{v}{}", self.unit)
+                        }
+                    })
+                    .unwrap_or_else(String::new)
+            }
+
+            fn label(&self, col_width: Option<u16>) -> String {
+                if self.base_height == 1 {
+                    let value = self.current_value_impl();
+
+                    let spacing = if let Some(col_width) = col_width {
+                        " ".repeat(col_width as usize - (value.len() + self.label.len()))
+                    } else {
+                        "  ".to_string()
+                    };
+
+                    format!("{}{spacing}{value}", self.label)
+                } else {
+                    self.label.to_string()
+                }
+            }
+
+            fn min_width(&self) -> u16 {
+                (self.current_value().len() + 2).max(self.label(None).len()) as u16
+            }
+        }
+
+        let mut sparklines = vec![
+            Entry::new("Delivered", &self.delivered, Color::Green, false, "/s", 2),
+            Entry::new("Received", &self.received, Color::LightGreen, true, "/s", 2),
+            Entry::new("Transfail", &self.transfail, Color::Red, false, "/s", 2),
+            Entry::new("Permfail", &self.fail, Color::LightRed, false, "/s", 2),
+            Entry::new("Scheduled", &self.scheduled, Color::Green, false, "", 2),
+            Entry::new("Ready", &self.ready, Color::LightGreen, false, "", 2),
+            Entry::new("Messages", &self.message_count, Color::Green, false, "", 2),
+            Entry::new(
+                "Resident",
+                &self.message_data_resident,
+                Color::LightGreen,
+                true,
+                "",
+                1,
+            ),
+            Entry::new("Memory", &self.memory, Color::Green, false, "b", 2),
+            Entry::new(
+                "Conn Out",
+                &self.smtp_conns,
+                Color::LightGreen,
+                false,
+                "",
+                2,
+            ),
+            Entry::new("Conn In", &self.listener_conns, Color::Green, true, "", 2),
+        ];
+
+        let pool_colors = [Color::LightGreen, Color::Green];
+
+        for (pool, data) in self.thread_pools.iter() {
+            let next_idx = sparklines.len();
+            sparklines.push(Entry::new(
+                pool,
+                data,
+                pool_colors[next_idx % pool_colors.len()],
+                false,
+                "%",
+                1,
+            ));
+        }
+
+        // Figure out the layout; first see if the ideal heights will fit
+        let mut base_height = sparklines
+            .iter()
+            .map(|entry| entry.base_height)
+            .sum::<u16>();
+        let available_height = f.size().height;
+
+        'adapted_larger: while base_height < available_height {
+            // We have room to expand
+            for entry in &mut sparklines {
+                entry.base_height += 1;
+                base_height += 1;
+
+                if base_height == available_height {
+                    break 'adapted_larger;
+                }
+            }
+        }
+
+        'adapted_smaller: while base_height > available_height {
+            // We need to reduce some row(s)
+            let mut progress = false;
+            for entry in sparklines.iter_mut().rev() {
+                if entry.base_height > 1 {
+                    entry.base_height -= 1;
+                    base_height -= 1;
+                    progress = true;
+
+                    if base_height == available_height {
+                        break 'adapted_smaller;
+                    }
+                }
+            }
+            if !progress {
+                break;
+            }
+        }
+
+        let label_col_width = sparklines
+            .iter()
+            .map(|entry| entry.min_width())
+            .max()
+            .unwrap_or(12);
+
+        let mut y = 0;
+        for entry in sparklines.into_iter() {
+            if y >= f.size().height {
+                break;
+            }
+
+            let spark_chunk = Rect {
+                x: 0,
+                y,
+                width: f.size().width - label_col_width,
+                height: entry.base_height,
+            };
+            let summary = Rect {
+                x: f.size().width - label_col_width,
+                y,
+                width: label_col_width,
+                height: entry.base_height,
+            };
+
+            y += entry.base_height;
+
+            let text_style = Style::default()
+                .fg(entry.color)
+                .add_modifier(Modifier::REVERSED);
+
+            let sparkline = Sparkline::default()
+                .block(Block::new().borders(Borders::RIGHT))
+                .data(entry.data)
+                .direction(RenderDirection::RightToLeft)
+                .inverted(entry.inverted)
+                .max(if entry.unit == "%" { Some(100) } else { None })
+                .style(Style::default().fg(entry.color));
+            f.render_widget(sparkline, spark_chunk);
+
+            let label = Paragraph::new(entry.current_value())
+                .right_aligned()
+                .style(text_style.clone())
+                .block(
+                    Block::new()
+                        .title(entry.label(Some(label_col_width)))
+                        .title_style(text_style.clone())
+                        .title_alignment(if entry.base_height == 1 {
+                            Alignment::Right
+                        } else {
+                            Alignment::Left
+                        }),
+                );
+            f.render_widget(label, summary);
+        }
+
+        if !self.error.is_empty() {
+            let error_rect = Rect {
+                x: 0,
+                y: f.size().height.saturating_sub(4),
+                width: f.size().width,
+                height: 4,
+            };
+
+            let status = Paragraph::new(self.error.to_string())
+                .wrap(Wrap { trim: true })
+                .style(Style::default().fg(Color::Red).bg(Color::Reset));
+            f.render_widget(Clear, error_rect);
+            f.render_widget(status, error_rect);
+        }
     }
 }
 
@@ -429,8 +612,8 @@ impl<'a> Sparkline<'a> {
     /// dataset.
     #[must_use = "method moves the value of self and returns the modified value"]
     #[allow(unused)]
-    pub const fn max(mut self, max: u64) -> Self {
-        self.max = Some(max);
+    pub const fn max(mut self, max: Option<u64>) -> Self {
+        self.max = max;
         self
     }
 

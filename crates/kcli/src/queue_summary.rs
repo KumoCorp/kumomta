@@ -94,6 +94,19 @@ pub struct QueueMap {
 }
 
 #[derive(Deserialize, Serialize)]
+pub struct ThreadPoolGroup {
+    pub help: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub value: ThreadPoolMap,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ThreadPoolMap {
+    pub pool: HashMap<String, f64>,
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Metrics {
     pub connection_count: Option<CounterGroup>,
     pub ready_count: Option<CounterGroup>,
@@ -101,12 +114,21 @@ pub struct Metrics {
     pub total_connection_count: Option<CounterGroup>,
     pub total_messages_delivered: Option<CounterGroup>,
     pub total_messages_transfail: Option<CounterGroup>,
+    pub total_messages_fail: Option<CounterGroup>,
     pub total_messages_received: Option<CounterGroup>,
     pub message_count: Option<IndividualCounter>,
     pub message_data_resident_count: Option<IndividualCounter>,
     pub message_meta_resident_count: Option<IndividualCounter>,
     pub memory_usage: Option<IndividualCounter>,
     pub memory_limit: Option<IndividualCounter>,
+    pub thread_pool_size: Option<ThreadPoolGroup>,
+    pub thread_pool_parked: Option<ThreadPoolGroup>,
+}
+
+pub struct ThreadPoolMetrics {
+    pub name: String,
+    pub size: usize,
+    pub parked: usize,
 }
 
 #[derive(Default, Debug)]
@@ -192,6 +214,7 @@ impl ScheduledQueueMetrics {
 pub struct ProcessedMetrics {
     pub ready: Vec<ReadyQueueMetrics>,
     pub scheduled: Vec<ScheduledQueueMetrics>,
+    pub thread_pools: Vec<ThreadPoolMetrics>,
     pub raw: Metrics,
 }
 
@@ -279,10 +302,25 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
     }
 
+    let thread_pools = match (&result.thread_pool_size, &result.thread_pool_parked) {
+        (Some(sizes), Some(values)) => sizes
+            .value
+            .pool
+            .iter()
+            .map(|(name, size)| ThreadPoolMetrics {
+                name: name.to_string(),
+                size: *size as usize,
+                parked: values.value.pool.get(name).copied().unwrap_or(0.) as usize,
+            })
+            .collect(),
+        _ => vec![],
+    };
+
     Ok(ProcessedMetrics {
         ready: ready_metrics,
         scheduled: scheduled_metrics,
         raw: result,
+        thread_pools,
     })
 }
 
