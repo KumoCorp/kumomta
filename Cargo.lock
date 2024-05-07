@@ -3151,7 +3151,7 @@ dependencies = [
 [[package]]
 name = "libunbound"
 version = "0.2.0"
-source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=1f629e81919d8aae7e95fff82dc1390912b4ba53#1f629e81919d8aae7e95fff82dc1390912b4ba53"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=2f8581c35387fa320525e3830c613d5912fcba3b#2f8581c35387fa320525e3830c613d5912fcba3b"
 dependencies = [
  "hickory-proto",
  "libc",
@@ -3163,8 +3163,8 @@ dependencies = [
 
 [[package]]
 name = "libunbound-sys"
-version = "0.1.0"
-source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=1f629e81919d8aae7e95fff82dc1390912b4ba53#1f629e81919d8aae7e95fff82dc1390912b4ba53"
+version = "0.1.1"
+source = "git+https://github.com/KumoCorp/libunbound-rs.git?rev=2f8581c35387fa320525e3830c613d5912fcba3b#2f8581c35387fa320525e3830c613d5912fcba3b"
 dependencies = [
  "cc",
  "openssl-sys",
