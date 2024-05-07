@@ -450,29 +450,49 @@ impl ReadyQueue {
 
     #[instrument(skip(self))]
     async fn shrink_ready_queue_due_to_low_mem(&self) {
-        return;
-        /*
-        let mut ready = self.ready.lock();
-        ready.shrink_to_fit();
-        if ready.is_empty() {
-            return;
-        }
-
         let mut count = 0;
+        let mut seen = 0;
+        let mut requeue = 0;
 
-        for msg in ready.iter() {
+        let mut reinsert = vec![];
+
+        for msg in self.ready.drain() {
+            seen += 1;
             if let Ok(true) = msg.shrink() {
                 count += 1;
             }
+            if let Err(msg) = self.ready.push(msg) {
+                // The readyq is full and we can't reinsert; this
+                // can happen when the system is busy and other
+                // actors are adding more stuff to it.
+                reinsert.push(msg);
+                requeue += 1;
+            }
+        }
+
+        if !reinsert.is_empty() {
+            let activity = self.activity.clone();
+            READYQ_RUNTIME
+                .spawn("reinserting".to_string(), move || {
+                    Ok(async move {
+                        for msg in reinsert {
+                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                                tracing::error!("error reinserting message: {err:#}");
+                            }
+                        }
+                        drop(activity);
+                    })
+                })
+                .await
+                .expect("failed to spawn reinsertion");
         }
 
         tracing::error!(
-            "did shrink {} of out {} msgs in ready queue {} due to memory shortage",
-            count,
-            ready.len(),
+            "did shrink {count} of out {seen} msgs in ready queue {} \
+            due to memory shortage, and will requeue {requeue} \
+            due to hitting constraints",
             self.name
         );
-        */
     }
 
     async fn reinsert_ready_queue(&self, reason: &str) {
