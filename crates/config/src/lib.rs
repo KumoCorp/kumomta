@@ -1,11 +1,11 @@
 use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, ToLuaMulti, Value};
+use parking_lot::FairMutex as Mutex;
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
@@ -53,7 +53,7 @@ impl Pool {
             .name("config idler".to_string())
             .spawn(|| loop {
                 std::thread::sleep(Duration::from_secs(30));
-                POOL.lock().unwrap().expire();
+                POOL.lock().expire();
             })
             .expect("create config idler thread");
         Self::default()
@@ -118,7 +118,7 @@ pub struct LuaConfig {
 impl Drop for LuaConfig {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take() {
-            POOL.lock().unwrap().put(inner);
+            POOL.lock().put(inner);
         }
     }
 }
@@ -136,22 +136,28 @@ pub fn set_max_age(max_age: usize) {
 }
 
 pub async fn set_policy_path(path: PathBuf) -> anyhow::Result<()> {
-    POLICY_FILE.lock().unwrap().replace(path);
+    POLICY_FILE.lock().replace(path);
     load_config().await?;
     Ok(())
 }
 
 fn get_policy_path() -> Option<PathBuf> {
-    POLICY_FILE.lock().unwrap().clone()
+    POLICY_FILE.lock().clone()
 }
 
 fn get_funcs() -> Vec<RegisterFunc> {
-    FUNCS.lock().unwrap().clone()
+    FUNCS.lock().clone()
+}
+
+fn pool_get() -> Option<LuaConfig> {
+    POOL.lock()
+        .get()
+        .map(|inner| LuaConfig { inner: Some(inner) })
 }
 
 pub async fn load_config() -> anyhow::Result<LuaConfig> {
-    if let Some(inner) = POOL.lock().unwrap().get() {
-        return Ok(LuaConfig { inner: Some(inner) });
+    if let Some(pool) = pool_get() {
+        return Ok(pool);
     }
 
     LUA_LOAD_COUNT.increment(1);
@@ -207,7 +213,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 }
 
 pub fn register(func: RegisterFunc) {
-    FUNCS.lock().unwrap().push(func);
+    FUNCS.lock().push(func);
 }
 
 impl LuaConfig {
@@ -580,7 +586,6 @@ where
         if self.allow_multiple {
             CALLBACK_ALLOWS_MULTIPLE
                 .lock()
-                .unwrap()
                 .insert(self.name.to_string());
         }
     }
@@ -601,7 +606,7 @@ where
 }
 
 pub fn does_callback_allow_multiple(name: &str) -> bool {
-    CALLBACK_ALLOWS_MULTIPLE.lock().unwrap().contains(name)
+    CALLBACK_ALLOWS_MULTIPLE.lock().contains(name)
 }
 
 pub fn decorate_callback_name(name: &str) -> String {

@@ -1055,6 +1055,7 @@ dependencies = [
  "lazy_static",
  "metrics",
  "mlua",
+ "parking_lot",
  "serde",
  "serde_json",
  "tokio",
