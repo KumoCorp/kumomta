@@ -39,6 +39,22 @@ fn default_resolver() -> Resolver {
     )
 }
 
+fn mx_cache_get(name: &Name) -> Option<Arc<MailExchanger>> {
+    MX_CACHE.lock().unwrap().get(name).clone()
+}
+
+fn ip_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IP_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
+fn ipv4_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IPV4_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
+fn ipv6_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IPV6_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct MailExchanger {
     pub domain_name: String,
@@ -234,7 +250,7 @@ impl MailExchanger {
         }
 
         let name_fq = fully_qualify(domain_name)?;
-        if let Some(mx) = MX_CACHE.lock().unwrap().get(&name_fq) {
+        if let Some(mx) = mx_cache_get(&name_fq) {
             return Ok(mx);
         }
 
@@ -393,7 +409,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 
 pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IP_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ip_cache_get(&key_fq) {
         return Ok(value);
     }
 
@@ -441,7 +457,7 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
 
 pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IPV4_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ipv4_cache_get(&key_fq) {
         return Ok(value);
     }
 
@@ -462,7 +478,7 @@ pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
 pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IPV6_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ipv6_cache_get(&key_fq) {
         return Ok(value);
     }
 
