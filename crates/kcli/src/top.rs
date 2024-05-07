@@ -339,7 +339,7 @@ impl State {
             }
 
             fn min_width(&self) -> u16 {
-                (self.current_value().len() + 2).max(self.label(None).len()) as u16
+                (self.current_value().len() + 2).max(self.label(None).len() + 2) as u16
             }
         }
 
