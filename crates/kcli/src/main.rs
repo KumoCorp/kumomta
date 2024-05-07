@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use reqwest::Url;
+use std::time::Duration;
 
 mod bounce;
 mod bounce_cancel;
@@ -33,6 +34,8 @@ struct Opt {
     #[command(subcommand)]
     cmd: SubCommand,
 }
+
+const TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Parser)]
 enum SubCommand {
@@ -78,6 +81,7 @@ pub async fn post<T: reqwest::IntoUrl, B: serde::Serialize>(
     body: &B,
 ) -> reqwest::Result<reqwest::Response> {
     reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .post(url)
         .json(body)
@@ -103,6 +107,7 @@ pub async fn request_with_text_response<T: reqwest::IntoUrl, B: serde::Serialize
     body: &B,
 ) -> anyhow::Result<String> {
     let response = reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .request(method, url)
         .json(body)
@@ -139,6 +144,7 @@ pub async fn request_with_json_response<
     body: &B,
 ) -> anyhow::Result<R> {
     let response = reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .request(method, url)
         .json(body)
