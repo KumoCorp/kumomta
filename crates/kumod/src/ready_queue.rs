@@ -1308,20 +1308,18 @@ pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usi
     let factor = 0.023;
     let goal = (connection_limit as f32)
         * (1. - (-1.0 * queue_size as f32 * factor).exp()).min(queue_size as f32);
-    goal.ceil() as usize
+    goal.ceil().min(queue_size as f32) as usize
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[test]
-    fn connection_limit() {
+    fn compute_targets_for_limit(max_connections: usize) -> Vec<(usize, usize)> {
         let sizes = [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 32, 64, 128, 256, 400, 512, 1024,
         ];
-        let max_connections = 32;
-        let targets: Vec<(usize, usize)> = sizes
+        sizes
             .iter()
             .map(|&queue_size| {
                 (
@@ -1329,7 +1327,12 @@ mod test {
                     ideal_connection_count(queue_size, max_connections),
                 )
             })
-            .collect();
+            .collect()
+    }
+
+    #[test]
+    fn connection_limit_32() {
+        let targets = compute_targets_for_limit(32);
         assert_eq!(
             vec![
                 (0, 0),
@@ -1351,6 +1354,35 @@ mod test {
                 (400, 32),
                 (512, 32),
                 (1024, 32)
+            ],
+            targets
+        );
+    }
+    #[test]
+
+    fn connection_limit_1024() {
+        let targets = compute_targets_for_limit(1024);
+        assert_eq!(
+            vec![
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+                (10, 10),
+                (20, 20),
+                (32, 32),
+                (64, 64),
+                (128, 128),
+                (256, 256),
+                (400, 400),
+                (512, 512),
+                (1024, 1024)
             ],
             targets
         );
