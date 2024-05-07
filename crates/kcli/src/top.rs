@@ -275,6 +275,9 @@ impl State {
                 push_value(&mut self.transfail, 0);
                 push_value(&mut self.fail, 0);
                 push_value(&mut self.received, 0);
+                for target in self.thread_pools.values_mut() {
+                    push_value(target, 0);
+                }
             }
         }
         Ok(())
