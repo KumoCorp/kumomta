@@ -1,7 +1,9 @@
 use crate::delivery_metrics::DeliveryMetrics;
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
-use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
+use crate::http_server::admin_suspend_ready_q_v1::{
+    AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
+};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
@@ -354,11 +356,12 @@ impl ReadyQueueManager {
                 }
             }
 
-            queue.maintain().await;
+            let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&name);
+            queue.maintain(&suspend).await;
 
-            if queue.reapable(&last_change) {
+            if queue.reapable(&last_change, &suspend) {
                 let mut mgr = MANAGER.lock();
-                if queue.reapable(&last_change) {
+                if queue.reapable(&last_change, &suspend) {
                     tracing::debug!("reaping site {name}");
                     mgr.queues.remove(&name);
                     drop(mgr);
@@ -430,10 +433,10 @@ impl ReadyQueue {
         self.ready.len()
     }
 
-    pub fn ideal_connection_count(&self) -> usize {
+    fn ideal_connection_count(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) -> usize {
         if self.activity.is_shutting_down() {
             0
-        } else if AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some() {
+        } else if suspend.is_some() {
             0
         } else {
             let n = ideal_connection_count(
@@ -526,7 +529,7 @@ impl ReadyQueue {
         connections.len()
     }
 
-    async fn maintain(&self) {
+    async fn maintain(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
             let mut connections = self.connections.lock();
@@ -536,7 +539,6 @@ impl ReadyQueue {
 
         let path_config = self.path_config.borrow();
 
-        let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
             "maintain {}: there are now {current_connection_count} connections, \
              suspended(admin)={}, queue_size={} (metrics.ready_count={})",
@@ -571,10 +573,11 @@ impl ReadyQueue {
                 self.name,
             );
             self.reinsert_ready_queue("suspend").await;
+            self.notify_dispatcher.notify_waiters();
             return;
         }
 
-        let ideal = self.ideal_connection_count();
+        let ideal = self.ideal_connection_count(suspend);
         tracing::trace!(
             "maintain {}: computed ideal connection count as {ideal} \
             vs current {current_connection_count}",
@@ -649,8 +652,12 @@ impl ReadyQueue {
         }
     }
 
-    fn reapable(&self, last_change: &Instant) -> bool {
-        let ideal = self.ideal_connection_count();
+    fn reapable(
+        &self,
+        last_change: &Instant,
+        suspend: &Option<AdminSuspendReadyQEntryRef>,
+    ) -> bool {
+        let ideal = self.ideal_connection_count(suspend);
         ideal == 0
             && self.connections.lock().is_empty()
             && ((last_change.elapsed() > Duration::from_secs(10 * 60))
@@ -703,6 +710,7 @@ pub struct Dispatcher {
     pub delivered_this_connection: usize,
     pub msg: Option<Message>,
     pub delivery_protocol: String,
+    pub suspended: Option<AdminSuspendReadyQEntryRef>,
     lease: LimitLease,
 }
 
@@ -777,6 +785,7 @@ impl Dispatcher {
             delivered_this_connection: 0,
             delivery_protocol,
             lease,
+            suspended: None,
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
@@ -1216,6 +1225,22 @@ impl Dispatcher {
         }
     }
 
+    fn get_suspension(&mut self) -> Option<AdminSuspendReadyQEntryRef> {
+        if let Some(suspend) = &self.suspended {
+            if !suspend.has_expired() {
+                return Some(suspend.clone());
+            }
+        }
+
+        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+            self.suspended.replace(suspend);
+        } else {
+            self.suspended.take();
+        }
+
+        self.suspended.as_ref().cloned()
+    }
+
     #[instrument(skip(self))]
     async fn wait_for_message(
         &mut self,
@@ -1241,7 +1266,7 @@ impl Dispatcher {
             }
         }
 
-        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+        if let Some(suspend) = self.get_suspension() {
             let duration = suspend.get_duration();
             tracing::trace!(
                 "{} is suspended until {duration:?}, throttling ready queue",
@@ -1283,6 +1308,16 @@ impl Dispatcher {
                 },
                 _ = self.notify_dispatcher.notified() => {
                     if self.activity.is_shutting_down() {
+                        return Ok(false);
+                    }
+                    if let Some(suspend) = self.get_suspension() {
+                        let duration = suspend.get_duration();
+                        tracing::trace!(
+                            "{} is suspended until {duration:?}, throttling ready queue",
+                            self.name,
+                        );
+                        self.reinsert_ready_queue().await;
+                        // Close the connection and stop trying to deliver
                         return Ok(false);
                     }
                     if self.obtain_message().await {
