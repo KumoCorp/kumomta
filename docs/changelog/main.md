@@ -74,6 +74,8 @@
   when there is a cache miss.
 * [redis.open](../reference/redis/open.md) now also supports a `connect_timeout`
   option. #168
+* Added `kcli top` command for watching system status from the comfort of
+  your terminal.
 
 ## Fixes
 
@@ -107,3 +109,5 @@
   a 550 error response for messages that are not ARF or OOB reports.
   Previously, we would return a 250 response and silently drop the message in this case,
   which gave the false impression that it was accepted for relaying.
+* Large `connection_limit` values combined with large ready queues could result in
+  more connections than necessary being opened.

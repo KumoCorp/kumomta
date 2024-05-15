@@ -24,3 +24,10 @@ tokio = {workspace=true, features=["full", "tracing"]}
 tungstenite = "0.21"
 uuid = {workspace=true}
 version-info = {path="../version-info"}
+ratatui = { version = "0.26.2", features = ["crossterm", "unstable-widget-ref"] }
+crossterm = { version = "0.27.0", features = ["event-stream"] }
+human_bytes = "0.4.3"
+num-format = "0.4.4"
+
+[dev-dependencies]
+indoc = "2.0.5"

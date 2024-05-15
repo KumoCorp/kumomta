@@ -9,8 +9,9 @@ use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::rt_spawn_non_blocking;
 use message::message::QueueNameComponents;
 use message::Message;
+use parking_lot::FairMutex as Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -47,21 +48,21 @@ fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bo
 
 impl AdminBounceEntry {
     pub fn get_all() -> Vec<Self> {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let now = Instant::now();
         entries.retain(|ent| ent.expires > now);
         entries.clone()
     }
 
     pub fn remove_by_id(id: &Uuid) -> bool {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let len_before = entries.len();
         entries.retain(|e| e.id != *id);
         len_before != entries.len()
     }
 
     pub fn add(entry: Self) {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let now = Instant::now();
         // Age out expired entries, and replace any entries with the
         // same criteria; this allows updating the reason with a newer
@@ -122,7 +123,7 @@ impl AdminBounceEntry {
     }
 
     pub async fn list_matching_queues(&self) -> Vec<String> {
-        let mut names = QueueManager::all_queue_names().await;
+        let mut names = QueueManager::all_queue_names();
         names.retain(|queue_name| {
             let components = QueueNameComponents::parse(queue_name);
             self.matches(
@@ -170,7 +171,7 @@ impl AdminBounceEntry {
             .await;
         }
 
-        let mut bounced = self.bounced.lock().unwrap();
+        let mut bounced = self.bounced.lock();
         if let Some(entry) = bounced.get_mut(queue_name) {
             *entry += 1;
         } else {
@@ -217,7 +218,7 @@ pub async fn bounce_v1(
     rt_spawn_non_blocking("process_bounce_v1".to_string(), move || {
         Ok(async move {
             for name in &queue_names {
-                if let Some(q) = QueueManager::get_opt(name).await {
+                if let Some(q) = QueueManager::get_opt(name) {
                     q.bounce_all(&entry).await;
                 }
             }
@@ -227,7 +228,7 @@ pub async fn bounce_v1(
 
     let entry = rx.await?;
 
-    let bounced = entry.bounced.lock().unwrap().clone();
+    let bounced = entry.bounced.lock().clone();
     let total_bounced = bounced.values().sum();
 
     Ok(Json(BounceV1Response {
@@ -255,7 +256,7 @@ pub async fn bounce_v1_list(
         AdminBounceEntry::get_all()
             .into_iter()
             .filter_map(|entry| {
-                let bounced = entry.bounced.lock().unwrap().clone();
+                let bounced = entry.bounced.lock().clone();
                 let total_bounced = bounced.values().sum();
                 entry
                     .expires

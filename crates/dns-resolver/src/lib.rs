@@ -39,6 +39,22 @@ fn default_resolver() -> Resolver {
     )
 }
 
+fn mx_cache_get(name: &Name) -> Option<Arc<MailExchanger>> {
+    MX_CACHE.lock().unwrap().get(name).clone()
+}
+
+fn ip_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IP_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
+fn ipv4_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IPV4_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
+fn ipv6_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
+    IPV6_CACHE.lock().unwrap().get_with_expiry(ip)
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct MailExchanger {
     pub domain_name: String,
@@ -49,6 +65,8 @@ pub struct MailExchanger {
     /// DNSSEC verified
     pub is_secure: bool,
     pub is_mx: bool,
+    #[serde(skip)]
+    expires: Option<Instant>,
 }
 
 pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
@@ -198,6 +216,7 @@ impl MailExchanger {
                             is_domain_literal: true,
                             is_secure: false,
                             is_mx: false,
+                            expires: None,
                         }));
                     }
                     Err(err) => {
@@ -221,6 +240,7 @@ impl MailExchanger {
                         is_domain_literal: true,
                         is_secure: false,
                         is_mx: false,
+                        expires: None,
                     }));
                 }
                 Err(err) => {
@@ -230,7 +250,7 @@ impl MailExchanger {
         }
 
         let name_fq = fully_qualify(domain_name)?;
-        if let Some(mx) = MX_CACHE.lock().unwrap().get(&name_fq) {
+        if let Some(mx) = mx_cache_get(&name_fq) {
             return Ok(mx);
         }
 
@@ -263,6 +283,7 @@ impl MailExchanger {
             is_domain_literal: false,
             is_secure,
             is_mx,
+            expires: Some(expires),
         };
 
         let mx = Arc::new(mx);
@@ -271,6 +292,13 @@ impl MailExchanger {
             .unwrap()
             .insert(name_fq, mx.clone(), expires);
         Ok(mx)
+    }
+
+    pub fn has_expired(&self) -> bool {
+        match self.expires {
+            Some(deadline) => deadline <= Instant::now(),
+            None => false,
+        }
     }
 
     pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
@@ -381,7 +409,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 
 pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IP_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ip_cache_get(&key_fq) {
         return Ok(value);
     }
 
@@ -429,7 +457,7 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
 
 pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IPV4_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ipv4_cache_get(&key_fq) {
         return Ok(value);
     }
 
@@ -450,7 +478,7 @@ pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
 pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = IPV6_CACHE.lock().unwrap().get_with_expiry(&key_fq) {
+    if let Some(value) = ipv6_cache_get(&key_fq) {
         return Ok(value);
     }
 
@@ -562,6 +590,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );
@@ -597,6 +626,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );
@@ -632,6 +662,7 @@ MailExchanger {
     is_domain_literal: true,
     is_secure: false,
     is_mx: false,
+    expires: None,
 }
 "#
         );

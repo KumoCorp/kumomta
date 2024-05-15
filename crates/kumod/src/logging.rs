@@ -13,6 +13,7 @@ use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::{Lazy, OnceCell};
+use parking_lot::FairMutex as Mutex;
 use rfc5321::{EnhancedStatusCode, Response, TlsInformation};
 use serde::Deserialize;
 use serde_json::Value;
@@ -24,7 +25,7 @@ use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as TokioMutex;
@@ -192,7 +193,7 @@ pub struct Logger {
 
 impl Logger {
     fn get_loggers() -> Vec<Arc<Logger>> {
-        LOGGER.lock().unwrap().iter().map(Arc::clone).collect()
+        LOGGER.lock().iter().map(Arc::clone).collect()
     }
 
     pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
@@ -247,7 +248,7 @@ impl Logger {
             filter_event: None,
         };
 
-        LOGGER.lock().unwrap().push(Arc::new(logger));
+        LOGGER.lock().push(Arc::new(logger));
         Ok(())
     }
 
@@ -309,7 +310,7 @@ impl Logger {
             filter_event,
         };
 
-        LOGGER.lock().unwrap().push(Arc::new(logger));
+        LOGGER.lock().push(Arc::new(logger));
         Ok(())
     }
 

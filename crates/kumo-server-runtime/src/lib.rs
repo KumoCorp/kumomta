@@ -12,11 +12,33 @@
 //! For example, when accepting new connections, we use this to
 //! spawn the server processing future.
 use async_channel::{bounded, unbounded, Sender};
+use prometheus::IntGaugeVec;
 use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::task::{JoinHandle, LocalSet};
 
 lazy_static::lazy_static! {
-    static ref RUNTIME: Runtime = Runtime::new("localset").unwrap();
+    pub static ref RUNTIME: Runtime = Runtime::new(
+        "localset", |cpus| cpus/4, &LOCALSET_THREADS).unwrap();
+
+    static ref PARKED_THREADS: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!(
+            "thread_pool_parked",
+            "number of parked(idle) threads in a thread pool",
+            &["pool"]).unwrap()
+    };
+    static ref NUM_THREADS: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!(
+            "thread_pool_size",
+            "number of threads in a thread pool",
+            &["pool"]).unwrap()
+    };
+}
+
+static LOCALSET_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_localset_threads(n: usize) {
+    LOCALSET_THREADS.store(n, Ordering::SeqCst);
 }
 
 enum Command {
@@ -25,30 +47,75 @@ enum Command {
 
 pub struct Runtime {
     jobs: Sender<Command>,
+    n_threads: usize,
+    name_prefix: &'static str,
+}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        PARKED_THREADS.remove_label_values(&[self.name_prefix]).ok();
+        NUM_THREADS.remove_label_values(&[self.name_prefix]).ok();
+    }
 }
 
 impl Runtime {
-    pub fn new(name_prefix: &'static str) -> anyhow::Result<Self> {
-        let n_threads = match std::env::var("TOKIO_WORKER_THREADS") {
+    pub fn new<F>(
+        name_prefix: &'static str,
+        default_size: F,
+        configured_size: &AtomicUsize,
+    ) -> anyhow::Result<Self>
+    where
+        F: FnOnce(usize) -> usize,
+    {
+        let env_name = format!("KUMOD_{}_THREADS", name_prefix.to_uppercase());
+        let n_threads = match std::env::var(env_name) {
             Ok(n) => n.parse()?,
-            Err(_) => std::thread::available_parallelism()?,
+            Err(_) => {
+                let configured = configured_size.load(Ordering::SeqCst);
+                if configured == 0 {
+                    let cpus = std::thread::available_parallelism()?.get();
+                    (default_size)(cpus).max(1)
+                } else {
+                    configured
+                }
+            }
         };
         let (tx, rx) = unbounded::<Command>();
 
+        let num_parked = PARKED_THREADS.get_metric_with_label_values(&[name_prefix])?;
+        let num_threads = NUM_THREADS.get_metric_with_label_values(&[name_prefix])?;
+        num_threads.set(n_threads as i64);
+
         for n in 0..n_threads.into() {
             let rx = rx.clone();
+            let num_parked = num_parked.clone();
             std::thread::Builder::new()
                 .name(format!("{name_prefix}-{n}"))
                 .spawn(move || {
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_io()
                         .enable_time()
-                        .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+                        .on_thread_park({
+                            let num_parked = num_parked.clone();
+                            move || {
+                                kumo_server_memory::purge_thread_cache();
+                                num_parked.inc();
+                            }
+                        })
+                        .on_thread_unpark({
+                            let num_parked = num_parked.clone();
+                            move || {
+                                num_parked.dec();
+                            }
+                        })
                         .build()
                         .unwrap();
                     let local_set = LocalSet::new();
 
                     local_set.block_on(&runtime, async move {
+                        if n == 0 {
+                            tracing::info!("{name_prefix} pool starting with {n_threads} threads");
+                        }
                         tracing::trace!("{name_prefix}-{n} started up!");
                         while let Ok(cmd) = rx.recv().await {
                             match cmd {
@@ -59,7 +126,15 @@ impl Runtime {
                 })?;
         }
 
-        Ok(Self { jobs: tx })
+        Ok(Self {
+            jobs: tx,
+            n_threads,
+            name_prefix,
+        })
+    }
+
+    pub fn get_num_threads(&self) -> usize {
+        self.n_threads
     }
 
     /// Schedule func to run in the runtime pool.

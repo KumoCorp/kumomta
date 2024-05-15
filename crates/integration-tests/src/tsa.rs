@@ -33,7 +33,10 @@ impl TsaDaemon {
 
         let mut cmd = Command::new(&path);
         cmd.args(["--policy", &args.policy_file])
-            .env("KUMO_TSA_LOG", "tsa_daemon=trace,kumo_server_common=info")
+            .env(
+                "KUMO_TSA_LOG",
+                "tsa_daemon=trace,kumo_server_common=info,kumo_server_runtime=info",
+            )
             .env("KUMO_TSA_TEST_DIR", dir.path())
             .envs(args.env.iter().cloned())
             .stdout(Stdio::piped())

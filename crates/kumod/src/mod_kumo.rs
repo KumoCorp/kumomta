@@ -50,6 +50,38 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_smtpsrv_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::smtp_server::set_smtpsrv_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_qmaint_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::queue::set_qmaint_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_readyq_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::ready_queue::set_readyq_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "set_spoolin_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::spool::set_spoolin_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
             Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
@@ -100,7 +132,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_accounting_db_path",
         lua.create_function(|_lua, file_name: String| {
-            *crate::accounting::DB_PATH.lock().unwrap() = file_name;
+            *crate::accounting::DB_PATH.lock() = file_name;
             Ok(())
         })?,
     )?;

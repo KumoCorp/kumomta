@@ -303,22 +303,19 @@ impl Message {
             .flags
             .contains(MessageFlags::FORCE_SYNC);
 
-        let data_holder;
         let data_fut = if let Some(data) = self.get_data_if_dirty() {
             anyhow::ensure!(!data.is_empty(), "message data must not be empty");
-            data_holder = data;
             data_spool
-                .store(self.id, &data_holder, force_sync)
+                .store(self.id, data, force_sync)
                 .map(|_| true)
                 .boxed()
         } else {
             futures::future::ready(false).boxed()
         };
-        let meta_holder;
         let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
-            meta_holder = serde_json::to_vec(&meta)?;
+            let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
             meta_spool
-                .store(self.id, &meta_holder, force_sync)
+                .store(self.id, meta, force_sync)
                 .map(|_| true)
                 .boxed()
         } else {

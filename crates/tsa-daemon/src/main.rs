@@ -99,7 +99,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             diag_format: opts.diag_format,
             tokio_console: opts.tokio_console,
             filter_env_var: "KUMO_TSA_LOG",
-            default_filter: "tsa_daemon=info,kumo_server_common=info",
+            default_filter: "tsa_daemon=info,kumo_server_common=info,kumo_server_runtime=info",
         },
         lua_funcs: &[kumo_server_common::register, mod_auto::register],
         policy: &opts.policy,

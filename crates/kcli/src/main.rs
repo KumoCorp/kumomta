@@ -1,6 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use reqwest::Url;
+use std::time::Duration;
 
 mod bounce;
 mod bounce_cancel;
@@ -14,6 +15,7 @@ mod suspend_list;
 mod suspend_ready_q;
 mod suspend_ready_q_cancel;
 mod suspend_ready_q_list;
+mod top;
 mod trace_smtp_server;
 
 /// KumoMTA CLI.
@@ -33,6 +35,8 @@ struct Opt {
     cmd: SubCommand,
 }
 
+const TIMEOUT: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Parser)]
 enum SubCommand {
     Bounce(bounce::BounceCommand),
@@ -48,6 +52,7 @@ enum SubCommand {
     InspectMessage(inspect_message::InspectMessageCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpServer(trace_smtp_server::TraceSmtpServerCommand),
+    Top(top::TopCommand),
 }
 
 impl SubCommand {
@@ -66,6 +71,7 @@ impl SubCommand {
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpServer(cmd) => cmd.run(endpoint).await,
+            Self::Top(cmd) => cmd.run(endpoint).await,
         }
     }
 }
@@ -75,6 +81,7 @@ pub async fn post<T: reqwest::IntoUrl, B: serde::Serialize>(
     body: &B,
 ) -> reqwest::Result<reqwest::Response> {
     reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .post(url)
         .json(body)
@@ -100,6 +107,7 @@ pub async fn request_with_text_response<T: reqwest::IntoUrl, B: serde::Serialize
     body: &B,
 ) -> anyhow::Result<String> {
     let response = reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .request(method, url)
         .json(body)
@@ -136,6 +144,7 @@ pub async fn request_with_json_response<
     body: &B,
 ) -> anyhow::Result<R> {
     let response = reqwest::Client::builder()
+        .timeout(TIMEOUT)
         .build()?
         .request(method, url)
         .json(body)

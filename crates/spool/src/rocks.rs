@@ -1,7 +1,9 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
 use flume::Sender;
-use rocksdb::{DBCompressionType, IteratorMode, LogLevel, Options, DB};
+use rocksdb::{
+    DBCompressionType, ErrorKind, IteratorMode, LogLevel, Options, WriteBatch, WriteOptions, DB,
+};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
@@ -188,27 +190,69 @@ impl RocksSpool {
 #[async_trait]
 impl Spool for RocksSpool {
     async fn load(&self, id: SpoolId) -> anyhow::Result<Vec<u8>> {
-        Ok(self
-            .db
-            .get(id.as_bytes())?
-            .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
+        let db = self.db.clone();
+        tokio::task::Builder::new()
+            .name("rocksdb load")
+            .spawn_blocking(move || {
+                Ok(db
+                    .get(id.as_bytes())?
+                    .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
+            })?
+            .await?
     }
 
-    async fn store(&self, id: SpoolId, data: &[u8], force_sync: bool) -> anyhow::Result<()> {
-        self.db.put(id.as_bytes(), data)?;
-        if force_sync {
-            let db = self.db.clone();
-            tokio::task::Builder::new()
-                .name("rocksdb flush")
-                .spawn_blocking(move || db.flush())?
-                .await??;
+    async fn store(
+        &self,
+        id: SpoolId,
+        data: Arc<Box<[u8]>>,
+        force_sync: bool,
+    ) -> anyhow::Result<()> {
+        let mut opts = WriteOptions::default();
+        opts.set_sync(force_sync);
+        opts.set_no_slowdown(true);
+        let mut batch = WriteBatch::default();
+        batch.put(id.as_bytes(), &*data);
+
+        match self.db.write_opt(batch, &opts) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == ErrorKind::Incomplete => {
+                let db = self.db.clone();
+                tokio::task::Builder::new()
+                    .name("rocksdb store")
+                    .spawn_blocking(move || {
+                        opts.set_no_slowdown(false);
+                        let mut batch = WriteBatch::default();
+                        batch.put(id.as_bytes(), &*data);
+                        Ok(db.write_opt(batch, &opts)?)
+                    })?
+                    .await?
+            }
+            Err(err) => Err(err.into()),
         }
-        Ok(())
     }
 
     async fn remove(&self, id: SpoolId) -> anyhow::Result<()> {
-        self.db.delete(id.as_bytes())?;
-        Ok(())
+        let mut opts = WriteOptions::default();
+        opts.set_no_slowdown(true);
+        let mut batch = WriteBatch::default();
+        batch.delete(id.as_bytes());
+
+        match self.db.write_opt(batch, &opts) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == ErrorKind::Incomplete => {
+                let db = self.db.clone();
+                tokio::task::Builder::new()
+                    .name("rocksdb remove")
+                    .spawn_blocking(move || {
+                        opts.set_no_slowdown(false);
+                        let mut batch = WriteBatch::default();
+                        batch.delete(id.as_bytes());
+                        Ok(db.write_opt(batch, &opts)?)
+                    })?
+                    .await?
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 
     async fn cleanup(&self) -> anyhow::Result<()> {
@@ -264,7 +308,11 @@ mod test {
         for i in 0..100 {
             let id = SpoolId::new();
             spool
-                .store(id, format!("I am {i}").as_bytes(), false)
+                .store(
+                    id,
+                    Arc::new(format!("I am {i}").as_bytes().to_vec().into_boxed_slice()),
+                    false,
+                )
                 .await?;
             ids.push(id);
         }

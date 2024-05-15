@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 pub struct LocalDiskSpool {
@@ -88,10 +89,14 @@ impl Spool for LocalDiskSpool {
             .with_context(|| format!("failed to remove {id} from {path:?}"))
     }
 
-    async fn store(&self, id: SpoolId, data: &[u8], force_sync: bool) -> anyhow::Result<()> {
+    async fn store(
+        &self,
+        id: SpoolId,
+        data: Arc<Box<[u8]>>,
+        force_sync: bool,
+    ) -> anyhow::Result<()> {
         let path = self.compute_path(id);
         let new_dir = self.path.join("new");
-        let data = data.to_vec();
         let flush = force_sync || self.flush;
         tokio::task::Builder::new()
             .name("LocalDiskSpool store")
@@ -257,7 +262,11 @@ mod test {
         for i in 0..100 {
             let id = SpoolId::new();
             spool
-                .store(id, format!("I am {i}").as_bytes(), false)
+                .store(
+                    id,
+                    Arc::new(format!("I am {i}").as_bytes().to_vec().into_boxed_slice()),
+                    false,
+                )
                 .await?;
             ids.push(id);
         }

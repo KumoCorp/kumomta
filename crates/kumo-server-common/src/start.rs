@@ -27,6 +27,11 @@ impl<'a> StartConfig<'a> {
 
         kumo_server_memory::setup_memory_limit().context("setup_memory_limit")?;
 
+        prometheus::register(Box::new(
+            tokio_metrics_collector::default_runtime_collector(),
+        ))
+        .context("failed to configure tokio-metrics-collector")?;
+
         for &func in self.lua_funcs {
             config::register(func);
         }

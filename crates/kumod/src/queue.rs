@@ -3,7 +3,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
-use crate::ready_queue::ReadyQueueManager;
+use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -15,30 +15,41 @@ use kumo_server_runtime::{spawn, spawn_blocking, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
+use parking_lot::FairMutex as StdMutex;
 use prometheus::{IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
 use timeq::{PopResult, TimeQ, TimerError};
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Notify;
 use tracing::instrument;
 
 lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<QueueManager> = Mutex::new(QueueManager::new());
+    static ref MANAGER: StdMutex<QueueManager> = StdMutex::new(QueueManager::new());
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
     };
-    static ref MAINT_RUNTIME: Runtime = Runtime::new("schedqmaint").unwrap();
+
+    pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
+        "qmaint", |cpus| cpus/4, &QMAINT_THREADS).unwrap();
+
     pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
         (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
         QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
     pub static ref THROTTLE_INSERT_READY_SIG: CallbackSignature::<'static,
         Message,
         ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
+}
+
+static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_qmaint_threads(n: usize) {
+    QMAINT_THREADS.store(n, Ordering::SeqCst);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -374,6 +385,12 @@ struct ReadyQueueFull;
 
 type QueueHandle = Arc<Queue>;
 
+struct CachedReadyQueueName {
+    name: ReadyQueueName,
+    /// queue_config.generation()
+    generation: usize,
+}
+
 pub struct Queue {
     name: String,
     queue: StdMutex<TimeQ<Message>>,
@@ -382,6 +399,7 @@ pub struct Queue {
     delayed_gauge: IntGauge,
     activity: Activity,
     rr: EgressPoolRoundRobin,
+    ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
 }
 
 impl Queue {
@@ -425,10 +443,11 @@ impl Queue {
             delayed_gauge,
             activity,
             rr,
+            ready_queue_names: StdMutex::new(HashMap::new()),
         });
 
         let queue_clone = handle.clone();
-        MAINT_RUNTIME
+        QMAINT_RUNTIME
             .spawn(format!("maintain {name}"), move || {
                 Ok(async move {
                     if let Err(err) = maintain_named_queue(&queue_clone).await {
@@ -442,15 +461,15 @@ impl Queue {
     }
 
     fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
-        self.queue.lock().unwrap().insert(Arc::new(msg))
+        self.queue.lock().insert(Arc::new(msg))
     }
 
     fn drain_timeq(&self) -> Vec<Arc<Message>> {
-        self.queue.lock().unwrap().drain()
+        self.queue.lock().drain()
     }
 
     fn pop_timeq(&self) -> PopResult<Message> {
-        self.queue.lock().unwrap().pop()
+        self.queue.lock().pop()
     }
 
     #[instrument(skip(self))]
@@ -467,7 +486,7 @@ impl Queue {
             // reported numbers shown the to initial bounce request will
             // likely be lower, but it is better for the server to be
             // healthy than for that command to block and show 100% stats.
-            let result = MAINT_RUNTIME.spawn_non_blocking(
+            let result = QMAINT_RUNTIME.spawn_non_blocking(
                 "bounce_all remove_from_spool".to_string(),
                 move || {
                     Ok(async move {
@@ -684,6 +703,40 @@ impl Queue {
         Ok(())
     }
 
+    fn get_ready_queue_for_source(&self, source: &str) -> Option<Arc<CachedReadyQueueName>> {
+        let mut ready_queue_names = self.ready_queue_names.lock();
+        let name = ready_queue_names.get(source)?;
+
+        if self.queue_config.generation() != name.generation || name.name.has_expired() {
+            ready_queue_names.remove(source);
+            return None;
+        }
+
+        Some(Arc::clone(name))
+    }
+
+    async fn compute_ready_queue_name(
+        &self,
+        source: &str,
+    ) -> anyhow::Result<Arc<CachedReadyQueueName>> {
+        if let Some(entry) = self.get_ready_queue_for_source(source) {
+            return Ok(entry);
+        }
+
+        let generation = self.queue_config.generation();
+
+        let name =
+            ReadyQueueManager::compute_queue_name(&self.name, &self.queue_config, source).await?;
+
+        let cached = Arc::new(CachedReadyQueueName { name, generation });
+
+        self.ready_queue_names
+            .lock()
+            .insert(source.to_string(), cached.clone());
+
+        Ok(cached)
+    }
+
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
@@ -751,6 +804,13 @@ impl Queue {
                     }
                 };
 
+                // Hot path: use cached source -> ready queue mapping
+                let ready_name = self.compute_ready_queue_name(&egress_source).await?;
+                if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
+                    return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                }
+
+                // Miss: compute and establish a new queue
                 match ReadyQueueManager::resolve_by_queue_name(
                     &self.name,
                     &self.queue_config,
@@ -760,7 +820,7 @@ impl Queue {
                 .await
                 {
                     Ok(site) => {
-                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
+                        return site.insert(msg).map_err(|_| ReadyQueueFull.into());
                     }
                     Err(err) => {
                         log_disposition(LogDisposition {
@@ -868,7 +928,7 @@ impl Queue {
     #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(&self, msg: Message) -> anyhow::Result<()> {
         loop {
-            *self.last_change.lock().unwrap() = Instant::now();
+            *self.last_change.lock() = Instant::now();
 
             tracing::trace!("insert msg {}", msg.id());
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
@@ -915,7 +975,12 @@ enum InsertResult {
 }
 
 pub struct QueueManager {
-    named: HashMap<String, QueueHandle>,
+    named: HashMap<String, QueueSlot>,
+}
+
+enum QueueSlot {
+    Handle(QueueHandle),
+    Resolving(Arc<Notify>),
 }
 
 impl QueueManager {
@@ -933,31 +998,68 @@ impl QueueManager {
         entry.insert(msg).await
     }
 
+    /// Resolve a scheduled queue name to a handle,
+    /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
-        let mut mgr = MANAGER.lock().await;
+        let mut mgr = MANAGER.lock();
         match mgr.named.get(name) {
-            Some(e) => Ok(Arc::clone(e)),
+            Some(QueueSlot::Handle(e)) => Ok(Arc::clone(e)),
+            Some(QueueSlot::Resolving(notify)) => {
+                let notify = notify.clone();
+                drop(mgr);
+
+                notify.notified().await;
+                Self::get_opt(name)
+                    .ok_or_else(|| anyhow::anyhow!("other actor failed to resolve {name}"))
+            }
             None => {
-                let entry = Queue::new(name.to_string()).await?;
-                mgr.named.insert(name.to_string(), entry.clone());
-                Ok(entry)
+                // Insert a Resolving slot, so that other actors know to wait
+                let notify = Arc::new(Notify::new());
+                mgr.named
+                    .insert(name.to_string(), QueueSlot::Resolving(notify.clone()));
+
+                // release the lock so that we can take our time without
+                // blocking other Self::resolve calls for other names
+                drop(mgr);
+
+                let result = Queue::new(name.to_string()).await;
+                let mut mgr = MANAGER.lock();
+                // Wake up any other waiters, regardless of the outcome
+                notify.notify_waiters();
+
+                match result {
+                    Ok(entry) => {
+                        // Success! move from Resolving -> Handle
+                        mgr.named
+                            .insert(name.to_string(), QueueSlot::Handle(entry.clone()));
+                        Ok(entry)
+                    }
+                    Err(err) => {
+                        // Failed! remove the Resolving slot
+                        mgr.named.remove(name);
+                        Err(err)
+                    }
+                }
             }
         }
     }
 
-    pub async fn get_opt(name: &str) -> Option<QueueHandle> {
-        let mgr = MANAGER.lock().await;
-        mgr.named.get(name).cloned()
+    pub fn get_opt(name: &str) -> Option<QueueHandle> {
+        let mgr = MANAGER.lock();
+        match mgr.named.get(name)? {
+            QueueSlot::Handle(h) => Some(h.clone()),
+            QueueSlot::Resolving(_) => None,
+        }
     }
 
-    pub async fn all_queue_names() -> Vec<String> {
-        let mgr = Self::get().await;
+    pub fn all_queue_names() -> Vec<String> {
+        let mgr = MANAGER.lock();
         mgr.named.keys().map(|s| s.to_string()).collect()
     }
 
-    async fn get() -> MutexGuard<'static, Self> {
-        MANAGER.lock().await
+    pub fn remove(name: &str) {
+        MANAGER.lock().named.remove(name);
     }
 }
 
@@ -979,7 +1081,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             tracing::debug!(
                 "maintaining queue {} which has {} entries",
                 q.name,
-                q.queue.lock().unwrap().len()
+                q.queue.lock().len()
             );
 
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&q.name) {
@@ -993,14 +1095,12 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     drop(msg);
                 }
 
-                let queue_mgr = ReadyQueueManager::get().await;
-                if queue_mgr.number_of_queues() == 0 {
+                if ReadyQueueManager::number_of_queues() == 0 {
                     tracing::debug!(
                         "{}: there are no more queues and the delayed queue is empty, reaping",
                         q.name
                     );
-                    let mut mgr = QueueManager::get().await;
-                    mgr.named.remove(&q.name);
+                    QueueManager::remove(&q.name);
                     return Ok(());
                 }
                 continue;
@@ -1037,8 +1137,8 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 PopResult::Empty => {
                     sleep_duration = Duration::from_secs(60);
 
-                    if q.last_change.lock().unwrap().elapsed() > Duration::from_secs(60 * 10) {
-                        QueueManager::get().await.named.remove(&q.name);
+                    if q.last_change.lock().elapsed() > Duration::from_secs(60 * 10) {
+                        QueueManager::remove(&q.name);
                         tracing::debug!("idling out queue {}", q.name);
                         // Remove any metrics that go with it, so that we don't
                         // end up using a lot of memory remembering stats from

@@ -12,7 +12,7 @@ use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::rt_spawn;
+use kumo_server_runtime::Runtime;
 use lruttl::LruCacheWithTtl;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
@@ -20,6 +20,7 @@ use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, LuaSerdeExt, ToLuaMulti, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
+use parking_lot::FairMutex as Mutex;
 use prometheus::{IntCounter, IntGauge};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
@@ -29,7 +30,8 @@ use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -47,6 +49,15 @@ struct DomainAndListener {
 
 static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
     Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
+
+static SMTPSRV: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());
+
+static SMTPSRV_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_smtpsrv_threads(n: usize) {
+    SMTPSRV_THREADS.store(n, Ordering::SeqCst);
+}
 
 #[derive(Deserialize, Clone, Debug, Default, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -267,7 +278,7 @@ impl EsmtpListenerParams {
                     socket.set_nodelay(true)?;
                     let my_address = socket.local_addr()?;
                     let params = self.clone();
-                    rt_spawn(
+                    SMTPSRV.spawn(
                         format!("SmtpServer {peer_address:?}"),
                         move || Ok(async move {
                             if let Err(err) =
@@ -474,7 +485,7 @@ impl SmtpServer {
             listener: self.my_address.to_string(),
         };
 
-        if let Some(opt_dom) = DOMAINS.lock().unwrap().get(&key) {
+        if let Some(opt_dom) = DOMAINS.lock().get(&key) {
             return Ok(opt_dom);
         }
 
@@ -518,7 +529,7 @@ impl SmtpServer {
             }
         };
 
-        DOMAINS.lock().unwrap().insert(
+        DOMAINS.lock().insert(
             key,
             value.clone(),
             Instant::now() + value.as_ref().map(|v| v.ttl).unwrap_or_else(default_ttl),
@@ -1456,6 +1467,7 @@ impl SmtpServer {
 
         let mut messages = vec![];
         let mut was_arf_or_oob = false;
+        let mut black_holed = false;
 
         for message in accepted_messages {
             if self.params.trace_headers.supplemental_header {
@@ -1544,6 +1556,8 @@ impl SmtpServer {
                 if relay_disposition.relay {
                     messages.push((queue_name, message));
                 }
+            } else {
+                black_holed = true;
             }
         }
 
@@ -1553,7 +1567,7 @@ impl SmtpServer {
             QueueManager::insert(&queue_name, msg).await?;
         }
 
-        if !relayed_any && !was_arf_or_oob {
+        if !black_holed && !relayed_any && !was_arf_or_oob {
             self.write_response(550, "5.7.1 relaying not permitted")
                 .await?;
         } else {
@@ -1578,19 +1592,19 @@ impl ConnectionMetaData {
     }
 
     pub fn set_meta<N: Into<String>, V: Into<serde_json::Value>>(&mut self, name: N, value: V) {
-        let mut map = self.map.lock().unwrap();
+        let mut map = self.map.lock();
         let meta = map.as_object_mut().expect("map is always an object");
         meta.insert(name.into(), value.into());
     }
 
     pub fn get_meta<N: AsRef<str>>(&self, name: N) -> Option<serde_json::Value> {
-        let map = self.map.lock().unwrap();
+        let map = self.map.lock();
         let meta = map.as_object().expect("map is always an object");
         meta.get(name.as_ref()).cloned()
     }
 
     pub fn clone_inner(&self) -> serde_json::Value {
-        self.map.lock().unwrap().clone()
+        self.map.lock().clone()
     }
 }
 

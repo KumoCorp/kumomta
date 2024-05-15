@@ -9,7 +9,7 @@ use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use message::message::QueueNameComponents;
 use mlua::{Lua, LuaSerdeExt, Value};
-use std::sync::Mutex;
+use parking_lot::FairMutex as Mutex;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -50,7 +50,7 @@ fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bo
 
 impl AdminSuspendEntry {
     pub fn get_all() -> Vec<Self> {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let now = Instant::now();
         entries.retain(|ent| ent.expires > now);
         entries.clone()
@@ -77,14 +77,14 @@ impl AdminSuspendEntry {
     }
 
     pub fn remove_by_id(id: &Uuid) -> bool {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let len_before = entries.len();
         entries.retain(|e| e.id != *id);
         len_before != entries.len()
     }
 
     pub fn add(entry: Self) {
-        let mut entries = ENTRIES.lock().unwrap();
+        let mut entries = ENTRIES.lock();
         let now = Instant::now();
         // Age out expired entries, and replace any entries with the
         // same criteria; this allows updating the reason with a newer

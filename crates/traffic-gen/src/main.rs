@@ -232,9 +232,12 @@ impl Opt {
                 {
                     Ok(_) => {
                     }
-                    Err(ClientError::Io(_)) |
-                    Err(ClientError::Rejected(Response { code: 421, .. }))
-                    | Err(ClientError::Rejected(Response {
+                    Err(ClientError::Io(_) |
+                        ClientError::Rejected(Response { code: 421, .. }) |
+                        ClientError::TimeOutResponse{..} |
+                        ClientError::TimeOutRequest{..} |
+                        ClientError::TimeOutData |
+                        ClientError::Rejected(Response {
                         code: 451,
                         enhanced_code:
                             // Too many recipients
@@ -335,6 +338,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let mut running_clients = concurrency;
+
     loop {
         tokio::select! {
             _ = tokio::time::sleep_until(deadline) => {
@@ -348,10 +353,12 @@ async fn main() -> anyhow::Result<()> {
                 last_update_time = now;
 
                 let rate = Rates::new(total_sent - last_sent, elapsed);
-                rate.print("\r\x1b[Kcurrent rate: ", &format!(" (sent={total_sent})"));
+                rate.print("\r\x1b[Kcurrent rate: ",
+                    &format!(" (sent={total_sent}, clients={running_clients})"));
                 last_sent = total_sent;
             },
             item = clients.next() => {
+                running_clients -= 1;
                 if item.is_none(){
                     println!("\nAll clients finished");
                     break;

@@ -1,15 +1,18 @@
 use crate::delivery_metrics::DeliveryMetrics;
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
-use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
+use crate::http_server::admin_suspend_ready_q_v1::{
+    AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
+};
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
-use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager};
+use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
 use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
+use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::config_handle::ConfigHandle;
@@ -18,28 +21,85 @@ use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_ch
 use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
+use parking_lot::FairMutex as StdMutex;
+use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpec};
-use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::instrument; // TODO move to here
 
 lazy_static::lazy_static! {
-    static ref MANAGER: Mutex<ReadyQueueManager> = Mutex::new(ReadyQueueManager::new());
+    static ref MANAGER: StdMutex<ReadyQueueManager> = StdMutex::new(ReadyQueueManager::new());
     pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
-    pub static ref READYQ_RUNTIME: Runtime = Runtime::new("readyq").unwrap();
+    pub static ref READYQ_RUNTIME: Runtime = Runtime::new(
+        "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
+}
+
+static READYQ_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_readyq_threads(n: usize) {
+    READYQ_THREADS.store(n, Ordering::SeqCst);
+}
+
+pub struct Fifo {
+    queue: ArrayQueue<Message>,
+    count: IntGauge,
+}
+
+impl Fifo {
+    pub fn new(capacity: usize, count: IntGauge) -> Self {
+        Self {
+            queue: ArrayQueue::new(capacity),
+            count,
+        }
+    }
+
+    pub fn push(&self, msg: Message) -> Result<(), Message> {
+        self.queue.push(msg)?;
+        self.count.inc();
+        Ok(())
+    }
+
+    pub fn pop(&self) -> Option<Message> {
+        let msg = self.queue.pop()?;
+        self.count.dec();
+        Some(msg)
+    }
+
+    pub fn drain(&self) -> Vec<Message> {
+        let mut messages = Vec::with_capacity(self.queue.len());
+        while let Some(msg) = self.queue.pop() {
+            messages.push(msg);
+        }
+        self.count.sub(messages.len() as i64);
+        messages
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 pub struct ReadyQueueName {
     pub name: String,
     pub site_name: String,
     pub mx: Option<Arc<MailExchanger>>,
+}
+
+impl ReadyQueueName {
+    pub fn has_expired(&self) -> bool {
+        match &self.mx {
+            Some(mx) => mx.has_expired(),
+            None => false,
+        }
+    }
 }
 
 pub struct ReadyQueueConfig {
@@ -60,12 +120,8 @@ impl ReadyQueueManager {
         Self::default()
     }
 
-    pub fn number_of_queues(&self) -> usize {
-        self.queues.len()
-    }
-
-    pub async fn get() -> MutexGuard<'static, Self> {
-        MANAGER.lock().await
+    pub fn number_of_queues() -> usize {
+        MANAGER.lock().queues.len()
     }
 
     pub async fn compute_queue_name(
@@ -179,29 +235,21 @@ impl ReadyQueueManager {
         })
     }
 
+    pub fn get_by_name(name: &str) -> Option<ReadyQueueHandle> {
+        let manager = MANAGER.lock();
+        manager.queues.get(name).cloned()
+    }
+
+    pub fn get_by_ready_queue_name(name: &ReadyQueueName) -> Option<ReadyQueueHandle> {
+        Self::get_by_name(&name.name)
+    }
+
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
         egress_pool: &str,
     ) -> anyhow::Result<ReadyQueueHandle> {
-        // Assumption: that the queue likely already exists.
-        // We do a smaller amount of work for that case, even
-        // though the creation case below may need to repeat
-        // some of it.
-        let ReadyQueueName {
-            name,
-            site_name: _,
-            mx: _,
-        } = Self::compute_queue_name(queue_name, queue_config, egress_source).await?;
-
-        {
-            let manager = MANAGER.lock().await;
-            if let Some(handle) = manager.queues.get(&name) {
-                return Ok(handle.clone());
-            }
-        }
-
         let ReadyQueueConfig {
             name,
             site_name: _,
@@ -210,12 +258,12 @@ impl ReadyQueueManager {
             mx,
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
-        let mut manager = Self::get().await;
+        let mut manager = MANAGER.lock();
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
             let notify_maintainer = Arc::new(Notify::new());
-            READYQ_RUNTIME
+            QMAINT_RUNTIME
                 .spawn_non_blocking(format!("maintain {name}"), {
                     let name = name.clone();
                     let notify_maintainer = notify_maintainer.clone();
@@ -225,7 +273,10 @@ impl ReadyQueueManager {
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
             let metrics = DeliveryMetrics::new(&service, &proto);
-            let ready = Arc::new(StdMutex::new(VecDeque::new()));
+            let ready = Arc::new(Fifo::new(
+                path_config.max_ready,
+                metrics.ready_count.clone(),
+            ));
             let notify_dispatcher = Arc::new(Notify::new());
             Arc::new(ReadyQueue {
                 name: name.clone(),
@@ -257,12 +308,9 @@ impl ReadyQueueManager {
         let mut reap_deadline = None;
         let mut done_abort = false;
 
-        let queue = {
-            let mgr = Self::get().await;
-            mgr.queues.get(&name).cloned().ok_or_else(|| {
-                anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
-            })?
-        };
+        let queue = ReadyQueueManager::get_by_name(&name).ok_or_else(|| {
+            anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
+        })?;
 
         loop {
             tokio::select! {
@@ -294,6 +342,10 @@ impl ReadyQueueManager {
                     Ok(ReadyQueueConfig { path_config, .. }) => {
                         if path_config != **queue.path_config.borrow() {
                             let generation = queue.path_config.update(path_config);
+                            // Note that the Fifo type doesn't allow for dynamically
+                            // changing the capacity of the ready queue, so you will
+                            // need to allow the ready queue to be reaped before that
+                            // change takes effect
                             tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
                             queue.notify_dispatcher.notify_waiters();
                         }
@@ -304,14 +356,17 @@ impl ReadyQueueManager {
                 }
             }
 
-            queue.maintain().await;
+            let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&name);
+            queue.maintain(&suspend).await;
 
-            if queue.reapable(&last_change) {
-                let mut mgr = Self::get().await;
-                if queue.reapable(&last_change) {
+            if queue.reapable(&last_change, &suspend) {
+                let mut mgr = MANAGER.lock();
+                if queue.reapable(&last_change, &suspend) {
                     tracing::debug!("reaping site {name}");
-                    queue.reinsert_ready_queue("reap").await;
                     mgr.queues.remove(&name);
+                    drop(mgr);
+
+                    queue.reinsert_ready_queue("reap").await;
                     crate::metrics_helper::remove_metrics_for_service(&format!(
                         "smtp_client:{name}"
                     ));
@@ -331,7 +386,7 @@ impl ReadyQueueManager {
             } else if get_headroom() == 0 {
                 queue.shrink_ready_queue_due_to_low_mem().await;
             } else if queue.activity.is_shutting_down() {
-                let n = queue.connections.lock().unwrap().len();
+                let n = queue.connections.lock().len();
                 tracing::debug!("{name}: waiting for {n} connections to close before reaping");
             }
         }
@@ -343,7 +398,7 @@ pub type ReadyQueueHandle = Arc<ReadyQueue>;
 pub struct ReadyQueue {
     name: String,
     queue_name_for_config_change_purposes_only: String,
-    ready: Arc<StdMutex<VecDeque<Message>>>,
+    ready: Arc<Fifo>,
     mx: Option<Arc<MailExchanger>>,
     notify_maintainer: Arc<Notify>,
     notify_dispatcher: Arc<Notify>,
@@ -363,19 +418,11 @@ impl ReadyQueue {
         &self.name
     }
 
-    pub async fn insert(&self, msg: Message) -> Result<(), Message> {
+    pub fn insert(&self, msg: Message) -> Result<(), Message> {
         if low_memory() {
             msg.shrink().ok();
         }
-        let path_config = self.path_config.borrow();
-        {
-            let mut ready = self.ready.lock().unwrap();
-            if ready.len() + 1 >= path_config.max_ready {
-                return Err(msg);
-            }
-            ready.push_back(msg);
-            self.metrics.ready_count.set(ready.len() as i64);
-        }
+        self.ready.push(msg)?;
         self.notify_maintainer.notify_one();
         self.notify_dispatcher.notify_one();
 
@@ -383,22 +430,13 @@ impl ReadyQueue {
     }
 
     pub fn ready_count(&self) -> usize {
-        self.ready.lock().unwrap().len()
+        self.ready.len()
     }
 
-    fn take_ready_queue(
-        ready: &Arc<StdMutex<VecDeque<Message>>>,
-        metrics: &DeliveryMetrics,
-    ) -> Vec<Message> {
-        let mut locked = ready.lock().unwrap();
-        metrics.ready_count.set(0);
-        locked.drain(..).collect()
-    }
-
-    pub fn ideal_connection_count(&self) -> usize {
+    fn ideal_connection_count(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) -> usize {
         if self.activity.is_shutting_down() {
             0
-        } else if AdminSuspendReadyQEntry::get_for_queue_name(&self.name).is_some() {
+        } else if suspend.is_some() {
             0
         } else {
             let n = ideal_connection_count(
@@ -415,30 +453,53 @@ impl ReadyQueue {
 
     #[instrument(skip(self))]
     async fn shrink_ready_queue_due_to_low_mem(&self) {
-        let mut ready = self.ready.lock().unwrap();
-        ready.shrink_to_fit();
-        if ready.is_empty() {
-            return;
-        }
-
         let mut count = 0;
+        let mut seen = 0;
+        let mut requeue = 0;
 
-        for msg in ready.iter() {
+        let mut reinsert = vec![];
+
+        for msg in self.ready.drain() {
+            seen += 1;
             if let Ok(true) = msg.shrink() {
                 count += 1;
             }
+            if let Err(msg) = self.ready.push(msg) {
+                // The readyq is full and we can't reinsert; this
+                // can happen when the system is busy and other
+                // actors are adding more stuff to it.
+                reinsert.push(msg);
+                requeue += 1;
+            }
+        }
+
+        if !reinsert.is_empty() {
+            let activity = self.activity.clone();
+            READYQ_RUNTIME
+                .spawn("reinserting".to_string(), move || {
+                    Ok(async move {
+                        for msg in reinsert {
+                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                                tracing::error!("error reinserting message: {err:#}");
+                            }
+                        }
+                        drop(activity);
+                    })
+                })
+                .await
+                .expect("failed to spawn reinsertion");
         }
 
         tracing::error!(
-            "did shrink {} of out {} msgs in ready queue {} due to memory shortage",
-            count,
-            ready.len(),
+            "did shrink {count} of out {seen} msgs in ready queue {} \
+            due to memory shortage, and will requeue {requeue} \
+            due to hitting constraints",
             self.name
         );
     }
 
     async fn reinsert_ready_queue(&self, reason: &str) {
-        let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
+        let msgs = self.ready.drain();
         if !msgs.is_empty() {
             let activity = self.activity.clone();
             READYQ_RUNTIME
@@ -461,24 +522,23 @@ impl ReadyQueue {
     }
 
     fn abort_all_connections(&self) -> usize {
-        let connections = self.connections.lock().unwrap();
+        let connections = self.connections.lock();
         for handle in connections.iter() {
             handle.abort();
         }
         connections.len()
     }
 
-    async fn maintain(&self) {
+    async fn maintain(&self, suspend: &Option<AdminSuspendReadyQEntryRef>) {
         // Prune completed connection tasks and obtain the number of connections
         let current_connection_count = {
-            let mut connections = self.connections.lock().unwrap();
+            let mut connections = self.connections.lock();
             connections.retain(|handle| !handle.is_finished());
             connections.len()
         };
 
         let path_config = self.path_config.borrow();
 
-        let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&self.name);
         tracing::trace!(
             "maintain {}: there are now {current_connection_count} connections, \
              suspended(admin)={}, queue_size={} (metrics.ready_count={})",
@@ -490,7 +550,7 @@ impl ReadyQueue {
 
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.
-            let msgs = Self::take_ready_queue(&self.ready, &self.metrics);
+            let msgs = self.ready.drain();
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
@@ -513,10 +573,11 @@ impl ReadyQueue {
                 self.name,
             );
             self.reinsert_ready_queue("suspend").await;
+            self.notify_dispatcher.notify_waiters();
             return;
         }
 
-        let ideal = self.ideal_connection_count();
+        let ideal = self.ideal_connection_count(suspend);
         tracing::trace!(
             "maintain {}: computed ideal connection count as {ideal} \
             vs current {current_connection_count}",
@@ -576,7 +637,7 @@ impl ReadyQueue {
                             })
                             .await
                         {
-                            self.connections.lock().unwrap().push(handle);
+                            self.connections.lock().push(handle);
                         }
                     }
                     Err(err) => {
@@ -591,10 +652,14 @@ impl ReadyQueue {
         }
     }
 
-    fn reapable(&self, last_change: &Instant) -> bool {
-        let ideal = self.ideal_connection_count();
+    fn reapable(
+        &self,
+        last_change: &Instant,
+        suspend: &Option<AdminSuspendReadyQEntryRef>,
+    ) -> bool {
+        let ideal = self.ideal_connection_count(suspend);
         ideal == 0
-            && self.connections.lock().unwrap().is_empty()
+            && self.connections.lock().is_empty()
             && ((last_change.elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down())
             && self.ready_count() == 0
@@ -633,7 +698,7 @@ pub struct Dispatcher {
     /// want to resolve to the appropriate scheduled queue, you must do so
     /// via msg.get_queue_name() instead of using this stashed value.
     pub queue_name_for_config_change_purposes_only: String,
-    pub ready: Arc<StdMutex<VecDeque<Message>>>,
+    pub ready: Arc<Fifo>,
     pub notify_dispatcher: Arc<Notify>,
     pub path_config: ConfigHandle<EgressPathConfig>,
     pub mx: Option<Arc<MailExchanger>>,
@@ -645,6 +710,7 @@ pub struct Dispatcher {
     pub delivered_this_connection: usize,
     pub msg: Option<Message>,
     pub delivery_protocol: String,
+    pub suspended: Option<AdminSuspendReadyQEntryRef>,
     lease: LimitLease,
 }
 
@@ -654,6 +720,7 @@ impl Drop for Dispatcher {
         if let Some(msg) = self.msg.take() {
             let activity = self.activity.clone();
             let name = self.name.to_string();
+            let notify_dispatcher = self.notify_dispatcher.clone();
             READYQ_RUNTIME
                 .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
                     Ok(async move {
@@ -664,14 +731,11 @@ impl Drop for Dispatcher {
                                 tracing::error!("error requeuing message: {err:#}");
                             } else {
                                 tokio::time::sleep(Duration::from_secs(1)).await;
-                                let ready_queue = {
-                                    let mgr = ReadyQueueManager::get().await;
-                                    mgr.queues.get(&name).cloned()
-                                };
-
+                                let ready_queue = ReadyQueueManager::get_by_name(&name);
                                 if let Some(q) = ready_queue {
                                     q.notify_maintainer.notify_one();
                                 }
+                                notify_dispatcher.notify_one();
                             }
                         }
                     })
@@ -687,7 +751,7 @@ impl Dispatcher {
         name: &str,
         queue_name_for_config_change_purposes_only: String,
         mx: Option<Arc<MailExchanger>>,
-        ready: Arc<StdMutex<VecDeque<Message>>>,
+        ready: Arc<Fifo>,
         notify_dispatcher: Arc<Notify>,
         queue_config: ConfigHandle<QueueConfig>,
         path_config: ConfigHandle<EgressPathConfig>,
@@ -721,6 +785,7 @@ impl Dispatcher {
             delivered_this_connection: 0,
             delivery_protocol,
             lease,
+            suspended: None,
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
@@ -851,7 +916,7 @@ impl Dispatcher {
         // Process throttling before we acquire the Activity
         // guard, so that a delay due to throttling doesn't result
         // in a delay of shutdown
-        let path_config = self.path_config.borrow().clone();
+        let path_config = self.path_config.borrow();
         if let Some(throttle) = &path_config.max_message_rate {
             loop {
                 let result = throttle
@@ -878,7 +943,7 @@ impl Dispatcher {
             }
         }
 
-        let msg = self.msg.as_ref().unwrap();
+        let msg = self.msg.as_ref().unwrap().clone();
 
         msg.load_meta_if_needed().await?;
         msg.load_data_if_needed().await?;
@@ -895,14 +960,11 @@ impl Dispatcher {
 
         self.delivered_this_connection += 1;
 
-        if let Err(err) = queue_dispatcher
-            .deliver_message(self.msg.as_ref().unwrap().clone(), self)
-            .await
-        {
+        if let Err(err) = queue_dispatcher.deliver_message(msg.clone(), self).await {
             // Transient failure; continue with another host
             tracing::debug!(
                 "failed to send message id {:?} to {}: {err:#}",
-                self.msg.as_ref().map(|msg| format!("{}", msg.id())),
+                msg.id(),
                 self.name,
             );
             return Err(err.into());
@@ -996,7 +1058,7 @@ impl Dispatcher {
     /// The insertion logic will take care of logging a transient failure
     /// if it transpires that no sources are enabled for the message.
     pub async fn reinsert_ready_queue(&mut self) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1024,7 +1086,7 @@ impl Dispatcher {
     }
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1057,13 +1119,9 @@ impl Dispatcher {
         }
     }
 
-    fn take_ready_queue(&self) -> Vec<Message> {
-        ReadyQueue::take_ready_queue(&self.ready, &self.metrics)
-    }
-
     #[instrument(skip(self))]
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
-        let mut msgs = self.take_ready_queue();
+        let mut msgs = self.ready.drain();
         if let Some(msg) = self.msg.take() {
             msgs.push(msg);
         }
@@ -1143,20 +1201,13 @@ impl Dispatcher {
         .await;
     }
 
-    fn pop_ready_queue(&mut self) -> Option<Message> {
-        let mut ready = self.ready.lock().unwrap();
-        let msg = ready.pop_front()?;
-        self.metrics.ready_count.set(ready.len() as i64);
-        Some(msg)
-    }
-
     #[instrument(skip(self))]
     async fn obtain_message(&mut self) -> bool {
         if self.msg.is_some() {
             return true;
         }
         loop {
-            self.msg = self.pop_ready_queue();
+            self.msg = self.ready.pop();
             if let Some(msg) = &self.msg {
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
@@ -1172,6 +1223,22 @@ impl Dispatcher {
                 return false;
             }
         }
+    }
+
+    fn get_suspension(&mut self) -> Option<AdminSuspendReadyQEntryRef> {
+        if let Some(suspend) = &self.suspended {
+            if !suspend.has_expired() {
+                return Some(suspend.clone());
+            }
+        }
+
+        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+            self.suspended.replace(suspend);
+        } else {
+            self.suspended.take();
+        }
+
+        self.suspended.as_ref().cloned()
     }
 
     #[instrument(skip(self))]
@@ -1199,7 +1266,7 @@ impl Dispatcher {
             }
         }
 
-        if let Some(suspend) = AdminSuspendReadyQEntry::get_for_queue_name(&self.name) {
+        if let Some(suspend) = self.get_suspension() {
             let duration = suspend.get_duration();
             tracing::trace!(
                 "{} is suspended until {duration:?}, throttling ready queue",
@@ -1243,6 +1310,16 @@ impl Dispatcher {
                     if self.activity.is_shutting_down() {
                         return Ok(false);
                     }
+                    if let Some(suspend) = self.get_suspension() {
+                        let duration = suspend.get_duration();
+                        tracing::trace!(
+                            "{} is suspended until {duration:?}, throttling ready queue",
+                            self.name,
+                        );
+                        self.reinsert_ready_queue().await;
+                        // Close the connection and stop trying to deliver
+                        return Ok(false);
+                    }
                     if self.obtain_message().await {
                         return Ok(true);
                     }
@@ -1266,20 +1343,18 @@ pub fn ideal_connection_count(queue_size: usize, connection_limit: usize) -> usi
     let factor = 0.023;
     let goal = (connection_limit as f32)
         * (1. - (-1.0 * queue_size as f32 * factor).exp()).min(queue_size as f32);
-    goal.ceil() as usize
+    goal.ceil().min(queue_size as f32) as usize
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[test]
-    fn connection_limit() {
+    fn compute_targets_for_limit(max_connections: usize) -> Vec<(usize, usize)> {
         let sizes = [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 20, 32, 64, 128, 256, 400, 512, 1024,
         ];
-        let max_connections = 32;
-        let targets: Vec<(usize, usize)> = sizes
+        sizes
             .iter()
             .map(|&queue_size| {
                 (
@@ -1287,7 +1362,12 @@ mod test {
                     ideal_connection_count(queue_size, max_connections),
                 )
             })
-            .collect();
+            .collect()
+    }
+
+    #[test]
+    fn connection_limit_32() {
+        let targets = compute_targets_for_limit(32);
         assert_eq!(
             vec![
                 (0, 0),
@@ -1309,6 +1389,35 @@ mod test {
                 (400, 32),
                 (512, 32),
                 (1024, 32)
+            ],
+            targets
+        );
+    }
+    #[test]
+
+    fn connection_limit_1024() {
+        let targets = compute_targets_for_limit(1024);
+        assert_eq!(
+            vec![
+                (0, 0),
+                (1, 1),
+                (2, 2),
+                (3, 3),
+                (4, 4),
+                (5, 5),
+                (6, 6),
+                (7, 7),
+                (8, 8),
+                (9, 9),
+                (10, 10),
+                (20, 20),
+                (32, 32),
+                (64, 64),
+                (128, 128),
+                (256, 256),
+                (400, 400),
+                (512, 512),
+                (1024, 1024)
             ],
             targets
         );

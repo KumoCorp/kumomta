@@ -3,7 +3,6 @@ use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
-use kumo_server_runtime::rt_spawn;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use once_cell::sync::Lazy;
@@ -184,7 +183,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             diag_format: opts.diag_format,
             tokio_console: opts.tokio_console,
             filter_env_var: "KUMOD_LOG",
-            default_filter: "kumod=info,kumo_server_common=info",
+            default_filter: "kumod=info,kumo_server_common=info,kumo_server_runtime=info",
         },
         lua_funcs: &[
             kumo_server_common::register,

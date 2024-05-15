@@ -9,13 +9,99 @@ use kumo_api_types::{
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 use mlua::{Lua, LuaSerdeExt, Value};
-
-use std::sync::Mutex;
+use parking_lot::FairMutex as Mutex;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use uuid::Uuid;
 
 lazy_static::lazy_static! {
-    static ref ENTRIES: Mutex<Vec<AdminSuspendReadyQEntry>> = Mutex::new(vec![]);
+    static ref ENTRIES: Mutex<Suspensions> = Mutex::new(Suspensions::default());
+}
+
+static GENERATION: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Default)]
+struct Suspensions {
+    entries: HashMap<String, AdminSuspendReadyQEntry>,
+    generation: usize,
+    counter: usize,
+}
+
+impl Suspensions {
+    fn do_expire(&mut self) {
+        let mut changed = false;
+        let now = Instant::now();
+
+        self.entries.retain(|_, entry| {
+            if entry.expires > now {
+                true
+            } else {
+                changed = true;
+                false
+            }
+        });
+
+        if changed {
+            self.inc_generation();
+        }
+    }
+
+    fn inc_generation(&mut self) {
+        self.generation += 1;
+        GENERATION.store(self.generation, Ordering::Relaxed);
+    }
+
+    fn remove_by_id(&mut self, id: &Uuid) -> bool {
+        let mut changed = false;
+        self.entries.retain(|_, entry| {
+            if entry.id == *id {
+                changed = true;
+                false
+            } else {
+                true
+            }
+        });
+        if changed {
+            self.inc_generation();
+        }
+        changed
+    }
+
+    fn maybe_expire(&mut self) {
+        self.counter += 1;
+        if self.counter > 100_000 {
+            self.counter = 0;
+            self.do_expire();
+        }
+    }
+
+    /// Replace any entries with the
+    /// same criteria; this allows updating the reason with a newer
+    /// version of the suspend info.
+    fn insert(&mut self, entry: AdminSuspendReadyQEntry) {
+        self.entries.insert(entry.name.clone(), entry);
+        self.inc_generation();
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AdminSuspendReadyQEntryRef {
+    generation: usize,
+    entry: AdminSuspendReadyQEntry,
+}
+
+impl AdminSuspendReadyQEntryRef {
+    pub fn has_expired(&self) -> bool {
+        self.generation != GENERATION.load(Ordering::Relaxed) || self.expires <= Instant::now()
+    }
+}
+
+impl std::ops::Deref for AdminSuspendReadyQEntryRef {
+    type Target = AdminSuspendReadyQEntry;
+    fn deref(&self) -> &AdminSuspendReadyQEntry {
+        &self.entry
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -35,26 +121,15 @@ impl AdminSuspendReadyQEntry {
     }
 }
 
-fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bool {
-    match (current_thing, wanted_thing) {
-        (Some(a), Some(b)) => a == b,
-        (None, Some(_)) => {
-            // Needs to match a specific thing and there is none
-            false
-        }
-        (_, None) => {
-            // No specific campaign required
-            true
-        }
-    }
-}
-
 impl AdminSuspendReadyQEntry {
-    pub fn get_all() -> Vec<Self> {
-        let mut entries = ENTRIES.lock().unwrap();
-        let now = Instant::now();
-        entries.retain(|ent| ent.expires > now);
-        entries.clone()
+    fn get_all() -> Vec<Self> {
+        let mut entries = ENTRIES.lock();
+        entries.do_expire();
+        entries
+            .entries
+            .values()
+            .map(|entry| entry.clone())
+            .collect()
     }
 
     pub fn get_all_v1() -> Vec<SuspendReadyQueueV1ListEntry> {
@@ -76,36 +151,28 @@ impl AdminSuspendReadyQEntry {
     }
 
     pub fn remove_by_id(id: &Uuid) -> bool {
-        let mut entries = ENTRIES.lock().unwrap();
-        let len_before = entries.len();
-        entries.retain(|e| e.id != *id);
-        len_before != entries.len()
+        let mut entries = ENTRIES.lock();
+        entries.remove_by_id(id)
     }
 
     pub fn add(entry: Self) {
-        let mut entries = ENTRIES.lock().unwrap();
-        let now = Instant::now();
-        // Age out expired entries, and replace any entries with the
-        // same criteria; this allows updating the reason with a newer
-        // version of the suspend info.
-        entries.retain(|ent| ent.expires > now && ent.name != entry.name);
-
-        entries.push(entry);
+        let mut entries = ENTRIES.lock();
+        entries.insert(entry);
     }
 
-    pub fn matches(&self, name: Option<&str>) -> bool {
-        match_criteria(name, Some(&self.name))
-    }
-
-    pub fn get_matching(name: Option<&str>) -> Vec<Self> {
-        let mut entries = Self::get_all();
-        entries.retain(|ent| ent.matches(name));
-        entries
-    }
-
-    pub fn get_for_queue_name(name: &str) -> Option<Self> {
-        let mut entries = Self::get_matching(Some(name));
-        entries.pop()
+    pub fn get_for_queue_name(name: &str) -> Option<AdminSuspendReadyQEntryRef> {
+        let mut entries = ENTRIES.lock();
+        entries.maybe_expire();
+        if let Some(entry) = entries.entries.get(name) {
+            let now = Instant::now();
+            if entry.expires > now {
+                return Some(AdminSuspendReadyQEntryRef {
+                    entry: entry.clone(),
+                    generation: entries.generation,
+                });
+            }
+        }
+        None
     }
 }
 

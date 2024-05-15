@@ -259,7 +259,6 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let pipeline = self.capabilities.contains_key("PIPELINING");
         let mut results: Vec<Result<Response, ClientError>> = vec![];
-        let mut read_timeout = Duration::ZERO;
 
         for cmd in &commands {
             let line = cmd.encode();
@@ -286,7 +285,6 @@ impl SmtpClient {
                         results.push(Err(err.into()));
                         return results;
                     }
-                    read_timeout += cmd.client_timeout(&self.timeouts);
                 }
                 None => {
                     results.push(Err(ClientError::NotConnected));
