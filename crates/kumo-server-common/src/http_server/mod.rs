@@ -9,8 +9,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
-use serde::{de, Deserialize, Deserializer};
-use std::fmt;
+use serde::{Deserialize};
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -231,27 +230,14 @@ where
 }
 
 #[derive(Deserialize)]
-struct PrometheusMetrics {
-    #[serde(default, deserialize_with = "empty_string_as_none")]
+struct PrometheusMetricsParams {
+    #[serde(default)]
     prefix: Option<String>,
-}
-
-fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: FromStr,
-    T::Err: fmt::Display,
-{
-    let opt = Option::<String>::deserialize(de)?;
-    match opt.as_deref() {
-        None | Some("") => Ok(None),
-        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
-    }
 }
 
 async fn report_metrics(
     _: TrustedIpRequired,
-    Query(params): Query<PrometheusMetrics>,
+    Query(params): Query<PrometheusMetricsParams>,
 ) -> Result<String, AppError> {
     let mut metrics = prometheus::default_registry().gather();
     if let Some(prefix) = params.prefix {
