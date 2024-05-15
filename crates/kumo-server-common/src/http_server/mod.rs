@@ -9,7 +9,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::{AnyIpCidr, CidrSet};
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
-use serde::{Deserialize};
+use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::str::FromStr;
 use std::sync::Arc;
