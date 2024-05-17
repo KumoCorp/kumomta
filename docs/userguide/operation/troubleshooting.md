@@ -153,4 +153,4 @@ The log levels available, in order from least to most verbose are:
 
 ## Validating Your Shaping File
 
-If you are using the [traffic shaping helper](../configuration/trafficshaping.md), you will want to use the `validate-shaping` utility to ensure your shaping file is correct. See [this page](../configuration/trafficshaping.md#ensuring-your-changes-are-valid) for instructions on how to use the `validate-shaping` utility.
+If you are using the [traffic shaping helper](../configuration/trafficshaping.md), you will want to use the `validate-shaping` utility to ensure your shaping file is correct. See [this page](../configuration/trafficshaping.md#testing-your-shaping-file) for instructions on how to use the `validate-shaping` utility.

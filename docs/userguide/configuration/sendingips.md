@@ -62,7 +62,7 @@ Pool, the server requires explicit logic to know which message is assigned to
 which Egress Pool.
 
 This logic occurs in the events related to queue management, see the [Queue
-Management](./queuemanagement.md#configuring-egress-pool-assignment) chapter
+Management](queuemanagement.md#configuring-egress-pool-assignment-using-lua) chapter
 for more information.
 
 ## Provisioning Egress Sources Using Lua
