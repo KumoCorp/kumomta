@@ -1,6 +1,6 @@
 use crate::diagnostic_logging::set_diagnostic_log_filter;
 use anyhow::Context;
-use axum::extract::{DefaultBodyLimit, Json};
+use axum::extract::{DefaultBodyLimit, Json, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -229,9 +229,24 @@ where
     }
 }
 
-async fn report_metrics(_: TrustedIpRequired) -> Result<String, AppError> {
-    let report = prometheus::TextEncoder::new()
-        .encode_to_string(&prometheus::default_registry().gather())?;
+#[derive(Deserialize)]
+struct PrometheusMetricsParams {
+    #[serde(default)]
+    prefix: Option<String>,
+}
+
+async fn report_metrics(
+    _: TrustedIpRequired,
+    Query(params): Query<PrometheusMetricsParams>,
+) -> Result<String, AppError> {
+    let mut metrics = prometheus::default_registry().gather();
+    if let Some(prefix) = params.prefix {
+        metrics.iter_mut().for_each(|metric| {
+            let name = format!("{prefix}{}", metric.get_name());
+            metric.set_name(name);
+        });
+    }
+    let report = prometheus::TextEncoder::new().encode_to_string(&metrics)?;
     Ok(report)
 }
 
