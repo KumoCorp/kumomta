@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2023.11.22-c814b960"
+    "version": "2024.05.07-138a1eab"
   },
   "paths": {
     "/api/admin/set_diagnostic_log_filter/v1": {
@@ -15,7 +15,7 @@
           "logging"
         ],
         "summary": "Changes the diagnostic log filter dynamically.",
-        "description": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
+        "description": "See <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
         "requestBody": {
           "description": "",

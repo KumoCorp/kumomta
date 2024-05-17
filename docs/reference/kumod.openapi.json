@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.03.26-2bc409e5"
+    "version": "2024.05.07-138a1eab"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -15,7 +15,7 @@
           "bounce"
         ],
         "summary": "Allows the system operator to list all currently active administrative bounces that have been",
-        "description": "Allows the system operator to list all currently active administrative bounces that have been\nconfigured.",
+        "description": "configured.",
         "operationId": "bounce_v1_list",
         "responses": {
           "200": {
@@ -38,7 +38,7 @@
           "bounce"
         ],
         "summary": "Allows the system operator to administratively bounce messages that match",
-        "description": "Allows the system operator to administratively bounce messages that match\ncertain criteria, or if no criteria are provided, ALL messages.",
+        "description": "certain criteria, or if no criteria are provided, ALL messages.",
         "operationId": "bounce_v1",
         "requestBody": {
           "description": "",
@@ -69,7 +69,6 @@
           "bounce"
         ],
         "summary": "Allows the system operator to delete an administrative bounce entry by its id.",
-        "description": "Allows the system operator to delete an administrative bounce entry by its id.",
         "operationId": "bounce_v1_delete",
         "requestBody": {
           "description": "",
@@ -98,7 +97,6 @@
           "inspect"
         ],
         "summary": "Retrieve information about a message given its spool id.",
-        "description": "Retrieve information about a message given its spool id.",
         "operationId": "inspect_v1",
         "parameters": [
           {
@@ -140,7 +138,7 @@
           "logging"
         ],
         "summary": "Changes the diagnostic log filter dynamically.",
-        "description": "Changes the diagnostic log filter dynamically.\nSee <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
+        "description": "See <https://docs.kumomta.com/reference/kumo/set_diagnostic_log_filter/>\nfor more information on diagnostic log filters.",
         "operationId": "set_diagnostic_log_filter_v1",
         "requestBody": {
           "description": "",
@@ -166,7 +164,6 @@
           "suspend"
         ],
         "summary": "List the active ready-queue suspensions",
-        "description": "List the active ready-queue suspensions",
         "operationId": "list",
         "responses": {
           "200": {
@@ -186,7 +183,6 @@
           "suspend"
         ],
         "summary": "Define a suspension for a ready queue",
-        "description": "Define a suspension for a ready queue",
         "operationId": "suspend",
         "requestBody": {
           "description": "",
@@ -217,7 +213,6 @@
           "suspend"
         ],
         "summary": "Remove a ready-queue suspension",
-        "description": "Remove a ready-queue suspension",
         "operationId": "delete",
         "requestBody": {
           "description": "",
@@ -246,7 +241,6 @@
           "suspend"
         ],
         "summary": "List the active scheduled-queue suspensions",
-        "description": "List the active scheduled-queue suspensions",
         "operationId": "list",
         "responses": {
           "200": {
@@ -266,7 +260,6 @@
           "suspend"
         ],
         "summary": "Define a suspension for a scheduled queue",
-        "description": "Define a suspension for a scheduled queue",
         "operationId": "suspend",
         "requestBody": {
           "description": "",
@@ -297,7 +290,6 @@
           "suspend"
         ],
         "summary": "Remove a scheduled-queue suspension",
-        "description": "Remove a scheduled-queue suspension",
         "operationId": "delete",
         "requestBody": {
           "description": "",
@@ -326,7 +318,7 @@
           "inject"
         ],
         "summary": "Inject a message using a given message body, with template expansion,",
-        "description": "Inject a message using a given message body, with template expansion,\nto a list of recipients.",
+        "description": "to a list of recipients.",
         "operationId": "inject_v1",
         "requestBody": {
           "description": "",
