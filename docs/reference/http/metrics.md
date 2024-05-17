@@ -9,6 +9,14 @@ authentication is not permitted.
 
 See also [metrics.json](metrics.json.md).
 
+{{since('dev', indent=True)}}
+    You may specify an optional `prefix` GET parameter to have
+    the reported metric names be prefixed with a string. For example,
+    you might use `http://localhost:8000/metrics?prefix=kumomta_`.
+    This can be helpful when it comes to matching or discovering
+    kumomta specific metrics, especially in a busy prometheus
+    instance.
+
 ## Example data
 
 Here's an example of the shape of the data. The precise set of counters

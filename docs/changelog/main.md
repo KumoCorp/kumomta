@@ -76,6 +76,9 @@
   option. #168
 * Added `kcli top` command for watching system status from the comfort of
   your terminal.
+* The [Prometheus Metrics Endpoint](../reference/http/metrics.md) now supports
+  an optional `prefix` parameter to rewrite metrics names with a prefix.
+  Thanks to @cai-n! #179
 
 ## Fixes
 
