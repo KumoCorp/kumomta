@@ -114,3 +114,4 @@
   which gave the false impression that it was accepted for relaying.
 * Large `connection_limit` values combined with large ready queues could result in
   more connections than necessary being opened.
+* A client issuing RCPT TO outside of a transaction could cause the service to panic.

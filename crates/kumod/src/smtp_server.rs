@@ -1228,6 +1228,11 @@ impl SmtpServer {
                     address,
                     parameters: _,
                 }) => {
+                    if self.state.is_none() {
+                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
+                            .await?;
+                        continue;
+                    }
                     let address = EnvelopeAddress::parse(&address.to_string())?;
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
