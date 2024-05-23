@@ -16,7 +16,7 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 tokio = {workspace=true, features=["fs"], optional=true}
-vaultrs = {version="0.6", optional=true}
+vaultrs = {version="0.7", optional=true}
 
 [dev-dependencies]
 tokio = {workspace=true, features=["fs", "io-std", "process", "macros", "time", "io-util", "rt"]}
