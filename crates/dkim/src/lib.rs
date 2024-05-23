@@ -12,9 +12,6 @@ use openssl::pkey_ctx::PkeyCtx;
 use openssl::rsa::{Padding, Rsa};
 use std::collections::BTreeMap;
 
-#[macro_use]
-extern crate quick_error;
-
 pub mod canonicalization;
 pub mod dns;
 mod errors;

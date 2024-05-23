@@ -25,10 +25,10 @@ once_cell = "1.17"
 foreign-types = "0.3"
 openssl = { workspace=true }
 openssl-sys = { workspace=true }
-quick-error = "2.0.1"
 sha-1 = { version = "0.10", features = ["oid"] }
 sha2 = { version = "0.10", features = ["oid"] }
 textwrap = "0.16"
+thiserror = "1.0"
 tracing = "0.1"
 hickory-resolver = {workspace=true}
 

@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 /// DKIM error status
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Status {
@@ -5,87 +7,59 @@ pub enum Status {
     Tempfail,
 }
 
-quick_error! {
-    #[derive(Debug, PartialEq, Clone)]
-    /// DKIM errors
-    pub enum DKIMError {
-        UnsupportedHashAlgorithm(value: String) {
-            display("unsupported hash algorithm: {}", value)
-        }
-        UnsupportedCanonicalizationType(value: String) {
-            display("unsupported canonicalization: {}", value)
-        }
-        SignatureSyntaxError(err: String) {
-            display("signature syntax error: {}", err)
-        }
-        SignatureMissingRequiredTag(name: &'static str) {
-            display("signature missing required tag ({})", name)
-        }
-        IncompatibleVersion {
-            display("incompatible version")
-        }
-        DomainMismatch {
-            display("domain mismatch")
-        }
-        FromFieldNotSigned {
-            display("From field not signed")
-        }
-        SignatureExpired {
-            display("signature expired")
-        }
-        UnacceptableSignatureHeader {
-            display("unacceptable signature header")
-        }
-        UnsupportedQueryMethod {
-            display("unsupported query method")
-        }
-        KeyUnavailable(err: String) {
-            display("key unavailable: {}", err)
-        }
-        UnknownInternalError(err: String) {
-            display("internal error: {}", err)
-        }
-        NoKeyForSignature {
-            display("no key for signature")
-        }
-        KeySyntaxError {
-            display("key syntax error")
-        }
-        KeyIncompatibleVersion {
-            display("key incompatible version")
-        }
-        InappropriateKeyAlgorithm {
-            display("inappropriate key algorithm")
-        }
-        SignatureDidNotVerify {
-            display("signature did not verify")
-        }
-        BodyHashDidNotVerify {
-            display("body hash did not verify")
-        }
-        MalformedBody {
-            display("malformed email body")
-        }
-        FailedToSign(err: String) {
-            display("failed sign: {}", err)
-        }
-        BuilderError(err: &'static str) {
-            display("failed to build object: {}", err)
-        }
-        HeaderSerializeError(err: String) {
-            display("failed to serialize DKIM header: {err}")
-        }
-        PrivateKeyLoadError(err: String) {
-            display("failed to load private key: {err}")
-        }
-        MailParsingError(err: mailparsing::MailParsingError) {
-            from()
-            display("failed to parse message: {err:#}")
-        }
-        CanonicalLineEndingsRequired {
-            display("Canonical CRLF line endings are required for correct signing and verification")
-        }
-    }
+#[derive(Debug, PartialEq, Clone, Error)]
+/// DKIM errors
+pub enum DKIMError {
+    #[error("unsupported hash algorithm: {0}")]
+    UnsupportedHashAlgorithm(String),
+    #[error("unsupported canonicalization: {0}")]
+    UnsupportedCanonicalizationType(String),
+    #[error("signature syntax error: {0}")]
+    SignatureSyntaxError(String),
+    #[error("signature missing required tag ({0})")]
+    SignatureMissingRequiredTag(&'static str),
+    #[error("incompatible version")]
+    IncompatibleVersion,
+    #[error("domain mismatch")]
+    DomainMismatch,
+    #[error("From field not signed")]
+    FromFieldNotSigned,
+    #[error("signature expired")]
+    SignatureExpired,
+    #[error("unacceptable signature header")]
+    UnacceptableSignatureHeader,
+    #[error("unsupported query method")]
+    UnsupportedQueryMethod,
+    #[error("key unavailable: {0}")]
+    KeyUnavailable(String),
+    #[error("internal error: {0}")]
+    UnknownInternalError(String),
+    #[error("no key for signature")]
+    NoKeyForSignature,
+    #[error("key syntax error")]
+    KeySyntaxError,
+    #[error("key incompatible version")]
+    KeyIncompatibleVersion,
+    #[error("inappropriate key algorithm")]
+    InappropriateKeyAlgorithm,
+    #[error("signature did not verify")]
+    SignatureDidNotVerify,
+    #[error("body hash did not verify")]
+    BodyHashDidNotVerify,
+    #[error("malformed email body")]
+    MalformedBody,
+    #[error("failed sign: {0}")]
+    FailedToSign(String),
+    #[error("failed to build object: {0}")]
+    BuilderError(&'static str),
+    #[error("failed to serialize DKIM header: {0}")]
+    HeaderSerializeError(String),
+    #[error("failed to load private key: {0}")]
+    PrivateKeyLoadError(String),
+    #[error("failed to parse message: {0:#}")]
+    MailParsingError(#[from] mailparsing::MailParsingError),
+    #[error("Canonical CRLF line endings are required for correct signing and verification")]
+    CanonicalLineEndingsRequired,
 }
 
 impl DKIMError {
