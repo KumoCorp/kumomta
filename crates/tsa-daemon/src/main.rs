@@ -34,10 +34,6 @@ struct Opt {
     #[arg(long, default_value = "full")]
     diag_format: DiagnosticFormat,
 
-    /// Whether to enable the diagnostic tokio console
-    #[arg(long)]
-    tokio_console: bool,
-
     /// Instead of running the daemon, output the openapi spec json
     /// to stdout
     #[arg(long)]
@@ -97,7 +93,6 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         logging: LoggingConfig {
             log_dir: opts.diag_log_dir.clone(),
             diag_format: opts.diag_format,
-            tokio_console: opts.tokio_console,
             filter_env_var: "KUMO_TSA_LOG",
             default_filter: "tsa_daemon=info,kumo_server_common=info,kumo_server_runtime=info",
         },

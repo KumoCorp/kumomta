@@ -8,28 +8,6 @@ This will launch the server using the policy defined in [simple_policy.lua](simp
 KUMOD_LOG=kumod=trace cargo run -p kumod -- --policy simple_policy.lua
 ```
 
-## Tokio Console
-
-You may use
-[tokio-console](https://docs.rs/tokio-console/latest/tokio_console/) to
-introspect the system.
-
-```
-kumod --tokio-console --policy simple_policy.lua
-```
-
-Then, in another window, run `tokio-console`.
-
-The following environment variables influence the tokio console server that is
-embedded into kumod:
-
-| **Environment Variable**         | **Purpose**                                                  | **Default Value** |
-|----------------------------------|--------------------------------------------------------------|-------------------|
-| `TOKIO_CONSOLE_RETENTION`        | The duration of seconds to accumulate completed tracing data | 3600s (1h)        |
-| `TOKIO_CONSOLE_BIND`             | a HOST:PORT description, such as `localhost:1234`            | `127.0.0.1:6669`  |
-| `TOKIO_CONSOLE_PUBLISH_INTERVAL` | The duration to wait between sending updates to the console  | 1000ms (1s)       |
-| `TOKIO_CONSOLE_RECORD_PATH`      | The file path to save a recording                            | None              |
-
 ## Metrics
 
 If the http listener is enabled, the `/metrics` endpoint will return a set of metrics

@@ -15,7 +15,6 @@ backtrace = "0.3"
 cidr-map = {path="../cidr-map"}
 clap = {version="4.1", features=["derive"]}
 config = {path="../config"}
-console-subscriber = "0.2"
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}

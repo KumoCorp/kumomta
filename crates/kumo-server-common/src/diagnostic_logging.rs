@@ -43,7 +43,6 @@ pub enum DiagnosticFormat {
 }
 
 pub struct LoggingConfig<'a> {
-    pub tokio_console: bool,
     pub log_dir: Option<PathBuf>,
     pub filter_env_var: &'a str,
     pub default_filter: &'a str,
@@ -76,11 +75,6 @@ impl<'a> LoggingConfig<'a> {
         )?;
         let (env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
         tracing_subscriber::registry()
-            .with(if self.tokio_console {
-                Some(console_subscriber::spawn())
-            } else {
-                None
-            })
             .with(layer.with_filter(env_filter))
             .with(metrics_tracing_context::MetricsLayer::new())
             .init();
