@@ -17,7 +17,7 @@ chrono = { version = "0.4.26", default-features = false, features = ["clock", "s
 data-encoding = {workspace=true}
 ed25519-dalek = {workspace=true, features=["pkcs8", "pem"]}
 futures = {workspace=true}
-indexmap = "1.9.3"
+indexmap = "2.2"
 mailparsing = { path="../mailparsing" }
 memchr = "2.5"
 nom = "7.1.0"
