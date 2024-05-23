@@ -1,7 +1,7 @@
 use crate::http_server::AppState;
 use axum::async_trait;
-use axum::extract::{FromRequestParts, State};
-use axum::http::{Request, StatusCode};
+use axum::extract::{FromRequestParts, Request, State};
+use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
@@ -83,10 +83,10 @@ impl AuthKind {
     }
 }
 
-pub async fn auth_middleware<B>(
+pub async fn auth_middleware(
     State(state): State<AppState>,
-    mut request: Request<B>,
-    next: Next<B>,
+    mut request: Request,
+    next: Next,
 ) -> Response {
     if let Some(remote_addr) = request
         .extensions()

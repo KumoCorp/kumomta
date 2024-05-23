@@ -28,8 +28,9 @@ opt-level = 3
 debug = 1 # include line tables for more meaningful backtraces
 
 [workspace.dependencies]
-axum = "0.6"
-axum-server = "0.5"
+axum = "0.7"
+axum-client-ip = "0.6"
+axum-server = "0.6"
 data-encoding = "2.6"
 ed25519-dalek = "2.0"
 futures = "0.3.28"
@@ -50,7 +51,7 @@ tokio-rustls = "0.24"
 hickory-resolver = "0.24"
 hickory-proto = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
-utoipa-rapidoc = { version="1.0", features = ["axum"] }
+utoipa-rapidoc = { version="4.0", features = ["axum"] }
 uuid = "1.4"
 webpki-roots = "0.25"
 
