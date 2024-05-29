@@ -29,7 +29,7 @@ RUN cargo build --release -p kumod && \
 # is problematic when built with musl.
 # <https://github.com/rust-rocksdb/rust-rocksdb/issues/174>.
 # It does compile, but it just SEGV'd on startup for me.
-FROM ubuntu:latest as runtime
+FROM debian:bookworm-slim as runtime
 # Create a user and group to run as.
 # Note that we don't use the docker USER here because we need to
 # start as root and then drop to this user. That is handled by
