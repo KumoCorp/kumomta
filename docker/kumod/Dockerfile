@@ -35,7 +35,7 @@ FROM ubuntu:latest as runtime
 # start as root and then drop to this user. That is handled by
 # the docker-runner.sh script.
 RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
-RUN apt update && apt install -y libsqlite3-dev
+RUN apt update && apt install -y libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/kumomta/sbin
 COPY --from=builder /app/target/release/kcli .
 COPY --from=builder /app/target/release/kumod .
