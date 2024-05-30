@@ -12,11 +12,15 @@ use std::time::Duration;
 /// Make sure that you mean it, as there is no going back!
 ///
 /// The bounce will be applied immediately to queued messages,
+/// (asynchronously with respect to the command!)
 /// and the directive will remain in effect for the duration
 /// specified, causing newly received messages or messages
 /// that were in a transient state at the time the directive
 /// was received, to also be bounced as they are placed
 /// back into the matching queue(s).
+///
+/// The totals printed by this command are often under-reported
+/// due to the asynchronous nature of the action.
 pub struct BounceCommand {
     /// The domain name to match.
     /// If omitted, any domains will match!
@@ -88,6 +92,10 @@ impl BounceCommand {
         )
         .await?;
 
+        eprintln!(
+            "NOTE: the numbers shown here are not final; the bounce is \
+             running async. Use the bounce-list command to review ongoing status!"
+        );
         println!("{}", serde_json::to_string_pretty(&result)?);
 
         Ok(())

@@ -18,11 +18,22 @@ The body of the post request must be a JSON object; here's an example:
 
 and the response will look something like this, with an entry for
 each matching queue name and the count of matching messages that
-were bounced:
+were bounced *so far*:
 
 ```json
 {"bounced":{"gmail.com":42}, "total_bounced":42}
 ```
+
+!!! note
+    More recent builds of KumoMTA perform most of the bouncing
+    asynchronously with respect to this bounce request being
+    made, in order to make the overall system more responsive
+    and performant. As a result, the numbers reported in the
+    response to this command will often show as either zero
+    or some smaller number than the total that will be affected.
+    Use the [GET /api/admin/bounce/v1](api_admin_bounce_v1.md)
+    API or the `kcli bounce-list` command to review the current
+    totals.
 
 The following fields are possible in the request:
 
