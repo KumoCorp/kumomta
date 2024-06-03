@@ -717,6 +717,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
 name = "cgroups-rs"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2310,7 +2316,7 @@ dependencies = [
  "lipsum",
  "maildir",
  "mailparsing",
- "nix 0.28.0",
+ "nix 0.29.0",
  "rfc5321",
  "serde",
  "serde_json",
@@ -2466,7 +2472,7 @@ dependencies = [
  "serde_json",
  "tabout",
  "tokio",
- "tungstenite 0.21.0",
+ "tungstenite 0.23.0",
  "uuid",
  "version-info",
 ]
@@ -2722,7 +2728,7 @@ dependencies = [
  "minijinja-contrib",
  "mlua",
  "mta-sts",
- "nix 0.28.0",
+ "nix 0.29.0",
  "once_cell",
  "parking_lot",
  "ppp",
@@ -3503,9 +3509,21 @@ checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
 dependencies = [
  "bitflags 2.5.0",
  "cfg-if",
- "cfg_aliases",
+ "cfg_aliases 0.1.1",
  "libc",
  "memoffset",
+]
+
+[[package]]
+name = "nix"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
+dependencies = [
+ "bitflags 2.5.0",
+ "cfg-if",
+ "cfg_aliases 0.2.1",
+ "libc",
 ]
 
 [[package]]
@@ -5978,7 +5996,7 @@ dependencies = [
  "humanize-rs",
  "humansize",
  "lipsum",
- "nix 0.28.0",
+ "nix 0.29.0",
  "num-format",
  "once_cell",
  "rand",
@@ -6065,6 +6083,24 @@ dependencies = [
  "sha1",
  "thiserror",
  "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e2e2ce1e47ed2994fd43b04c8f618008d4cabdd5ee34027cf14f9d918edd9c8"
+dependencies = [
+ "byteorder",
+ "bytes",
+ "data-encoding",
+ "http 1.1.0",
+ "httparse",
+ "log",
+ "rand",
+ "sha1",
+ "thiserror",
  "utf-8",
 ]
 
