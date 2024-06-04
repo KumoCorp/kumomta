@@ -717,31 +717,32 @@ pub struct Dispatcher {
 impl Drop for Dispatcher {
     fn drop(&mut self) {
         // Ensure that we re-queue any message that we had popped
-        if let Some(msg) = self.msg.take() {
-            let activity = self.activity.clone();
-            let name = self.name.to_string();
-            let notify_dispatcher = self.notify_dispatcher.clone();
-            READYQ_RUNTIME
-                .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
-                    Ok(async move {
+        let msg = self.msg.take();
+        let activity = self.activity.clone();
+        let name = self.name.to_string();
+        let notify_dispatcher = self.notify_dispatcher.clone();
+        READYQ_RUNTIME
+            .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
+                Ok(async move {
+                    if let Some(msg) = msg {
                         if activity.is_shutting_down() {
                             Queue::save_if_needed_and_log(&msg).await;
                         } else {
                             if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
                                 tracing::error!("error requeuing message: {err:#}");
-                            } else {
-                                tokio::time::sleep(Duration::from_secs(1)).await;
-                                let ready_queue = ReadyQueueManager::get_by_name(&name);
-                                if let Some(q) = ready_queue {
-                                    q.notify_maintainer.notify_one();
-                                }
-                                notify_dispatcher.notify_one();
                             }
                         }
-                    })
+                    } else {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        let ready_queue = ReadyQueueManager::get_by_name(&name);
+                        if let Some(q) = ready_queue {
+                            q.notify_maintainer.notify_one();
+                        }
+                        notify_dispatcher.notify_one();
+                    }
                 })
-                .ok();
-        }
+            })
+            .ok();
     }
 }
 
