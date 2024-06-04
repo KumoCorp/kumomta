@@ -26,6 +26,9 @@ when:
         - assets/policy-extras/**
         - crates/**
         - docker/**
+  - event: tag
+    branch:
+      - main
   - event: pull_request
     path: *paths
   - event: manual

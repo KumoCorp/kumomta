@@ -25,6 +25,9 @@ when:
         - assets/install.sh
         - assets/policy-extras/**
         - crates/**
+  - event: tag
+    branch:
+      - main
   - event: pull_request
     path: *paths
   - event: manual
