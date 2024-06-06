@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+import sys
+
+IMAGES = [
+    "ubuntu:20.04",
+    "ubuntu:22.04",
+    "rockylinux:8",
+    "rockylinux:9",
+    "amazonlinux:2",
+    "amazonlinux:2023",
+]
+
+container = sys.argv[1]
+if container not in IMAGES:
+    raise Exception(f"invalid image name {container}")
+
+
+dockerfile = f"""
+FROM {container}\n
+WORKDIR /tmp
+COPY ./get-deps.sh .
+LABEL org.opencontainers.image.source=https://github.com/KumoCorp/kumomta
+LABEL org.opencontainers.image.description="Build environment for CI"
+LABEL org.opencontainers.image.licenses="Apache"
+"""
+
+commands = [
+    "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+    ". $HOME/.cargo/env",
+    "/tmp/get-deps.sh",
+    "curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin",
+]
+
+if "ubuntu" in container:
+    doc_deps = []
+    if "ubuntu:22.04" in container:
+        doc_deps += ["podman"]
+
+    commands = (
+        [
+            "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections",
+            "apt update",
+            "apt install -yqq --no-install-recommends "
+            + " ".join(
+                [
+                    "ca-certificates",
+                    "curl",
+                    "git",
+                    "jq",
+                    "pip",
+                ]
+                + doc_deps
+            ),
+        ]
+        + commands
+        + ["cargo install --locked gelatyx"]
+        + [
+            "pip3 install --quiet "
+            + " ".join(
+                [
+                    "black",
+                ]
+            )
+        ]
+    )
+
+    dockerfile += "ENV DEBIAN_FRONTEND=noninteractive\n"
+    dockerfile += "RUN rm -f /etc/apt/apt.conf.d/docker-clean\n"
+    dockerfile += (
+        "RUN " + " && ".join(commands) + "\n"
+    )
+
+if "rocky" in container:
+    commands = [
+        "dnf install -y git rpm-sign gnupg2",
+        # Some systems have curl-minimal which won't tolerate us installing curl
+        "command -v curl || dnf install -y curl",
+    ] + commands
+    dockerfile += "RUN " + " && ".join(commands) + "\n"
+
+if "amazonlinux" in container:
+    if container == "amazonlinux:2":
+        gpg = "yum install -y gnupg2"
+    else:
+        gpg = "yum install -y gnupg2 --allowerasing"
+    commands = [
+        gpg,
+        "yum install -y git rpm-sign",
+        # Some systems have curl-minimal which won't tolerate us installing curl
+        "command -v curl || yum install -y curl",
+    ] + commands
+    dockerfile += "RUN " + " && ".join(commands) + "\n"
+
+print(dockerfile)

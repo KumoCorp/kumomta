@@ -1,0 +1,66 @@
+labels:
+  platform: linux/amd64
+
+matrix:
+  include:
+    - IMAGE: "amazonlinux"
+      VERSION: 2023
+    - IMAGE: "amazonlinux"
+      VERSION: 2
+    - IMAGE: "rockylinux"
+      VERSION: 9
+    - IMAGE: "rockylinux"
+      VERSION: 8
+    - IMAGE: "ubuntu"
+      VERSION: 22.04
+    - IMAGE: "ubuntu"
+      VERSION: 20.04
+
+when:
+  - event: push
+    branch:
+      - main
+    path: &paths
+      include:
+        - .woodpecker/builder-intel.yml
+        - "assets/ci/emit-builder-dockerfile.py"
+  - event: pull_request
+    path: *paths
+  - event: manual
+
+variables:
+  - &docker_credentials
+      username:
+        from_secret: gh_package_publish_user
+      password:
+        from_secret: gh_package_publish_token
+
+steps:
+  compute-dockerfile:
+    image: python:3-bookworm
+    commands: |
+      assets/ci/emit-builder-dockerfile.py ${IMAGE}:${VERSION} > Dockerfile.builder
+  build-builder-no-publish:
+    image: plugins/docker
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "pull_request" || (CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH != "main")'
+    settings:
+      #<<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/builder-for-${IMAGE}"
+      dry_run: true
+      tags:
+        - ${VERSION}
+      dockerfile: Dockerfile.builder
+
+  publish-builder:
+    image: plugins/docker
+    when:
+      - evaluate: '(CI_PIPELINE_EVENT != "pull_request") && CI_COMMIT_BRANCH == "main"'
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/builder-for-${IMAGE}"
+      tags:
+        - ${VERSION}
+      dockerfile: Dockerfile.builder
