@@ -51,25 +51,16 @@ steps:
       - git diff-index --name-status HEAD --
 
   restore-build-cache:
-    environment: &cache_environment
-      AWS_DISABLESSL: "true"
-      AWS_ACCESS_KEY_ID:
-        from_secret: s3_access_key_id
-      AWS_SECRET_ACCESS_KEY:
-        from_secret: s3_secret_key
-      S3_ENDPOINT:
-        from_secret: s3_endpoint
     image: &cache_image meltwater/drone-cache
     when:
       - evaluate: 'CI_PIPELINE_EVENT != "cron"'
     settings: &cache_settings
-      bucket: kumomta-cache
+      backend: filesystem
+      filesystem_cache_root: /build-cache
       cache_key: rocky:${ROCKY_VERSION}_{{ arch }}_{{ os }}
       mount:
         - .ci-cargo
         - target
-      path_style: "true"
-      region: eu-west-2
       rebuild: "false"
       restore: "true"
 
@@ -112,8 +103,6 @@ steps:
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
     image: *cache_image
-    environment: *cache_environment
-    #detach: true
     settings:
       <<: *cache_settings
       rebuild: "true"
