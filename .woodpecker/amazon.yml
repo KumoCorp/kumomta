@@ -2,7 +2,6 @@ labels:
   platform: linux/amd64
 
 matrix:
-  # Annoying workaround for <https://github.com/woodpecker-ci/woodpecker/issues/2002>
   include:
     - AMAZON_VERSION: 2
       AMAZON_IMAGE: amazonlinux:2
