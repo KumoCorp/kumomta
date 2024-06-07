@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 
 IMAGES = [
@@ -24,11 +25,15 @@ LABEL org.opencontainers.image.description="Build environment for CI"
 LABEL org.opencontainers.image.licenses="Apache"
 """
 
+NEXTEST = "https://get.nexte.st/latest/linux"
+if os.getenv("ARM") == "1":
+    NEXTEST = "https://get.nexte.st/latest/linux-arm"
+
 commands = [
     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
-    "curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin",
+    f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
 ]
 
 if "ubuntu" in container:
@@ -66,9 +71,7 @@ if "ubuntu" in container:
 
     dockerfile += "ENV DEBIAN_FRONTEND=noninteractive\n"
     dockerfile += "RUN rm -f /etc/apt/apt.conf.d/docker-clean\n"
-    dockerfile += (
-        "RUN " + " && ".join(commands) + "\n"
-    )
+    dockerfile += "RUN " + " && ".join(commands) + "\n"
 
 if "rocky" in container:
     commands = [

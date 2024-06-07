@@ -33,7 +33,7 @@ steps:
   compute-dockerfile:
     image: python:3-bookworm
     commands: |
-      assets/ci/emit-builder-dockerfile.py ${IMAGE}:${VERSION} > Dockerfile.builder
+      ARM=1 assets/ci/emit-builder-dockerfile.py ${IMAGE}:${VERSION} > Dockerfile.builder
   build-builder-no-publish:
     image: plugins/docker
     when:
