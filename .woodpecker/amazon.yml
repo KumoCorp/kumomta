@@ -64,18 +64,8 @@ steps:
       rebuild: "false"
       restore: "true"
 
-  get-deps:
-    environment:
-      CARGO_HOME: .ci-cargo
-      CARGO_TERM_COLOR: always
-    image: ${BUILDER_IMAGE}
-    pull: true
-    commands:
-      - PATH=$PATH:$HOME/.cargo/bin
-      - ./get-deps.sh
-
   test:
-    depends_on: [restore-mtime, restore-build-cache, get-deps]
+    depends_on: [restore-mtime, restore-build-cache]
     environment:
       CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
