@@ -1,14 +1,20 @@
-labels:
-  platform: linux/amd64
-
 matrix:
   include:
     - AMAZON_VERSION: 2
       AMAZON_IMAGE: amazonlinux:2
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2
+      platform: linux/amd64
     - AMAZON_VERSION: 2023
       AMAZON_IMAGE: amazonlinux:2023
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2023
+      platform: linux/amd64
+    - AMAZON_VERSION: 2023
+      AMAZON_IMAGE: amazonlinux:2023
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-aarch64-amazonlinux:2023
+      platform: linux/aarch64
+
+labels:
+  platform: ${platform}
 
 when:
   - event: push
