@@ -1,20 +1,47 @@
-labels:
-  platform: linux/amd64
-
 matrix:
   include:
     - IMAGE: "amazonlinux"
       VERSION: 2023
-    - IMAGE: "amazonlinux"
-      VERSION: 2
+      REPO: "ghcr.io/kumocorp/builder-for-aarch64-amazonlinux"
+      ISARM: "ARM=1"
+      platform: linux/aarch64
     - IMAGE: "rockylinux"
       VERSION: 9
+      REPO: "ghcr.io/kumocorp/builder-for-aarch64-rockylinux"
+      platform: linux/aarch64
+      ISARM: "ARM=1"
+    - IMAGE: "ubuntu"
+      REPO: "ghcr.io/kumocorp/builder-for-aarch64-ubuntu"
+      VERSION: 22.04
+      ISARM: "ARM=1"
+      platform: linux/aarch64
+    - IMAGE: "amazonlinux"
+      VERSION: 2023
+      REPO: "ghcr.io/kumocorp/builder-for-amazonlinux"
+      platform: linux/amd64
+    - IMAGE: "amazonlinux"
+      VERSION: 2
+      REPO: "ghcr.io/kumocorp/builder-for-amazonlinux"
+      platform: linux/amd64
+    - IMAGE: "rockylinux"
+      VERSION: 9
+      REPO: "ghcr.io/kumocorp/builder-for-rockylinux"
+      platform: linux/amd64
     - IMAGE: "rockylinux"
       VERSION: 8
+      REPO: "ghcr.io/kumocorp/builder-for-rockylinux"
+      platform: linux/amd64
     - IMAGE: "ubuntu"
+      REPO: "ghcr.io/kumocorp/builder-for-ubuntu"
       VERSION: 22.04
+      platform: linux/amd64
     - IMAGE: "ubuntu"
+      REPO: "ghcr.io/kumocorp/builder-for-ubuntu"
       VERSION: 20.04
+      platform: linux/amd64
+
+labels:
+  platform: ${platform}
 
 when:
   - event: push
@@ -22,11 +49,13 @@ when:
       - main
     path: &paths
       include:
-        - .woodpecker/builder-intel.yml
+        - .woodpecker/image-builder.yml
         - "assets/ci/emit-builder-dockerfile.py"
   - event: pull_request
     path: *paths
   - event: manual
+  - event: cron
+    cron: build-builder
 
 variables:
   - &docker_credentials
@@ -39,15 +68,14 @@ steps:
   compute-dockerfile:
     image: python:3-bookworm
     commands: |
-      assets/ci/emit-builder-dockerfile.py ${IMAGE}:${VERSION} > Dockerfile.builder
+      ${ISARM} assets/ci/emit-builder-dockerfile.py ${IMAGE}:${VERSION} > Dockerfile.builder
   build-builder-no-publish:
     image: plugins/docker
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "pull_request" || (CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH != "main")'
     settings:
-      #<<: *docker_credentials
       registry: ghcr.io
-      repo: "ghcr.io/kumocorp/builder-for-${IMAGE}"
+      repo: "${REPO}"
       dry_run: true
       tags:
         - ${VERSION}
@@ -60,7 +88,7 @@ steps:
     settings:
       <<: *docker_credentials
       registry: ghcr.io
-      repo: "ghcr.io/kumocorp/builder-for-${IMAGE}"
+      repo: "${REPO}"
       tags:
         - ${VERSION}
       dockerfile: Dockerfile.builder
