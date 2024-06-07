@@ -1,15 +1,20 @@
-labels:
-  platform: linux/amd64
-
 matrix:
-  # Annoying workaround for <https://github.com/woodpecker-ci/woodpecker/issues/2002>
   include:
     - UBUNTU_VERSION: 22.04
       UBUNTU_IMAGE: ubuntu:22.04
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
+      platform: linux/amd64
     - UBUNTU_VERSION: 20.04
       UBUNTU_IMAGE: ubuntu:20.04
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:20.04
+      platform: linux/amd64
+    - UBUNTU_VERSION: 22.04
+      UBUNTU_IMAGE: ubuntu:22.04
+      BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-aarch64-ubuntu:22.04
+      platform: linux/aarch64
+
+labels:
+  platform: ${platform}
 
 when:
   - event: push
@@ -132,7 +137,7 @@ steps:
   build-dev-docker-image:
     depends_on: [publish_deb]
     when:
-      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+      - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/docker
     settings:
       <<: *docker_credentials
@@ -145,7 +150,7 @@ steps:
   build-docker-image:
     depends_on: [publish_deb]
     when:
-      - evaluate: 'UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+      - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
     image: plugins/docker
     settings:
       <<: *docker_credentials
@@ -154,4 +159,31 @@ steps:
       tags:
         - latest
         - ${CI_COMMIT_TAG}
+      dockerfile: docker/kumod/Dockerfile.incremental
+
+  build-dev-docker-image-arm:
+    depends_on: [publish_deb]
+    when:
+      - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: plugins/docker
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta-dev"
+      tags:
+        - latest-arm64
+      dockerfile: docker/kumod/Dockerfile.incremental
+
+  build-docker-image-arm:
+    depends_on: [publish_deb]
+    when:
+      - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+    image: plugins/docker
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta"
+      tags:
+        - latest-arm64
+        - ${CI_COMMIT_TAG}-arm64
       dockerfile: docker/kumod/Dockerfile.incremental
