@@ -1,6 +1,6 @@
 # `message:append_text_plain(content)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Identifies the primary `text/plain` part of the message, decodes its transfer
 encoding, and appends the `content` string to it. The part is then

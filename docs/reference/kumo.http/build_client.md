@@ -11,13 +11,13 @@ across multiple HTTP requests.
   for all requests made by the client
 * `connection_verbose` - optional boolean. If true, additional diagnostics
   around the connection attempt will be logged and can be seen by setting the
-  diagnostic filter to include `reqwest=trace`. {{since('dev', inline=True)}}
+  diagnostic filter to include `reqwest=trace`. {{since('2024.06.10-84e84b89', inline=True)}}
 * `pool_idle_timeout` - optional duration. Sets the maximum time that an idle
   connection remains in the connection pool. The default is `90 seconds`.
-  {{since('dev', inline=True)}}.
+  {{since('2024.06.10-84e84b89', inline=True)}}.
 * `timeout` - optional duration. Sets the default timeout to use for each
   request made by the client. Can be overridden using the Request object.
-  The default is `60 seconds`. {{since('dev', inline=True)}}.
+  The default is `60 seconds`. {{since('2024.06.10-84e84b89', inline=True)}}.
 
 ```lua
 local response = kumo.http.build_client({}):get('https://example.com/'):send()

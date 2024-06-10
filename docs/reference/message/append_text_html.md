@@ -1,6 +1,6 @@
 # `message:append_text_html(content)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Identifies the primary `text/html` part of the message, decodes its transfer
 encoding, and locates the closing `"</body>"` or `"</BODY>"` tag. If the tag

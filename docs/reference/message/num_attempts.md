@@ -1,6 +1,6 @@
 # `message:num_attempts()`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This method returns the number of delivery attempts that have been made for
 this message.

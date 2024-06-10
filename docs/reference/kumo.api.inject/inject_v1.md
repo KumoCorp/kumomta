@@ -1,6 +1,6 @@
 # `kumo.api.inject.inject_v1(request)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This is a Lua entrypoint that calls into the [HTTP injection
 API](../http/api_inject_v1.md).  The parameter is a request object with

@@ -1,6 +1,6 @@
 # `kumo.http.connect_websocket(URL)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Constructs a websocket client.
 

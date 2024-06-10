@@ -1,6 +1,6 @@
 # `message:set_due(due)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This method overrides the next delivery time for the message.  The *due* parameter
 may be:

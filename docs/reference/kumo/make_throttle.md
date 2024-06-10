@@ -1,6 +1,6 @@
 # `kumo.make_throttle(NAME, SPEC)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Constructs and returns a named throttle object.  A throttle allows constraining
 the rate at which an operation can occur, according to a Generic Cell Rate

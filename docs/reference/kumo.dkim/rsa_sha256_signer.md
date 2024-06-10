@@ -111,7 +111,7 @@ disk.
 
 ## over_sign
 
-{{since('dev', indent=True)}}
+{{since('2024.06.10-84e84b89', indent=True)}}
 
     Optional boolean. If `true` then the list of `headers` will be adjusted
     to match the email message being signed so that the message is signed

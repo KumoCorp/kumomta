@@ -100,7 +100,7 @@ the result of the request.
 
 ## request:timeout(duration)
 
-{{since('dev', indent=True)}}
+{{since('2024.06.10-84e84b89', indent=True)}}
     Sets the timeout duration for the request.  If no response is received
     within the specified duration, the request will raise an error.
 

@@ -1,6 +1,6 @@
 # `kumo.on('requeue_message', function(message))`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This event is triggered when a message encountered a transient failure.
 Its purpose is to allow you to re-bind the message to an alternative

@@ -1,6 +1,6 @@
 # `kumo.available_parallelism()`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Returns an estimate of the default amount of parallelism a program should use.
 

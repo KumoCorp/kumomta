@@ -36,7 +36,7 @@ end)
 
 ## max_message_rate
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Optional string.
 

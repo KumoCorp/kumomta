@@ -6,7 +6,7 @@ tags:
 
 # `kumo.glob(pattern [, relative_to, [, ttl_seconds]])`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This function evalutes the glob `pattern` and returns an array containing the
 absolute file names of the matching results.  Due to limitations in the lua

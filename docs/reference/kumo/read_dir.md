@@ -6,7 +6,7 @@ tags:
 
 # `kumo.read_dir(path)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This function returns an array containing the absolute file names of the
 directory specified.  Due to limitations in the lua bindings, all of the paths

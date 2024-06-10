@@ -9,7 +9,7 @@ authentication is not permitted.
 
 See also [metrics.json](metrics.json.md).
 
-{{since('dev', indent=True)}}
+{{since('2024.06.10-84e84b89', indent=True)}}
     You may specify an optional `prefix` GET parameter to have
     the reported metric names be prefixed with a string. For example,
     you might use `http://localhost:8000/metrics?prefix=kumomta_`.

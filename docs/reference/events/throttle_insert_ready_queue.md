@@ -1,6 +1,6 @@
 # `kumo.on('throttle_insert_ready_queue', function(message))`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 This event is triggered when a message is ready to move from its
 containing scheduled queue and into a ready queue.

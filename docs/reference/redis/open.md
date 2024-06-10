@@ -31,7 +31,7 @@ print(conn:query('incr', 'test-count'))
   to a single node.
 
 * `connect_timeout` - optional string. Specify how long to keep attempting
-  to connect to redis. The default is `30 seconds`. {{since('dev', inline=True)}}
+  to connect to redis. The default is `30 seconds`. {{since('2024.06.10-84e84b89', inline=True)}}
 
 The returned connection handle has a single `"query"` method:
 

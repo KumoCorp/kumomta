@@ -6,7 +6,7 @@ tags:
 
 # `kumo.uncached_glob(pattern [, relative_to])`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 !!! warning
     This function can cause an expensive filesystem walk to occur, especially

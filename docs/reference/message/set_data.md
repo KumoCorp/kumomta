@@ -1,6 +1,6 @@
 # `message:set_data(payload)`
 
-{{since('dev')}}
+{{since('2024.06.10-84e84b89')}}
 
 Replaces the message body/data completely.
 It is your responsibility to ensure that the content is well-formed, has
