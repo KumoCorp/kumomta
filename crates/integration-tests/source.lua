@@ -27,7 +27,7 @@ kumo.on('init', function()
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
-    headers = { 'X-*', 'Y-*' },
+    headers = { 'X-*', 'Y-*', 'Subject' },
   }
 
   if WEBHOOK_PORT then

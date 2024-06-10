@@ -944,14 +944,30 @@ Ok(
         );
 
         let mut logged_headers = vec![];
+        let mut headers_delivered = vec![];
         for record in daemon.webhook.return_logs() {
+            let ordered_headers: BTreeMap<_, _> = record.headers.into_iter().collect();
             if record.kind == RecordType::Reception {
-                let ordered_headers: BTreeMap<_, _> = record.headers.into_iter().collect();
                 logged_headers.push(ordered_headers);
+            } else if record.kind == RecordType::Delivery {
+                headers_delivered.push(ordered_headers);
             }
         }
         k9::snapshot!(
             logged_headers,
+            r#"
+[
+    {
+        "Subject": String("Hello! This is a test"),
+        "X-Another": String("Another"),
+        "X-KumoRef": String("eyJfQF8iOiJcXF8vIiwicmVjaXBpZW50IjoicmVjaXBAZXhhbXBsZS5jb20ifQ=="),
+        "X-Test1": String("Test1"),
+    },
+]
+"#
+        );
+        k9::snapshot!(
+            headers_delivered,
             r#"
 [
     {
