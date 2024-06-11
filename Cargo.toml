@@ -60,4 +60,3 @@ webpki-roots = "0.25"
 openssl = { version="0.10.60", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
 # Can be removed once dane support is upstreamed
 openssl-sys = { version="0.9", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
-
