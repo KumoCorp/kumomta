@@ -1,6 +1,6 @@
 # Configuring KumoMTA
 
-The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html). Lua is a powerful embedded scripting language that is easy to read and code, and is very powerful. It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](https://docs.kumomta.com/tutorial/lua_resources/).
+The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.html). Lua is a powerful embedded scripting language that is easy to read and code, and is very powerful. It is used for custom scripts in Cisco security appliances, Roblox, World of Warcraft, and really awesome MTAs. You can read more about how we leverage Lua [here](../userguide/configuration/concepts.md).
 
 1. Create an initial core configuration by copying the example at [https://docs.kumomta.com/userguide/configuration/example/](../userguide/configuration/example.md) and writing it to `/opt/kumomta/etc/policy/init.lua`.
 
