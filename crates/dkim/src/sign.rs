@@ -252,13 +252,13 @@ impl Signer {
             )
             .add_tag("bh", body_hash)
             .set_signed_headers(effective_header_list);
-        if let Some(expiry) = self.expiry {
-            builder = builder.set_expiry(expiry)?;
-        }
         if let Some(time) = self.time {
             builder = builder.set_time(time);
         } else {
             builder = builder.set_time(now);
+        }
+        if let Some(expiry) = self.expiry {
+            builder = builder.set_expiry(expiry)?;
         }
 
         Ok(builder)

@@ -246,9 +246,9 @@ impl DKIMHeaderBuilder {
     }
 
     pub(crate) fn set_expiry(self, duration: chrono::Duration) -> Result<Self, DKIMError> {
-        let time = self
-            .time
-            .ok_or(DKIMError::BuilderError("missing require time"))?;
+        let time = self.time.ok_or(DKIMError::BuilderError(
+            "DKIMHeaderBuilder: set_time must be called prior to calling set_expiry",
+        ))?;
         let expiry = (time + duration).timestamp();
         Ok(self.add_tag("x", &expiry.to_string()))
     }
