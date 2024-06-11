@@ -77,7 +77,7 @@ steps:
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - git config --global --add safe.directory /woodpecker/src
-      - [[ "${CI_COMMIT_MESSAGE}" == *"@CLEAN_BUILD" ]] && cargo clean
+      - '[[ "${CI_COMMIT_MESSAGE}" == *"@CLEAN_BUILD" ]] && cargo clean'
       - make test
 
   build:
