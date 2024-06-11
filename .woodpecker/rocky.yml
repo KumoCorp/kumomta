@@ -51,8 +51,6 @@ steps:
 
   restore-build-cache:
     image: &cache_image meltwater/drone-cache
-    when:
-      - evaluate: 'CI_PIPELINE_EVENT != "cron" and not (CI_COMMIT_MESSAGE contains "@CLEAN_BUILD")'
     settings: &cache_settings
       backend: filesystem
       filesystem_cache_root: /build-cache
@@ -72,6 +70,7 @@ steps:
     commands:
       - PATH=$PATH:$HOME/.cargo/bin
       - git config --global --add safe.directory /woodpecker/src
+      - [[ "${CI_COMMIT_MESSAGE}" == *"@CLEAN_BUILD" ]] && cargo clean
       - make test
 
   build:
