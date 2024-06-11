@@ -1,6 +1,8 @@
 # Installing KumoMTA
 
-Pre-built repos are available for supported Operating Systems, making installation straightforward:
+Pre-built repos are available for supported Operating Systems, making installation straightforward. 
+
+The following example is for installation on Rocky Linux, for other distros see [this page](../userguide/installation/linux.md) of the User Guide.
 
 ```bash
 sudo dnf -y install dnf-plugins-core
