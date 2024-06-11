@@ -34,8 +34,6 @@ when:
   - event: pull_request
     path: *paths
   - event: manual
-  - event: cron
-    cron: clean-build
 
 variables:
   - &docker_credentials
@@ -55,7 +53,7 @@ steps:
   restore-build-cache:
     image: &cache_image meltwater/drone-cache
     when:
-      - evaluate: 'CI_PIPELINE_EVENT != "cron" && CLEAN_BUILD != ""'
+      - evaluate: 'CI_PIPELINE_EVENT != "cron" and not (CI_COMMIT_MESSAGE contains "@CLEAN_BUILD")'
     settings: &cache_settings
       backend: filesystem
       filesystem_cache_root: /build-cache
