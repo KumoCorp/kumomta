@@ -39,6 +39,8 @@ when:
   - event: pull_request
     path: *paths
   - event: manual
+  - event: cron
+    cron: clean-build
 
 variables:
   - &docker_credentials
