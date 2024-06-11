@@ -30,28 +30,20 @@ steps:
       - ./assets/ci/git-restore-mtime crates
       - git diff-index --name-status HEAD --
 
-  restore-doc-cache:
-    image: &cache_image meltwater/drone-cache
-    when:
-      - evaluate: 'CI_PIPELINE_EVENT != "cron"'
-    settings: &cache_settings
-      backend: filesystem
-      filesystem_cache_root: /build-cache
-      cache_key: docs
-      mount:
-        - .ci-cargo
-        - target
-      rebuild: "false"
-      restore: "true"
-
-  build-docs:
+  setup-cache:
     image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     pull: true
     environment:
-      CARGO_HOME: .ci-cargo
+      GROUP: "docs"
+    commands:
+      - ./assets/ci/populate-cache-vars.sh
+
+  build-docs:
+    image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
+    environment:
       CARGO_TERM_COLOR: always
     commands:
-      - PATH=$PATH:$HOME/.cargo/bin
+      - . ./.cache-env
       - CI=true ./docs/build.sh
 
   run-mkdocs:
@@ -73,12 +65,3 @@ steps:
         from_secret: gh_pages_deploy_token
     commands:
       - ./assets/ci/push-gh-pages.sh
-
-  save-doc-cache:
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
-    image: *cache_image
-    settings:
-      <<: *cache_settings
-      rebuild: "true"
-      restore: "false"

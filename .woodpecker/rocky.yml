@@ -49,52 +49,34 @@ steps:
       - ./assets/ci/git-restore-mtime crates
       - git diff-index --name-status HEAD --
 
-  restore-build-cache:
-    image: &cache_image meltwater/drone-cache
-    settings: &cache_settings
-      backend: filesystem
-      filesystem_cache_root: /build-cache
-      cache_key: rocky:${ROCKY_VERSION}_{{ arch }}_{{ os }}
-      mount:
-        - .ci-cargo
-        - target
-      rebuild: "false"
-      restore: "true"
+  setup-cache:
+    image: ${BUILDER_IMAGE}
+    pull: true
+    environment:
+      GROUP: "rockylinux-${ROCKY_VERSION}"
+    commands:
+      - ./assets/ci/populate-cache-vars.sh
 
   test:
-    depends_on: [restore-mtime, restore-build-cache]
+    depends_on: [restore-mtime, setup-cache]
     environment:
-      CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
     commands:
-      - PATH=$PATH:$HOME/.cargo/bin
+      - . ./.cache-env
       - git config --global --add safe.directory /woodpecker/src
-      - '[[ "${CI_COMMIT_MESSAGE}" == *"@CLEAN_BUILD" ]] && cargo clean'
       - make test
 
   build:
     depends_on: [test]
     environment:
-      CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
-    pull: true
     commands:
-      - PATH=$PATH:$HOME/.cargo/bin
+      - . ./.cache-env
       - make build BUILD_OPTS="--release"
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
-
-  save-build-cache:
-    depends_on: [build]
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
-    image: *cache_image
-    settings:
-      <<: *cache_settings
-      rebuild: "true"
-      restore: "false"
 
   verify-installable:
     depends_on: [build]
@@ -105,7 +87,6 @@ steps:
   publish_rpm:
     depends_on: [verify-installable]
     image: ${BUILDER_IMAGE}
-    pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
     environment:

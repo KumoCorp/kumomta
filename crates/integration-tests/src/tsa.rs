@@ -1,3 +1,4 @@
+use crate::kumod::target_bin;
 use anyhow::Context;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -22,12 +23,7 @@ pub struct TsaArgs {
 
 impl TsaDaemon {
     pub async fn spawn(args: TsaArgs) -> anyhow::Result<Self> {
-        let path = if cfg!(debug_assertions) {
-            "../../target/debug/tsa-daemon"
-        } else {
-            "../../target/release/tsa-daemon"
-        };
-        let path = std::fs::canonicalize(path).with_context(|| format!("canonicalize {path}"))?;
+        let path = target_bin("tsa-daemon")?;
 
         let dir = tempfile::tempdir().context("make temp dir")?;
 

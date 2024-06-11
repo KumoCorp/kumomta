@@ -9,7 +9,7 @@ use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts
 use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -120,6 +120,16 @@ pub struct DaemonWithMaildir {
     pub sink: KumoDaemon,
 }
 
+pub fn target_bin(tool: &str) -> anyhow::Result<PathBuf> {
+    let target = std::env::var("CARGO_TARGET_DIR").unwrap_or("../../target".to_string());
+    let path = if cfg!(debug_assertions) {
+        format!("{target}/debug/{tool}")
+    } else {
+        format!("{target}/release/{tool}")
+    };
+    std::fs::canonicalize(&path).with_context(|| format!("canonicalize {path}"))
+}
+
 impl DaemonWithMaildir {
     pub async fn start() -> anyhow::Result<Self> {
         Self::start_with_env(vec![]).await
@@ -154,11 +164,7 @@ impl DaemonWithMaildir {
         &self,
         args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     ) -> anyhow::Result<std::process::ExitStatus> {
-        let path = if cfg!(debug_assertions) {
-            "../../target/debug/kcli"
-        } else {
-            "../../target/release/kcli"
-        };
+        let path = target_bin("kcli")?;
         let mut cmd = Command::new(path);
         cmd.args([
             "--endpoint",
@@ -175,11 +181,7 @@ impl DaemonWithMaildir {
         &self,
         args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     ) -> anyhow::Result<R> {
-        let path = if cfg!(debug_assertions) {
-            "../../target/debug/kcli"
-        } else {
-            "../../target/release/kcli"
-        };
+        let path = target_bin("kcli")?;
         let mut cmd = Command::new(path);
         cmd.args([
             "--endpoint",
@@ -284,12 +286,7 @@ impl KumoDaemon {
     }
 
     pub async fn spawn(args: KumoArgs) -> anyhow::Result<Self> {
-        let path = if cfg!(debug_assertions) {
-            "../../target/debug/kumod"
-        } else {
-            "../../target/release/kumod"
-        };
-        let path = std::fs::canonicalize(path).with_context(|| format!("canonicalize {path}"))?;
+        let path = target_bin("kumod")?;
 
         let dir = tempfile::tempdir().context("make temp dir")?;
 

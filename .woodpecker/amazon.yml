@@ -55,22 +55,17 @@ steps:
       - ./assets/ci/git-restore-mtime crates
       - git diff-index --name-status HEAD --
 
-  restore-build-cache:
-    image: &cache_image meltwater/drone-cache
-    settings: &cache_settings
-      backend: filesystem
-      filesystem_cache_root: /build-cache
-      cache_key: amazonlinux:${AMAZON_VERSION}_{{ arch }}_{{ os }}
-      mount:
-        - .ci-cargo
-        - target
-      rebuild: "false"
-      restore: "true"
+  setup-cache:
+    image: ${BUILDER_IMAGE}
+    pull: true
+    environment:
+      GROUP: "amazonlinux-${AMAZON_VERSION}"
+    commands:
+      - ./assets/ci/populate-cache-vars.sh
 
   test:
-    depends_on: [restore-mtime, restore-build-cache]
+    depends_on: [restore-mtime, setup-cache]
     environment:
-      CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
       # These are needed because amazonlinux:2 has both `openssl-devel`
       # and `openssl11-devel` and the latter, newer version, isn't
@@ -79,15 +74,13 @@ steps:
       OPENSSL_INCLUDE_DIR: /usr/include
     image: ${BUILDER_IMAGE}
     commands:
-      - PATH=$PATH:$HOME/.cargo/bin
+      - . ./.cache-env
       - git config --global --add safe.directory /woodpecker/src
-      - '[[ "${CI_COMMIT_MESSAGE}" == *"@CLEAN_BUILD" ]] && cargo clean'
       - make test
 
   build:
     depends_on: [test]
     environment:
-      CARGO_HOME: .ci-cargo
       CARGO_TERM_COLOR: always
       # These are needed because amazonlinux:2 has both `openssl-devel`
       # and `openssl11-devel` and the latter, newer version, isn't
@@ -95,22 +88,11 @@ steps:
       OPENSSL_LIB_DIR: /usr/lib64
       OPENSSL_INCLUDE_DIR: /usr/include
     image: ${BUILDER_IMAGE}
-    pull: true
     commands:
-      - PATH=$PATH:$HOME/.cargo/bin
+      - . ./.cache-env
       - make build BUILD_OPTS="--release"
       - ./assets/build-rpm.sh
       - "mv ~/rpmbuild/RPMS/*/*.rpm ."
-
-  save-build-cache:
-    depends_on: [build]
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") or (CI_PIPELINE_EVENT == "cron") or (CI_PIPELINE_EVENT == "manual")'
-    image: *cache_image
-    settings:
-      <<: *cache_settings
-      rebuild: "true"
-      restore: "false"
 
   verify-installable:
     depends_on: [build]
@@ -121,7 +103,6 @@ steps:
   publish_rpm:
     depends_on: [verify-installable]
     image: ${BUILDER_IMAGE}
-    pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
     environment:
