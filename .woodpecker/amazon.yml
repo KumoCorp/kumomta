@@ -60,7 +60,7 @@ steps:
   restore-build-cache:
     image: &cache_image meltwater/drone-cache
     when:
-      - evaluate: 'CI_PIPELINE_EVENT != "cron"'
+      - evaluate: 'CI_PIPELINE_EVENT != "cron" && CLEAN_BUILD != ""'
     settings: &cache_settings
       backend: filesystem
       filesystem_cache_root: /build-cache
