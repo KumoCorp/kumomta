@@ -2,6 +2,8 @@
 set -e
 set -x
 
+CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
+
 SERVE=no
 if [ "$1" == "serve" ] ; then
   SERVE=yes
@@ -29,7 +31,7 @@ if ! gelatyx --language lua --color always --file-list $tracked_markdown --langu
   exit 1
 fi
 
-if test -x target/debug/kumod ; then
+if test -x ${CARGO_TARGET_DIR}/debug/kumod ; then
   ./docs/update-openapi.sh
 fi
 
@@ -52,6 +54,7 @@ if hash black 2>/dev/null ; then
 fi
 
 if [ "$CI" == true ] ; then
+  ln -sf ${CARGO_TARGET_DIR}/doc docs/rustapi
   exit 0
 fi
 
