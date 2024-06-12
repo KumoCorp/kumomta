@@ -15,6 +15,7 @@ when:
     path: &paths
       include:
         - .woodpecker/docs.yml
+        - assets/ci/populate-cache-vars.sh
         - docs/**
         - mkdocs-base.yml
         - stylua.toml

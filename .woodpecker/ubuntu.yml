@@ -25,6 +25,7 @@ when:
         - .woodpecker/ubuntu.yml
         - "**/Cargo.toml"
         - Cargo.lock
+        - assets/ci/populate-cache-vars.sh
         - assets/**/*.lua
         - assets/*.service
         - assets/*deb*.sh
