@@ -43,6 +43,10 @@ cargo tree --depth 0 -e normal --prefix none | \
   cut -d' ' -f1 | sort -u | xargs printf -- '-p %s\n' | \
   xargs cargo doc --no-deps --locked --lib
 
+if [ "$CI" == true ] ; then
+  ln -sf ${CARGO_TARGET_DIR}/doc docs/rustapi
+fi
+
 python3 docs/generate-toc.py || exit 1
 
 # Adjust path to pick up pip-installed binaries
@@ -54,7 +58,6 @@ if hash black 2>/dev/null ; then
 fi
 
 if [ "$CI" == true ] ; then
-  ln -sf ${CARGO_TARGET_DIR}/doc docs/rustapi
   exit 0
 fi
 
