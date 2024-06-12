@@ -167,6 +167,8 @@ steps:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
+    environment: &docker_manifest_env
+      DRONE_PULL_REQUEST: 0
     settings: &docker_manifest_settings
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
@@ -183,6 +185,8 @@ steps:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
+    environment:
+      <<: *docker_manifest_env
     settings:
       <<: *docker_manifest_settings
 
