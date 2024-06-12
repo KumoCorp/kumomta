@@ -13,6 +13,9 @@ EXPOSE 587/tcp
 EXPOSE 465/tcp
 EXPOSE 2525/tcp
 EXPOSE 2026/tcp
+LABEL org.opencontainers.image.source=https://github.com/KumoCorp/kumomta
+LABEL org.opencontainers.image.description="The KumoMTA Container Image"
+LABEL org.opencontainers.image.licenses="Apache"
 ENV PATH="/opt/kumomta/sbin:$PATH"
 CMD ["/opt/kumomta/sbin/docker-runner.sh"]
 
