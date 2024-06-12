@@ -104,6 +104,8 @@ steps:
       - "apk --no-cache add curl bash"
       - "./assets/upload-package.sh ${UBUNTU_IMAGE} *.deb"
 
+  # Docker image build test on PRs
+
   dry-run-build-docker-image:
     depends_on: [build]
     when:
@@ -117,6 +119,8 @@ steps:
         - dry-run
       dockerfile: docker/kumod/Dockerfile.incremental
 
+  # Docker image for releases
+
   build-docker-image:
     depends_on: [publish_deb]
     when:
@@ -127,11 +131,57 @@ steps:
       registry: ghcr.io
       repo: "ghcr.io/kumocorp/kumomta"
       tags:
-        - latest
         - latest-amd64
-        - ${CI_COMMIT_TAG}
         - ${CI_COMMIT_TAG}-amd64
       dockerfile: docker/kumod/Dockerfile.incremental
+
+  build-docker-image-arm:
+    depends_on: [publish_deb]
+    when:
+      - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+    image: plugins/docker
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta"
+      tags:
+        - latest-arm64
+        - ${CI_COMMIT_TAG}-arm64
+      dockerfile: docker/kumod/Dockerfile.incremental
+
+  merge-docker-image-arm:
+    depends_on: [build-docker-image-arm]
+    when:
+      - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+    image: plugins/manifest
+    failure: ignore
+    environment: &docker_manifest_env
+      # Legacy env var to prevent the plugin from throwing an error
+      # when converting an empty string to a number
+      PULLREQUEST_DRONE_PULL_REQUEST: 0
+    settings: &docker_manifest_settings_tag
+      <<: *docker_credentials
+      target: "ghcr.io/kumocorp/kumomta-dev"
+      template: "ghcr.io/kumocorp/kumomta:${CI_COMMIT_TAG}-ARCH"
+      tags:
+        - latest
+        - ${CI_COMMIT_TAG}
+      platforms:
+        - linux/amd64
+        - linux/arm64
+
+  merge-docker-image:
+    depends_on: [build-docker-image]
+    when:
+      - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
+    image: plugins/manifest
+    failure: ignore
+    environment:
+      <<: *docker_manifest_env
+    settings:
+      <<: *docker_manifest_settings_tag
+
+  # Docker image for -dev builds
 
   build-dev-docker-image:
     depends_on: [publish_deb]
@@ -167,10 +217,8 @@ steps:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
-    environment: &docker_manifest_env
-      # Legacy env var to prevent the plugin from throwing an error
-      # when converting an empty string to a number
-      PULLREQUEST_DRONE_PULL_REQUEST: 0
+    environment:
+      <<: *docker_manifest_env
     settings: &docker_manifest_settings
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
@@ -193,16 +241,3 @@ steps:
     settings:
       <<: *docker_manifest_settings
 
-  build-docker-image-arm:
-    depends_on: [publish_deb]
-    when:
-      - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
-    image: plugins/docker
-    settings:
-      <<: *docker_credentials
-      registry: ghcr.io
-      repo: "ghcr.io/kumocorp/kumomta"
-      tags:
-        - latest-arm64
-        - ${CI_COMMIT_TAG}-arm64
-      dockerfile: docker/kumod/Dockerfile.incremental
