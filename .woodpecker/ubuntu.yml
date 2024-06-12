@@ -183,7 +183,7 @@ steps:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
-    settings: &docker_manifest_settings
+    settings:
       <<: *docker_manifest_settings
 
   build-docker-image-arm:
