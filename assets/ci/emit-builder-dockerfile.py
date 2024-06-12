@@ -35,6 +35,7 @@ commands = [
     "/tmp/get-deps.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
     "cargo install --locked sccache --no-default-features",
+    "cargo install --locked xcp",
 ]
 
 if "ubuntu" in container:
