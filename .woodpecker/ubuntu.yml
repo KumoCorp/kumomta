@@ -222,7 +222,7 @@ steps:
     settings: &docker_manifest_settings
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
-      template: "ghcr.io/kumocorp/kumomta-dev:${CI_COMMIT_SHA}-ARCH"
+      template: "ghcr.io/kumocorp/kumomta-dev:commit-${CI_COMMIT_SHA}-ARCH"
       tags:
         - latest
         - commit-${CI_COMMIT_SHA}
