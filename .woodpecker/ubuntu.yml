@@ -193,7 +193,7 @@ steps:
       registry: ghcr.io
       repo: "ghcr.io/kumocorp/kumomta-dev"
       tags:
-        - commit-${CI_COMMIT_SHA}-amd64
+        - commit-${CI_COMMIT_SHA:0:8}-amd64
         - latest-amd64
       dockerfile: docker/kumod/Dockerfile.incremental
 
@@ -207,7 +207,7 @@ steps:
       registry: ghcr.io
       repo: "ghcr.io/kumocorp/kumomta-dev"
       tags:
-        - commit-${CI_COMMIT_SHA}-arm64
+        - commit-${CI_COMMIT_SHA:0:8}-arm64
         - latest-arm64
       dockerfile: docker/kumod/Dockerfile.incremental
 
@@ -222,10 +222,10 @@ steps:
     settings: &docker_manifest_settings
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
-      template: "ghcr.io/kumocorp/kumomta-dev:commit-${CI_COMMIT_SHA}-ARCH"
+      template: "ghcr.io/kumocorp/kumomta-dev:commit-${CI_COMMIT_SHA:0:8}-ARCH"
       tags:
         - latest
-        - commit-${CI_COMMIT_SHA}
+        - commit-${CI_COMMIT_SHA:0:8}
       platforms:
         - linux/amd64
         - linux/arm64
