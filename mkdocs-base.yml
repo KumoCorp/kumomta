@@ -53,6 +53,9 @@ plugins:
       # because we run overall in strict mode and those warnings would
       # be promoted to errors
       strict: false
+      # Don't fatal out for the rustapi docs when they are served
+      # out of a cache dir that is not directly within the repo
+      fallback_to_build_date: true
   - macros:
       module_name: mkdocs_macros
   - exclude:
