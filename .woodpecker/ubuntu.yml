@@ -117,20 +117,6 @@ steps:
         - dry-run
       dockerfile: docker/kumod/Dockerfile.incremental
 
-  build-dev-docker-image:
-    depends_on: [publish_deb]
-    when:
-      - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
-    image: plugins/docker
-    settings:
-      <<: *docker_credentials
-      registry: ghcr.io
-      repo: "ghcr.io/kumocorp/kumomta-dev"
-      tags:
-        - ${CI_COMMIT_SHA}-amd64
-        - latest-amd64
-      dockerfile: docker/kumod/Dockerfile.incremental
-
   build-docker-image:
     depends_on: [publish_deb]
     when:
@@ -147,6 +133,20 @@ steps:
         - ${CI_COMMIT_TAG}-amd64
       dockerfile: docker/kumod/Dockerfile.incremental
 
+  build-dev-docker-image:
+    depends_on: [publish_deb]
+    when:
+      - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
+    image: plugins/docker
+    settings:
+      <<: *docker_credentials
+      registry: ghcr.io
+      repo: "ghcr.io/kumocorp/kumomta-dev"
+      tags:
+        - commit-${CI_COMMIT_SHA}-amd64
+        - latest-amd64
+      dockerfile: docker/kumod/Dockerfile.incremental
+
   build-dev-docker-image-arm:
     depends_on: [publish_deb]
     when:
@@ -157,7 +157,7 @@ steps:
       registry: ghcr.io
       repo: "ghcr.io/kumocorp/kumomta-dev"
       tags:
-        - ${CI_COMMIT_SHA}-arm64
+        - commit-${CI_COMMIT_SHA}-arm64
         - latest-arm64
       dockerfile: docker/kumod/Dockerfile.incremental
 
@@ -168,6 +168,8 @@ steps:
     image: plugins/manifest
     failure: ignore
     environment: &docker_manifest_env
+      # Legacy env var to prevent the plugin from throwing an error
+      # when converting an empty string to a number
       PULLREQUEST_DRONE_PULL_REQUEST: 0
     settings: &docker_manifest_settings
       <<: *docker_credentials
@@ -175,6 +177,7 @@ steps:
       template: "ghcr.io/kumocorp/kumomta-dev:${CI_COMMIT_SHA}-ARCH"
       tags:
         - latest
+        - commit-${CI_COMMIT_SHA}
       platforms:
         - linux/amd64
         - linux/arm64
