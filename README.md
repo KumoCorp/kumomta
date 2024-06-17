@@ -27,7 +27,7 @@ See [How to Report Bugs](https://docs.kumomta.com/userguide/general/report/).
 
 ## Getting Help
 
-See [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/).
+See [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/). For paid support see [https://kumomta.com/support](https://kumomta.com/support).
 
 ## Talk to Us
 
