@@ -1720,6 +1720,76 @@ AAECAw==\r
     }
 
     #[test]
+    fn check_conformance_angle_msg_id() {
+        const DOUBLE_ANGLE_ONLY: &str = "Subject: hello\r
+Message-ID: <<1234@example.com>>\r
+\r
+Hello";
+        let msg = new_msg_body(DOUBLE_ANGLE_ONLY);
+        msg.check_fix_conformance(
+            MessageConformance::MISSING_MESSAGE_ID_HEADER,
+            MessageConformance::MISSING_MESSAGE_ID_HEADER,
+        )
+        .unwrap();
+
+        // Can't use a snapshot test here because the fixed header
+        // has a unique random component
+        /*
+                k9::snapshot!(
+                    data_as_string(&msg),
+                    r#"
+        Subject: hello\r
+        Message-ID: <4106566d2ce911ef9dcd0242289ea0df@example.com>\r
+        \r
+        Hello
+        "#
+                );
+        */
+
+        const DOUBLE_ANGLE_AND_LONG_LINE: &str = "Subject: hello\r
+Message-ID: <<1234@example.com>>\r
+\r
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line \
+Hello this is a really long line Hello this is a really long line
+";
+        let msg = new_msg_body(DOUBLE_ANGLE_AND_LONG_LINE);
+        msg.check_fix_conformance(
+            MessageConformance::MISSING_COLON_VALUE,
+            MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
+        )
+        .unwrap();
+
+        // Can't use a snapshot test here because the fixed header
+        // has a random component
+        /*
+                k9::snapshot!(
+                    data_as_string(&msg),
+                    r#"
+        Content-Type: text/plain;\r
+        \tcharset="us-ascii"\r
+        Content-Transfer-Encoding: quoted-printable\r
+        Subject: hello\r
+        Message-ID: <749fc87e2cea11ef96a50242289ea0df@example.com>\r
+        \r
+        Hello this is a really long line Hello this is a really long line Hello thi=\r
+        s is a really long line Hello this is a really long line Hello this is a re=\r
+        ally long line Hello this is a really long line Hello this is a really long=\r
+         line Hello this is a really long line Hello this is a really long line Hel=\r
+        lo this is a really long line Hello this is a really long line Hello this i=\r
+        s a really long line Hello this is a really long line Hello this is a reall=\r
+        y long line=0A\r
+
+        "#
+                );
+        */
+    }
+
+    #[test]
     fn check_conformance() {
         let msg = new_msg_body(MULTI_HEADER_CONTENT);
         msg.check_fix_conformance(

@@ -377,7 +377,9 @@ impl<'a> MimePart<'a> {
                 continue;
             }
 
-            rebuilt.headers_mut().push(hdr.rebuild()?);
+            if let Ok(hdr) = hdr.rebuild() {
+                rebuilt.headers_mut().push(hdr);
+            }
         }
 
         Ok(rebuilt)
