@@ -6,7 +6,7 @@ The KumoMTA project was founded by a group of email industry veterans with decad
 
 Because it is designed for high-performance sending environments, KumoMTA is for experienced email operations professionals who are accustomed to high-performance sending environments and familiar with DevOps practices.
 
-Learn more in our [FAQ](https://docs.kumomta.com/faq/).
+Learn more in our [FAQ](https://docs.kumomta.com/faq/) and at [https://kumomta.com/](https://kumomta.com/).
 
 ## Documentation
 
