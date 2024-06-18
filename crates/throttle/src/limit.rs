@@ -73,10 +73,10 @@ impl LimitSpec {
     ) -> Result<LimitLease, Error> {
         let now_ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
 
-        let expires_ts = now_ts + self.duration.as_secs();
+        let expires_ts = now_ts + self.duration.as_secs_f64();
         let uuid = Uuid::new_v4();
         let uuid_str = uuid.to_string();
 
@@ -187,10 +187,10 @@ impl LimitLease {
     async fn extend_redis(&self, conn: RedisConnection, duration: Duration) -> Result<(), Error> {
         let now_ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
 
-        let expires = now_ts + duration.as_secs();
+        let expires = now_ts + duration.as_secs_f64();
 
         let mut cmd = mod_redis::cmd("ZADD");
         cmd.arg(&self.name)

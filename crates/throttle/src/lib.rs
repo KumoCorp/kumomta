@@ -201,11 +201,11 @@ async fn redis_throttle(
         throttled: result[0] != 0,
         limit: result[1] as u64,
         remaining: result[2] as u64,
-        reset_after: Duration::from_secs(result[3].max(0) as u64),
-        retry_after: match result[4] {
+        retry_after: match result[3] {
             n if n < 0 => None,
             n => Some(Duration::from_secs(n as u64)),
         },
+        reset_after: Duration::from_secs(result[4].max(0) as u64),
     })
 }
 
