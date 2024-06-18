@@ -12,8 +12,8 @@
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and
   prevent reception of the incoming message.
-* Invalid Message-ID headers in addition to other message body conformance issues
-  could cause
+* Invalid structured headers, such as Message-ID, in combination with other message
+  body conformance issues could cause
   [msg:check_fix_conformance](../reference/message/check_fix_conformance.md) to
   raise an error instead of fixing the issue. #216
 * Swapped retry-after/reset-after results, and increased timestamp precision
