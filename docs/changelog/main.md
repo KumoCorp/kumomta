@@ -16,3 +16,7 @@
   could cause
   [msg:check_fix_conformance](../reference/message/check_fix_conformance.md) to
   raise an error instead of fixing the issue. #216
+* Swapped retry-after/reset-after results, and increased timestamp precision
+  when using [cluster-backed
+  throttles](../reference/kumo/configure_redis_throttles.md). Thanks to @cai-n!
+  #217
