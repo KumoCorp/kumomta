@@ -71,5 +71,5 @@ These JSON formatted logs can be programatically consumed or read manually as
 shown above for debugging and maintenance.
 
 [Formatting](../configuration/logging.md#customizing-the-log-format)
-can also be applied using the Mini Jinja tempating engine.
+can also be applied using the Mini Jinja templating engine.
 
