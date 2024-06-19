@@ -95,6 +95,7 @@ install -Dm644 ./assets/kumo-tsa-daemon.service -t %{buildroot}/usr/lib/systemd/
 /opt/kumomta/sbin/kcli
 /opt/kumomta/sbin/kumod
 /opt/kumomta/sbin/proxy-server
+/opt/kumomta/sbin/resolve-site-name
 /opt/kumomta/sbin/tailer
 /opt/kumomta/sbin/traffic-gen
 /opt/kumomta/sbin/tsa-daemon
