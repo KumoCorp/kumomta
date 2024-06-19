@@ -1,0 +1,28 @@
+#!/bin/sh
+CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
+
+for candidate in /opt/kumomta/sbin/kumod "${CARGO_TARGET_DIR}/release/kumod" "${CARGO_TARGET_DIR}/debug/kumod" ; do
+  if test -x "${candidate}" ; then
+    KUMOD="${candidate}"
+    break;
+  fi
+done
+
+if ! test -x "${KUMOD}" ; then
+  echo "Couldn't find kumod"
+  exit 1
+fi
+
+script=$(mktemp)
+trap "rm -f -- '$script'" EXIT
+cat >${script} <<-EOT
+local kumo = require 'kumo'
+local domain = os.getenv 'DOMAIN'
+kumo.configure_accounting_db_path(os.tmpname())
+local mx = kumo.dns.lookup_mx(domain)
+print(mx.site_name)
+os.exit(0)
+EOT
+
+DOMAIN="$1" ${KUMOD} --policy $script
+
