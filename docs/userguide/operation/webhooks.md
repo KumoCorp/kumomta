@@ -39,7 +39,7 @@ log_hooks:new_json {
 }
 ```
 
-!!!!Warning
+!!!Warning
     The call to `new_json` must appear before the queues helper for it to work properly. See the [Example Config](../configuration/example.md) to see a working layout for the `init.lua` file.
 
 More advanced usage is possible by implementing the full call to the log_hooks.lua helper, in the following format:
