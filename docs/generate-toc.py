@@ -284,10 +284,6 @@ TOC = [
                         "Publishing Log Events Via Webhooks",
                         "userguide/operation/webhooks.md",
                     ),
-                    Page(
-                        "Rewriting Remote Server Responses",
-                        "userguide/policy/rewrite.md",
-                    ),
                 ],
             ),
             Page(
