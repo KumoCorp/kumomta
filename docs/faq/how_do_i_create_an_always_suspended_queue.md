@@ -20,20 +20,20 @@ configure for your queue.
 
 To configure this using the queues and sources helpers:
 
-1. Add the following to your `queues.toml`:
+* Add the following to your `queues.toml`:
 
 ```toml
 [queue."always-suspended"]
 egress_pool = "always-suspended-pool"
 ```
 
-2. Add the following to your `sources.toml`:
+* Add the following to your `sources.toml`:
 
 ```toml
 [pool."always-suspended-pool"]
 ```
 
-3. Then in your policy, you can put messages in that queue explicitly:
+* Then in your policy, you can put messages in that queue explicitly:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
