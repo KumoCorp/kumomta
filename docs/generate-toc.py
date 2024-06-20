@@ -416,43 +416,10 @@ TOC = [
             ),
         ],
     ),
-    Page(
+    Gen(
         "FAQ",
-        "faq/index.md",
-        children=[
-            Page("What Is KumoMTA?", "faq/what_is_kumomta.md"),
-            Page("Who is KumoMTA For?", "faq/who_is_kumomta_for.md"),
-            Page(
-                "How Can I Get Help With KumoMTA?",
-                "faq/how_can_i_get_help_with_kumomta.md",
-            ),
-            Page(
-                "Is There a SaaS Version of KumoMTA?",
-                "faq/is_there_a_saas_version_of_kumomta.md",
-            ),
-            Page(
-                "How Do I Resolve a `Permission Denied` Error?",
-                "faq/permission_denied.md",
-            ),
-            Page(
-                "How Can I Apply Multiple DKIM Signatures to a Message?",
-                "faq/multiple_dkim_signatures.md",
-            ),
-            Page("How Can I Test TLS Message Injection?", "faq/test_tls_injection.md"),
-            Page("How Do I Configure POP3/IMAP?", "faq/pop3_imap.md"),
-            Page(
-                "Why is KumoMTA Accepting Connections From Systems Not Listed in relay_hosts?",
-                "faq/non_relay_hosts.md",
-            ),
-            Page(
-                "Can I Migrate From PowerMTA to KumoMTA?",
-                "faq/can_i_migrate_from_powermta_to_kumomta.md",
-            ),
-            Page(
-                "Can I Migrate From Momentum (Ecelerity) to KumoMTA?",
-                "faq/can_i_migrate_from_momentum_ecelerity_to_kumomta.md",
-            ),
-        ],
+        "faq",
+        extract_title=True,
     ),
     Gen("Changelog", "changelog", extract_title=True, reverse=True),
 ]

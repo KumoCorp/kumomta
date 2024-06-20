@@ -8,6 +8,7 @@ dhat-heap.json
 /docs/reference/**/index.md
 /docs/mermaid.min.js
 /docs/changelog/index.md
+/docs/faq/index.md
 /pkg
 /target/
 /gh_pages/
