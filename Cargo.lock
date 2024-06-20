@@ -805,8 +805,7 @@ dependencies = [
 [[package]]
 name = "cidr"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d18b093eba54c9aaa1e3784d4361eb2ba944cf7d0a932a830132238f483e8d8"
+source = "git+https://github.com/stbuehler/rust-cidr?branch=fix-8-improve-cidr-invalid-host-part#db749ad2b623e3a6fb4763bfc8b2f0f4578ad222"
 dependencies = [
  "bitstring",
  "serde",

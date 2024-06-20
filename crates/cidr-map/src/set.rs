@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(from = "Vec<AnyIpCidr>", into = "Vec<AnyIpCidr>")]
+#[serde(try_from = "Vec<String>", into = "Vec<String>")]
 pub struct CidrSet(CidrMap<()>);
 
 impl CidrSet {
@@ -45,6 +45,40 @@ where
             set.insert(entry.into(), ());
         }
         Self(set)
+    }
+}
+
+impl TryFrom<Vec<String>> for CidrSet {
+    type Error = String;
+
+    fn try_from(v: Vec<std::string::String>) -> Result<Self, String> {
+        let mut set = CidrMap::new();
+        let mut problems = vec![];
+        for entry in v {
+            match entry.parse() {
+                Ok(cidr) => {
+                    set.insert(cidr, ());
+                }
+                Err(err) => {
+                    problems.push(format!("{entry}: {err:#}"));
+                }
+            }
+        }
+        if problems.is_empty() {
+            Ok(Self(set))
+        } else {
+            Err(problems.join(", "))
+        }
+    }
+}
+
+impl Into<Vec<String>> for CidrSet {
+    fn into(self) -> Vec<String> {
+        let mut result = vec![];
+        for (key, _unit) in self.0.iter() {
+            result.push(key.to_string());
+        }
+        result
     }
 }
 
