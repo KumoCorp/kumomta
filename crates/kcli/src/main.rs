@@ -9,6 +9,7 @@ mod bounce_list;
 mod inspect_message;
 mod logfilter;
 mod queue_summary;
+mod rebind;
 mod suspend;
 mod suspend_cancel;
 mod suspend_list;
@@ -42,6 +43,7 @@ enum SubCommand {
     Bounce(bounce::BounceCommand),
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
+    Rebind(rebind::RebindCommand),
     Suspend(suspend::SuspendCommand),
     SuspendList(suspend_list::SuspendListCommand),
     SuspendCancel(suspend_cancel::SuspendCancelCommand),
@@ -61,6 +63,7 @@ impl SubCommand {
             Self::Bounce(cmd) => cmd.run(endpoint).await,
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,
+            Self::Rebind(cmd) => cmd.run(endpoint).await,
             Self::Suspend(cmd) => cmd.run(endpoint).await,
             Self::SuspendCancel(cmd) => cmd.run(endpoint).await,
             Self::SuspendList(cmd) => cmd.run(endpoint).await,

@@ -333,7 +333,7 @@ impl LuaConfig {
             .named_registry_value::<_, mlua::Function>(&decorated_name)
         {
             Ok(func) => Ok(func.call_async(args.clone()).await?),
-            _ => anyhow::bail!("invalid return type for {name} event"),
+            _ => anyhow::bail!("Event {name} has not been registered"),
         }
     }
 

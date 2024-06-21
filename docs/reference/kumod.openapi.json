@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.05.07-138a1eab"
+    "version": "2024.06.24-cdcb2438"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -125,6 +125,39 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InspectMessageV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/rebind/v1": {
+      "post": {
+        "tags": [
+          "rebind"
+        ],
+        "summary": "Allows the system operator to administratively rebind messages.",
+        "description": "Rebinding can target queues that match\ncertain criteria, or if no criteria are provided, ALL queues.\nRebinding is moving a message from one scheduled queue into another.\nQueue selection is based upon the envelope recipient and message\nmetadata as described in <https://docs.kumomta.com/reference/queues/>",
+        "operationId": "rebind_v1",
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebindV1Request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Rebind added successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RebindV1Response"
                 }
               }
             }
@@ -742,6 +775,64 @@
             "example": "sender@sender.example.com"
           }
         }
+      },
+      "RebindV1Request": {
+        "type": "object",
+        "description": "Describes which messages should be rebound.\nThe criteria apply to the scheduled queue associated\nwith a given message.",
+        "required": [
+          "reason",
+          "data"
+        ],
+        "properties": {
+          "always_flush": {
+            "type": "boolean",
+            "description": "If true, make all matched messages immediately eligible for\ndelivery.  When false, (the default), only messages whose\nqueue has changed will be made immediately eligible."
+          },
+          "campaign": {
+            "type": "string",
+            "description": "The campaign name to match. If omitted, any campaign will match.",
+            "nullable": true
+          },
+          "data": {
+            "type": "object",
+            "description": "The data, a json object with string keys AND values to pass to the\nrebind operation",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "domain": {
+            "type": "string",
+            "description": "The domain name to match. If omitted, any domain will match.",
+            "example": "example.com",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason to log in the delivery log. Each matching message will log\nwith an AdminRebind record unless you suppress logging.",
+            "example": "Cleaning up a bad send"
+          },
+          "routing_domain": {
+            "type": "string",
+            "description": "The routing_domain name to match. If omitted, any routing_domain will match.",
+            "nullable": true
+          },
+          "suppress_logging": {
+            "type": "boolean",
+            "description": "If true, do not generate AdminRebind delivery logs for matching\nmessages."
+          },
+          "tenant": {
+            "type": "string",
+            "description": "The tenant to match. If omitted, any tenant will match.",
+            "nullable": true
+          },
+          "trigger_rebind_event": {
+            "type": "boolean",
+            "description": "If true, a `rebind` event will be triggered and passed each\nmessage and the supplied data.\nIf false, no event will be triggered and each field in data\nwill be applied to the msg metadata, overwriting any previous\nvalue for that key."
+          }
+        }
+      },
+      "RebindV1Response": {
+        "type": "object"
       },
       "Recipient": {
         "type": "object",

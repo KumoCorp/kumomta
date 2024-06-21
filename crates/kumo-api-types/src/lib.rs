@@ -9,6 +9,7 @@ use utoipa::{IntoParams, ToResponse, ToSchema};
 use uuid::Uuid;
 
 pub mod egress_path;
+pub mod rebind;
 pub mod shaping;
 pub mod tsa;
 

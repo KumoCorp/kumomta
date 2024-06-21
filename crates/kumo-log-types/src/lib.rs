@@ -38,6 +38,9 @@ pub enum RecordType {
     /// SMTP Listener responded with a 4xx or 5xx
     Rejection,
 
+    /// Administratively rebound from one queue to another
+    AdminRebind,
+
     /// Special for matching anything in the logging config
     Any,
 }

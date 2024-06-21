@@ -1,5 +1,6 @@
 use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
+use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
@@ -44,6 +45,8 @@ lazy_static::lazy_static! {
     pub static ref THROTTLE_INSERT_READY_SIG: CallbackSignature::<'static,
         Message,
         ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
+    static ref REBIND_MESSAGE_SIG: CallbackSignature::<'static,
+        (Message, HashMap<String, String>), ()> = CallbackSignature::new("rebind_message");
 }
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -460,23 +463,144 @@ impl Queue {
         Ok(handle)
     }
 
+    /// Insert into the timeq, and updates the counters.
     fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
-        self.queue.lock().insert(Arc::new(msg))
+        self.queue.lock().insert(Arc::new(msg))?;
+        self.delayed_gauge.inc();
+        Ok(())
     }
 
+    /// Removes all messages from the timeq, and updates the counters
     fn drain_timeq(&self) -> Vec<Arc<Message>> {
-        self.queue.lock().drain()
+        let msgs = self.queue.lock().drain();
+        self.delayed_gauge.sub(msgs.len() as i64);
+        msgs
     }
 
+    /// Maybe removes an item from the timeq. Does NOT update the counters.
     fn pop_timeq(&self) -> PopResult<Message> {
         self.queue.lock().pop()
+    }
+
+    async fn do_rebind(&self, msg: Message, rebind: &Arc<AdminRebindEntry>) {
+        async fn try_apply(msg: &Message, rebind: &Arc<AdminRebindEntry>) -> anyhow::Result<()> {
+            if !msg.is_meta_loaded() {
+                msg.load_meta().await?;
+            }
+
+            if rebind.request.trigger_rebind_event {
+                let mut config = load_config().await?;
+                config
+                    .async_call_callback_non_default(
+                        &REBIND_MESSAGE_SIG,
+                        (msg.clone(), rebind.request.data.clone()),
+                    )
+                    .await
+            } else {
+                for (k, v) in &rebind.request.data {
+                    msg.set_meta(k, v.clone())?;
+                }
+                Ok(())
+            }
+        }
+
+        if let Err(err) = try_apply(&msg, rebind).await {
+            tracing::error!("failed to apply rebind: {err:#}");
+        }
+
+        if msg.needs_save() {
+            if let Err(err) = msg.save().await {
+                tracing::error!("failed to save msg after rebind: {err:#}");
+            }
+        }
+
+        let increment_attempts = false;
+        let mut delay = None;
+
+        let queue_name = match msg.get_queue_name() {
+            Err(err) => {
+                tracing::error!("failed to determine queue name for msg: {err:#}");
+                if let Err(err) = self.requeue_message(msg, increment_attempts, delay).await {
+                    tracing::error!(
+                        "failed to requeue message to {} after failed rebind: {err:#}",
+                        self.name
+                    );
+                }
+                return;
+            }
+            Ok(name) => name,
+        };
+
+        let queue_holder;
+        let queue = match QueueManager::resolve(&queue_name).await {
+            Err(err) => {
+                tracing::error!("failed to resolve queue `{queue_name}`: {err:#}");
+                self
+            }
+            Ok(queue) => {
+                queue_holder = queue;
+                &*queue_holder
+            }
+        };
+
+        // If we changed queues, make the message immediately eligible for delivery
+        if rebind.request.always_flush || queue.name != self.name {
+            // Avoid adding jitter as part of the queue change
+            delay = Some(chrono::Duration::zero());
+            // and ensure that the message is due now
+            msg.set_due(None).await.ok();
+        }
+
+        // If we changed queues, log an AdminRebind operation so that it is possible
+        // to trace through the logs and understand what happened.
+        if queue.name != self.name && !rebind.request.suppress_logging {
+            log_disposition(LogDisposition {
+                kind: RecordType::AdminRebind,
+                msg: msg.clone(),
+                site: "",
+                peer_address: None,
+                response: Response {
+                    code: 250,
+                    enhanced_code: None,
+                    command: None,
+                    content: format!(
+                        "Rebound from {} to {queue_name}: {}",
+                        self.name, rebind.request.reason
+                    ),
+                },
+                egress_pool: None,
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+            })
+            .await;
+        }
+
+        if let Err(err) = queue.requeue_message(msg, increment_attempts, delay).await {
+            tracing::error!(
+                "failed to requeue message to {} after failed rebind: {err:#}",
+                queue.name
+            );
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn rebind_all(&self, rebind: &Arc<AdminRebindEntry>) {
+        let msgs = self.drain_timeq();
+        let count = msgs.len();
+        if count > 0 {
+            for msg in msgs {
+                let msg = (*msg).clone();
+                self.do_rebind(msg, rebind).await;
+            }
+        }
     }
 
     #[instrument(skip(self))]
     pub async fn bounce_all(&self, bounce: &AdminBounceEntry) {
         let msgs = self.drain_timeq();
         let count = msgs.len();
-        self.delayed_gauge.sub(count as i64);
         if count > 0 {
             let name = self.name.clone();
             let bounce = bounce.clone();
@@ -593,7 +717,6 @@ impl Queue {
                     tracing::trace!("insert_delayed, locking timeq {}", msg.id());
                     match self.timeq_insert(msg.clone()) {
                         Ok(_) => {
-                            self.delayed_gauge.inc();
                             if let Err(err) = self.did_insert_delayed(msg.clone()).await {
                                 tracing::error!("while shrinking: {}: {err:#}", msg.id());
                             }

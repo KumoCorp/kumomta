@@ -143,3 +143,9 @@ kumo.on('get_egress_path_config', function(_domain, _source_name, _site_name)
 
   return kumo.make_egress_path(params)
 end)
+
+if os.getenv 'KUMOD_WANT_REBIND' then
+  kumo.on('rebind_message', function(message, data)
+    message:set_meta('queue', data.queue)
+  end)
+end

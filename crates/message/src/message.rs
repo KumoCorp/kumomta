@@ -282,9 +282,8 @@ impl Message {
 
     pub fn needs_save(&self) -> bool {
         let inner = self.inner.lock().unwrap();
-        inner
-            .flags
-            .contains(MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY)
+        inner.flags.contains(MessageFlags::META_DIRTY)
+            || inner.flags.contains(MessageFlags::DATA_DIRTY)
     }
 
     pub async fn save(&self) -> anyhow::Result<()> {
