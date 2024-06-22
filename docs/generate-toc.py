@@ -373,8 +373,16 @@ TOC = [
                 "reference/redis",
             ),
             Gen(
+                "module: regex",
+                "reference/regex",
+            ),
+            Gen(
                 "module: sqlite",
                 "reference/sqlite",
+            ),
+            Gen(
+                "module: string",
+                "reference/string",
             ),
             Gen(
                 "module: tsa",

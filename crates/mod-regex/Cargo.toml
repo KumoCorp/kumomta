@@ -1,0 +1,11 @@
+[package]
+name = "mod-regex"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+config = {path="../config"}
+fancy-regex = "0.13"
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+regex = "1.10.5"
