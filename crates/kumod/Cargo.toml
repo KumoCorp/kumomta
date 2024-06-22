@@ -34,7 +34,7 @@ kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
-lazy_static = "1.4"
+lazy_static = "1.5"
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
@@ -45,7 +45,7 @@ minijinja-contrib = {version="2.0.1",features=["datetime", "timezone"]}
 minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
-nix = {version="0.28", features=["resource", "user"]}
+nix = {version="0.29", features=["resource", "user"]}
 once_cell = "1.17"
 parking_lot = "0.12"
 ppp = "2.2"
