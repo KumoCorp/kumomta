@@ -15,6 +15,7 @@ use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
 #[cfg(feature = "lua")]
 use mod_memoize::CacheValue;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CidrMap<V>
@@ -564,13 +565,12 @@ impl LuaUserData for CidrMap<CacheValue> {
 
 #[cfg(feature = "lua")]
 fn parse_cidr_from_ip_and_or_port(s: &str) -> anyhow::Result<AnyIpCidr> {
-    use std::str::FromStr;
-    match AnyIpCidr::from_str(s) {
+    match parse_cidr(s) {
         Ok(c) => Ok(c),
         Err(err) => {
             if s.starts_with('[') {
                 if let Some((ip, _port)) = s[1..].split_once(']') {
-                    return AnyIpCidr::from_str(ip).map_err(|err| {
+                    return parse_cidr(ip).map_err(|err| {
                         anyhow::anyhow!(
                             "failed to parse '{ip}', the \
                              []-enclosed portion of '{s}', as an IP address: {err:#}"
@@ -579,16 +579,38 @@ fn parse_cidr_from_ip_and_or_port(s: &str) -> anyhow::Result<AnyIpCidr> {
                 }
             }
             if let Some((ip, _port)) = s.rsplit_once(':') {
-                return AnyIpCidr::from_str(ip).map_err(|err| {
+                return parse_cidr(ip).map_err(|err| {
                     anyhow::anyhow!(
                         "failed to parse '{ip}', the \
                          :-delimited portion of '{s}', as an IP address: {err:#}"
                     )
                 });
             }
-            anyhow::bail!("failed to parse '{s}' as CIDR notation: {err:#}");
+            Err(err)
         }
     }
+}
+
+/// The underlying AnyIpCidr::from_str parser is very strict and its error messages
+/// are a little too terse.
+/// We use this alternative parser to augment the error messages with more context
+/// and suggestions.
+// <https://github.com/stbuehler/rust-cidr/issues/8>
+pub fn parse_cidr(s: &str) -> anyhow::Result<AnyIpCidr> {
+    AnyIpCidr::from_str(s).map_err(|err| {
+        match cidr::parsers::parse_any_cidr_full_ignore_hostbits(
+            s,
+            std::str::FromStr::from_str,
+            std::str::FromStr::from_str,
+        ) {
+            Ok(loose) => {
+                anyhow::anyhow!("{s} is not a valid CIDR: {err:#}. Did you mean {loose}?")
+            }
+            Err(err) => {
+                anyhow::anyhow!("{s} is not a valid CIDR: {err:#}")
+            }
+        }
+    })
 }
 
 #[cfg(feature = "lua")]
@@ -619,21 +641,28 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::str::FromStr;
+
+    #[test]
+    fn test_parse_error_message() {
+        assert_eq!(
+            parse_cidr("10.0.0.1/24").unwrap_err().to_string(),
+            "10.0.0.1/24 is not a valid CIDR: host part of address was not zero. Did you mean 10.0.0.0/24?"
+        );
+    }
 
     #[test]
     fn cidrmap() {
         let set: CidrMap<&str> = [
-            (AnyIpCidr::from_str("127.0.0.1").unwrap(), "loopbackv4"),
-            (AnyIpCidr::from_str("::1").unwrap(), "loopbackv6"),
-            (AnyIpCidr::from_str("192.168.1.0/24").unwrap(), ".1"),
+            (parse_cidr("127.0.0.1").unwrap(), "loopbackv4"),
+            (parse_cidr("::1").unwrap(), "loopbackv6"),
+            (parse_cidr("192.168.1.0/24").unwrap(), ".1"),
             // This entry is overlapped by the preceding entry
-            (AnyIpCidr::from_str("192.168.1.24").unwrap(), ".1"),
-            (AnyIpCidr::from_str("192.168.3.0/28").unwrap(), ".3"),
-            (AnyIpCidr::from_str("192.168.3.2").unwrap(), ".3.split"),
-            (AnyIpCidr::from_str("10.0.3.0/24").unwrap(), "10.3"),
-            (AnyIpCidr::from_str("10.0.4.0/24").unwrap(), "10.4"),
-            (AnyIpCidr::from_str("10.0.7.0/24").unwrap(), "10.7"),
+            (parse_cidr("192.168.1.24").unwrap(), ".1"),
+            (parse_cidr("192.168.3.0/28").unwrap(), ".3"),
+            (parse_cidr("192.168.3.2").unwrap(), ".3.split"),
+            (parse_cidr("10.0.3.0/24").unwrap(), "10.3"),
+            (parse_cidr("10.0.4.0/24").unwrap(), "10.4"),
+            (parse_cidr("10.0.7.0/24").unwrap(), "10.7"),
         ]
         .into();
 

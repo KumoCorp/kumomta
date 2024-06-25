@@ -1,4 +1,5 @@
 use crate::map::CidrMap;
+use crate::parse_cidr;
 pub use cidr::AnyIpCidr;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -10,6 +11,14 @@ pub struct CidrSet(CidrMap<()>);
 impl CidrSet {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn default_trusted_hosts() -> Self {
+        vec!["127.0.0.1", "::1"].try_into().unwrap()
+    }
+
+    pub fn default_prohibited_hosts() -> Self {
+        vec!["127.0.0.0/8", "::1"].try_into().unwrap()
     }
 
     pub fn contains(&self, ip: IpAddr) -> bool {
@@ -48,6 +57,30 @@ where
     }
 }
 
+impl TryFrom<Vec<&str>> for CidrSet {
+    type Error = String;
+
+    fn try_from(v: Vec<&str>) -> Result<Self, String> {
+        let mut set = CidrMap::new();
+        let mut problems = vec![];
+        for entry in v {
+            match parse_cidr(&entry) {
+                Ok(cidr) => {
+                    set.insert(cidr, ());
+                }
+                Err(err) => {
+                    problems.push(format!("{entry}: {err:#}"));
+                }
+            }
+        }
+        if problems.is_empty() {
+            Ok(Self(set))
+        } else {
+            Err(problems.join(", "))
+        }
+    }
+}
+
 impl TryFrom<Vec<String>> for CidrSet {
     type Error = String;
 
@@ -55,7 +88,7 @@ impl TryFrom<Vec<String>> for CidrSet {
         let mut set = CidrMap::new();
         let mut problems = vec![];
         for entry in v {
-            match entry.parse() {
+            match parse_cidr(&entry) {
                 Ok(cidr) => {
                     set.insert(cidr, ());
                 }
@@ -101,7 +134,6 @@ impl Into<Vec<AnyIpCidr>> for CidrSet {
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::str::FromStr;
 
     #[test]
     fn cidrset_any() {
@@ -115,15 +147,15 @@ mod test {
     #[test]
     fn cidrset() {
         let set: CidrSet = [
-            AnyIpCidr::from_str("127.0.0.1").unwrap(),
-            AnyIpCidr::from_str("::1").unwrap(),
-            AnyIpCidr::from_str("192.168.1.0/24").unwrap(),
+            parse_cidr("127.0.0.1").unwrap(),
+            parse_cidr("::1").unwrap(),
+            parse_cidr("192.168.1.0/24").unwrap(),
             // This entry is overlapped by the preceding entry
-            AnyIpCidr::from_str("192.168.1.24").unwrap(),
-            AnyIpCidr::from_str("192.168.3.0/28").unwrap(),
-            AnyIpCidr::from_str("10.0.3.0/24").unwrap(),
-            AnyIpCidr::from_str("10.0.4.0/24").unwrap(),
-            AnyIpCidr::from_str("10.0.7.0/24").unwrap(),
+            parse_cidr("192.168.1.24").unwrap(),
+            parse_cidr("192.168.3.0/28").unwrap(),
+            parse_cidr("10.0.3.0/24").unwrap(),
+            parse_cidr("10.0.4.0/24").unwrap(),
+            parse_cidr("10.0.7.0/24").unwrap(),
         ]
         .into();
 

@@ -12,7 +12,7 @@ lua = ["dep:config", "dep:mlua", "dep:mod-memoize"]
 [dependencies]
 anyhow = "1.0"
 bitstring = "0.1"
-cidr = {git="https://github.com/stbuehler/rust-cidr", branch="fix-8-improve-cidr-invalid-host-part", features=["serde", "bitstring"]}
+cidr = {version="0.2.3", features=["serde", "bitstring"]}
 config = {path="../config", optional=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
 mod-memoize = {path="../mod-memoize", optional=true}

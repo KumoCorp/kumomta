@@ -1,10 +1,9 @@
-use cidr_map::{AnyIpCidr, CidrSet};
+use cidr_map::CidrSet;
 use data_loader::KeySource;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use rfc5321::SmtpClientTimeouts;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use throttle::ThrottleSpec;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -87,7 +86,7 @@ pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_max_deliveries_per_connection")]
     pub max_deliveries_per_connection: usize,
 
-    #[serde(default = "EgressPathConfig::default_prohibited_hosts")]
+    #[serde(default = "CidrSet::default_prohibited_hosts")]
     pub prohibited_hosts: CidrSet,
 
     #[serde(default)]
@@ -125,7 +124,7 @@ impl Default for EgressPathConfig {
             max_connection_rate: None,
             max_deliveries_per_connection: Self::default_max_deliveries_per_connection(),
             client_timeouts: SmtpClientTimeouts::default(),
-            prohibited_hosts: Self::default_prohibited_hosts(),
+            prohibited_hosts: CidrSet::default_prohibited_hosts(),
             skip_hosts: CidrSet::default(),
             ehlo_domain: None,
             allow_smtp_auth_plain_without_tls: false,
@@ -164,13 +163,5 @@ impl EgressPathConfig {
 
     fn default_max_deliveries_per_connection() -> usize {
         1024
-    }
-
-    fn default_prohibited_hosts() -> CidrSet {
-        [
-            AnyIpCidr::from_str("127.0.0.0/8").unwrap(),
-            AnyIpCidr::from_str("::1").unwrap(),
-        ]
-        .into()
     }
 }

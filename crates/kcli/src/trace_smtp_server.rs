@@ -1,12 +1,10 @@
-use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
-use cidr_map::{AnyIpCidr, CidrSet};
+use cidr_map::CidrSet;
 use clap::{Parser, ValueEnum};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use std::str::FromStr;
 use tungstenite::{connect, Message};
 
 #[derive(ValueEnum, Default, Debug, Clone, Copy)]
@@ -51,8 +49,7 @@ impl TraceSmtpServerCommand {
         } else {
             let mut set = CidrSet::new();
             for s in &self.source {
-                let cidr =
-                    AnyIpCidr::from_str(s).with_context(|| format!("{s} is not a valid CIDR"))?;
+                let cidr = cidr_map::parse_cidr(s)?;
                 set.insert(cidr);
             }
             Some(set)

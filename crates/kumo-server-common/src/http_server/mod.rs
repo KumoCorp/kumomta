@@ -6,12 +6,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
-use cidr_map::{AnyIpCidr, CidrSet};
+use cidr_map::CidrSet;
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
-use std::str::FromStr;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
@@ -78,7 +77,7 @@ pub struct HttpListenerParams {
     #[serde(default)]
     pub tls_private_key: Option<KeySource>,
 
-    #[serde(default = "HttpListenerParams::default_trusted_hosts")]
+    #[serde(default = "CidrSet::default_trusted_hosts")]
     pub trusted_hosts: CidrSet,
 }
 
@@ -117,14 +116,6 @@ impl AppState {
 impl HttpListenerParams {
     fn default_listen() -> String {
         "127.0.0.1:8000".to_string()
-    }
-
-    fn default_trusted_hosts() -> CidrSet {
-        [
-            AnyIpCidr::from_str("127.0.0.1").unwrap(),
-            AnyIpCidr::from_str("::1").unwrap(),
-        ]
-        .into()
     }
 
     fn default_hostname() -> String {

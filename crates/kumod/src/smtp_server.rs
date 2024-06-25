@@ -6,7 +6,7 @@ use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
-use cidr_map::{AnyIpCidr, CidrSet};
+use cidr_map::CidrSet;
 use config::{any_err, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
@@ -29,7 +29,6 @@ use serde_json::json;
 use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -135,7 +134,7 @@ pub struct EsmtpListenerParams {
     pub listen: String,
     #[serde(default = "EsmtpListenerParams::default_hostname")]
     pub hostname: String,
-    #[serde(default = "EsmtpListenerParams::default_relay_hosts")]
+    #[serde(default = "CidrSet::default_trusted_hosts")]
     pub relay_hosts: CidrSet,
     #[serde(default = "EsmtpListenerParams::default_banner")]
     pub banner: String,
@@ -204,14 +203,6 @@ impl EsmtpListenerParams {
 
     fn default_line_length_hard_limit() -> usize {
         MAX_LINE_LEN
-    }
-
-    fn default_relay_hosts() -> CidrSet {
-        [
-            AnyIpCidr::from_str("127.0.0.1").unwrap(),
-            AnyIpCidr::from_str("::1").unwrap(),
-        ]
-        .into()
     }
 
     fn default_listen() -> String {
