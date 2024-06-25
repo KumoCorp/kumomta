@@ -133,7 +133,7 @@ kumo.on('validate_config', function()
     end
     failed = true
     print 'Issues found in the combined set of sources files:'
-    for _, file_name in ipairs(mod.CONFIGURED) do
+    for _, file_name in ipairs(mod.CONFIGURED.data_files) do
       if type(file_name) == 'table' then
         print ' - (inline table)'
       else
