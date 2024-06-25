@@ -3,6 +3,10 @@ local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
 
 local DKIM_PATH = '/opt/kumomta/etc/dkim'
+local VALID_ADDITIONAL_SIGNATURES_POLICIES = {
+  Always = true,
+  OnlyIfMissingDomainBlock = true,
+}
 
 --[[
 Usage example:
@@ -99,7 +103,7 @@ local function load_dkim_data_from_file(file_name, target)
   end
 end
 
-local function load_dkim_data(dkim_data_files)
+local function load_dkim_data(dkim_data_files, no_compile)
   local data = {
     domain = {},
     signature = {},
@@ -135,7 +139,9 @@ local function load_dkim_data(dkim_data_files)
   end
 
   -- Compile the domain map for pattern matching
-  data.domain = kumo.domain_map.new(data.domain)
+  if not no_compile then
+    data.domain = kumo.domain_map.new(data.domain)
+  end
 
   return data
 end
@@ -173,6 +179,18 @@ local function do_dkim_sign(msg, data)
   if domain_config then
     -- TODO: check DNS to decide whether to try and sign based
     -- on the domain_config.policy value
+
+    local policy = domain_config.policy or data.base.policy or 'Always'
+
+    if policy ~= 'Always' then
+      error(
+        string.format(
+          "dkim_sign: invalid policy '%s' for domain '%s'",
+          policy,
+          sender_domain
+        )
+      )
+    end
 
     local params = {
       domain = sender_domain,
@@ -213,6 +231,18 @@ local function do_dkim_sign(msg, data)
   if base.additional_signatures then
     for _, signame in ipairs(base.additional_signatures) do
       local sig_config = data.signature[signame]
+
+      local policy = sig_config.policy or 'Always'
+
+      if not VALID_ADDITIONAL_SIGNATURES_POLICIES[policy] then
+        error(
+          string.format(
+            "signature.'%s': invalid policy '%s'",
+            signame,
+            policy
+          )
+        )
+      end
 
       local need_sign = true
       if
@@ -262,6 +292,10 @@ local function do_dkim_sign(msg, data)
 end
 
 function mod:setup(dkim_data_files)
+  if mod.CONFIGURED then
+    error 'dkim_sign module has already been configured'
+  end
+
   local cached_load_data = kumo.memoize(load_dkim_data, {
     name = 'dkim_signing_data',
     ttl = '5 minutes',
@@ -273,7 +307,94 @@ function mod:setup(dkim_data_files)
     do_dkim_sign(msg, data)
   end
 
+  mod.CONFIGURED = {
+    data_files = dkim_data_files,
+  }
+
   return sign_message
 end
+
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local failed = false
+
+  function show_context()
+    if failed then
+      return
+    end
+    failed = true
+    kumo.validation_failed()
+    print 'Issues found in the combined set of dkim_sign files:'
+    for _, file_name in ipairs(mod.CONFIGURED.data_files) do
+      print(string.format(' - %s', file_name))
+    end
+  end
+
+  local status, result =
+    pcall(load_dkim_data, mod.CONFIGURED.data_files, true)
+  if not status then
+    show_context()
+    print('Error loading data: ' .. result)
+    return
+  end
+
+  local data = result
+  local data_compiled = load_dkim_data(mod.CONFIGURED.data_files)
+  -- print(kumo.json_encode_pretty(data))
+
+  for domain, params in pairs(data.domain) do
+    local msg = kumo.make_message(
+      string.format('someone@%s', domain),
+      'postmaster@example.com',
+      string.format('From: someone@%s\r\nSubject: hello\r\n\r\nWoot', domain)
+    )
+
+    local status, err = pcall(do_dkim_sign, msg, data_compiled)
+    if not status then
+      show_context()
+      print(string.format("domain '%s': %s", domain, err))
+    end
+  end
+
+  local referenced = {}
+  for _, signame in ipairs(data.base.additional_signatures or {}) do
+    if not data.signature[signame] then
+      show_context()
+      print(
+        string.format(
+          "base.additional_signatures contains '%s' which does not have a corresponding [signature.'%s'] block",
+          signame,
+          signame
+        )
+      )
+    end
+    referenced[signame] = true
+  end
+  for signame, sigdata in pairs(data.signature or {}) do
+    if not referenced[signame] then
+      show_context()
+      print(
+        string.format(
+          "[signature.'%s'] is not referenced by base.additional_signatures and will not be used",
+          signame
+        )
+      )
+    end
+  end
+
+  local msg = kumo.make_message(
+    'someone@a.domain.that.really.should.not.exist.in.the.real.world.kumomta.com',
+    'postmaster@example.com',
+    'From: someone@a.domain.that.really.should.not.exist.in.the.real.world.kumomta.com\r\nSubject: hello\r\n\r\nWoot'
+  )
+  local status, err = pcall(do_dkim_sign, msg, data_compiled)
+  if not status then
+    show_context()
+    print(string.format('Checking additional_signatures: %s', err))
+  end
+end)
 
 return mod
