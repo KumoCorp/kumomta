@@ -66,6 +66,10 @@ impl Accounting {
     }
 
     pub fn flush(&self) -> anyhow::Result<()> {
+        if config::is_validating() {
+            return Ok(());
+        }
+
         tracing::trace!("flushing");
         let db = open_accounting_db().context("open_accounting_db")?;
 

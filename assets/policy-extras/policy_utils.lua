@@ -120,6 +120,10 @@ function mod.table_is_empty(tbl)
 end
 
 function mod.load_json_or_toml_file(filename)
+  if type(filename) == 'table' then
+    -- allow inline lua objects to be passed through as-is
+    return filename
+  end
   if filename:match '.toml$' then
     return kumo.toml_load(filename)
   end

@@ -17,6 +17,8 @@ use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
+#[cfg(feature = "lua")]
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 #[cfg(feature = "lua")]
 use std::collections::HashSet;
@@ -503,6 +505,29 @@ impl Shaping {
     pub fn match_rules(&self, record: &JsonLogRecord, domain: &str, site_name: &str) -> Vec<Rule> {
         self.inner.match_rules(record, domain, site_name)
     }
+
+    pub fn get_referenced_sources(&self) -> BTreeMap<String, Vec<String>> {
+        let mut result = BTreeMap::new();
+
+        for (site_name, site) in &self.inner.by_site {
+            for source_name in site.sources.keys() {
+                result
+                    .entry(source_name.to_string())
+                    .or_insert(vec![])
+                    .push(format!("site:{site_name}"));
+            }
+        }
+        for (domain_name, domain) in &self.inner.by_domain {
+            for source_name in domain.sources.keys() {
+                result
+                    .entry(source_name.to_string())
+                    .or_insert(vec![])
+                    .push(format!("domain:{domain_name}"));
+            }
+        }
+
+        result
+    }
 }
 
 #[cfg(feature = "lua")]
@@ -519,6 +544,10 @@ impl LuaUserData for Shaping {
         methods.add_method("get_warnings", move |_lua, this, ()| {
             let warnings: Vec<String> = this.get_warnings().iter().map(|s| s.to_string()).collect();
             Ok(warnings)
+        });
+
+        methods.add_method("get_referenced_sources", move |_lua, this, ()| {
+            Ok(this.get_referenced_sources())
         });
     }
 }

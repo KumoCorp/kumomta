@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
@@ -32,6 +32,9 @@ lazy_static::lazy_static! {
     };
     static ref CALLBACK_ALLOWS_MULTIPLE: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
 }
+
+pub static VALIDATE_ONLY: AtomicBool = AtomicBool::new(false);
+pub static VALIDATION_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// Maximum age of a lua context before we release it, in seconds
 static MAX_AGE: AtomicUsize = AtomicUsize::new(300);
@@ -155,6 +158,18 @@ fn pool_get() -> Option<LuaConfig> {
         .map(|inner| LuaConfig { inner: Some(inner) })
 }
 
+pub fn is_validating() -> bool {
+    VALIDATE_ONLY.load(Ordering::Relaxed)
+}
+
+pub fn validation_failed() -> bool {
+    VALIDATION_FAILED.load(Ordering::Relaxed)
+}
+
+pub fn set_validation_failed() {
+    VALIDATION_FAILED.store(true, Ordering::Relaxed)
+}
+
 pub async fn load_config() -> anyhow::Result<LuaConfig> {
     if let Some(pool) = pool_get() {
         return Ok(pool);
@@ -166,6 +181,11 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 
     {
         let globals = lua.globals();
+
+        if is_validating() {
+            globals.set("_VALIDATING_CONFIG", true)?;
+        }
+
         let package: Table = globals.get("package")?;
         let package_path: String = package.get("path")?;
         let mut path_array: Vec<String> = package_path.split(";").map(|s| s.to_owned()).collect();
@@ -572,6 +592,9 @@ where
         }
     }
 
+    /// Make sure that you call .register() on this from
+    /// eg: mod_kumo::register in order for it to be instantiated
+    /// and visible to the config loader
     pub fn new_with_multiple<S: Into<Cow<'static, str>>>(name: S) -> Self {
         let name = name.into();
 

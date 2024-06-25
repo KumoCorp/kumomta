@@ -3,6 +3,7 @@ use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
+use kumo_server_lifecycle::LifeCycle;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use once_cell::sync::Lazy;
@@ -12,6 +13,8 @@ use std::pin::Pin;
 
 pub static PRE_INIT_SIG: Lazy<CallbackSignature<(), ()>> =
     Lazy::new(|| CallbackSignature::new_with_multiple("pre_init"));
+pub static VALIDATE_SIG: Lazy<CallbackSignature<(), ()>> =
+    Lazy::new(|| CallbackSignature::new_with_multiple("validate_config"));
 
 mod accounting;
 mod delivery_metrics;
@@ -36,6 +39,12 @@ struct Opt {
     /// Lua policy file to load.
     #[arg(long, default_value = "/opt/kumomta/etc/policy/init.lua")]
     policy: PathBuf,
+
+    /// When set, run the policy init function in validation mode,
+    /// then stop. In validation mode, listeners are not started
+    /// and the spool is not acquired.
+    #[arg(long)]
+    validate: bool,
 
     /// Directory where diagnostic log files will be placed.
     ///
@@ -145,7 +154,7 @@ fn main() -> anyhow::Result<()> {
         .block_on(async move { run(opts).await })
 }
 
-fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
+fn perform_init(validate: bool) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
     Box::pin(async move {
         let nodeid = kumo_server_common::nodeid::NodeId::get();
         tracing::info!("NodeId is {nodeid}");
@@ -163,16 +172,32 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
             .await
             .context("call init callback")?;
 
-        crate::spool::SpoolManager::get()
-            .start_spool()
-            .await
-            .context("start_spool")?;
+        if validate {
+            config
+                .async_call_callback(&VALIDATE_SIG, ())
+                .await
+                .context("call validate_config callback")?;
+
+            if config::validation_failed() {
+                anyhow::bail!("Validation failed");
+            }
+
+            LifeCycle::request_shutdown().await;
+        } else {
+            crate::spool::SpoolManager::get()
+                .start_spool()
+                .await
+                .context("start_spool")?;
+        }
 
         Ok(())
     })
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
+    let validate = opts.validate;
+    config::VALIDATE_ONLY.store(validate, std::sync::atomic::Ordering::Relaxed);
+
     let res = StartConfig {
         logging: LoggingConfig {
             log_dir: opts.diag_log_dir.clone(),
@@ -189,7 +214,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         ],
         policy: &opts.policy,
     }
-    .run(perform_init, crate::logging::Logger::signal_shutdown)
+    .run(
+        move || perform_init(validate),
+        crate::logging::Logger::signal_shutdown,
+    )
     .await;
 
     if let Err(err) = crate::accounting::ACCT.flush() {

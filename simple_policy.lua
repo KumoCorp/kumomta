@@ -6,6 +6,46 @@ local kumo = require 'kumo'
 package.path = 'assets/?.lua;' .. package.path
 local shaping = require 'policy-extras.shaping'
 
+shaping:setup_with_automation {
+  no_default_files = true,
+  extra_files = { 'assets/policy-extras/shaping.toml' },
+}
+
+local sources = require 'policy-extras.sources'
+sources:setup {
+  {
+    pool = {
+      pool0 = {
+        source1 = { weight = 10 },
+        source2 = { weight = 20 },
+        source3 = { weight = 30 },
+      },
+    },
+    source = {
+      source1 = {},
+      source2 = {},
+      source3 = {},
+    },
+  },
+}
+
+local queue_module = require 'policy-extras.queue'
+local queue_helper = queue_module:setup {
+  {
+    scheduling_header = 'X-Schedule',
+    tenant = {
+      mytenant = {
+        egress_pool = 'pool0',
+      },
+    },
+    queue = {
+      default = {
+        egress_pool = 'pool0',
+      },
+    },
+  },
+}
+
 -- Called on startup to initialize the system
 kumo.on('init', function()
   kumo.configure_accounting_db_path(os.tmpname())
@@ -86,28 +126,6 @@ kumo.on('init', function()
 
   -- Use shared throttles rather than in-process throttles
   -- kumo.configure_redis_throttles { node = 'redis://127.0.0.1/' }
-end)
-
-kumo.on('get_egress_pool', function(pool_name)
-  if pool_name == 'pool0' then
-    local entries = {}
-    for i = 1, 3 do
-      local source_name = 'source' .. tostring(i)
-      table.insert(entries, { name = source_name, weight = i * 10 })
-    end
-    return kumo.make_egress_pool {
-      name = 'pool0',
-      entries = entries,
-    }
-  end
-
-  error("I don't know how to configure pool " .. pool_name)
-end)
-
-kumo.on('get_egress_source', function(source_name)
-  return kumo.make_egress_source {
-    name = source_name,
-  }
 end)
 
 --[[
@@ -222,32 +240,6 @@ kumo.on(
     }
   end
 )
-
---[[
--- Not the final form of this API, but this is currently how
--- we retrieve configuration used for managing a queue.
-kumo.on('get_queue_config', function(domain, tenant, campaign)
-  if domain == 'maildir.example.com' then
-    -- Store this domain into a maildir, rather than attempting
-    -- to deliver via SMTP
-    return kumo.make_queue_config {
-      protocol = {
-        maildir_path = '/var/tmp/kumo-maildir',
-      },
-    }
-  end
-end)
-]]
-
-kumo.on('get_queue_config', function(domain, tenant, campaign)
-  return kumo.make_queue_config {
-    -- Age out messages after being in the queue for 2 minutes
-    -- max_age = "2 minutes"
-    -- retry_interval = "2 seconds",
-    -- max_retry_interval = "8 seconds",
-    egress_pool = 'pool0',
-  }
-end)
 
 -- A really simple inline auth "database" for very basic HTTP authentication
 function simple_auth_check(user, password)

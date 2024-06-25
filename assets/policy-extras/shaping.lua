@@ -233,6 +233,10 @@ end)
 kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 ]]
 function mod:setup_with_automation(options)
+  if mod.CONFIGURED then
+    error 'shaping module has already been configured'
+  end
+
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
@@ -259,7 +263,7 @@ function mod:setup_with_automation(options)
   end
 
   local publish = {}
-  for _, destination in ipairs(options.publish) do
+  for _, destination in ipairs(options.publish or {}) do
     -- Generate the hook name and constructor name and
     -- keep that info in a more structured form
     local hook_name = string.format('%s.tsa.kumomta', destination)
@@ -356,7 +360,10 @@ function mod:setup_with_automation(options)
     return should_enq(publish, msg, hook_name)
   end)
 
-  return {
+  mod.CONFIGURED = {
+    _file_names = file_names,
+    _options = options,
+
     get_egress_path_config = get_egress_path_config,
     should_enqueue_log_record = function(msg, hook_name)
       -- deprecated: no longer needed as we register a should_enqueue_log_record
@@ -375,6 +382,59 @@ function mod:setup_with_automation(options)
       -- TODO: remove me after next release.
     end,
   }
+
+  return mod.CONFIGURED
 end
+
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local result = kumo.shaping.load(mod.CONFIGURED._file_names)
+  local warnings = result:get_warnings()
+  local failed = false
+
+  function show_context()
+    if failed then
+      return
+    end
+    failed = true
+    kumo.validation_failed()
+    print 'Issues found in the combined set of shaping files:'
+    for _, file_name in ipairs(mod.CONFIGURED._file_names) do
+      print(string.format(' - %s', file_name))
+    end
+  end
+
+  if #warnings > 0 then
+    show_context()
+    for _, warn in ipairs(warnings) do
+      print(warn)
+    end
+  end
+
+  local sources = require 'policy-extras.sources'
+  if sources.CONFIGURED then
+    local source_data = sources.CONFIGURED.get_data()
+    local refd_sources = result:get_referenced_sources()
+    for source, refs in pairs(refd_sources) do
+      if source == 'my source name' and refs[1] == 'domain:example.com' then
+        -- Ignore sample data from default shaping.toml
+      else
+        if not source_data.sources[source] then
+          show_context()
+          print(
+            string.format(
+              "Source '%s' is not present in your sources helper data. Referenced by %s",
+              source,
+              table.concat(refs, ', ')
+            )
+          )
+        end
+      end
+    end
+  end
+end)
 
 return mod

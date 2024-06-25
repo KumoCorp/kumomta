@@ -99,13 +99,14 @@ local function parse_one(data)
   return result
 end
 
-local function merge_data(loaded_files)
+local function merge_data(loaded_files, no_compile)
   local result = {}
   for _, data in ipairs(loaded_files) do
     utils.recursive_merge_into(parse_one(data), result)
   end
-  -- print(kumo.json_encode_pretty(result))
-  result.queues = kumo.domain_map.new(result.queues)
+  if not no_compile then
+    result.queues = kumo.domain_map.new(result.queues)
+  end
   return result
 end
 
@@ -118,13 +119,13 @@ local function is_queue_config_option(name, value)
   return status
 end
 
-local function load_queue_config(file_names)
+local function load_queue_config(file_names, no_compile)
   local data = {}
   for _, file_name in ipairs(file_names) do
     table.insert(data, utils.load_json_or_toml_file(file_name))
   end
 
-  return merge_data(data)
+  return merge_data(data, no_compile)
 end
 
 -- Resolve the merged value of the config that matches the provided
@@ -309,6 +310,10 @@ function mod:setup(file_names)
 end
 
 function mod:setup_with_options(options)
+  if mod.CONFIGURED then
+    error 'queues module has already been configured'
+  end
+
   local cached_load_data = kumo.memoize(load_queue_config, {
     name = 'queue_helper_data',
     ttl = '1 minute',
@@ -324,6 +329,14 @@ function mod:setup_with_options(options)
     local params = resolve_config(data, domain, tenant, campaign)
     return params
   end
+
+  mod.CONFIGURED = {
+    options = options,
+    get_data = function()
+      return load_queue_config(options.file_names, true)
+    end,
+    resolve_config = helper.resolve_config,
+  }
 
   if not options.skip_queue_config_hook then
     kumo.on(
@@ -385,6 +398,66 @@ function mod:setup_with_options(options)
 
   return helper
 end
+
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local data = mod.CONFIGURED.get_data()
+  -- print(kumo.json_encode_pretty(data))
+  local failed = false
+
+  function show_context()
+    if failed then
+      return
+    end
+    failed = true
+    print 'Issues found in the combined set of queue files:'
+    for _, file_name in ipairs(mod.CONFIGURED.options.file_names) do
+      if type(file_name) == 'table' then
+        print ' - (inline table)'
+      else
+        print(string.format(' - %s', file_name))
+      end
+    end
+  end
+
+  local sources = require 'policy-extras.sources'
+  if sources.CONFIGURED then
+    local source_data = sources.CONFIGURED.get_data()
+
+    for tenant, tenant_data in pairs(data.tenants) do
+      if tenant_data.egress_pool then
+        if not source_data.pools[tenant_data.egress_pool] then
+          show_context()
+          print(
+            string.format(
+              "tenant '%s' uses pool '%s' which is not present in your sources helper data",
+              tenant,
+              tenant_data.egress_pool
+            )
+          )
+        end
+      end
+    end
+
+    for domain, domain_data in pairs(data.queues) do
+      if domain_data.egress_pool then
+        if not source_data.pools[domain_data.egress_pool] then
+          show_context()
+          print(
+            string.format(
+              "domain '%s' uses pool '%s' which is not present in your sources helper data",
+              domain,
+              domain_data.egress_pool
+            )
+          )
+        end
+      end
+    end
+  end
+end)
 
 --[[
 Run some basic unit tests for the data parsing/merging; use it like this:

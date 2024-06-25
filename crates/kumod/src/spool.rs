@@ -96,6 +96,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "define_spool",
         lua.create_async_function(|lua, params: Value| async move {
             let params = from_lua_value(lua, params)?;
+            if config::is_validating() {
+                return Ok(());
+            }
+
             spawn("define_spool", async move {
                 if let Err(err) = define_spool(params).await {
                     tracing::error!("Error in spool: {err:#}");

@@ -258,24 +258,35 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(|lua, params: Value| {
             let params: TaskParams = lua.from_value(params)?;
 
-            std::thread::Builder::new()
-                .name(format!("spawned-task-{}", params.event_name))
-                .spawn(move || {
-                    let runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_io()
-                        .enable_time()
-                        .on_thread_park(|| kumo_server_memory::purge_thread_cache())
-                        .build()
-                        .unwrap();
-                    let local_set = LocalSet::new();
-                    let event_name = params.event_name.clone();
+            if !config::is_validating() {
+                std::thread::Builder::new()
+                    .name(format!("spawned-task-{}", params.event_name))
+                    .spawn(move || {
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_io()
+                            .enable_time()
+                            .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+                            .build()
+                            .unwrap();
+                        let local_set = LocalSet::new();
+                        let event_name = params.event_name.clone();
 
-                    let result = local_set.block_on(&runtime, async move { params.run().await });
-                    if let Err(err) = result {
-                        tracing::error!("Error while dispatching {event_name}: {err:#}");
-                    }
-                })?;
+                        let result =
+                            local_set.block_on(&runtime, async move { params.run().await });
+                        if let Err(err) = result {
+                            tracing::error!("Error while dispatching {event_name}: {err:#}");
+                        }
+                    })?;
+            }
 
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "validation_failed",
+        lua.create_function(|_, ()| {
+            config::set_validation_failed();
             Ok(())
         })?,
     )?;

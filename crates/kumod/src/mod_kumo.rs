@@ -19,6 +19,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     crate::queue::GET_Q_CONFIG_SIG.register();
     crate::logging::SHOULD_ENQ_LOG_RECORD_SIG.register();
     crate::PRE_INIT_SIG.register();
+    crate::VALIDATE_SIG.register();
     crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
     crate::http_server::admin_suspend_v1::register(lua)?;
     crate::http_server::inject_v1::register(lua)?;
@@ -27,10 +28,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: HttpListenerParams = from_lua_value(lua, params)?;
-            params
-                .start(crate::http_server::make_router())
-                .await
-                .map_err(any_err)?;
+            if !config::is_validating() {
+                params
+                    .start(crate::http_server::make_router())
+                    .await
+                    .map_err(any_err)?;
+            }
             Ok(())
         })?,
     )?;
@@ -39,12 +42,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "start_esmtp_listener",
         lua.create_async_function(|lua, params: Value| async move {
             let params: EsmtpListenerParams = from_lua_value(lua, params)?;
-            spawn("start_esmtp_listener", async move {
-                if let Err(err) = params.run().await {
-                    tracing::error!("Error in SmtpServer: {err:#}");
-                }
-            })
-            .map_err(any_err)?;
+            if !config::is_validating() {
+                spawn("start_esmtp_listener", async move {
+                    if let Err(err) = params.run().await {
+                        tracing::error!("Error in SmtpServer: {err:#}");
+                    }
+                })
+                .map_err(any_err)?;
+            }
             Ok(())
         })?,
     )?;

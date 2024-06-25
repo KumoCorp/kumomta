@@ -83,11 +83,22 @@ sources:setup({'/opt/kumomta/etc/sources.toml'})
 ]]
 
 function mod:setup(data_files)
+  if mod.CONFIGURED then
+    error 'sources module has already been configured'
+  end
+
   local cached_load_data = kumo.memoize(load_data, {
     name = 'sources_data',
     ttl = '5 minutes',
     capacity = 10,
   })
+
+  mod.CONFIGURED = {
+    data_files = data_files,
+    get_data = function()
+      return cached_load_data(data_files)
+    end,
+  }
 
   kumo.on('get_egress_source', function(source_name)
     local data = cached_load_data(data_files)
@@ -107,5 +118,59 @@ function mod:setup(data_files)
     return kumo.make_egress_pool(params)
   end)
 end
+
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local data = mod.CONFIGURED.get_data()
+  local failed = false
+
+  function show_context()
+    if failed then
+      return
+    end
+    failed = true
+    print 'Issues found in the combined set of sources files:'
+    for _, file_name in ipairs(mod.CONFIGURED) do
+      if type(file_name) == 'table' then
+        print ' - (inline table)'
+      else
+        print(string.format(' - %s', file_name))
+      end
+    end
+  end
+
+  for source, params in pairs(data.sources) do
+    local status, err = pcall(kumo.make_egress_source, params)
+    if not status then
+      show_context()
+      print(err)
+      kumo.validation_failed()
+    end
+  end
+  for pool, params in pairs(data.pools) do
+    local status, err = pcall(kumo.make_egress_pool, params)
+    if not status then
+      show_context()
+      print(err)
+      kumo.validation_failed()
+    end
+
+    for _, entry in ipairs(params.entries) do
+      if not data.sources[entry.name] then
+        show_context()
+        print(
+          string.format(
+            "pool '%s' references source '%s' which is not defined",
+            pool,
+            entry.name
+          )
+        )
+      end
+    end
+  end
+end)
 
 return mod
