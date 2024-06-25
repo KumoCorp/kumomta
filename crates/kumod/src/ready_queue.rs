@@ -104,6 +104,7 @@ impl ReadyQueueName {
 
 pub struct ReadyQueueConfig {
     pub name: String,
+    #[allow(unused)]
     pub site_name: String,
     pub path_config: EgressPathConfig,
     pub egress_source: EgressSource,

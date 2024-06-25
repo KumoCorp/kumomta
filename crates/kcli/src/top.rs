@@ -771,17 +771,16 @@ impl Sparkline<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::assert_buffer_eq;
     use ratatui::buffer::Cell;
 
     #[test]
     fn it_draws() {
         let widget = Sparkline::default().data(&[0, 1, 2, 3, 4, 5, 6, 7, 8]);
         let buffer = render(&widget, 12, 1);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec![" ▁▂▃▄▅▆▇█xxx"]));
+        assert_eq!(buffer, Buffer::with_lines(vec![" ▁▂▃▄▅▆▇█xxx"]));
 
         let buffer = render(&widget, 12, 2);
-        assert_buffer_eq!(
+        assert_eq!(
             buffer,
             Buffer::with_lines(vec![
                 "     ▂▄▆█xxx", //
@@ -802,10 +801,10 @@ mod tests {
             .data(&[0, 1, 2, 3, 4, 5, 6, 7, 8])
             .inverted(true);
         let buffer = render(&widget, 9, 1);
-        assert_buffer_eq!(buffer, reversed(Buffer::with_lines(vec!["█▇▆▅▄▃▂▁ "])));
+        assert_eq!(buffer, reversed(Buffer::with_lines(vec!["█▇▆▅▄▃▂▁ "])));
 
         let buffer = render(&widget, 9, 2);
-        assert_buffer_eq!(
+        assert_eq!(
             buffer,
             reversed(Buffer::with_lines(vec![
                 "█▆▄▂     ", //

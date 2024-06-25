@@ -10,6 +10,7 @@ use tokio::process::{Child, Command};
 
 #[derive(Debug)]
 pub struct TsaDaemon {
+    #[allow(unused)]
     pub dir: TempDir,
     pub listeners: BTreeMap<String, SocketAddr>,
     child: Child,

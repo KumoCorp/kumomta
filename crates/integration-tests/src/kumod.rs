@@ -110,6 +110,7 @@ impl MailGenParams<'_> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct DeliverySummary {
     pub source_counts: BTreeMap<RecordType, usize>,
     pub sink_counts: BTreeMap<RecordType, usize>,
@@ -531,6 +532,7 @@ impl KumoDaemon {
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(unused)]
 pub struct AccountingStats {
     pub received: usize,
     pub delivered: usize,
