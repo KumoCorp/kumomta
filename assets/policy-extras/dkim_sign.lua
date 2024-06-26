@@ -1,12 +1,56 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local typing = require 'policy-extras.typing'
 
 local DKIM_PATH = '/opt/kumomta/etc/dkim'
-local VALID_ADDITIONAL_SIGNATURES_POLICIES = {
-  Always = true,
-  OnlyIfMissingDomainBlock = true,
-}
+
+local DomainSigningPolicy = typing.enum('DomainSigningPolicy', 'Always')
+local SignatureSigningPolicy =
+  typing.enum('SignatureSigningPolicy', 'Always', 'OnlyIfMissingDomainBlock')
+local SigningAlgo = typing.enum('SigningAlgo', 'sha256', 'ed25519')
+
+local DkimSignConfig = typing.record('DkimSignConfig', {
+  base = typing.record('DkimSignConfig.Base', {
+    vault_mount = typing.option(typing.string),
+    vault_path_prefix = typing.option(typing.string),
+    additional_signatures = typing.option(typing.list(typing.string)),
+    selector = typing.option(typing.string),
+    headers = typing.option(typing.list(typing.string)),
+    header_canonicalization = typing.option(typing.string),
+    body_canonicalization = typing.option(typing.string),
+    over_sign = typing.option(typing.boolean),
+  }),
+
+  domain = typing.map(
+    typing.string,
+    typing.record('DkimSignConfig.Domain', {
+      selector = typing.option(typing.string),
+      headers = typing.option(typing.list(typing.string)),
+      policy = typing.option(DomainSigningPolicy),
+      algo = typing.option(SigningAlgo),
+      filename = typing.option(typing.string),
+      header_canonicalization = typing.option(typing.string),
+      body_canonicalization = typing.option(typing.string),
+      over_sign = typing.option(typing.boolean),
+    })
+  ),
+
+  signature = typing.map(
+    typing.string,
+    typing.record('DkimSignConfig.Signature', {
+      domain = typing.string,
+      selector = typing.option(typing.string),
+      headers = typing.option(typing.list(typing.string)),
+      policy = typing.option(SignatureSigningPolicy),
+      algo = typing.option(SigningAlgo),
+      filename = typing.option(typing.string),
+      header_canonicalization = typing.option(typing.string),
+      body_canonicalization = typing.option(typing.string),
+      over_sign = typing.option(typing.boolean),
+    })
+  ),
+})
 
 --[[
 Usage example:
@@ -76,7 +120,7 @@ domain = "myesp.com"
 ]]
 
 local function load_dkim_data_from_file(file_name, target)
-  local data = utils.load_json_or_toml_file(file_name)
+  local data = DkimSignConfig(utils.load_json_or_toml_file(file_name))
 
   if data.base then
     utils.merge_into(data.base, target.base)
@@ -104,7 +148,7 @@ local function load_dkim_data_from_file(file_name, target)
 end
 
 local function load_dkim_data(dkim_data_files, no_compile)
-  local data = {
+  local data = DkimSignConfig {
     domain = {},
     signature = {},
     base = {},
@@ -233,16 +277,6 @@ local function do_dkim_sign(msg, data)
       local sig_config = data.signature[signame]
 
       local policy = sig_config.policy or 'Always'
-
-      if not VALID_ADDITIONAL_SIGNATURES_POLICIES[policy] then
-        error(
-          string.format(
-            "signature.'%s': invalid policy '%s'",
-            signame,
-            policy
-          )
-        )
-      end
 
       local need_sign = true
       if

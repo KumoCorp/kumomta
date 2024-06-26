@@ -58,6 +58,7 @@ local dkim_signer = dkim_sign:setup {
       ['example.com'] = {
         policy = 'Always',
         filename = 'example-private-dkim-key.pem',
+        -- algo = 'sha256',
         -- policy = "SignOnlyIfInDNS",
       },
     },
