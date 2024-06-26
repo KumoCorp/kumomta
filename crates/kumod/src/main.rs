@@ -203,7 +203,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             log_dir: opts.diag_log_dir.clone(),
             diag_format: opts.diag_format,
             filter_env_var: "KUMOD_LOG",
-            default_filter: "kumod=info,kumo_server_common=info,kumo_server_runtime=info",
+            default_filter: if validate {
+                ""
+            } else {
+                "kumod=info,kumo_server_common=info,kumo_server_runtime=info"
+            },
         },
         lua_funcs: &[
             kumo_server_common::register,
