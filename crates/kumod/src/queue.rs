@@ -33,7 +33,24 @@ use tracing::instrument;
 lazy_static::lazy_static! {
     static ref MANAGER: StdMutex<QueueManager> = StdMutex::new(QueueManager::new());
     static ref DELAY_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("scheduled_count", "number of messages in the scheduled queue", &["queue"]).unwrap()
+        prometheus::register_int_gauge_vec!("scheduled_count",
+            "number of messages in the scheduled queue",
+            &["queue"]).unwrap()
+    };
+    static ref TENANT_GAUGE: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!("scheduled_by_tenant",
+            "number of messages in the scheduled queue for a specific tenant",
+            &["tenant"]).unwrap()
+    };
+    static ref TENANT_CAMPAIGN_GAUGE: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!("scheduled_by_tenant_campaign",
+            "number of messages in the scheduled queue for a specific tenant and campaign combination",
+            &["tenant", "campaign"]).unwrap()
+    };
+    static ref DOMAIN_GAUGE: IntGaugeVec = {
+        prometheus::register_int_gauge_vec!("scheduled_by_domain",
+            "number of messages in the scheduled queue for a specific domain",
+            &["domain"]).unwrap()
     };
 
     pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
@@ -50,6 +67,54 @@ lazy_static::lazy_static! {
 }
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+struct ScheduledMetrics {
+    scheduled: IntGauge,
+    by_domain: IntGauge,
+    by_tenant: Option<IntGauge>,
+    by_tenant_campaign: Option<IntGauge>,
+}
+
+impl ScheduledMetrics {
+    pub fn new(name: &str) -> anyhow::Result<Self> {
+        let components = QueueNameComponents::parse(name);
+
+        let scheduled = DELAY_GAUGE.get_metric_with_label_values(&[name])?;
+        let by_domain = DOMAIN_GAUGE.get_metric_with_label_values(&[&components.domain])?;
+        let by_tenant = match &components.tenant {
+            Some(tenant) => Some(TENANT_GAUGE.get_metric_with_label_values(&[tenant])?),
+            None => None,
+        };
+        let by_tenant_campaign = match &components.campaign {
+            Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.get_metric_with_label_values(&[
+                campaign,
+                components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
+            ])?),
+            None => None,
+        };
+
+        Ok(Self {
+            scheduled,
+            by_domain,
+            by_tenant,
+            by_tenant_campaign,
+        })
+    }
+
+    pub fn inc(&self) {
+        self.scheduled.inc();
+        self.by_domain.inc();
+        self.by_tenant.as_ref().map(|m| m.inc());
+        self.by_tenant_campaign.as_ref().map(|m| m.inc());
+    }
+
+    pub fn sub(&self, amount: i64) {
+        self.scheduled.sub(amount);
+        self.by_domain.sub(amount);
+        self.by_tenant.as_ref().map(|m| m.sub(amount));
+        self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
+    }
+}
 
 pub fn set_qmaint_threads(n: usize) {
     QMAINT_THREADS.store(n, Ordering::SeqCst);
@@ -399,7 +464,7 @@ pub struct Queue {
     queue: StdMutex<TimeQ<Message>>,
     last_change: StdMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
-    delayed_gauge: IntGauge,
+    metrics: ScheduledMetrics,
     activity: Activity,
     rr: EgressPoolRoundRobin,
     ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
@@ -434,7 +499,7 @@ impl Queue {
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
         let rr = EgressPoolRoundRobin::new(&pool);
 
-        let delayed_gauge = DELAY_GAUGE.get_metric_with_label_values(&[&name])?;
+        let metrics = ScheduledMetrics::new(&name)?;
 
         let activity = Activity::get(format!("Queue {name}"))?;
 
@@ -443,7 +508,7 @@ impl Queue {
             queue: StdMutex::new(TimeQ::new()),
             last_change: StdMutex::new(Instant::now()),
             queue_config: ConfigHandle::new(queue_config),
-            delayed_gauge,
+            metrics,
             activity,
             rr,
             ready_queue_names: StdMutex::new(HashMap::new()),
@@ -466,14 +531,14 @@ impl Queue {
     /// Insert into the timeq, and updates the counters.
     fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
         self.queue.lock().insert(Arc::new(msg))?;
-        self.delayed_gauge.inc();
+        self.metrics.inc();
         Ok(())
     }
 
     /// Removes all messages from the timeq, and updates the counters
     fn drain_timeq(&self) -> Vec<Arc<Message>> {
         let msgs = self.queue.lock().drain();
-        self.delayed_gauge.sub(msgs.len() as i64);
+        self.metrics.sub(msgs.len() as i64);
         msgs
     }
 
@@ -1242,7 +1307,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
             match q.pop_timeq() {
                 PopResult::Items(messages) => {
-                    q.delayed_gauge.sub(messages.len() as i64);
+                    q.metrics.sub(messages.len() as i64);
                     tracing::trace!("{} msgs are now ready", messages.len());
 
                     for msg in messages {
