@@ -1,7 +1,6 @@
-use anyhow::Context;
 use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
-    serialize_options, CallbackSignature,
+    CallbackSignature,
 };
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
@@ -28,6 +27,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_filesystem::register,
         mod_http::register,
         mod_regex::register,
+        mod_serde::register,
         mod_sqlite::register,
         mod_string::register,
         mod_dns_resolver::register,
@@ -148,83 +148,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
-    kumo_mod.set(
-        "toml_load",
-        lua.create_async_function(|lua, file_name: String| async move {
-            let data = tokio::fs::read_to_string(&file_name)
-                .await
-                .with_context(|| format!("reading file {file_name}"))
-                .map_err(any_err)?;
-
-            let obj: toml::Value = toml::from_str(&data)
-                .with_context(|| format!("parsing {file_name} as toml"))
-                .map_err(any_err)?;
-            Ok(lua.to_value_with(&obj, serialize_options()))
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "toml_parse",
-        lua.create_function(move |lua, toml: String| {
-            let obj: toml::Value = toml::from_str(&toml)
-                .with_context(|| format!("parsing {toml} as toml"))
-                .map_err(any_err)?;
-            Ok(lua.to_value_with(&obj, serialize_options()))
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "toml_encode",
-        lua.create_function(move |_lua, value: Value| toml::to_string(&value).map_err(any_err))?,
-    )?;
-
-    kumo_mod.set(
-        "toml_encode_pretty",
-        lua.create_function(move |_lua, value: Value| {
-            toml::to_string_pretty(&value).map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "json_load",
-        lua.create_async_function(|lua, file_name: String| async move {
-            let data = tokio::fs::read(&file_name)
-                .await
-                .with_context(|| format!("reading file {file_name}"))
-                .map_err(any_err)?;
-
-            let stripped = json_comments::StripComments::new(&*data);
-
-            let obj: serde_json::Value = serde_json::from_reader(stripped)
-                .with_context(|| format!("parsing {file_name} as json"))
-                .map_err(any_err)?;
-            Ok(lua.to_value_with(&obj, serialize_options()))
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "json_parse",
-        lua.create_async_function(|lua, text: String| async move {
-            let stripped = json_comments::StripComments::new(text.as_bytes());
-            let obj: serde_json::Value = serde_json::from_reader(stripped)
-                .with_context(|| format!("parsing {text} as json"))
-                .map_err(any_err)?;
-            Ok(lua.to_value_with(&obj, serialize_options()))
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "json_encode",
-        lua.create_async_function(|_, value: Value| async move {
-            serde_json::to_string(&value).map_err(any_err)
-        })?,
-    )?;
-    kumo_mod.set(
-        "json_encode_pretty",
-        lua.create_async_function(|_, value: Value| async move {
-            serde_json::to_string_pretty(&value).map_err(any_err)
-        })?,
-    )?;
     kumo_mod.set(
         "sleep",
         lua.create_async_function(|_, seconds: f64| async move {

@@ -365,6 +365,10 @@ TOC = [
                 "reference/kumo.secrets",
             ),
             Gen(
+                "module: kumo.serde",
+                "reference/kumo.serde",
+            ),
+            Gen(
                 "module: kumo.shaping",
                 "reference/kumo.shaping",
             ),

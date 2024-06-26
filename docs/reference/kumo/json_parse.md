@@ -1,5 +1,10 @@
 # `kumo.json_parse(STRING)`
 
+!!! warning
+    This function has moved to the [kumo.serde](../kumo.serde/index.md) module and
+    will be removed in a future release.
+    {{since('dev', inline=True)}}
+
 Parses STRING as JSON, returning a lua representation of the parsed JSON.
 
 This json parsing implementation will accept C style block comments, C++ style

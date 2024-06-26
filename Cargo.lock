@@ -2596,7 +2596,6 @@ dependencies = [
  "data-loader",
  "domain-map",
  "gethostname",
- "json_comments",
  "kumo-api-types",
  "kumo-server-lifecycle",
  "kumo-server-memory",
@@ -2617,6 +2616,7 @@ dependencies = [
  "mod-memoize",
  "mod-redis",
  "mod-regex",
+ "mod-serde",
  "mod-sqlite",
  "mod-string",
  "nix 0.28.0",
@@ -2632,7 +2632,6 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "tokio-metrics-collector",
- "toml",
  "tower-http",
  "tracing",
  "tracing-appender",
@@ -3437,6 +3436,20 @@ dependencies = [
  "fancy-regex 0.13.0",
  "mlua",
  "regex",
+]
+
+[[package]]
+name = "mod-serde"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "json_comments",
+ "mlua",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -5014,6 +5027,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.2.6",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha-1"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6187,6 +6213,12 @@ name = "unicode-xid"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"

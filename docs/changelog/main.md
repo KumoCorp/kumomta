@@ -16,6 +16,13 @@
   another. There is an optional corresponding
   [rebind_message](../reference/events/rebind_message.md) event for more
   advanced rebinding logic. #209
+* Moved JSON and TOML functions into a new
+  [kumo.serde](../reference/kumo.serde/index.md) module. Those functions are
+  also still available under the `kumo` module for backwards compatibility
+  sake, but will be removed in a future release. You should standardize on the
+  new `kumo.serde` module name moving forwards.
+* Added YAML serialization/deserialization functions to
+  [kumo.serde](../reference/kumo.serde/index.md).
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and
