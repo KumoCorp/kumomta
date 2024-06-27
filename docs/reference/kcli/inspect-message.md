@@ -1,14 +1,18 @@
-## `kcli inspect-message`
+# kcli inspect-message
+
 
 Returns information about a message in the spool
 
+
 **Usage:** `kcli inspect-message [OPTIONS] <ID>`
 
-###### **Arguments:**
+## Arguments
+
 
 * `<ID>`
 
-###### **Options:**
+## Options
+
 
 * `--want-body`
 

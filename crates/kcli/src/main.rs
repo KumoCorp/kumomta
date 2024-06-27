@@ -85,15 +85,23 @@ impl SubCommand {
                 // doing a bit of grubbing around to split that out here
 
                 for (idx, chunk) in overall_help.split("## `kcli ").enumerate() {
+                    // Fixup the markdown to work better in the context of
+                    // mkdocs-material
+                    let chunk = chunk
+                        .replace("###### **Options:**", "## Options")
+                        .replace("###### **Arguments:**", "## Arguments")
+                        .replace("\n  ", "\n    ")
+                        .replace("\n*", "\n\n*");
+
                     if idx == 0 {
                         std::fs::write(
                             "docs/reference/kcli/_index.md",
                             &format!("{chunk}\n\n## Available Subcommands"),
                         )?;
                     } else {
-                        let (sub_command, _) = chunk.split_once('`').unwrap();
+                        let (sub_command, remainder) = chunk.split_once('`').unwrap();
                         let filename = format!("docs/reference/kcli/{sub_command}.md");
-                        let help = format!("## `kcli {chunk}");
+                        let help = format!("# kcli {sub_command}\n{remainder}");
                         std::fs::write(&filename, &help)?;
                     }
                 }

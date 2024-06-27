@@ -1,4 +1,5 @@
-## `kcli rebind`
+# kcli rebind
+
 
 Rebind messages from matching queues into different queue(s).
 
@@ -34,20 +35,32 @@ Alternatively:
 
 kcli rebind --domain example.com --data '{"queue": "foo.com"}'
 
+
 **Usage:** `kcli rebind [OPTIONS] --reason <REASON>`
 
-###### **Options:**
+## Options
+
 
 * `--domain <DOMAIN>` — The domain name to match. If omitted, any domains will match!
+
 * `--routing-domain <ROUTING_DOMAIN>` — The routing_domain name to match. If omitted, any routing domain will match!
+
 * `--campaign <CAMPAIGN>` — The campaign name to match. If omitted, any campaigns will match!
+
 * `--tenant <TENANT>` — The tenant name to match. If omitted, any tenant will match!
+
 * `--reason <REASON>` — The reason to log in the delivery logs (each matching message will rebind with an AdminRebind record)
+
 * `--always-flush` — Always flush, even if we didn't change the scheduled queue
+
 * `--everything` — Match all queues
+
 * `--suppress-logging` — Do not generate AdminRebind delivery logs
+
 * `--trigger-rebind-event` — Trigger a "rebind_message" event which receives both the message and the data, and then decides what to do to the message. Otherwise, the data will be unconditionally applied to the message metadata
+
 * `--data <DATA>` — Specify a JSON object of key/value pairs which should either be set as meta values, or passed to the rebind_message event (if `--trigger-rebind-event` is in use)
+
 * `--set <KEY=VALUE>` — Set additional key/value pairs. Can be used multiple times
 
 

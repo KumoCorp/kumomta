@@ -1,14 +1,17 @@
-## `kcli top`
+# kcli top
+
 
 Continually update and show what's happening in kumod
 
+
 **Usage:** `kcli top [OPTIONS]`
 
-###### **Options:**
+## Options
+
 
 * `--update-interval <UPDATE_INTERVAL>`
 
-  Default value: `1`
+    Default value: `1`
 
 
 

@@ -1,4 +1,5 @@
-## `kcli queue-summary`
+# kcli queue-summary
+
 
 Prints a summary of the state of the queues, for a human to read.
 
@@ -26,12 +27,16 @@ Note that the ready queue counter values reset whenever the ready queue is reape
 
 The scheduled queue data is presented in two columns; the queue name and the number of messages in that queue.
 
+
 **Usage:** `kcli queue-summary [OPTIONS]`
 
-###### **Options:**
+## Options
+
 
 * `--limit <LIMIT>` — Limit results to LIMIT results
+
 * `--by-volume` — Instead of ordering by name, order by volume, descending
+
 * `--domain <DOMAIN>` — Filter queues to those associated with a DNS domain
 
 

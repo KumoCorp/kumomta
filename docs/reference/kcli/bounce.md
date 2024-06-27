@@ -1,4 +1,5 @@
-## `kcli bounce`
+# kcli bounce
+
 
 Administratively bounce messages in matching queues.
 
@@ -10,17 +11,26 @@ The bounce will be applied immediately to queued messages, (asynchronously with 
 
 The totals printed by this command are often under-reported due to the asynchronous nature of the action.
 
+
 **Usage:** `kcli bounce [OPTIONS] --reason <REASON>`
 
-###### **Options:**
+## Options
+
 
 * `--domain <DOMAIN>` — The domain name to match. If omitted, any domains will match!
+
 * `--routing-domain <ROUTING_DOMAIN>` — The routing_domain name to match. If omitted, any routing domain will match!
+
 * `--campaign <CAMPAIGN>` — The campaign name to match. If omitted, any campaigns will match!
+
 * `--tenant <TENANT>` — The tenant name to match. If omitted, any tenant will match!
+
 * `--reason <REASON>` — The reason to log in the delivery logs (each matching message will bounce with an AdminBounce record) as well as in the list of bounces
+
 * `--everything` — Purge all queues
+
 * `--suppress-logging` — Do not generate AdminBounce delivery logs
+
 * `--duration <DURATION>` — The duration over which matching messages will continue to bounce. The default is '5m'
 
 
