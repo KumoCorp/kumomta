@@ -1,7 +1,15 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+
 local typing = require 'policy-extras.typing'
+local Bool, List, Map, Option, Record, String =
+  typing.boolean,
+  typing.list,
+  typing.map,
+  typing.option,
+  typing.record,
+  typing.string
 
 local DKIM_PATH = '/opt/kumomta/etc/dkim'
 
@@ -10,44 +18,44 @@ local SignatureSigningPolicy =
   typing.enum('SignatureSigningPolicy', 'Always', 'OnlyIfMissingDomainBlock')
 local SigningAlgo = typing.enum('SigningAlgo', 'sha256', 'ed25519')
 
-local DkimSignConfig = typing.record('DkimSignConfig', {
-  base = typing.record('DkimSignConfig.Base', {
-    vault_mount = typing.option(typing.string),
-    vault_path_prefix = typing.option(typing.string),
-    additional_signatures = typing.option(typing.list(typing.string)),
-    selector = typing.option(typing.string),
-    headers = typing.option(typing.list(typing.string)),
-    header_canonicalization = typing.option(typing.string),
-    body_canonicalization = typing.option(typing.string),
-    over_sign = typing.option(typing.boolean),
+local DkimSignConfig = Record('DkimSignConfig', {
+  base = Record('DkimSignConfig.Base', {
+    vault_mount = Option(String),
+    vault_path_prefix = Option(String),
+    additional_signatures = Option(List(String)),
+    selector = Option(String),
+    headers = Option(List(String)),
+    header_canonicalization = Option(String),
+    body_canonicalization = Option(String),
+    over_sign = Option(Bool),
   }),
 
   domain = typing.map(
-    typing.string,
-    typing.record('DkimSignConfig.Domain', {
-      selector = typing.option(typing.string),
-      headers = typing.option(typing.list(typing.string)),
-      policy = typing.option(DomainSigningPolicy),
-      algo = typing.option(SigningAlgo),
-      filename = typing.option(typing.string),
-      header_canonicalization = typing.option(typing.string),
-      body_canonicalization = typing.option(typing.string),
-      over_sign = typing.option(typing.boolean),
+    String,
+    Record('DkimSignConfig.Domain', {
+      selector = Option(String),
+      headers = Option(List(String)),
+      policy = Option(DomainSigningPolicy),
+      algo = Option(SigningAlgo),
+      filename = Option(String),
+      header_canonicalization = Option(String),
+      body_canonicalization = Option(String),
+      over_sign = Option(Bool),
     })
   ),
 
   signature = typing.map(
-    typing.string,
-    typing.record('DkimSignConfig.Signature', {
-      domain = typing.string,
-      selector = typing.option(typing.string),
-      headers = typing.option(typing.list(typing.string)),
-      policy = typing.option(SignatureSigningPolicy),
-      algo = typing.option(SigningAlgo),
-      filename = typing.option(typing.string),
-      header_canonicalization = typing.option(typing.string),
-      body_canonicalization = typing.option(typing.string),
-      over_sign = typing.option(typing.boolean),
+    String,
+    Record('DkimSignConfig.Signature', {
+      domain = String,
+      selector = Option(String),
+      headers = Option(List(String)),
+      policy = Option(SignatureSigningPolicy),
+      algo = Option(SigningAlgo),
+      filename = Option(String),
+      header_canonicalization = Option(String),
+      body_canonicalization = Option(String),
+      over_sign = Option(Bool),
     })
   ),
 })
