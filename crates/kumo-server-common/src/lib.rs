@@ -41,6 +41,63 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
+    fn event_registrar_name(name: &str) -> String {
+        format!("kumomta-event-registrars-{name}")
+    }
+
+    // Record the call stack of the code calling kumo.on so that
+    // kumo.get_event_registrars can retrieve it later
+    fn register_event_caller(lua: &Lua, name: &str) -> mlua::Result<()> {
+        let decorated_name = event_registrar_name(name);
+        let mut call_stack = vec![];
+        for n in 1.. {
+            match lua.inspect_stack(n) {
+                Some(info) => {
+                    let source = info.source();
+                    call_stack.push(format!(
+                        "{}:{}",
+                        source
+                            .short_src
+                            .as_ref()
+                            .map(|b| String::from_utf8_lossy(b).to_string())
+                            .unwrap_or_else(String::new),
+                        info.curr_line()
+                    ));
+                }
+                None => break,
+            }
+        }
+
+        let tbl: Value = lua.named_registry_value(&decorated_name)?;
+        return match tbl {
+            Value::Nil => {
+                let tbl = lua.create_table()?;
+                tbl.set(1, call_stack)?;
+                lua.set_named_registry_value(&decorated_name, tbl)?;
+                Ok(())
+            }
+            Value::Table(tbl) => {
+                let len = tbl.raw_len();
+                tbl.set(len + 1, call_stack)?;
+                Ok(())
+            }
+            _ => Err(mlua::Error::external(format!(
+                "registry key for {decorated_name} has invalid type",
+            ))),
+        };
+    }
+
+    // Returns the list of call-stacks of the code that registered
+    // for a specific named event
+    kumo_mod.set(
+        "get_event_registrars",
+        lua.create_function(move |lua, name: String| {
+            let decorated_name = event_registrar_name(&name);
+            let value: Value = lua.named_registry_value(&decorated_name)?;
+            Ok(value)
+        })?,
+    )?;
+
     kumo_mod.set(
         "on",
         lua.create_function(move |lua, (name, func): (String, Function)| {
@@ -55,6 +112,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     in order for it to consistently trigger and handle events."
                 )));
             }
+
+            register_event_caller(lua, &name)?;
 
             if config::does_callback_allow_multiple(&name) {
                 let tbl: Value = lua.named_registry_value(&decorated_name)?;

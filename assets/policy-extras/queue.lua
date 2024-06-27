@@ -413,6 +413,7 @@ kumo.on('validate_config', function()
       return
     end
     failed = true
+    kumo.validation_failed()
     print 'Issues found in the combined set of queue files:'
     for _, file_name in ipairs(mod.CONFIGURED.options.file_names) do
       if type(file_name) == 'table' then
@@ -456,6 +457,53 @@ kumo.on('validate_config', function()
         end
       end
     end
+  end
+
+  local function stack_contains_src(stack, src)
+    for _, frame in ipairs(stack) do
+      if utils.starts_with(frame, src) then
+        return true
+      end
+    end
+    return false
+  end
+
+  local reg = kumo.get_event_registrars 'get_queue_config'
+  local my_source = kumo.traceback(1)[1].short_src .. ':'
+  local my_reg = nil
+  for idx, stack in ipairs(reg) do
+    if stack_contains_src(stack, my_source) then
+      my_reg = idx
+      break
+    end
+  end
+
+  if my_reg ~= #reg then
+    -- Don't use show_context() here, as this error is independent of
+    -- the contents of the queue data files and instead about interactions
+    -- between modules
+    kumo.validation_failed()
+
+    print [[
+queue.lua is in use, but it is not the last module to register for the get_queue_config event.
+This can cause issues with routing/scheduling, especially if you have a [queue.default]
+block defined in your queue data.
+
+Here are the locations where each of the get_queue_config events are
+registered:
+]]
+
+    for idx, stack in ipairs(reg) do
+      print(string.format('%d:', idx))
+      for _, frame in ipairs(stack) do
+        print(string.format('    %s', frame))
+      end
+    end
+
+    print [[
+
+You should adjust the initialization order so that queue.lua is last.
+]]
   end
 end)
 
