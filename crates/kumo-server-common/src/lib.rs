@@ -4,7 +4,7 @@ use config::{
 };
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::task::LocalSet;
 
 pub mod config_handle;
@@ -153,6 +153,65 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|_, seconds: f64| async move {
             tokio::time::sleep(tokio::time::Duration::from_secs_f64(seconds)).await;
             Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "traceback",
+        lua.create_function(move |lua: &Lua, level: usize| {
+            #[derive(Debug, Serialize)]
+            struct Frame {
+                event: String,
+                name: Option<String>,
+                name_what: Option<String>,
+                source: Option<String>,
+                short_src: Option<String>,
+                line_defined: i32,
+                last_line_defined: i32,
+                what: Option<String>,
+                curr_line: i32,
+                is_tail_call: bool,
+            }
+
+            let mut frames = vec![];
+            for n in level.. {
+                match lua.inspect_stack(n) {
+                    Some(info) => {
+                        let source = info.source();
+                        let names = info.names();
+                        frames.push(Frame {
+                            curr_line: info.curr_line(),
+                            is_tail_call: info.is_tail_call(),
+                            event: format!("{:?}", info.event()),
+                            last_line_defined: source.last_line_defined,
+                            line_defined: source.line_defined,
+                            name: names
+                                .name
+                                .as_ref()
+                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                            name_what: names
+                                .name_what
+                                .as_ref()
+                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                            source: source
+                                .source
+                                .as_ref()
+                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                            short_src: source
+                                .short_src
+                                .as_ref()
+                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                            what: source
+                                .what
+                                .as_ref()
+                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                        });
+                    }
+                    None => break,
+                }
+            }
+
+            lua.to_value(&frames)
         })?,
     )?;
 
