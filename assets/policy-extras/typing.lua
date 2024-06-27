@@ -26,7 +26,8 @@ function mod.record(name, fields)
     local field_def = ty.fields[k]
     if not field_def then
       error(
-        string.format("%s: attempt to read unknown field '%s'", ty.name, k)
+        string.format("%s: attempt to read unknown field '%s'", ty.name, k),
+        2
       )
     end
   end
@@ -34,7 +35,7 @@ function mod.record(name, fields)
   function ty.__newindex(t, k, v)
     local field_def = ty.fields[k]
     if not field_def then
-      error(string.format("%s: unknown field '%s'", ty.name, k))
+      error(string.format("%s: unknown field '%s'", ty.name, k), 2)
     end
     local status, result = field_def:validate_value(v)
     if status then
@@ -47,7 +48,8 @@ function mod.record(name, fields)
           value_dump(v),
           k,
           result
-        )
+        ),
+        2
       )
     end
   end
@@ -68,7 +70,8 @@ function mod.record(name, fields)
             ty.name,
             k,
             def.name
-          )
+          ),
+          2
         )
       end
     end
@@ -153,7 +156,8 @@ function mod.list(value_type)
   function ty.__newindex(t, idx, v)
     if type(idx) ~= 'number' then
       error(
-        string.format("%s: invalid index '%s' list", ty.name, value_dump(idx))
+        string.format("%s: invalid index '%s' list", ty.name, value_dump(idx)),
+        2
       )
     end
 
@@ -166,7 +170,8 @@ function mod.list(value_type)
           value_dump(v),
           idx,
           val_fixup
-        )
+        ),
+        2
       )
     end
 
@@ -257,7 +262,8 @@ function mod.map(key_type, value_type)
           ty.name,
           value_dump(k),
           key_fixup
-        )
+        ),
+        2
       )
     end
 
@@ -270,7 +276,8 @@ function mod.map(key_type, value_type)
           value_dump(v),
           value_dump(k),
           val_fixup
-        )
+        ),
+        2
       )
     end
 
@@ -340,7 +347,7 @@ local function make_simple_ctor(ty)
   function ctor_mt:__call(value)
     local status, fixup = ty:validate_value(value)
     if not status then
-      error(err)
+      error(err, 2)
     end
     return fixup
   end
