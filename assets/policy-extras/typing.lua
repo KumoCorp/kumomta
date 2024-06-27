@@ -8,7 +8,161 @@ local function value_dump(v)
       return encoded
     end
   end
+  if type(v) == 'string' then
+    return "'" .. v .. "'"
+  end
   return v
+end
+
+-- Figure out the number of frames to skip in the error() call
+-- when reporting an error.
+-- We want to report the caller outside of this module,
+-- but we do also want to correctly report the line number
+-- of tests in this file.
+-- We do this by looking at the stack trace and comparing
+-- frames; the very first frame is by definition in this function,
+-- so we can use that to figure out the current source file
+-- and filter based on that.
+local function error_skip()
+  local trace = kumo.traceback(1)
+
+  -- print(kumo.serde.json_encode_pretty(trace))
+  local first_frame = trace[1]
+
+  for level, frame in ipairs(trace) do
+    if frame.what ~= 'C' then
+      if frame.source ~= first_frame.source then
+        -- It's not in this file
+        return level, frame
+      end
+      -- This is fragile; the number here should be
+      -- approximately the line number in this file where
+      -- mod:test is defined. If the number is too low,
+      -- we'll attribute errors to the typing helpers in
+      -- this file, rather than the caller.
+      if frame.curr_line > 580 then
+        return level, frame
+      end
+    end
+  end
+
+  return 2, trace[2]
+end
+
+local TypeError = {}
+
+function TypeError:format_frame()
+  return string.format(
+    '%s:%d %s',
+    self.frame.short_src,
+    self.frame.curr_line,
+    self.message
+  )
+end
+
+function TypeError:__tostring()
+  if self.context then
+    local frames = { self:format_frame() }
+    local context = self.context
+    while context do
+      table.insert(frames, context:format_frame())
+      context = context.context
+    end
+    return table.concat(frames, '\n')
+  else
+    return self:format_frame()
+  end
+end
+
+function TypeError:raise()
+  error(tostring(self), error_skip())
+end
+
+TypeError.__index = TypeError
+
+function TypeError:new(message, context)
+  if not message then
+    error('TypeError:new called with no message', 2)
+  end
+
+  --[[
+  print("TypeError:new called with message", kumo.json_encode_pretty(message))
+  print("TypeError:new called with context", kumo.json_encode_pretty(context))
+  ]]
+
+  if context then
+    if type(context) ~= 'table' then
+      context = TypeError:new(context)
+    end
+  end
+
+  local skip, frame = error_skip()
+
+  local err = {
+    message = message,
+    context = context,
+    frame = frame,
+  }
+  -- print("TypeError:new -> ", kumo.json_encode_pretty(err))
+  setmetatable(err, self)
+  return err
+end
+
+local function casting_validate_value(ty, other)
+  local other_mt = getmetatable(other)
+  if other_mt == ty then
+    return true, other
+  end
+
+  if not other_mt then
+    if type(other) == 'table' then
+      -- Let's try to construct one implicitly
+      local status, fixup = pcall(ty.construct, ty, other)
+      if not status then
+        return false,
+          TypeError:new(
+            string.format(
+              "Expected value of type '%s' and encountered an error during coercion",
+              ty.name
+            ),
+            fixup
+          )
+      end
+      return true, fixup
+    end
+
+    return false,
+      TypeError:new(
+        string.format(
+          "Expected value of type '%s' but got type '%s' %s",
+          ty.name,
+          type(other),
+          value_dump(other)
+        )
+      )
+  end
+
+  if other_mt.name then
+    return false,
+      TypeError:new(
+        string.format(
+          "Expected value of type '%s' but got type '%s' with value %s",
+          ty.name,
+          other_mt.name,
+          value_dump(other)
+        )
+      )
+  end
+
+  return false,
+    TypeError:new(
+      string.format(
+        "Expected value of type '%s' but got type '%s' %s",
+        ty.name,
+        type(other),
+        value_dump(other)
+      )
+    )
 end
 
 -- Returns a record constructor
@@ -25,32 +179,30 @@ function mod.record(name, fields)
     end
     local field_def = ty.fields[k]
     if not field_def then
-      error(
-        string.format("%s: attempt to read unknown field '%s'", ty.name, k),
-        2
-      )
+      TypeError
+        :new(
+          string.format("%s: attempt to read unknown field '%s'", ty.name, k)
+        )
+        :raise()
     end
   end
 
   function ty.__newindex(t, k, v)
     local field_def = ty.fields[k]
     if not field_def then
-      error(string.format("%s: unknown field '%s'", ty.name, k), 2)
+      TypeError:new(string.format("%s: unknown field '%s'", ty.name, k))
+        :raise()
     end
     local status, result = field_def:validate_value(v)
     if status then
       rawset(t, k, result)
     else
-      error(
-        string.format(
-          "%s: invalid value '%s' for field '%s': %s",
-          ty.name,
-          value_dump(v),
-          k,
+      TypeError
+        :new(
+          string.format("%s: invalid value for field '%s'", ty.name, k),
           result
-        ),
-        2
-      )
+        )
+        :raise()
     end
   end
 
@@ -67,15 +219,16 @@ function mod.record(name, fields)
         if def.default_value then
           obj[k] = def.default_value
         elseif not def.is_optional then
-          error(
-            string.format(
-              "%s: missing value for field '%s' of type '%s'",
-              ty.name,
-              k,
-              def.name
-            ),
-            2
-          )
+          TypeError
+            :new(
+              string.format(
+                "%s: missing value for field '%s' of type '%s'",
+                ty.name,
+                k,
+                def.name
+              )
+            )
+            :raise()
         end
       end
     end
@@ -84,50 +237,7 @@ function mod.record(name, fields)
   end
 
   function ty:validate_value(other)
-    local other_mt = getmetatable(other)
-    if other_mt == self then
-      return true, other
-    end
-
-    if not other_mt then
-      if type(other) == 'table' then
-        -- Let's try to construct one implicitly
-        local status, fixup = pcall(self.construct, self, other)
-        if not status then
-          return false,
-            string.format(
-              "Expected value of type '%s' and encountered an error during construction:\n%s",
-              self.name,
-              fixup
-            )
-        end
-        return true, fixup
-      end
-
-      return false,
-        string.format(
-          "Expected value of type '%s' but got '%s'",
-          self.name,
-          value_dump(other)
-        )
-    end
-
-    if other_mt.name then
-      return false,
-        string.format(
-          "Expected value of type '%s' but got type '%s' with value '%s'",
-          self.name,
-          other_mt.name,
-          value_dump(other)
-        )
-    end
-
-    return false,
-      string.format(
-        "Expected value of type '%s' but got '%s'",
-        self.name,
-        value_dump(other)
-      )
+    return casting_validate_value(ty, other)
   end
 
   local ctor_mt = {}
@@ -159,74 +269,32 @@ function mod.list(value_type)
 
   function ty.__newindex(t, idx, v)
     if type(idx) ~= 'number' then
-      error(
-        string.format("%s: invalid index '%s' list", ty.name, value_dump(idx)),
-        2
-      )
+      TypeError
+        :new(
+          string.format(
+            "%s: invalid index '%s' list",
+            ty.name,
+            value_dump(idx)
+          )
+        )
+        :raise()
     end
 
     local val_ok, val_fixup = ty.value_type:validate_value(v)
     if not val_ok then
-      error(
-        string.format(
-          "%s: invalid value '%s' for idx %d: %s",
-          ty.name,
-          value_dump(v),
-          idx,
+      TypeError
+        :new(
+          string.format('%s: invalid value for idx %d', ty.name, idx),
           val_fixup
-        ),
-        2
-      )
+        )
+        :raise()
     end
 
     rawset(t, idx, val_fixup)
   end
 
   function ty:validate_value(other)
-    local other_mt = getmetatable(other)
-    if other_mt == self then
-      return true, other
-    end
-
-    if not other_mt then
-      if type(other) == 'table' then
-        -- Let's try to construct one implicitly
-        local status, fixup = pcall(self.construct, self, other)
-        if not status then
-          return false,
-            string.format(
-              "Expected value of type '%s' and encountered an error during construction: %s",
-              self.name,
-              fixup
-            )
-        end
-        return true, fixup
-      end
-
-      return false,
-        string.format(
-          "Expected value of type '%s' but got '%s'",
-          self.name,
-          value_dump(other)
-        )
-    end
-
-    if other_mt.name then
-      return false,
-        string.format(
-          "Expected value of type '%s' but got type '%s' with value '%s'",
-          self.name,
-          other_mt.name,
-          value_dump(other)
-        )
-    end
-
-    return false,
-      string.format(
-        "Expected value of type '%s' but got '%s'",
-        self.name,
-        value_dump(other)
-      )
+    return casting_validate_value(ty, other)
   end
 
   local ctor_mt = {}
@@ -260,79 +328,33 @@ function mod.map(key_type, value_type)
   function ty.__newindex(t, k, v)
     local key_ok, key_fixup = ty.key_type:validate_value(k)
     if not key_ok then
-      error(
-        string.format(
-          "%s: invalid key '%s': %s",
-          ty.name,
-          value_dump(k),
+      TypeError
+        :new(
+          string.format('%s: invalid key %s', ty.name, value_dump(k)),
           key_fixup
-        ),
-        2
-      )
+        )
+        :raise()
     end
 
     local val_ok, val_fixup = ty.value_type:validate_value(v)
     if not val_ok then
-      error(
-        string.format(
-          "%s: invalid value '%s' for key '%s': %s",
-          ty.name,
-          value_dump(v),
-          value_dump(k),
+      TypeError
+        :new(
+          string.format(
+            '%s: invalid value for key %s',
+            ty.name,
+            value_dump(k)
+          ),
           val_fixup
-        ),
-        2
-      )
+        )
+        :raise()
     end
 
     rawset(t, key_fixup, val_fixup)
   end
 
   function ty:validate_value(other)
-    local other_mt = getmetatable(other)
-    if other_mt == self then
-      return true, other
-    end
-
-    if not other_mt then
-      if type(other) == 'table' then
-        -- Let's try to construct one implicitly
-        local status, fixup = pcall(self.construct, self, other)
-        if not status then
-          return false,
-            string.format(
-              "Expected value of type '%s' and encountered an error during construction: %s",
-              self.name,
-              fixup
-            )
-        end
-        return true, fixup
-      end
-
-      return false,
-        string.format(
-          "Expected value of type '%s' but got '%s'",
-          self.name,
-          value_dump(other)
-        )
-    end
-
-    if other_mt.name then
-      return false,
-        string.format(
-          "Expected value of type '%s' but got type '%s' with value '%s'",
-          self.name,
-          other_mt.name,
-          value_dump(other)
-        )
-    end
-
-    return false,
-      string.format(
-        "Expected value of type '%s' but got '%s'",
-        self.name,
-        value_dump(other)
-      )
+    return casting_validate_value(ty, other)
   end
 
   local ctor_mt = {}
@@ -351,7 +373,7 @@ local function make_simple_ctor(ty)
   function ctor_mt:__call(value)
     local status, fixup = ty:validate_value(value)
     if not status then
-      error(err, 2)
+      error(err, error_skip())
     end
     return fixup
   end
@@ -366,7 +388,14 @@ local function make_scalar(type_name)
   function ty:validate_value(v)
     if type(v) ~= type_name then
       return false,
-        string.format("expected '%s', got '%s'", type_name, type(v))
+        TypeError:new(
+          string.format(
+            "Expected '%s', got '%s' %s",
+            type_name,
+            type(v),
+            value_dump(v)
+          )
+        )
     end
     return true, v
   end
@@ -395,14 +424,16 @@ function mod.enum(name, ...)
     if not self.is_valid[v] then
       local list = {}
       for _, valid in ipairs(self.variants) do
-        table.insert(list, string.format("'%s'", valid))
+        table.insert(list, value_dump(valid))
       end
       return false,
-        string.format(
-          "unexpected '%s' value '%s', expected one of %s",
-          ty.name,
-          value_dump(v),
-          table.concat(list, ', ')
+        TypeError:new(
+          string.format(
+            "Unexpected '%s' value %s, expected one of %s",
+            ty.name,
+            value_dump(v),
+            table.concat(list, ', ')
+          )
         )
     end
     return true, v
@@ -479,14 +510,17 @@ function mod:test()
   -- Check error for missing field
   local status, err = pcall(Point, { x = 123 })
   assert(not status)
-  utils.assert_eq(err, "Point: missing value for field 'y' of type 'number'")
+  utils.assert_matches(
+    err,
+    "Point: missing value for field 'y' of type 'number'"
+  )
 
   -- Check invalid type assignment
   local status, err = pcall(Point, { x = 123, y = true })
   assert(not status)
   utils.assert_matches(
     err,
-    "Point: invalid value 'true' for field 'y': expected 'number', got 'boolean'"
+    "Point: invalid value for field 'y'\n.*Expected 'number', got 'boolean' true"
   )
 
   local status, err =
@@ -494,7 +528,18 @@ function mod:test()
   assert(not status)
   utils.assert_matches(
     err,
-    "Example: invalid value 'Wrong' for field 'layer': unexpected 'Layer' value 'Wrong', expected one of 'Above', 'Below'"
+    "Example: invalid value for field 'layer'\n.*Unexpected 'Layer' value 'Wrong', expected one of 'Above', 'Below'"
+  )
+
+  local Foo = mod.record('Foo', {
+    ex = Example,
+  })
+
+  local status, err = pcall(Foo, { ex = Point { x = 123, y = 4 } })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "Foo: invalid value for field 'ex'\n.*Expected value of type 'Example' but got type 'Point' with value"
   )
 
   local StringMap = mod.map(mod.string, Example)
@@ -506,7 +551,7 @@ function mod:test()
   assert(not status)
   utils.assert_matches(
     err,
-    "map<string,Example>: invalid key '123': expected 'string', got 'number'"
+    "map<string,Example>: invalid key 123\n.*Expected 'string', got 'number' 123"
   )
 
   local status, err = pcall(function()
@@ -516,7 +561,7 @@ function mod:test()
   assert(not status)
   utils.assert_matches(
     err,
-    "map<string,Example>: invalid key '123': expected 'string', got 'number'"
+    "map<string,Example>: invalid key 123\n.*Expected 'string', got 'number' 123"
   )
 
   -- Check map assignment respects value type
@@ -524,7 +569,7 @@ function mod:test()
   assert(not status)
   utils.assert_matches(
     err,
-    "map<string,Example>: invalid value 'wrong' for key 'hello': Expected value of type 'Example' but got 'wrong'"
+    "map<string,Example>: invalid value for key 'hello'\n.*Expected value of type 'Example' but got type 'string' 'wrong'"
   )
 
   -- Verify that defaulting works
@@ -542,7 +587,7 @@ function mod:test()
   assert(not status)
   utils.assert_matches(
     err,
-    "list<string>: invalid value '1' for idx 1: expected 'string', got 'number'"
+    "list<string>: invalid value for idx 1\n.*Expected 'string', got 'number' 1"
   )
 end
 

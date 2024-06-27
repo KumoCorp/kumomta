@@ -53,7 +53,7 @@ function mod.assert_eq(a, b, message)
     end
     error(
       string.format(
-        '%sexpected %s == %s',
+        '%sexpected\n%s\n == \n%s',
         message,
         kumo.json_encode(a),
         kumo.json_encode(b)
@@ -72,7 +72,12 @@ function mod.assert_matches(a, pattern, message)
       message = ''
     end
     error(
-      string.format('%sexpected "%s" to match "%s"', message, a, pattern),
+      string.format(
+        '%sexpected\n "%s"\n to match\n "%s"',
+        message,
+        a,
+        pattern
+      ),
       2
     )
   end

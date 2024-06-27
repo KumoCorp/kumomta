@@ -23,6 +23,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
     vault_mount = Option(String),
     vault_path_prefix = Option(String),
     additional_signatures = Option(List(String)),
+    policy = Option(DomainSigningPolicy),
     selector = Option(String),
     headers = Option(List(String)),
     header_canonicalization = Option(String),
