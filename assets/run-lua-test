@@ -1,0 +1,21 @@
+#!/bin/bash
+# This is a little helper script that is used to run unit
+# tests that may be defined in .lua files.
+# The "protocol" is that the .lua file must check for
+# `KUMOMTA_RUN_UNIT_TESTS` being set in the environment
+# to decide to run the tests, then use os.exit to terminate
+# once it is done.
+#
+# ----
+# if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
+#   kumo.configure_accounting_db_path(os.tmpname())
+#   mod:test()
+#   os.exit(0)
+# end
+# ----
+LUA_FILE="${1}"
+CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$(pwd)/target}
+KUMOMTA_RUN_UNIT_TESTS=1 ${CARGO_TARGET_DIR}/debug/kumod \
+  --user `id -un` \
+  --policy "${LUA_FILE}"
+
