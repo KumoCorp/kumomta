@@ -23,6 +23,10 @@
   new `kumo.serde` module name moving forwards.
 * Added YAML serialization/deserialization functions to
   [kumo.serde](../reference/kumo.serde/index.md).
+* You may now run `kumod --validate` to perform extended validation checks
+  of the helper configuration in your policy. This can be performed offline/concurrently
+  with a running kumod. The output is human readable. The exit code will
+  be 0 when no validation errors are detected, non-zero otherwise. #211
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and
