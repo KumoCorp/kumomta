@@ -16,7 +16,7 @@ When enabled, each log record will generate a new
 * Sender will be set to the sender of the originating message
 * Recipient will be set to the recipient of the originating message
 * the `log_record` meta value will be set to the
-  [Log Record](../kumo/configure_local_logs.md#log-record) that is being logged
+  [Log Record](../log_record.md) that is being logged
 * The message body/data will be set to the textual representation of the log
   record. By default this will be the JSON serialization of the log record, but
   if you have enabled templating using the `per_record` parameter to

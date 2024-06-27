@@ -312,6 +312,7 @@ TOC = [
         children=[
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
+            Page("Log Record", "reference/log_record.md"),
             Gen(
                 "module: kumo",
                 "reference/kumo",

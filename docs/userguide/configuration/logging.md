@@ -2,7 +2,7 @@
 
 By default, KumoMTA writes to a ([zstd](https://en.wikipedia.org/wiki/Zstd)
 compressed) JSON log format, the details of which can be found on the [Logging
-Reference Page](../../reference/kumo/configure_local_logs.md#log-record),
+Reference Page](../../reference/log_record.md),
 
 ## Basic Log Configuration
 
@@ -102,7 +102,7 @@ kumo.configure_local_logs {
 
 The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
 is used to evalute logging templates.  The full supported syntax is [documented
-here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html). Any key present in the [default log format](../../reference/kumo/configure_local_logs.md#log-record) can be used in the templating engine.
+here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html). Any key present in the [default log format](../../reference/log_record.md) can be used in the templating engine.
 
 ## Configuring Individual Record Types
 
