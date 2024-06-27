@@ -63,16 +63,20 @@ function mod.record(name, fields)
     end
 
     for k, def in pairs(ty.fields) do
-      if not obj[k] and not def.is_optional then
-        error(
-          string.format(
-            "%s: missing value for field '%s' of type '%s'",
-            ty.name,
-            k,
-            def.name
-          ),
-          2
-        )
+      if not obj[k] then
+        if def.default_value then
+          obj[k] = def.default_value
+        elseif not def.is_optional then
+          error(
+            string.format(
+              "%s: missing value for field '%s' of type '%s'",
+              ty.name,
+              k,
+              def.name
+            ),
+            2
+          )
+        end
       end
     end
 
@@ -407,7 +411,23 @@ function mod.enum(name, ...)
   return make_simple_ctor(ty)
 end
 
--- TODO: mod.default - optional, with default value
+function mod.default(target_type, default_value)
+  local ty = {
+    name = target_type.name,
+    default_value = default_value,
+    target = target_type,
+  }
+
+  function ty:validate_value(v)
+    if v == nil then
+      return self.default_value
+    end
+    local status, error = self.target:validate_value(v)
+    return status, error
+  end
+
+  return make_simple_ctor(ty)
+end
 
 function mod.option(target_type)
   local ty = {
@@ -428,6 +448,8 @@ function mod.option(target_type)
 end
 
 function mod:test()
+  local utils = require 'policy-extras.policy_utils'
+
   local Layer = mod.enum('Layer', 'Above', 'Below')
 
   local Point = mod.record('Point', {
@@ -440,17 +462,88 @@ function mod:test()
     layer = mod.option(Layer),
   })
 
+  -- Check that we can construct with a nested record type
   local pt = Point { x = 123, y = 2.5 }
-
   local a = Example { point = pt, layer = 'Above' }
-  print('a is ', kumo.serde.json_encode_pretty(a))
+  utils.assert_eq(a, { point = { y = 2.5, x = 123 }, layer = 'Above' })
 
-  local b = Example { point = Point { x = 123, y = 4 }, layer = 'Above' }
-  print('b is ', kumo.serde.json_encode_pretty(b))
-  -- print(a.woot)
+  -- Check that we can construct with the optional field
+  local a = Example { point = pt }
+  utils.assert_eq(a, { point = { y = 2.5, x = 123 } })
+
+  -- Check that we can construct with an implicit, inline
+  -- record type (the point)
+  local b = Example { point = { x = 123, y = 4 }, layer = 'Above' }
+  utils.assert_eq(b, { point = { y = 4, x = 123 }, layer = 'Above' })
+
+  -- Check error for missing field
+  local status, err = pcall(Point, { x = 123 })
+  assert(not status)
+  utils.assert_eq(err, "Point: missing value for field 'y' of type 'number'")
+
+  -- Check invalid type assignment
+  local status, err = pcall(Point, { x = 123, y = true })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "Point: invalid value 'true' for field 'y': expected 'number', got 'boolean'"
+  )
+
+  local status, err =
+    pcall(Example, { point = { x = 123, y = 4 }, layer = 'Wrong' })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "Example: invalid value 'Wrong' for field 'layer': unexpected 'Layer' value 'Wrong', expected one of 'Above', 'Below'"
+  )
 
   local StringMap = mod.map(mod.string, Example)
   local m = StringMap { a = a, b = b }
+  utils.assert_eq(m, { a = a, b = b })
+
+  -- Check map assignment respects key type
+  local status, err = pcall(StringMap, { [123] = a })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "map<string,Example>: invalid key '123': expected 'string', got 'number'"
+  )
+
+  local status, err = pcall(function()
+    local map = StringMap {}
+    map[123] = 'boo'
+  end)
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "map<string,Example>: invalid key '123': expected 'string', got 'number'"
+  )
+
+  -- Check map assignment respects value type
+  local status, err = pcall(StringMap, { hello = 'wrong' })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "map<string,Example>: invalid value 'wrong' for key 'hello': Expected value of type 'Example' but got 'wrong'"
+  )
+
+  -- Verify that defaulting works
+  local WithDefaultLayer = mod.record('WithDefaultLayer', {
+    layer = mod.default(Layer, 'Above'),
+  })
+  local have_default_layer = WithDefaultLayer {}
+  assert(have_default_layer.layer == 'Above')
+
+  local StringList = mod.list(mod.string)
+  utils.assert_eq(StringList {}, {})
+  utils.assert_eq(StringList { 'hello', 'there' }, { 'hello', 'there' })
+
+  local status, err = pcall(StringList, { 1, 2, 3 })
+  assert(not status)
+  utils.assert_matches(
+    err,
+    "list<string>: invalid value '1' for idx 1: expected 'string', got 'number'"
+  )
 end
 
 if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
