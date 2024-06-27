@@ -44,17 +44,23 @@ The following example sends the content of the log message via AMQP:
 -- messages to their destination.
 kumo.on('make.amqp', function(domain, tenant, campaign)
   local client = kumo.amqp.build_client 'amqp://localhost'
-  local confirm = client:publish {
-    routing_key = 'logging',
-    payload = message:get_data(),
-  }
-  local result = confirm:wait()
 
-  if result.status == 'Ack' or result.status == 'NotRequested' then
-    return
+  local sender = {}
+  function sender:send(message)
+    local confirm = client:publish {
+      routing_key = 'logging',
+      payload = message:get_data(),
+    }
+    local result = confirm:wait()
+
+    if result.status == 'Ack' or result.status == 'NotRequested' then
+      return
+    end
+    -- result.status must be `Nack`; log the full result
+    kumo.reject(500, kumo.json_encode(result))
   end
-  -- result.status must be `Nack`; log the full result
-  kumo.reject(500, kumo.json_encode(result))
+
+  return sender
 end)
 ```
 
