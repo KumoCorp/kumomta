@@ -34,6 +34,9 @@ fi
 if test -x ${CARGO_TARGET_DIR}/debug/kumod ; then
   ./docs/update-openapi.sh
 fi
+if test -x ${CARGO_TARGET_DIR}/debug/kcli ; then
+  ${CARGO_TARGET_DIR}/debug/kcli markdown-help
+fi
 
 # https://github.com/rust-lang/cargo/issues/2025
 # Document only our own crates
@@ -44,6 +47,7 @@ cargo tree --depth 0 -e normal --prefix none | \
   xargs cargo doc --no-deps --locked --lib
 
 if [ "$CI" == true ] ; then
+  rm docs/rustapi
   ln -sf ${CARGO_TARGET_DIR}/doc docs/rustapi
 fi
 

@@ -21,6 +21,14 @@ mod trace_smtp_server;
 
 /// KumoMTA CLI.
 ///
+/// Interacts with a KumoMTA instance via its HTTP API endpoint.
+/// To use it, you must be running an HTTP listener.
+///
+/// The default is to assume that KumoMTA is running a listener
+/// at http://127.0.0.1:8000 (which is in the default configuration),
+/// but otherwise you can override this either via the --endpoint
+/// parameter or KUMO_KCLI_ENDPOINT environment variable.
+///
 /// Full docs available at: <https://docs.kumomta.com>
 #[derive(Debug, Parser)]
 #[command(about, version=version_info::kumo_version())]
@@ -40,6 +48,8 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Parser)]
 enum SubCommand {
+    #[command(hide = true)]
+    MarkdownHelp,
     Bounce(bounce::BounceCommand),
     BounceList(bounce_list::BounceListCommand),
     BounceCancel(bounce_cancel::BounceCancelCommand),
@@ -60,6 +70,36 @@ enum SubCommand {
 impl SubCommand {
     async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
         match self {
+            Self::MarkdownHelp => {
+                use clap::CommandFactory;
+                use clap_markdown::{help_markdown_command_custom, MarkdownOptions};
+
+                let options = MarkdownOptions::new()
+                    .show_footer(false)
+                    .show_table_of_contents(false);
+
+                let cmd = Opt::command();
+                let overall_help = help_markdown_command_custom(&cmd, &options);
+
+                // We want a separate markdown page per sub-command, so we're
+                // doing a bit of grubbing around to split that out here
+
+                for (idx, chunk) in overall_help.split("## `kcli ").enumerate() {
+                    if idx == 0 {
+                        std::fs::write(
+                            "docs/reference/kcli/_index.md",
+                            &format!("{chunk}\n\n## Available Subcommands"),
+                        )?;
+                    } else {
+                        let (sub_command, _) = chunk.split_once('`').unwrap();
+                        let filename = format!("docs/reference/kcli/{sub_command}.md");
+                        let help = format!("## `kcli {chunk}");
+                        std::fs::write(&filename, &help)?;
+                    }
+                }
+
+                Ok(())
+            }
             Self::Bounce(cmd) => cmd.run(endpoint).await,
             Self::BounceCancel(cmd) => cmd.run(endpoint).await,
             Self::BounceList(cmd) => cmd.run(endpoint).await,

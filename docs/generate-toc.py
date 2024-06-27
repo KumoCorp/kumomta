@@ -313,6 +313,7 @@ TOC = [
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
             Page("Log Record", "reference/log_record.md"),
+            Gen("kcli", "reference/kcli"),
             Gen(
                 "module: kumo",
                 "reference/kumo",
