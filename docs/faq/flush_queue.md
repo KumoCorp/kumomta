@@ -17,5 +17,5 @@ queue.
 
 If you want to do this via API, then 
 you should look at the
-[/api/admin/rebind/v1](../../reference/rapidoc/#post-/api/admin/rebind/v1) HTTP endpoint
+[/api/admin/rebind/v1](../reference/rapidoc.md/#post-/api/admin/rebind/v1) HTTP endpoint
 documentation.

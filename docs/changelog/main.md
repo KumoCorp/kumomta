@@ -11,7 +11,7 @@
 * New [kumo.regex](../reference/regex/index.md) and
   [kumo.string](../reference/string/index.md) lua modules. #220
 * New `kcli rebind` and
-  [/api/admin/rebind/v1](../../reference/rapidoc/#post-/api/admin/rebind/v1) HTTP
+  [/api/admin/rebind/v1](../reference/rapidoc.md#post-/api/admin/rebind/v1) HTTP
   endpoint to allow moving/rebinding messages from one scheduled queue to
   another. There is an optional corresponding
   [rebind_message](../reference/events/rebind_message.md) event for more
