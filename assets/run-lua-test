@@ -30,9 +30,10 @@ local function test_module(name)
   mod:test()
 end
 
-test_module 'policy-extras.typing'
-test_module 'policy-extras.queue'
 test_module 'policy-extras.listener_domains'
+test_module 'policy-extras.queue'
+test_module 'policy-extras.sources'
+test_module 'policy-extras.typing'
 
 os.exit(0)
 EOT

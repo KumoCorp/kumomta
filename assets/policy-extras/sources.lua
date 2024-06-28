@@ -1,9 +1,45 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local typing = require 'policy-extras.typing'
+local Map, Option, Record, String =
+  typing.map, typing.option, typing.record, typing.string
+
+local PoolSourceEntry = Record('PoolSourceEntry', {
+  weight = Option(typing.number),
+})
+
+local PoolConfig = Map(String, PoolSourceEntry)
+
+local function is_egress_source_option(name, value)
+  local p = { [name] = value }
+  if name ~= 'name' then
+    -- Ensure that we have the required name field
+    p.name = 'dummy'
+  end
+  local status, err = pcall(kumo.make_egress_source, p)
+  if not status then
+    local err = typing.extract_deserialize_error(err)
+    if tostring(err):find 'invalid type' then
+      return false, err
+    end
+    return false, nil
+  end
+  return status
+end
+
+local SourceConfig = Record('SourceConfig', {
+  _dynamic = is_egress_source_option,
+})
+
+local SourcesHelperConfig = Record('SourcesHelperConfig', {
+  pool = Option(Map(String, PoolConfig)),
+  source = Option(Map(String, SourceConfig)),
+})
 
 local function load_data_from_file(file_name, target)
-  local data = utils.load_json_or_toml_file(file_name)
+  local data = SourcesHelperConfig(utils.load_json_or_toml_file(file_name))
+  -- print(kumo.serde.json_encode_pretty(data))
 
   for source, params in pairs(data.source or {}) do
     target.sources[source] = target.sources[source]
@@ -21,8 +57,10 @@ local function load_data_from_file(file_name, target)
           entries = {},
         }
 
-      params.name = pool_source
-      table.insert(target.pools[pool].entries, params)
+      local entry = {}
+      utils.merge_into(params, entry)
+      entry.name = pool_source
+      table.insert(target.pools[pool].entries, entry)
     end
   end
 end
@@ -172,5 +210,33 @@ kumo.on('validate_config', function()
     end
   end
 end)
+
+function mod:test()
+  local data = kumo.serde.toml_parse [[
+[source."ip-1"]
+source_address = "10.0.0.1"
+
+[source."ip-2"]
+source_address = "10.0.0.2"
+
+[source."ip-3"]
+source_address = "10.0.0.3"
+
+# Pool containing just ip-1, which has weight=1
+[pool."BestReputation"]
+[pool."BestReputation"."ip-1"]
+
+# Pool with multiple ips
+[pool."MediumReputation"]
+
+[pool."MediumReputation"."ip-2"]
+weight = 2
+
+# We're warming up ip-3, so use it less frequently than ip-2
+[pool."MediumReputation"."ip-3"]
+weight = 1
+  ]]
+  load_data { data }
+end
 
 return mod
