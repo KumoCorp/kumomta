@@ -176,7 +176,10 @@ end
 -- rust code in the embedding application.  The value in that
 -- case must be a function that accepts the key and value
 -- and returns a boolean to indicate whether that combination
--- is acceptable.
+-- is acceptable. If the function returns `false, nil` then
+-- that signals that the field is unknown. Otherwise it should
+-- return `false, err` with the second element of the tuple
+-- containing the error about the mismatched type.
 --
 -- { _dynamic = function(key, value) return true end }
 function mod.record(name, fields)
@@ -204,9 +207,20 @@ function mod.record(name, fields)
     local field_def = ty.fields[k]
     if not field_def then
       local dyn_validate = ty.fields._dynamic
-      if dyn_validate and dyn_validate(k, v) then
-        rawset(t, k, v)
-        return
+      if dyn_validate then
+        local status, err = dyn_validate(k, v)
+        if status then
+          rawset(t, k, v)
+          return
+        end
+        if err then
+          TypeError
+            :new(
+              string.format("%s: invalid value for field '%s'", ty.name, k),
+              err
+            )
+            :raise()
+        end
       end
 
       TypeError:new(string.format("%s: unknown field '%s'", ty.name, k))
@@ -497,6 +511,16 @@ function mod.option(target_type)
   end
 
   return make_simple_ctor(ty)
+end
+
+function mod.extract_deserialize_error(err)
+  local err = tostring(err)
+  local re = kumo.regex.compile 'deserialize error: (.*), while processing'
+  local cap = re:captures(err)
+  if cap then
+    return cap[1]
+  end
+  return err
 end
 
 function mod:test()

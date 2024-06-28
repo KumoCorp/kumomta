@@ -14,9 +14,11 @@ local function is_listener_domain_option(name, value)
   local p = { [name] = value }
   local status, err = pcall(kumo.make_listener_domain, p)
   if not status then
+    local err = typing.extract_deserialize_error(err)
     if tostring(err):find 'invalid type' then
-      error(err, 3)
+      return false, err
     end
+    return false, nil
   end
   return status
 end
@@ -331,6 +333,20 @@ log_oob = false
       skip_make
     ),
     { relay_from = { '10.0.0.0/24' }, relay_to = false }
+  )
+
+  local status, err = pcall(
+    parse_toml_data,
+    [[
+# Define a per-listener configuration
+[listener."127.0.0.1:25"."*.example.com"]
+log_arf = "yes"
+  ]]
+  )
+  assert(not status)
+  utils.assert_matches(
+    err,
+    'ListenerConfig: invalid value for field \'log_arf\'\n.*invalid type: string "yes", expected a boolean'
   )
 end
 
