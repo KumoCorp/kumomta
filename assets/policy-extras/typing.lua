@@ -441,6 +441,26 @@ end
 mod.number = make_scalar 'number'
 mod.string = make_scalar 'string'
 mod.boolean = make_scalar 'boolean'
+mod.Function = make_scalar 'function'
+
+local function make_any()
+  local ty = {
+    name = 'Any',
+  }
+
+  function ty:validate_value(v)
+    return true, v
+  end
+
+  local ctor_mt = {}
+  setmetatable(ty, ctor_mt)
+  function ctor_mt:__call(value)
+    return value
+  end
+  return ty
+end
+
+mod.any = make_any()
 
 function mod.enum(name, ...)
   local variants = { ... }

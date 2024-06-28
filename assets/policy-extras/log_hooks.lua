@@ -1,6 +1,24 @@
-local mod = {}
+local mod = {
+  CONFIGURED = {},
+}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local typing = require 'policy-extras.typing'
+local queue_module = require 'policy-extras.queue'
+
+local Any, Map, Option, Record, String =
+  typing.any, typing.map, typing.option, typing.record, typing.string
+
+local QueueConfig = Record('QueueConfig', {
+  _dynamic = queue_module.is_queue_config_option,
+})
+
+local LogHookOptions = Record('LogHookOptions', {
+  name = String,
+  log_parameters = Option(Map(String, Any)),
+  queue_config = Option(QueueConfig),
+  constructor = typing.Function,
+})
 
 --[[
 local log_hooks = require 'policy-extras.log_hooks'
@@ -57,6 +75,18 @@ log_hooks:new {
 
 ]]
 function mod:new(options)
+  local options = LogHookOptions(options)
+
+  if mod.CONFIGURED[options.name] then
+    error(
+      string.format(
+        "log_hook with name '%s' has already been configured",
+        options.name
+      )
+    )
+  end
+  mod.CONFIGURED[options.name] = options
+
   kumo.on('pre_init', function()
     local log_parameters = {
       name = options.name,
@@ -90,7 +120,7 @@ function mod:new(options)
     return true
   end)
 
-  local queue_config = {
+  local queue_config = QueueConfig {
     retry_interval = '1m',
     max_retry_interval = '20m',
   }
@@ -119,6 +149,13 @@ function mod:new(options)
   kumo.on(constructor_name, options.constructor)
 end
 
+local JsonLogHookOptions = Record('JsonLogHookOptions', {
+  name = String,
+  log_parameters = Option(Map(String, Any)),
+  queue_config = Option(QueueConfig),
+  url = String,
+})
+
 --[[
 local log_hooks = require 'policy-extras.log_hooks'
 
@@ -143,12 +180,16 @@ log_hooks:new_json {
 }
 ]]
 function mod:new_json(options)
+  local json_options = JsonLogHookOptions(options)
+  local url = json_options.url
+  options.url = nil
+
   options.constructor = function(domain, tenant, campaign)
     local connection = {}
     local client = kumo.http.build_client {}
     function connection:send(message)
       local response = client
-        :post(options.url)
+        :post(url)
         :header('Content-Type', 'application/json')
         :body(message:get_data())
         :send()

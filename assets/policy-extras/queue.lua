@@ -84,6 +84,8 @@ local function is_queue_config_option(name, value)
   return status
 end
 
+mod.is_queue_config_option = is_queue_config_option
+
 local Bool, List, Map, Option, Record, String =
   typing.boolean,
   typing.list,
