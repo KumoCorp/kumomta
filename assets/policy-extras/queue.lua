@@ -1,6 +1,7 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local typing = require 'policy-extras.typing'
 
 --[[
 Usage:
@@ -67,49 +68,6 @@ end)
 ---
 ]]
 
-local function parse_one(data)
-  local options = {}
-  local tenants = {}
-  local queues = {}
-
-  for k, v in pairs(data) do
-    if k == 'tenant' then
-      for tenant_name, tenant_options in pairs(v) do
-        local tenant = tenants[tenant_name] or {}
-        utils.merge_into(tenant_options, tenant)
-        tenants[tenant_name] = tenant
-      end
-    elseif k == 'queue' then
-      for domain_name, queue_options in pairs(v) do
-        local domain_options = queues[domain_name] or {}
-        utils.recursive_merge_into(queue_options, domain_options)
-        queues[domain_name] = domain_options
-      end
-    else
-      options[k] = v
-    end
-  end
-
-  local result = {
-    options = options,
-    tenants = tenants,
-    queues = queues,
-  }
-
-  return result
-end
-
-local function merge_data(loaded_files, no_compile)
-  local result = {}
-  for _, data in ipairs(loaded_files) do
-    utils.recursive_merge_into(parse_one(data), result)
-  end
-  if not no_compile then
-    result.queues = kumo.domain_map.new(result.queues)
-  end
-  return result
-end
-
 -- Return true if the `name` and `value` pair provided
 -- is a valid queue configuration option.
 -- It does this by asking the internal rust code to validate it.
@@ -117,6 +75,141 @@ local function is_queue_config_option(name, value)
   local p = { [name] = value }
   local status, err = pcall(kumo.make_queue_config, p)
   return status
+end
+
+local Bool, List, Map, Option, Record, String =
+  typing.boolean,
+  typing.list,
+  typing.map,
+  typing.option,
+  typing.record,
+  typing.string
+
+local CampaignConfig = Record('CampaignConfig', {
+  _dynamic = is_queue_config_option,
+  overall_max_message_rate = Option(String),
+  routing_domain = Option(String),
+})
+
+local TenantWithCampaignConfig = Record('TenantWithCampaignConfig', {
+  _dynamic = is_queue_config_option,
+  overall_max_message_rate = Option(String),
+  routing_domain = Option(String),
+
+  campaigns = Option(Map(String, CampaignConfig)),
+})
+
+local DomainConfig = Record('DomainConfig', {
+  _dynamic = is_queue_config_option,
+  overall_max_message_rate = Option(String),
+  routing_domain = Option(String),
+
+  tenants = Option(Map(String, TenantWithCampaignConfig)),
+})
+
+local TenantConfig = Record('TenantConfig', {
+  campaigns = Option(Map(String, CampaignConfig)),
+  _dynamic = is_queue_config_option,
+  require_authz = Option(List(String)),
+  overall_max_message_rate = Option(String),
+})
+
+local QueueHelperConfig = Record('QueueHelperConfig', {
+  scheduling_header = Option(String),
+  tenant_header = Option(String),
+  remove_tenant_header = Option(Bool),
+  campaign_header = Option(String),
+  remove_campaign_header = Option(Bool),
+  default_tenant = Option(String),
+
+  tenants = Option(Map(String, TenantConfig)),
+  queues = Option(Map(String, DomainConfig)),
+})
+
+local function parse_tenant_with_campaign(data)
+  local tenant = TenantWithCampaignConfig {
+    campaigns = {},
+  }
+  -- print('parse_tenant_with_campaign', kumo.serde.json_encode_pretty(data))
+  for k, v in pairs(data) do
+    -- Since we allow an arbitrary key to map to a campaign, and a mixture
+    -- of known-to-lua and known-to-rust options, short of replicating
+    -- the logic in the typing module here, the best option is just to
+    -- try to assign it, and if it raises an error, then it must be
+    -- a campaign value.
+    local status, result = pcall(function()
+      tenant[k] = v
+    end)
+    if not status then
+      tenant.campaigns[k] = v
+    end
+  end
+
+  return tenant
+end
+
+local function parse_domain(data)
+  local domain = DomainConfig {
+    tenants = {},
+  }
+  -- print('parse_domain', kumo.serde.json_encode_pretty(data))
+  for k, v in pairs(data) do
+    -- Since we allow an arbitrary key to map to a tenant, and a mixture
+    -- of known-to-lua and known-to-rust options, short of replicating
+    -- the logic in the typing module here, the best option is just to
+    -- try to assign it, and if it raises an error, then it must be
+    -- a tenant value.
+    local status, result = pcall(function()
+      domain[k] = v
+    end)
+    if not status then
+      domain.tenants[k] = parse_tenant_with_campaign(v)
+    end
+  end
+
+  return domain
+end
+
+local function parse_config(data)
+  local result = QueueHelperConfig {
+    tenants = {},
+    queues = {},
+  }
+
+  for k, v in pairs(data) do
+    if k == 'tenant' then
+      for tenant_name, tenant_options in pairs(v) do
+        local tenant = result.tenants[tenant_name] or {}
+        utils.merge_into(tenant_options, tenant)
+        result.tenants[tenant_name] = tenant
+      end
+    elseif k == 'queue' then
+      for domain_name, queue_options in pairs(v) do
+        local domain_options = result.queues[domain_name] or {}
+        utils.recursive_merge_into(
+          parse_domain(queue_options),
+          domain_options
+        )
+        result.queues[domain_name] = domain_options
+      end
+    else
+      result[k] = v
+    end
+  end
+
+  return result
+end
+
+local function merge_data(loaded_files, no_compile)
+  local result = QueueHelperConfig {}
+  for _, data in ipairs(loaded_files) do
+    utils.recursive_merge_into(parse_config(data), result)
+  end
+  -- print(kumo.json_encode_pretty(result))
+  if not no_compile then
+    result.queues = kumo.domain_map.new(result.queues)
+  end
+  return result
 end
 
 local function load_queue_config(file_names, no_compile)
@@ -166,7 +259,7 @@ local function resolve_config(data, domain, tenant, campaign, allow_all)
   end
 
   if domain_config then
-    local tenant_config = domain_config[tenant]
+    local tenant_config = domain_config.tenants[tenant]
     if tenant_config then
       for k, v in pairs(tenant_config) do
         if allow_all or is_queue_config_option(k, v) then
@@ -174,7 +267,7 @@ local function resolve_config(data, domain, tenant, campaign, allow_all)
         end
       end
 
-      local campaign = tenant_config[campaign]
+      local campaign = tenant_config.campaigns[campaign]
 
       if campaign then
         for k, v in pairs(campaign) do
@@ -217,32 +310,31 @@ local function resolve_overall_throttle_specs(
 end
 
 local function apply_impl(msg, data)
-  if data.options.scheduling_header then
-    msg:import_scheduling_header(data.options.scheduling_header, true)
+  if data.scheduling_header then
+    msg:import_scheduling_header(data.scheduling_header, true)
   end
-  if data.options.campaign_header then
-    local campaign =
-      msg:get_first_named_header_value(data.options.campaign_header)
+  if data.campaign_header then
+    local campaign = msg:get_first_named_header_value(data.campaign_header)
     if campaign then
       msg:set_meta('campaign', campaign)
-      if data.options.remove_campaign_header then
-        msg:remove_all_named_headers(data.options.campaign_header)
+      if data.remove_campaign_header then
+        msg:remove_all_named_headers(data.campaign_header)
       end
     end
   end
   local tenant = nil
   local tenant_source = nil
-  if data.options.tenant_header then
-    tenant = msg:get_first_named_header_value(data.options.tenant_header)
+  if data.tenant_header then
+    tenant = msg:get_first_named_header_value(data.tenant_header)
     if tenant then
-      tenant_source = string.format("'%s' header", data.options.tenant_header)
-      if data.options.remove_tenant_header then
-        msg:remove_all_named_headers(data.options.tenant_header)
+      tenant_source = string.format("'%s' header", data.tenant_header)
+      if data.remove_tenant_header then
+        msg:remove_all_named_headers(data.tenant_header)
       end
     end
   end
-  if not tenant and data.options.default_tenant then
-    tenant = data.options.default_tenant
+  if not tenant and data.default_tenant then
+    tenant = data.default_tenant
     tenant_source = 'default_tenant option'
   end
   if tenant then
@@ -507,13 +599,6 @@ You should adjust the initialization order so that queue.lua is last.
   end
 end)
 
---[[
-Run some basic unit tests for the data parsing/merging; use it like this:
-
-```
-KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --policy assets/policy-extras/queue.lua
-```
-]]
 function mod:test()
   local base_data = [=[
 default_tenant = 'mytenant'
@@ -603,12 +688,6 @@ egress_pool = "bar"
   apply_impl(msg, data)
   utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
   utils.assert_eq(msg:get_meta 'routing_domain', '[10.0.0.1]')
-end
-
-if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
-  kumo.configure_accounting_db_path(os.tmpname())
-  mod:test()
-  os.exit(0)
 end
 
 return mod

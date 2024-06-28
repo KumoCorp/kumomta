@@ -234,13 +234,6 @@ function mod:setup(data_files)
   return get_listener_domain
 end
 
---[[
-Run some basic unit tests for the data parsing/merging; use it like this:
-
-```
-KUMOMTA_RUN_UNIT_TESTS=1 ./target/debug/kumod --policy assets/policy-extras/listener_domains.lua
-```
-]]
 function mod:test()
   local open_relay = [=[
 ['*']
@@ -291,12 +284,6 @@ log_oob = false
     ),
     { relay_from = { '10.0.0.0/24' }, relay_to = false }
   )
-end
-
-if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
-  kumo.configure_accounting_db_path(os.tmpname())
-  mod:test()
-  os.exit(0)
 end
 
 return mod

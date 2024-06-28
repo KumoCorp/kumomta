@@ -16,9 +16,7 @@ fc:
 	RUSTFLAGS="--cfg tokio_unstable -D warnings" cargo fc check --fail-fast
 
 test-lua:
-	./assets/run-lua-test assets/policy-extras/typing.lua
-	./assets/run-lua-test assets/policy-extras/queue.lua
-	./assets/run-lua-test assets/policy-extras/listener_domains.lua
+	./assets/run-lua-test
 
 test: build test-lua
 	./docs/update-openapi.sh

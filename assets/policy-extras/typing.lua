@@ -166,6 +166,19 @@ local function casting_validate_value(ty, other)
 end
 
 -- Returns a record constructor
+--
+-- fields is a map<string, type>, where the key is the field
+-- name and the value is the type of that field.
+--
+-- _dynamic is a special entry: it enables performing a runtime
+-- check to see if a given key/value pair is a valid value for
+-- assignment. This is used to outsource validation to native
+-- rust code in the embedding application.  The value in that
+-- case must be a function that accepts the key and value
+-- and returns a boolean to indicate whether that combination
+-- is acceptable.
+--
+-- { _dynamic = function(key, value) return true end }
 function mod.record(name, fields)
   local ty = {
     name = name,
@@ -190,6 +203,12 @@ function mod.record(name, fields)
   function ty.__newindex(t, k, v)
     local field_def = ty.fields[k]
     if not field_def then
+      local dyn_validate = ty.fields._dynamic
+      if dyn_validate and dyn_validate(k, v) then
+        rawset(t, k, v)
+        return
+      end
+
       TypeError:new(string.format("%s: unknown field '%s'", ty.name, k))
         :raise()
     end
@@ -216,19 +235,21 @@ function mod.record(name, fields)
 
     for k, def in pairs(ty.fields) do
       if not obj[k] then
-        if def.default_value then
-          obj[k] = def.default_value
-        elseif not def.is_optional then
-          TypeError
-            :new(
-              string.format(
-                "%s: missing value for field '%s' of type '%s'",
-                ty.name,
-                k,
-                def.name
+        if type(def) == 'table' then
+          if def.default_value then
+            obj[k] = def.default_value
+          elseif not def.is_optional then
+            TypeError
+              :new(
+                string.format(
+                  "%s: missing value for field '%s' of type '%s'",
+                  ty.name,
+                  k,
+                  def.name
+                )
               )
-            )
-            :raise()
+              :raise()
+          end
         end
       end
     end
@@ -589,12 +610,6 @@ function mod:test()
     err,
     "list<string>: invalid value for idx 1\n.*Expected 'string', got 'number' 1"
   )
-end
-
-if os.getenv 'KUMOMTA_RUN_UNIT_TESTS' then
-  kumo.configure_accounting_db_path(os.tmpname())
-  mod:test()
-  os.exit(0)
 end
 
 return mod
