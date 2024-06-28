@@ -54,7 +54,7 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
     local result = confirm:wait()
 
     if result.status == 'Ack' or result.status == 'NotRequested' then
-      return
+      return string.format('250 %s', kumo.json_encode(result))
     end
     -- result.status must be `Nack`; log the full result
     kumo.reject(500, kumo.json_encode(result))
