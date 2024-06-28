@@ -1,43 +1,51 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local typing = require 'policy-extras.typing'
+local Bool, List, Map, Option, Record, String =
+  typing.boolean,
+  typing.list,
+  typing.map,
+  typing.option,
+  typing.record,
+  typing.string
+
+local function is_listener_domain_option(name, value)
+  local p = { [name] = value }
+  local status, err = pcall(kumo.make_listener_domain, p)
+  if not status then
+    if tostring(err):find 'invalid type' then
+      error(err, 3)
+    end
+  end
+  return status
+end
+
+local ListenerConfig = Record('ListenerConfig', {
+  _dynamic = is_listener_domain_option,
+  relay_from_authz = Option(List(String)),
+})
+
+local DomainToConfig = Map(String, ListenerConfig)
+local ListenerDomainConfig = Map(String, DomainToConfig)
 
 local function process_loaded_data(data, target)
-  local by_listener = data.listener or {}
+  local by_listener = ListenerDomainConfig(data.listener or {})
   data.listener = nil
   for domain, params in pairs(data) do
     if not by_listener['*'] then
-      by_listener['*'] = {}
+      by_listener['*'] = DomainToConfig {}
     end
     by_listener['*'][domain] = params
   end
 
   for listener, entries in pairs(by_listener) do
     for domain, params in pairs(entries) do
-      -- Check that the value is a valid domain spec.
-      -- Do a little dance because relay_from_authz is not
-      -- part of the core functionality
-      local relay_from_authz = params.relay_from_authz
-      params.relay_from_authz = nil
-      local status, err = pcall(kumo.make_listener_domain, params)
-      if not status then
-        error(
-          string.format(
-            'while reading %s, listener %s domain %s: %s',
-            file_name,
-            listener,
-            domain,
-            err
-          )
-        )
-      end
-      params.relay_from_authz = relay_from_authz
-
       if not target[listener] then
-        target[listener] = {}
+        target[listener] = DomainToConfig {}
       end
       if not target[listener][domain] then
-        target[listener][domain] = {}
+        target[listener][domain] = ListenerConfig {}
       end
 
       for k, v in pairs(params) do
@@ -45,6 +53,8 @@ local function process_loaded_data(data, target)
       end
     end
   end
+
+  -- print(kumo.serde.json_encode_pretty(target))
 end
 
 local function load_data_from_file(file_name, target)
@@ -111,7 +121,7 @@ local function lookup_impl(
       end
 
       if skip_make then
-        return listener_domain
+        return ListenerConfig(listener_domain)
       end
       return kumo.make_listener_domain(listener_domain)
     end
@@ -215,6 +225,10 @@ section value will be passed to kumo.make_listener_domain.
 
 ]]
 function mod:setup(data_files)
+  if mod.CONFIGURED then
+    error 'listener_domains module has already been configured'
+  end
+
   local cached_load_data = kumo.memoize(load_data, {
     name = 'listener_domains_data',
     ttl = '5 minutes',
@@ -231,8 +245,42 @@ function mod:setup(data_files)
     )
   end
 
+  mod.CONFIGURED = {
+    data_files = data_files,
+  }
+
   return get_listener_domain
 end
+
+kumo.on('validate_config', function()
+  if not mod.CONFIGURED then
+    return
+  end
+
+  local failed = false
+
+  function show_context()
+    if failed then
+      return
+    end
+    failed = true
+    kumo.validation_failed()
+    print 'Issues found in the combined set of listener_domain files:'
+    for _, file_name in ipairs(mod.CONFIGURED.data_files) do
+      if type(file_name) == 'table' then
+        print ' - (inline table)'
+      else
+        print(string.format(' - %s', file_name))
+      end
+    end
+  end
+
+  local status, err = pcall(load_data, mod.CONFIGURED.data_files)
+  if not status then
+    show_context()
+    print(err)
+  end
+end)
 
 function mod:test()
   local open_relay = [=[

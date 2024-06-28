@@ -5,6 +5,18 @@
 local kumo = require 'kumo'
 package.path = 'assets/?.lua;' .. package.path
 local shaping = require 'policy-extras.shaping'
+local listener_domains = require 'policy-extras.listener_domains'
+
+kumo.on(
+  'get_listener_domain',
+  listener_domains:setup {
+    {
+      ['auth-send.example.com'] = {
+        relay_from_authz = { 'scott' },
+      },
+    },
+  }
+)
 
 shaping:setup_with_automation {
   no_default_files = true,

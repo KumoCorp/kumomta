@@ -74,6 +74,11 @@ end)
 local function is_queue_config_option(name, value)
   local p = { [name] = value }
   local status, err = pcall(kumo.make_queue_config, p)
+  if not status then
+    if tostring(err):find 'invalid type' then
+      error(err, 3)
+    end
+  end
   return status
 end
 
