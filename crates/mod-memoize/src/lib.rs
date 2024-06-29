@@ -1,6 +1,6 @@
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
-use mlua::{FromLua, Function, Lua, LuaSerdeExt, MultiValue, ToLua, UserData, UserDataMethods};
+use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 ///
 /// Since Clone is used, it is recommended that you use an Arc inside your
 /// type to avoid making large or expensive clones.
-#[derive(Clone)]
+#[derive(Clone, mlua::FromLua)]
 pub struct Memoized {
     pub to_value: Arc<dyn Fn(&Lua) -> mlua::Result<mlua::Value> + Send + Sync>,
 }
@@ -45,7 +45,7 @@ impl Memoized {
             move |_lua, this, _: ()| -> mlua::Result<Memoized> {
                 let this = this.clone();
                 Ok(Memoized {
-                    to_value: Arc::new(move |lua| this.clone().to_lua(lua)),
+                    to_value: Arc::new(move |lua| this.clone().into_lua(lua)),
                 })
             },
         );
@@ -117,8 +117,8 @@ impl<'lua> FromLua<'lua> for CacheValue {
     }
 }
 
-impl<'lua> ToLua<'lua> for CacheValue {
-    fn to_lua(self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+impl<'lua> IntoLua<'lua> for CacheValue {
+    fn into_lua(self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
         self.as_lua(lua)
     }
 }
@@ -156,7 +156,7 @@ impl CacheEntry {
                 for v in values {
                     result.push(v.as_lua(lua)?);
                 }
-                result.to_lua(lua)
+                result.into_lua(lua)
             }
         }
     }

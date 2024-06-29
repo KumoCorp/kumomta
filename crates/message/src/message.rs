@@ -69,6 +69,7 @@ struct MessageInner {
 }
 
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "impl", derive(mlua::FromLua))]
 pub struct Message {
     id: SpoolId,
     inner: Arc<Mutex<MessageInner>>,

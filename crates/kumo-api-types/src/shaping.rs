@@ -337,7 +337,7 @@ impl ShapingInner {
 }
 
 #[cfg(feature = "lua")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, mlua::FromLua)]
 pub struct Shaping {
     inner: Arc<ShapingInner>,
 }

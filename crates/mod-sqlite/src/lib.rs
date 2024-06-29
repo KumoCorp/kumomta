@@ -141,6 +141,15 @@ impl Conn {
 
         Ok(JsonValue::Array(table))
     }
+
+    async fn async_execute(self, sql: String, params: JsonValue) -> anyhow::Result<JsonValue> {
+        tokio::task::Builder::new()
+            .name(&format!("sqlite {sql}"))
+            .spawn_blocking(move || -> anyhow::Result<JsonValue> { self.execute(sql, params) })
+            .map_err(any_err)?
+            .await
+            .map_err(any_err)?
+    }
 }
 
 impl UserData for Conn {
@@ -149,14 +158,10 @@ impl UserData for Conn {
             "execute",
             |lua, this, (sql, params): (String, MultiValue)| async move {
                 let json_params = params_to_json(lua, params)?;
-                let result: JsonValue = tokio::task::Builder::new()
-                    .name(&format!("sqlite {sql}"))
-                    .spawn_blocking(move || -> anyhow::Result<JsonValue> {
-                        this.execute(sql, json_params)
-                    })
-                    .map_err(any_err)?
+                let result = this
+                    .clone()
+                    .async_execute(sql, json_params)
                     .await
-                    .map_err(any_err)?
                     .map_err(any_err)?;
 
                 let result: Value = lua

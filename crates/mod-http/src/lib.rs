@@ -314,7 +314,7 @@ impl LuaUserData for ResponseWrapper {
 
 // Headermap ---
 
-#[derive(Clone)]
+#[derive(Clone, mlua::FromLua)]
 struct HeaderMapWrapper(HeaderMap);
 
 impl LuaUserData for HeaderMapWrapper {

@@ -23,7 +23,7 @@ lazy_static::lazy_static! {
     static ref POOLS: Mutex<LruCacheWithTtl<String, EgressPool>> = Mutex::new(LruCacheWithTtl::new(128));
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressSource {
     /// Give it a friendly name for use in reporting and referencing
@@ -206,7 +206,7 @@ impl EgressSource {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressPoolEntry {
     /// Name of an EgressSource to include in this pool
@@ -229,7 +229,7 @@ impl EgressPoolEntry {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EgressPool {
     /// Name of the pool

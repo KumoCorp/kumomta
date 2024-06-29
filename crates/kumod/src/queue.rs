@@ -155,7 +155,7 @@ impl Default for DeliveryProto {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct QueueConfig {
     /// Base retry interval to use in exponential backoff

@@ -18,7 +18,7 @@ use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
-use mlua::{FromLuaMulti, LuaSerdeExt, ToLuaMulti, UserData, UserDataMethods};
+use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as Mutex;
 use prometheus::{IntCounter, IntGauge};
@@ -58,7 +58,7 @@ pub fn set_smtpsrv_threads(n: usize) {
     SMTPSRV_THREADS.store(n, Ordering::SeqCst);
 }
 
-#[derive(Deserialize, Clone, Debug, Default, Serialize)]
+#[derive(Deserialize, Clone, Debug, Default, Serialize, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EsmtpDomain {
     #[serde(default)]
@@ -846,7 +846,7 @@ impl SmtpServer {
         'lua,
         R: for<'a> FromLuaMulti<'a> + Default + serde::Serialize,
         S: Into<std::borrow::Cow<'static, str>>,
-        A: for<'a> ToLuaMulti<'a> + Clone,
+        A: for<'a> IntoLuaMulti<'a> + Clone,
     >(
         &'lua mut self,
         name: S,

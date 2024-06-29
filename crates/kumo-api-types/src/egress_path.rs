@@ -42,6 +42,7 @@ impl Default for Tls {
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "lua", derive(FromLua))]
 #[serde(deny_unknown_fields)]
 pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_connection_limit")]

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use mlua::{FromLua, FromLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, ToLuaMulti, Value};
+use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
 use parking_lot::FairMutex as Mutex;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -215,7 +215,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 
         let func = {
             let chunk = lua.load(&code);
-            let chunk = chunk.set_name(policy.to_string_lossy())?;
+            let chunk = chunk.set_name(policy.to_string_lossy());
             chunk.into_function()?
         };
 
@@ -260,7 +260,7 @@ impl LuaConfig {
 
         match lua
             .lua
-            .named_registry_value::<_, mlua::Function>(&decorated_name)
+            .named_registry_value::<mlua::Function>(&decorated_name)
         {
             Ok(func) => Ok(func.call_async(args).await?),
             _ => anyhow::bail!("{name} has not been registered"),
@@ -269,7 +269,7 @@ impl LuaConfig {
 
     pub async fn async_call_callback<
         'lua,
-        A: ToLuaMulti<'lua> + Clone,
+        A: IntoLuaMulti<'lua> + Clone,
         R: FromLuaMulti<'lua> + Default,
     >(
         &'lua mut self,
@@ -284,7 +284,7 @@ impl LuaConfig {
         if sig.allow_multiple() {
             return match lua
                 .lua
-                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+                .named_registry_value::<mlua::Value>(&decorated_name)?
             {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
@@ -305,7 +305,7 @@ impl LuaConfig {
 
         match lua
             .lua
-            .named_registry_value::<_, mlua::Function>(&decorated_name)
+            .named_registry_value::<mlua::Function>(&decorated_name)
         {
             Ok(func) => Ok(func.call_async(args.clone()).await?),
             _ => Ok(R::default()),
@@ -314,7 +314,7 @@ impl LuaConfig {
 
     pub async fn async_call_callback_non_default<
         'lua,
-        A: ToLuaMulti<'lua> + Clone,
+        A: IntoLuaMulti<'lua> + Clone,
         R: FromLuaMulti<'lua>,
     >(
         &'lua mut self,
@@ -329,7 +329,7 @@ impl LuaConfig {
         if sig.allow_multiple() {
             match lua
                 .lua
-                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+                .named_registry_value::<mlua::Value>(&decorated_name)?
             {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
@@ -350,7 +350,7 @@ impl LuaConfig {
 
         match lua
             .lua
-            .named_registry_value::<_, mlua::Function>(&decorated_name)
+            .named_registry_value::<mlua::Function>(&decorated_name)
         {
             Ok(func) => Ok(func.call_async(args.clone()).await?),
             _ => anyhow::bail!("Event {name} has not been registered"),
@@ -359,7 +359,7 @@ impl LuaConfig {
 
     pub async fn async_call_callback_non_default_opt<
         'lua,
-        A: ToLuaMulti<'lua> + Clone,
+        A: IntoLuaMulti<'lua> + Clone,
         R: FromLua<'lua>,
     >(
         &'lua mut self,
@@ -374,7 +374,7 @@ impl LuaConfig {
         if sig.allow_multiple() {
             return match lua
                 .lua
-                .named_registry_value::<_, mlua::Value>(&decorated_name)?
+                .named_registry_value::<mlua::Value>(&decorated_name)?
             {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
@@ -423,7 +423,7 @@ impl LuaConfig {
 
     /// Call a constructor registered via `on`. Returns a registry key that can be
     /// used to reference the returned value again later on this same Lua instance
-    pub async fn async_call_ctor<'lua, A: ToLuaMulti<'lua> + Clone>(
+    pub async fn async_call_ctor<'lua, A: IntoLuaMulti<'lua> + Clone>(
         &'lua mut self,
         sig: &CallbackSignature<'lua, A, Value<'lua>>,
         args: A,
@@ -441,7 +441,7 @@ impl LuaConfig {
 
         let func = inner
             .lua
-            .named_registry_value::<_, mlua::Function>(&decorated_name)?;
+            .named_registry_value::<mlua::Function>(&decorated_name)?;
 
         let value: Value = func.call_async(args.clone()).await?;
         drop(func);
@@ -536,7 +536,7 @@ pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
 /// with a slightly more helpful error message in case of failure.
 pub fn from_lua_value<'lua, R>(lua: &'lua Lua, value: mlua::Value<'lua>) -> mlua::Result<R>
 where
-    R: serde::Deserialize<'lua>,
+    R: serde::de::DeserializeOwned,
 {
     let value_cloned = value.clone();
     lua.from_value(value).map_err(|err| {
@@ -569,7 +569,7 @@ where
 /// until one of them returns a value.
 pub struct CallbackSignature<'lua, A, R>
 where
-    A: ToLuaMulti<'lua>,
+    A: IntoLuaMulti<'lua>,
     R: FromLuaMulti<'lua>,
 {
     marker: std::marker::PhantomData<&'lua (A, R)>,
@@ -579,7 +579,7 @@ where
 
 impl<'lua, A, R> CallbackSignature<'lua, A, R>
 where
-    A: ToLuaMulti<'lua>,
+    A: IntoLuaMulti<'lua>,
     R: FromLuaMulti<'lua>,
 {
     pub fn new<S: Into<Cow<'static, str>>>(name: S) -> Self {

@@ -59,7 +59,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         source
                             .short_src
                             .as_ref()
-                            .map(|b| String::from_utf8_lossy(b).to_string())
+                            .map(|b| b.to_string())
                             .unwrap_or_else(String::new),
                         info.curr_line()
                     ));
@@ -140,10 +140,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 Value::Nil => {}
                 Value::Function(func) => {
                     let info = func.info();
-                    let src = String::from_utf8_lossy(
-                        info.source.as_ref().map(|v| v.as_slice()).unwrap_or(b"?"),
-                    );
-                    let line = info.line_defined;
+                    let src = info.source.unwrap_or_else(|| "?".into());
+                    let line = info.line_defined.unwrap_or(0);
                     return Err(mlua::Error::external(format!(
                         "{name} event already has a handler defined at {src}:{line}"
                     )));
@@ -225,9 +223,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 name_what: Option<String>,
                 source: Option<String>,
                 short_src: Option<String>,
-                line_defined: i32,
-                last_line_defined: i32,
-                what: Option<String>,
+                line_defined: Option<usize>,
+                last_line_defined: Option<usize>,
+                what: &'static str,
                 curr_line: i32,
                 is_tail_call: bool,
             }
@@ -244,26 +242,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             event: format!("{:?}", info.event()),
                             last_line_defined: source.last_line_defined,
                             line_defined: source.line_defined,
-                            name: names
-                                .name
-                                .as_ref()
-                                .map(|b| String::from_utf8_lossy(b).to_string()),
-                            name_what: names
-                                .name_what
-                                .as_ref()
-                                .map(|b| String::from_utf8_lossy(b).to_string()),
-                            source: source
-                                .source
-                                .as_ref()
-                                .map(|b| String::from_utf8_lossy(b).to_string()),
-                            short_src: source
-                                .short_src
-                                .as_ref()
-                                .map(|b| String::from_utf8_lossy(b).to_string()),
-                            what: source
-                                .what
-                                .as_ref()
-                                .map(|b| String::from_utf8_lossy(b).to_string()),
+                            name: names.name.as_ref().map(|b| b.to_string()),
+                            name_what: names.name_what.as_ref().map(|b| b.to_string()),
+                            source: source.source.as_ref().map(|b| b.to_string()),
+                            short_src: source.short_src.as_ref().map(|b| b.to_string()),
+                            what: source.what,
                         });
                     }
                     None => break,
