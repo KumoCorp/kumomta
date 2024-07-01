@@ -55,37 +55,3 @@ $ sudo docker run --rm -p 2025:25 \
     ghcr.io/kumocorp/kumomta:latest
 ```
 
-## Building your own KumoMTA container image
-
-!!! note
-    Most users will not need to do this
-
-You need `git` to clone the repo:
-
-=== "RPM based systems"
-    ```console
-    $ sudo dnf install -y git
-    ```
-
-=== "APT based systems"
-    ```console
-    $ sudo apt install -y git
-    ```
-
-Then clone the repo and run the image builder script:
-
-```console
-$ git clone https://github.com/KumoCorp/kumomta.git
-$ cd kumomta
-$ sudo ./docker/kumod/build-docker-image.sh
-```
-
-This should result in something roughly like this:
-
-```console
-$ docker image ls kumomta/kumod
-REPOSITORY      TAG       IMAGE ID       CREATED         SIZE
-kumomta/kumod   latest    bbced15ff4d1   3 minutes ago   116MB
-```
-
-You can then run that image in the same way as shown in the previous section.
