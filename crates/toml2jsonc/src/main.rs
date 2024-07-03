@@ -6,6 +6,7 @@
 
 use anyhow::Context;
 use clap::Parser;
+use std::io::Read;
 use toml_edit::{Item, Table, Value as TValue};
 
 /// toml2jsonc - Convert TOML files to JSON-with-Comments
@@ -26,7 +27,9 @@ impl Opt {
                 std::fs::read_to_string(&path).context(format!("failed to read file {path}"))
             }
             None => {
-                anyhow::bail!("TODO: implement reading stdin");
+                let mut result = String::new();
+                std::io::stdin().read_to_string(&mut result)?;
+                Ok(result)
             }
         }
     }

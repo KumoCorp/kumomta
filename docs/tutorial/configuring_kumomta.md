@@ -40,13 +40,14 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
 1. Configure the listener_domains.toml file, written to `/opt/kumomta/etc/policy/listener_domains.toml` in the following format, substituting your own sending domain information:
 
-    ```toml
+    {% call toml_data() %}
     ["bounce.example.com"]
     # You can specify multiple options if you wish
     log_oob = true
     log_arf = true
     relay_to = false
-    ```
+    {% endcall %}
+
     For more information, see the [Configuring Inbound and Relay Domains](../userguide/configuration/domains.md) page of the User Guide.
 
     !!!note
@@ -54,7 +55,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
 1. Configure the sources.toml file, written to `/opt/kumomta/etc/policy/sources.toml` in the following format, substituting your own IP and ehlo information:
 
-    ```toml
+    {% call toml_data() %}
     [source."ip-1"]
     source_address = "10.0.0.1"
     ehlo_domain = 'mta1.examplecorp.com'
@@ -66,15 +67,14 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     [pool."Default"."ip-1"]
 
     [pool."pool-1"]
-    [pool."pool-1"."ip-2]
-    ```
+    [pool."pool-1"."ip-2"]
+    {% endcall %}
 
     For more information, see the [Configuring Sending IPs](../userguide/configuration/sendingips.md) page of the User Guide.
 
 1. Configure the queues.toml file, written to `/opt/kumomta/etc/policy/queues.toml` in the following format, substituting your own tenant names and header names:
 
-    ```toml
-
+    {% call toml_data() %}
     scheduling_header = "X-Schedule"
     tenant_header = "X-Tenant"
     remove_tenant_header = true
@@ -94,7 +94,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     [queue.'gmail.com']
     max_age = '22 hours'
     retry_interval = '17 mins'
-    ```
+    {% endcall %}
 
     For More information, see the [Configuring Queue Management](../userguide/configuration/queuemanagement.md) page of the User Guide.
 
@@ -113,7 +113,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
 1. Configure the dkim_data.toml file, written to `/opt/kumomta/etc/policy/dkim_data.toml` in the following format, substituting your own DKIM signing information:
 
-    ```toml
+    {% call toml_data() %}
     [base]
     # Default selector to assume if the domain/signature block
     # doesn't specify one
@@ -130,7 +130,7 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
 
     # Optional override of keyfile path Default is "/opt/kumomta/etc/dkim/DOMAIN/SELECTOR.key"
     filename = "/full/path/to/key."
-    ```
+    {% endcall %}
 
     !!!note
         These instructions assume that the keyfiles are already created and in place, along with the appropriate DNS records. See [the UserGuide](../userguide/configuration/dkim.md) for more information.
