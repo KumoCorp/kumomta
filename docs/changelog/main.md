@@ -27,6 +27,10 @@
   of the helper configuration in your policy. This can be performed offline/concurrently
   with a running kumod. The output is human readable. The exit code will
   be 0 when no validation errors are detected, non-zero otherwise. #211
+* `Rejection` log records now capture the triggering incoming SMTP command
+  line, or, in the case of the `technical difficulties` error message,
+  the stack trace of the triggering issue.  This information is available
+  in `log_record.response.command`.
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

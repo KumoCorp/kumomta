@@ -447,6 +447,7 @@ impl SmtpServer {
                     .write_response(
                         421,
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
+                        Some(format!("Error in SmtpServer: {err:#}")),
                     )
                     .await
                     .ok();
@@ -585,6 +586,7 @@ impl SmtpServer {
         &mut self,
         status: u16,
         message: S,
+        command: Option<String>,
     ) -> Result<(), WriteError> {
         if let Some(socket) = self.socket.as_mut() {
             if status >= 400
@@ -594,7 +596,8 @@ impl SmtpServer {
                 // unsuccessful results are being returned to the peer.
                 && !(status == 421 && message.as_ref().ends_with("shutting down"))
             {
-                let response = Response::with_code_and_message(status, message.as_ref());
+                let mut response = Response::with_code_and_message(status, message.as_ref());
+                response.command = command;
 
                 let mut sender = None;
                 let mut recipient = None;
@@ -896,8 +899,12 @@ impl SmtpServer {
         )) {
             None => {
                 // Can't accept any messages while we're shutting down
-                self.write_response(421, format!("4.3.2 {} shutting down", self.params.hostname))
-                    .await?;
+                self.write_response(
+                    421,
+                    format!("4.3.2 {} shutting down", self.params.hostname),
+                    None,
+                )
+                .await?;
                 return Ok(());
             }
             Some(a) => a,
@@ -907,6 +914,7 @@ impl SmtpServer {
             self.write_response(
                 421,
                 format!("4.3.2 {} load shedding. Try later", self.params.hostname),
+                None,
             )
             .await?;
             return Ok(());
@@ -921,6 +929,7 @@ impl SmtpServer {
                     "4.3.2 {} waiting for spool enumeration. Try later",
                     self.params.hostname
                 ),
+                None,
             )
             .await?;
             return Ok(());
@@ -929,12 +938,17 @@ impl SmtpServer {
         self.write_response(
             220,
             format!("{} {}", self.params.hostname, self.params.banner),
+            None,
         )
         .await?;
         loop {
             if self.check_shutdown() {
-                self.write_response(421, format!("4.3.2 {} shutting down", self.params.hostname))
-                    .await?;
+                self.write_response(
+                    421,
+                    format!("4.3.2 {} shutting down", self.params.hostname),
+                    None,
+                )
+                .await?;
                 return Ok(());
             }
 
@@ -945,6 +959,7 @@ impl SmtpServer {
                     self.write_response(
                         421,
                         format!("4.3.2 {} idle too long", self.params.hostname),
+                        None,
                     )
                     .await?;
                     return Ok(());
@@ -953,12 +968,14 @@ impl SmtpServer {
                     self.write_response(
                         421,
                         format!("4.3.2 {} shutting down", self.params.hostname),
+                        None,
                     )
                     .await?;
                     return Ok(());
                 }
                 ReadLine::TooLong => {
-                    self.write_response(500, "5.2.3 line too long").await?;
+                    self.write_response(500, "5.2.3 line too long", None)
+                        .await?;
                     continue;
                 }
             };
@@ -968,21 +985,26 @@ impl SmtpServer {
                     self.write_response(
                         501,
                         format!("Syntax error in command or arguments: {err}"),
+                        Some(line),
                     )
                     .await?;
                 }
                 Ok(Command::Quit) => {
-                    self.write_response(221, "So long, and thanks for all the fish!")
+                    self.write_response(221, "So long, and thanks for all the fish!", None)
                         .await?;
                     return Ok(());
                 }
                 Ok(Command::StartTls) => {
                     if self.tls_active {
-                        self.write_response(501, "Cannot STARTTLS as TLS is already active")
-                            .await?;
+                        self.write_response(
+                            501,
+                            "Cannot STARTTLS as TLS is already active",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
-                    self.write_response(220, "Ready to Start TLS").await?;
+                    self.write_response(220, "Ready to Start TLS", None).await?;
                     let acceptor = self.params.build_tls_acceptor().await?;
                     let socket: BoxedAsyncReadAndWrite = match acceptor
                         .accept(self.socket.take().unwrap())
@@ -1005,24 +1027,37 @@ impl SmtpServer {
                     initial_response,
                 }) => {
                     if self.authentication_id.is_some() {
-                        self.write_response(503, "5.5.1 AUTH me once, can't get authed again!")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.1 AUTH me once, can't get authed again!",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     if self.state.is_some() {
-                        self.write_response(503, "5.5.1 AUTH not permitted inside a transaction")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.1 AUTH not permitted inside a transaction",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     if sasl_mech != "PLAIN" {
-                        self.write_response(504, "5.5.4 AUTH {sasl_mech} not supported")
-                            .await?;
+                        self.write_response(
+                            504,
+                            "5.5.4 AUTH {sasl_mech} not supported",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     if !self.tls_active {
                         self.write_response(
                             524,
                             format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
+                            Some(line),
                         )
                         .await?;
                         continue;
@@ -1031,7 +1066,7 @@ impl SmtpServer {
                     let response = if let Some(r) = initial_response {
                         r
                     } else {
-                        self.write_response(334, " ").await?;
+                        self.write_response(334, " ", None).await?;
                         match self.read_line(Some(16384)).await? {
                             ReadLine::Disconnected => return Ok(()),
                             ReadLine::Line(line) => line,
@@ -1039,6 +1074,7 @@ impl SmtpServer {
                                 self.write_response(
                                     421,
                                     format!("4.3.2 {} idle too long", self.params.hostname),
+                                    Some(line),
                                 )
                                 .await?;
                                 return Ok(());
@@ -1047,6 +1083,7 @@ impl SmtpServer {
                                 self.write_response(
                                     421,
                                     format!("4.3.2 {} shutting down", self.params.hostname),
+                                    Some(line),
                                 )
                                 .await?;
                                 return Ok(());
@@ -1055,6 +1092,7 @@ impl SmtpServer {
                                 self.write_response(
                                     500,
                                     "5.5.6 authentication exchange line too long",
+                                    Some(line),
                                 )
                                 .await?;
                                 continue;
@@ -1063,7 +1101,7 @@ impl SmtpServer {
                     };
 
                     if response == "*" {
-                        self.write_response(501, "5.5.0 AUTH cancelled by client")
+                        self.write_response(501, "5.5.0 AUTH cancelled by client", Some(line))
                             .await?;
                         continue;
                     }
@@ -1083,6 +1121,7 @@ impl SmtpServer {
                                     self.write_response(
                                         501,
                                         "5.5.2 Invalid decoded PLAIN response",
+                                        Some(response),
                                     )
                                     .await?;
                                     continue;
@@ -1095,6 +1134,7 @@ impl SmtpServer {
                                     self.write_response(
                                         501,
                                         "5.5.2 Invalid UTF8 in decoded PLAIN response",
+                                        Some(response),
                                     )
                                     .await?;
                                     continue;
@@ -1113,11 +1153,13 @@ impl SmtpServer {
                                 .await?
                             {
                                 Err(rej) => {
-                                    self.write_response(rej.code, rej.message).await?;
+                                    self.write_response(rej.code, rej.message, Some(response))
+                                        .await?;
                                     continue;
                                 }
                                 Ok(false) => {
-                                    self.write_response(535, "5.7.8 AUTH invalid").await?;
+                                    self.write_response(535, "5.7.8 AUTH invalid", Some(response))
+                                        .await?;
                                 }
                                 Ok(true) => {
                                     self.authorization_id.replace(authz.to_string());
@@ -1125,13 +1167,17 @@ impl SmtpServer {
                                     self.meta.set_meta("authz_id", authz);
                                     self.meta.set_meta("authn_id", authc);
 
-                                    self.write_response(235, "2.7.0 AUTH OK!").await?;
+                                    self.write_response(235, "2.7.0 AUTH OK!", None).await?;
                                 }
                             }
                         }
                         Err(_) => {
-                            self.write_response(501, "5.5.2 Invalid base64 response")
-                                .await?;
+                            self.write_response(
+                                501,
+                                "5.5.2 Invalid base64 response",
+                                Some(response),
+                            )
+                            .await?;
                             continue;
                         }
                     }
@@ -1146,7 +1192,8 @@ impl SmtpServer {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message).await?;
+                        self.write_response(rej.code, rej.message, Some(line))
+                            .await?;
                         continue;
                     }
 
@@ -1164,6 +1211,7 @@ impl SmtpServer {
                             self.params.hostname,
                             extensions.join("\n"),
                         ),
+                        None,
                     )
                     .await?;
                     self.said_hello.replace(domain);
@@ -1178,10 +1226,12 @@ impl SmtpServer {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message).await?;
+                        self.write_response(rej.code, rej.message, Some(line))
+                            .await?;
                         continue;
                     }
-                    self.write_response(250, format!("Hello {domain}!")).await?;
+                    self.write_response(250, format!("Hello {domain}!"), None)
+                        .await?;
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::MailFrom {
@@ -1192,6 +1242,7 @@ impl SmtpServer {
                         self.write_response(
                             503,
                             "5.5.0 MAIL FROM already issued; you must RSET first",
+                            Some(line),
                         )
                         .await?;
                         continue;
@@ -1205,7 +1256,8 @@ impl SmtpServer {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message).await?;
+                        self.write_response(rej.code, rej.message, Some(line))
+                            .await?;
                         continue;
                     }
 
@@ -1213,15 +1265,20 @@ impl SmtpServer {
                         sender: address.clone(),
                         recipients: vec![],
                     });
-                    self.write_response(250, format!("OK {address:?}")).await?;
+                    self.write_response(250, format!("OK {address:?}"), None)
+                        .await?;
                 }
                 Ok(Command::RcptTo {
                     address,
                     parameters: _,
                 }) => {
                     if self.state.is_none() {
-                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.0 MAIL FROM must be issued first",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     let address = EnvelopeAddress::parse(&address.to_string())?;
@@ -1233,6 +1290,7 @@ impl SmtpServer {
                         self.write_response(
                             550,
                             format!("5.7.1 relaying not permitted for {}", self.peer_address),
+                            Some(line),
                         )
                         .await?;
                         continue;
@@ -1240,7 +1298,7 @@ impl SmtpServer {
 
                     if let Some(state) = &self.state {
                         if state.recipients.len() == self.params.max_recipients_per_message {
-                            self.write_response(451, "4.5.3 too many recipients")
+                            self.write_response(451, "4.5.3 too many recipients", Some(line))
                                 .await?;
                             continue;
                         }
@@ -1248,23 +1306,32 @@ impl SmtpServer {
                         if self.rcpt_count == self.params.max_messages_per_connection {
                             if state.recipients.is_empty() {
                                 self.write_response(
-                                    451,
+                                    421,
                                     format!(
                                         "4.5.3 {} too many recipients on this connection",
                                         self.params.hostname
                                     ),
+                                    Some(line),
                                 )
                                 .await?;
                                 return Ok(());
                             } else {
-                                self.write_response(451, "4.5.3 too many on this conn")
-                                    .await?;
+                                self.write_response(
+                                    451,
+                                    "4.5.3 too many recipients on this connection",
+                                    Some(line),
+                                )
+                                .await?;
                                 continue;
                             }
                         }
                     } else {
-                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.0 MAIL FROM must be issued first",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     self.rcpt_count += 1;
@@ -1275,10 +1342,12 @@ impl SmtpServer {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message).await?;
+                        self.write_response(rej.code, rej.message, Some(line))
+                            .await?;
                         continue;
                     }
-                    self.write_response(250, format!("OK {address:?}")).await?;
+                    self.write_response(250, format!("OK {address:?}"), None)
+                        .await?;
                     self.state
                         .as_mut()
                         .expect("checked state above")
@@ -1287,8 +1356,12 @@ impl SmtpServer {
                 }
                 Ok(Command::Data) => {
                     if self.state.is_none() {
-                        self.write_response(503, "5.5.0 MAIL FROM must be issued first")
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.0 MAIL FROM must be issued first",
+                            Some(line),
+                        )
+                        .await?;
                         continue;
                     }
                     if self
@@ -1297,29 +1370,32 @@ impl SmtpServer {
                         .map(|s| s.recipients.is_empty())
                         .unwrap_or(true)
                     {
-                        self.write_response(503, "5.5.0 RCPT TO must be issued first")
+                        self.write_response(503, "5.5.0 RCPT TO must be issued first", Some(line))
                             .await?;
                         continue;
                     }
 
-                    self.write_response(354, "Send body; end with CRLF.CRLF")
+                    self.write_response(354, "Send body; end with CRLF.CRLF", None)
                         .await?;
 
                     let data = match self.read_data().await? {
                         ReadData::Disconnected => return Ok(()),
                         ReadData::Data(data) => data,
                         ReadData::TooBig => {
-                            self.write_response(552, "5.3.4 message too big").await?;
+                            self.write_response(552, "5.3.4 message too big", Some(line))
+                                .await?;
                             continue;
                         }
                         ReadData::TooLong => {
-                            self.write_response(500, "5.2.3 line too long").await?;
+                            self.write_response(500, "5.2.3 line too long", Some(line))
+                                .await?;
                             continue;
                         }
                         ReadData::TimedOut => {
                             self.write_response(
                                 421,
                                 format!("4.3.2 {} idle too long", self.params.hostname),
+                                Some(line),
                             )
                             .await?;
                             return Ok(());
@@ -1328,6 +1404,7 @@ impl SmtpServer {
                             self.write_response(
                                 421,
                                 format!("4.3.2 {} shutting down", self.params.hostname),
+                                Some(line),
                             )
                             .await?;
                             return Ok(());
@@ -1338,13 +1415,14 @@ impl SmtpServer {
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
-                    self.write_response(250, "Reset state").await?;
+                    self.write_response(250, "Reset state", None).await?;
                 }
                 Ok(Command::Noop(_)) => {
-                    self.write_response(250, "the goggles do nothing").await?;
+                    self.write_response(250, "the goggles do nothing", None)
+                        .await?;
                 }
                 Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_)) => {
-                    self.write_response(502, format!("5.5.1 Command unimplemented"))
+                    self.write_response(502, format!("5.5.1 Command unimplemented"), Some(line))
                         .await?;
                 }
                 Ok(Command::DataDot) => unreachable!(),
@@ -1366,8 +1444,12 @@ impl SmtpServer {
         if lone_lf {
             match self.params.invalid_line_endings {
                 ConformanceDisposition::Deny => {
-                    self.write_response(552, "5.6.0 message data must use CRLF for line endings")
-                        .await?;
+                    self.write_response(
+                        552,
+                        "5.6.0 message data must use CRLF for line endings",
+                        Some("DATA".into()),
+                    )
+                    .await?;
                     return Ok(());
                 }
                 ConformanceDisposition::Allow => {
@@ -1452,7 +1534,8 @@ impl SmtpServer {
                 // Rejecting any one message from a batch in
                 // smtp_server_message_received will reject the
                 // entire batch
-                self.write_response(rej.code, rej.message).await?;
+                self.write_response(rej.code, rej.message, Some("DATA".into()))
+                    .await?;
                 return Ok(());
             }
             accepted_messages.push(message);
@@ -1564,11 +1647,12 @@ impl SmtpServer {
         }
 
         if !black_holed && !relayed_any && !was_arf_or_oob {
-            self.write_response(550, "5.7.1 relaying not permitted")
+            self.write_response(550, "5.7.1 relaying not permitted", Some("DATA".into()))
                 .await?;
         } else {
             let ids = ids.join(" ");
-            self.write_response(250, format!("OK ids={ids}")).await?;
+            self.write_response(250, format!("OK ids={ids}"), None)
+                .await?;
         }
 
         Ok(())

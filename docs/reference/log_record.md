@@ -50,6 +50,9 @@ The log record is a JSON object with the following shape:
         // eg: "MAIL FROM", "RCPT TO" etc. "." isn't really a command
         // but is used to represent the response to the final ".:
         // we send to indicate the end of the message payload.
+        // This field can be nil/absent in some cases, particularly
+        // for Rejection records for incoming SMTP in older
+        // versions of kumomta.
         "command": "."
     },
 
