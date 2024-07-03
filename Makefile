@@ -9,6 +9,7 @@ build:
 	cargo build $(BUILD_OPTS) -p proxy-server
 	cargo build $(BUILD_OPTS) -p tailer
 	cargo build $(BUILD_OPTS) -p traffic-gen
+	cargo build $(BUILD_OPTS) -p toml2jsonc
 
 # Check compilation with all possible feature combinations
 # Requires: cargo install --locked cargo-feature-combinations

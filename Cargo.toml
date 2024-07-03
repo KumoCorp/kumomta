@@ -16,6 +16,7 @@ members = [
   "crates/tailer",
   "crates/throttle",
   "crates/timeq",
+  "crates/toml2jsonc",
   "crates/traffic-gen",
   "crates/tsa-daemon",
   "crates/validate-shaping",
