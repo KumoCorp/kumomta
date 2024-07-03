@@ -50,12 +50,14 @@ steps:
   build-mkdocs:
     image: plugins/docker
     settings:
-      tags: kumomta/mkdocs-material
+      repo: ghcr.io/kumocorp/mkdocs-material
+      tags: latest
+      dry_run: true
       dockerfile: docs/Dockerfile
 
   run-mkdocs:
     #image: woodpeckerci/plugin-mkdocs:latest
-    image: kumomta/mkdocs-material
+    image: ghcr.io/kumocorp/mkdocs-material
     #pull: true
     environment:
       CARDS: "true"
