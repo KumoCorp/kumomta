@@ -47,18 +47,9 @@ steps:
       - . ./.cache-env
       - CI=true ./docs/build.sh
 
-  build-mkdocs:
-    image: plugins/docker
-    settings:
-      repo: ghcr.io/kumocorp/mkdocs-material
-      tags: latest
-      dry_run: true
-      dockerfile: docs/Dockerfile
-
   run-mkdocs:
-    #image: woodpeckerci/plugin-mkdocs:latest
-    image: ghcr.io/kumocorp/mkdocs-material
-    #pull: true
+    image: ghcr.io/kumocorp/mkdocs-material:latest
+    pull: true
     environment:
       CARDS: "true"
       GIT_DATES: "true"
