@@ -80,13 +80,13 @@ One example of this is using headers for identifying which tenant a message is a
 
 To prevent this, you can use the `require_authz` option in the helper:
 
-```toml
+{% call toml_data() %}
 [tenant.'mytenant']
 # Which pool should be used for this tenant
 egress_pool = 'pool-1'
 
 # Only the authorized identities are allowed to use this tenant via the tenant_header
-#require_authz = ["scott"]
-```
+require_authz = ["scott"]
+{% endcall %}
 
 This prevents users other than **scott** (multiple users can be specified) from using the tenant for sending.

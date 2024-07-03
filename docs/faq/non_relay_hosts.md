@@ -11,12 +11,12 @@ kumo.start_esmtp_listener {
 
 And the following configured for your `listener_domains`` helper:
 
-```toml
+{% call toml_data() %}
 ["*"]
 relay_to = false
 log_oob = true
 log_arf = true
-```
+{% endcall %}
 
 As you operate your server, you may be concerned to discover in your logs that messages are bring accepted from hosts not listed in your `relay_hosts` list.
 

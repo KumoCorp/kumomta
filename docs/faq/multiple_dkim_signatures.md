@@ -6,7 +6,7 @@ Applying multiple DKIM signatures to a message is straightforward, but will depe
 
 If you are using the DKIM Helper to manage the signing of messages, you can add additional DKIM signatures by using the `additional_signatures` option in your helper config, combined with the `signature` block:
 
-```toml
+{% call toml_data() %}
 additional_signatures = ["MyESPName"]
 
 [signature."MyESPName"]
@@ -16,7 +16,7 @@ policy = "Always" # Always add this signature
 
 # specifies the signing domain for this signature block
 domain = "myesp.com"
-```
+{% endcall %}
 
 You can add as many additional signatures as needed, and selectively decide whether those signatures are used globally or only when the sending domain does not have a signature of its own.
 

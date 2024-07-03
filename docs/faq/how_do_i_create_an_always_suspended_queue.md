@@ -22,16 +22,16 @@ To configure this using the queues and sources helpers:
 
 * Add the following to your `queues.toml`:
 
-```toml
+{% call toml_data() %}
 [queue."always-suspended"]
 egress_pool = "always-suspended-pool"
-```
+{% endcall %}
 
 * Add the following to your `sources.toml`:
 
-```toml
+{% call toml_data() %}
 [pool."always-suspended-pool"]
-```
+{% endcall %}
 
 * Then in your policy, you can put messages in that queue explicitly:
 

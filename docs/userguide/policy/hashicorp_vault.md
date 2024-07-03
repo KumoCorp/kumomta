@@ -34,14 +34,14 @@ sudo systemctl edit --full kumomta.service
 You should disregard everything except the `[Service]` section.
 At the bottom of that section, add 2 lines:
 
-```toml
+```
 Environment=VAULT_ADDR='http://<YOUR_SERVER_LOCATION>:8200'
 Environment=VAULT_TOKEN='<YOUR_ACCESS_TOKEN>'
 ```
 
 When done, it should look something like this:
 
-```toml
+```
 [Unit]
 Description=KumoMTA SMTP service
 After=syslog.target network.target

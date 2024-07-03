@@ -47,14 +47,14 @@ However, when sending to `gmail.com`, its `connection_limit` of `100` will
 override the `10` from the `default` section, and it will also use the
 `enable_tls` value from the default section; the values are merged together:
 
-```toml
+{% call toml_data() %}
 ["default"]
 connection_limit = 10
 enable_tls = "Opportunistic"
 
 ["gmail.com"]
 connection_limit = 100
-```
+{% endcall %}
 
 Specifying the same domain in separate files will also merge the configuration,
 which allows us to share community-provided base rules that you can then choose
@@ -63,12 +63,12 @@ to override without replacing everything for that domain.
 However, if you want to completely replace the information for a domain, you
 can indicate that by using `replace_base = true`:
 
-```toml
+{% call toml_data() %}
 ["gmail.com"]
 # Discard any other `gmail.com` rules provided by earlier files
 replace_base = true
 connection_limit = 10
-```
+{% endcall %}
 
 `replace_base` is only meaningful in the context of the current domain section
 in the current file; subsequent sections for that same domain will continue
@@ -84,19 +84,19 @@ of MXs, for example, every G-Suite hosted domain will share `gmail.com` rules.
 For some domains this may not be desirable; in this situations you can prevent
 the rule from using the *site_name* by setting `mx_rollup = false`:
 
-```toml
+{% call toml_data() %}
 ["example.com"]
 mx_rollup = false
-```
+{% endcall %}
 
 ### Per-Source Rules
 
 You can provide a list of source-specific rules like this:
 
-```toml
+{% call toml_data() %}
 ["example.com".sources."my source name"]
 connection_limit = 5
-```
+{% endcall %}
 
 The section is named in the format `DOMAIN.sources.SOURCE`.  Both the `DOMAIN`
 and the `SOURCE` must be quoted using double-quotes in order for the structure
@@ -109,7 +109,7 @@ optional `tsa-daemon` process.
 
 Here's an example that defines policy for `yahoo.com`:
 
-```toml
+{% call toml_data() %}
 ["yahoo.com"]
 max_deliveries_per_connection = 20
 
@@ -117,7 +117,7 @@ max_deliveries_per_connection = 20
 regex = "\\[TS04\\]"
 action = "Suspend"
 duration = "2 hours"
-```
+{% endcall %}
 
 In TOML, the `[[DOMAIN.automation]]` syntax appends an additional entry to the
 list of `automation` rules in `DOMAIN`.

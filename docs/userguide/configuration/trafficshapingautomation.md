@@ -98,7 +98,7 @@ kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 In addition to the domain-level traffic shaping rules currently in your `shaping.toml` file, you add additional automation entries based on the event you are targeting. The `regex` and `action` attributes can be passed as either single values or arrays.
 
-```toml
+{% call toml_data() %}
 [["default".automation]]
 regex=[
         '/Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/',
@@ -132,7 +132,7 @@ action = {SetConfig={name="max_connection_rate", value="100/s"}}
 trigger = {Threshold="2/hr"}
 # The config override will last for 2 hours
 duration = "2 hours"
-```
+{% endcall %}
 
 The TSA daemon has two actions: temporary suspension of traffic to the triggering combination of egress source and site name, and adjustment of the traffic shaping rules to the triggering combination of egress source and site name.
 

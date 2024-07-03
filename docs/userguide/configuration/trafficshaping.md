@@ -37,7 +37,7 @@ kumo.on('get_egress_path_config', shaping:setup())
 
 The shaping.lua policy reads a TOML file that is maintained by the community and included in all repos, also found at [https://github.com/KumoCorp/kumomta/blob/main/assets/policy-extras/shaping.toml](https://github.com/KumoCorp/kumomta/blob/main/assets/policy-extras/shaping.toml), and which is structured as follows:
 
-```toml
+{% call toml_data() %}
 ["default"]
 connection_limit = 10
 max_connection_rate = "100/min"
@@ -51,7 +51,7 @@ consecutive_connection_failures_before_delay = 100
 mx_rollup = false
 max_deliveries_per_connection = 100
 connection_limit = 3
-```
+{% endcall %}
 
 As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
 
@@ -63,7 +63,7 @@ By default, shaping.lua treats each domain entry as applying to the site_name fo
 
 Consider the following example, with foo.com being a domain hosted by Yahoo!:
 
-```toml
+{% call toml_data() %}
 ["default"]
 connection_limit = 10
 max_connection_rate = "100/min"
@@ -83,16 +83,16 @@ connection_limit = 3
 
 ["foo.com".sources."IP-1"]
 max_deliveries_per_connection = 5
-```
+{% endcall %}
 
 This example would result in the following active settings for mail being sent to foo.com on the IP-1 Egress Source:
 
-```toml
+{% call toml_data() %}
 connection_limit = 3
 max_deliveries_per_connection = 5
 max_connection_rate = "100/min"
 max_message_rate = "100/s"
-```
+{% endcall %}
 
 The *mx_rollup* option indicates whether or not the settings should apply to the domain or the site_name. In the example above, even though foo.com is hosted by Yahoo! we want to override the message throttle for the foo.com domain. The mx_rollup option is true by default and only needs to be specified for domains that override the main site name entry.
 

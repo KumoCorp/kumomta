@@ -50,11 +50,11 @@ simply accomplished using the [listener domains policy
 helper](domains.md#using-the-listener_domainslua-policy-helper), with a snippet
 like this:
 
-```toml
+{% call toml_data() %}
 ["fbl.examplecorp.com"]
 # accept and log ARF feedback reports sent to fbl.examplecorp.com
 log_arf = true
-```
+{% endcall %}
 
 The preceding example designates that messages injected from remote hosts
 destined for fbl.examplecorp.com will be accepted and then processed as ARF
@@ -70,12 +70,12 @@ migration.
 To queue a message after processing, add `relay_to = true` to the domain
 configuration:
 
-```toml
+{% call toml_data() %}
 ["fbl.examplecorp.com"]
 # accept and log ARF feedback reports sent to fbl.examplecorp.com
 log_arf = true
 relay_to = true
-```
+{% endcall %}
 
 In addition, it should be noted that the MX record for your domain will still
 be pointed at the KumoMTA instance, which means that in order to avoid a mail

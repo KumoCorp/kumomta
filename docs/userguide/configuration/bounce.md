@@ -55,7 +55,7 @@ Once configured, the Bounce Classifier will populate the
 
 An example of classification rules:
 
-```toml
+{% call toml_data() %}
 [rules]
 InvalidRecipient = [
   "^(451|550) [45]\\.1\\.[1234] ",
@@ -66,7 +66,7 @@ BadDomain = [
   "^(451|550) [45]\\.1\\.10 ", # NULL MX
   "^5\\d{2} [45]\\.7\\.18 ", # RRVS: domain owner has changed
 ]
-```
+{% endcall %}
 
 Users can create their own classification rules file by copying the default
 file, editing it, and adding the path to their custom rules file to the *files*
@@ -95,11 +95,11 @@ simply accomplished using the [listener domains policy
 helper](domains.md#using-the-listener_domainslua-policy-helper), with a snippet
 like this:
 
-```toml
+{% call toml_data() %}
 ["bounce.examplecorp.com"]
 # accept and log OOB messages send to bounce.examplecorp.com
 log_oob = true
-```
+{% endcall %}
 
 ## OOB Message Disposition After Processing
 
@@ -111,12 +111,12 @@ migration.
 To queue a message after processing, add `relay_to = true` to the listener
 domain configuration:
 
-```toml
+{% call toml_data() %}
 ["bounce.examplecorp.com"]
 # accept and log OOB messages send to bounce.examplecorp.com
 log_oob = true
 relay_to = true
-```
+{% endcall %}
 
 In addition, it should be noted that the MX record for your domain will still
 be pointed at the KumoMTA instance, which means that in order to avoid a mail

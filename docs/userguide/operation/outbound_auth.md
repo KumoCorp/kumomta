@@ -60,11 +60,11 @@ When using shaping.lua, the hostname or IP of the target host can be used as a d
 
 For example, to use a keysource with a local host, the following could be added to a custom TOML file:
 
-```toml
+{% call toml_data() %}
 ["192.168.1.10"]
 mx_rollup = false
 smtp_auth_plain_username = "scott"
 smtp_auth_plain_password = { vault_mount = "secret", vault_path = "smtp-auth/local" }
-```
+{% endcall %}
 
 See the [traffic shaping](../configuration/trafficshaping.md#using-the-shapinglua-helper) section of the User Guide for additional information.

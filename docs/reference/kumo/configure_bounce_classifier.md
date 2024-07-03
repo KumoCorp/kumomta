@@ -81,7 +81,7 @@ of files.
 
 Here's an excerpt of the `iana.toml`:
 
-```toml
+{% call toml_data() %}
 # This file contains rules that match SMTP ENHANCEDSTATUSCODES
 # codes as defined in the IANA registry:
 # https://www.iana.org/assignments/smtp-enhanced-status-codes/smtp-enhanced-status-codes.xhtml
@@ -111,4 +111,4 @@ QuotaIssues = [
   "^452 [45]\\.3\\.1 ", # Mail System Full
   "^55[24] [45]\\.3\\.4 ", # Message too large for system
 ]
-```
+{% endcall %}

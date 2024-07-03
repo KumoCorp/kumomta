@@ -65,7 +65,7 @@ end)
 
 With the helper code in place, users can manage a simple TOML or JSON file to control DKIM signing:
 
-```toml
+{% call toml_data() %}
 [domain."example.com"]
 selector = 'dkim1024'
 headers = ["From", "To", "Subject", "Date", "MIME-Version", "Content-Type", "Sender"]
@@ -74,7 +74,7 @@ algo = "sha256"
 # optional overridden filename.
 # Default is "/opt/kumomta/etc/dkim/DOMAIN/SELECTOR.key"
 filename = "/full/path/to/key."
-```
+{% endcall %}
 
 This approach allows for full control of DKIM signing without the need to implement a data integration or fully code the signing parameters in Lua.
 

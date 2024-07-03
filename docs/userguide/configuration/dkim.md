@@ -177,7 +177,7 @@ further manipulation of the messages occur after signing.
 In addition create and populate the configured `dkim_data.toml` file, located
 at `/opt/kumomta/etc/dkim_data.toml` in this example.
 
-```toml
+{% call toml_data() %}
 [base]
 # If these are present, we'll use hashicorp vault instead
 # of reading from disk
@@ -236,7 +236,7 @@ policy = "Always" # Always add this signature
 
 # specifies the signing domain for this signature block
 domain = "myesp.com"
-```
+{% endcall %}
 
 ## Implementing DKIM Signing using Lua
 

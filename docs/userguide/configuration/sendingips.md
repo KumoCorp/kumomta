@@ -25,7 +25,7 @@ sources:setup { '/opt/kumomta/etc/sources.toml' }
 In addition, create a file at `/opt/kumomta/etc/sources.toml` and populate it
 as follows:
 
-```toml
+{% call toml_data() %}
 [source."ip-1"]
 source_address = "10.0.0.1"
 ehlo_domain = 'mta1.examplecorp.com'
@@ -51,7 +51,7 @@ weight = 2
 # We're warming up ip-3, so use it less frequently than ip-2
 [pool."pool-2"."ip-3"]
 weight = 1
-```
+{% endcall %}
 
 The sources you define can include any options listed for the [make_egress_source](../../reference/kumo/make_egress_source.md) function.
 

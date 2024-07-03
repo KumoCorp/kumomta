@@ -44,7 +44,7 @@ end)
 In addition, create a file at `/opt/kumomta/etc/queues.toml` and populate it
 as follows:
 
-```toml
+{% call toml_data() %}
 # Allow optional scheduled sends based on this header
 # https://docs.kumomta.com/reference/message/import_scheduling_header
 scheduling_header = "X-Schedule"
@@ -93,7 +93,7 @@ retry_interval = '17 mins'
 
 [queue.'gmail.com'.'mytenant'.'welcome-campaign']
 # options here for domain=gmail.com, tenant=mytenant, and campaign='welcome-campaign'
-```
+{% endcall %}
 
 ## Configuring Message Life and Retry Times Using Lua
 

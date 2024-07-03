@@ -34,7 +34,7 @@ kumo.on(
 
 Then create a text file at `/opt/kumomta/etc/listener_domains.toml` with the following format:
 
-```toml
+{% call toml_data() %}
 ["*"]
 # You can specify * as a default, overridden by any more explicitly defined domains.
 # Since all options are false by default, this would only be needed to default
@@ -89,15 +89,16 @@ log_oob = false
 # Define a per-listener configuration
 [listener."127.0.0.1:25"."*.example.com"]
 log_oob = false
-```
+{% endcall %}
 
 !!! note
     If you configure a domain for `relay_to = true` you will need to configure a routing domain in the [Queues Helper](../configuration/queuemanagement.md) so that KumoMTA knows where to relay the messages to internally, since an MX lookup will return the IP for your KumoMTA instance:
 
-    ```toml
+    {% call toml_data() %}
     [queue.'my.own.hostname']
     routing_domain = '[10.0.0.1]'
-    ```
+    {% endcall %}
+
 ## Configuring Domains for Relaying, Bounces, and Feedback Loops
 
 By default, if a host connects to the listener and is not listed in the
