@@ -47,15 +47,22 @@ steps:
       - . ./.cache-env
       - CI=true ./docs/build.sh
 
+  build-mkdocs:
+    image: plugins/docker
+    settings:
+      tags: kumomta/mkdocs-material
+      dockerfile: docs/Dockerfile
+
   run-mkdocs:
-    image: woodpeckerci/plugin-mkdocs:latest
-    pull: true
+    #image: woodpeckerci/plugin-mkdocs:latest
+    image: kumomta/mkdocs-material
+    #pull: true
     environment:
       CARDS: "true"
       GIT_DATES: "true"
-    settings:
-      config: mkdocs.yml
-      pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"
+    #settings:
+      #config: mkdocs.yml
+      #pip_install: "mkdocs-macros-plugin,mkdocs-include-markdown-plugin,mkdocs-exclude,mkdocs-git-revision-date-localized-plugin"
 
   push-docs:
     when:
