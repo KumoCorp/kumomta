@@ -53,6 +53,7 @@ if "ubuntu" in container:
                     "ca-certificates",
                     "curl",
                     "git",
+                    "gpg",
                     "jq",
                     "pip",
                 ]
