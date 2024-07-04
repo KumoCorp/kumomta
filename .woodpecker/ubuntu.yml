@@ -94,7 +94,7 @@ steps:
 
   publish_gh_dev:
     depends_on: [verify-installable]
-    image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
+    image: ${BUILDER_IMAGE}
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main")'
     environment:

@@ -12,6 +12,8 @@ DEB_NAME=${DEB_NAME:-kumomta-dev}
 CONFLICTS=kumomta
 [[ ${DEB_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 
+DEB_ARCH=$(dpkg-architecture -q DEB_BUILD_ARCH_CPU)
+
 KUMO_DEB_VERSION=$(git -c "core.abbrev=8" show -s "--format=%cd.%h" "--date=format:%Y.%m.%d.%H%M%S")
 distro=$(lsb_release -is 2>/dev/null || sh -c "source /etc/os-release && echo \$NAME")
 distver=$(lsb_release -rs 2>/dev/null || sh -c "source /etc/os-release && echo \$VERSION_ID")
@@ -125,7 +127,7 @@ sed -i '/^Source:/d' pkg/debian/DEBIAN/control  # The `Source:` field needs to b
 echo $deps | sed -e 's/shlibs:Depends=/Depends: /' >> pkg/debian/DEBIAN/control
 cat pkg/debian/DEBIAN/control
 
-debname=${DEB_NAME}.${KUMO_DEB_VERSION}.$distro$distver
+debname=${DEB_NAME}.${KUMO_DEB_VERSION}.${distro}${distver}_${DEB_ARCH}
 find pkg -ls
 FAKEROOT=fakeroot
 if test "$EUID" -eq 0 ; then
