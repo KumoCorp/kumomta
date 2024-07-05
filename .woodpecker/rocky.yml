@@ -6,9 +6,11 @@ matrix:
     - ROCKY_VERSION: 8
       ROCKY_IMAGE: rockylinux:8
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-rockylinux:8
+      UBUNTU_BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     - ROCKY_VERSION: 9
       ROCKY_IMAGE: rockylinux:9
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-rockylinux:9
+      UBUNTU_BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
 
 when:
   - event: push
@@ -87,7 +89,7 @@ steps:
 
   publish-gh-dev:
     depends_on: [verify-installable]
-    image: ${BUILDER_IMAGE}
+    image: ${UBUNTU_BUILDER_IMAGE}
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main")'
     environment:
@@ -98,7 +100,7 @@ steps:
 
   publish-gh-tag:
     depends_on: [verify-installable]
-    image: ${BUILDER_IMAGE}
+    image: ${UBUNTU_BUILDER_IMAGE}
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "tag"'
     environment:

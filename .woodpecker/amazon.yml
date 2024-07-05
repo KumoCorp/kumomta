@@ -3,14 +3,17 @@ matrix:
     - AMAZON_VERSION: 2
       AMAZON_IMAGE: amazonlinux:2
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2
+      UBUNTU_BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
       platform: linux/amd64
     - AMAZON_VERSION: 2023
       AMAZON_IMAGE: amazonlinux:2023
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-amazonlinux:2023
+      UBUNTU_BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
       platform: linux/amd64
     - AMAZON_VERSION: 2023
       AMAZON_IMAGE: amazonlinux:2023
       BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-aarch64-amazonlinux:2023
+      UBUNTU_BUILDER_IMAGE: ghcr.io/kumocorp/builder-for-ubuntu:22.04
       platform: linux/aarch64
 
 labels:
@@ -103,7 +106,7 @@ steps:
 
   publish-gh-dev:
     depends_on: [verify-installable]
-    image: ${BUILDER_IMAGE}
+    image: ${UBUNTU_BUILDER_IMAGE}
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main")'
     environment:
@@ -114,7 +117,7 @@ steps:
 
   publish-gh-tag:
     depends_on: [verify-installable]
-    image: ${BUILDER_IMAGE}
+    image: ${UBUNTU_BUILDER_IMAGE}
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "tag"'
     environment:
