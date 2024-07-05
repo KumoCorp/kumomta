@@ -29,6 +29,10 @@ See [How to Report Bugs](https://docs.kumomta.com/userguide/general/report/).
 
 See [How to Get Help](https://docs.kumomta.com/userguide/general/get_help/). For paid support see [https://kumomta.com/support](https://kumomta.com/support).
 
+## Getting Updates
+
+You can subscribe to updates at [https://kumomta.com/subscribe](https://kumomta.com/subscribe), we send updates periodically and will never sell nor share your information.
+
 ## Talk to Us
 
 We're available to talk about the project, book us at [https://cal.com/team/kumomta/talk-with-kumomta](https://cal.com/team/kumomta/talk-with-kumomta?utm_source=banner&utm_campaign=oss).

@@ -1,6 +1,7 @@
 # Quickstart Tutorial
 
-This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md). This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
+!!!warning
+    This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md). This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/ClJX5mIxy7g?si=GcpBpegzsTRz01H5" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
@@ -42,7 +43,8 @@ This tutorial assumes the reader has a basic understanding of Linux administrati
     sudo systemctl enable kumomta
     ```
 
-    Alternately you can run it manually with :
+    Alternately you can run it manually with:
+
     ```bash
     sudo /opt/kumomta/sbin/kumod --policy \
       /opt/kumomta/etc/policy/init.lua --user kumod&
@@ -128,4 +130,13 @@ This tutorial assumes the reader has a basic understanding of Linux administrati
         These example log entries have been formatted for ease of reading in the documentation.
 
 ## Next Steps
-This page described a situation where you already have a fully prepared server/instance and just needed basic install instructions. [Read on](./server_environment.md) to look at server selection and sizing, OS preparation, installation, and testing in more detail.
+
+Congratulations on completing the quickstart tutorial, some things you can do next:
+
+1. Join our community Discord at [https://kumomta.com/discord](https://kumomta.com/discord) to ask questions and get feedback on your configuration.
+
+1. Sign up for the latest KumoMTA news [here](https://kumomta.com/subscribe).
+
+1. Work through the [full tutorial](./server_environment.md) to learn more about how to set up a working install.
+
+1. Check out our [User Guide](../userguide/index.md) for more detailed instructions.
