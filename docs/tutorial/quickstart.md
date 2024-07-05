@@ -1,7 +1,7 @@
 # Quickstart Tutorial
 
 !!!warning
-    This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. More detailed instructions are in the [next section of the tutorial](./server_environment.md). This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
+    This adbridged set of instructions assumes you are an experienced MailOps administrator looking for the basic commands needed for an install. **This tutorial will not result in a production-ready install.** More detailed instructions are in the [next section of the tutorial](./server_environment.md). This tutorial is not intended to be a replacement for reading the [full documentation](../index.md), but rather will show how to install and configure KumoMTA for a specific environment and serve as a basis to your own unique deployment.
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/ClJX5mIxy7g?si=GcpBpegzsTRz01H5" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
