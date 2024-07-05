@@ -90,6 +90,7 @@ steps:
   publish-gh-dev:
     depends_on: [verify-installable]
     image: ${UBUNTU_BUILDER_IMAGE}
+    pull: true
     when:
       - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main")'
     environment:
@@ -101,6 +102,7 @@ steps:
   publish-gh-tag:
     depends_on: [verify-installable]
     image: ${UBUNTU_BUILDER_IMAGE}
+    pull: true
     when:
       - evaluate: 'CI_PIPELINE_EVENT == "tag"'
     environment:
