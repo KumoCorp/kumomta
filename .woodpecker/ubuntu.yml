@@ -92,7 +92,7 @@ steps:
       - apt update
       - apt-get install -y ./kumomta*.deb
 
-  publish_gh_dev:
+  publish-gh-dev:
     depends_on: [verify-installable]
     image: ${BUILDER_IMAGE}
     when:
@@ -102,6 +102,17 @@ steps:
         from_secret: gh_pages_deploy_token
     commands:
       - "bash ./assets/ci/retry.sh gh release upload --clobber dev *.deb"
+
+  publish-gh-tag:
+    depends_on: [verify-installable]
+    image: ${BUILDER_IMAGE}
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "tag"'
+    environment:
+      GITHUB_TOKEN:
+        from_secret: gh_pages_deploy_token
+    commands:
+      - "bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.deb"
 
   publish_deb:
     depends_on: [verify-installable]

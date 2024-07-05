@@ -85,6 +85,28 @@ steps:
     commands:
       - dnf install -y ./kumomta*.rpm
 
+  publish-gh-dev:
+    depends_on: [verify-installable]
+    image: ${BUILDER_IMAGE}
+    when:
+      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main")'
+    environment:
+      GITHUB_TOKEN:
+        from_secret: gh_pages_deploy_token
+    commands:
+      - "bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm"
+
+  publish-gh-tag:
+    depends_on: [verify-installable]
+    image: ${BUILDER_IMAGE}
+    when:
+      - evaluate: 'CI_PIPELINE_EVENT == "tag"'
+    environment:
+      GITHUB_TOKEN:
+        from_secret: gh_pages_deploy_token
+    commands:
+      - "bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm"
+
   publish_rpm:
     depends_on: [verify-installable]
     image: ${BUILDER_IMAGE}
