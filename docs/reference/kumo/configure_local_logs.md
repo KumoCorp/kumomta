@@ -190,7 +190,7 @@ kumo.configure_local_logs {
     Bounce = {
       -- Instead of logging the json record, evaluate this
       -- template string and log the result.
-      template = [[Bounce! id={{ id }}, from={{ sender }} code={{ code }} age={{ timestamp - created }}]],
+      template = [[Bounce! id={{ id }}, from={{ sender }} code={{ response.code }} age={{ timestamp - created }}]],
     },
 
     -- For any record type not explicitly listed, apply these settings.
