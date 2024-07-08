@@ -189,6 +189,7 @@ pub struct Logger {
     headers: Vec<String>,
     enabled: HashMap<RecordType, bool>,
     filter_event: Option<String>,
+    hook_name: Option<String>,
 }
 
 impl Logger {
@@ -197,6 +198,18 @@ impl Logger {
     }
 
     pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
+        let mut loggers = LOGGER.lock();
+
+        if loggers
+            .iter()
+            .any(|existing| existing.hook_name.as_deref() == Some(params.name.as_str()))
+        {
+            anyhow::bail!(
+                "A logging hook with name `{}` has already been registered",
+                params.name
+            );
+        }
+
         let mut template_engine = Environment::new();
         add_to_environment(&mut template_engine);
 
@@ -219,6 +232,7 @@ impl Logger {
 
         let headers = params.headers.clone();
         let meta = params.meta.clone();
+        let hook_name = params.name.to_string();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let thread = std::thread::Builder::new()
             .name("logger".to_string())
@@ -246,9 +260,10 @@ impl Logger {
             headers,
             enabled,
             filter_event: None,
+            hook_name: Some(hook_name),
         };
 
-        LOGGER.lock().push(Arc::new(logger));
+        loggers.push(Arc::new(logger));
         Ok(())
     }
 
@@ -308,6 +323,7 @@ impl Logger {
             headers,
             enabled,
             filter_event,
+            hook_name: None,
         };
 
         LOGGER.lock().push(Arc::new(logger));
