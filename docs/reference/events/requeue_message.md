@@ -41,7 +41,7 @@ the third attempt to send it encounters a transient failure.
 ```lua
 local SMART_HOST = '[10.0.0.1]'
 
-kumo.on('message_requeued', function(msg)
+kumo.on('requeue_message', function(msg)
   local queue = msg:get_queue_name()
   if queue ~= SMART_HOST and msg:num_attempts() >= 2 then
     -- Re-route to alternative infra to manage the rest of the send
