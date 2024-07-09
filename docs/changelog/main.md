@@ -31,6 +31,7 @@
   line, or, in the case of the `technical difficulties` error message,
   the stack trace of the triggering issue.  This information is available
   in `log_record.response.command`.
+* Add explicit `close` method to AMQP client object
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

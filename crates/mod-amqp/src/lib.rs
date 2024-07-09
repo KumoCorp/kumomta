@@ -20,9 +20,14 @@ struct PublishParams {
     properties: BasicProperties,
 }
 
+struct ChannelHolder {
+    channel: Channel,
+    connection: Connection,
+}
+
 #[derive(Clone)]
 struct AMQPClient {
-    channel: Arc<Channel>,
+    holder: Arc<ChannelHolder>,
 }
 
 impl LuaUserData for AMQPClient {
@@ -31,6 +36,7 @@ impl LuaUserData for AMQPClient {
             let params: PublishParams = from_lua_value(lua, value)?;
 
             let confirm = this
+                .holder
                 .channel
                 .basic_publish(
                     &params.exchange,
@@ -45,6 +51,16 @@ impl LuaUserData for AMQPClient {
             Ok(Confirm {
                 confirm: Arc::new(Mutex::new(Some(confirm))),
             })
+        });
+
+        methods.add_async_method("close", |_lua, this, _: ()| async move {
+            this.holder.channel.close(200, "").await.map_err(any_err)?;
+            this.holder
+                .connection
+                .close(200, "")
+                .await
+                .map_err(any_err)?;
+            Ok(())
         });
     }
 }
@@ -129,7 +145,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let channel = connection.create_channel().await.map_err(any_err)?;
 
             Ok(AMQPClient {
-                channel: Arc::new(channel),
+                holder: Arc::new(ChannelHolder {
+                    connection,
+                    channel,
+                }),
             })
         })?,
     )?;

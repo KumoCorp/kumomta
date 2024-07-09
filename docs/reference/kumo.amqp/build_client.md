@@ -50,3 +50,10 @@ local result = confirm:wait()
 assert(result.status == 'NotRequested')
 ```
 
+### client:close()
+
+{{since('dev')}}
+
+Explicitly and cleanly closes the connection to the AMQP server.
+Calling it multiple times will yield an error.
+
