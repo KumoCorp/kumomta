@@ -3,25 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-lazy_static::lazy_static! {
-    static ref MAC: [u8;6] = get_mac_address();
-}
-
-fn get_mac_address() -> [u8; 6] {
-    match mac_address::get_mac_address() {
-        Ok(Some(addr)) => addr.bytes(),
-        _ => {
-            // Fall back to gethostid, which is not great, but
-            // likely better than just random numbers
-            let host_id = unsafe { libc::gethostid() }.to_le_bytes();
-            let mac: [u8; 6] = [
-                host_id[0], host_id[1], host_id[2], host_id[3], host_id[4], host_id[5],
-            ];
-            mac
-        }
-    }
-}
-
 /// Identifies a message within the spool of its host node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
@@ -60,7 +41,7 @@ impl SpoolId {
     pub fn new() -> Self {
         // We're using v1, but we should be able to seamlessly upgrade to v7
         // once that feature stabilizes in the uuid crate
-        Self(Uuid::now_v1(&*MAC))
+        Self(uuid_helper::now_v1())
     }
 
     pub fn compute_path(&self, in_dir: &Path) -> PathBuf {

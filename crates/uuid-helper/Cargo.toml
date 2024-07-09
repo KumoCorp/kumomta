@@ -1,0 +1,10 @@
+[package]
+name = "uuid-helper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mac_address = "1.1"
+libc = "0.2"
+once_cell = "1.17"
+uuid = {workspace=true, features=["v1", "rng"]}

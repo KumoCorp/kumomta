@@ -24,7 +24,6 @@ kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 libc = "0.2.139"
-mac_address = "1.1"
 metrics = {workspace=true}
 metrics-prometheus = "0.6"
 metrics-tracing-context = "0.15"
@@ -42,6 +41,7 @@ mod-redis = {path="../mod-redis"}
 mod-serde = {path="../mod-serde"}
 mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}
+mod-uuid = {path="../mod-uuid"}
 nix = {version="0.28", features=["signal"]}
 once_cell = "1.17"
 prometheus = "0.13"
@@ -62,4 +62,5 @@ tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json
 utoipa = {workspace=true}
 utoipa-rapidoc = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
+uuid-helper = {path="../uuid-helper"}
 version-info = {path="../version-info"}

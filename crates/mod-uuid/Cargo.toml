@@ -1,0 +1,11 @@
+[package]
+name = "mod-uuid"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+config = {path="../config"}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+uuid = {workspace=true, features=["v1", "v4", "v6", "v7", "rng"]}
+uuid-helper = {path="../uuid-helper"}

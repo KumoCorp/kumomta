@@ -2603,7 +2603,6 @@ dependencies = [
  "kumo-server-memory",
  "kumo-server-runtime",
  "libc",
- "mac_address",
  "metrics",
  "metrics-prometheus",
  "metrics-tracing-context",
@@ -2621,6 +2620,7 @@ dependencies = [
  "mod-serde",
  "mod-sqlite",
  "mod-string",
+ "mod-uuid",
  "nix 0.28.0",
  "once_cell",
  "prometheus",
@@ -2641,6 +2641,7 @@ dependencies = [
  "utoipa",
  "utoipa-rapidoc",
  "uuid",
+ "uuid-helper",
  "version-info",
 ]
 
@@ -3499,6 +3500,17 @@ dependencies = [
  "config",
  "mlua",
  "psl",
+]
+
+[[package]]
+name = "mod-uuid"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "mlua",
+ "uuid",
+ "uuid-helper",
 ]
 
 [[package]]
@@ -5309,9 +5321,7 @@ dependencies = [
  "flume",
  "getrandom",
  "jwalk",
- "lazy_static",
  "libc",
- "mac_address",
  "once_cell",
  "rocksdb",
  "serde",
@@ -5320,6 +5330,7 @@ dependencies = [
  "tokio",
  "utoipa",
  "uuid",
+ "uuid-helper",
 ]
 
 [[package]]
@@ -6378,6 +6389,16 @@ dependencies = [
  "getrandom",
  "rand",
  "serde",
+]
+
+[[package]]
+name = "uuid-helper"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "mac_address",
+ "once_cell",
+ "uuid",
 ]
 
 [[package]]

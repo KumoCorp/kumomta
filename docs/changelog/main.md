@@ -32,6 +32,8 @@
   the stack trace of the triggering issue.  This information is available
   in `log_record.response.command`.
 * Add explicit `close` method to AMQP client object
+* Added UUID functions in a new [kumo.uuid](../reference/kumo.uuid/index.md)
+  module.
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

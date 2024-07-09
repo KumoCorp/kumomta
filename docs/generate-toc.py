@@ -375,6 +375,10 @@ TOC = [
                 "reference/kumo.shaping",
             ),
             Gen(
+                "module: kumo.uuid",
+                "reference/kumo.uuid",
+            ),
+            Gen(
                 "module: redis",
                 "reference/redis",
             ),

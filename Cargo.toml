@@ -8,6 +8,7 @@ members = [
   "crates/kumo-chrono-helper",
   "crates/kumod",
   "crates/mailparsing",
+  "crates/mod-uuid",
   "crates/mta-sts",
   "crates/proxy-server",
   "crates/regex-set-map",
@@ -19,6 +20,7 @@ members = [
   "crates/toml2jsonc",
   "crates/traffic-gen",
   "crates/tsa-daemon",
+  "crates/uuid-helper",
   "crates/validate-shaping",
   "crates/version-info",
 ]

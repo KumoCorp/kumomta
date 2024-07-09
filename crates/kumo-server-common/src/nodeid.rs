@@ -4,28 +4,6 @@ use uuid::Uuid;
 
 static NODEID: Lazy<NodeId> = Lazy::new(|| NodeId::new());
 const DEFAULT_NODE_ID_PATH: &str = "/opt/kumomta/etc/.nodeid";
-static MAC: Lazy<[u8; 6]> = Lazy::new(get_mac_address);
-
-/// Obtain the mac address of the first non-loopback interface on the system.
-/// If there are no candidate interfaces, fall back to the `gethostid()` function,
-/// which will attempt to load a host id from a file on the filesystem, or if that
-/// fails, resolve the hostname of the node to its IPv4 address using a reverse DNS
-/// lookup, and then derive some 32-bit number from that address through unspecified
-/// means.
-fn get_mac_address() -> [u8; 6] {
-    match mac_address::get_mac_address() {
-        Ok(Some(addr)) => addr.bytes(),
-        _ => {
-            // Fall back to gethostid, which is not great, but
-            // likely better than just random numbers
-            let host_id = unsafe { libc::gethostid() }.to_le_bytes();
-            let mac: [u8; 6] = [
-                host_id[0], host_id[1], host_id[2], host_id[3], host_id[4], host_id[5],
-            ];
-            mac
-        }
-    }
-}
 
 /// The NodeId is intended to identify a specific instance of KumoMTA
 /// within your own local cluster.
@@ -130,7 +108,7 @@ impl NodeId {
                                 // timestamp. It looks like:
                                 // 00000000-0000-1000-8000-XXXXXXXXXXXX
                                 // where the X's are the hex digits from the mac address
-                                Uuid::new_v1(uuid::Timestamp::from_rfc4122(0, 0), &*MAC)
+                                uuid_helper::new_v1(uuid::Timestamp::from_rfc4122(0, 0))
                             }
                             Err(err) => panic!("Failed to write node id to {uuid_path:?}: {err:#}"),
                         }
