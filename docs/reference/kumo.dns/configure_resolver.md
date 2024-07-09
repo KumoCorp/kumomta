@@ -2,8 +2,9 @@
 
 {{since('2023.08.22-4d895015')}}
 
-By default, KumoMTA will parse the system resolver configuration and
-use that to drive its internal caching DNS resolver.
+By default, KumoMTA will parse the system resolver configuration and use that
+to drive its internal caching [Hickory
+DNS](https://github.com/hickory-dns/hickory-dns) resolver.
 
 This function allows you to configure DNS resolving differently from
 your system configuration.
@@ -55,3 +56,4 @@ kumo.on('init', function()
 end)
 ```
 
+See also [kumo.dns.configure_unbound_resolver](configure_unbound_resolver.md).
