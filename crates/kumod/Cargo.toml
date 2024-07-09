@@ -25,7 +25,7 @@ dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
 flume = "0.11"
 gcd = "2.3"
-gethostname = "0.4"
+gethostname.workspace = true
 humansize = "2.1" # for printing
 kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}

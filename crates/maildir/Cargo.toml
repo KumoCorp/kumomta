@@ -16,7 +16,7 @@ maintenance = { status = "passively-maintained" }
 
 [dependencies]
 chrono = {version="0.4", default-features=false}
-gethostname = "0.4"
+gethostname.workspace = true
 mailparsing = { path="../mailparsing" }
 memmap2 = { version = "0.7", optional = true }
 

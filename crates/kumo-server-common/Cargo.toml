@@ -18,7 +18,7 @@ config = {path="../config"}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
-gethostname = "0.4"
+gethostname.workspace = true
 kumo-api-types = {path="../kumo-api-types"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}

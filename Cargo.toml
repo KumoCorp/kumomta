@@ -37,6 +37,7 @@ axum-server = "0.6"
 data-encoding = "2.6"
 ed25519-dalek = "2.0"
 futures = "0.3.28"
+gethostname = "0.4"
 libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="f00c353e7d0f37952206e41e3f4615edc1a606e4"}
 metrics = "0.22"
 mlua = "0.9"
