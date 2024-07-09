@@ -47,3 +47,8 @@ request to the specified URL.  The URL is a string.
 Returns a [Request](Request.md) object that has been configured to make a PUT
 request to the specified URL.  The URL is a string.
 
+### client:close()
+
+{{since('dev')}}
+
+Explicitly destroy the client, closing any connections in its cache.

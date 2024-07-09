@@ -216,6 +216,11 @@ function mod:new_json(options)
     end
     return connection
   end
+
+  function connection:close()
+    client:close()
+  end
+
   return self:new(options)
 end
 

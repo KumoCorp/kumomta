@@ -31,7 +31,7 @@
   line, or, in the case of the `technical difficulties` error message,
   the stack trace of the triggering issue.  This information is available
   in `log_record.response.command`.
-* Add explicit `close` method to AMQP client object
+* Add explicit `close` method to AMQP and HTTP client objects.
 * Added UUID functions in a new [kumo.uuid](../reference/kumo.uuid/index.md)
   module.
 

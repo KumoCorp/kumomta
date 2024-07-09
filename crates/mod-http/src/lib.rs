@@ -26,22 +26,36 @@ struct ClientOptions {
 
 #[derive(Clone)]
 struct ClientWrapper {
-    client: Arc<Client>,
+    client: Arc<Mutex<Option<Arc<Client>>>>,
+}
+
+impl ClientWrapper {
+    fn get_client(&self) -> mlua::Result<Arc<Client>> {
+        let inner = self.client.lock().unwrap();
+        inner
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| mlua::Error::external("client was closed"))
+    }
 }
 
 impl LuaUserData for ClientWrapper {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_method("get", |_, this, url: String| {
-            let builder = this.client.get(url);
+            let builder = this.get_client()?.get(url);
             Ok(RequestWrapper::new(builder))
         });
         methods.add_method("post", |_, this, url: String| {
-            let builder = this.client.post(url);
+            let builder = this.get_client()?.post(url);
             Ok(RequestWrapper::new(builder))
         });
         methods.add_method("put", |_, this, url: String| {
-            let builder = this.client.put(url);
+            let builder = this.get_client()?.put(url);
             Ok(RequestWrapper::new(builder))
+        });
+        methods.add_method("close", |_, this, _: ()| {
+            this.client.lock().unwrap().take();
+            Ok(())
         });
     }
 }
@@ -428,7 +442,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let client = builder.build().map_err(any_err)?;
             Ok(ClientWrapper {
-                client: Arc::new(client),
+                client: Arc::new(Mutex::new(Some(Arc::new(client)))),
             })
         })?,
     )?;
