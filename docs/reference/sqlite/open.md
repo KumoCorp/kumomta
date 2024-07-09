@@ -6,13 +6,16 @@ Opens the sqlite database at `PATH` and returns a connection handle.
 should retry operations when it is unable to get an exclusive lock.
 The default is 500ms.
 
-The returned connection object has a single method, `execute` which can
-be used to execute a query.
-
 !!! note
     when using the special path `:memory:`, sqlite will create an in-memory
     database which is great for this contrived example, but not a great
     deal of use in a real worl usage inside KumoMTA.
+
+The returned connection object has the following methods:
+
+## `db:execute(QUERY, [PARAMS])`
+
+The execute method can be used to execute a query.
 
 ```lua
 local sqlite = require 'sqlite'
@@ -63,3 +66,10 @@ sqlite queries are executed via a thread pool so that the query won't
 block important IO scheduling.
 
 Queries and query results are not implicitly cached.
+
+## `db:close()`
+
+{{since('dev')}}
+
+Explicitly close the sqlite connection.
+

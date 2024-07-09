@@ -3,7 +3,7 @@ use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods, Value};
 use serde_json::{Map, Value as JsonValue};
 use sqlite::{Connection, ConnectionThreadSafe, ParameterIndex, State, Statement, Type};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 fn bind_param<I: ParameterIndex>(
     stmt: &mut Statement,
@@ -92,14 +92,24 @@ fn get_column(stmt: &Statement, index: usize) -> anyhow::Result<JsonValue> {
 }
 
 #[derive(Clone)]
-struct Conn(Arc<ConnectionThreadSafe>);
+struct Conn(Arc<Mutex<Option<Arc<ConnectionThreadSafe>>>>);
 
 impl Conn {
+    fn get_conn(&self) -> anyhow::Result<Arc<ConnectionThreadSafe>> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| anyhow::anyhow!("connection was closed"))
+    }
+
     // Sqlite queries are blocking and we cannot safely block an async
     // function, so we push the work over to this blocking function
     // via spawn_blocking.
     fn execute(&self, sql: String, params: JsonValue) -> anyhow::Result<JsonValue> {
-        let mut stmt = self.0.prepare(&sql)?;
+        let conn = self.get_conn()?;
+        let mut stmt = conn.prepare(&sql)?;
         bind_params(&mut stmt, &params)
             .with_context(|| format!("bind parameters {params:?} in query `{sql}'"))?;
 
@@ -107,7 +117,7 @@ impl Conn {
         if state == State::Done && stmt.column_count() == 0 {
             // Query cannot return any rows, so we'll return
             // the affected row count
-            return Ok(self.0.change_count().into());
+            return Ok(conn.change_count().into());
         }
 
         let mut table = vec![];
@@ -170,6 +180,11 @@ impl UserData for Conn {
                 Ok(result)
             },
         );
+
+        methods.add_method("close", |_lua, this, _: ()| {
+            this.0.lock().unwrap().take();
+            Ok(())
+        });
     }
 }
 
@@ -182,7 +197,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let mut db = Connection::open_thread_safe(path).map_err(any_err)?;
             db.set_busy_timeout(busy_timeout.unwrap_or(500))
                 .map_err(any_err)?;
-            Ok(Conn(Arc::new(db)))
+            Ok(Conn(Arc::new(Mutex::new(Some(Arc::new(db))))))
         })?,
     )?;
 
