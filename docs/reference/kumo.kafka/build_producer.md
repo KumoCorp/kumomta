@@ -39,3 +39,9 @@ producer:send {
   timeout = '1 minute',
 }
 ```
+
+### client:close()
+
+{{since('dev')}}
+
+Explicitly close the client object and associated connection.

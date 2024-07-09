@@ -7,12 +7,23 @@ use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Clone)]
 struct Producer {
-    producer: Arc<FutureProducer>,
+    producer: Arc<Mutex<Option<Arc<FutureProducer>>>>,
+}
+
+impl Producer {
+    fn get_producer(&self) -> mlua::Result<Arc<FutureProducer>> {
+        self.producer
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(Arc::clone)
+            .ok_or_else(|| mlua::Error::external("client was closed"))
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -72,7 +83,7 @@ impl LuaUserData for Producer {
             };
 
             let (partition, offset) = this
-                .producer
+                .get_producer()?
                 .send(
                     future_record,
                     Timeout::After(record.timeout.unwrap_or(Duration::from_secs(60))),
@@ -81,6 +92,11 @@ impl LuaUserData for Producer {
                 .map_err(|(code, _msg)| any_err(code))?;
 
             Ok((partition, offset))
+        });
+
+        methods.add_method("close", |_lua, this, _: ()| {
+            this.producer.lock().unwrap().take();
+            Ok(())
         });
     }
 }
@@ -99,7 +115,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let producer = builder.create().map_err(any_err)?;
 
             Ok(Producer {
-                producer: Arc::new(producer),
+                producer: Arc::new(Mutex::new(Some(Arc::new(producer)))),
             })
         })?,
     )?;
