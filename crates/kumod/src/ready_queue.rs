@@ -832,11 +832,13 @@ impl Dispatcher {
                 // the connection
                 tracing::debug!("{} Idling out connection", dispatcher.name);
                 dispatcher.lease.release().await;
+                queue_dispatcher.close_connection(&mut dispatcher).await?;
                 return Ok(());
             }
             if dispatcher.activity.is_shutting_down() {
                 tracing::debug!("{} shutting down", dispatcher.name);
                 dispatcher.lease.release().await;
+                queue_dispatcher.close_connection(&mut dispatcher).await?;
                 return Ok(());
             }
 

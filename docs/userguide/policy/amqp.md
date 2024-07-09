@@ -60,6 +60,10 @@ kumo.on('make.amqp', function(domain, tenant, campaign)
     kumo.reject(500, kumo.json_encode(result))
   end
 
+  function sender:close()
+    client:close()
+  end
+
   return sender
 end)
 ```

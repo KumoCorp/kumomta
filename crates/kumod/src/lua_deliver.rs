@@ -48,8 +48,34 @@ impl LuaQueueDispatcher {
 
 #[async_trait(?Send)]
 impl QueueDispatcher for LuaQueueDispatcher {
-    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+    async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        tracing::debug!("close_connection called");
         if let Some(connection) = self.connection.take() {
+            tracing::debug!("will try close method");
+            let result: anyhow::Result<()> = self
+                .lua_config
+                .with_registry_value(&connection, move |connection| {
+                    Ok(async move {
+                        match &connection {
+                            Value::Table(tbl) => match tbl.get("close")? {
+                                mlua::Value::Function(close_method) => {
+                                    Ok(close_method.call_async(connection).await?)
+                                }
+                                _ => Ok(()),
+                            },
+                            _ => anyhow::bail!("invalid connection object"),
+                        }
+                    })
+                })
+                .await;
+
+            if let Err(err) = result {
+                tracing::error!(
+                    "Error while closing connection for {}: {err:#}",
+                    dispatcher.name
+                );
+            }
+
             self.lua_config.remove_registry_value(connection.take())?;
             Ok(true)
         } else {
