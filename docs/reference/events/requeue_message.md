@@ -27,7 +27,7 @@ meta values of the message that impact the queue name:
 See [Queues](../queues.md) for more information.
 
 If the effective queue name for the message is changed as a result of
-dispatching the `message_requeued` event, then the message will be immediately
+dispatching the `requeue_message` event, then the message will be immediately
 eligible for delivery in the context of its new queue, however, if the message
 has scheduling constraints set via
 [msg:set_scheduling](../message/set_scheduling.md) those will remain in effect
