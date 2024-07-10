@@ -29,6 +29,7 @@ when:
         - assets/bounce_classifier/**
         - assets/install.sh
         - assets/policy-extras/**
+        - assets/run-lua-test
         - crates/**
   - event: tag
     branch:
