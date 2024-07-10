@@ -5,7 +5,7 @@
 # that will be called to perform regression tests
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
 
-for candidate in /opt/kumomta/sbin/kumod "${CARGO_TARGET_DIR}/release/kumod" "${CARGO_TARGET_DIR}/debug/kumod" ; do
+for candidate in /opt/kumomta/sbin/kumod "${CARGO_TARGET_DIR}/debug/kumod" "${CARGO_TARGET_DIR}/release/kumod" ; do
   if test -x "${candidate}" ; then
     KUMOD="${candidate}"
     break;
