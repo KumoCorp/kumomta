@@ -24,10 +24,14 @@ def define_env(env):
             first_line = "*Since: Dev Builds Only*"
             if scope != "section":
                 expanded = "+"
+
+            # Determine the relative path traversal to the root,
+            # so that we can emit the link to the install page
+            rel_root = "../" * (len(env.page.url.split('/')) - 2)
             blurb = f"""
     *The functionality described in this {scope} requires a dev build of KumoMTA.
     You can obtain a dev build by following the instructions in the
-    [Installation](/userguide/installation/linux/) section.*
+    [Installation]({rel_root}userguide/installation/linux.md) section.*
 """
         else:
             first_line = f"*Since: Version {vers}*"
