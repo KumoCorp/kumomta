@@ -210,6 +210,10 @@ TOC = [
                         "userguide/configuration/queuemanagement.md",
                     ),
                     Page(
+                        "Configuring Queue Rollup",
+                        "userguide/configuration/rollup.md",
+                    ),
+                    Page(
                         "Configuring Traffic Shaping",
                         "userguide/configuration/trafficshaping.md",
                     ),
