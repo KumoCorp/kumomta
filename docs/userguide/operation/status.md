@@ -40,7 +40,9 @@ $ /opt/kumomta/sbin/kumod --version
 
 This will be important if you ever need to reach out for support.
 
-If you have configured an HTTP listener, you can access server metrics with:
+## Monitoring
+
+If you have configured an HTTP listener, you can access server metrics in Prometheus format with:
 
 ```console
 $ curl -i 'http://localhost:8000/metrics'
@@ -64,3 +66,46 @@ increase as we build out the product:
   * `memory_limit`: soft memory limit measured in bytes
   * `memory_usage`: number of bytes of used memory
 
+## Using kcli
+
+Two handy commands are:
+
+* [kcli queue-summary](../../reference/kcli/queue-summary.md) to show a textual representation of queue depths
+* [kcli top](../../reference/kcli/top.md) to show a TUI charting top-line metrics
+
+These depend upon having the HTTP listener configured so that the metrics
+endpoint can be accessed.
+
+## Setting up a Grafana Dashboard
+
+You will need to [install
+Prometheus](https://prometheus.io/docs/prometheus/latest/installation/) to act
+as a datasource, and [install
+Grafana](https://grafana.com/docs/grafana/latest/setup-grafana/installation/)
+for its dashboard capabilities.
+
+With Prometheus installed and available, configure it to collect data from
+your kumod instances using a scraper configuration like this:
+
+```yaml
+scrape_configs:
+  - job_name: kumomta
+    scrape_interval: 5s
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - 'kumomta-1:8000'
+          - 'kumomta-2:8000'
+```
+
+In the above configuration `kumomta-1:8000` is the hostname (or IP address) of one
+of the machines running kumod, and `8000` is the HTTP listener port it has open.
+`kumomta-2:8000` is the `IP:port` of another instance of kumod; you can list out
+as many as are present in your infrastructure.
+
+With the Prometheus datasource in place, you can [import our starter
+dashboard](https://grafana.com/grafana/dashboards/21391-kumomta/) in the
+Grafana UI by entering its ID number `21391` or otherwise downloading the JSON
+[from the dashboard
+page](https://grafana.com/grafana/dashboards/21391-kumomta/) and then importing
+it into your Grafana instance directly.
