@@ -88,3 +88,48 @@ All policy helpers listed below are implemented in the [Example Lua Policy](./ex
 * [Shaping](./trafficshaping.md#using-the-shapinglua-helper) - Helper for configuring traffic shaping rules to use for destination domains. Also can be configured for [Traffic Shaping Automation](./trafficshapingautomation.md).
 * [Dkim_Sign](./dkim.md#using-the-dkim_signlua-policy-helper) - Helper for configuring parameters for DKIM signing for each signing domain.
 * [Log_Hooks](../operation/webhooks.md#using-the-log_hookslua-helper) - Helper for configuring webhooks.
+
+## Validating Your Configuration
+
+{{since('dev')}}
+
+You can perform a deep validation on your configuration before you deploy it by
+running `kumod` in validation mode:
+
+```console
+$ /opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --validate
+```
+
+You can safely run this concurrently with an active `kumod` service; they will
+not conflict with each other.
+
+When run in this mode, the various helpers that you have enabled will perform
+deep *referential integrity* checks, as well as some other extended validations that
+are not normally performed when the underlying configuration files are refreshed.
+The sorts of checks performed include the following:
+
+   * `shaping` - any warnings reported by the underlying rust code
+      will be reported here and cause validation to fail. This is
+      functionally equivalent to using the `validate-shaping` binary,
+      except that it will automatically be passed the set of shaping
+      files defined by your `init.lua`
+
+      If the `sources` helper is also configured, the list of sources
+      referenced by the shaping config will be cross-checked against
+      the sources data to confirm that all possible sources are defined.
+
+   * `sources` - each listed source and pool will be validated by
+      calling `kumo.make_egress_source` or `kumo.make_egress_pool`
+      respectively.
+
+      Pool membership will be validated to confirm that every
+      listed pool is defined in the sources data.
+
+   * `queues` - each domain and tenant that references an `egress_pool`
+      will be cross-checked with the `sources` helper, if the sources
+      helper has been configured.
+
+   * `dkim` - a dummy message is created and signed for each configured
+      domain, before being discarded, allowing errors in the configuration to
+      be detected.  An additional dummy message is created that doesn't match
+      any configured domain to test additional signature blocks.

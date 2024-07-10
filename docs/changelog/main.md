@@ -8,6 +8,7 @@
   a multiarch image, supporting both `linux/amd64` and `linux/arm64`
   architectures.  Simply use `docker pull ghcr.io/kumocorp/kumomta-dev:latest`
   to get the appropriate architecture.
+* New [Extended configuration validation mode](../userguide/configuration/policy_helpers.md#validating-your-configuration). #211
 * New [kumo.regex](../reference/regex/index.md) and
   [kumo.string](../reference/string/index.md) lua modules. #220
 * New `kcli rebind` and
