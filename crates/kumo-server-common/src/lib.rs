@@ -105,13 +105,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let decorated_name = decorate_callback_name(&name);
 
             if let Ok(current_event) = lua.globals().get::<_, String>("_KUMO_CURRENT_EVENT") {
-                return Err(mlua::Error::external(format!(
-                    "Attempting to register an event handler via \
+                if current_event != "main" {
+                    return Err(mlua::Error::external(format!(
+                        "Attempting to register an event handler via \
                     `kumo.on('{name}', ...)` from within the event handler \
                     '{current_event}'. You must move your event handler registration \
                     so that it is setup directly when the policy is loaded \
                     in order for it to consistently trigger and handle events."
-                )));
+                    )));
+                }
             }
 
             register_event_caller(lua, &name)?;

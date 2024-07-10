@@ -23,7 +23,7 @@ cat >${script} <<-EOT
 local kumo = require 'kumo'
 package.path = 'assets/?.lua;' .. package.path
 
-kumo.configure_accounting_db_path(os.tmpname())
+kumo.on('main', function()
 
 local function test_module(name)
   local mod = require(name)
@@ -35,8 +35,8 @@ test_module 'policy-extras.queue'
 test_module 'policy-extras.sources'
 test_module 'policy-extras.typing'
 
-os.exit(0)
+end)
 EOT
 
-${KUMOD} --user `id -un` --policy $script
+${KUMOD} --user `id -un` --policy $script --script
 

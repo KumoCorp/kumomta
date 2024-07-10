@@ -17,12 +17,12 @@ script=$(mktemp)
 trap "rm -f -- '$script'" EXIT
 cat >${script} <<-EOT
 local kumo = require 'kumo'
-local domain = os.getenv 'DOMAIN'
-kumo.configure_accounting_db_path(os.tmpname())
-local mx = kumo.dns.lookup_mx(domain)
-print(mx.site_name)
-os.exit(0)
+
+kumo.on('main', function(domain)
+  local mx = kumo.dns.lookup_mx(domain)
+  print(mx.site_name)
+end)
 EOT
 
-DOMAIN="$1" ${KUMOD} --policy $script
+${KUMOD} --policy $script --script --script-args "$1"
 

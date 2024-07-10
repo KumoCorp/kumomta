@@ -33,7 +33,7 @@ mod spool;
 /// KumoMTA Daemon.
 ///
 /// Full docs available at: <https://docs.kumomta.com>
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(about, version=version_info::kumo_version())]
 struct Opt {
     /// Lua policy file to load.
@@ -45,6 +45,18 @@ struct Opt {
     /// and the spool is not acquired.
     #[arg(long)]
     validate: bool,
+
+    /// Rather than spawning kumod in service mode, execute
+    /// the policy script as a standalone script and then exit.
+    /// Use kumo.on('main') to define the entrypoint for the script
+    /// and receive the arguments from --script-args.
+    #[arg(long)]
+    script: bool,
+
+    /// List of arguments to pass to the `main` event when
+    /// running in --script mode
+    #[arg(long)]
+    script_args: Vec<String>,
 
     /// Directory where diagnostic log files will be placed.
     ///
@@ -154,12 +166,42 @@ fn main() -> anyhow::Result<()> {
         .block_on(async move { run(opts).await })
 }
 
-fn perform_init(validate: bool) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
+fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
     Box::pin(async move {
         let nodeid = kumo_server_common::nodeid::NodeId::get();
         tracing::info!("NodeId is {nodeid}");
 
         let mut config = config::load_config().await.context("load_config")?;
+
+        if opts.script {
+            // Convert the list of strings into a MultiValue so that
+            // the event handler can be like:
+            // `kumo.on('main', function(arg1, arg2)`
+            // rather than receiving an array and manually unpacking
+            // the argument list
+            #[derive(Clone)]
+            struct ParamList(Vec<String>);
+            impl<'lua> mlua::IntoLuaMulti<'lua> for ParamList {
+                fn into_lua_multi(
+                    self,
+                    lua: &'lua mlua::Lua,
+                ) -> mlua::Result<mlua::MultiValue<'lua>> {
+                    let mut args = vec![];
+                    for arg in self.0 {
+                        args.push(mlua::Value::String(lua.create_string(arg)?));
+                    }
+                    Ok(mlua::MultiValue::from_vec(args))
+                }
+            }
+
+            let main_sig = CallbackSignature::<ParamList, ()>::new("main");
+            config
+                .async_call_callback(&main_sig, ParamList(opts.script_args))
+                .await
+                .context("call main callback")?;
+            LifeCycle::request_shutdown().await;
+            return Ok(());
+        }
 
         config
             .async_call_callback(&PRE_INIT_SIG, ())
@@ -172,7 +214,7 @@ fn perform_init(validate: bool) -> Pin<Box<dyn Future<Output = anyhow::Result<()
             .await
             .context("call init callback")?;
 
-        if validate {
+        if opts.validate {
             config
                 .async_call_callback(&VALIDATE_SIG, ())
                 .await
@@ -195,15 +237,14 @@ fn perform_init(validate: bool) -> Pin<Box<dyn Future<Output = anyhow::Result<()
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
-    let validate = opts.validate;
-    config::VALIDATE_ONLY.store(validate, std::sync::atomic::Ordering::Relaxed);
+    config::VALIDATE_ONLY.store(opts.validate, std::sync::atomic::Ordering::Relaxed);
 
     let res = StartConfig {
         logging: LoggingConfig {
             log_dir: opts.diag_log_dir.clone(),
             diag_format: opts.diag_format,
             filter_env_var: "KUMOD_LOG",
-            default_filter: if validate {
+            default_filter: if opts.validate || opts.script {
                 ""
             } else {
                 "kumod=info,kumo_server_common=info,kumo_server_runtime=info"
@@ -219,7 +260,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         policy: &opts.policy,
     }
     .run(
-        move || perform_init(validate),
+        {
+            let opts = opts.clone();
+            move || perform_init(opts)
+        },
         crate::logging::Logger::signal_shutdown,
     )
     .await;
