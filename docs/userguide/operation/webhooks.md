@@ -73,7 +73,6 @@ log_hooks:new {
   -- a new connection to the log target. It must return
   -- a connection object
   constructor = function(domain, tenant, campaign)
-
     -- Define the connection object
     local connection = {}
 
@@ -112,7 +111,7 @@ log_hooks:new {
     -- The close method is called when the connection needs
     -- to be closed
     function connection:close()
-        client:close()
+      client:close()
     end
 
     return connection
