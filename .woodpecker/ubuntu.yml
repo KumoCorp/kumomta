@@ -55,7 +55,7 @@ steps:
     image: python:3-bookworm
     commands:
       - git config --global --add safe.directory /woodpecker/src
-      - ./assets/ci/git-restore-mtime crates
+      #- ./assets/ci/git-restore-mtime crates
       - git diff-index --name-status HEAD --
 
   setup-cache:
