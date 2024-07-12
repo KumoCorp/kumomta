@@ -128,8 +128,24 @@ The following nine settings control the timeouts waiting for responses to variou
 The value is specified as a integer in seconds, or as a string using syntax
 like `"2min"` for a two minute duration.
 
+## banner_timeout
+
+{{since('dev')}}
+
+How long to wait between a connection being established and receiving a 220
+from a receiving host. The default is `60s`.
+
+In earlier versions of KumoMTA, this was rolled together into the `connect_timeout`.
+
 ## connect_timeout
-How long to wait between starting an SMTP connection and receiving a 220 from a receiving host. The default is `60s`.
+
+How long to wait between starting an SMTP connection and receiving a 220 from a
+receiving host. The default is `60s`.
+
+{{since('dev', inline=True)}}
+    The `connect_timeout` is now purely focused on the time it takes to
+    establish a working connection. The time allowed for receiving the
+    initial 220 banner has been separated out into `banner_timeout`.
 
 ## starttls_timeout
 How long to wait for a response after issuing a STARTTLS comand. The default is `5s`.

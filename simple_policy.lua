@@ -262,6 +262,7 @@ kumo.on(
       idle_timeout = '25s',
       data_timeout = '20s',
       data_dot_timeout = '25s',
+      connect_timeout = '5s',
       connection_limit = 32,
       -- max_connection_rate = '1/s',
       -- max_ready = 16,

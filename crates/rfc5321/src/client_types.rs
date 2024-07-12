@@ -10,6 +10,12 @@ pub struct SmtpClientTimeouts {
     pub connect_timeout: Duration,
 
     #[serde(
+        default = "SmtpClientTimeouts::default_banner_timeout",
+        with = "duration_serde"
+    )]
+    pub banner_timeout: Duration,
+
+    #[serde(
         default = "SmtpClientTimeouts::default_ehlo_timeout",
         with = "duration_serde"
     )]
@@ -66,6 +72,7 @@ impl Default for SmtpClientTimeouts {
     fn default() -> Self {
         Self {
             connect_timeout: Self::default_connect_timeout(),
+            banner_timeout: Self::default_banner_timeout(),
             ehlo_timeout: Self::default_ehlo_timeout(),
             mail_from_timeout: Self::default_mail_from_timeout(),
             rcpt_to_timeout: Self::default_rcpt_to_timeout(),
@@ -81,6 +88,9 @@ impl Default for SmtpClientTimeouts {
 
 impl SmtpClientTimeouts {
     fn default_connect_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
+    fn default_banner_timeout() -> Duration {
         Duration::from_secs(60)
     }
     fn default_auth_timeout() -> Duration {
@@ -115,6 +125,7 @@ impl SmtpClientTimeouts {
         let short = Duration::from_secs(20);
         Self {
             connect_timeout: short,
+            banner_timeout: short,
             ehlo_timeout: short,
             mail_from_timeout: short,
             rcpt_to_timeout: short,
@@ -130,6 +141,7 @@ impl SmtpClientTimeouts {
     /// Compute theoretical maximum lifetime of a single message send
     pub fn total_message_send_duration(&self) -> Duration {
         self.connect_timeout
+            + self.banner_timeout
             + self.ehlo_timeout
             + self.auth_timeout
             + self.mail_from_timeout

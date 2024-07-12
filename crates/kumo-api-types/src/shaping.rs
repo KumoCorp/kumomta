@@ -730,6 +730,7 @@ MergedEntry {
         enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
+            banner_timeout: 60s,
             ehlo_timeout: 300s,
             mail_from_timeout: 300s,
             rcpt_to_timeout: 300s,
@@ -865,6 +866,7 @@ MergedEntry {
         enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
+            banner_timeout: 60s,
             ehlo_timeout: 300s,
             mail_from_timeout: 300s,
             rcpt_to_timeout: 300s,
@@ -942,6 +944,7 @@ MergedEntry {
             enable_dane: false,
             client_timeouts: SmtpClientTimeouts {
                 connect_timeout: 60s,
+                banner_timeout: 60s,
                 ehlo_timeout: 300s,
                 mail_from_timeout: 300s,
                 rcpt_to_timeout: 300s,
@@ -1071,6 +1074,7 @@ MergedEntry {
         enable_dane: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
+            banner_timeout: 60s,
             ehlo_timeout: 300s,
             mail_from_timeout: 300s,
             rcpt_to_timeout: 300s,

@@ -169,15 +169,18 @@ impl Opt {
     }
 
     async fn make_client(&self) -> anyhow::Result<SmtpClient> {
-        let stream = TcpStream::connect(&self.target)
-            .await
-            .with_context(|| format!("connect to {}", self.target))?;
-        let mut client =
-            SmtpClient::with_stream(stream, &self.target, SmtpClientTimeouts::default());
+        let timeouts = SmtpClientTimeouts::default();
+
+        let stream =
+            tokio::time::timeout(timeouts.connect_timeout, TcpStream::connect(&self.target))
+                .await
+                .with_context(|| format!("timed out connecting to {}", self.target))?
+                .with_context(|| format!("failed to connect to {}", self.target))?;
+        let mut client = SmtpClient::with_stream(stream, &self.target, timeouts);
 
         // Read banner
-        let connect_timeout = client.timeouts().connect_timeout;
-        let banner = client.read_response(None, connect_timeout).await?;
+        let banner_timeout = client.timeouts().banner_timeout;
+        let banner = client.read_response(None, banner_timeout).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
 
         // Say EHLO

@@ -8,6 +8,13 @@
   a multiarch image, supporting both `linux/amd64` and `linux/arm64`
   architectures.  Simply use `docker pull ghcr.io/kumocorp/kumomta-dev:latest`
   to get the appropriate architecture.
+* Split out the banner waiting portion of
+  [connect_timeout](../reference/kumo/make_egress_path.md#connect_timeout) into
+  a new [banner_timeout](../reference/kumo/make_egress_path.md#banner_timeout)
+  option to make it easier to manage the system behavior if, for example, the
+  connection is blocked by a firewall. You can now set the connection timeout
+  to a smaller value while keeping the banner timeout at a more RFC-compliant,
+  longer, value. #196
 * New [kcli trace-smtp-client](../reference/kcli/trace-smtp-client.md)
   diagnostic command for observing outbound SMTP sessions. #87
 * New [Extended configuration validation mode](../userguide/configuration/policy_helpers.md#validating-your-configuration). #211

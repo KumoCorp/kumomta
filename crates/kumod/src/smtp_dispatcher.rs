@@ -262,9 +262,11 @@ impl SmtpDispatcher {
             let tracer = self.tracer.clone();
 
             async move {
-                let (stream, source_address) = egress_source
-                    .connect_to(SocketAddr::new(address.addr, port))
-                    .await?;
+                let (stream, source_address) = tokio::time::timeout(
+                    timeouts.connect_timeout,
+                    egress_source.connect_to(SocketAddr::new(address.addr, port)),
+                )
+                .await??;
 
                 tracing::debug!(
                     "connected to {address:?} port {port} via source address {source_address:?}"
@@ -280,7 +282,7 @@ impl SmtpDispatcher {
 
                 // Read banner
                 let banner = client
-                    .read_response(None, timeouts.connect_timeout)
+                    .read_response(None, timeouts.banner_timeout)
                     .await
                     .context("reading banner")?;
                 if banner.code != 220 {
@@ -291,11 +293,7 @@ impl SmtpDispatcher {
             }
         };
 
-        let connect_timeout = path_config.client_timeouts.connect_timeout;
         let mut client = tokio::select! {
-            _ = tokio::time::sleep(connect_timeout) => {
-                anyhow::bail!("exceeded timeout of {connect_timeout:?}");
-            },
             _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
             client = make_connection => { client },
         }
