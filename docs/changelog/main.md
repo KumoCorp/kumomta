@@ -44,6 +44,9 @@
 * Add explicit `close` method to AMQP, HTTP, Kafka and SQLite client objects.
 * Added UUID functions in a new [kumo.uuid](../reference/kumo.uuid/index.md)
   module.
+* SMTP client log records now include the `source_address` in addition to
+  the `egress_pool` and `egress_source` that were already present in the
+  record. #40
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

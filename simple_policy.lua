@@ -118,6 +118,7 @@ kumo.on('init', function()
 
   kumo.configure_local_logs {
     log_dir = '/var/tmp/kumo-logs',
+    max_segment_duration = '1s',
   }
 
   kumo.start_http_listener {

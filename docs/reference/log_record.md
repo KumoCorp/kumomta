@@ -88,6 +88,10 @@ The log record is a JSON object with the following shape:
     // used for the delivery
     "egress_source": "source2",
 
+    // For SMTP delivery, the source address (and port) that was used.
+    // {{since('dev', inline=True)}}
+    "source_address": "10.0.0.1:53210",
+
     // when "type" == "Feedback", holds the parsed feedback report
     "feedback_report": null,
 

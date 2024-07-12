@@ -47,6 +47,7 @@ pub struct SmtpDispatcher {
     addresses: Vec<ResolvedAddress>,
     client: Option<MetricsWrappedConnection<SmtpClient>>,
     client_address: Option<ResolvedAddress>,
+    source_address: Option<SocketAddr>,
     ehlo_name: String,
     tls_info: Option<TlsInformation>,
     tracer: Arc<SmtpClientTracerImpl>,
@@ -187,6 +188,7 @@ impl SmtpDispatcher {
             client_address: None,
             ehlo_name,
             tls_info: None,
+            source_address: None,
             tracer,
         }))
     }
@@ -286,19 +288,23 @@ impl SmtpDispatcher {
                     .await
                     .context("reading banner")?;
                 if banner.code != 220 {
-                    return anyhow::Result::<SmtpClient>::Err(ClientError::Rejected(banner).into());
+                    return anyhow::Result::<(SmtpClient, SocketAddr)>::Err(
+                        ClientError::Rejected(banner).into(),
+                    );
                 }
 
-                Ok(client)
+                Ok((client, source_address))
             }
         };
 
-        let mut client = tokio::select! {
+        self.source_address.take();
+        let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
-            client = make_connection => { client },
+            result = make_connection => { result },
         }
         .await
         .with_context(|| connect_context.clone())?;
+        self.source_address.replace(source_address);
 
         // Say EHLO
         let pretls_caps = client
@@ -647,6 +653,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
+                            source_address: self.source_address,
                         })
                         .await;
                         spawn_local(
@@ -669,6 +676,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
+                            source_address: self.source_address,
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -693,6 +701,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
+                            source_address: self.source_address,
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -728,6 +737,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
+                        source_address: self.source_address,
                     })
                     .await;
                     spawn_local(
@@ -769,6 +779,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
+                        source_address: self.source_address,
                     })
                     .await;
                     spawn_local(
@@ -803,6 +814,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
+                        source_address: self.source_address,
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;

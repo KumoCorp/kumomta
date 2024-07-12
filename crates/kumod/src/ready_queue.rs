@@ -870,6 +870,7 @@ impl Dispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         Dispatcher::requeue_message(msg, true, None).await?;
@@ -1161,6 +1162,7 @@ impl Dispatcher {
                                     relay_disposition: None,
                                     delivery_protocol: None,
                                     tls_info: None,
+                                    source_address: None,
                                 })
                                 .await;
 

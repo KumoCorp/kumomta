@@ -5,7 +5,7 @@ use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
 
 pub mod rfc3464;
@@ -82,6 +82,7 @@ pub struct JsonLogRecord {
 
     pub egress_pool: Option<String>,
     pub egress_source: Option<String>,
+    pub source_address: Option<SocketAddr>,
 
     pub feedback_report: Option<ARFReport>,
 

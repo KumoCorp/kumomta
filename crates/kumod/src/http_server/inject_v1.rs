@@ -498,6 +498,7 @@ async fn process_recipient<'a>(
             relay_disposition: None,
             delivery_protocol: None,
             tls_info: None,
+            source_address: None,
         })
         .await;
         rt_spawn(format!("http inject for {peer_address:?}"), move || {

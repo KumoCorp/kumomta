@@ -638,6 +638,7 @@ impl Queue {
                 relay_disposition: None,
                 delivery_protocol: None,
                 tls_info: None,
+                source_address: None,
             })
             .await;
         }
@@ -733,6 +734,7 @@ impl Queue {
                 relay_disposition: None,
                 delivery_protocol: None,
                 tls_info: None,
+                source_address: None,
             })
             .await;
             SpoolManager::remove_from_spool(id).await?;
@@ -957,6 +959,7 @@ impl Queue {
                             relay_disposition: None,
                             delivery_protocol: None,
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         msg.delay_by_and_jitter(duration).await?;
@@ -986,6 +989,7 @@ impl Queue {
                             relay_disposition: None,
                             delivery_protocol: None,
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
@@ -1031,6 +1035,7 @@ impl Queue {
                             relay_disposition: None,
                             delivery_protocol: None,
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
@@ -1080,6 +1085,7 @@ impl Queue {
                             relay_disposition: None,
                             delivery_protocol: Some("Maildir"),
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         spawn("remove from spool", async move {
@@ -1104,6 +1110,7 @@ impl Queue {
                             relay_disposition: None,
                             delivery_protocol: Some("Maildir"),
                             tls_info: None,
+                            source_address: None,
                         })
                         .await;
                         anyhow::bail!("failed maildir store: {err:#}");

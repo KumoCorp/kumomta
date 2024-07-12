@@ -281,6 +281,7 @@ impl SpoolManager {
                                                 relay_disposition: None,
                                                 delivery_protocol: None,
                                                 tls_info: None,
+                                                source_address: None,
                                             })
                                             .await;
                                             self.remove_from_spool_impl(id).await?;
@@ -324,6 +325,7 @@ impl SpoolManager {
                                     relay_disposition: None,
                                     delivery_protocol: None,
                                     tls_info: None,
+                                    source_address: None,
                                 })
                                 .await;
                                 self.remove_from_spool_impl(id).await?;

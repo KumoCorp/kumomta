@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -488,6 +488,7 @@ pub async fn log_rejection(args: LogRejection) {
             tls_cipher: None,
             tls_protocol_version: None,
             tls_peer_subject_name: None,
+            source_address: None,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -506,6 +507,7 @@ pub struct LogDisposition<'a> {
     pub relay_disposition: Option<RelayDisposition>,
     pub delivery_protocol: Option<&'a str>,
     pub tls_info: Option<&'a TlsInformation>,
+    pub source_address: Option<SocketAddr>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -520,6 +522,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         relay_disposition,
         delivery_protocol,
         tls_info,
+        source_address,
     } = args;
 
     let loggers = Logger::get_loggers();
@@ -636,6 +639,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             tls_cipher,
             tls_protocol_version,
             tls_peer_subject_name,
+            source_address,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -720,6 +724,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             tls_cipher: None,
                             tls_protocol_version: None,
                             tls_peer_subject_name: None,
+                            source_address: None,
                         };
 
                         if let Err(err) = logger.log(record).await {

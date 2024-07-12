@@ -169,6 +169,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 relay_disposition: None,
                                 delivery_protocol: Some("Lua"),
                                 tls_info: None,
+                                source_address: None,
                             })
                             .await;
                             spawn_local(
@@ -195,6 +196,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 relay_disposition: None,
                                 delivery_protocol: Some("Lua"),
                                 tls_info: None,
+                                source_address: None,
                             })
                             .await;
                             SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -227,6 +229,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some("Lua"),
                         tls_info: None,
+                        source_address: None,
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;

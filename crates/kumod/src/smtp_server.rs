@@ -1629,6 +1629,7 @@ impl SmtpServer {
                 relay_disposition: Some(relay_disposition),
                 delivery_protocol: None,
                 tls_info: None, // TODO: populate with peer info
+                source_address: None,
             })
             .await;
             if queue_name != "null" {
