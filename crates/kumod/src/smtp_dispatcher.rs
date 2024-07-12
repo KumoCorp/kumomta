@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::Tls;
-use kumo_log_types::ResolvedAddress;
+use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn_local;
 use message::message::QueueNameComponents;
@@ -47,7 +47,7 @@ pub struct SmtpDispatcher {
     addresses: Vec<ResolvedAddress>,
     client: Option<MetricsWrappedConnection<SmtpClient>>,
     client_address: Option<ResolvedAddress>,
-    source_address: Option<SocketAddr>,
+    source_address: Option<MaybeProxiedSourceAddress>,
     ehlo_name: String,
     tls_info: Option<TlsInformation>,
     tracer: Arc<SmtpClientTracerImpl>,
@@ -275,7 +275,7 @@ impl SmtpDispatcher {
                 );
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
-                tracer.set_meta("source_address", source_address.to_string());
+                tracer.set_meta("source_address", source_address.address.to_string());
                 tracer.set_meta("mx_host", mx_host.to_string());
                 tracer.set_meta("mx_address", address.addr.to_string());
                 tracer.submit(|| SmtpClientTraceEventPayload::Connected);
@@ -288,7 +288,7 @@ impl SmtpDispatcher {
                     .await
                     .context("reading banner")?;
                 if banner.code != 220 {
-                    return anyhow::Result::<(SmtpClient, SocketAddr)>::Err(
+                    return anyhow::Result::<(SmtpClient, MaybeProxiedSourceAddress)>::Err(
                         ClientError::Rejected(banner).into(),
                     );
                 }
@@ -653,7 +653,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address,
+                            source_address: self.source_address.clone(),
                         })
                         .await;
                         spawn_local(
@@ -676,7 +676,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address,
+                            source_address: self.source_address.clone(),
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -701,7 +701,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             relay_disposition: None,
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address,
+                            source_address: self.source_address.clone(),
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -737,7 +737,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address,
+                        source_address: self.source_address.clone(),
                     })
                     .await;
                     spawn_local(
@@ -779,7 +779,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address,
+                        source_address: self.source_address.clone(),
                     })
                     .await;
                     spawn_local(
@@ -814,7 +814,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         relay_disposition: None,
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address,
+                        source_address: self.source_address.clone(),
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;

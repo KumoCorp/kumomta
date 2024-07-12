@@ -5,6 +5,7 @@ use anyhow::Context;
 use config::{CallbackSignature, LuaConfig};
 use data_loader::KeySource;
 use gcd::Gcd;
+use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
@@ -167,7 +168,10 @@ impl EgressSource {
         }
     }
 
-    pub async fn connect_to(&self, address: SocketAddr) -> anyhow::Result<(TcpStream, SocketAddr)> {
+    pub async fn connect_to(
+        &self,
+        address: SocketAddr,
+    ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
         let source_name = &self.name;
 
         let proxy_proto = self.resolve_proxy_protocol(address)?;
@@ -505,10 +509,12 @@ impl<'a> ProxyProto<'a> {
         self,
         mut stream: &mut TcpStream,
         source_name: &str,
-    ) -> anyhow::Result<SocketAddr> {
+    ) -> anyhow::Result<MaybeProxiedSourceAddress> {
         match self {
             Self::HA {
-                addresses, source, ..
+                addresses,
+                source,
+                server,
             } => {
                 use ppp::v2::{Builder, Command, Protocol, Version};
                 let header = Builder::with_addresses(
@@ -530,13 +536,17 @@ impl<'a> ProxyProto<'a> {
                          for connection from source:{source_name} to {self:?}"
                     )
                 })?;
-                Ok((source, 0).into())
+                Ok(MaybeProxiedSourceAddress {
+                    address: (source, 0).into(),
+                    protocol: Some("haproxy".into()),
+                    server: Some(server),
+                })
             }
             Self::Socks5 {
                 source,
                 destination,
                 ref username_and_password,
-                ..
+                server,
             } => {
                 let mut auth_methods = vec![SocksV5AuthMethod::Noauth];
                 if username_and_password.is_some() {
@@ -647,9 +657,17 @@ impl<'a> ProxyProto<'a> {
                     _ => anyhow::bail!("failed to connect {source:?} -> {destination} via {self:?}: {connect_status:?}"),
                 }
 
-                Ok(socks_response_addr(&connect_status)?)
+                Ok(MaybeProxiedSourceAddress {
+                    address: socks_response_addr(&connect_status)?,
+                    server: Some(server),
+                    protocol: Some("socks5".into()),
+                })
             }
-            Self::None => Ok(stream.local_addr()?),
+            Self::None => Ok(MaybeProxiedSourceAddress {
+                address: stream.local_addr()?,
+                server: None,
+                protocol: None,
+            }),
         }
     }
 }

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use uuid::Uuid;
@@ -82,7 +83,7 @@ pub struct JsonLogRecord {
 
     pub egress_pool: Option<String>,
     pub egress_source: Option<String>,
-    pub source_address: Option<SocketAddr>,
+    pub source_address: Option<MaybeProxiedSourceAddress>,
 
     pub feedback_report: Option<ARFReport>,
 
@@ -109,4 +110,13 @@ pub struct JsonLogRecord {
     /// The Subject Name from the peer TLS certificate, if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_peer_subject_name: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaybeProxiedSourceAddress {
+    pub address: SocketAddr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server: Option<SocketAddr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<Cow<'static, str>>,
 }

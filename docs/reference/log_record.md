@@ -90,7 +90,19 @@ The log record is a JSON object with the following shape:
 
     // For SMTP delivery, the source address (and port) that was used.
     // {{since('dev', inline=True)}}
-    "source_address": "10.0.0.1:53210",
+    "source_address": {
+        // The source address. The port number may be unknown and reported
+        // as zero when using a proxy protocol.
+        "address": "10.0.0.1:53210",
+        // If a proxy protocol was used, this field will be
+        // set to its name. It may be null/not set for no proxy,
+        // "haproxy" or "socks5".
+        "protocol": "socks5",
+        // If a proxy protocol was used, this field will be
+        // set to the proxy server address. It will be null/not set
+        // when no proxy was used.
+        "server": "192.168.1.1:5000"
+    },
 
     // when "type" == "Feedback", holds the parsed feedback report
     "feedback_report": null,

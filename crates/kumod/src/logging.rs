@@ -6,6 +6,7 @@ use bounce_classify::{BounceClass, BounceClassifier, BounceClassifierBuilder};
 use chrono::Utc;
 use config::{any_err, from_lua_value, get_or_create_module, load_config, CallbackSignature};
 use kumo_log_types::rfc3464::ReportAction;
+use kumo_log_types::MaybeProxiedSourceAddress;
 pub use kumo_log_types::*;
 use kumo_server_runtime::rt_spawn_non_blocking;
 use message::{EnvelopeAddress, Message};
@@ -22,7 +23,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -507,7 +508,7 @@ pub struct LogDisposition<'a> {
     pub relay_disposition: Option<RelayDisposition>,
     pub delivery_protocol: Option<&'a str>,
     pub tls_info: Option<&'a TlsInformation>,
-    pub source_address: Option<SocketAddr>,
+    pub source_address: Option<MaybeProxiedSourceAddress>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -639,7 +640,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             tls_cipher,
             tls_protocol_version,
             tls_peer_subject_name,
-            source_address,
+            source_address: source_address.clone(),
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
