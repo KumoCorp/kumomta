@@ -49,7 +49,14 @@ async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow:
 
     tokio::spawn(async move {
         loop {
-            let (socket, peer_address) = listener.accept().await.context("accepting connection")?;
+            let (socket, peer_address) = match listener.accept().await {
+                Ok(tuple) => tuple,
+                Err(err) => {
+                    log::error!("accept failed: {err:#}");
+                    return;
+                }
+            };
+
             tokio::spawn(async move {
                 if let Err(err) =
                     proxy_handler::handle_proxy_client(socket, peer_address, timeout).await
@@ -58,9 +65,6 @@ async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow:
                 }
             });
         }
-
-        #[allow(unreachable_code)]
-        anyhow::Result::<()>::Ok(())
     });
     Ok(())
 }

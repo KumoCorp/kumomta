@@ -64,7 +64,10 @@ pub async fn handle_proxy_client(
         {
             Err(_) => RequestStatus::timeout(),
             Ok(Ok(s)) => s,
-            Ok(Err(err)) => RequestStatus::error(err),
+            Ok(Err(err)) => {
+                log::error!("peer={peer_address:?}: {state:?} {request:?} -> {err:#}");
+                RequestStatus::error(err)
+            }
         };
 
         // socks5 crate doesn't believe in allowing cloning, so we premptively debug
