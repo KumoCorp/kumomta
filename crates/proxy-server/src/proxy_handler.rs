@@ -23,11 +23,11 @@ pub async fn handle_proxy_client(
     let mut state = ClientState::None;
 
     let handshake = timeout(timeout_duration, async {
-        socksv5::v5::read_handshake(&mut src_reader)
-            .await
-            .context("reading client handshake")
+        socksv5::v5::read_handshake(&mut src_reader).await
     })
-    .await??;
+    .await
+    .with_context(|| format!("timeout reading client handshake from {peer_address:?}"))?
+    .with_context(|| format!("failed to read client handshake from {peer_address:?}"))?;
 
     if handshake
         .methods
@@ -35,32 +35,44 @@ pub async fn handle_proxy_client(
         .find(|m| *m == socksv5::v5::SocksV5AuthMethod::Noauth)
         .is_none()
     {
-        return Err(anyhow::anyhow!("this proxy only supports NOAUTH"));
+        return Err(anyhow::anyhow!(
+            "client {peer_address:?} requested authentication, but this proxy only supports NOAUTH"
+        ));
     }
 
     timeout(timeout_duration, async {
         socksv5::v5::write_auth_method(&mut src_writer, SocksV5AuthMethod::Noauth).await
     })
-    .await??;
+    .await
+    .with_context(|| format!("timeout sending Noauth response to {peer_address:?}"))?
+    .with_context(|| format!("failed to send Noauth response to {peer_address:?}"))?;
 
     loop {
         let request = timeout(timeout_duration, async {
             socksv5::v5::read_request(&mut src_reader).await
         })
-        .await??;
+        .await
+        .with_context(|| format!("timeout reading request from {peer_address:?} {state:?}"))?
+        .with_context(|| format!("failed reading request from {peer_address:?} {state:?}"))?;
+
         log::trace!("peer={peer_address:?} request: {request:?}");
 
         let status = match timeout(timeout_duration, async {
-            handle_request(request, &mut state).await
+            handle_request(&request, &mut state).await
         })
-        .await?
+        .await
         {
-            Ok(s) => s,
-            Err(err) => RequestStatus::error(err),
+            Err(_) => RequestStatus::timeout(),
+            Ok(Ok(s)) => s,
+            Ok(Err(err)) => RequestStatus::error(err),
         };
 
+        // socks5 crate doesn't believe in allowing cloning, so we premptively debug
+        // dump the status in case of failure
+        let status_debug = format!("{status:?}");
+
         let is_success = status.status == SocksV5RequestStatus::Success;
-        log::trace!("peer={peer_address:?}: status -> {status:?}");
+        log::trace!("peer={peer_address:?}: {state:?} status -> {status:?}");
 
         timeout(timeout_duration, async {
             socksv5::v5::write_request_status(
@@ -71,7 +83,13 @@ pub async fn handle_proxy_client(
             )
             .await
         })
-        .await??;
+        .await
+        .with_context(|| {
+            format!("timeout sending {status_debug} response to {peer_address:?} {state:?}")
+        })?
+        .with_context(|| {
+            format!("failed to send {status_debug} response to {peer_address:?} {state:?}")
+        })?;
 
         if !is_success {
             return Ok(());
@@ -145,6 +163,10 @@ impl RequestStatus {
     fn error(err: std::io::Error) -> Self {
         Self::status(status_from_io_error(err))
     }
+
+    fn timeout() -> Self {
+        Self::status(SocksV5RequestStatus::TtlExpired)
+    }
 }
 
 #[derive(Default, Debug)]
@@ -156,7 +178,7 @@ enum ClientState {
 }
 
 async fn handle_request(
-    request: SocksV5Request,
+    request: &SocksV5Request,
     state: &mut ClientState,
 ) -> std::io::Result<RequestStatus> {
     match request.command {

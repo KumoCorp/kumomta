@@ -47,6 +47,7 @@
 * SMTP client log records now include the `source_address` in addition to
   the `egress_pool` and `egress_source` that were already present in the
   record. `source_address` includes proxy server information. #40 #154
+* Improved diagnostics around connectivity issues in KumoProxy
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

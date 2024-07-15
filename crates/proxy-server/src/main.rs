@@ -51,7 +51,11 @@ async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow:
         loop {
             let (socket, peer_address) = listener.accept().await.context("accepting connection")?;
             tokio::spawn(async move {
-                proxy_handler::handle_proxy_client(socket, peer_address, timeout).await
+                if let Err(err) =
+                    proxy_handler::handle_proxy_client(socket, peer_address, timeout).await
+                {
+                    log::error!("proxy session error: {err:#}");
+                }
             });
         }
 
