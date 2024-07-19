@@ -402,6 +402,8 @@ impl SmtpDispatcher {
             });
         }
 
+        let prefer_openssl = path_config.tls_prefer_openssl;
+
         let tls_enabled = match (enable_tls, has_tls) {
             (Tls::Required | Tls::RequiredInsecure, false) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}",);
@@ -414,6 +416,7 @@ impl SmtpDispatcher {
                 let (enabled, label) = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
+                        prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
                     })
@@ -451,6 +454,7 @@ impl SmtpDispatcher {
                 match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
+                        prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
                     })

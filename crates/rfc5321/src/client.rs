@@ -66,6 +66,7 @@ pub struct TlsOptions {
     pub insecure: bool,
     pub alt_name: Option<String>,
     pub dane_tlsa: Vec<TLSA>,
+    pub prefer_openssl: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -474,82 +475,85 @@ impl SmtpClient {
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
-        let stream: BoxedAsyncReadAndWrite = if !options.dane_tlsa.is_empty() {
-            let connector = build_dane_connector(&options, &self.hostname)?;
-            let ssl = connector.into_ssl(self.hostname.as_str())?;
-            let mut ssl_stream = tokio_openssl::SslStream::new(
-                ssl,
-                match self.socket.take() {
-                    Some(s) => s,
-                    None => return Err(ClientError::NotConnected),
-                },
-            )?;
-
-            if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
-                handshake_error.replace(format!("{err:#}"));
-            }
-
-            tls_info.cipher = match ssl_stream.ssl().current_cipher() {
-                Some(cipher) => cipher.standard_name().unwrap_or(cipher.name()).to_string(),
-                None => String::new(),
-            };
-            tls_info.protocol_version = ssl_stream.ssl().version_str().to_string();
-
-            if let Some(cert) = ssl_stream.ssl().peer_certificate() {
-                tls_info.subject_name = subject_name(&cert);
-            }
-            if let Ok(authority) = ssl_stream.ssl().dane_authority() {
-                if let Some(cert) = &authority.cert {
-                    tls_info.subject_name = subject_name(cert);
-                }
-            }
-
-            Box::new(ssl_stream)
-        } else {
-            let connector = build_tls_connector(options.insecure);
-            let server_name = match IpAddr::from_str(self.hostname.as_str()) {
-                Ok(ip) => ServerName::IpAddress(ip),
-                Err(_) => ServerName::try_from(self.hostname.as_str())
-                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
-            };
-
-            match connector
-                .connect(
-                    server_name,
+        let stream: BoxedAsyncReadAndWrite =
+            if options.prefer_openssl || !options.dane_tlsa.is_empty() {
+                let connector = build_openssl_connector(&options, &self.hostname)?;
+                let ssl = connector.into_ssl(self.hostname.as_str())?;
+                let mut ssl_stream = tokio_openssl::SslStream::new(
+                    ssl,
                     match self.socket.take() {
                         Some(s) => s,
                         None => return Err(ClientError::NotConnected),
                     },
-                )
-                .into_fallible()
-                .await
-            {
-                Ok(stream) => {
-                    let (_, conn) = stream.get_ref();
-                    tls_info.cipher = match conn.negotiated_cipher_suite() {
-                        Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
-                        None => String::new(),
-                    };
-                    tls_info.protocol_version = match conn.protocol_version() {
-                        Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                        None => String::new(),
-                    };
+                )?;
 
-                    if let Some(certs) = conn.peer_certificates() {
-                        let peer_cert = &certs[0];
-                        if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
-                            tls_info.subject_name = subject_name(&cert);
-                        }
-                    }
-
-                    Box::new(stream)
-                }
-                Err((err, stream)) => {
+                if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
                     handshake_error.replace(format!("{err:#}"));
-                    stream
                 }
-            }
-        };
+
+                tls_info.provider_name = "openssl".to_string();
+                tls_info.cipher = match ssl_stream.ssl().current_cipher() {
+                    Some(cipher) => cipher.standard_name().unwrap_or(cipher.name()).to_string(),
+                    None => String::new(),
+                };
+                tls_info.protocol_version = ssl_stream.ssl().version_str().to_string();
+
+                if let Some(cert) = ssl_stream.ssl().peer_certificate() {
+                    tls_info.subject_name = subject_name(&cert);
+                }
+                if let Ok(authority) = ssl_stream.ssl().dane_authority() {
+                    if let Some(cert) = &authority.cert {
+                        tls_info.subject_name = subject_name(cert);
+                    }
+                }
+
+                Box::new(ssl_stream)
+            } else {
+                tls_info.provider_name = "rustls".to_string();
+                let connector = build_tls_connector(options.insecure);
+                let server_name = match IpAddr::from_str(self.hostname.as_str()) {
+                    Ok(ip) => ServerName::IpAddress(ip),
+                    Err(_) => ServerName::try_from(self.hostname.as_str())
+                        .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
+                };
+
+                match connector
+                    .connect(
+                        server_name,
+                        match self.socket.take() {
+                            Some(s) => s,
+                            None => return Err(ClientError::NotConnected),
+                        },
+                    )
+                    .into_fallible()
+                    .await
+                {
+                    Ok(stream) => {
+                        let (_, conn) = stream.get_ref();
+                        tls_info.cipher = match conn.negotiated_cipher_suite() {
+                            Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
+                            None => String::new(),
+                        };
+                        tls_info.protocol_version = match conn.protocol_version() {
+                            Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                            None => String::new(),
+                        };
+
+                        if let Some(certs) = conn.peer_certificates() {
+                            let peer_cert = &certs[0];
+                            if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                                tls_info.subject_name = subject_name(&cert);
+                            }
+                        }
+
+                        Box::new(stream)
+                    }
+                    Err((err, stream)) => {
+                        handshake_error.replace(format!("{err:#}"));
+                        stream
+                    }
+                }
+            };
 
         if let Some(tracer) = &self.tracer {
             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
@@ -699,6 +703,7 @@ pub struct TlsInformation {
     pub cipher: String,
     pub protocol_version: String,
     pub subject_name: Vec<String>,
+    pub provider_name: String,
 }
 
 impl Drop for SmtpClient {
@@ -728,63 +733,67 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     }
 }
 
-pub fn build_dane_connector(
+pub fn build_openssl_connector(
     options: &TlsOptions,
     hostname: &str,
 ) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
-    tracing::trace!("build_dane_connector for {hostname}");
+    tracing::trace!("build_openssl_connector for {hostname}");
     let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
     if options.insecure {
         builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
     }
 
-    builder.dane_enable()?;
-    builder.set_no_dane_ee_namechecks();
+    if !options.dane_tlsa.is_empty() {
+        builder.dane_enable()?;
+        builder.set_no_dane_ee_namechecks();
+    }
 
     let connector = builder.build();
 
     let mut config = connector.configure()?;
 
-    config.dane_enable(hostname)?;
-    let mut any_usable = false;
-    for tlsa in &options.dane_tlsa {
-        let usable = config.dane_tlsa_add(
-            match tlsa.cert_usage() {
-                CertUsage::CA => DaneUsage::PKIX_TA,
-                CertUsage::Service => DaneUsage::PKIX_EE,
-                CertUsage::TrustAnchor => DaneUsage::DANE_TA,
-                CertUsage::DomainIssued => DaneUsage::DANE_EE,
-                CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
-                CertUsage::Private => DaneUsage::PRIV_CERT,
-            },
-            match tlsa.selector() {
-                Selector::Full => DaneSelector::CERT,
-                Selector::Spki => DaneSelector::SPKI,
-                Selector::Unassigned(n) => DaneSelector::from_raw(n),
-                Selector::Private => DaneSelector::PRIV_SEL,
-            },
-            match tlsa.matching() {
-                Matching::Raw => DaneMatchType::FULL,
-                Matching::Sha256 => DaneMatchType::SHA2_256,
-                Matching::Sha512 => DaneMatchType::SHA2_512,
-                Matching::Unassigned(n) => DaneMatchType::from_raw(n),
-                Matching::Private => DaneMatchType::PRIV_MATCH,
-            },
-            tlsa.cert_data(),
-        )?;
+    if !options.dane_tlsa.is_empty() {
+        config.dane_enable(hostname)?;
+        let mut any_usable = false;
+        for tlsa in &options.dane_tlsa {
+            let usable = config.dane_tlsa_add(
+                match tlsa.cert_usage() {
+                    CertUsage::CA => DaneUsage::PKIX_TA,
+                    CertUsage::Service => DaneUsage::PKIX_EE,
+                    CertUsage::TrustAnchor => DaneUsage::DANE_TA,
+                    CertUsage::DomainIssued => DaneUsage::DANE_EE,
+                    CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
+                    CertUsage::Private => DaneUsage::PRIV_CERT,
+                },
+                match tlsa.selector() {
+                    Selector::Full => DaneSelector::CERT,
+                    Selector::Spki => DaneSelector::SPKI,
+                    Selector::Unassigned(n) => DaneSelector::from_raw(n),
+                    Selector::Private => DaneSelector::PRIV_SEL,
+                },
+                match tlsa.matching() {
+                    Matching::Raw => DaneMatchType::FULL,
+                    Matching::Sha256 => DaneMatchType::SHA2_256,
+                    Matching::Sha512 => DaneMatchType::SHA2_512,
+                    Matching::Unassigned(n) => DaneMatchType::from_raw(n),
+                    Matching::Private => DaneMatchType::PRIV_MATCH,
+                },
+                tlsa.cert_data(),
+            )?;
 
-        tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
-        if usable {
-            any_usable = true;
+            tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
+            if usable {
+                any_usable = true;
+            }
         }
-    }
 
-    if !any_usable {
-        return Err(ClientError::NoUsableDaneTlsa {
-            hostname: hostname.to_string(),
-            tlsa: options.dane_tlsa.clone(),
-        });
+        if !any_usable {
+            return Err(ClientError::NoUsableDaneTlsa {
+                hostname: hostname.to_string(),
+                tlsa: options.dane_tlsa.clone(),
+            });
+        }
     }
 
     Ok(config)

@@ -728,6 +728,7 @@ MergedEntry {
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
+        tls_prefer_openssl: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,
@@ -864,6 +865,7 @@ MergedEntry {
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
+        tls_prefer_openssl: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,
@@ -942,6 +944,7 @@ MergedEntry {
             enable_tls: Opportunistic,
             enable_mta_sts: true,
             enable_dane: false,
+            tls_prefer_openssl: false,
             client_timeouts: SmtpClientTimeouts {
                 connect_timeout: 60s,
                 banner_timeout: 60s,
@@ -1072,6 +1075,7 @@ MergedEntry {
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
+        tls_prefer_openssl: false,
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,

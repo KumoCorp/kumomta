@@ -57,6 +57,9 @@ pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_enable_dane")]
     pub enable_dane: bool,
 
+    #[serde(default)]
+    pub tls_prefer_openssl: bool,
+
     #[serde(flatten)]
     pub client_timeouts: SmtpClientTimeouts,
 
@@ -114,6 +117,7 @@ impl Default for EgressPathConfig {
     fn default() -> Self {
         Self {
             connection_limit: Self::default_connection_limit(),
+            tls_prefer_openssl: false,
             enable_tls: Tls::default(),
             enable_mta_sts: Self::default_enable_mta_sts(),
             enable_dane: Self::default_enable_dane(),
