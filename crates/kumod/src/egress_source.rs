@@ -158,10 +158,10 @@ impl EgressSource {
                         },
                     })
                 }
-                _ => anyhow::bail!(
+                (source, server) => anyhow::bail!(
                     "Skipping {source_name} because \
-                     socks5_proxy_source_address address family does \
-                     not match the destination address family"
+                     socks5_proxy_source_address {source} address family does \
+                     not match the destination address family {server}"
                 ),
             },
             _ => Ok(ProxyProto::None),
