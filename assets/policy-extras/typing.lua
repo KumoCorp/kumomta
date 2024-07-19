@@ -195,6 +195,17 @@ function mod.record(name, fields)
     end
     local field_def = ty.fields[k]
     if not field_def then
+      local dyn_validate = ty.fields._dynamic
+      if dyn_validate then
+        -- Unfortunately, we can only call dyn_validate with a candidate
+        -- value, and we don't have one here because we want to read
+        -- the value from the table, rather than write one.
+        -- We just have to shrug and assume that the validator would
+        -- do the job of preventing setting a bad value if it was legit,
+        -- and just let this potentially invalid field name breeze by.
+        return nil
+      end
+
       TypeError
         :new(
           string.format("%s: attempt to read unknown field '%s'", ty.name, k)
