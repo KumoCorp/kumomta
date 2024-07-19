@@ -16,7 +16,7 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::time::timeout;
-use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
+use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
 };
@@ -510,7 +510,7 @@ impl SmtpClient {
                 Box::new(ssl_stream)
             } else {
                 tls_info.provider_name = "rustls".to_string();
-                let connector = build_tls_connector(options.insecure);
+                let connector = build_tls_connector(&options);
                 let server_name = match IpAddr::from_str(self.hostname.as_str()) {
                     Ok(ip) => ServerName::IpAddress(ip),
                     Err(_) => ServerName::try_from(self.hostname.as_str())
@@ -799,10 +799,25 @@ pub fn build_openssl_connector(
     Ok(config)
 }
 
-pub fn build_tls_connector(insecure: bool) -> TlsConnector {
-    let config = ClientConfig::builder().with_safe_defaults();
+pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
+    let mut root_store = RootCertStore::empty();
+    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+        OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
 
-    let verifier: Arc<dyn ServerCertVerifier> = if insecure {
+    let mut config = ClientConfig::builder()
+        .with_cipher_suites(tokio_rustls::rustls::DEFAULT_CIPHER_SUITES)
+        .with_safe_default_kx_groups()
+        .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
+        .expect("inconsistent cipher-suite/versions selected")
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    if options.insecure {
         struct VerifyAll;
         impl ServerCertVerifier for VerifyAll {
             fn verify_server_cert(
@@ -817,23 +832,10 @@ pub fn build_tls_connector(insecure: bool) -> TlsConnector {
                 Ok(ServerCertVerified::assertion())
             }
         }
-        Arc::new(VerifyAll {})
-    } else {
-        let mut root_cert_store = RootCertStore::empty();
-
-        root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
-        Arc::new(WebPkiVerifier::new(root_cert_store, None))
-    };
-
-    let config = config
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
+        config
+            .dangerous()
+            .set_certificate_verifier(Arc::new(VerifyAll {}));
+    }
 
     TlsConnector::from(Arc::new(config))
 }
