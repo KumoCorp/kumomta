@@ -193,6 +193,7 @@ impl Opt {
                     prefer_openssl: false,
                     alt_name: None,
                     dane_tlsa: vec![],
+                    ..Default::default()
                 })
                 .await?;
         }

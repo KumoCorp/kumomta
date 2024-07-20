@@ -729,6 +729,10 @@ MergedEntry {
         enable_mta_sts: true,
         enable_dane: false,
         tls_prefer_openssl: false,
+        openssl_cipher_list: None,
+        openssl_cipher_suites: None,
+        openssl_options: None,
+        rustls_cipher_suites: [],
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,
@@ -866,6 +870,10 @@ MergedEntry {
         enable_mta_sts: true,
         enable_dane: false,
         tls_prefer_openssl: false,
+        openssl_cipher_list: None,
+        openssl_cipher_suites: None,
+        openssl_options: None,
+        rustls_cipher_suites: [],
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,
@@ -945,6 +953,10 @@ MergedEntry {
             enable_mta_sts: true,
             enable_dane: false,
             tls_prefer_openssl: false,
+            openssl_cipher_list: None,
+            openssl_cipher_suites: None,
+            openssl_options: None,
+            rustls_cipher_suites: [],
             client_timeouts: SmtpClientTimeouts {
                 connect_timeout: 60s,
                 banner_timeout: 60s,
@@ -1076,6 +1088,10 @@ MergedEntry {
         enable_mta_sts: true,
         enable_dane: false,
         tls_prefer_openssl: false,
+        openssl_cipher_list: None,
+        openssl_cipher_suites: None,
+        openssl_options: None,
+        rustls_cipher_suites: [],
         client_timeouts: SmtpClientTimeouts {
             connect_timeout: 60s,
             banner_timeout: 60s,

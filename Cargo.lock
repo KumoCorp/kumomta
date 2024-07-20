@@ -2522,8 +2522,10 @@ dependencies = [
  "kumo-log-types",
  "mlua",
  "mod-memoize",
+ "openssl",
  "reqwest",
  "rfc5321",
+ "rustls",
  "serde",
  "serde_json",
  "serde_with",
@@ -5788,8 +5790,11 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "kumo-api-types",
+ "log",
  "rfc5321",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

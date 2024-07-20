@@ -48,6 +48,10 @@
   the `egress_pool` and `egress_source` that were already present in the
   record. `source_address` includes proxy server information. #40 #154
 * Improved diagnostics around connectivity issues in KumoProxy
+* New TLS related options for
+  [kumo.make_egress_path](../reference/kumo/make_egress_path.md):
+  `tls_prefer_openssl`, `openssl_cipher_list`, `openssl_cipher_suites`,
+  `openssl_options`, `rustls_cipher_suites`.
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

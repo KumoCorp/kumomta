@@ -389,3 +389,132 @@ This option is present primarily to facilitate traffic shaping automation.
     It has been subsumed by realtime TSA suspension updates.
     It no longer has any effect.
 
+## tls_prefer_openssl
+
+{{since('dev')}}
+
+Optional boolean. Defaults to `false`.
+
+When set to `true`, this pathway will prefer to use OpenSSL as the TLS
+implementation.
+
+When set to `false`, this pathway will prefer to use rustls as the TLS
+implementation, unless DANE is enabled and TLSA records are present, in which
+case OpenSSL will be used.
+
+## openssl_cipher_list
+
+{{since('dev')}}
+
+Optional string.
+
+If set, then the value will be used to configure the set of ciphers used by
+OpenSSL for TLS protocol version lower than 1.3.
+
+OpenSSL is used as described under the
+[tls_prefer_openssl](#tls_prefer_openssl) option above.
+
+The format of the string is [discussed in the OpenSSL ciphers
+documentation](https://www.openssl.org/docs/man1.1.1/man1/ciphers.html)
+
+## openssl_cipher_suites
+
+{{since('dev')}}
+
+Optional string.
+
+If set, then the value will be used to configure the set of ciphers used by
+OpenSSL for TLS protocol version 1.3.
+
+OpenSSL is used as described under the
+[tls_prefer_openssl](#tls_prefer_openssl) option above.
+
+The format consists of TLSv1.3 cipher suite names separated by `:` characters
+in order of preference.
+
+## openssl_options
+
+{{since('dev')}}
+
+Optional string.
+
+If set, then the value will be used to configure openssl option flags.
+
+OpenSSL is used as described under the
+[tls_prefer_openssl](#tls_prefer_openssl) option above.
+
+The format of the string is the set of possible option names separated by `|` characters.
+
+Option names are:
+
+* `ALL` - A “reasonable default” set of options which enables compatibility flags.
+* `NO_QUERY_MTU` - Do not query the MTU.  Only affects DTLS connections.
+* `COOKIE_EXCHANGE` - Enables Cookie Exchange as described in [RFC 4347 Section
+  4.2.1](https://tools.ietf.org/html/rfc4347#section-4.2.1).  Only affects DTLS
+  connections.
+* `NO_TICKET` - Disables the use of session tickets for session resumption.
+* `NO_SESSION_RESUMPTION_ON_RENEGOTIATION` - Always start a new session when performing a renegotiation on the server side.
+* `NO_COMPRESSION` - Disables the use of TLS compression.
+* `ALLOW_UNSAFE_LEGACY_RENEGOTIATION` - Allow legacy insecure renegotiation with servers or clients that do not support secure renegotiation.
+* `SINGLE_ECDH_USE` - Creates a new key for each session when using ECDHE.  This is always enabled in OpenSSL 1.1.0.
+* `SINGLE_DH_USE` - Creates a new key for each session when using DHE.  This is always enabled in OpenSSL 1.1.0.
+* `TLS_ROLLBACK_BUG` - Disables version rollback attach detection.
+* `NO_SSLV2` - Disables the use of SSLv2.
+* `NO_SSLV3` - Disables the use of SSLv3.
+* `NO_TLSV1` - Disables the use of TLSv1.0.
+* `NO_TLSV1_1` - Disables the use of TLSv1.1.
+* `NO_TLSV1_2` - Disables the use of TLSv1.2.
+* `NO_TLSV1_3` - Disables the use of TLSv1.3.
+* `NO_DTLSV1` - Disables the use of DTLSv1.0.
+* `NO_DTLSV1_2` - Disables the use of DTLSv1.2.
+* `NO_RENEGOTIATION` - Disallow all renegotiation in TLSv1.2 and earlier.
+* `ENABLE_MIDDLEBOX_COMPAT` - Enable TLSv1.3 Compatibility mode.  Requires
+  OpenSSL 1.1.1 or newer. This is on by default in 1.1.1, but a future version
+  may have this disabled by default.
+
+<!--
+* `CIPHER_SERVER_PREFERENCE` - Use the server’s preferences rather than the
+  client’s when selecting a cipher.  This has no effect on the client side;
+  this option is included here for the sake of completeness.
+* `PRIORITIZE_CHACHA` - Prioritize ChaCha ciphers when preferred by clients. Applies to server only
+-->
+
+## rustls_cipher_suites
+
+{{since('dev')}}
+
+Optional array of strings.
+
+If set, then the value will be used to configure rustls cipher suites.
+
+Rustls is used as described under the
+[tls_prefer_openssl](#tls_prefer_openssl) option above.
+
+The list of possible cipher suites at the time of writing is:
+
+* `TLS13_AES_256_GCM_SHA384`
+* `TLS13_AES_128_GCM_SHA256`
+* `TLS13_CHACHA20_POLY1305_SHA256`
+* `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`
+* `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+* `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256`
+* `TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384`
+* `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`
+* `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`
+
+This list may evolve over time as new releases of kumomta are made.  You can
+review the current possible list with the `tls-probe` utility:
+
+```console
+$ /opt/kumomta/sbin/tls-probe list-rustls-cipher-suites
+TLS13_AES_256_GCM_SHA384
+TLS13_AES_128_GCM_SHA256
+TLS13_CHACHA20_POLY1305_SHA256
+TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+```
+

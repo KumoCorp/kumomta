@@ -2,8 +2,10 @@ use cidr_map::CidrSet;
 use data_loader::KeySource;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
+use openssl::ssl::SslOptions;
 use rfc5321::SmtpClientTimeouts;
-use serde::{Deserialize, Serialize};
+use rustls::SupportedCipherSuite;
+use serde::{Deserialize, Deserializer, Serialize};
 use throttle::ThrottleSpec;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -41,6 +43,86 @@ impl Default for Tls {
     }
 }
 
+pub fn parse_openssl_options(option_list: &str) -> anyhow::Result<SslOptions> {
+    let mut result = SslOptions::empty();
+
+    for option in option_list.split('|') {
+        match SslOptions::from_name(option) {
+            Some(opt) => {
+                result.insert(opt);
+            }
+            None => {
+                let mut allowed: Vec<_> = SslOptions::all()
+                    .iter_names()
+                    .map(|(name, _)| format!("`{name}`"))
+                    .collect();
+                allowed.sort();
+                let allowed = allowed.join(", ");
+                anyhow::bail!(
+                    "`{option}` is not a valid SslOption name. \
+                    Possible values are {allowed} joined together by the pipe `|` character."
+                );
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn deserialize_ssl_options<'de, D>(deserializer: D) -> Result<Option<SslOptions>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let maybe_options = Option::<String>::deserialize(deserializer)?;
+
+    match maybe_options {
+        None => Ok(None),
+        Some(option_list) => match parse_openssl_options(&option_list) {
+            Ok(options) => Ok(Some(options)),
+            Err(err) => {
+                return Err(D::Error::custom(format!("{err:#}")));
+            }
+        },
+    }
+}
+
+fn deserialize_supported_ciphersuite<'de, D>(
+    deserializer: D,
+) -> Result<Vec<SupportedCipherSuite>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let suites = Vec::<String>::deserialize(deserializer)?;
+    let mut result = vec![];
+
+    for s in suites {
+        match find_rustls_cipher_suite(&s) {
+            Some(s) => {
+                result.push(s);
+            }
+            None => {
+                return Err(D::Error::custom(format!(
+                    "`{s}` is not a valid rustls cipher suite"
+                )));
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+pub fn find_rustls_cipher_suite(name: &str) -> Option<SupportedCipherSuite> {
+    for suite in rustls::ALL_CIPHER_SUITES {
+        let sname = format!("{:?}", suite.suite());
+        if sname.eq_ignore_ascii_case(name) {
+            return Some(*suite);
+        }
+    }
+    None
+}
+
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
 #[serde(deny_unknown_fields)]
@@ -59,6 +141,16 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     pub tls_prefer_openssl: bool,
+
+    #[serde(default)]
+    pub openssl_cipher_list: Option<String>,
+    #[serde(default)]
+    pub openssl_cipher_suites: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_ssl_options")]
+    pub openssl_options: Option<SslOptions>,
+
+    #[serde(default, deserialize_with = "deserialize_supported_ciphersuite")]
+    pub rustls_cipher_suites: Vec<SupportedCipherSuite>,
 
     #[serde(flatten)]
     pub client_timeouts: SmtpClientTimeouts,
@@ -137,6 +229,10 @@ impl Default for EgressPathConfig {
             smtp_auth_plain_password: None,
             suspended: false,
             aggressive_connection_opening: false,
+            rustls_cipher_suites: vec![],
+            openssl_cipher_list: None,
+            openssl_cipher_suites: None,
+            openssl_options: None,
         }
     }
 }

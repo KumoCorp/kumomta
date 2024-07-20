@@ -4,7 +4,7 @@ use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
 use once_cell::sync::Lazy;
-use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage};
+use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -18,10 +18,12 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::time::timeout;
 use tokio_rustls::rustls::client::{ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::{
-    Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
+    Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName, SupportedCipherSuite,
 };
 use tokio_rustls::TlsConnector;
 use tracing::Level;
+
+pub use {openssl, tokio_rustls};
 
 const MAX_LINE_LEN: usize = 4096;
 
@@ -67,6 +69,10 @@ pub struct TlsOptions {
     pub alt_name: Option<String>,
     pub dane_tlsa: Vec<TLSA>,
     pub prefer_openssl: bool,
+    pub openssl_cipher_list: Option<String>,
+    pub openssl_cipher_suites: Option<String>,
+    pub openssl_options: Option<SslOptions>,
+    pub rustls_cipher_suites: Vec<SupportedCipherSuite>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -740,6 +746,19 @@ pub fn build_openssl_connector(
     tracing::trace!("build_openssl_connector for {hostname}");
     let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
+    if let Some(list) = &options.openssl_cipher_list {
+        builder.set_cipher_list(&list)?;
+    }
+
+    if let Some(suites) = &options.openssl_cipher_suites {
+        builder.set_ciphersuites(&suites)?;
+    }
+
+    if let Some(options) = &options.openssl_options {
+        builder.clear_options(SslOptions::all());
+        builder.set_options(*options);
+    }
+
     if options.insecure {
         builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
     }
@@ -809,8 +828,14 @@ pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
         )
     }));
 
+    let cipher_suites = if options.rustls_cipher_suites.is_empty() {
+        tokio_rustls::rustls::DEFAULT_CIPHER_SUITES
+    } else {
+        &options.rustls_cipher_suites
+    };
+
     let mut config = ClientConfig::builder()
-        .with_cipher_suites(tokio_rustls::rustls::DEFAULT_CIPHER_SUITES)
+        .with_cipher_suites(cipher_suites)
         .with_safe_default_kx_groups()
         .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
         .expect("inconsistent cipher-suite/versions selected")

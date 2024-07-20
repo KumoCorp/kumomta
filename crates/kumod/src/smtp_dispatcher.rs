@@ -318,6 +318,11 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
+        let openssl_options = path_config.openssl_options.clone();
+        let openssl_cipher_list = path_config.openssl_cipher_list.clone();
+        let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
+        let rustls_cipher_suites = path_config.rustls_cipher_suites.clone();
+
         if path_config.enable_dane {
             if let Some(mx) = &dispatcher.mx {
                 match dns_resolver::resolve_dane(&mx.domain_name, port).await {
@@ -419,6 +424,10 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        openssl_options,
+                        openssl_cipher_list,
+                        openssl_cipher_suites,
+                        rustls_cipher_suites,
                     })
                     .await?
                 {
@@ -457,6 +466,10 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        openssl_options,
+                        openssl_cipher_list,
+                        openssl_cipher_suites,
+                        rustls_cipher_suites,
                     })
                     .await?
                 {
