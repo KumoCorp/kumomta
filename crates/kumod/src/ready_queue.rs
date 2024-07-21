@@ -7,7 +7,7 @@ use crate::http_server::admin_suspend_ready_q_v1::{
 use crate::logging::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
-use crate::smtp_dispatcher::{MxListEntry, SmtpDispatcher};
+use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -825,6 +825,7 @@ impl Dispatcher {
         }
 
         let mut connection_failures = vec![];
+        let mut num_opportunistic_tls_failures = 0;
 
         loop {
             if !dispatcher.wait_for_message(&mut *queue_dispatcher).await? {
@@ -843,12 +844,23 @@ impl Dispatcher {
             }
 
             if let Err(err) = queue_dispatcher.attempt_connection(&mut dispatcher).await {
+                if OpportunisticInsecureTlsHandshakeError::is_match_anyhow(&err) {
+                    num_opportunistic_tls_failures += 1;
+                }
                 connection_failures.push(format!("{err:#}"));
                 if !queue_dispatcher
                     .have_more_connection_candidates(&mut dispatcher)
                     .await
                 {
                     if let Some(msg) = dispatcher.msg.take() {
+                        let summary = if num_opportunistic_tls_failures == connection_failures.len()
+                        {
+                            "All failures are related to OpportunisticInsecure STARTTLS. \
+                             Consider setting enable_tls=Disabled for this site. "
+                        } else {
+                            ""
+                        };
+
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -860,7 +872,7 @@ impl Dispatcher {
                                 content: format!(
                                     "KumoMTA internal: \
                                      failed to connect to any candidate \
-                                     hosts: {}",
+                                     hosts: {summary}{}",
                                     connection_failures.join(", ")
                                 ),
                                 command: None,

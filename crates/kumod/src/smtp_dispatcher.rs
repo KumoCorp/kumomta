@@ -53,6 +53,29 @@ pub struct SmtpDispatcher {
     tracer: Arc<SmtpClientTracerImpl>,
 }
 
+#[derive(thiserror::Error, Debug)]
+#[error("{address}: EHLO after OpportunisticInsecure STARTTLS handshake status: {label}")]
+#[must_use]
+pub struct OpportunisticInsecureTlsHandshakeError {
+    pub error: ClientError,
+    pub address: String,
+    pub label: String,
+}
+
+impl OpportunisticInsecureTlsHandshakeError {
+    pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
+        Self::is_match(err.root_cause())
+    }
+
+    pub fn is_match(err: &(dyn std::error::Error + 'static)) -> bool {
+        if let Some(cause) = err.source() {
+            return Self::is_match(cause);
+        } else {
+            err.downcast_ref::<Self>().is_some()
+        }
+    }
+}
+
 impl SmtpDispatcher {
     pub async fn init(
         dispatcher: &mut Dispatcher,
@@ -451,11 +474,12 @@ impl SmtpDispatcher {
                 // incorrectly roll over failed TLS into the following command,
                 // and we want to consider those as connection errors rather than
                 // having them show up per-message in MAIL FROM
-                client.ehlo(&ehlo_name).await.with_context(|| {
-                    format!(
-                        "{address:?}:{port}: EHLO after OpportunisticInsecure \
-                        STARTTLS handshake status: {label}",
-                    )
+                client.ehlo(&ehlo_name).await.map_err(|error| {
+                    OpportunisticInsecureTlsHandshakeError {
+                        error,
+                        address: format!("{address:?}:{port}"),
+                        label,
+                    }
                 })?;
                 enabled
             }
