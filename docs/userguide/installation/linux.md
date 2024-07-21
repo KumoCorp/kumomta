@@ -6,23 +6,6 @@ A repository is provided to ease installation on supported platforms.
 
 The install instructions for supported platforms are shown below. If your platform is not listed, you can [build from source](source.md).
 
-=== "CentOS7"
-
-    !!! note
-        Note that Red Hat full support for RHEL 7 [ended in August
-        2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates)
-        and CentOS 7 full support [ended in August
-        2020](https://wiki.centos.org/About/Product). We ended automated builds for RHEL 7 with the [2023.08.22-4d895015](../../changelog/2023.08.22-4d895015.md) release.
-
-        We recommend upgrading to a newer OS as soon as possible.
-
-    ```console
-    $ sudo yum install -y yum-utils
-    $ sudo yum-config-manager --add-repo=\
-        https://openrepo.kumomta.com/files/kumomta-centos.repo
-    $ sudo yum install kumomta
-    ```
-
 === "Rocky"
 
     ```console
@@ -76,23 +59,6 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
 
 !!! warning
     While we do our best to test all commits, dev repositories should **never** be installed in production environments.
-
-=== "CentOS7"
-
-    !!! note
-        Note that Red Hat full support for RHEL 7 [ended in August
-        2019](https://access.redhat.com/support/policy/updates/errata#Retired_Life_Cycle_Dates)
-        and CentOS 7 full support [ended in August
-        2020](https://wiki.centos.org/About/Product).
-
-        We recommend upgrading to a newer OS as soon as possible.
-
-    ```console
-    $ sudo yum install -y yum-utils
-    $ sudo yum-config-manager --add-repo=\
-        https://openrepo.kumomta.com/files/kumomta-centos.repo
-    $ sudo yum install kumomta-dev
-    ```
 
 === "Rocky"
 
