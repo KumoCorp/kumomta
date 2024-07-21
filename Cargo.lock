@@ -3821,8 +3821,8 @@ checksum = "b410bbe7e14ab526a0e86877eb47c6996a2bd7746f027ba551028c925390e4e9"
 
 [[package]]
 name = "openssl"
-version = "0.10.60"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#94053bb0148231a10d512072d9eedaca1164dafc"
+version = "0.10.65"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if",
@@ -3836,7 +3836,7 @@ dependencies = [
 [[package]]
 name = "openssl-macros"
 version = "0.1.1"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#94053bb0148231a10d512072d9eedaca1164dafc"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
 dependencies = [
  "proc-macro2 1.0.86",
  "quote 1.0.36",
@@ -3860,8 +3860,8 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.96"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#94053bb0148231a10d512072d9eedaca1164dafc"
+version = "0.9.103"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
 dependencies = [
  "cc",
  "libc",
@@ -5866,9 +5866,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-openssl"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08f9ffb7809f1b20c1b398d92acf4cc719874b3b2b2d9ea2f09b4a80350878a"
+checksum = "6ffab79df67727f6acf57f1ff743091873c24c579b1e2ce4d8f53e47ded4d63d"
 dependencies = [
  "futures-util",
  "openssl",
