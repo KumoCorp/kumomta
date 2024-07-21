@@ -115,18 +115,6 @@ steps:
     commands:
       - "bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.deb"
 
-  publish_deb:
-    depends_on: [verify-installable]
-    image: alpine:3.14
-    when:
-      - evaluate: '(CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main") || CI_PIPELINE_EVENT == "tag"'
-    environment:
-      TOKEN:
-        from_secret: openrepo_publish_token
-    commands:
-      - "apk --no-cache add curl bash"
-      - "./assets/upload-package.sh ${UBUNTU_IMAGE} *.deb"
-
   # Docker image build test on PRs
 
   dry-run-build-docker-image:
@@ -145,7 +133,7 @@ steps:
   # Docker image for releases
 
   build-docker-image:
-    depends_on: [publish_deb]
+    depends_on: [verify-installable]
     when:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
     image: plugins/docker
@@ -159,7 +147,7 @@ steps:
       dockerfile: docker/kumod/Dockerfile.incremental
 
   build-docker-image-arm:
-    depends_on: [publish_deb]
+    depends_on: [verify-installable]
     when:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
     image: plugins/docker
@@ -207,7 +195,7 @@ steps:
   # Docker image for -dev builds
 
   build-dev-docker-image:
-    depends_on: [publish_deb]
+    depends_on: [verify-installable]
     when:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/docker
@@ -221,7 +209,7 @@ steps:
       dockerfile: docker/kumod/Dockerfile.incremental
 
   build-dev-docker-image-arm:
-    depends_on: [publish_deb]
+    depends_on: [verify-installable]
     when:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/docker
