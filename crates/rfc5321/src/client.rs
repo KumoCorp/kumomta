@@ -485,13 +485,16 @@ impl SmtpClient {
             if options.prefer_openssl || !options.dane_tlsa.is_empty() {
                 let connector = build_openssl_connector(&options, &self.hostname)?;
                 let ssl = connector.into_ssl(self.hostname.as_str())?;
-                let mut ssl_stream = tokio_openssl::SslStream::new(
-                    ssl,
-                    match self.socket.take() {
-                        Some(s) => s,
-                        None => return Err(ClientError::NotConnected),
-                    },
-                )?;
+
+                let (stream, dup_stream) = match self.socket.take() {
+                    Some(s) => {
+                        let d = s.try_dup();
+                        (s, d)
+                    }
+                    None => return Err(ClientError::NotConnected),
+                };
+
+                let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
 
                 if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
                     handshake_error.replace(format!("{err:#}"));
@@ -513,7 +516,17 @@ impl SmtpClient {
                     }
                 }
 
-                Box::new(ssl_stream)
+                match (&handshake_error, dup_stream) {
+                    (Some(_), Some(dup_stream)) if !ssl_stream.ssl().is_init_finished() => {
+                        // Try falling back to clear text on the duplicate stream.
+                        // This is imperfect: in a failed validation scenario we will
+                        // end up trying to read binary data as a string and get a UTF-8
+                        // error if the peer thinks the session is encrypted.
+                        drop(ssl_stream);
+                        Box::new(dup_stream)
+                    }
+                    _ => Box::new(ssl_stream),
+                }
             } else {
                 tls_info.provider_name = "rustls".to_string();
                 let connector = build_tls_connector(&options);

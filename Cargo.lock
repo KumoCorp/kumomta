@@ -4680,6 +4680,7 @@ dependencies = [
  "data-encoding",
  "duration-serde",
  "hickory-proto",
+ "libc",
  "memchr",
  "once_cell",
  "openssl",

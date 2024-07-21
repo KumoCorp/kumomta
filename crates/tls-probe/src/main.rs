@@ -91,6 +91,9 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .await?;
                 println!("{tls_result:?}");
+
+                let caps = client.ehlo("there").await?;
+                println!("EHLO after STARTTLS: {caps:#?}");
             }
 
             Ok(())
