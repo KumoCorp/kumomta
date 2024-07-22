@@ -45,7 +45,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
     })
   ),
 
-  signature = typing.map(
+  signature = Option(typing.map(
     String,
     Record('DkimSignConfig.Signature', {
       domain = String,
@@ -58,7 +58,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       body_canonicalization = Option(String),
       over_sign = Option(Bool),
     })
-  ),
+  )),
 })
 
 --[[
