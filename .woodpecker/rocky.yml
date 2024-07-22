@@ -112,8 +112,11 @@ steps:
     environment:
       GITHUB_TOKEN:
         from_secret: gh_pages_deploy_token
+      TOKEN:
+        from_secret: package_build_token
     commands:
       - "bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm"
+      - ./assets/ci/notify-package-server.sh
 
   publish-gh-tag:
     depends_on: [sign-rpm]
@@ -124,6 +127,9 @@ steps:
     environment:
       GITHUB_TOKEN:
         from_secret: gh_pages_deploy_token
+      TOKEN:
+        from_secret: package_build_token
     commands:
       - "bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm"
+      - ./assets/ci/notify-package-server.sh
 
