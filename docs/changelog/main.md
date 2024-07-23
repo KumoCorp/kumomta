@@ -64,3 +64,5 @@
   when using [cluster-backed
   throttles](../reference/kumo/configure_redis_throttles.md). Thanks to @cai-n!
   #217
+* Didn't expand the requested SASL mech when responding `504 5.5.4 AUTH {sasl_mech}
+  not supported` to unsupported authentication mechanisms.
