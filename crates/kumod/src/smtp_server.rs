@@ -1047,7 +1047,7 @@ impl SmtpServer {
                     if sasl_mech != "PLAIN" {
                         self.write_response(
                             504,
-                            "5.5.4 AUTH {sasl_mech} not supported",
+                            format!("5.5.4 AUTH {sasl_mech} not supported"),
                             Some(line),
                         )
                         .await?;
