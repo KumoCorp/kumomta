@@ -214,11 +214,12 @@ function mod:new_json(options)
       -- it reached it expiration.
       kumo.reject(500, disposition)
     end
-    return connection
-  end
 
-  function connection:close()
-    client:close()
+    function connection:close()
+      client:close()
+    end
+    
+    return connection
   end
 
   return self:new(options)
