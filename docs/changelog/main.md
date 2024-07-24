@@ -66,3 +66,6 @@
   #217
 * Didn't expand the requested SASL mech when responding `504 5.5.4 AUTH {sasl_mech}
   not supported` to unsupported authentication mechanisms.
+* Delayed messages were scheduled 1-step further along the exponental backoff schedule
+  than intended; rather than being initially delayed for 20 minutes, they would be
+  delayed for 40 minutes.

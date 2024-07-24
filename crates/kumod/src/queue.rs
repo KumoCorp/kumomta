@@ -347,6 +347,21 @@ mod test {
     }
 
     #[test]
+    fn calc_due_defaults() {
+        let config = QueueConfig {
+            retry_interval: Duration::from_secs(60 * 20),
+            max_retry_interval: None,
+            max_age: Duration::from_secs(86400),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            compute_schedule(&config),
+            vec![1200, 2400, 4800, 9600, 19200, 38400],
+        );
+    }
+
+    #[test]
     fn spool_in_delay() {
         let config = QueueConfig {
             retry_interval: Duration::from_secs(2),
@@ -728,11 +743,13 @@ impl Queue {
         msg: Message,
     ) -> anyhow::Result<Option<Message>> {
         let id = *msg.id();
-        msg.increment_num_attempts();
+        // Pre-calculate the delay, as the delay_for_attempt uses a zero-based
+        // attempt number to figure the interval
         let delay = self
             .queue_config
             .borrow()
             .delay_for_attempt(msg.get_num_attempts());
+        msg.increment_num_attempts();
         let jitter = (rand::random::<f32>() * 60.) - 30.0;
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
