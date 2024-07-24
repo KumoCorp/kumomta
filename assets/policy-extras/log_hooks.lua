@@ -218,7 +218,7 @@ function mod:new_json(options)
     function connection:close()
       client:close()
     end
-    
+
     return connection
   end
 
