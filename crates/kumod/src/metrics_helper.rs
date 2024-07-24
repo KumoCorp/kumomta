@@ -43,6 +43,18 @@ lazy_static::lazy_static! {
             "total number of messages ever received",
             &["service"]).unwrap()
     };
+    pub static ref READY_FULL_COUNTER: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "ready_full",
+            "number of times a message could not fit in the ready queue",
+            &["service"]).unwrap()
+    };
+}
+
+pub fn ready_full_counter_for_service(service: &str) -> IntCounter {
+    READY_FULL_COUNTER
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 pub fn ready_count_gauge_for_service(service: &str) -> IntGauge {
@@ -104,4 +116,5 @@ pub fn remove_metrics_for_service(service: &str) {
     TOTAL_MSGS_TRANSFAIL.remove_label_values(&[service]).ok();
     TOTAL_MSGS_FAIL.remove_label_values(&[service]).ok();
     READY_COUNT_GAUGE.remove_label_values(&[service]).ok();
+    READY_FULL_COUNTER.remove_label_values(&[service]).ok();
 }

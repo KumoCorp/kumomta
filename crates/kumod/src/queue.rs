@@ -17,7 +17,7 @@ use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
 use parking_lot::FairMutex as StdMutex;
-use prometheus::{IntGauge, IntGaugeVec};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -52,6 +52,21 @@ lazy_static::lazy_static! {
             "number of messages in the scheduled queue for a specific domain",
             &["domain"]).unwrap()
     };
+    static ref DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: IntCounterVec = {
+        prometheus::register_int_counter_vec!("delayed_due_to_ready_queue_full",
+            "number of times a message was delayed due to the corresponding ready queue being full",
+            &["queue"]).unwrap()
+    };
+    static ref DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: IntCounterVec = {
+        prometheus::register_int_counter_vec!("delayed_due_to_message_rate_throttle",
+            "number of times a message was delayed due to max_message_rate",
+            &["queue"]).unwrap()
+    };
+    static ref DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: IntCounterVec = {
+        prometheus::register_int_counter_vec!("delayed_due_to_throttle_insert_ready",
+            "number of times a message was delayed due throttle_insert_ready_queue event",
+            &["queue"]).unwrap()
+    };
 
     pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
         "qmaint", |cpus| cpus/4, &QMAINT_THREADS).unwrap();
@@ -73,6 +88,9 @@ struct ScheduledMetrics {
     by_domain: IntGauge,
     by_tenant: Option<IntGauge>,
     by_tenant_campaign: Option<IntGauge>,
+    delay_full: IntCounter,
+    delay_message_rate: IntCounter,
+    delay_throttle_insert_ready: IntCounter,
 }
 
 impl ScheduledMetrics {
@@ -93,11 +111,21 @@ impl ScheduledMetrics {
             None => None,
         };
 
+        let delay_full =
+            DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER.get_metric_with_label_values(&[name])?;
+        let delay_message_rate =
+            DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER.get_metric_with_label_values(&[name])?;
+        let delay_throttle_insert_ready =
+            DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER.get_metric_with_label_values(&[name])?;
+
         Ok(Self {
             scheduled,
             by_domain,
             by_tenant,
             by_tenant_campaign,
+            delay_full,
+            delay_message_rate,
+            delay_throttle_insert_ready,
         })
     }
 
@@ -855,6 +883,9 @@ impl Queue {
                 // ideally result in smooth message flow and the jitter will
                 // (intentionally) perturb that.
                 msg.delay_by(delay).await?;
+
+                self.metrics.delay_message_rate.inc();
+
                 return self.force_into_delayed(msg).await;
             }
         }
@@ -870,6 +901,7 @@ impl Queue {
                     "{}: throttle_insert_ready_queue event throttled message rate, due={due:?}",
                     self.name
                 );
+                self.metrics.delay_throttle_insert_ready.inc();
                 return self.force_into_delayed(msg).await;
             }
         }
@@ -887,6 +919,7 @@ impl Queue {
                 }
             } else {
                 // Queue is full; try again shortly
+                self.metrics.delay_full.inc();
                 self.force_into_delayed(msg).await?;
             }
         }
@@ -1339,6 +1372,15 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                         // end up using a lot of memory remembering stats from
                         // what might be a long tail of tiny domains forever.
                         DELAY_GAUGE.remove_label_values(&[&q.name]).ok();
+                        DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
+                            .remove_label_values(&[&q.name])
+                            .ok();
+                        DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
+                            .remove_label_values(&[&q.name])
+                            .ok();
+                        DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
+                            .remove_label_values(&[&q.name])
+                            .ok();
                         return Ok(());
                     }
                 }

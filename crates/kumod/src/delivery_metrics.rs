@@ -8,6 +8,7 @@ pub struct DeliveryMetrics {
     global_connection_total: IntCounter,
 
     pub ready_count: IntGauge,
+    pub ready_full: IntCounter,
 
     msgs_delivered: IntCounter,
     global_msgs_delivered: IntCounter,
@@ -42,6 +43,7 @@ impl DeliveryMetrics {
             global_connection_total: crate::metrics_helper::connection_total_for_service(
                 service_type,
             ),
+            ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
             ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
             msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
             global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(

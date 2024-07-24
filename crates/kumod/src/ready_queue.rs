@@ -423,11 +423,17 @@ impl ReadyQueue {
         if low_memory() {
             msg.shrink().ok();
         }
-        self.ready.push(msg)?;
-        self.notify_maintainer.notify_one();
-        self.notify_dispatcher.notify_one();
-
-        Ok(())
+        match self.ready.push(msg) {
+            Ok(()) => {
+                self.notify_maintainer.notify_one();
+                self.notify_dispatcher.notify_one();
+                Ok(())
+            }
+            Err(msg) => {
+                self.metrics.ready_full.inc();
+                Err(msg)
+            }
+        }
     }
 
     pub fn ready_count(&self) -> usize {
