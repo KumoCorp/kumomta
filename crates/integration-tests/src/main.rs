@@ -1132,7 +1132,10 @@ DeliverySummary {
             .collect();
 
         let first = intervals.remove(0);
-        assert!(first >= 0 && first <= 1, "first is {first} but should be ~0");
+        assert!(
+            first >= 0 && first <= 1,
+            "first is {first} but should be ~0"
+        );
         let mut expect = 5;
         for actual in intervals {
             assert!(
