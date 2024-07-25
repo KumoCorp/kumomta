@@ -1083,6 +1083,68 @@ DeliverySummary {
     }
 
     #[tokio::test]
+    async fn retry_schedule() -> anyhow::Result<()> {
+        let mut daemon =
+            DaemonWithMaildir::start_with_env(vec![("KUMOD_RETRY_INTERVAL", "5s")]).await?;
+
+        let mut client = daemon.smtp_client().await?;
+
+        let body = generate_message_text(1024, 78);
+        let response = MailGenParams {
+            body: Some(&body),
+            recip: Some("tempfail@foo.mx-sink.wezfurlong.org"),
+            ..Default::default()
+        }
+        .send(&mut client)
+        .await?;
+        anyhow::ensure!(response.code == 250);
+
+        daemon
+            .wait_for_source_summary(
+                |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 1,
+                Duration::from_secs(15),
+            )
+            .await;
+
+        daemon.stop_both().await?;
+        println!("Stopped!");
+
+        let records = daemon.source.collect_logs()?;
+        let event_times: Vec<_> = records
+            .iter()
+            .filter_map(|record| match record.kind {
+                TransientFailure => Some((record.timestamp - record.created).num_seconds()),
+                _ => None,
+            })
+            .collect();
+
+        let mut last = None;
+        let mut intervals: Vec<_> = event_times
+            .iter()
+            .map(|t| {
+                let result = match last {
+                    Some(l) => *t - l,
+                    None => *t,
+                };
+                last.replace(*t);
+                result
+            })
+            .collect();
+
+        assert_eq!(intervals.remove(0), 0);
+        let mut expect = 5;
+        for actual in intervals {
+            assert!(
+                actual >= expect && actual <= expect + 1,
+                "expected {expect} got {actual}"
+            );
+            expect *= 2;
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn tsa_basic_automation() -> anyhow::Result<()> {
         let mut daemon = DaemonWithTsa::start().await?;
 

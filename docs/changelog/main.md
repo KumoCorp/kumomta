@@ -52,6 +52,9 @@
   [kumo.make_egress_path](../reference/kumo/make_egress_path.md):
   `tls_prefer_openssl`, `openssl_cipher_list`, `openssl_cipher_suites`,
   `openssl_options`, `rustls_cipher_suites`.
+* Improved granularity of scheduled queue maintainer wakeups when small
+  a `retry_interval` is configured. Previously this was fixed at 1 minute,
+  but now it will scale to smaller values.
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

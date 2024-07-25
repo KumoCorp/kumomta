@@ -113,6 +113,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
       },
     }
   end
+
   return kumo.make_queue_config {
     protocol = {
       -- Redirect traffic to the sink
@@ -120,6 +121,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
         mx_list = { 'localhost' },
       },
     },
+    retry_interval = os.getenv 'KUMOD_RETRY_INTERVAL',
   }
 end)
 

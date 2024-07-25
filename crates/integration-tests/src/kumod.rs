@@ -450,9 +450,9 @@ impl KumoDaemon {
         Ok(())
     }
 
-    pub fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
+    pub fn collect_logs(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
         let dir = self.dir.path().join("logs");
-        let mut counts = BTreeMap::new();
+        let mut records = vec![];
 
         fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
             let f = std::fs::File::open(&path).with_context(|| format!("open {path:?}"))?;
@@ -487,9 +487,19 @@ impl KumoDaemon {
 
                 for line in text.lines() {
                     let record: JsonLogRecord = serde_json::from_str(&line)?;
-                    *counts.entry(record.kind).or_default() += 1;
+                    records.push(record);
                 }
             }
+        }
+
+        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        Ok(records)
+    }
+
+    pub fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
+        let mut counts = BTreeMap::new();
+        for record in self.collect_logs()? {
+            *counts.entry(record.kind).or_default() += 1;
         }
         Ok(counts)
     }

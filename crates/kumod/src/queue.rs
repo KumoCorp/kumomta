@@ -743,14 +743,21 @@ impl Queue {
         msg: Message,
     ) -> anyhow::Result<Option<Message>> {
         let id = *msg.id();
-        // Pre-calculate the delay, as the delay_for_attempt uses a zero-based
-        // attempt number to figure the interval
-        let delay = self
-            .queue_config
-            .borrow()
-            .delay_for_attempt(msg.get_num_attempts());
+        // Pre-calculate the delay, prior to incrementing the number of attempts,
+        // as the delay_for_attempt uses a zero-based attempt number to figure
+        // the interval
+        let num_attempts = msg.get_num_attempts();
+        let delay = self.queue_config.borrow().delay_for_attempt(num_attempts);
         msg.increment_num_attempts();
-        let jitter = (rand::random::<f32>() * 60.) - 30.0;
+
+        // Compute some jitter. The default retry_interval is 20 minutes for
+        // which 1 minute is desired. To accomodate different intervals we translate
+        // that to allowing up to 1/20th of the retry_interval as jitter, but we
+        // cap it to 1 minute so that it doesn't result in excessive divergence
+        // for very large intervals.
+        let jitter_magnitude =
+            (self.queue_config.borrow().retry_interval.as_secs_f32() / 20.0).min(60.0);
+        let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
         let now = Utc::now();
@@ -785,7 +792,7 @@ impl Queue {
             SpoolManager::remove_from_spool(id).await?;
             return Ok(None);
         }
-        tracing::trace!("increment_attempts_and_update_delay: delaying {id} by {delay}");
+        tracing::trace!("increment_attempts_and_update_delay: delaying {id} by {delay} (num_attempts={num_attempts})");
         msg.delay_by(delay).await?;
         Ok(Some(msg))
     }
@@ -1310,7 +1317,22 @@ impl QueueManager {
 
 #[instrument(skip(q))]
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
-    let mut sleep_duration = Duration::from_secs(60);
+    /// Figure the maintainer sleep duration by taking the retry_interval
+    /// and dividing by 20. In the default configuration, retry_interval
+    /// is 20 minutes and the desirable sleep interval is 1 minute.
+    /// We clamp the actual sleep duration to be between 1 second and 1 minute
+    /// so that it isn't excessively small or excessively large; we don't
+    /// want to sleep through in the case that another actor inserts
+    /// a message with a smaller duration while we weren't looking.
+    fn calc_sleep_duration(config: &QueueConfig) -> Duration {
+        (config.retry_interval / 20)
+            .max(Duration::from_secs(1))
+            .min(Duration::from_secs(60))
+    }
+
+    let mut preferred_sleep_duration = calc_sleep_duration(&*q.queue_config.borrow());
+    let mut sleep_duration = preferred_sleep_duration;
+
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
     let mut last_config_refresh = Instant::now();
@@ -1324,7 +1346,9 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
         {
             tracing::debug!(
-                "maintaining queue {} which has {} entries",
+                "maintaining queue {} which has {} entries. \
+                sleep_duration={sleep_duration:?}, \
+                preferred_sleep_duration={preferred_sleep_duration:?}",
                 q.name,
                 q.queue.lock().len()
             );
@@ -1357,6 +1381,8 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     if let Ok(queue_config) =
                         Queue::call_get_queue_config(&q.name, &mut config).await
                     {
+                        preferred_sleep_duration = calc_sleep_duration(&queue_config);
+                        sleep_duration = sleep_duration.min(preferred_sleep_duration);
                         q.queue_config.update(queue_config);
                     }
                 }
@@ -1373,14 +1399,23 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     }
                 }
                 PopResult::Sleep(duration) => {
-                    // We sleep at most 1 minute in case some other actor
-                    // re-inserts a message with ~1 minute delay. If we were
-                    // sleeping for 4 hours, we wouldn't wake up soon enough
-                    // to notice and dispatch it.
-                    sleep_duration = duration.min(Duration::from_secs(60));
+                    // The timeq can sometimes get into a mode where it suggests
+                    // a series of 1ms sleeps to us. We don't want to try for
+                    // such a short sleep; it's no generally productive.
+                    // We take the smaller of the suggested time and our preferred_sleep_duration,
+                    // but clamp it to be at least 1 second in order to strike
+                    // a reasonable balance.
+                    sleep_duration = duration
+                        .min(preferred_sleep_duration)
+                        .max(Duration::from_secs(1));
+                    tracing::trace!(
+                        "{}: pop_timeq suggests sleep of {duration:?}, \
+                        setting duration to {sleep_duration:?}",
+                        q.name
+                    );
                 }
                 PopResult::Empty => {
-                    sleep_duration = Duration::from_secs(60);
+                    sleep_duration = preferred_sleep_duration;
 
                     if q.last_change.lock().elapsed() > Duration::from_secs(60 * 10) {
                         QueueManager::remove(&q.name);
