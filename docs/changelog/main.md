@@ -72,3 +72,5 @@
 * Delayed messages were scheduled 1-step further along the exponental backoff schedule
   than intended; rather than being initially delayed for 20 minutes, they would be
   delayed for 40 minutes.
+* MTA-STS: failed to load the policy for some sites due to a redirect caused
+  by a trailing dot in the policy domain

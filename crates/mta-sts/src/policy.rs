@@ -120,6 +120,10 @@ pub async fn load_policy_for_domain(
     policy_domain: &str,
     getter: &dyn Get,
 ) -> anyhow::Result<MtaStsPolicy> {
+    // kumo uses canonicalized names that include a trailing period.
+    // remove that from the policy_domain to avoid extraneous redirects
+    // on some remote servers
+    let policy_domain = policy_domain.trim_end_matches('.');
     let url = format!("https://mta-sts.{policy_domain}/.well-known/mta-sts.txt");
     let policy = getter.http_get(&url).await?;
     MtaStsPolicy::parse(&policy)
@@ -163,7 +167,7 @@ pub(crate) mod test {
         )]);
 
         k9::snapshot!(
-            load_policy_for_domain("example.com", &getter)
+            load_policy_for_domain("example.com.", &getter)
                 .await
                 .unwrap(),
             r#"
