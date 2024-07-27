@@ -6,6 +6,22 @@ this is acceptable, but best practices recommend separating mail streams into
 their own IPs addresses in order to isolate reputation and enable larger
 sending volumes than would be possible on a single IP address.
 
+KumoMTA has the concept of pools of IPs. A given scheduled queue can be
+associated with a pool and it will then use *Weighted Round Robin* (WRR) to
+distribute sends from that scheduled queue across the IPs contained within its
+associated pool.  When a scheduled queue is idle for approximately 10 minutes,
+it will idle out and the round robin state will be reset for the next send.
+
+!!! info
+    The *Weighted Round Robin* implementation in kumomta is considered to be
+    **probabilistic**, achieving the configured distribution only when the rate
+    of sending is sufficiently high (at least 1 message to a given site every
+    few minutes), and is scoped per-*scheduled*-queue. There is no whole-machine
+    nor whole-cluster coordination in the round robin implementation as those
+    techniques introduce bottlenecks that limit scalability and are unnecessary
+    at the kinds of volumes where it is important to implement distribution
+    across sending IPs.
+
 ## Using the sources.lua Policy Helper
 
 While the process for creating Egress Sources and Pools is defined below, most
