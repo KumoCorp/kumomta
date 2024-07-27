@@ -7,10 +7,12 @@ their own IPs addresses in order to isolate reputation and enable larger
 sending volumes than would be possible on a single IP address.
 
 KumoMTA has the concept of pools of IPs. A given scheduled queue can be
-associated with a pool and it will then use *Weighted Round Robin* (WRR) to
-distribute sends from that scheduled queue across the IPs contained within its
-associated pool.  When a scheduled queue is idle for approximately 10 minutes,
-it will idle out and the round robin state will be reset for the next send.
+associated with a pool and it will then use *[Weighted Round
+Robin](http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling)*
+(WRR) to distribute sends from that scheduled queue across the IPs contained
+within its associated pool.  When a scheduled queue is idle for approximately
+10 minutes, it will idle out and the round robin state will be reset for the
+next send.
 
 !!! info
     The *Weighted Round Robin* implementation in kumomta is considered to be
@@ -86,6 +88,9 @@ for more information.
 !!!note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
+    **The examples show here are illustrative: if all you intend is to copy
+    and paste these into your configuration and use them as-is, we strongly
+    recommend that you use the sources.lua module instead.**
 
 In KumoMTA, source IPs are described in an *Egress Source.* And Egress Source
 represents an object that can be used to send messages and is not attached to a
@@ -157,6 +162,9 @@ end)
 !!!note
     Most users will be satisfied with using the policy helper shown above.
     This section and the remainder of this page is for more advanced users.
+    **The examples show here are illustrative: if all you intend is to copy
+    and paste these into your configuration and use them as-is, we strongly
+    recommend that you use the sources.lua module instead.**
 
 Messages cannot be assigned directly to an Egress Source, but are instead
 assigned to an Egress Pool. An Egress Pool contains one or more Egress Sources,
