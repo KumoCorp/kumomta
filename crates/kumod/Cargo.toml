@@ -41,7 +41,7 @@ mailparsing = {path="../mailparsing"}
 memchr = "2.5"
 message = {path="../message"}
 metrics = {workspace=true}
-minijinja-contrib = {version="2.0.1",features=["datetime", "timezone"]}
+minijinja-contrib = {version="2.1.0",features=["datetime", "timezone"]}
 minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
