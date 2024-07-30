@@ -50,7 +50,7 @@ The install instructions for supported platforms are shown below. If your platfo
     $ sudo dnf -y install dnf-plugins-core
     $ sudo dnf config-manager --add-repo \
         https://openrepo.kumomta.com/files/kumomta-amazon2023.repo
-    $ sudo yum install kumomta
+    $ sudo dnf install kumomta
     ```
 
 ## Installing from a Dev Repository
@@ -106,7 +106,6 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
         https://openrepo.kumomta.com/files/kumomta-amazon2023.repo
     $ sudo yum install kumomta-dev
     ```
-
 
 ## The Initial Config File
 
