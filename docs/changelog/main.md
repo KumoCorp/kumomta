@@ -55,6 +55,9 @@
 * Improved granularity of scheduled queue maintainer wakeups when small
   a `retry_interval` is configured. Previously this was fixed at 1 minute,
   but now it will scale to smaller values.
+* proxy-server: added `--no-splice` option to opt out of using `splice(2)`
+  on Linux. Switch to using `tokio::io::copy_bidirectional` for non-splice mode.
+  Switch to using `tokio_splice::zero_copy_bidirectional` for splice mode.
 
 ## Fixes
 * Using `expiration` in a DKIM signer would unconditionally raise an error and

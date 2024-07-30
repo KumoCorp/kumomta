@@ -13,3 +13,4 @@ libc = "0.2"
 log = "0.4"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 tokio = {workspace=true, features=["full", "tracing"]}
+tokio-splice = "0.2"

@@ -4295,6 +4295,7 @@ dependencies = [
  "log",
  "socksv5",
  "tokio",
+ "tokio-splice",
 ]
 
 [[package]]
@@ -5898,6 +5899,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
 dependencies = [
  "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-splice"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a2a7f772e1e410eed5ec3aa665bc24532d01adb17d67aff6715db3f14e8c758"
+dependencies = [
+ "libc",
  "tokio",
 ]
 

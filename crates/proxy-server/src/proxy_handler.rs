@@ -1,13 +1,8 @@
-#[cfg(target_os = "linux")]
-use crate::splice_copy::splice_copy as copy_stream;
 use anyhow::Context;
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5Request, SocksV5RequestStatus,
 };
 use std::net::{IpAddr, SocketAddr};
-use tokio::io::AsyncWriteExt;
-#[cfg(not(target_os = "linux"))]
-use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::timeout;
 
@@ -18,12 +13,12 @@ pub async fn handle_proxy_client(
     mut stream: TcpStream,
     peer_address: SocketAddr,
     timeout_duration: std::time::Duration,
+    no_splice: bool,
 ) -> anyhow::Result<()> {
-    let (mut src_reader, mut src_writer) = stream.split();
     let mut state = ClientState::None;
 
     let handshake = timeout(timeout_duration, async {
-        socksv5::v5::read_handshake(&mut src_reader).await
+        socksv5::v5::read_handshake(&mut stream).await
     })
     .await
     .with_context(|| format!("timeout reading client handshake from {peer_address:?}"))?
@@ -41,7 +36,7 @@ pub async fn handle_proxy_client(
     }
 
     timeout(timeout_duration, async {
-        socksv5::v5::write_auth_method(&mut src_writer, SocksV5AuthMethod::Noauth).await
+        socksv5::v5::write_auth_method(&mut stream, SocksV5AuthMethod::Noauth).await
     })
     .await
     .with_context(|| format!("timeout sending Noauth response to {peer_address:?}"))?
@@ -49,7 +44,7 @@ pub async fn handle_proxy_client(
 
     loop {
         let request = timeout(timeout_duration, async {
-            socksv5::v5::read_request(&mut src_reader).await
+            socksv5::v5::read_request(&mut stream).await
         })
         .await
         .with_context(|| format!("timeout reading request from {peer_address:?} {state:?}"))?
@@ -78,13 +73,8 @@ pub async fn handle_proxy_client(
         log::trace!("peer={peer_address:?}: {state:?} status -> {status:?}");
 
         timeout(timeout_duration, async {
-            socksv5::v5::write_request_status(
-                &mut src_writer,
-                status.status,
-                status.host,
-                status.port,
-            )
-            .await
+            socksv5::v5::write_request_status(&mut stream, status.status, status.host, status.port)
+                .await
         })
         .await
         .with_context(|| {
@@ -104,33 +94,20 @@ pub async fn handle_proxy_client(
     }
 
     match state {
-        ClientState::Connected(mut stream) => {
-            log::trace!("peer={peer_address:?} -> going to passthru mode");
+        ClientState::Connected(mut remote_stream) => {
+            #[cfg(target_os = "linux")]
+            if !no_splice {
+                log::trace!("peer={peer_address:?} -> going to splice passthru mode");
+                tokio_splice::zero_copy_bidirectional(&mut stream, &mut remote_stream).await?;
+                return Ok(());
+            }
 
-            let (mut dest_reader, mut dest_writer) = stream.split();
-
-            let src_to_dest = async {
-                copy_stream(&mut src_reader, &mut dest_writer).await?;
-                dest_writer.shutdown().await?;
-                Ok(())
-            };
-
-            let dest_to_src = async {
-                copy_stream(&mut dest_reader, &mut src_writer).await?;
-                src_writer.shutdown().await?;
-                Ok(())
-            };
-
-            tokio::try_join!(src_to_dest, dest_to_src).map(|_| ())
+            log::trace!("peer={peer_address:?} -> going to non-splice passthru mode");
+            tokio::io::copy_bidirectional(&mut stream, &mut remote_stream).await?;
+            Ok(())
         }
         _ => anyhow::bail!("Unexpected client state {state:?}"),
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-async fn copy_stream(src: &mut ReadHalf<'_>, dst: &mut WriteHalf<'_>) -> anyhow::Result<()> {
-    tokio::io::copy(src, dst).await?;
-    Ok(())
 }
 
 /// Encapsulates the result of processing a command from the client

@@ -3,8 +3,6 @@ use clap::Parser;
 use tokio::net::TcpListener;
 
 mod proxy_handler;
-#[cfg(target_os = "linux")]
-mod splice_copy;
 
 /// KumoProxy SOCKS5 Proxy Server
 #[derive(Debug, Parser)]
@@ -12,6 +10,9 @@ mod splice_copy;
 pub struct Opt {
     #[arg(long)]
     listen: Vec<String>,
+
+    #[arg(long)]
+    no_splice: bool,
 
     #[arg(long, default_value = "60")]
     timeout_seconds: u64,
@@ -30,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
         start_listener(
             endpoint,
             std::time::Duration::from_secs(opts.timeout_seconds),
+            opts.no_splice,
         )
         .await?;
     }
@@ -39,7 +41,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow::Result<()> {
+async fn start_listener(
+    endpoint: &str,
+    timeout: std::time::Duration,
+    no_splice: bool,
+) -> anyhow::Result<()> {
     let listener = TcpListener::bind(endpoint)
         .await
         .with_context(|| format!("failed to bind to {endpoint}"))?;
@@ -59,7 +65,8 @@ async fn start_listener(endpoint: &str, timeout: std::time::Duration) -> anyhow:
 
             tokio::spawn(async move {
                 if let Err(err) =
-                    proxy_handler::handle_proxy_client(socket, peer_address, timeout).await
+                    proxy_handler::handle_proxy_client(socket, peer_address, timeout, no_splice)
+                        .await
                 {
                     log::error!("proxy session error: {err:#}");
                 }
