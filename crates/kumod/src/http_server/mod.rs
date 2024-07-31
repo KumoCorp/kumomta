@@ -14,6 +14,7 @@ pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
 pub mod admin_trace_smtp_client_v1;
 pub mod admin_trace_smtp_server_v1;
+pub mod check_liveness_v1;
 pub mod inject_v1;
 
 #[derive(OpenApi)]
@@ -32,6 +33,7 @@ pub mod inject_v1;
         admin_suspend_v1::suspend,
         admin_suspend_v1::list,
         admin_suspend_v1::delete,
+        check_liveness_v1::check_liveness_v1,
     ),
     components(
         schemas(
@@ -66,6 +68,10 @@ struct ApiDoc;
 pub fn make_router() -> RouterAndDocs {
     RouterAndDocs {
         router: Router::new()
+            .route(
+                "/api/check-liveness/v1",
+                get(check_liveness_v1::check_liveness_v1),
+            )
             .route("/api/inject/v1", post(inject_v1::inject_v1))
             .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
             .route("/api/admin/bounce/v1", get(admin_bounce_v1::bounce_v1_list))
