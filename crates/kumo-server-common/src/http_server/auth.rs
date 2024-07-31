@@ -83,11 +83,22 @@ impl AuthKind {
     }
 }
 
+fn is_auth_exempt(uri: &axum::http::Uri) -> bool {
+    match uri.path() {
+        "/api/check-liveness/v1" => true,
+        _ => false,
+    }
+}
+
 pub async fn auth_middleware(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Response {
+    if is_auth_exempt(request.uri()) {
+        return next.run(request).await;
+    }
+
     if let Some(remote_addr) = request
         .extensions()
         .get::<axum::extract::ConnectInfo<SocketAddr>>()
