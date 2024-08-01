@@ -3,6 +3,7 @@
 ## Breaking Changes
 
 ## Other Changes and Enhancements
+
 * The [kumomta-dev container
   image](https://github.com/KumoCorp/kumomta/pkgs/container/kumomta-dev) is now
   a multiarch image, supporting both `linux/amd64` and `linux/arm64`
@@ -58,8 +59,11 @@
 * proxy-server: added `--no-splice` option to opt out of using `splice(2)`
   on Linux. Switch to using `tokio::io::copy_bidirectional` for non-splice mode.
   Switch to using `tokio_splice::zero_copy_bidirectional` for splice mode.
+* Add `/api/check-liveness/v1` API endpoint to determine whether the KumoMTA 
+  node is live and ready to receive messages.
 
 ## Fixes
+
 * Using `expiration` in a DKIM signer would unconditionally raise an error and
   prevent reception of the incoming message.
 * Invalid structured headers, such as Message-ID, in combination with other message
