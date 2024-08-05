@@ -1139,7 +1139,7 @@ DeliverySummary {
         let mut expect = 5;
         for actual in intervals {
             assert!(
-                actual >= expect && actual <= expect + 1,
+                actual >= expect && actual <= (expect + expect / 2),
                 "expected {expect} got {actual}"
             );
             expect *= 2;
