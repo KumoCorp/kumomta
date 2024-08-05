@@ -144,17 +144,7 @@ impl ScheduledMetrics {
     }
 
     pub fn remove_metrics_for_queue(name: &str) {
-        let components = QueueNameComponents::parse(name);
-
         DELAY_GAUGE.remove_label_values(&[name]).ok();
-
-        match &components.campaign {
-            Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.remove_label_values(&[
-                components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
-                campaign,
-            ])),
-            None => None,
-        };
         DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
             .remove_label_values(&[name])
             .ok();
