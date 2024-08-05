@@ -105,8 +105,8 @@ impl ScheduledMetrics {
         };
         let by_tenant_campaign = match &components.campaign {
             Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.get_metric_with_label_values(&[
-                campaign,
                 components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
+                campaign,
             ])?),
             None => None,
         };
@@ -141,6 +141,19 @@ impl ScheduledMetrics {
         self.by_domain.sub(amount);
         self.by_tenant.as_ref().map(|m| m.sub(amount));
         self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
+    }
+
+    pub fn remove_metrics_for_queue(name: &str) {
+        DELAY_GAUGE.remove_label_values(&[name]).ok();
+        DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
+            .remove_label_values(&[name])
+            .ok();
+        DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
+            .remove_label_values(&[name])
+            .ok();
+        DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
+            .remove_label_values(&[name])
+            .ok();
     }
 }
 
@@ -1423,16 +1436,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                         // Remove any metrics that go with it, so that we don't
                         // end up using a lot of memory remembering stats from
                         // what might be a long tail of tiny domains forever.
-                        DELAY_GAUGE.remove_label_values(&[&q.name]).ok();
-                        DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
-                            .remove_label_values(&[&q.name])
-                            .ok();
-                        DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
-                            .remove_label_values(&[&q.name])
-                            .ok();
-                        DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
-                            .remove_label_values(&[&q.name])
-                            .ok();
+                        ScheduledMetrics::remove_metrics_for_queue(&q.name);
                         return Ok(());
                     }
                 }
