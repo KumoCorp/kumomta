@@ -57,16 +57,74 @@ fn redis_value_to_lua<'lua>(lua: &'lua Lua, value: RedisValue) -> mlua::Result<V
     Ok(match value {
         RedisValue::Nil => Value::Nil,
         RedisValue::Int(i) => Value::Integer(i),
-        RedisValue::Data(bytes) => Value::String(lua.create_string(&bytes)?),
-        RedisValue::Bulk(values) => {
+        RedisValue::Boolean(i) => Value::Boolean(i),
+        RedisValue::BigNumber(i) => Value::String(lua.create_string(i.to_string())?),
+        RedisValue::Double(i) => Value::Number(i),
+        RedisValue::BulkString(bytes) => Value::String(lua.create_string(&bytes)?),
+        RedisValue::SimpleString(s) => Value::String(lua.create_string(&s)?),
+        RedisValue::Map(pairs) => {
+            let map = lua.create_table()?;
+            for (k, v) in pairs {
+                let k = redis_value_to_lua(lua, k)?;
+                let v = redis_value_to_lua(lua, v)?;
+                map.set(k, v)?;
+            }
+            Value::Table(map)
+        }
+        RedisValue::Array(values) => {
             let array = lua.create_table()?;
             for v in values {
                 array.push(redis_value_to_lua(lua, v)?)?;
             }
             Value::Table(array)
         }
-        RedisValue::Status(s) => Value::String(lua.create_string(&s)?),
+        RedisValue::Set(values) => {
+            let array = lua.create_table()?;
+            for v in values {
+                array.push(redis_value_to_lua(lua, v)?)?;
+            }
+            Value::Table(array)
+        }
+        RedisValue::Attribute { data, attributes } => {
+            let map = lua.create_table()?;
+            for (k, v) in attributes {
+                let k = redis_value_to_lua(lua, k)?;
+                let v = redis_value_to_lua(lua, v)?;
+                map.set(k, v)?;
+            }
+
+            let attribute = lua.create_table()?;
+            attribute.set("data", redis_value_to_lua(lua, *data)?)?;
+            attribute.set("attributes", map)?;
+
+            Value::Table(attribute)
+        }
+        RedisValue::VerbatimString { format, text } => {
+            let vstr = lua.create_table()?;
+            vstr.set("format", format.to_string())?;
+            vstr.set("text", text)?;
+            Value::Table(vstr)
+        }
+        RedisValue::ServerError(_) => {
+            return Err(value
+                .extract_error()
+                .map_err(mlua::Error::external)
+                .unwrap_err());
+        }
         RedisValue::Okay => Value::Boolean(true),
+        RedisValue::Push { kind, data } => {
+            let array = lua.create_table()?;
+            for v in data {
+                let v = redis_value_to_lua(lua, v)?;
+                array.push(v)?;
+            }
+
+            let push = lua.create_table()?;
+            push.set("data", array)?;
+            push.set("kind", kind.to_string())?;
+
+            Value::Table(push)
+        }
     })
 }
 
@@ -112,12 +170,12 @@ impl ToRedisArgs for RedisJsonValue<'_> {
         }
     }
 
-    fn is_single_arg(&self) -> bool {
+    fn num_of_args(&self) -> usize {
         match self.0 {
-            JsonValue::Array(array) => array.len() == 1,
-            JsonValue::Null => false,
-            JsonValue::Object(map) => map.len() <= 1,
-            JsonValue::Number(_) | JsonValue::Bool(_) | JsonValue::String(_) => true,
+            JsonValue::Array(array) => array.len(),
+            JsonValue::Null => 1,
+            JsonValue::Object(map) => map.len(),
+            JsonValue::Number(_) | JsonValue::Bool(_) | JsonValue::String(_) => 1,
         }
     }
 }

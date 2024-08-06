@@ -152,7 +152,7 @@ mod test {
         cmd.arg("my_key");
         let value = connection.query(cmd).await?;
 
-        assert_eq!(value, redis::Value::Data(b"42".to_vec()));
+        assert_eq!(value, redis::Value::BulkString(b"42".to_vec()));
 
         Ok(())
     }
