@@ -587,6 +587,7 @@ dependencies = [
 name = "bounce-classify"
 version = "0.1.0"
 dependencies = [
+ "ordermap",
  "regex",
  "rfc5321",
  "serde",
@@ -3946,6 +3947,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a91171844676f8c7990ce64959210cd2eaef32c2612c50f9fae9f8aaa6065a6"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "ordermap"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c81974681ab4f0cc9fe49cad56f821d1cc67a08cd2caa9b5d58b0adaa5dd36d"
+dependencies = [
+ "indexmap 2.3.0",
+ "serde",
 ]
 
 [[package]]

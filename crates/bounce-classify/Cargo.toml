@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ordermap = {version="0.5", features=["serde"]}
 regex = "1.7"
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {version="1.0", features=["derive"]}

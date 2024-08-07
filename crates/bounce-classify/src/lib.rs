@@ -1,6 +1,6 @@
+use ordermap::OrderMap;
 use regex::{RegexSet, RegexSetBuilder};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Clone, Ord, PartialOrd)]
@@ -117,13 +117,13 @@ pub enum PreDefinedBounceClass {
 /// Defines the content of bounce classifier rules files
 #[derive(Deserialize, Serialize, Debug)]
 pub struct BounceClassifierFile {
-    pub rules: BTreeMap<BounceClass, Vec<String>>,
+    pub rules: OrderMap<BounceClass, Vec<String>>,
 }
 
 /// Holds state for compiling rules files into a classifier
 #[derive(Default)]
 pub struct BounceClassifierBuilder {
-    rules: BTreeMap<BounceClass, Vec<String>>,
+    rules: Vec<(BounceClass, String)>,
 }
 
 impl BounceClassifierBuilder {
@@ -132,11 +132,15 @@ impl BounceClassifierBuilder {
     }
 
     pub fn add_rule(&mut self, class: BounceClass, rule: String) {
-        self.rules.entry(class).or_default().push(rule);
+        self.rules.push((class, rule));
     }
 
-    pub fn merge(&mut self, mut decoded_file: BounceClassifierFile) {
-        self.rules.append(&mut decoded_file.rules);
+    pub fn merge(&mut self, decoded_file: BounceClassifierFile) {
+        for (class, rules) in decoded_file.rules {
+            for rule in rules {
+                self.add_rule(class.clone(), rule);
+            }
+        }
     }
 
     pub fn merge_json_file(&mut self, file_name: &str) -> Result<(), String> {
@@ -160,7 +164,7 @@ impl BounceClassifierBuilder {
     pub fn build(self) -> Result<BounceClassifier, String> {
         let mut pattern_to_class = vec![];
         let mut patterns = vec![];
-        for (class, mut rules) in self.rules {
+        for (class, rule) in self.rules {
             // Build a simple implicit reverse map from pattern
             // index to the bounce classification. This gives
             // an O(1) mapping from the regex result at the
@@ -168,10 +172,8 @@ impl BounceClassifierBuilder {
             // this could be changed to a structure that tracks
             // start/end ranges of pattern indices and uses a
             // binary search.
-            for _ in 0..rules.len() {
-                pattern_to_class.push(class.clone());
-            }
-            patterns.append(&mut rules);
+            pattern_to_class.push(class.clone());
+            patterns.push(rule);
         }
 
         pattern_to_class.shrink_to_fit();
@@ -213,6 +215,50 @@ impl BounceClassifier {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_rule_order() {
+        let f1: BounceClassifierFile = toml::from_str(
+            r#"
+[rules]
+foo = ["woot", "aaa"]
+bar = ["woot", "aaa", "bbb"]
+        "#,
+        )
+        .unwrap();
+
+        let f2: BounceClassifierFile = toml::from_str(
+            r#"
+[rules]
+second_file = ["bbb", "ccc"]
+        "#,
+        )
+        .unwrap();
+
+        let mut builder = BounceClassifierBuilder::new();
+        builder.merge(f1);
+        builder.merge(f2);
+
+        let classifier = builder.build().unwrap();
+        assert_eq!(
+            classifier.classify_str("woot"),
+            BounceClass::UserDefined("foo".to_string()),
+            "foo should match rather than bar"
+        );
+        assert_eq!(
+            classifier.classify_str("aaa"),
+            BounceClass::UserDefined("foo".to_string()),
+            "foo should match rather than bar"
+        );
+        assert_eq!(
+            classifier.classify_str("bbb"),
+            BounceClass::UserDefined("bar".to_string()),
+        );
+        assert_eq!(
+            classifier.classify_str("ccc"),
+            BounceClass::UserDefined("second_file".to_string()),
+        );
+    }
 
     #[test]
     fn test_bounce_classify_iana() {
