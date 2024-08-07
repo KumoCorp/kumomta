@@ -17,6 +17,4 @@ serde_json = "1.0"
 redis = {version="0.26", features=["cluster", "cluster-async", "connection-manager", "tokio-comp"]}
 tokio = {workspace=true, features=["rt", "tracing", "process", "io-util", "io-std", "macros", "time"]}
 tempfile = {workspace=true}
-
-[dev-dependencies]
 which = "4.4"

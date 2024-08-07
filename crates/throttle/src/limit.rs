@@ -342,7 +342,7 @@ mod test {
 
     #[tokio::test]
     async fn test_redis() {
-        if which::which("redis-server").is_err() {
+        if !RedisServer::is_available() {
             return;
         }
         let redis = RedisServer::spawn("").await.unwrap();
@@ -380,10 +380,7 @@ mod test {
 
     #[tokio::test]
     async fn test_redis_cluster() {
-        if which::which("redis-server").is_err() {
-            return;
-        }
-        if which::which("redis-cli").is_err() {
+        if !RedisCluster::is_available().await {
             return;
         }
         let redis = RedisCluster::spawn().await.unwrap();
@@ -450,7 +447,7 @@ mod test {
 
     #[tokio::test]
     async fn test_redis_extension() {
-        if which::which("redis-server").is_err() {
+        if !RedisServer::is_available() {
             return;
         }
         let redis = RedisServer::spawn("").await.unwrap();

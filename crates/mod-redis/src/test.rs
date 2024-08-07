@@ -24,6 +24,10 @@ fn allocate_port() -> u16 {
 }
 
 impl RedisServer {
+    pub fn is_available() -> bool {
+        which::which("redis-server").is_ok()
+    }
+
     pub async fn spawn(extra_config: &str) -> anyhow::Result<Self> {
         let mut errors = vec![];
 
@@ -133,6 +137,43 @@ pub struct RedisCluster {
 }
 
 impl RedisCluster {
+    /// Check whether redis is available to run as a cluster.
+    /// We look for redis 7.x and later, because we rely on
+    /// the --cluster-yes option actually working as part of
+    /// our cluster initialization. It doesn't work on redis 5.x
+    /// which is present on rocky8 for example.
+    pub async fn is_available() -> bool {
+        if !RedisServer::is_available() {
+            return false;
+        }
+
+        match Command::new("redis-cli").arg("-v").output().await {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                match stdout.lines().next() {
+                    Some(line) => {
+                        let Some((redis, version)) = line.split_once(" ") else {
+                            return false;
+                        };
+                        if redis == "redis-cli" {
+                            let Some((major, _rest)) = version.split_once(".") else {
+                                return false;
+                            };
+                            let Ok(major) = major.parse::<u32>() else {
+                                return false;
+                            };
+                            major >= 7
+                        } else {
+                            false
+                        }
+                    }
+                    None => false,
+                }
+            }
+            Err(_) => false,
+        }
+    }
+
     pub async fn spawn() -> anyhow::Result<Self> {
         let extra_config = "cluster-enabled yes\n";
         let primary = RedisServer::spawn(extra_config).await?;
@@ -222,7 +263,7 @@ mod test {
 
     #[tokio::test]
     async fn test_basic_operation() -> anyhow::Result<()> {
-        if which::which("redis-server").is_err() {
+        if !RedisServer::is_available() {
             return Ok(());
         }
         let daemon = RedisServer::spawn("").await?;
@@ -243,10 +284,7 @@ mod test {
 
     #[tokio::test]
     async fn test_basic_operation_cluster() -> anyhow::Result<()> {
-        if which::which("redis-server").is_err() {
-            return Ok(());
-        }
-        if which::which("redis-cli").is_err() {
+        if !RedisCluster::is_available().await {
             return Ok(());
         }
         let daemon = RedisCluster::spawn().await?;
