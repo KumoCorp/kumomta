@@ -61,6 +61,7 @@
   Switch to using `tokio_splice::zero_copy_bidirectional` for splice mode.
 * Add `/api/check-liveness/v1` API endpoint to determine whether the KumoMTA 
   node is live and ready to receive messages.
+* Updated redis crate to 0.26, which improves connection management and pooling.
 
 ## Fixes
 
@@ -81,3 +82,5 @@
   delayed for 40 minutes.
 * MTA-STS: failed to load the policy for some sites due to a redirect caused
   by a trailing dot in the policy domain
+* redis cluster: `could not acquire connection lease: An error was signalled by
+  the server` with some redis cluster deployments when using `kumo.configure_redis_throttles`.

@@ -24,12 +24,17 @@ fn allocate_port() -> u16 {
 }
 
 impl RedisServer {
-    pub async fn spawn() -> anyhow::Result<Self> {
+    pub async fn spawn(extra_config: &str) -> anyhow::Result<Self> {
         let mut errors = vec![];
 
         for _ in 0..2 {
             let port = allocate_port();
-            match timeout(Duration::from_secs(5), Self::spawn_with_port(port)).await? {
+            match timeout(
+                Duration::from_secs(5),
+                Self::spawn_with_port(port, extra_config),
+            )
+            .await?
+            {
                 Ok(me) => return Ok(me),
                 Err(err) => {
                     errors.push(format!("{err:#}"));
@@ -39,7 +44,7 @@ impl RedisServer {
         anyhow::bail!("failed to spawn redis-server: {}", errors.join(". "));
     }
 
-    async fn spawn_with_port(port: u16) -> anyhow::Result<Self> {
+    async fn spawn_with_port(port: u16, extra_config: &str) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir().context("make temp dir")?;
         let mut daemon = Command::new("redis-server")
             .args(["-"])
@@ -66,6 +71,9 @@ impl RedisServer {
             stdin.write_all(format!("port {port}\n").as_bytes()).await?;
             stdin
                 .write_all(format!("dir {}\n", dir.path().display()).as_bytes())
+                .await?;
+            stdin
+                .write_all(format!("{extra_config}\n").as_bytes())
                 .await?;
             drop(stdin);
         }
@@ -105,10 +113,86 @@ impl RedisServer {
             read_from_replicas: false,
             username: None,
             password: None,
+            cluster: None,
             pool_size: None,
             connect_timeout: None,
+            max_spare: None,
+            max_age: None,
+            max_idle_age: None,
+            get_timeout: None,
+            response_timeout: None,
         };
-        key.open().await
+        key.open()
+    }
+}
+
+pub struct RedisCluster {
+    primary: RedisServer,
+    secondary: RedisServer,
+    tertiary: RedisServer,
+}
+
+impl RedisCluster {
+    pub async fn spawn() -> anyhow::Result<Self> {
+        let extra_config = "cluster-enabled yes\n";
+        let primary = RedisServer::spawn(extra_config).await?;
+        let secondary = RedisServer::spawn(extra_config).await?;
+        let tertiary = RedisServer::spawn(extra_config).await?;
+
+        let cluster_setup = Command::new("redis-cli")
+            .args([
+                "--cluster",
+                "create",
+                &format!("127.0.0.1:{}", primary.port),
+                &format!("127.0.0.1:{}", secondary.port),
+                &format!("127.0.0.1:{}", tertiary.port),
+                "--cluster-yes",
+            ])
+            .kill_on_drop(true)
+            .output()
+            .await
+            .context("create redis cluster")?;
+
+        if !cluster_setup.stdout.is_empty() {
+            eprintln!(
+                "cluster_setup stdout: {}",
+                String::from_utf8_lossy(&cluster_setup.stdout)
+            );
+        }
+        if !cluster_setup.stderr.is_empty() {
+            eprintln!(
+                "cluster_setup stderr: {}",
+                String::from_utf8_lossy(&cluster_setup.stderr)
+            );
+        }
+
+        Ok(Self {
+            primary,
+            secondary,
+            tertiary,
+        })
+    }
+
+    pub async fn connection(&self) -> anyhow::Result<RedisConnection> {
+        let key = RedisConnKey {
+            node: NodeSpec::Cluster(vec![
+                format!("redis://127.0.0.1:{}", self.primary.port),
+                format!("redis://127.0.0.1:{}", self.secondary.port),
+                format!("redis://127.0.0.1:{}", self.tertiary.port),
+            ]),
+            read_from_replicas: false,
+            username: None,
+            password: None,
+            cluster: None,
+            pool_size: None,
+            connect_timeout: None,
+            max_spare: None,
+            max_age: None,
+            max_idle_age: None,
+            get_timeout: None,
+            response_timeout: None,
+        };
+        key.open()
     }
 }
 
@@ -141,7 +225,31 @@ mod test {
         if which::which("redis-server").is_err() {
             return Ok(());
         }
-        let daemon = RedisServer::spawn().await?;
+        let daemon = RedisServer::spawn("").await?;
+        let connection = daemon.connection().await?;
+
+        let mut cmd = redis::cmd("SET");
+        cmd.arg("my_key").arg(42);
+        connection.query(cmd).await?;
+
+        let mut cmd = redis::cmd("GET");
+        cmd.arg("my_key");
+        let value = connection.query(cmd).await?;
+
+        assert_eq!(value, redis::Value::BulkString(b"42".to_vec()));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_basic_operation_cluster() -> anyhow::Result<()> {
+        if which::which("redis-server").is_err() {
+            return Ok(());
+        }
+        if which::which("redis-cli").is_err() {
+            return Ok(());
+        }
+        let daemon = RedisCluster::spawn().await?;
         let connection = daemon.connection().await?;
 
         let mut cmd = redis::cmd("SET");

@@ -309,7 +309,7 @@ impl MemoryStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use mod_redis::test::RedisServer;
+    use mod_redis::test::{RedisCluster, RedisServer};
 
     #[tokio::test]
     async fn test_memory() {
@@ -345,7 +345,48 @@ mod test {
         if which::which("redis-server").is_err() {
             return;
         }
-        let redis = RedisServer::spawn().await.unwrap();
+        let redis = RedisServer::spawn("").await.unwrap();
+        let conn = redis.connection().await.unwrap();
+
+        let limit = LimitSpec {
+            limit: 2,
+            duration: Duration::from_secs(2),
+        };
+
+        let key = format!("test_redis-{}", Uuid::new_v4());
+        let mut lease1 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        eprintln!("lease1: {lease1:?}");
+        let mut lease2 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        eprintln!("lease2: {lease2:?}");
+        // Cannot acquire a 3rd lease while the other two are alive
+        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+
+        // Release and try to get a third
+        lease2.release_redis(conn.clone()).await;
+        let mut lease3 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+
+        // Cannot acquire while the other two are alive
+        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+
+        // Wait for some number of leases to expire
+        tokio::time::sleep(limit.duration + limit.duration).await;
+
+        let mut lease4 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+
+        lease1.release_redis(conn.clone()).await;
+        lease3.release_redis(conn.clone()).await;
+        lease4.release_redis(conn.clone()).await;
+    }
+
+    #[tokio::test]
+    async fn test_redis_cluster() {
+        if which::which("redis-server").is_err() {
+            return;
+        }
+        if which::which("redis-cli").is_err() {
+            return;
+        }
+        let redis = RedisCluster::spawn().await.unwrap();
         let conn = redis.connection().await.unwrap();
 
         let limit = LimitSpec {
@@ -412,7 +453,7 @@ mod test {
         if which::which("redis-server").is_err() {
             return;
         }
-        let redis = RedisServer::spawn().await.unwrap();
+        let redis = RedisServer::spawn("").await.unwrap();
         let conn = redis.connection().await.unwrap();
 
         let limit = LimitSpec {

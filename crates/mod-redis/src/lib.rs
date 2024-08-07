@@ -1,13 +1,17 @@
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
+use mobc::{async_trait, Manager, Pool};
 use once_cell::sync::Lazy;
-use r2d2::{ManageConnection, Pool, PooledConnection};
-use redis::cluster::{ClusterClient, ClusterConnection};
+use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
+use redis::cluster::ClusterClient;
+use redis::cluster_async::ClusterConnection;
 pub use redis::{
     cmd, Cmd, FromRedisValue, RedisError, Script, ScriptInvocation, Value as RedisValue,
 };
-use redis::{Client, Connection, ConnectionLike, RedisWrite, ToRedisArgs};
+use redis::{
+    Client, ConnectionInfo, IntoConnectionInfo, Pipeline, RedisFuture, RedisWrite, ToRedisArgs,
+};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -16,40 +20,44 @@ use std::time::Duration;
 
 pub mod test;
 
-static POOLS: Lazy<Mutex<HashMap<RedisConnKey, Pool<ClientWrapper>>>> =
+static POOLS: Lazy<Mutex<HashMap<RedisConnKey, Pool<ClientManager>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub struct ClientManager(ClientWrapper);
+
+#[async_trait]
+impl Manager for ClientManager {
+    type Connection = ConnectionWrapper;
+    type Error = anyhow::Error;
+
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        let c = self.0.connect().await?;
+        Ok(c)
+    }
+
+    async fn check(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
+        redis::cmd("PING").query_async(&mut conn).await?;
+        Ok(conn)
+    }
+}
 
 #[derive(Clone)]
 pub struct RedisConnection(Arc<RedisConnKey>);
 
 impl RedisConnection {
-    pub fn query_blocking(&self, cmd: &Cmd) -> anyhow::Result<RedisValue> {
-        let mut conn = self.0.connect_blocking()?;
-        Ok(conn.req_command(cmd)?)
-    }
-
-    pub fn invoke_blocking(&self, script: ScriptInvocation<'_>) -> anyhow::Result<RedisValue> {
-        let mut conn = self.0.connect_blocking()?;
-        Ok(script.invoke(&mut conn)?)
-    }
-
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
-        let me = self.clone();
-        tokio::task::Builder::new()
-            .name("redis query")
-            .spawn_blocking(move || me.query_blocking(&cmd))?
-            .await?
+        let pool = self.0.get_pool()?;
+        let mut conn = pool.get().await?;
+        Ok(cmd.query_async(&mut *conn).await?)
     }
 
     pub async fn invoke_script(
         &self,
         script: ScriptInvocation<'static>,
     ) -> anyhow::Result<RedisValue> {
-        let me = self.clone();
-        tokio::task::Builder::new()
-            .name("redis script invocation")
-            .spawn_blocking(move || me.invoke_blocking(script))?
-            .await?
+        let pool = self.0.get_pool()?;
+        let mut conn = pool.get().await?;
+        Ok(script.invoke_async(&mut *conn).await?)
     }
 }
 
@@ -207,172 +215,162 @@ pub struct RedisConnKey {
     pub username: Option<String>,
     #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
+    pub cluster: Option<bool>,
     /// Maximum number of connections managed by the pool.
     /// Default is 10
     #[serde(default)]
-    pub pool_size: Option<u32>,
+    pub pool_size: Option<u64>,
+    #[serde(default)]
+    pub max_spare: Option<u64>,
     #[serde(default, with = "duration_serde")]
     pub connect_timeout: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    pub max_age: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    pub max_idle_age: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    pub get_timeout: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    pub response_timeout: Option<Duration>,
 }
 
 pub enum ClientWrapper {
-    Single(Client),
+    Single(Client, ConnectionManagerConfig),
     Cluster(ClusterClient),
 }
 
+impl ClientWrapper {
+    pub async fn connect(&self) -> anyhow::Result<ConnectionWrapper> {
+        match self {
+            Self::Single(client, config) => Ok(ConnectionWrapper::Single(
+                ConnectionManager::new_with_config(client.clone(), config.clone()).await?,
+            )),
+            Self::Cluster(c) => Ok(ConnectionWrapper::Cluster(c.get_async_connection().await?)),
+        }
+    }
+}
+
 pub enum ConnectionWrapper {
-    Single(Connection),
+    Single(ConnectionManager),
     Cluster(ClusterConnection),
 }
 
 impl ConnectionLike for ConnectionWrapper {
-    fn req_packed_command(&mut self, cmd: &[u8]) -> Result<RedisValue, RedisError> {
+    // Required methods
+    fn req_packed_command<'a>(&'a mut self, cmd: &'a Cmd) -> RedisFuture<'a, RedisValue> {
         match self {
-            ConnectionWrapper::Single(c) => c.req_packed_command(cmd),
-            ConnectionWrapper::Cluster(c) => c.req_packed_command(cmd),
+            Self::Single(c) => c.req_packed_command(cmd),
+            Self::Cluster(c) => c.req_packed_command(cmd),
         }
     }
 
-    fn req_packed_commands(
-        &mut self,
-        cmd: &[u8],
+    fn req_packed_commands<'a>(
+        &'a mut self,
+        cmd: &'a crate::Pipeline,
         offset: usize,
         count: usize,
-    ) -> Result<Vec<RedisValue>, RedisError> {
+    ) -> RedisFuture<'a, Vec<RedisValue>> {
         match self {
-            ConnectionWrapper::Single(c) => c.req_packed_commands(cmd, offset, count),
-            ConnectionWrapper::Cluster(c) => c.req_packed_commands(cmd, offset, count),
+            Self::Single(c) => c.req_packed_commands(cmd, offset, count),
+            Self::Cluster(c) => c.req_packed_commands(cmd, offset, count),
         }
     }
 
     fn get_db(&self) -> i64 {
         match self {
-            ConnectionWrapper::Single(c) => c.get_db(),
-            ConnectionWrapper::Cluster(c) => c.get_db(),
-        }
-    }
-
-    fn check_connection(&mut self) -> bool {
-        match self {
-            ConnectionWrapper::Single(c) => c.check_connection(),
-            ConnectionWrapper::Cluster(c) => c.check_connection(),
-        }
-    }
-
-    fn is_open(&self) -> bool {
-        match self {
-            ConnectionWrapper::Single(c) => c.is_open(),
-            ConnectionWrapper::Cluster(c) => c.is_open(),
-        }
-    }
-
-    fn req_command(&mut self, cmd: &Cmd) -> Result<RedisValue, RedisError> {
-        match self {
-            ConnectionWrapper::Single(c) => c.req_command(cmd),
-            ConnectionWrapper::Cluster(c) => c.req_command(cmd),
-        }
-    }
-}
-
-impl ManageConnection for ClientWrapper {
-    type Connection = ConnectionWrapper;
-    type Error = RedisError;
-
-    fn connect(&self) -> Result<ConnectionWrapper, RedisError> {
-        match self {
-            ClientWrapper::Single(client) => Ok(ConnectionWrapper::Single(client.connect()?)),
-            ClientWrapper::Cluster(client) => Ok(ConnectionWrapper::Cluster(client.connect()?)),
-        }
-    }
-
-    fn is_valid(&self, conn: &mut ConnectionWrapper) -> Result<(), RedisError> {
-        match (self, conn) {
-            (ClientWrapper::Single(client), ConnectionWrapper::Single(conn)) => {
-                client.is_valid(conn)
-            }
-            (ClientWrapper::Cluster(client), ConnectionWrapper::Cluster(conn)) => {
-                client.is_valid(conn)
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    fn has_broken(&self, conn: &mut ConnectionWrapper) -> bool {
-        match (self, conn) {
-            (ClientWrapper::Single(client), ConnectionWrapper::Single(conn)) => {
-                client.has_broken(conn)
-            }
-            (ClientWrapper::Cluster(client), ConnectionWrapper::Cluster(conn)) => {
-                client.has_broken(conn)
-            }
-            _ => unreachable!(),
+            Self::Single(c) => c.get_db(),
+            Self::Cluster(c) => c.get_db(),
         }
     }
 }
 
 impl RedisConnKey {
     pub fn build_client(&self) -> anyhow::Result<ClientWrapper> {
-        match &self.node {
-            NodeSpec::Single(node) => Ok(ClientWrapper::Single(
-                Client::open(node.to_string())
-                    .with_context(|| format!("building redis client {self:?}"))?,
-            )),
-            NodeSpec::Cluster(nodes) => {
-                let mut builder = ClusterClient::builder(nodes.clone());
-                if self.read_from_replicas {
-                    builder = builder.read_from_replicas();
-                }
-                if let Some(user) = &self.username {
-                    builder = builder.username(user.to_string());
-                }
-                if let Some(pass) = &self.password {
-                    builder = builder.password(pass.to_string());
-                }
+        let cluster = self
+            .cluster
+            .unwrap_or(matches!(&self.node, NodeSpec::Cluster(_)));
+        let nodes = match &self.node {
+            NodeSpec::Single(node) => vec![node.to_string()],
+            NodeSpec::Cluster(nodes) => nodes.clone(),
+        };
 
-                Ok(ClientWrapper::Cluster(builder.build().with_context(
-                    || format!("building redis client {self:?}"),
-                )?))
+        if cluster {
+            let mut builder = ClusterClient::builder(nodes);
+            if self.read_from_replicas {
+                builder = builder.read_from_replicas();
             }
+            if let Some(user) = &self.username {
+                builder = builder.username(user.to_string());
+            }
+            if let Some(pass) = &self.password {
+                builder = builder.password(pass.to_string());
+            }
+            if let Some(duration) = self.connect_timeout {
+                builder = builder.connection_timeout(duration);
+            }
+            if let Some(duration) = self.response_timeout {
+                builder = builder.response_timeout(duration);
+            }
+
+            Ok(ClientWrapper::Cluster(builder.build().with_context(
+                || format!("building redis client {self:?}"),
+            )?))
+        } else {
+            let mut config = ConnectionManagerConfig::new();
+            if let Some(duration) = self.connect_timeout {
+                config = config.set_connection_timeout(duration);
+            }
+            if let Some(duration) = self.response_timeout {
+                config = config.set_response_timeout(duration);
+            }
+
+            let mut info: ConnectionInfo = nodes[0]
+                .as_str()
+                .into_connection_info()
+                .with_context(|| format!("building redis client {self:?}"))?;
+            if let Some(user) = &self.username {
+                info.redis.username.replace(user.to_string());
+            }
+            if let Some(pass) = &self.password {
+                info.redis.password.replace(pass.to_string());
+            }
+
+            Ok(ClientWrapper::Single(
+                Client::open(info).with_context(|| format!("building redis client {self:?}"))?,
+                config,
+            ))
         }
     }
 
-    pub fn get_pool(&self) -> anyhow::Result<Pool<ClientWrapper>> {
+    pub fn get_pool(&self) -> anyhow::Result<Pool<ClientManager>> {
         let mut pools = POOLS.lock().unwrap();
-        if let Some(p) = pools.get(self) {
-            return Ok(p.clone());
-        }
-
-        let mut p = Pool::builder();
-        if let Some(size) = self.pool_size {
-            p = p.max_size(size);
-        }
-
-        if let Some(timeout) = self.connect_timeout {
-            p = p.connection_timeout(timeout);
+        if let Some(pool) = pools.get(self) {
+            return Ok(pool.clone());
         }
 
         let client = self.build_client()?;
+        let mut builder = mobc::Builder::new();
+        if let Some(limit) = self.pool_size {
+            builder = builder.max_open(limit);
+        }
+        if let Some(limit) = self.max_spare {
+            builder = builder.max_idle(limit);
+        }
+        builder = builder.get_timeout(self.get_timeout);
+        builder = builder.max_lifetime(self.max_age);
+        builder = builder.max_idle_lifetime(self.max_idle_age);
 
-        let p = p.build(client)?;
-        pools.insert(self.clone(), p.clone());
-        Ok(p)
+        let pool = builder.build(ClientManager(client));
+
+        pools.insert(self.clone(), pool.clone());
+
+        Ok(pool)
     }
 
-    pub fn connect_blocking(&self) -> anyhow::Result<PooledConnection<ClientWrapper>> {
-        Ok(self.get_pool()?.get()?)
-    }
-
-    pub fn open_blocking(&self) -> anyhow::Result<RedisConnection> {
-        self.get_pool()?;
+    pub fn open(&self) -> anyhow::Result<RedisConnection> {
+        self.build_client()?;
         Ok(RedisConnection(Arc::new(self.clone())))
-    }
-
-    pub async fn open(&self) -> anyhow::Result<RedisConnection> {
-        let me = self.clone();
-        tokio::task::Builder::new()
-            .name("open redis")
-            .spawn_blocking(move || me.open_blocking())?
-            .await?
     }
 }
 
@@ -381,9 +379,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     redis_mod.set(
         "open",
-        lua.create_async_function(|lua, key: Value| async move {
+        lua.create_function(move |lua, key: Value| {
             let key: RedisConnKey = from_lua_value(lua, key)?;
-            key.open().await.map_err(any_err)
+            key.open().map_err(any_err)
         })?,
     )?;
 
