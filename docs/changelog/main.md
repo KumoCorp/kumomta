@@ -84,3 +84,12 @@
   by a trailing dot in the policy domain
 * redis cluster: `could not acquire connection lease: An error was signalled by
   the server` with some redis cluster deployments when using `kumo.configure_redis_throttles`.
+* bounce classifier: when multiple rules can match the same input, the
+  resultant classification is now "won" by the rule that was loaded first from
+  the earliest containing file. Previously, the order would be perturbed by the
+  name of the classification, preferring to match in alphabetical order of the
+  classification name. So if you had an "A" classification and a "B"
+  classification with the same rule, the "A" classification would be the
+  result, even if the "B" rule was the first one listed in your classification
+  data file(s).
+
