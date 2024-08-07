@@ -591,10 +591,12 @@ impl SmtpServer {
         if let Some(socket) = self.socket.as_mut() {
             if status >= 400
                 && status < 600
-                // Don't log the shutting down message; the main purpose
-                // of Rejection logging is to see what unexpected and
+                // Don't log the shutting down message, or load shedding messages.
+                // The main purpose of Rejection logging is to see what unexpected and
                 // unsuccessful results are being returned to the peer.
-                && !(status == 421 && message.as_ref().ends_with("shutting down"))
+                // If we log rejections via log hooks during a memory shortage,
+                // we're increasing our memory burden instead of avoiding it.
+                && !(status == 421 && message.as_ref().starts_with("4.3.2 "))
             {
                 let mut response = Response::with_code_and_message(status, message.as_ref());
                 response.command = command;
