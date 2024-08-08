@@ -308,16 +308,33 @@ impl ReadyQueueManager {
         let mut last_config_refresh = tokio::time::Instant::now();
         let mut reap_deadline = None;
         let mut done_abort = false;
+        let mut shutting_down = false;
 
         let queue = ReadyQueueManager::get_by_name(&name).ok_or_else(|| {
             anyhow::anyhow!("ready_queue {name} not found when starting up maintainer_task")
         })?;
 
         loop {
+            let wait_for_shutdown = async {
+                if shutting_down {
+                    tokio::time::sleep(Duration::from_secs(1)).await
+                } else {
+                    shutdown.shutting_down().await
+                }
+            };
+
+            let wait_for_config_refresh = async {
+                if shutting_down {
+                    tokio::time::sleep(Duration::from_secs(1)).await
+                } else {
+                    tokio::time::sleep_until(last_config_refresh + interval).await
+                }
+            };
+
             tokio::select! {
-                _ = tokio::time::sleep_until(last_config_refresh + interval) => {
-                },
-                _ = shutdown.shutting_down() => {
+                _ = wait_for_config_refresh => {},
+                _ = wait_for_shutdown => {
+                    shutting_down = true;
                     interval = Duration::from_secs(1);
                     if reap_deadline.is_none() {
                         let duration = queue.path_config.borrow().client_timeouts.total_message_send_duration();
