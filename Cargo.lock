@@ -2580,6 +2580,7 @@ dependencies = [
  "dns-resolver",
  "duration-serde",
  "fancy-regex 0.11.0",
+ "futures-util",
  "k9",
  "kumo-log-types",
  "mlua",

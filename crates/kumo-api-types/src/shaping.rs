@@ -380,6 +380,9 @@ impl Shaping {
     }
 
     pub async fn merge_files(files: &[String]) -> anyhow::Result<Self> {
+        use futures_util::stream::FuturesUnordered;
+        use futures_util::StreamExt;
+
         let mut loaded = vec![];
         for p in files {
             loaded.push(Self::load_from_file(p).await?);
@@ -389,6 +392,41 @@ impl Shaping {
         let mut by_site: HashMap<String, PartialEntry> = HashMap::new();
         let mut by_domain: HashMap<String, PartialEntry> = HashMap::new();
         let mut warnings = vec![];
+
+        // Pre-resolve domains. We don't interleave the resolution with
+        // the work below, because we want to ensure that the ordering
+        // is preserved
+        let limiter = Arc::new(tokio::sync::Semaphore::new(128));
+        let mut mx = HashMap::new();
+        let mut lookups = FuturesUnordered::new();
+        for item in &loaded {
+            for (domain, partial) in item {
+                let mx_rollup = if domain == "default" {
+                    false
+                } else {
+                    partial.mx_rollup
+                };
+
+                if mx_rollup {
+                    let domain = domain.to_string();
+                    let limiter = limiter.clone();
+                    lookups.push(tokio::spawn(async move {
+                        match limiter.acquire().await {
+                            Ok(permit) => {
+                                let mx_result = MailExchanger::resolve(&domain).await;
+                                drop(permit);
+                                (domain, mx_result)
+                            }
+                            Err(err) => (domain, Err(err).context("failed to acquire permit")),
+                        }
+                    }));
+                }
+            }
+        }
+
+        while let Some(Ok((domain, result))) = lookups.next().await {
+            mx.insert(domain, result);
+        }
 
         for item in loaded {
             for (domain, mut partial) in item {
@@ -413,16 +451,28 @@ impl Shaping {
                 };
 
                 if mx_rollup {
-                    let mx = match MailExchanger::resolve(&domain).await {
-                        Ok(mx) => mx,
-                        Err(err) => {
-                            warnings.push(format!("error resolving MX for {domain}: {err:#}. Ignoring the shaping config for that domain."));
+                    let mx = match mx.get(&domain) {
+                        Some(Ok(mx)) => mx,
+                        Some(Err(err)) => {
+                            warnings.push(format!(
+                                "error resolving MX for {domain}: {err:#}. \
+                                 Ignoring the shaping config for that domain."
+                            ));
+                            continue;
+                        }
+                        None => {
+                            warnings.push(format!(
+                                "We didn't try to resolve the MX for {domain} for some reason!?. \
+                                 Ignoring the shaping config for that domain."
+                            ));
                             continue;
                         }
                     };
 
                     if mx.site_name.is_empty() {
-                        warnings.push(format!("domain {domain} has a NULL MX and cannot be used with mx_rollup=true. Ignoring the shaping config for that domain."));
+                        warnings.push(format!(
+                            "domain {domain} has a NULL MX and cannot be used with mx_rollup=true. \
+                             Ignoring the shaping config for that domain."));
                         continue;
                     }
 

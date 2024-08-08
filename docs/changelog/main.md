@@ -65,6 +65,7 @@
 * Reduced latency during shutdown. Connections that are being attempted to
   unreachable destinations no longer block shutdown until they timeout, and
   are instead terminated immediately.
+* Parallelize DNS lookups to improve latency when validating shaping configuration
 
 ## Fixes
 
