@@ -57,12 +57,10 @@ if AMQPHOOK_URL then
       local client = kumo.amqp.build_client(AMQPHOOK_URL)
 
       function sender:send(msg)
-        local confirm = client:publish {
+        local result = client:publish_with_timeout({
           routing_key = 'woot',
           payload = msg:get_data(),
-        }
-
-        local result = confirm:wait()
+        }, 20000)
 
         if result.status == 'Ack' or result.status == 'NotRequested' then
           return string.format('250 %s', kumo.json_encode(result))

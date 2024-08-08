@@ -3645,8 +3645,10 @@ dependencies = [
  "lapin",
  "mlua",
  "serde",
+ "tokio",
  "tokio-executor-trait",
  "tokio-reactor-trait",
+ "tracing",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use tokio::time::timeout;
 
 #[derive(Deserialize, Debug)]
 struct PublishParams {
@@ -23,6 +24,7 @@ struct PublishParams {
 struct ChannelHolder {
     channel: Channel,
     connection: Connection,
+    close_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 #[derive(Clone)]
@@ -53,6 +55,36 @@ impl LuaUserData for AMQPClient {
             })
         });
 
+        methods.add_async_method(
+            "publish_with_timeout",
+            |lua, this, (value, duration_millis): (Value, u64)| async move {
+                let params: PublishParams = from_lua_value(lua, value)?;
+
+                let publish = async {
+                    let confirm = this
+                        .holder
+                        .channel
+                        .basic_publish(
+                            &params.exchange,
+                            &params.routing_key,
+                            params.options,
+                            params.payload.as_bytes(),
+                            params.properties,
+                        )
+                        .await
+                        .map_err(any_err)?;
+
+                    wait_confirmation(lua, confirm).await
+                };
+
+                let duration = std::time::Duration::from_millis(duration_millis);
+                timeout(duration, publish)
+                    .await
+                    .map_err(any_err)?
+                    .map_err(any_err)
+            },
+        );
+
         methods.add_async_method("close", |_lua, this, _: ()| async move {
             this.holder.channel.close(200, "").await.map_err(any_err)?;
             this.holder
@@ -60,6 +92,12 @@ impl LuaUserData for AMQPClient {
                 .close(200, "")
                 .await
                 .map_err(any_err)?;
+            this.holder
+                .close_tx
+                .lock()
+                .unwrap()
+                .take()
+                .map(|tx| tx.send(()));
             Ok(())
         });
     }
@@ -96,6 +134,31 @@ struct ConfirmResult {
     reply_text: Option<String>,
 }
 
+async fn wait_confirmation<'lua>(
+    lua: &'lua Lua,
+    confirm: PublisherConfirm,
+) -> mlua::Result<Value<'lua>> {
+    let confirmation = confirm.await.map_err(any_err)?;
+    let status = ConfirmStatus::from_confirmation(&confirmation);
+    let (reply_code, reply_text) = if let Some(msg) = confirmation.take_message() {
+        (
+            Some(msg.reply_code.into()),
+            Some(msg.reply_text.as_str().to_string()),
+        )
+    } else {
+        (None, None)
+    };
+
+    let confirmation = ConfirmResult {
+        status,
+        reply_code,
+        reply_text,
+    };
+
+    let result = lua.to_value_with(&confirmation, config::serialize_options())?;
+    Ok(result)
+}
+
 impl LuaUserData for Confirm {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         methods.add_async_method("wait", |lua, this, _: ()| async move {
@@ -106,26 +169,7 @@ impl LuaUserData for Confirm {
                 .take()
                 .ok_or_else(|| mlua::Error::external("confirmation already taken!?"))?;
 
-            let confirmation = confirm.await.map_err(any_err)?;
-            let status = ConfirmStatus::from_confirmation(&confirmation);
-            let (reply_code, reply_text) = if let Some(msg) = confirmation.take_message() {
-                (
-                    Some(msg.reply_code.into()),
-                    Some(msg.reply_text.as_str().to_string()),
-                )
-            } else {
-                (None, None)
-            };
-
-            let confirmation = ConfirmResult {
-                status,
-                reply_code,
-                reply_text,
-            };
-
-            let result = lua.to_value_with(&confirmation, config::serialize_options())?;
-
-            Ok(result)
+            wait_confirmation(lua, confirm).await
         })
     }
 }
@@ -136,11 +180,42 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     amqp_mod.set(
         "build_client",
         lua.create_async_function(|_, uri: String| async move {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let (close_tx, close_rx) = tokio::sync::oneshot::channel();
+            std::thread::Builder::new()
+                .name(format!("amqp-client-{uri}"))
+                .spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_io()
+                        .enable_time()
+                        .build()?;
+
+                    match tx.send(runtime.handle().clone()) {
+                        Ok(_) => {
+                            runtime.block_on(close_rx)?;
+                            Ok(())
+                        }
+                        Err(_) => {
+                            anyhow::bail!("failed to return runtime handle");
+                        }
+                    }
+                })?;
+            let handle = rx.await.map_err(any_err)?;
+
             let options = ConnectionProperties::default()
-                .with_executor(tokio_executor_trait::Tokio::current())
+                .with_executor(tokio_executor_trait::Tokio::default().with_handle(handle))
                 .with_reactor(tokio_reactor_trait::Tokio);
 
-            let connection = Connection::connect(&uri, options).await.map_err(any_err)?;
+            let connect_timeout = tokio::time::Duration::from_secs(20);
+
+            let connection = timeout(connect_timeout, Connection::connect(&uri, options))
+                .await
+                .map_err(any_err)?
+                .map_err(any_err)?;
+
+            connection.on_error(|err| {
+                tracing::error!("RabbitMQ connection broken {err:#}");
+            });
 
             let channel = connection.create_channel().await.map_err(any_err)?;
 
@@ -148,6 +223,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 holder: Arc::new(ChannelHolder {
                     connection,
                     channel,
+                    close_tx: Mutex::new(Some(close_tx)),
                 }),
             })
         })?,
