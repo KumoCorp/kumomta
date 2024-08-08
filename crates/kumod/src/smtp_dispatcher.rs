@@ -280,13 +280,17 @@ impl SmtpDispatcher {
             format!("Attempting connection to {address:?} port {port}")
         });
 
-        let make_connection = async {
+        let make_connection = {
             let address = address.clone();
             let timeouts = path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
             let tracer = self.tracer.clone();
 
-            async move {
+            // We need to spawn the connection attempt into another task,
+            // otherwise the select! invocation below won't run it in parallel with
+            // awaiting the shutdown subscription, causing us to uselessly wait
+            // for the full connect timeout during shutdown.
+            tokio::spawn(async move {
                 let (stream, source_address) = tokio::time::timeout(
                     timeouts.connect_timeout,
                     egress_source.connect_to(SocketAddr::new(address.addr, port)),
@@ -317,15 +321,16 @@ impl SmtpDispatcher {
                 }
 
                 Ok((client, source_address))
-            }
+            })
         };
 
         self.source_address.take();
         let (mut client, source_address) = tokio::select! {
-            _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
-            result = make_connection => { result },
+            _ = shutdown.shutting_down() => {
+                anyhow::bail!("shutting down");
+            }
+            result = make_connection => { result? },
         }
-        .await
         .with_context(|| connect_context.clone())?;
         self.source_address.replace(source_address);
 

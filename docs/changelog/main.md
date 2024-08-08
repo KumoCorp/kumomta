@@ -62,6 +62,9 @@
 * Add `/api/check-liveness/v1` API endpoint to determine whether the KumoMTA 
   node is live and ready to receive messages.
 * Updated redis crate to 0.26, which improves connection management and pooling.
+* Reduced latency during shutdown. Connections that are being attempted to
+  unreachable destinations no longer block shutdown until they timeout, and
+  are instead terminated immediately.
 
 ## Fixes
 
