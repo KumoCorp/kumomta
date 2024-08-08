@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod kumod;
+mod rabbit;
 #[cfg(test)]
 mod tsa;
 #[cfg(test)]

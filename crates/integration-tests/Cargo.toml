@@ -9,9 +9,11 @@ edition = "2021"
 anyhow = "1.0"
 axum = {workspace=true}
 axum-server = {workspace=true}
+futures-lite = "2.3"
 k9 = "0.12"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
+lapin.workspace = true
 lipsum = "0.9"
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
@@ -20,7 +22,10 @@ rfc5321 = {path="../rfc5321"}
 serde = "1.0"
 serde_json = "1.0"
 sqlite = {workspace=true}
+testcontainers-modules = {version="0.9", default-features=false, features=["rabbitmq"]}
 tempfile = {workspace=true}
 textwrap = "0.16"
 tokio = {workspace=true, features=["full"]}
+tokio-executor-trait = "2.1.0"
+tokio-reactor-trait = "1.1.0"
 zstd = "0.13"

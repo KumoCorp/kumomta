@@ -1,9 +1,10 @@
 local kumo = require 'kumo'
--- This config acts as a sink that will discard all received mail
+log_hooks = require 'policy-extras.log_hooks'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
+local AMQPHOOK_URL = os.getenv 'KUMOD_AMQPHOOK_URL'
 local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 
 kumo.on('init', function()
@@ -47,6 +48,37 @@ kumo.on('init', function()
     path = TEST_DIR .. '/meta-spool',
   }
 end)
+
+if AMQPHOOK_URL then
+  log_hooks:new {
+    name = 'amqp',
+    constructor = function(domain, tenant, campaign)
+      local sender = {}
+      local client = kumo.amqp.build_client(AMQPHOOK_URL)
+
+      function sender:send(msg)
+        local confirm = client:publish {
+          routing_key = 'woot',
+          payload = msg:get_data(),
+        }
+
+        local result = confirm:wait()
+
+        if result.status == 'Ack' or result.status == 'NotRequested' then
+          return string.format('250 %s', kumo.json_encode(result))
+        end
+        -- result.status must be `Nack`; log the full result
+        kumo.reject(500, kumo.json_encode(result))
+      end
+
+      function sender:close()
+        client:close()
+      end
+
+      return sender
+    end,
+  }
+end
 
 if WEBHOOK_PORT then
   kumo.on('should_enqueue_log_record', function(msg)
