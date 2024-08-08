@@ -1,7 +1,7 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
 use dns_resolver::resolver::Resolver;
-use dns_resolver::{resolve_a_or_aaaa, MailExchanger};
+use dns_resolver::{get_resolver, resolve_a_or_aaaa, MailExchanger};
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use hickory_resolver::{Name, TokioAsyncResolver};
 use mlua::{Lua, LuaSerdeExt};
@@ -15,6 +15,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, domain: String| async move {
             let mx = MailExchanger::resolve(&domain).await.map_err(any_err)?;
             Ok(lua.to_value_with(&*mx, serialize_options()))
+        })?,
+    )?;
+
+    dns_mod.set(
+        "lookup_txt",
+        lua.create_async_function(|_lua, domain: String| async move {
+            let resolver = get_resolver();
+            let answer = resolver.resolve_txt(domain).await.map_err(any_err)?;
+            Ok(answer.as_txt())
         })?,
     )?;
 
