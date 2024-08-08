@@ -10,6 +10,7 @@ pub mod spool_id;
 
 pub use spool_id::SpoolId;
 
+#[derive(Debug)]
 pub enum SpoolEntry {
     Item { id: SpoolId, data: Vec<u8> },
     Corrupt { id: SpoolId, error: String },

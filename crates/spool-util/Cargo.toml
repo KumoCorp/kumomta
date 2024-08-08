@@ -1,0 +1,15 @@
+[package]
+name = "spool-util"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = {version="4.5", features=["derive"]}
+flume.workspace = true
+hdrhistogram = "7.5"
+human_bytes = "0.4.3"
+incr_stats = "1.0"
+message = {path="../message", default-features=false}
+spool = {path="../spool", features=["rocksdb"]}
+tokio = {workspace=true, features=["full", "tracing"]}

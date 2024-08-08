@@ -7,6 +7,7 @@ build:
 	cargo build $(BUILD_OPTS) -p kcli
 	cargo build $(BUILD_OPTS) -p validate-shaping
 	cargo build $(BUILD_OPTS) -p proxy-server
+	cargo build $(BUILD_OPTS) -p spool-util
 	cargo build $(BUILD_OPTS) -p tailer
 	cargo build $(BUILD_OPTS) -p traffic-gen
 	cargo build $(BUILD_OPTS) -p toml2jsonc
