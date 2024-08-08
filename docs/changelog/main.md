@@ -95,4 +95,5 @@
   classification with the same rule, the "A" classification would be the
   result, even if the "B" rule was the first one listed in your classification
   data file(s).
-
+* Changing the `max_ready` value for a ready queue no longer requires waiting for
+  the queue to be reaped before it will take effect.
