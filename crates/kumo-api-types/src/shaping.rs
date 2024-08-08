@@ -13,15 +13,13 @@ use kumo_log_types::JsonLogRecord;
 use mlua::prelude::LuaUserData;
 #[cfg(feature = "lua")]
 use mlua::{LuaSerdeExt, UserDataMethods};
+use ordermap::OrderMap;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
 #[cfg(feature = "lua")]
 use std::collections::BTreeMap;
-use std::collections::HashMap;
-#[cfg(feature = "lua")]
-use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 #[cfg(feature = "lua")]
@@ -245,8 +243,8 @@ impl Rule {
 #[cfg(feature = "lua")]
 #[derive(Debug)]
 struct ShapingInner {
-    by_site: HashMap<String, PartialEntry>,
-    by_domain: HashMap<String, PartialEntry>,
+    by_site: OrderMap<String, PartialEntry>,
+    by_domain: OrderMap<String, PartialEntry>,
     warnings: Vec<String>,
 }
 
@@ -344,7 +342,7 @@ pub struct Shaping {
 
 #[cfg(feature = "lua")]
 impl Shaping {
-    async fn load_from_file(path: &str) -> anyhow::Result<HashMap<String, PartialEntry>> {
+    async fn load_from_file(path: &str) -> anyhow::Result<OrderMap<String, PartialEntry>> {
         let data: String = if path.starts_with("http://") || path.starts_with("https://") {
             // To facilitate startup ordering races, and listing multiple subscription
             // host replicas and allowing one or more of them to be temporarily down,
@@ -364,7 +362,7 @@ impl Shaping {
                 Ok(s) => s,
                 Err(err) => {
                     tracing::error!("{err:#}. Ignoring this shaping source for now");
-                    return Ok(HashMap::new());
+                    return Ok(OrderMap::new());
                 }
             }
         } else {
@@ -388,16 +386,15 @@ impl Shaping {
             loaded.push(Self::load_from_file(p).await?);
         }
 
-        let mut site_to_domains: HashMap<String, HashSet<String>> = HashMap::new();
-        let mut by_site: HashMap<String, PartialEntry> = HashMap::new();
-        let mut by_domain: HashMap<String, PartialEntry> = HashMap::new();
+        let mut by_site: OrderMap<String, PartialEntry> = OrderMap::new();
+        let mut by_domain: OrderMap<String, PartialEntry> = OrderMap::new();
         let mut warnings = vec![];
 
         // Pre-resolve domains. We don't interleave the resolution with
         // the work below, because we want to ensure that the ordering
         // is preserved
         let limiter = Arc::new(tokio::sync::Semaphore::new(128));
-        let mut mx = HashMap::new();
+        let mut mx = std::collections::HashMap::new();
         let mut lookups = FuturesUnordered::new();
         for item in &loaded {
             for (domain, partial) in item {
@@ -484,11 +481,6 @@ impl Shaping {
                             by_site.insert(mx.site_name.clone(), partial);
                         }
                     }
-
-                    site_to_domains
-                        .entry(mx.site_name.clone())
-                        .or_default()
-                        .insert(domain);
                 } else {
                     match by_domain.get_mut(&domain) {
                         Some(existing) => {
@@ -499,19 +491,6 @@ impl Shaping {
                         }
                     }
                 }
-            }
-        }
-
-        let mut conflicted = vec![];
-        for (site, domains) in site_to_domains {
-            if domains.len() > 1 {
-                let domains = domains.into_iter().collect::<Vec<_>>().join(", ");
-                warnings.push(format!(
-                    "Multiple domains rollup to the same site: {site} -> {domains}. \
-                    Actual shaping behavior for those domains will be unspecified. \
-                    Resolve this by retaining the primary domain and removing the others."
-                ));
-                conflicted.push(domains);
             }
         }
 
@@ -605,7 +584,7 @@ impl LuaUserData for Shaping {
 #[derive(Default, Debug)]
 pub struct MergedEntry {
     pub params: EgressPathConfig,
-    pub sources: HashMap<String, EgressPathConfig>,
+    pub sources: OrderMap<String, EgressPathConfig>,
     pub automation: Vec<Rule>,
 }
 
@@ -628,7 +607,7 @@ struct PartialEntry {
     pub automation: Vec<Rule>,
 
     #[serde(default)]
-    pub sources: HashMap<String, toml::Table>,
+    pub sources: OrderMap<String, toml::Table>,
 }
 
 #[cfg(feature = "lua")]
@@ -672,7 +651,7 @@ impl PartialEntry {
                 self.params
             )
         })?;
-        let mut sources = HashMap::new();
+        let mut sources = OrderMap::new();
 
         for (source, params) in self.sources {
             sources.insert(
