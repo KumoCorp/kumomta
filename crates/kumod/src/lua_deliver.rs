@@ -23,10 +23,26 @@ pub struct LuaDeliveryProtocol {
 }
 
 #[derive(Debug)]
+enum ConnectionState {
+    NotYet,
+    Connected(MetricsWrappedConnection<RegistryKey>),
+    Disconnected,
+}
+
+impl ConnectionState {
+    fn take(&mut self) -> Option<MetricsWrappedConnection<RegistryKey>> {
+        match std::mem::replace(self, Self::Disconnected) {
+            Self::NotYet | Self::Disconnected => None,
+            Self::Connected(c) => Some(c),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct LuaQueueDispatcher {
     lua_config: LuaConfig,
     proto_config: LuaDeliveryProtocol,
-    connection: Option<MetricsWrappedConnection<RegistryKey>>,
+    connection: ConnectionState,
     peer_address: ResolvedAddress,
 }
 
@@ -40,7 +56,7 @@ impl LuaQueueDispatcher {
         Self {
             lua_config,
             proto_config,
-            connection: None,
+            connection: ConnectionState::NotYet,
             peer_address,
         }
     }
@@ -84,9 +100,13 @@ impl QueueDispatcher for LuaQueueDispatcher {
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if self.connection.is_some() {
-            return Ok(());
-        }
+        match &self.connection {
+            ConnectionState::Connected(_) => return Ok(()),
+            ConnectionState::Disconnected => {
+                anyhow::bail!("only one connection attempt per session");
+            }
+            ConnectionState::NotYet => {}
+        };
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
         // Normally, a QueueDispatcher would use dispatcher.path_config rather
         // than resolving through queue_name_for_config_change_purposes_only.
@@ -106,8 +126,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
             )
             .await?;
 
-        self.connection
-            .replace(connection_wrapper.map_connection(connection));
+        self.connection = ConnectionState::Connected(connection_wrapper.map_connection(connection));
         dispatcher.delivered_this_connection = 0;
         Ok(())
     }
@@ -121,9 +140,12 @@ impl QueueDispatcher for LuaQueueDispatcher {
         msg: Message,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
-        let connection = self.connection.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("connection is not set in LuaQueueDispatcher::deliver_message!?")
-        })?;
+        let connection = match &self.connection {
+            ConnectionState::Connected(c) => c,
+            _ => {
+                anyhow::bail!("connection is not set in LuaQueueDispatcher::deliver_message!?");
+            }
+        };
 
         let result: anyhow::Result<String> = self
             .lua_config
@@ -178,6 +200,13 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             )?;
                         }
                         dispatcher.metrics.inc_transfail();
+
+                        if rejection.code == 421 {
+                            // Explicit signal that we want to close
+                            if let Err(close_err) = self.close_connection(dispatcher).await {
+                                tracing::debug!("error while closing {close_err:#}");
+                            }
+                        }
                     } else {
                         dispatcher.metrics.inc_fail();
                         tracing::debug!(
@@ -205,6 +234,9 @@ impl QueueDispatcher for LuaQueueDispatcher {
                 } else {
                     // unspecified failure
                     tracing::debug!("failed to send message to {}: {err:#}", dispatcher.name);
+                    if let Err(close_err) = self.close_connection(dispatcher).await {
+                        tracing::debug!("error while closing {close_err:#}");
+                    }
                     return Err(err);
                 }
             }
