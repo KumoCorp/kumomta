@@ -1,0 +1,1 @@
+searchState.loadedDescShard("lruttl", 0, "Returns the argument unchanged.\nGet an existing item, but if that item doesn’t already …\nCalls <code>U::from(self)</code>.")

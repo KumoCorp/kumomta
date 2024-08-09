@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Action","Trigger"],"fn":["register"],"struct":["EgressPathConfigValue","HashableTomlValue","MergedEntry","Regex","Rule","Shaping"]};
