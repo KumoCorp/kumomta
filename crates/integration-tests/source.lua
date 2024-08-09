@@ -1,4 +1,6 @@
 local kumo = require 'kumo'
+package.path = '../../assets/?.lua;' .. package.path
+
 log_hooks = require 'policy-extras.log_hooks'
 
 local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
