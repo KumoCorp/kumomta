@@ -66,6 +66,12 @@
   unreachable destinations no longer block shutdown until they timeout, and
   are instead terminated immediately.
 * Parallelize DNS lookups to improve latency when validating shaping configuration
+* TSA log hook has an option to match rules on the client side before deciding
+  to send a record to the daemon, reducing IO pressure on the spool and
+  bandwidth between the MTA and the TSA daemon, at the cost of some CPU
+  utilization. This will likely become the default mode in the next release,
+  but it is currently gated and must be enabled explicitly by passing
+  `pre_filter = true` to the `setup_with_automation` call.
 
 ## Fixes
 

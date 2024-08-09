@@ -14,6 +14,7 @@ local shaper = shaping:setup_with_automation {
   cache_ttl = '1 second',
   no_default_files = true,
   extra_files = { 'shaping.toml' },
+  pre_filter = true,
 }
 
 kumo.on('init', function()

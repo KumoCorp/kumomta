@@ -303,7 +303,6 @@ fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
 
 async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
-
     // Extract the domain from the recipient.
     let recipient = ForwardPath::try_from(record.recipient.as_str())
         .map_err(|err| anyhow!("parsing record.recipient: {err}"))?;
@@ -320,23 +319,6 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
 
     // Track events/outcomes by site.
     let source = record.egress_source.as_deref().unwrap_or("unspecified");
-    // record.site is poorly named; it is really an identifier for the
-    // egress path. For matching purposes, we want just the site_name
-    // in the form produced by our MX resolution process.
-    // In an earlier incarnation of this logic, we would resolve the
-    // site_name for ourselves based on other data in the record,
-    // but that could lead to over-resolution of some names and
-    // yield surprising results.
-    // What we do here is extract the egress path decoration from
-    // record.site to arrive at something that looks like the
-    // mx site_name.
-    // NOTE: this is coupled with the logic in
-    // ReadyQueueManager::compute_queue_name
-    let site_name = record
-        .site
-        .trim_start_matches(&format!("{source}->"))
-        .trim_end_matches("@smtp_client")
-        .to_string();
     let store_key = record.site.to_string();
 
     let mut config = config::load_config().await?;
@@ -346,7 +328,7 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
         .await
         .context("in tsa_load_shaping_data event")?;
 
-    let matches = shaping.match_rules(&record, &domain, &site_name);
+    let matches = shaping.match_rules(&record)?;
     let record_hash = sha256hex(&record)?;
 
     for m in &matches {

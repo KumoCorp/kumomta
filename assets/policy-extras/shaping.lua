@@ -52,7 +52,7 @@ local function load_shaping_data(file_names)
   return result
 end
 
-local function should_enq(publish, msg, hook_name)
+local function should_enq(publish, msg, hook_name, options)
   local params = publish[hook_name]
   if not params then
     -- User defined log hook that is not part of shaping.lua
@@ -70,6 +70,22 @@ local function should_enq(publish, msg, hook_name)
   for name, _ in pairs(publish) do
     if name == log_record.queue then
       -- It's one of our log hooks; don't queue this one
+      return false
+    end
+  end
+
+  if options.pre_filter then
+    -- Only bother shipping the log record over if it matches
+    -- a TSA rule, so that we can avoid increasing IO pressure
+    -- for the records that don't match
+    local status, result = pcall(function()
+      local shaping = mod.CONFIGURED.load_shaping_data()
+      return #shaping:match_rules(log_record) > 0
+    end)
+    if not status then
+      return false
+    end
+    if not result then
       return false
     end
   end
@@ -313,13 +329,17 @@ function mod:setup_with_automation(options)
     end
   end
 
+  local function cached_load_shaping_data()
+    return cached_load_data(file_names, options.subscribe)
+  end
+
   local function get_egress_path_config(
     domain,
     egress_source,
     site_name,
     skip_make
   )
-    local data = cached_load_data(file_names, options.subscribe)
+    local data = cached_load_shaping_data()
     local params =
       data:get_egress_path_config(domain, egress_source, site_name)
 
@@ -357,12 +377,14 @@ function mod:setup_with_automation(options)
   )
 
   kumo.on('should_enqueue_log_record', function(msg, hook_name)
-    return should_enq(publish, msg, hook_name)
+    return should_enq(publish, msg, hook_name, options)
   end)
 
   mod.CONFIGURED = {
     _file_names = file_names,
     _options = options,
+
+    load_shaping_data = cached_load_shaping_data,
 
     get_egress_path_config = get_egress_path_config,
     should_enqueue_log_record = function(msg, hook_name)

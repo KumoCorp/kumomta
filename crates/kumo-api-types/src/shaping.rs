@@ -290,7 +290,51 @@ impl ShapingInner {
         params
     }
 
-    pub fn match_rules(&self, record: &JsonLogRecord, domain: &str, site_name: &str) -> Vec<Rule> {
+    pub fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+        use rfc5321::ForwardPath;
+        // Extract the domain from the recipient.
+        let recipient = ForwardPath::try_from(record.recipient.as_str())
+            .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
+
+        let recipient = match recipient {
+            ForwardPath::Postmaster => {
+                // It doesn't make sense to apply automation on the
+                // local postmaster address, so we ignore this.
+                return Ok(vec![]);
+            }
+            ForwardPath::Path(path) => path.mailbox,
+        };
+        let domain = recipient.domain.to_string();
+
+        // Track events/outcomes by site.
+        let source = record.egress_source.as_deref().unwrap_or("unspecified");
+        // record.site is poorly named; it is really an identifier for the
+        // egress path. For matching purposes, we want just the site_name
+        // in the form produced by our MX resolution process.
+        // In an earlier incarnation of this logic, we would resolve the
+        // site_name for ourselves based on other data in the record,
+        // but that could lead to over-resolution of some names and
+        // yield surprising results.
+        // What we do here is extract the egress path decoration from
+        // record.site to arrive at something that looks like the
+        // mx site_name.
+        // NOTE: this is coupled with the logic in
+        // ReadyQueueManager::compute_queue_name
+        let site_name = record
+            .site
+            .trim_start_matches(&format!("{source}->"))
+            .trim_end_matches("@smtp_client")
+            .to_string();
+
+        Ok(self.match_rules_impl(record, &domain, &site_name))
+    }
+
+    pub fn match_rules_impl(
+        &self,
+        record: &JsonLogRecord,
+        domain: &str,
+        site_name: &str,
+    ) -> Vec<Rule> {
         let mut result = vec![];
         let response = record.response.to_single_line();
         tracing::trace!("Consider rules for {response}");
@@ -531,8 +575,8 @@ impl Shaping {
         &self.inner.warnings
     }
 
-    pub fn match_rules(&self, record: &JsonLogRecord, domain: &str, site_name: &str) -> Vec<Rule> {
-        self.inner.match_rules(record, domain, site_name)
+    pub fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+        self.inner.match_rules(record)
     }
 
     pub fn get_referenced_sources(&self) -> BTreeMap<String, Vec<String>> {
@@ -577,6 +621,16 @@ impl LuaUserData for Shaping {
 
         methods.add_method("get_referenced_sources", move |_lua, this, ()| {
             Ok(this.get_referenced_sources())
+        });
+
+        methods.add_method("match_rules", move |lua, this, record: mlua::Value| {
+            let record: JsonLogRecord = lua.from_value(record)?;
+            let rules = this.match_rules(&record).map_err(any_err)?;
+            let mut result = vec![];
+            for rule in rules {
+                result.push(lua.to_value(&rule)?);
+            }
+            Ok(result)
         });
     }
 }
