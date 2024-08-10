@@ -39,8 +39,7 @@ impl Manager for ClientManager {
         conn: &mut Self::Type,
         _metrics: &Metrics,
     ) -> RecycleResult<anyhow::Error> {
-        redis::cmd("PING")
-            .query_async(&mut *conn)
+        conn.ping()
             .await
             .map_err(|err| RecycleError::message(format!("{err:#}")))
     }
@@ -50,6 +49,12 @@ impl Manager for ClientManager {
 pub struct RedisConnection(Arc<RedisConnKey>);
 
 impl RedisConnection {
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        let pool = self.0.get_pool()?;
+        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
+        conn.ping().await
+    }
+
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
         let pool = self.0.get_pool()?;
         let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
@@ -255,6 +260,12 @@ impl ClientWrapper {
 pub enum ConnectionWrapper {
     Single(ConnectionManager),
     Cluster(ClusterConnection),
+}
+
+impl ConnectionWrapper {
+    pub async fn ping(&mut self) -> anyhow::Result<()> {
+        Ok(redis::cmd("PING").query_async(self).await?)
+    }
 }
 
 impl ConnectionLike for ConnectionWrapper {

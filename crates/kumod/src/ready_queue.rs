@@ -703,8 +703,18 @@ impl ReadyQueue {
                             self.connections.lock().push(handle);
                         }
                     }
-                    Err(err) => {
+                    Err(err @ throttle::Error::TooManyLeases(_)) => {
+                        // Over budget; we'll try again later
                         tracing::debug!(
+                            "maintain {}: could not acquire connection lease: {err:#}",
+                            self.name
+                        );
+                        break;
+                    }
+                    Err(err) => {
+                        // Some kind of error trying to acquire the lease, could be
+                        // a redis/connectivity error, let's surface it
+                        tracing::error!(
                             "maintain {}: could not acquire connection lease: {err:#}",
                             self.name
                         );

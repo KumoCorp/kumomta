@@ -201,9 +201,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "configure_redis_throttles",
-        lua.create_function(move |lua, params: Value| {
+        lua.create_async_function(|lua, params: Value| async move {
             let key: RedisConnKey = from_lua_value(lua, params)?;
             let conn = key.open().map_err(any_err)?;
+            conn.ping().await.map_err(any_err)?;
             throttle::use_redis(conn).map_err(any_err)
         })?,
     )?;

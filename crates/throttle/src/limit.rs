@@ -1,5 +1,5 @@
 use crate::{Error, REDIS};
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use mod_redis::{RedisConnection, Script};
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
@@ -88,7 +88,11 @@ impl LimitSpec {
             .arg(self.limit)
             .arg(uuid_str);
 
-        match conn.invoke_script(script).await? {
+        match conn
+            .invoke_script(script)
+            .await
+            .context("error invoking redis lease acquisition script")?
+        {
             mod_redis::RedisValue::Okay => {}
             mod_redis::RedisValue::Int(next_expiration_interval) => {
                 return Err(Error::TooManyLeases(Duration::from_secs(
