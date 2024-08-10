@@ -1,5 +1,6 @@
 use anyhow::Context;
 use chrono::Utc;
+use clap::builder::ValueParser;
 use clap::Parser;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
@@ -12,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use throttle::ThrottleSpec;
 use tokio::net::TcpStream;
 use uuid::Uuid;
 
@@ -59,6 +61,10 @@ struct Opt {
     #[arg(long)]
     domain: Option<Vec<String>>,
 
+    /// Limit the sending rate to the specified rate
+    #[arg(long, value_parser=ValueParser::new(parse_throttle))]
+    throttle: Option<ThrottleSpec>,
+
     /// When generating the body, use at least this
     /// many bytes of nonsense words
     #[arg(long, default_value = "1024")]
@@ -66,6 +72,10 @@ struct Opt {
 
     #[arg(skip)]
     body_size_content: OnceCell<String>,
+}
+
+fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
+    ThrottleSpec::try_from(arg)
 }
 
 impl Opt {
@@ -232,6 +242,18 @@ impl Opt {
                     client.send_command(&Command::Quit).await?;
                     return Ok(());
                 }
+
+                if let Some(spec) = &self.throttle {
+                    loop {
+                        let result = spec.throttle("send").await?;
+                        if let Some(delay) = result.retry_after {
+                            tokio::time::sleep(delay).await;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
                 let (sender, recip, body) = self.generate_message();
                 match client.send_mail(sender, recip, body).await
                 {

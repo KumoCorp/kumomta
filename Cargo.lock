@@ -6716,6 +6716,7 @@ dependencies = [
  "rand",
  "rfc5321",
  "textwrap",
+ "throttle",
  "tokio",
  "uuid",
 ]

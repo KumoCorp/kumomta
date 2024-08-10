@@ -20,5 +20,6 @@ once_cell = "1.17"
 rand = "0.8"
 rfc5321 = {path="../rfc5321"}
 textwrap = "0.16"
+throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "rng"]}
