@@ -189,6 +189,9 @@ debian_deps() {
     'pkg-config' \
     'python3' \
     'redis'
+  # Gcc 9 is too broken to use to build aws-lc-sys, which is
+  # needed to build rustls
+  $APT remove -y gcc-9 || true
 }
 
 arch_deps() {

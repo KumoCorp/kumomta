@@ -45,6 +45,7 @@ when:
       include:
         - .woodpecker/image-builder.yml
         - "assets/ci/emit-builder-dockerfile.py"
+        - "get-deps.sh"
   - event: pull_request
     path: *paths
   - event: manual
