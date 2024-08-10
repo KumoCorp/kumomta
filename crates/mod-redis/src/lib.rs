@@ -1,7 +1,7 @@
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
+use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
 use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
-use mobc::{async_trait, Manager, Pool};
 use once_cell::sync::Lazy;
 use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
 use redis::cluster::ClusterClient;
@@ -25,19 +25,24 @@ static POOLS: Lazy<Mutex<HashMap<RedisConnKey, Pool<ClientManager>>>> =
 
 pub struct ClientManager(ClientWrapper);
 
-#[async_trait]
 impl Manager for ClientManager {
-    type Connection = ConnectionWrapper;
+    type Type = ConnectionWrapper;
     type Error = anyhow::Error;
 
-    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+    async fn create(&self) -> Result<Self::Type, Self::Error> {
         let c = self.0.connect().await?;
         Ok(c)
     }
 
-    async fn check(&self, mut conn: Self::Connection) -> Result<Self::Connection, Self::Error> {
-        redis::cmd("PING").query_async(&mut conn).await?;
-        Ok(conn)
+    async fn recycle(
+        &self,
+        conn: &mut Self::Type,
+        _metrics: &Metrics,
+    ) -> RecycleResult<anyhow::Error> {
+        redis::cmd("PING")
+            .query_async(&mut *conn)
+            .await
+            .map_err(|err| RecycleError::message(format!("{err:#}")))
     }
 }
 
@@ -47,7 +52,7 @@ pub struct RedisConnection(Arc<RedisConnKey>);
 impl RedisConnection {
     pub async fn query(&self, cmd: Cmd) -> anyhow::Result<RedisValue> {
         let pool = self.0.get_pool()?;
-        let mut conn = pool.get().await?;
+        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
         Ok(cmd.query_async(&mut *conn).await?)
     }
 
@@ -56,7 +61,7 @@ impl RedisConnection {
         script: ScriptInvocation<'static>,
     ) -> anyhow::Result<RedisValue> {
         let pool = self.0.get_pool()?;
-        let mut conn = pool.get().await?;
+        let mut conn = pool.get().await.map_err(|err| anyhow::anyhow!("{err:#}"))?;
         Ok(script.invoke_async(&mut *conn).await?)
     }
 }
@@ -220,17 +225,13 @@ pub struct RedisConnKey {
     /// Maximum number of connections managed by the pool.
     /// Default is 10
     #[serde(default)]
-    pub pool_size: Option<u64>,
-    #[serde(default)]
-    pub max_spare: Option<u64>,
+    pub pool_size: Option<usize>,
     #[serde(default, with = "duration_serde")]
     pub connect_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
-    pub max_age: Option<Duration>,
+    pub recycle_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
-    pub max_idle_age: Option<Duration>,
-    #[serde(default, with = "duration_serde")]
-    pub get_timeout: Option<Duration>,
+    pub wait_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
     pub response_timeout: Option<Duration>,
 }
@@ -350,18 +351,17 @@ impl RedisConnKey {
         }
 
         let client = self.build_client()?;
-        let mut builder = mobc::Builder::new();
-        if let Some(limit) = self.pool_size {
-            builder = builder.max_open(limit);
-        }
-        if let Some(limit) = self.max_spare {
-            builder = builder.max_idle(limit);
-        }
-        builder = builder.get_timeout(self.get_timeout);
-        builder = builder.max_lifetime(self.max_age);
-        builder = builder.max_idle_lifetime(self.max_idle_age);
+        let mut builder = Pool::builder(ClientManager(client))
+            .runtime(deadpool::Runtime::Tokio1)
+            .create_timeout(self.connect_timeout)
+            .recycle_timeout(self.recycle_timeout)
+            .wait_timeout(self.wait_timeout);
 
-        let pool = builder.build(ClientManager(client));
+        if let Some(limit) = self.pool_size {
+            builder = builder.max_size(limit);
+        }
+
+        let pool = builder.build()?;
 
         pools.insert(self.clone(), pool.clone());
 

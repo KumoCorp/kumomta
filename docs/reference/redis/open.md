@@ -33,24 +33,17 @@ print(conn:query('incr', 'test-count'))
 * `connect_timeout` - optional duration string. Specify how long to keep attempting
   to connect to redis. The default is `30 seconds`. {{since('2024.06.10-84e84b89', inline=True)}}
 
-* `max_spare` - option integer. The maximum number of spare/idle connections to
-  maintain in the pool. {{since('dev', inline=True)}}
-
-* `max_age` - option duration string like `5 min`. Maximum lifetime of any
-  connection. Connections older than this will be closed when they are returned
-  to the connection pool. {{since('dev', inline=True)}}
-
-* `max_idle_age` - option duration string like `5 min`. Maximum lifetime of an
-  idle/spare connection. Connections that linger in the pool for longer than
-  this duration will be closed.  {{since('dev', inline=True)}}
-
-* `get_timeout` - optional duration string. Specify how long to wait for an
+* `wait_timeout` - optional duration string. Specify how long to wait for an
   available connection. If the pool is at capacity (`pool_size`), then an `open`
   call will block for up this duration for a connection to be released and made 
   to connect to redis. The default is `30 seconds`. {{since('dev', inline=True)}}
 
 * `response_timeout` - optional duration string. Specify how long to wait for the
   response to a query.  {{since('dev', inline=True)}}
+
+* `recycle_timeout` - optional duration string. Specify how long to wait for the
+  liveness check when testing whether a connection can be resused.
+  {{since('dev', inline=True)}}
 
 * `cluster` - optional boolean. Set this to true to explicit use a cluster-enabled
   client. The default is false if the number of nodes is one, or true if the

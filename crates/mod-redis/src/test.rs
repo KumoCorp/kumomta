@@ -120,10 +120,8 @@ impl RedisServer {
             cluster: None,
             pool_size: None,
             connect_timeout: None,
-            max_spare: None,
-            max_age: None,
-            max_idle_age: None,
-            get_timeout: None,
+            recycle_timeout: None,
+            wait_timeout: None,
             response_timeout: None,
         };
         key.open()
@@ -227,10 +225,8 @@ impl RedisCluster {
             cluster: None,
             pool_size: None,
             connect_timeout: None,
-            max_spare: None,
-            max_age: None,
-            max_idle_age: None,
-            get_timeout: None,
+            recycle_timeout: None,
+            wait_timeout: None,
             response_timeout: None,
         };
         key.open()

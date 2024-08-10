@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 config = {path="../config"}
+deadpool = {version="0.12", features=["rt_tokio_1"]}
 duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 once_cell = "1.17"
-mobc = "0.8"
 serde = {version="1.0", features=["derive"]}
 serde_json = "1.0"
 redis = {version="0.26", features=["cluster", "cluster-async", "connection-manager", "tokio-comp"]}
