@@ -8,15 +8,17 @@ use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
+use tokio::runtime::Handle;
 
 pub struct LocalDiskSpool {
     path: PathBuf,
     flush: bool,
     _pid_file: File,
+    runtime: Handle,
 }
 
 impl LocalDiskSpool {
-    pub fn new(path: &Path, flush: bool) -> anyhow::Result<Self> {
+    pub fn new(path: &Path, flush: bool, runtime: Handle) -> anyhow::Result<Self> {
         let pid_file_path = path.join("lock");
         let _pid_file = lock_pid_file(pid_file_path)?;
 
@@ -26,6 +28,7 @@ impl LocalDiskSpool {
             path: path.to_path_buf(),
             flush,
             _pid_file,
+            runtime,
         })
     }
 
@@ -100,26 +103,32 @@ impl Spool for LocalDiskSpool {
         let flush = force_sync || self.flush;
         tokio::task::Builder::new()
             .name("LocalDiskSpool store")
-            .spawn_blocking(move || {
-                let mut temp = NamedTempFile::new_in(new_dir)
-                    .with_context(|| format!("failed to create a temporary file to store {id}"))?;
+            .spawn_blocking_on(
+                move || {
+                    let mut temp = NamedTempFile::new_in(new_dir).with_context(|| {
+                        format!("failed to create a temporary file to store {id}")
+                    })?;
 
-                temp.write_all(&data)
-                    .with_context(|| format!("failed to write data for {id}"))?;
+                    temp.write_all(&data)
+                        .with_context(|| format!("failed to write data for {id}"))?;
 
-                if flush {
-                    temp.as_file_mut()
-                        .sync_data()
-                        .with_context(|| format!("failed to sync data for {id}"))?;
-                }
+                    if flush {
+                        temp.as_file_mut()
+                            .sync_data()
+                            .with_context(|| format!("failed to sync data for {id}"))?;
+                    }
 
-                std::fs::create_dir_all(path.parent().unwrap())
-                    .with_context(|| format!("failed to create dir structure for {id} {path:?}"))?;
+                    std::fs::create_dir_all(path.parent().unwrap()).with_context(|| {
+                        format!("failed to create dir structure for {id} {path:?}")
+                    })?;
 
-                temp.persist(&path)
-                    .with_context(|| format!("failed to move temp file for {id} to {path:?}"))?;
-                Ok(())
-            })?
+                    temp.persist(&path).with_context(|| {
+                        format!("failed to move temp file for {id} to {path:?}")
+                    })?;
+                    Ok(())
+                },
+                &self.runtime,
+            )?
             .await?
     }
 
@@ -127,40 +136,43 @@ impl Spool for LocalDiskSpool {
         let path = self.path.clone();
         tokio::task::Builder::new()
             .name("LocalDiskSpool enumerate")
-            .spawn_blocking(move || -> anyhow::Result<()> {
-                Self::cleanup_dirs(&path);
+            .spawn_blocking_on(
+                move || -> anyhow::Result<()> {
+                    Self::cleanup_dirs(&path);
 
-                for entry in jwalk::WalkDir::new(path.join("data")) {
-                    if let Ok(entry) = entry {
-                        if !entry.file_type().is_file() {
-                            continue;
-                        }
-                        let path = entry.path();
-                        if let Some(id) = SpoolId::from_path(&path) {
-                            match std::fs::read(&path) {
-                                Ok(data) => {
-                                    sender.send(SpoolEntry::Item { id, data }).map_err(|err| {
-                                        anyhow::anyhow!("failed to send data for {id}: {err:#}")
-                                    })?
-                                }
-                                Err(err) => sender
-                                    .send(SpoolEntry::Corrupt {
-                                        id,
-                                        error: format!("{err:#}"),
-                                    })
-                                    .map_err(|err| {
-                                        anyhow::anyhow!(
-                                            "failed to send SpoolEntry for {id}: {err:#}"
-                                        )
-                                    })?,
-                            };
-                        } else {
-                            eprintln!("{} is not a spool id", path.display());
+                    for entry in jwalk::WalkDir::new(path.join("data")) {
+                        if let Ok(entry) = entry {
+                            if !entry.file_type().is_file() {
+                                continue;
+                            }
+                            let path = entry.path();
+                            if let Some(id) = SpoolId::from_path(&path) {
+                                match std::fs::read(&path) {
+                                    Ok(data) => sender
+                                        .send(SpoolEntry::Item { id, data })
+                                        .map_err(|err| {
+                                            anyhow::anyhow!("failed to send data for {id}: {err:#}")
+                                        })?,
+                                    Err(err) => sender
+                                        .send(SpoolEntry::Corrupt {
+                                            id,
+                                            error: format!("{err:#}"),
+                                        })
+                                        .map_err(|err| {
+                                            anyhow::anyhow!(
+                                                "failed to send SpoolEntry for {id}: {err:#}"
+                                            )
+                                        })?,
+                                };
+                            } else {
+                                eprintln!("{} is not a spool id", path.display());
+                            }
                         }
                     }
-                }
-                anyhow::Result::Ok(())
-            })?;
+                    anyhow::Result::Ok(())
+                },
+                &self.runtime,
+            )?;
         Ok(())
     }
 
@@ -168,9 +180,12 @@ impl Spool for LocalDiskSpool {
         let data_dir = self.path.join("data");
         Ok(tokio::task::Builder::new()
             .name("LocalDiskSpool cleanup")
-            .spawn_blocking(move || {
-                Self::cleanup_data(&data_dir);
-            })?
+            .spawn_blocking_on(
+                move || {
+                    Self::cleanup_data(&data_dir);
+                },
+                &self.runtime,
+            )?
             .await?)
     }
 }
@@ -240,7 +255,7 @@ mod test {
     #[tokio::test]
     async fn basic_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = LocalDiskSpool::new(&location.path(), false)?;
+        let spool = LocalDiskSpool::new(&location.path(), false, Handle::current())?;
         let data_dir = location.path().join("data");
 
         {

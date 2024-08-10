@@ -3,6 +3,7 @@ use human_bytes::human_bytes;
 use spool::rocks::RocksSpool;
 use spool::{Spool, SpoolEntry};
 use std::path::PathBuf;
+use tokio::runtime::Handle;
 
 /// KumoMTA Spool Utility
 ///
@@ -80,8 +81,8 @@ async fn show_size_stats(label: &str, spool: &dyn Spool) -> anyhow::Result<()> {
 async fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
-    let meta_spool = RocksSpool::new(&opts.meta, false, None)?;
-    let data_spool = RocksSpool::new(&opts.data, false, None)?;
+    let meta_spool = RocksSpool::new(&opts.meta, false, None, Handle::current())?;
+    let data_spool = RocksSpool::new(&opts.data, false, None, Handle::current())?;
 
     match opts.cmd {
         SubCommand::MetaSize => {

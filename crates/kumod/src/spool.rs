@@ -143,12 +143,21 @@ impl SpoolManager {
                 maintainer: StdMutex::new(None),
                 spool: match params.kind {
                     SpoolKind::LocalDisk => Arc::new(
-                        LocalDiskSpool::new(&params.path, params.flush)
-                            .with_context(|| format!("Opening spool {}", params.name))?,
+                        LocalDiskSpool::new(
+                            &params.path,
+                            params.flush,
+                            kumo_server_runtime::get_main_runtime(),
+                        )
+                        .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
                     SpoolKind::RocksDB => Arc::new(
-                        RocksSpool::new(&params.path, params.flush, params.rocks_params)
-                            .with_context(|| format!("Opening spool {}", params.name))?,
+                        RocksSpool::new(
+                            &params.path,
+                            params.flush,
+                            params.rocks_params,
+                            kumo_server_runtime::get_main_runtime(),
+                        )
+                        .with_context(|| format!("Opening spool {}", params.name))?,
                     ),
                 },
             })),

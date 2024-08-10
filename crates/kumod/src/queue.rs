@@ -12,7 +12,7 @@ use chrono::Utc;
 use config::{load_config, CallbackSignature, LuaConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
-use kumo_server_runtime::{spawn, spawn_blocking, Runtime};
+use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
@@ -1122,19 +1122,23 @@ impl Queue {
 
                 msg.load_data_if_needed().await?;
                 let name = self.name.to_string();
-                let result: anyhow::Result<String> = spawn_blocking("write to maildir", {
-                    let msg = msg.clone();
-                    move || {
-                        let md = maildir::Maildir::from(maildir_path.clone());
-                        md.create_dirs().with_context(|| {
-                            format!(
-                                "creating dirs for maildir {maildir_path:?} in queue {}",
-                                name
-                            )
-                        })?;
-                        Ok(md.store_new(&msg.get_data())?)
-                    }
-                })?
+                let result: anyhow::Result<String> = spawn_blocking_on(
+                    "write to maildir",
+                    {
+                        let msg = msg.clone();
+                        move || {
+                            let md = maildir::Maildir::from(maildir_path.clone());
+                            md.create_dirs().with_context(|| {
+                                format!(
+                                    "creating dirs for maildir {maildir_path:?} in queue {}",
+                                    name
+                                )
+                            })?;
+                            Ok(md.store_new(&msg.get_data())?)
+                        }
+                    },
+                    &get_main_runtime(),
+                )?
                 .await?;
 
                 match result {

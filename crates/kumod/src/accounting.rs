@@ -6,6 +6,7 @@ use anyhow::Context;
 use chrono::prelude::*;
 use core::sync::atomic::AtomicUsize;
 use kumo_server_lifecycle::ShutdownSubcription;
+use kumo_server_runtime::get_main_runtime;
 use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
 use sqlite::{Connection, ConnectionThreadSafe};
@@ -176,7 +177,7 @@ async fn flusher() {
             _ = tokio::time::sleep(std::time::Duration::from_secs(5 * 60)) => {}
         };
 
-        let result = tokio::task::spawn_blocking(|| ACCT.flush()).await;
+        let result = get_main_runtime().spawn_blocking(|| ACCT.flush()).await;
         if let Err(err) = result {
             tracing::error!("Error flushing accounting logs: {err:#}");
         }

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::runtime::Handle;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -145,10 +146,16 @@ impl Into<LogLevel> for LogLevelDef {
 
 pub struct RocksSpool {
     db: Arc<DB>,
+    runtime: Handle,
 }
 
 impl RocksSpool {
-    pub fn new(path: &Path, flush: bool, params: Option<RocksSpoolParams>) -> anyhow::Result<Self> {
+    pub fn new(
+        path: &Path,
+        flush: bool,
+        params: Option<RocksSpoolParams>,
+        runtime: Handle,
+    ) -> anyhow::Result<Self> {
         let mut opts = Options::default();
         opts.set_use_fsync(flush);
         opts.create_if_missing(true);
@@ -183,7 +190,7 @@ impl RocksSpool {
 
         let db = Arc::new(DB::open(&opts, path)?);
 
-        Ok(Self { db })
+        Ok(Self { db, runtime })
     }
 }
 
@@ -193,11 +200,14 @@ impl Spool for RocksSpool {
         let db = self.db.clone();
         tokio::task::Builder::new()
             .name("rocksdb load")
-            .spawn_blocking(move || {
-                Ok(db
-                    .get(id.as_bytes())?
-                    .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
-            })?
+            .spawn_blocking_on(
+                move || {
+                    Ok(db
+                        .get(id.as_bytes())?
+                        .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
+                },
+                &self.runtime,
+            )?
             .await?
     }
 
@@ -219,12 +229,15 @@ impl Spool for RocksSpool {
                 let db = self.db.clone();
                 tokio::task::Builder::new()
                     .name("rocksdb store")
-                    .spawn_blocking(move || {
-                        opts.set_no_slowdown(false);
-                        let mut batch = WriteBatch::default();
-                        batch.put(id.as_bytes(), &*data);
-                        Ok(db.write_opt(batch, &opts)?)
-                    })?
+                    .spawn_blocking_on(
+                        move || {
+                            opts.set_no_slowdown(false);
+                            let mut batch = WriteBatch::default();
+                            batch.put(id.as_bytes(), &*data);
+                            Ok(db.write_opt(batch, &opts)?)
+                        },
+                        &self.runtime,
+                    )?
                     .await?
             }
             Err(err) => Err(err.into()),
@@ -243,12 +256,15 @@ impl Spool for RocksSpool {
                 let db = self.db.clone();
                 tokio::task::Builder::new()
                     .name("rocksdb remove")
-                    .spawn_blocking(move || {
-                        opts.set_no_slowdown(false);
-                        let mut batch = WriteBatch::default();
-                        batch.delete(id.as_bytes());
-                        Ok(db.write_opt(batch, &opts)?)
-                    })?
+                    .spawn_blocking_on(
+                        move || {
+                            opts.set_no_slowdown(false);
+                            let mut batch = WriteBatch::default();
+                            batch.delete(id.as_bytes());
+                            Ok(db.write_opt(batch, &opts)?)
+                        },
+                        &self.runtime,
+                    )?
                     .await?
             }
             Err(err) => Err(err.into()),
@@ -263,23 +279,26 @@ impl Spool for RocksSpool {
         let db = Arc::clone(&self.db);
         tokio::task::Builder::new()
             .name("rocksdb enumerate")
-            .spawn_blocking(move || {
-                let iter = db.iterator(IteratorMode::Start);
-                for entry in iter {
-                    let (key, value) = entry?;
-                    let id = SpoolId::from_slice(&key)
-                        .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
-                    sender
-                        .send(SpoolEntry::Item {
-                            id,
-                            data: value.to_vec(),
-                        })
-                        .map_err(|err| {
-                            anyhow::anyhow!("failed to send SpoolEntry for {id}: {err:#}")
-                        })?;
-                }
-                Ok::<(), anyhow::Error>(())
-            })?;
+            .spawn_blocking_on(
+                move || {
+                    let iter = db.iterator(IteratorMode::Start);
+                    for entry in iter {
+                        let (key, value) = entry?;
+                        let id = SpoolId::from_slice(&key)
+                            .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
+                        sender
+                            .send(SpoolEntry::Item {
+                                id,
+                                data: value.to_vec(),
+                            })
+                            .map_err(|err| {
+                                anyhow::anyhow!("failed to send SpoolEntry for {id}: {err:#}")
+                            })?;
+                    }
+                    Ok::<(), anyhow::Error>(())
+                },
+                &self.runtime,
+            )?;
         Ok(())
     }
 }
@@ -291,7 +310,7 @@ mod test {
     #[tokio::test]
     async fn rocks_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = RocksSpool::new(&location.path(), false, None)?;
+        let spool = RocksSpool::new(&location.path(), false, None, Handle::current())?;
 
         {
             let id1 = SpoolId::new();

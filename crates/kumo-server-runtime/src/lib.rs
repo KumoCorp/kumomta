@@ -15,6 +15,7 @@ use async_channel::{bounded, unbounded, Sender};
 use prometheus::IntGaugeVec;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::runtime::Handle;
 use tokio::task::{JoinHandle, LocalSet};
 
 lazy_static::lazy_static! {
@@ -118,6 +119,16 @@ impl Runtime {
                                 num_parked.inc();
                             }
                         })
+                        .thread_name(format!("{name_prefix}-blocking"))
+                        .max_blocking_threads(
+                            std::env::var(format!(
+                                "KUMOD_{}_MAX_BLOCKING_THREADS",
+                                name_prefix.to_uppercase()
+                            ))
+                            .ok()
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(512),
+                        )
                         .on_thread_unpark({
                             let num_parked = num_parked.clone();
                             move || {
@@ -280,4 +291,19 @@ where
     tokio::task::Builder::new()
         .name(name.as_ref())
         .spawn_blocking(func)
+}
+
+pub fn spawn_blocking_on<F, N, R>(
+    name: N,
+    func: F,
+    runtime: &Handle,
+) -> std::io::Result<JoinHandle<R>>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+    N: AsRef<str>,
+{
+    tokio::task::Builder::new()
+        .name(name.as_ref())
+        .spawn_blocking_on(func, runtime)
 }
