@@ -72,6 +72,12 @@
   utilization. This will likely become the default mode in the next release,
   but it is currently gated and must be enabled explicitly by passing
   `pre_filter = true` to the `setup_with_automation` call.
+* New
+  [max_connections](../reference/kumo/start_esmtp_listener.md#max_connections)
+  option to set a limit on the number of concurrent incoming connections
+  permitted to a given listener. This defaults to `32768`. A new
+  `total_connections_denied` counter is increment whenever this limit is hit,
+  and whenever a connection is rejected due to being over the memory limit.
 
 ## Fixes
 

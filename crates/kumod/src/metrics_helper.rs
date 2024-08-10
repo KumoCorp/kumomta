@@ -7,6 +7,12 @@ lazy_static::lazy_static! {
             "number of active connections",
             &["service"]).unwrap()
     };
+    pub static ref CONN_DENIED: IntCounterVec = {
+        prometheus::register_int_counter_vec!(
+            "total_connections_denied",
+            "total number of connections rejected due to load shedding or concurrency limits",
+            &["service"]).unwrap()
+    };
     pub static ref TOTAL_CONN: IntCounterVec = {
         prometheus::register_int_counter_vec!(
             "total_connection_count",
@@ -49,6 +55,12 @@ lazy_static::lazy_static! {
             "number of times a message could not fit in the ready queue",
             &["service"]).unwrap()
     };
+}
+
+pub fn connection_denied_for_service(service: &str) -> IntCounter {
+    CONN_DENIED
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 pub fn ready_full_counter_for_service(service: &str) -> IntCounter {

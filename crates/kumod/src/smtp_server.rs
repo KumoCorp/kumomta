@@ -162,6 +162,9 @@ pub struct EsmtpListenerParams {
     #[serde(skip)]
     connection_gauge: OnceCell<IntGauge>,
 
+    #[serde(skip)]
+    connection_denied_counter: OnceCell<IntCounter>,
+
     #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
     max_messages_per_connection: usize,
     #[serde(default = "EsmtpListenerParams::default_max_recipients_per_message")]
@@ -169,6 +172,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default = "EsmtpListenerParams::default_max_message_size")]
     max_message_size: usize,
+
+    #[serde(default = "EsmtpListenerParams::default_max_connections")]
+    max_connections: usize,
 
     #[serde(default = "EsmtpListenerParams::default_data_buffer_size")]
     data_buffer_size: usize,
@@ -191,6 +197,10 @@ impl EsmtpListenerParams {
 
     fn default_max_message_size() -> usize {
         20 * 1024 * 1024
+    }
+
+    fn default_max_connections() -> usize {
+        32 * 1024
     }
 
     fn default_data_buffer_size() -> usize {
@@ -243,11 +253,17 @@ impl EsmtpListenerParams {
             .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
     }
 
+    pub fn connection_denied_counter(&self) -> &IntCounter {
+        self.connection_denied_counter
+            .get_or_init(|| crate::metrics_helper::connection_denied_for_service("esmtp_listener"))
+    }
+
     pub async fn run(self) -> anyhow::Result<()> {
         // Pre-create the acceptor so that we can share it across
         // the various listeners
         self.build_tls_acceptor().await?;
         self.connection_gauge();
+        let denied = self.connection_denied_counter();
 
         let listener = TcpListener::bind(&self.listen)
             .await
@@ -256,6 +272,7 @@ impl EsmtpListenerParams {
         let addr = listener.local_addr()?;
         tracing::info!("smtp listener on {addr:?}");
         let mut shutting_down = ShutdownSubcription::get();
+        let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
 
         loop {
             tokio::select! {
@@ -264,7 +281,39 @@ impl EsmtpListenerParams {
                     return Ok(());
                 }
                 result = listener.accept() => {
-                    let (socket, peer_address) = result?;
+                    let (mut socket, peer_address) = result?;
+                    let Ok(permit) = connection_limiter.clone().try_acquire_owned() else {
+                        // We're over the limit. We make a "best effort" to respond;
+                        // don't strain too hard here, as the purpose of the limit is
+                        // to constrain resource utilization, so no sense going too
+                        // hard in this case.
+
+                        // Bump the connection denied counter, because the operator
+                        // may want to note that we're at the limit and do something
+                        // to mitigate it.
+                        denied.inc();
+
+                        let hostname = &self.hostname;
+                        let response = format!("421 4.3.2 {hostname} too many concurrent sessions. Try later\r\n");
+                        // We allow up to 2 seconds to write the response to
+                        // the peer. Since we're not spawning this task, further
+                        // accepts are blocked for up to that duration.
+                        // That is OK as we're over our limit on connections
+                        // anyway and don't want to/can't accept new connections
+                        // right now anyway.
+                        // We want to avoid spawning because that would allocate
+                        // more memory and introduce additional concerns around
+                        // tracking additional connections in the metrics.
+                        // This way we should never have more than N+1 incoming
+                        // connections on this listener.
+                        let _ = tokio::time::timeout(
+                            Duration::from_secs(2),
+                            socket.write(response.as_bytes())
+                        ).await;
+                        drop(socket);
+                        continue;
+                    };
+
                     // No need for Nagle with SMTP request/response
                     socket.set_nodelay(true)?;
                     let my_address = socket.local_addr()?;
@@ -277,6 +326,7 @@ impl EsmtpListenerParams {
                                 {
                                     tracing::error!("SmtpServer::run: {err:#}");
                             }
+                            drop(permit);
                     })).await?;
                 }
             };
@@ -900,6 +950,10 @@ impl SmtpServer {
             self.peer_address, self.my_address
         )) {
             None => {
+                // We don't bump the connection_denied_counter here, because
+                // shutdown is not (on its own) a condition that requires
+                // alerting and response.
+
                 // Can't accept any messages while we're shutting down
                 self.write_response(
                     421,
@@ -912,6 +966,10 @@ impl SmtpServer {
             Some(a) => a,
         };
         if kumo_server_memory::get_headroom() == 0 {
+            // Bump connection_denied_counter because the operator may care to
+            // investigate this, and we don't otherwise log this class of rejection.
+            self.params.connection_denied_counter().inc();
+
             // Using too much memory
             self.write_response(
                 421,
@@ -923,6 +981,10 @@ impl SmtpServer {
         }
 
         if !SpoolManager::get().spool_started() {
+            // We don't bump the connection_denied_counter here, because
+            // startup is a normal condition and doesn't require an operator
+            // to respond.
+
             // Can't accept any messages until the spool is finished enumerating,
             // else we risk re-injecting messages received during enumeration.
             self.write_response(
