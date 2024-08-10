@@ -7,6 +7,7 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 local SINK_PORT = tonumber(os.getenv 'KUMOD_SMTP_SINK_PORT')
 local WEBHOOK_PORT = os.getenv 'KUMOD_WEBHOOK_PORT'
 local AMQPHOOK_URL = os.getenv 'KUMOD_AMQPHOOK_URL'
+local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
 local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 
 kumo.on('init', function()
@@ -73,6 +74,28 @@ if AMQPHOOK_URL then
 
       function sender:close()
         client:close()
+      end
+
+      return sender
+    end,
+  }
+elseif AMQP_HOST_PORT then
+  log_hooks:new {
+    name = 'amqp',
+    constructor = function(domain, tenant, campaign)
+      local sender = {}
+      local host, port = table.unpack(kumo.string.split(AMQP_HOST_PORT, ':'))
+
+      function sender:send(msg)
+        kumo.amqp.basic_publish {
+          routing_key = 'woot',
+          payload = msg:get_data(),
+          connection = {
+            host = host,
+            port = tonumber(port),
+          },
+        }
+        return '250 ok'
       end
 
       return sender

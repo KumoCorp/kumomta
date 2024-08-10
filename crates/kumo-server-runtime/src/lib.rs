@@ -35,6 +35,22 @@ lazy_static::lazy_static! {
     };
 }
 
+pub static MAIN_RUNTIME: std::sync::Mutex<Option<tokio::runtime::Handle>> =
+    std::sync::Mutex::new(None);
+
+pub fn assign_main_runtime(handle: tokio::runtime::Handle) {
+    MAIN_RUNTIME.lock().unwrap().replace(handle);
+}
+
+pub fn get_main_runtime() -> tokio::runtime::Handle {
+    MAIN_RUNTIME
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|r| r.clone())
+        .unwrap()
+}
+
 static LOCALSET_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_localset_threads(n: usize) {

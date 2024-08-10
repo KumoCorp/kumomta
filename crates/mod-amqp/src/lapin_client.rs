@@ -24,7 +24,6 @@ struct PublishParams {
 struct ChannelHolder {
     channel: Channel,
     connection: Connection,
-    close_tx: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 #[derive(Clone)]
@@ -92,12 +91,6 @@ impl LuaUserData for AMQPClient {
                 .close(200, "")
                 .await
                 .map_err(any_err)?;
-            this.holder
-                .close_tx
-                .lock()
-                .unwrap()
-                .take()
-                .map(|tx| tx.send(()));
             Ok(())
         });
     }
@@ -175,30 +168,11 @@ impl LuaUserData for Confirm {
 }
 
 pub async fn build_client(uri: String) -> anyhow::Result<AMQPClient> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let (close_tx, close_rx) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new()
-        .name(format!("amqp-client-{uri}"))
-        .spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_io()
-                .enable_time()
-                .build()?;
-
-            match tx.send(runtime.handle().clone()) {
-                Ok(_) => {
-                    runtime.block_on(close_rx)?;
-                    Ok(())
-                }
-                Err(_) => {
-                    anyhow::bail!("failed to return runtime handle");
-                }
-            }
-        })?;
-    let handle = rx.await.map_err(any_err)?;
-
     let options = ConnectionProperties::default()
-        .with_executor(tokio_executor_trait::Tokio::default().with_handle(handle))
+        .with_executor(
+            tokio_executor_trait::Tokio::default()
+                .with_handle(kumo_server_runtime::get_main_runtime()),
+        )
         .with_reactor(tokio_reactor_trait::Tokio);
 
     let connect_timeout = tokio::time::Duration::from_secs(20);
@@ -218,7 +192,6 @@ pub async fn build_client(uri: String) -> anyhow::Result<AMQPClient> {
         holder: Arc::new(ChannelHolder {
             connection,
             channel,
-            close_tx: Mutex::new(Some(close_tx)),
         }),
     })
 }

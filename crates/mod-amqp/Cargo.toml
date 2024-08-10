@@ -6,9 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+amqprs = {version="1.7", features=["tls"]}
 anyhow = "1.0"
 config = {path="../config"}
+once_cell = "1.17"
+kumo-server-runtime = {path="../kumo-server-runtime"}
+duration-serde = {path="../duration-serde"}
 lapin.workspace = true
+deadpool = {version="0.12", features=["rt_tokio_1"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {version="1.0", features=["derive"]}
 tokio.workspace = true

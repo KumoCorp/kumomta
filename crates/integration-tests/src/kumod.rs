@@ -299,7 +299,7 @@ impl KumoDaemon {
         cmd.args(["--policy", &args.policy_file, "--user", &user.name])
             .env(
                 "KUMOD_LOG",
-                "kumod=trace,kumo_server_common=info,kumo_server_runtime=info",
+                "kumod=trace,kumo_server_common=info,kumo_server_runtime=info,warn",
             )
             .env("KUMOD_TEST_DIR", dir.path())
             .envs(args.env.iter().cloned())

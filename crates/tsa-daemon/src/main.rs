@@ -89,6 +89,7 @@ fn signal_shutdown() -> Pin<Box<dyn Future<Output = ()>>> {
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
+    kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());
     StartConfig {
         logging: LoggingConfig {
             log_dir: opts.diag_log_dir.clone(),

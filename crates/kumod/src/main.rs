@@ -237,6 +237,7 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
+    kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());
     config::VALIDATE_ONLY.store(opts.validate, std::sync::atomic::Ordering::Relaxed);
 
     let res = StartConfig {
