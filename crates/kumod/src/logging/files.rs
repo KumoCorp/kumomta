@@ -130,6 +130,7 @@ impl LogThreadState {
         tracing::debug!("LogFileParams: {:#?}", self.params);
 
         self.mark_existing_logs_as_done();
+        let mut expire_counter = 0u16;
 
         loop {
             let deadline = self.get_deadline();
@@ -137,7 +138,20 @@ impl LogThreadState {
 
             let cmd = if let Some(deadline) = deadline {
                 tokio::select! {
-                    cmd = self.receiver.recv() => cmd,
+                    cmd = self.receiver.recv() => {
+                        // If we are super busy and always have another command immediately
+                        // available, we need to take the opportunity to notice when
+                        // segments expire.
+                        // We check every so many events so that we're not spending excessive
+                        // amounts of processing considering this.
+                        // When we go idle, we'll take the other branch and notice.
+                        expire_counter = expire_counter.wrapping_add(1);
+                        if expire_counter == 10_000 {
+                            self.expire();
+                            expire_counter = 0;
+                        }
+                        cmd
+                    }
                     _ = tokio::time::sleep_until(deadline.into()) => {
                         tracing::debug!("deadline reached, running expiration for this segment");
                         self.expire();

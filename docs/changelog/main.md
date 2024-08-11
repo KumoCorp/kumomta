@@ -111,3 +111,4 @@
 * Changing the `max_ready` value for a ready queue no longer requires waiting for
   the queue to be reaped before it will take effect.
 * When connecting to single-node redis, the username and password were ignored.
+* `max_segment_duration` for log files was only processed in idle periods.
