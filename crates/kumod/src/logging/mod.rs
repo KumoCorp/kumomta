@@ -125,15 +125,12 @@ impl Logger {
         let hook_name = params.name.to_string();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
 
+        let mut state = LogHookState::new(params, receiver, template_engine);
+
         let thread = LOGGING_RUNTIME
             .spawn("log hook".to_string(), move || {
                 Ok(async move {
                     tracing::debug!("calling state.logger_thread()");
-                    let mut state = LogHookState {
-                        params,
-                        receiver,
-                        template_engine,
-                    };
                     state.logger_thread().await
                 })
             })

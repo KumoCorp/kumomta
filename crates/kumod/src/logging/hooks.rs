@@ -13,6 +13,7 @@ use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 pub static SHOULD_ENQ_LOG_RECORD_SIG: Lazy<CallbackSignature<(Message, String), bool>> =
     Lazy::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
@@ -45,12 +46,28 @@ pub struct LogHookParams {
 }
 
 pub struct LogHookState {
-    pub params: LogHookParams,
-    pub receiver: Receiver<LogCommand>,
-    pub template_engine: Environment<'static>,
+    params: LogHookParams,
+    receiver: Receiver<LogCommand>,
+    template_engine: Environment<'static>,
+    sema: Arc<Semaphore>,
 }
 
 impl LogHookState {
+    pub fn new(
+        params: LogHookParams,
+        receiver: Receiver<LogCommand>,
+        template_engine: Environment<'static>,
+    ) -> Self {
+        let sema = Arc::new(Semaphore::new(params.back_pressure));
+
+        Self {
+            params,
+            receiver,
+            template_engine,
+            sema,
+        }
+    }
+
     pub async fn logger_thread(&mut self) {
         tracing::debug!("LogHookParams: {:#?}", self.params);
 
@@ -68,7 +85,7 @@ impl LogHookState {
                     break;
                 }
                 LogCommand::Record(record) => {
-                    if let Err(err) = self.do_record(record) {
+                    if let Err(err) = self.do_record(record).await {
                         tracing::error!("failed to log: {err:#}");
                     };
                 }
@@ -76,12 +93,26 @@ impl LogHookState {
         }
     }
 
-    fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+    async fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
 
         if record.reception_protocol.as_deref() == Some("LogRecord") {
             return Ok(());
         }
+
+        // Limit the concurrency for log hook dispatches.
+        // We start synchronously (wrt. to acquiring the records) here,
+        // but in the tail end of do_record we spawn a task to perform
+        // the hook with parallelism. We don't want the number of outstanding
+        // hook tasks to grow too large because:
+        // 1. It is a sign that the logging system cannot keep up with
+        //    the throughput of the system.
+        // 2. If the system were to go down with a large backlog of unlogged
+        //    items, there is increased risk that we won't have a record of
+        //    what happened to the messages we processed.
+        // 3. Unbounded growth increases system pressures which increases
+        //    the risk of something going wrong.
+        let permit = self.sema.clone().acquire_owned().await;
 
         apply_classification(&mut record);
 
@@ -131,6 +162,7 @@ impl LogHookState {
                     }
                     QueueManager::insert(&queue_name, msg).await?;
                 }
+                drop(permit);
                 anyhow::Result::<()>::Ok(())
             })
         })?;

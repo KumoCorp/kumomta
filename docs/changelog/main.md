@@ -112,3 +112,6 @@
   the queue to be reaped before it will take effect.
 * When connecting to single-node redis, the username and password were ignored.
 * `max_segment_duration` for log files was only processed in idle periods.
+* log hooks only partially respected the `back_pressure` parameter, which could
+  leave to more system pressure (higher RAM and larger number of concurrent
+  tasks) in overload scenarios.
