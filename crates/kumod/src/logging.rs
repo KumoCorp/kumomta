@@ -8,7 +8,7 @@ use config::{any_err, from_lua_value, get_or_create_module, load_config, Callbac
 use kumo_log_types::rfc3464::ReportAction;
 use kumo_log_types::MaybeProxiedSourceAddress;
 pub use kumo_log_types::*;
-use kumo_server_runtime::rt_spawn_non_blocking;
+use kumo_server_runtime::Runtime;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
@@ -26,16 +26,25 @@ use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as TokioMutex;
+use tokio::task::JoinHandle;
 use zstd::stream::write::Encoder;
 
 static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
 static CLASSIFY: OnceCell<BounceClassifier> = OnceCell::new();
 pub static SHOULD_ENQ_LOG_RECORD_SIG: Lazy<CallbackSignature<(Message, String), bool>> =
     Lazy::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
+
+static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
+pub static LOGGING_RUNTIME: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new("logging", |cpus| cpus / 4, &LOGGING_THREADS).unwrap());
+
+pub fn set_logging_threads(n: usize) {
+    LOGGING_THREADS.store(n, Ordering::SeqCst);
+}
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -198,7 +207,7 @@ impl Logger {
         LOGGER.lock().iter().map(Arc::clone).collect()
     }
 
-    pub fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
+    pub async fn init_hook(params: LogHookParams) -> anyhow::Result<()> {
         let mut loggers = LOGGER.lock();
 
         if loggers
@@ -235,15 +244,10 @@ impl Logger {
         let meta = params.meta.clone();
         let hook_name = params.name.to_string();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
-        let thread = std::thread::Builder::new()
-            .name("logger".to_string())
-            .spawn(move || {
-                tracing::debug!("started logger thread");
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .expect("create logger runtime");
-                runtime.block_on(async move {
+
+        let thread = LOGGING_RUNTIME
+            .spawn("log hook".to_string(), move || {
+                Ok(async move {
                     tracing::debug!("calling state.logger_thread()");
                     let mut state = LogHookState {
                         params,
@@ -251,8 +255,9 @@ impl Logger {
                         template_engine,
                     };
                     state.logger_thread().await
-                });
-            })?;
+                })
+            })
+            .await?;
 
         let logger = Self {
             sender,
@@ -268,7 +273,7 @@ impl Logger {
         Ok(())
     }
 
-    pub fn init(params: LogFileParams) -> anyhow::Result<()> {
+    pub async fn init(params: LogFileParams) -> anyhow::Result<()> {
         let mut template_engine = Environment::new();
         add_to_environment(&mut template_engine);
 
@@ -297,15 +302,9 @@ impl Logger {
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let filter_event = params.filter_event.clone();
 
-        let thread = std::thread::Builder::new()
-            .name("logger".to_string())
-            .spawn(move || {
-                tracing::debug!("started logger thread");
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .expect("create logger runtime");
-                runtime.block_on(async move {
+        let thread = LOGGING_RUNTIME
+            .spawn("log file".to_string(), move || {
+                Ok(async move {
                     tracing::debug!("calling state.logger_thread()");
                     let mut state = LogThreadState {
                         params,
@@ -314,8 +313,9 @@ impl Logger {
                         file_map: HashMap::new(),
                     };
                     state.logger_thread().await
-                });
-            })?;
+                })
+            })
+            .await?;
 
         let logger = Self {
             sender,
@@ -352,12 +352,10 @@ impl Logger {
                 tracing::debug!("Terminating a logger");
                 logger.sender.send(LogCommand::Terminate).await.ok();
                 tracing::debug!("Joining that logger");
-                let res = logger
-                    .thread
-                    .lock()
-                    .await
-                    .take()
-                    .map(|thread| thread.join());
+                let res = match logger.thread.lock().await.take() {
+                    Some(task) => Some(task.await),
+                    None => None,
+                };
                 tracing::debug!("Joined -> {res:?}");
             }
         })
@@ -825,6 +823,10 @@ impl LogHookState {
     fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
 
+        if record.reception_protocol.as_deref() == Some("LogRecord") {
+            return Ok(());
+        }
+
         if let Some(classifier) = CLASSIFY.get() {
             record.bounce_classification = classifier.classify_response(&record.response);
         }
@@ -860,7 +862,7 @@ impl LogHookState {
         let deferred_spool = self.params.deferred_spool;
         let name = self.params.name.clone();
 
-        rt_spawn_non_blocking("should_enqueue_log_record".to_string(), move || {
+        LOGGING_RUNTIME.spawn_non_blocking("log-hook".to_string(), move || {
             Ok(async move {
                 let mut lua_config = load_config().await?;
 
@@ -875,7 +877,6 @@ impl LogHookState {
                     }
                     QueueManager::insert(&queue_name, msg).await?;
                 }
-
                 anyhow::Result::<()>::Ok(())
             })
         })?;
@@ -1127,17 +1128,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "configure_local_logs",
-        lua.create_function(move |lua, params: LuaValue| {
+        lua.create_async_function(|lua, params: LuaValue| async move {
             let params: LogFileParams = from_lua_value(lua, params)?;
-            Logger::init(params).map_err(any_err)
+            Logger::init(params).await.map_err(any_err)
         })?,
     )?;
 
     kumo_mod.set(
         "configure_log_hook",
-        lua.create_function(move |lua, params: LuaValue| {
+        lua.create_async_function(|lua, params: LuaValue| async move {
             let params: LogHookParams = from_lua_value(lua, params)?;
-            Logger::init_hook(params).map_err(any_err)
+            Logger::init_hook(params).await.map_err(any_err)
         })?,
     )?;
 
