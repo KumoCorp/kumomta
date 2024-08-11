@@ -1,7 +1,8 @@
 use crate::http_server::admin_trace_smtp_server_v1::{
     SmtpServerTraceEvent, SmtpServerTraceEventPayload, SmtpServerTraceManager,
 };
-use crate::logging::{log_disposition, log_rejection, LogDisposition, LogRejection, RecordType};
+use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
+use crate::logging::rejection::{log_rejection, LogRejection};
 use crate::queue::QueueManager;
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};

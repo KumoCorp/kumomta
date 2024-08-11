@@ -2,7 +2,7 @@ use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::http_server::admin_trace_smtp_client_v1::{
     SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
-use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;

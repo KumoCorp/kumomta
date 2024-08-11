@@ -4,7 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
 };
-use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};

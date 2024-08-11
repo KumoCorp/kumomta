@@ -1,5 +1,5 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
-use crate::logging::{log_disposition, LogDisposition};
+use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;

@@ -2,7 +2,7 @@ use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
-use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
 use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use crate::smtp_dispatcher::SmtpProtocol;

@@ -1,4 +1,4 @@
-use crate::logging::{log_disposition, LogDisposition, RecordType};
+use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use axum::extract::Json;
 use axum::http::StatusCode;
