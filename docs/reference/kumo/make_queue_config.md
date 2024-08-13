@@ -231,3 +231,78 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   }
 end)
 ```
+
+## reap_interval
+
+{{since('dev')}}
+
+Optional duration string. The default is `"10m"`.  It controls how long the
+queue should remain empty and idle before we reap it from the queue management
+layer and free its associated resources and metrics.
+
+## refresh_interval
+
+{{since('dev')}}
+
+Optional duration string. The default is `"1m"`.  It controls how long the
+queue should wait before refreshing the configuration for that queue by
+triggering the [get_queue_config](../events/get_queue_config.md) event.
+
+## strategy
+
+{{since('dev')}}
+
+Optional string to specify the scheduled queue strategy.  There are two possible
+values:
+
+* `"TimerWheel"` - the default. The timer wheel has `O(1)` insertion and `O(1)`
+  pop costs, making it good for very large scheduled queues, but that comes in
+  exchange for a flat periodic tick overhead.  As the number of scheduled queues
+  increases and/or the `retry_interval` decreases, so does the aggregate overhead
+  of maintaining timerwheel queues.
+* `"SkipList"` - A skiplist has `O(log n)` insertion and `O(1)` pop costs,
+  making it a good general purpose queue, but becomes more expensive to insert
+  into as the size of the queue increases.  That higher insertion cost is in
+  exchange for the overall maintenance being cheaper, as the queue can go to
+  sleep until the time of the next due item.  The ongoing and aggregate
+  maintenance is therefore cheaper than a `TimerWheel` but the worst-case
+  scenario where the destination is not accepting mail and causing the
+  scheduled queue to grow is logarithmically more expensive as the queue
+  grows.
+
+Which should you use? Whichever works best for your environment! Make sure that
+you test normal healthy operation with a lot of queues as well as the worst
+case scenario where those queues are full and egress is blocked.
+
+If you have very short `retry_interval` set for the majority of your queues you
+may wish to adopt `SkipList` for its lower idle CPU cost, or alternatively use
+`TimerWheel` and find a `timerwheel_tick_interval` that works for your typical
+number of queues.
+
+!!! note
+    Changing the strategy for a given queue requires that the queue either be
+    aged out, or for kumod to be restarted, before it will take effect.  This
+    restriction may be removed in a future release.
+
+## timerwheel_tick_interval
+
+{{since('dev')}}
+
+When using the default `strategy = "TimerWheel"`, the timer wheel needs to
+be ticked regularly in order to promote messages into the ready queue. The default
+tick interval is computed as `retry_interval / 20` and clamped to be within the
+range `>= 1s && <= 1m`.
+
+If you have a short `retry_interval` and a lot of scheduled queues you may find
+that your system is spending more time ticking over than is desirable, so you can
+explicitly select the tick interval via this option.
+
+The value is an optional string duration like `1m`.
+
+If you have to set this, our recommendation is generally for this to be as long
+as possible.
+
+!!! note
+    The maintainer will also tick over whenever the
+    [refresh_interval](#refresh_interval) elapses, so there isn't a tangible
+    benefit to setting `timerwheel_tick_interval` larger than `refresh_interval`.

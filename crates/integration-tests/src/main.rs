@@ -1084,9 +1084,20 @@ DeliverySummary {
     }
 
     #[tokio::test]
-    async fn retry_schedule() -> anyhow::Result<()> {
-        let mut daemon =
-            DaemonWithMaildir::start_with_env(vec![("KUMOD_RETRY_INTERVAL", "5s")]).await?;
+    async fn retry_schedule_timerwheel() -> anyhow::Result<()> {
+        retry_schedule_impl("TimerWheel").await
+    }
+    #[tokio::test]
+    async fn retry_schedule_skiplist() -> anyhow::Result<()> {
+        retry_schedule_impl("SkipList").await
+    }
+
+    async fn retry_schedule_impl(strategy: &str) -> anyhow::Result<()> {
+        let mut daemon = DaemonWithMaildir::start_with_env(vec![
+            ("KUMOD_RETRY_INTERVAL", "5s"),
+            ("KUMOD_QUEUE_STRATEGY", strategy),
+        ])
+        .await?;
 
         let mut client = daemon.smtp_client().await?;
 

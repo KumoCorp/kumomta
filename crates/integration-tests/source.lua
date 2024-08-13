@@ -177,6 +177,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
       },
     },
     retry_interval = os.getenv 'KUMOD_RETRY_INTERVAL',
+    strategy = os.getenv 'KUMOD_QUEUE_STRATEGY',
   }
 end)
 

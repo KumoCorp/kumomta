@@ -8,8 +8,9 @@ use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use config::{load_config, CallbackSignature, LuaConfig};
+use crossbeam_skiplist::SkipSet;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
@@ -82,6 +83,11 @@ lazy_static::lazy_static! {
 }
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
+const ZERO_DURATION: Duration = Duration::from_secs(0);
+const ONE_SECOND: Duration = Duration::from_secs(1);
+const ONE_DAY: Duration = Duration::from_secs(86400);
+const ONE_MINUTE: Duration = Duration::from_secs(60);
+const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
 struct ScheduledMetrics {
     scheduled: IntGauge,
@@ -196,6 +202,13 @@ impl Default for DeliveryProto {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, FromLua, Default, Copy, PartialEq, Eq)]
+pub enum QueueStrategy {
+    #[default]
+    TimerWheel,
+    SkipList,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct QueueConfig {
@@ -228,6 +241,30 @@ pub struct QueueConfig {
 
     #[serde(default)]
     pub protocol: DeliveryProto,
+
+    /// How long to wait after the queue is idle before reaping
+    /// and removing the scheduled queue from memory
+    #[serde(
+        default = "QueueConfig::default_reap_interval",
+        with = "duration_serde"
+    )]
+    pub reap_interval: Duration,
+
+    /// How long to wait between calls to get_queue_config for
+    /// any given scheduled queue. Making this longer uses fewer
+    /// resources (in aggregate) but means that it will take longer
+    /// to detect and adjust to changes in the queue configuration.
+    #[serde(
+        default = "QueueConfig::default_refresh_interval",
+        with = "duration_serde"
+    )]
+    pub refresh_interval: Duration,
+
+    #[serde(with = "duration_serde", default)]
+    pub timerwheel_tick_interval: Option<Duration>,
+
+    #[serde(default)]
+    pub strategy: QueueStrategy,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -241,6 +278,10 @@ impl Default for QueueConfig {
             egress_pool: None,
             protocol: DeliveryProto::default(),
             max_message_rate: None,
+            reap_interval: Self::default_reap_interval(),
+            refresh_interval: Self::default_refresh_interval(),
+            strategy: QueueStrategy::default(),
+            timerwheel_tick_interval: None,
         }
     }
 }
@@ -252,6 +293,14 @@ impl QueueConfig {
 
     fn default_max_age() -> Duration {
         Duration::from_secs(86400 * 7) // 1 week
+    }
+
+    fn default_reap_interval() -> Duration {
+        TEN_MINUTES
+    }
+
+    fn default_refresh_interval() -> Duration {
+        ONE_MINUTE
     }
 
     pub fn get_max_age(&self) -> chrono::Duration {
@@ -515,9 +564,177 @@ struct CachedReadyQueueName {
     generation: usize,
 }
 
+#[derive(Debug)]
+struct DelayedEntry(Message);
+
+impl DelayedEntry {
+    /// Get the due time with lower granularity than the underlying
+    /// timestamp allows.
+    /// Here it is 1 second.  For sites with very large
+    /// scheduled queues and reasonable retry intervals
+    /// it is desirable to reduce the granularity beacuse
+    /// it makes the cost of the skiplist insertion
+    /// cheaper when multiple items compare equal: we can insert
+    /// when we find the start of a batch with the same second
+    fn get_bucketed_due(&self) -> i64 {
+        self.0.get_due().map(|d| d.timestamp()).unwrap_or(0)
+    }
+
+    fn compute_delay(&self, now: DateTime<Utc>) -> Duration {
+        let due = self.get_bucketed_due();
+        let now_ts = now.timestamp();
+        Duration::from_secs(due.saturating_sub(now_ts).max(0) as u64)
+    }
+}
+
+impl PartialEq for DelayedEntry {
+    fn eq(&self, other: &DelayedEntry) -> bool {
+        self.get_bucketed_due().eq(&other.get_bucketed_due())
+    }
+}
+impl Eq for DelayedEntry {}
+impl PartialOrd for DelayedEntry {
+    fn partial_cmp(&self, other: &DelayedEntry) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DelayedEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.get_bucketed_due().cmp(&other.get_bucketed_due())
+    }
+}
+
+#[must_use]
+enum QueueInsertResult {
+    Inserted { should_notify: bool },
+    Full(Message),
+}
+
+enum QueueStructure {
+    TimerWheel(StdMutex<TimeQ<Message>>),
+    SkipList(SkipSet<DelayedEntry>),
+}
+
+impl QueueStructure {
+    fn new(strategy: QueueStrategy) -> Self {
+        match strategy {
+            QueueStrategy::TimerWheel => Self::TimerWheel(StdMutex::new(TimeQ::new())),
+            QueueStrategy::SkipList => Self::SkipList(SkipSet::new()),
+        }
+    }
+
+    fn pop(&self) -> (Vec<Message>, Option<Duration>, bool) {
+        match self {
+            Self::TimerWheel(q) => match q.lock().pop() {
+                PopResult::Items(items) => {
+                    let mut messages = Vec::with_capacity(items.len());
+                    for msg_wrapper in items {
+                        messages.push((*msg_wrapper).clone());
+                    }
+                    (messages, None, false)
+                }
+                PopResult::Sleep(_) => (vec![], None, false),
+                PopResult::Empty => (vec![], None, true),
+            },
+            Self::SkipList(q) => {
+                let now = Utc::now();
+                let mut messages = vec![];
+                let mut sleep_duration = None;
+                let mut is_empty = true;
+
+                while let Some(entry) = q.front() {
+                    let delay = entry.compute_delay(now);
+                    if delay == ZERO_DURATION {
+                        entry.remove();
+                        messages.push(entry.0.clone());
+                    } else {
+                        sleep_duration = Some(delay);
+                        is_empty = false;
+                        break;
+                    }
+                }
+
+                (messages, sleep_duration, is_empty)
+            }
+        }
+    }
+
+    fn drain(&self) -> Vec<Message> {
+        match self {
+            Self::TimerWheel(q) => q
+                .lock()
+                .drain()
+                .into_iter()
+                .map(|entry| (*entry).clone())
+                .collect(),
+            Self::SkipList(q) => {
+                let mut msgs = vec![];
+                while let Some(entry) = q.pop_front() {
+                    msgs.push((*entry).0.clone());
+                }
+                msgs
+            }
+        }
+    }
+
+    fn insert(&self, msg: Message) -> QueueInsertResult {
+        match self {
+            Self::TimerWheel(q) => match q.lock().insert(Arc::new(msg)) {
+                Ok(()) => QueueInsertResult::Inserted {
+                    // We never notify for TimerWheel because we always tick
+                    // on a regular(ish) schedule
+                    should_notify: false,
+                },
+                Err(TimerError::Expired(msg)) => QueueInsertResult::Full((*msg).clone()),
+                Err(TimerError::NotFound) => unreachable!(),
+            },
+            Self::SkipList(q) => {
+                let due = q.front().map(|entry| entry.get_bucketed_due());
+                q.insert(DelayedEntry(msg));
+                let now_due = q.front().map(|entry| entry.get_bucketed_due());
+                QueueInsertResult::Inserted {
+                    // Only notify the maintainer if it now needs to wake up
+                    // sooner than it previously thought. In particular,
+                    // we do not want to wake up for every message insertion,
+                    // as that would generally be a waste of effort and bog
+                    // down the system without gain.
+                    should_notify: now_due < due,
+                }
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::TimerWheel(q) => q.lock().len(),
+            Self::SkipList(q) => q.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::TimerWheel(q) => q.lock().is_empty(),
+            Self::SkipList(q) => q.is_empty(),
+        }
+    }
+
+    fn is_timer_wheel(&self) -> bool {
+        matches!(self, Self::TimerWheel(_))
+    }
+
+    fn strategy(&self) -> QueueStrategy {
+        match self {
+            Self::TimerWheel(_) => QueueStrategy::TimerWheel,
+            Self::SkipList(_) => QueueStrategy::SkipList,
+        }
+    }
+}
+
 pub struct Queue {
     name: String,
-    queue: StdMutex<TimeQ<Message>>,
+    queue: QueueStructure,
+    notify_maintainer: Arc<Notify>,
     last_change: StdMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
     metrics: ScheduledMetrics,
@@ -561,9 +778,10 @@ impl Queue {
 
         let handle = Arc::new(Queue {
             name: name.clone(),
-            queue: StdMutex::new(TimeQ::new()),
+            queue: QueueStructure::new(queue_config.strategy),
             last_change: StdMutex::new(Instant::now()),
             queue_config: ConfigHandle::new(queue_config),
+            notify_maintainer: Arc::new(Notify::new()),
             metrics,
             activity,
             rr,
@@ -585,22 +803,30 @@ impl Queue {
     }
 
     /// Insert into the timeq, and updates the counters.
-    fn timeq_insert(&self, msg: Message) -> Result<(), TimerError<Arc<Message>>> {
-        self.queue.lock().insert(Arc::new(msg))?;
-        self.metrics.inc();
-        Ok(())
+    fn timeq_insert(&self, msg: Message) -> Result<(), Message> {
+        tracing::trace!("timeq_insert {} due={:?}", self.name, msg.get_due());
+        match self.queue.insert(msg) {
+            QueueInsertResult::Inserted { should_notify } => {
+                self.metrics.inc();
+                if should_notify {
+                    self.notify_maintainer.notify_one();
+                }
+                Ok(())
+            }
+            QueueInsertResult::Full(msg) => Err(msg),
+        }
     }
 
     /// Removes all messages from the timeq, and updates the counters
-    fn drain_timeq(&self) -> Vec<Arc<Message>> {
-        let msgs = self.queue.lock().drain();
+    fn drain_timeq(&self) -> Vec<Message> {
+        let msgs = self.queue.drain();
         self.metrics.sub(msgs.len() as i64);
+        if !msgs.is_empty() {
+            // Wake the maintainer so that it can see that the queue is
+            // now empty and decide what it wants to do next.
+            self.notify_maintainer.notify_one();
+        }
         msgs
-    }
-
-    /// Maybe removes an item from the timeq. Does NOT update the counters.
-    fn pop_timeq(&self) -> PopResult<Message> {
-        self.queue.lock().pop()
     }
 
     async fn do_rebind(&self, msg: Message, rebind: &Arc<AdminRebindEntry>) {
@@ -713,7 +939,6 @@ impl Queue {
         let count = msgs.len();
         if count > 0 {
             for msg in msgs {
-                let msg = (*msg).clone();
                 self.do_rebind(msg, rebind).await;
             }
         }
@@ -737,7 +962,6 @@ impl Queue {
                 move || {
                     Ok(async move {
                         for msg in msgs {
-                            let msg = (*msg).clone();
                             let id = *msg.id();
                             bounce.log(msg, Some(&name)).await;
                             SpoolManager::remove_from_spool(id).await.ok();
@@ -847,6 +1071,7 @@ impl Queue {
                     Ok(InsertResult::Ready(msg))
                 } else {
                     tracing::trace!("insert_delayed, locking timeq {}", msg.id());
+
                     match self.timeq_insert(msg.clone()) {
                         Ok(_) => {
                             if let Err(err) = self.did_insert_delayed(msg.clone()).await {
@@ -854,8 +1079,7 @@ impl Queue {
                             }
                             Ok(InsertResult::Delayed)
                         }
-                        Err(TimerError::Expired(msg)) => Ok(InsertResult::Ready((*msg).clone())),
-                        Err(err) => anyhow::bail!("queue insert error: {err:#?}"),
+                        Err(msg) => Ok(InsertResult::Ready(msg)),
                     }
                 }
             }
@@ -1334,40 +1558,58 @@ impl QueueManager {
 
 #[instrument(skip(q))]
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
-    /// Figure the maintainer sleep duration by taking the retry_interval
-    /// and dividing by 20. In the default configuration, retry_interval
-    /// is 20 minutes and the desirable sleep interval is 1 minute.
-    /// We clamp the actual sleep duration to be between 1 second and 1 minute
-    /// so that it isn't excessively small or excessively large; we don't
-    /// want to sleep through in the case that another actor inserts
-    /// a message with a smaller duration while we weren't looking.
-    fn calc_sleep_duration(config: &QueueConfig) -> Duration {
-        (config.retry_interval / 20)
-            .max(Duration::from_secs(1))
-            .min(Duration::from_secs(60))
-    }
-
-    let mut preferred_sleep_duration = calc_sleep_duration(&*q.queue_config.borrow());
-    let mut sleep_duration = preferred_sleep_duration;
-
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
-    let mut last_config_refresh = Instant::now();
+    let mut is_shutting_down = false;
+    let mut next_config_refresh = Instant::now() + q.queue_config.borrow().refresh_interval;
+    let mut reap_at = Instant::now() + ONE_DAY;
+    let mut next_item_due = Instant::now();
+    let mut warned_strategy_change = false;
+    let mut queue_is_empty = false;
 
     loop {
-        tokio::select! {
-            _ = tokio::time::sleep(sleep_duration) => {}
-            _ = shutdown.shutting_down() => {}
-            _ = memory.changed() => {}
+        let sleeping = Instant::now();
+        let reason = tokio::select! {
+            _ = tokio::time::sleep(ONE_SECOND), if is_shutting_down => {"shutting_down"}
+            _ = tokio::time::sleep_until(next_item_due.into()), if !is_shutting_down => {"due"}
+            _ = tokio::time::sleep_until(next_config_refresh.into()) => {
+                if let Ok(mut config) = load_config().await {
+                    if let Ok(queue_config) =
+                        Queue::call_get_queue_config(&q.name, &mut config).await
+                    {
+                        let strategy = queue_config.strategy;
+
+                        q.queue_config.update(queue_config);
+
+                        if q.queue.strategy() != strategy && !warned_strategy_change {
+                            tracing::warn!(
+                                "queue {} strategy change from {:?} to {:?} \
+                                requires either the queue to be reaped, \
+                                or a restart of kumod to take effect. \
+                                This warning will be shown only once per scheduled queue.",
+                                q.name,
+                                q.queue.strategy(), strategy);
+                            warned_strategy_change = true;
+                        }
+                    }
+                }
+                next_config_refresh = Instant::now() + q.queue_config.borrow().refresh_interval;
+
+                "config_refresh"
+            }
+            _ = shutdown.shutting_down(), if !is_shutting_down => {"shutting_down"}
+            _ = memory.changed() => {"memory"}
+            _ = q.notify_maintainer.notified() => {"notified"}
+            _ = tokio::time::sleep_until(reap_at.into()), if queue_is_empty => {"reap"}
         };
 
         {
             tracing::debug!(
-                "maintaining queue {} which has {} entries. \
-                sleep_duration={sleep_duration:?}, \
-                preferred_sleep_duration={preferred_sleep_duration:?}",
+                "maintaining {} {:?} which has {} entries. wakeup after {:?} reason={reason}",
                 q.name,
-                q.queue.lock().len()
+                q.queue.strategy(),
+                q.queue.len(),
+                sleeping.elapsed(),
             );
 
             if let Some(b) = AdminBounceEntry::get_for_queue_name(&q.name) {
@@ -1375,15 +1617,15 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             }
 
             if q.activity.is_shutting_down() {
-                sleep_duration = Duration::from_secs(1);
+                is_shutting_down = true;
                 for msg in q.drain_timeq() {
                     Queue::save_if_needed_and_log(&msg).await;
                     drop(msg);
                 }
 
-                if ReadyQueueManager::number_of_queues() == 0 {
+                if q.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
                     tracing::debug!(
-                        "{}: there are no more queues and the delayed queue is empty, reaping",
+                        "{}: there are no more queues and the scheduled queue is empty, reaping",
                         q.name
                     );
                     QueueManager::remove(&q.name);
@@ -1392,59 +1634,59 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 continue;
             }
 
-            if last_config_refresh.elapsed() >= Duration::from_secs(60) {
-                last_config_refresh = Instant::now();
-                if let Ok(mut config) = load_config().await {
-                    if let Ok(queue_config) =
-                        Queue::call_get_queue_config(&q.name, &mut config).await
-                    {
-                        preferred_sleep_duration = calc_sleep_duration(&queue_config);
-                        sleep_duration = sleep_duration.min(preferred_sleep_duration);
-                        q.queue_config.update(queue_config);
-                    }
+            let (messages, next_due_in, is_empty) = q.queue.pop();
+
+            let now = Instant::now();
+            queue_is_empty = is_empty;
+
+            next_item_due = if q.queue.is_timer_wheel() {
+                // For a timer wheel, we need to (fairly consistently) tick it
+                // over in order to promote things to the ready queue.
+                // We do this based on the retry duration; the product default
+                // is a 20m retry duration for which we want to tick once per
+                // minute.
+                // For shorter intervals we scale this accordingly.
+                // To avoid very excessively wakeups for very short or very
+                // long intervals, we clamp to between 1s and 1m.
+
+                debug_assert!(
+                    next_due_in.is_none(),
+                    "next_due_in should never be populated for timerwheel"
+                );
+
+                let queue_config = q.queue_config.borrow();
+                now + queue_config.timerwheel_tick_interval.unwrap_or(
+                    (queue_config.retry_interval / 20)
+                        .max(ONE_SECOND)
+                        .min(ONE_MINUTE),
+                )
+            } else {
+                now + next_due_in.unwrap_or(ONE_DAY)
+            };
+
+            if !messages.is_empty() {
+                q.metrics.sub(messages.len() as i64);
+                tracing::debug!("{} {} msgs are now ready", q.name, messages.len());
+
+                for msg in messages {
+                    q.insert_ready(msg).await?;
                 }
             }
 
-            match q.pop_timeq() {
-                PopResult::Items(messages) => {
-                    q.metrics.sub(messages.len() as i64);
-                    tracing::trace!("{} msgs are now ready", messages.len());
-
-                    for msg in messages {
-                        let msg = (*msg).clone();
-                        q.insert_ready(msg.clone()).await?;
-                    }
+            if queue_is_empty {
+                let idle_at: Instant = *q.last_change.lock();
+                let reap_after = q.queue_config.borrow().reap_interval;
+                reap_at = idle_at + reap_after;
+                if idle_at.elapsed() >= reap_after {
+                    QueueManager::remove(&q.name);
+                    tracing::debug!("idling out queue {}", q.name);
+                    // Remove any metrics that go with it, so that we don't
+                    // end up using a lot of memory remembering stats from
+                    // what might be a long tail of tiny domains forever.
+                    ScheduledMetrics::remove_metrics_for_queue(&q.name);
+                    return Ok(());
                 }
-                PopResult::Sleep(duration) => {
-                    // The timeq can sometimes get into a mode where it suggests
-                    // a series of 1ms sleeps to us. We don't want to try for
-                    // such a short sleep; it's no generally productive.
-                    // We take the smaller of the suggested time and our preferred_sleep_duration,
-                    // but clamp it to be at least 1 second in order to strike
-                    // a reasonable balance.
-                    sleep_duration = duration
-                        .min(preferred_sleep_duration)
-                        .max(Duration::from_secs(1));
-                    tracing::trace!(
-                        "{}: pop_timeq suggests sleep of {duration:?}, \
-                        setting duration to {sleep_duration:?}",
-                        q.name
-                    );
-                }
-                PopResult::Empty => {
-                    sleep_duration = preferred_sleep_duration;
-
-                    if q.last_change.lock().elapsed() > Duration::from_secs(60 * 10) {
-                        QueueManager::remove(&q.name);
-                        tracing::debug!("idling out queue {}", q.name);
-                        // Remove any metrics that go with it, so that we don't
-                        // end up using a lot of memory remembering stats from
-                        // what might be a long tail of tiny domains forever.
-                        ScheduledMetrics::remove_metrics_for_queue(&q.name);
-                        return Ok(());
-                    }
-                }
-            };
+            }
         }
     }
 }
