@@ -24,6 +24,7 @@ kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 libc = "0.2.139"
+lruttl = {path="../lruttl"}
 metrics = {workspace=true}
 metrics-prometheus = "0.6"
 metrics-tracing-context = "0.15"

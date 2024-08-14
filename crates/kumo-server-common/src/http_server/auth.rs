@@ -6,12 +6,19 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
 use kumo_server_runtime::rt_spawn;
+use lruttl::LruCacheWithTtl;
+use once_cell::sync::Lazy;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+static AUTH_CACHE: Lazy<Mutex<LruCacheWithTtl<AuthKind, Result<bool, String>>>> =
+    Lazy::new(|| Mutex::new(LruCacheWithTtl::new(128)));
 
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference
 /// that identity in the handler.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum AuthKind {
     TrustedIp(IpAddr),
     Basic {
@@ -64,14 +71,36 @@ impl AuthKind {
         }
     }
 
+    fn lookup_cache(&self) -> Option<Result<bool, String>> {
+        AUTH_CACHE.lock().unwrap().get(self).clone()
+    }
+
     pub async fn validate(&self) -> anyhow::Result<bool> {
-        let kind = self.clone();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        rt_spawn(format!("http auth validate {kind:?}"), move || {
-            Ok(async move { tx.send(kind.validate_impl().await) })
-        })
-        .await?;
-        rx.await?
+        match self.lookup_cache() {
+            Some(res) => res.map_err(|err| anyhow::anyhow!("{err}")),
+            None => {
+                async fn try_validate(kind: AuthKind) -> anyhow::Result<bool> {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    rt_spawn(format!("http auth validate {kind:?}"), move || {
+                        Ok(async move { tx.send(kind.validate_impl().await) })
+                    })
+                    .await?;
+                    rx.await?
+                }
+
+                let res = try_validate(self.clone())
+                    .await
+                    .map_err(|err| format!("{err:#}"));
+
+                let res = AUTH_CACHE.lock().unwrap().insert(
+                    self.clone(),
+                    res,
+                    Instant::now() + Duration::from_secs(60),
+                );
+
+                res.map_err(|err| anyhow::anyhow!("{err}"))
+            }
+        }
     }
 
     pub fn summarize(&self) -> String {
