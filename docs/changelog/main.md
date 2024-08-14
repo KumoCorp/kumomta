@@ -78,6 +78,11 @@
   permitted to a given listener. This defaults to `32768`. A new
   `total_connections_denied` counter is increment whenever this limit is hit,
   and whenever a connection is rejected due to being over the memory limit.
+* HTTP requests made from a trusted host that set an Authorization header will
+  now take the authorization information from the header. Previously the
+  authentication handling would stop as soon as we recognized the trusted
+  source IP. Either way, the request always did and will still continue
+  (assuming that the auth header is valid).
 
 ## Fixes
 

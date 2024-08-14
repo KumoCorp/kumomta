@@ -99,21 +99,23 @@ pub async fn auth_middleware(
         return next.run(request).await;
     }
 
-    if let Some(remote_addr) = request
-        .extensions()
-        .get::<axum::extract::ConnectInfo<SocketAddr>>()
-        .map(|ci| ci.0)
-    {
-        let ip = remote_addr.ip();
-        if state.is_trusted_host(ip) {
-            request.extensions_mut().insert(AuthKind::TrustedIp(ip));
-            return next.run(request).await;
-        }
-    }
-
     // Get authorization header
     match request.headers().get(axum::http::header::AUTHORIZATION) {
-        None => (StatusCode::UNAUTHORIZED, "Missing Authorization header").into_response(),
+        None => {
+            if let Some(remote_addr) = request
+                .extensions()
+                .get::<axum::extract::ConnectInfo<SocketAddr>>()
+                .map(|ci| ci.0)
+            {
+                let ip = remote_addr.ip();
+                if state.is_trusted_host(ip) {
+                    request.extensions_mut().insert(AuthKind::TrustedIp(ip));
+                    return next.run(request).await;
+                }
+            }
+
+            (StatusCode::UNAUTHORIZED, "Missing Authorization header").into_response()
+        }
         Some(authorization) => match authorization.to_str() {
             Err(_) => (StatusCode::BAD_REQUEST, "Malformed Authorization header").into_response(),
             Ok(authorization) => match AuthKind::from_header(authorization) {
