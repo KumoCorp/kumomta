@@ -9,6 +9,28 @@ HERE=$(pwd)
 [[ "${REF_TYPE}" == "tag" || "${CI_PIPELINE_EVENT}" == "tag" ]] && RPM_NAME=kumomta
 RPM_NAME=${RPM_NAME:-kumomta-dev}
 
+[[ ${RPM_NAME} == "kumomta-dev" ]] && export KEEP_DEBUG=yes
+if [ ${KEEP_DEBUG} == "yes" ] ; then
+  KEEP_DEBUG_SPEC=$(cat <<'EOT'
+%global debug_package %{nil}
+# Disable stripping
+%global __strip /bin/true
+%global __objdump /bin/true
+
+# Tone down the compression level.
+# It takes too long with the defaults on rocky9
+# https://stackoverflow.com/a/10255406/149111
+%define _source_payload w6.gzdio
+%define _binary_payload w6.gzdio
+# uncompressed is 1.3GB
+# gzip 9 gives 370M in 2mins
+# gzip 6       372M in 40s
+# gzip 4       385M in 25s
+# default      267M in 4mins
+EOT
+)
+fi
+
 CONFLICTS=kumomta
 [[ ${RPM_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 
@@ -30,6 +52,8 @@ License: MIT
 URL: https://kumomta.com
 Summary: A high performance, modern MTA.
 Requires(pre): shadow-utils
+
+${KEEP_DEBUG_SPEC}
 
 %description
 A high performance, modern MTA.
