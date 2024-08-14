@@ -1,6 +1,7 @@
 local mod = {}
 local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
+local sources = require 'policy-extras.sources'
 
 --[[
 Usage:
@@ -436,7 +437,6 @@ kumo.on('validate_config', function()
     end
   end
 
-  local sources = require 'policy-extras.sources'
   if sources.CONFIGURED then
     local source_data = sources.CONFIGURED.get_data()
     local refd_sources = result:get_referenced_sources()
