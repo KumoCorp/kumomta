@@ -9,6 +9,8 @@ HERE=$(pwd)
 [[ "${REF_TYPE}" == "tag" || "${CI_PIPELINE_EVENT}" == "tag" ]] && DEB_NAME=kumomta
 DEB_NAME=${DEB_NAME:-kumomta-dev}
 
+[[ ${DEB_NAME} == "kumomta-dev" ]] && export KEEP_DEBUG=yes
+
 CONFLICTS=kumomta
 [[ ${DEB_NAME} == "kumomta" ]] && CONFLICTS=kumomta-dev
 

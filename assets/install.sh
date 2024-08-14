@@ -6,12 +6,16 @@
 set -ex
 PREFIX="${1:-/opt/kumomta}"
 CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
+# If KEEP_DEBUG==yes, we preserve debug info for kumod and tsa-daemon only.
+# The other binaries we always strip to balance overall package size.
+STRIP=
+[[ "${KEEP_DEBUG}" == "yes" ]] || STRIP="-s"
 
 mkdir -p ${PREFIX}/sbin ${PREFIX}/share/bounce_classifier ${PREFIX}/share/policy-extras
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/validate-shaping -t ${PREFIX}/sbin
-install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/tsa-daemon -t ${PREFIX}/sbin
+install -Dm755  ${STRIP} ${CARGO_TARGET_DIR}/${TRIPLE}release/tsa-daemon -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/proxy-server -t ${PREFIX}/sbin
-install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/kumod -t ${PREFIX}/sbin
+install -Dm755  ${STRIP} ${CARGO_TARGET_DIR}/${TRIPLE}release/kumod -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/kcli -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/traffic-gen -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/tailer -t ${PREFIX}/sbin
