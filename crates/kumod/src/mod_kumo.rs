@@ -55,6 +55,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_httpinject_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::http_server::inject_v1::set_httpinject_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_smtpsrv_threads",
         lua.create_function(move |_, limit: usize| {
             crate::smtp_server::set_smtpsrv_threads(limit);

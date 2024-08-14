@@ -7,12 +7,13 @@ use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, 
 use kumo_log_types::ResolvedAddress;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
-use kumo_server_runtime::rt_spawn;
+use kumo_server_runtime::Runtime;
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
 use message::EnvelopeAddress;
 use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, LuaSerdeExt};
+use once_cell::sync::Lazy;
 use rfc5321::Response;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
@@ -20,8 +21,18 @@ use serde_json::Value;
 use spool::SpoolId;
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use utoipa::{ToResponse, ToSchema};
+
+static HTTPINJECT: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new("httpinject", |cpus| cpus * 3 / 8, &HTTPINJECT_THREADS).unwrap());
+
+static HTTPINJECT_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_httpinject_threads(n: usize) {
+    HTTPINJECT_THREADS.store(n, Ordering::SeqCst);
+}
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct FromHeader {
@@ -501,10 +512,7 @@ async fn process_recipient<'a>(
             source_address: None,
         })
         .await;
-        rt_spawn(format!("http inject for {peer_address:?}"), move || {
-            Ok(async move { QueueManager::insert(&queue_name, message).await })
-        })
-        .await?;
+        QueueManager::insert(&queue_name, message).await?;
     }
 
     Ok(())
@@ -599,10 +607,11 @@ pub async fn inject_v1(
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Bounce to the thread pool where we can run async lua
-    rt_spawn(format!("http inject_v1 for {peer_address:?}"), move || {
-        Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
-    })
-    .await?;
+    HTTPINJECT
+        .spawn(format!("http inject_v1 for {peer_address:?}"), move || {
+            Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
+        })
+        .await?;
     rx.await?
 }
 
