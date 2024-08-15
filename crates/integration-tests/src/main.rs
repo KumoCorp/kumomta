@@ -1310,8 +1310,17 @@ DeliverySummary {
     }
 
     #[tokio::test]
-    async fn rebind() -> anyhow::Result<()> {
-        let mut daemon = DaemonWithMaildir::start().await?;
+    async fn rebind_timerwheel() -> anyhow::Result<()> {
+        rebind_impl("TimerWheel").await
+    }
+    #[tokio::test]
+    async fn rebind_skiplist() -> anyhow::Result<()> {
+        rebind_impl("SkipList").await
+    }
+
+    async fn rebind_impl(strategy: &str) -> anyhow::Result<()> {
+        let mut daemon =
+            DaemonWithMaildir::start_with_env(vec![("KUMOD_QUEUE_STRATEGY", strategy)]).await?;
         let mut client = daemon.smtp_client().await?;
 
         let status: SuspendV1Response = daemon
