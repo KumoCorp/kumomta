@@ -189,9 +189,7 @@ end)
 
 ]]
 
--- Called once the body has been received.
--- For multi-recipient mail, this is called for each recipient.
-kumo.on('smtp_server_message_received', function(msg)
+local function common_processing(msg)
   local from_header = msg:from_header()
   if not from_header then
     kumo.reject(
@@ -247,6 +245,16 @@ kumo.on('smtp_server_message_received', function(msg)
   -- set/get metadata fields
   -- msg:set_meta('X-TestMSG', 'true')
   -- print('meta X-TestMSG is', msg:get_meta 'X-TestMSG')
+end
+
+-- Called once the body has been received.
+-- For multi-recipient mail, this is called for each recipient.
+kumo.on('smtp_server_message_received', function(msg)
+  common_processing(msg)
+end)
+
+kumo.on('http_message_generated', function(msg)
+  common_processing(msg)
 end)
 
 -- Not the final form of this API, but this is currently how
