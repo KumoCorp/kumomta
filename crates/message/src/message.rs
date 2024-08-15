@@ -20,7 +20,7 @@ use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue
 use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
-use prometheus::IntGauge;
+use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::sync::{Arc, Mutex};
@@ -57,6 +57,15 @@ lazy_static::lazy_static! {
     /// A shared placeholder representing no data, to avoid having
     /// two tiny heap allocations for each data payload
     static ref NO_DATA: Arc<Box<[u8]>> = Arc::new(vec![].into_boxed_slice());
+    static ref SAVE_HIST: Histogram = prometheus::register_histogram!(
+        "message_save_latency",
+        "how long it takes to save a message to spool").unwrap();
+    static ref LOAD_DATA_HIST: Histogram = prometheus::register_histogram!(
+        "message_data_load_latency",
+        "how long it takes to load message data from spool").unwrap();
+    static ref LOAD_META_HIST: Histogram = prometheus::register_histogram!(
+        "message_meta_load_latency",
+        "how long it takes to load message metadata from spool").unwrap();
 }
 
 #[derive(Debug)]
@@ -288,6 +297,7 @@ impl Message {
     }
 
     pub async fn save(&self) -> anyhow::Result<()> {
+        let _timer = SAVE_HIST.start_timer();
         self.save_to(&**get_meta_spool(), &**get_data_spool()).await
     }
 
@@ -432,6 +442,7 @@ impl Message {
     }
 
     pub async fn load_meta(&self) -> anyhow::Result<()> {
+        let _timer = LOAD_META_HIST.start_timer();
         self.load_meta_from(&**get_meta_spool()).await
     }
 
@@ -452,6 +463,7 @@ impl Message {
     }
 
     pub async fn load_data(&self) -> anyhow::Result<()> {
+        let _timer = LOAD_DATA_HIST.start_timer();
         self.load_data_from(&**get_data_spool()).await
     }
 
