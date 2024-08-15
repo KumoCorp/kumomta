@@ -2,7 +2,9 @@ use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
+use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
+use prometheus::{HistogramTimer, HistogramVec};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -32,8 +34,23 @@ lazy_static::lazy_static! {
 
 pub static VALIDATE_ONLY: AtomicBool = AtomicBool::new(false);
 pub static VALIDATION_FAILED: AtomicBool = AtomicBool::new(false);
+static LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+    prometheus::register_histogram_vec!(
+        "lua_event_latency",
+        "how long a given lua event callback took",
+        &["event"]
+    )
+    .unwrap()
+});
 
 pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
+
+fn latency_timer(label: &str) -> HistogramTimer {
+    LATENCY_HIST
+        .get_metric_with_label_values(&[label])
+        .expect("to get histo")
+        .start_timer()
+}
 
 #[derive(Debug)]
 struct LuaConfigInner {
@@ -135,6 +152,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
             chunk.into_function()?
         };
 
+        let _timer = latency_timer("context-creation");
         func.call_async(()).await?;
     }
     LUA_COUNT.increment(1.);
@@ -178,7 +196,10 @@ impl LuaConfig {
             .lua
             .named_registry_value::<mlua::Function>(&decorated_name)
         {
-            Ok(func) => Ok(func.call_async(args).await?),
+            Ok(func) => {
+                let _timer = latency_timer(name);
+                Ok(func.call_async(args).await?)
+            }
             _ => anyhow::bail!("{name} has not been registered"),
         }
     }
@@ -205,6 +226,7 @@ impl LuaConfig {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
                         let func = func?;
+                        let _timer = latency_timer(name);
                         let result: mlua::MultiValue = func.call_async(args.clone()).await?;
                         if result.is_empty() {
                             // Continue with other handlers
@@ -223,7 +245,10 @@ impl LuaConfig {
             .lua
             .named_registry_value::<mlua::Function>(&decorated_name)
         {
-            Ok(func) => Ok(func.call_async(args.clone()).await?),
+            Ok(func) => {
+                let _timer = latency_timer(name);
+                Ok(func.call_async(args.clone()).await?)
+            }
             _ => Ok(R::default()),
         }
     }
@@ -250,6 +275,7 @@ impl LuaConfig {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
                         let func = func?;
+                        let _timer = latency_timer(name);
                         let result: mlua::MultiValue = func.call_async(args.clone()).await?;
                         if result.is_empty() {
                             // Continue with other handlers
@@ -268,7 +294,10 @@ impl LuaConfig {
             .lua
             .named_registry_value::<mlua::Function>(&decorated_name)
         {
-            Ok(func) => Ok(func.call_async(args.clone()).await?),
+            Ok(func) => {
+                let _timer = latency_timer(name);
+                Ok(func.call_async(args.clone()).await?)
+            }
             _ => anyhow::bail!("Event {name} has not been registered"),
         }
     }
@@ -295,6 +324,7 @@ impl LuaConfig {
                 Value::Table(tbl) => {
                     for func in tbl.sequence_values::<mlua::Function>() {
                         let func = func?;
+                        let _timer = latency_timer(name);
                         let result: mlua::MultiValue = func.call_async(args.clone()).await?;
                         if result.is_empty() {
                             // Continue with other handlers
@@ -314,6 +344,7 @@ impl LuaConfig {
         match opt_func {
             Value::Nil => Ok(None),
             Value::Function(func) => {
+                let _timer = latency_timer(name);
                 let value: Value = func.call_async(args.clone()).await?;
 
                 match value {
@@ -359,6 +390,7 @@ impl LuaConfig {
             .lua
             .named_registry_value::<mlua::Function>(&decorated_name)?;
 
+        let _timer = latency_timer(name);
         let value: Value = func.call_async(args.clone()).await?;
         drop(func);
 
