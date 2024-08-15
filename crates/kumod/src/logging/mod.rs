@@ -12,6 +12,7 @@ use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
+use prometheus::{Histogram, HistogramVec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -29,6 +30,14 @@ pub(crate) mod files;
 pub(crate) mod hooks;
 pub(crate) mod rejection;
 
+static SUBMIT_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    prometheus::register_histogram_vec!(
+        "log_submit_latency",
+        "latency of log event submission operations",
+        &["logger"]
+    )
+    .unwrap()
+});
 static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
@@ -80,6 +89,9 @@ pub struct Logger {
     enabled: HashMap<RecordType, bool>,
     filter_event: Option<String>,
     hook_name: Option<String>,
+    #[allow(unused)]
+    name: String,
+    submit_latency: Histogram,
 }
 
 impl Logger {
@@ -123,6 +135,7 @@ impl Logger {
         let headers = params.headers.clone();
         let meta = params.meta.clone();
         let hook_name = params.name.to_string();
+        let name = format!("hook-{hook_name}");
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
 
         let mut state = LogHookState::new(params, receiver, template_engine);
@@ -136,6 +149,8 @@ impl Logger {
             })
             .await?;
 
+        let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
+
         let logger = Self {
             sender,
             thread: TokioMutex::new(Some(thread)),
@@ -144,6 +159,8 @@ impl Logger {
             enabled,
             filter_event: None,
             hook_name: Some(hook_name),
+            name,
+            submit_latency,
         };
 
         loggers.push(Arc::new(logger));
@@ -178,6 +195,7 @@ impl Logger {
         let meta = params.meta.clone();
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let filter_event = params.filter_event.clone();
+        let name = format!("dir-{}", params.log_dir.display());
 
         let thread = LOGGING_RUNTIME
             .spawn("log file".to_string(), move || {
@@ -194,6 +212,8 @@ impl Logger {
             })
             .await?;
 
+        let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
+
         let logger = Self {
             sender,
             thread: TokioMutex::new(Some(thread)),
@@ -202,6 +222,8 @@ impl Logger {
             enabled,
             filter_event,
             hook_name: None,
+            name,
+            submit_latency,
         };
 
         LOGGER.lock().push(Arc::new(logger));
@@ -219,6 +241,7 @@ impl Logger {
     }
 
     pub async fn log(&self, record: JsonLogRecord) -> anyhow::Result<()> {
+        let _timer = self.submit_latency.start_timer();
         Ok(self.sender.send(LogCommand::Record(record)).await?)
     }
 
