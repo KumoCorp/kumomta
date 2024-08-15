@@ -175,8 +175,10 @@ impl State {
                         .raw
                         .total_messages_received
                         .as_ref()
-                        .and_then(|m| m.value.service.get("esmtp_listener"))
-                        .copied()
+                        .map(|m| {
+                            m.value.service.get("esmtp_listener").copied().unwrap_or(0.)
+                                + m.value.service.get("http_listener").copied().unwrap_or(0.)
+                        })
                         .unwrap_or(0.),
                 };
                 let scheduled = metrics
