@@ -627,13 +627,7 @@ impl QueueStructure {
     fn pop(&self) -> (Vec<Message>, Option<Duration>, bool) {
         match self {
             Self::TimerWheel(q) => match q.lock().pop() {
-                PopResult::Items(items) => {
-                    let mut messages = Vec::with_capacity(items.len());
-                    for msg_wrapper in items {
-                        messages.push((*msg_wrapper).clone());
-                    }
-                    (messages, None, false)
-                }
+                PopResult::Items(messages) => (messages, None, false),
                 PopResult::Sleep(_) => (vec![], None, false),
                 PopResult::Empty => (vec![], None, true),
             },
@@ -662,12 +656,7 @@ impl QueueStructure {
 
     fn drain(&self) -> Vec<Message> {
         match self {
-            Self::TimerWheel(q) => q
-                .lock()
-                .drain()
-                .into_iter()
-                .map(|entry| (*entry).clone())
-                .collect(),
+            Self::TimerWheel(q) => q.lock().drain(),
             Self::SkipList(q) => {
                 let mut msgs = vec![];
                 while let Some(entry) = q.pop_front() {
@@ -680,13 +669,13 @@ impl QueueStructure {
 
     fn insert(&self, msg: Message) -> QueueInsertResult {
         match self {
-            Self::TimerWheel(q) => match q.lock().insert(Arc::new(msg)) {
+            Self::TimerWheel(q) => match q.lock().insert(msg) {
                 Ok(()) => QueueInsertResult::Inserted {
                     // We never notify for TimerWheel because we always tick
                     // on a regular(ish) schedule
                     should_notify: false,
                 },
-                Err(TimerError::Expired(msg)) => QueueInsertResult::Full((*msg).clone()),
+                Err(TimerError::Expired(msg)) => QueueInsertResult::Full(msg),
                 Err(TimerError::NotFound) => unreachable!(),
             },
             Self::SkipList(q) => {

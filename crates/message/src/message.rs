@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use timeq::{CancellableTimerEntry, TimerEntryWithDelay};
+use timeq::TimerEntryWithDelay;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1196,14 +1196,6 @@ impl UserData for Message {
                 }
             },
         );
-    }
-}
-
-impl CancellableTimerEntry for Message {
-    type Id = SpoolId;
-
-    fn id(&self) -> &Self::Id {
-        self.id()
     }
 }
 

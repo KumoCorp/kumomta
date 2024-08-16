@@ -1,21 +1,17 @@
+use hierarchical_hash_wheel_timer::wheels::quad_wheel::no_prune;
 use hierarchical_hash_wheel_timer::wheels::Skip;
 pub use hierarchical_hash_wheel_timer::TimerError;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub use hierarchical_hash_wheel_timer::wheels::cancellable::CancellableTimerEntry;
+pub use hierarchical_hash_wheel_timer::wheels::quad_wheel::QuadWheelWithOverflow;
 pub use hierarchical_hash_wheel_timer::wheels::TimerEntryWithDelay;
-
-mod cancellable;
-
-pub use crate::cancellable::QuadWheelWithOverflow;
 
 /// A TimeQ is a queue datastructure where the contained items are time
 /// ordered.
 /// The underlying storage is a hashed hierarchical timer wheel, which
 /// allows for relatively cheap insertion and popping of ready items.
 /// It is also possible to cancel an entry given its id.
-pub struct TimeQ<EntryType: CancellableTimerEntry + TimerEntryWithDelay> {
+pub struct TimeQ<EntryType: TimerEntryWithDelay> {
     wheel: QuadWheelWithOverflow<EntryType>,
     start: Instant,
     last_check: u128,
@@ -25,17 +21,17 @@ pub struct TimeQ<EntryType: CancellableTimerEntry + TimerEntryWithDelay> {
 #[must_use]
 pub enum PopResult<EntryType> {
     /// These items are ready for immediate action
-    Items(Vec<Arc<EntryType>>),
+    Items(Vec<EntryType>),
     /// No items will be ready for the specified duration
     Sleep(Duration),
     /// The queue is empty
     Empty,
 }
 
-impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
+impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
     pub fn new() -> Self {
         Self {
-            wheel: QuadWheelWithOverflow::new(),
+            wheel: QuadWheelWithOverflow::new(no_prune),
             start: Instant::now(),
             last_check: 0,
             len: 0,
@@ -59,19 +55,9 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
     }
 
     /// Insert a new entry
-    pub fn insert(&mut self, entry: Arc<EntryType>) -> Result<(), TimerError<Arc<EntryType>>> {
-        self.wheel.insert_ref(entry)?;
+    pub fn insert(&mut self, entry: EntryType) -> Result<(), TimerError<EntryType>> {
+        self.wheel.insert(entry)?;
         self.len += 1;
-        Ok(())
-    }
-
-    /// Cancel an item given its id
-    pub fn cancel_by_id(
-        &mut self,
-        id: &EntryType::Id,
-    ) -> Result<(), TimerError<std::convert::Infallible>> {
-        self.wheel.cancel(id)?;
-        self.len -= 1;
         Ok(())
     }
 
@@ -112,7 +98,7 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
 
     /// Drains the entire contents of the queue, returning all of the
     /// contained items
-    pub fn drain(&mut self) -> Vec<Arc<EntryType>> {
+    pub fn drain(&mut self) -> Vec<EntryType> {
         let mut items = vec![];
         loop {
             match self.wheel.can_skip() {
@@ -138,21 +124,14 @@ impl<EntryType: CancellableTimerEntry + TimerEntryWithDelay> TimeQ<EntryType> {
 mod tests {
     use super::*;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone)]
     struct Entry {
         id: u64,
         value: &'static str,
         delay: Duration,
     }
 
-    impl CancellableTimerEntry for Entry {
-        type Id = u64;
-        fn id(&self) -> &Self::Id {
-            &self.id
-        }
-    }
-
-    impl TimerEntryWithDelay for Entry {
+    impl TimerEntryWithDelay for &Entry {
         fn delay(&self) -> Duration {
             self.delay
         }
@@ -160,86 +139,56 @@ mod tests {
 
     #[test]
     fn draining() {
-        let item1 = Arc::new(Entry {
+        let item1 = Entry {
             id: 1,
             value: "foo",
             delay: Duration::from_millis(1),
-        });
-        let item2 = Arc::new(Entry {
+        };
+        let item2 = Entry {
             id: 2,
             value: "bar",
             delay: Duration::from_millis(10),
-        });
-        let item3 = Arc::new(Entry {
+        };
+        let item3 = Entry {
             id: 3,
             value: "baz",
             delay: Duration::from_millis(5),
-        });
+        };
 
         let mut queue = TimeQ::new();
-        queue.insert(Arc::clone(&item1)).unwrap();
-        queue.insert(Arc::clone(&item2)).unwrap();
-        queue.insert(Arc::clone(&item3)).unwrap();
+        queue.insert(&item1).unwrap();
+        queue.insert(&item2).unwrap();
+        queue.insert(&item3).unwrap();
 
         let items = queue.drain();
         assert_eq!(queue.len(), 0);
         assert_eq!(queue.is_empty(), true);
-        assert_eq!(items, vec![item1, item3, item2]);
-    }
-
-    #[test]
-    fn cancel() {
-        let item1 = Arc::new(Entry {
-            id: 1,
-            value: "foo",
-            delay: Duration::from_millis(1),
-        });
-        let item2 = Arc::new(Entry {
-            id: 2,
-            value: "bar",
-            delay: Duration::from_millis(10),
-        });
-        let item3 = Arc::new(Entry {
-            id: 3,
-            value: "baz",
-            delay: Duration::from_millis(5),
-        });
-
-        let mut queue = TimeQ::new();
-        queue.insert(Arc::clone(&item1)).unwrap();
-        queue.insert(Arc::clone(&item2)).unwrap();
-        queue.insert(Arc::clone(&item3)).unwrap();
-        queue.cancel_by_id(&item2.id).unwrap();
-
-        let items = queue.drain();
-        assert_eq!(queue.len(), 0);
-        assert_eq!(queue.is_empty(), true);
-        assert_eq!(items, vec![item1, item3]);
+        assert_eq!(items, vec![&item1, &item3, &item2]);
     }
 
     #[test]
     fn basic_queue() {
         let mut queue = TimeQ::new();
 
-        let item1 = Arc::new(Entry {
+        let item1 = Entry {
             id: 1,
             value: "foo",
             delay: Duration::from_millis(1),
-        });
-        let item2 = Arc::new(Entry {
+        };
+        let item2 = Entry {
             id: 2,
             value: "bar",
             delay: Duration::from_secs(1),
-        });
-        let item3 = Arc::new(Entry {
+        };
+        let item3 = Entry {
             id: 3,
             value: "baz",
             delay: Duration::from_millis(100),
-        });
+        };
 
-        queue.insert(Arc::clone(&item1)).unwrap();
-        queue.insert(Arc::clone(&item2)).unwrap();
-        queue.insert(Arc::clone(&item3)).unwrap();
+        queue.insert(&item1).unwrap();
+        queue.insert(&item2).unwrap();
+        queue.insert(&item3).unwrap();
 
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.is_empty(), false);
@@ -247,7 +196,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(2));
 
         match queue.pop() {
-            PopResult::Items(items) => assert_eq!(items, vec![item1]),
+            PopResult::Items(items) => assert_eq!(items, vec![&item1]),
             _ => unreachable!(),
         }
 
@@ -266,7 +215,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
 
         match queue.pop() {
-            PopResult::Items(items) => assert_eq!(items, vec![item3]),
+            PopResult::Items(items) => assert_eq!(items, vec![&item3]),
             PopResult::Sleep(ms) => assert!(false, "still have {ms:?} to go"),
             _ => unreachable!(),
         }
@@ -276,7 +225,7 @@ mod tests {
 
         std::thread::sleep(Duration::from_secs(1));
         match queue.pop() {
-            PopResult::Items(items) => assert_eq!(items, vec![item2]),
+            PopResult::Items(items) => assert_eq!(items, vec![&item2]),
             _ => unreachable!(),
         }
 
