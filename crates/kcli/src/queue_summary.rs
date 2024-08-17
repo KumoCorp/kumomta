@@ -107,6 +107,47 @@ pub struct ThreadPoolMap {
 }
 
 #[derive(Deserialize, Serialize)]
+pub struct LuaEventLatencyGroup {
+    pub help: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub value: Option<LuaEventLatencyMap>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LuaEventLatencyMap {
+    pub event: HashMap<String, LatencyEntry>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LoggerLatencyGroup {
+    pub help: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub value: Option<LoggerLatencyMap>,
+}
+#[derive(Deserialize, Serialize)]
+pub struct LoggerLatencyMap {
+    pub logger: HashMap<String, LatencyEntry>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LatencyIndividual {
+    pub help: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub value: LatencyEntry,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LatencyEntry {
+    pub avg: f64,
+    pub bucket: HashMap<String, u64>,
+    pub count: u64,
+    pub sum: f64,
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct Metrics {
     pub connection_count: Option<CounterGroup>,
     pub ready_count: Option<CounterGroup>,
@@ -123,6 +164,18 @@ pub struct Metrics {
     pub memory_limit: Option<IndividualCounter>,
     pub thread_pool_size: Option<ThreadPoolGroup>,
     pub thread_pool_parked: Option<ThreadPoolGroup>,
+    pub lua_event_latency: Option<LuaEventLatencyGroup>,
+    pub log_submit_latency: Option<LoggerLatencyGroup>,
+    pub bounce_classify_latency: Option<LatencyIndividual>,
+    pub message_save_latency: Option<LatencyIndividual>,
+    pub message_data_load_latency: Option<LatencyIndividual>,
+    pub message_meta_load_latency: Option<LatencyIndividual>,
+}
+
+pub struct LatencyMetrics {
+    pub name: String,
+    pub avg: f64,
+    pub count: u64,
 }
 
 pub struct ThreadPoolMetrics {
@@ -215,6 +268,7 @@ pub struct ProcessedMetrics {
     pub ready: Vec<ReadyQueueMetrics>,
     pub scheduled: Vec<ScheduledQueueMetrics>,
     pub thread_pools: Vec<ThreadPoolMetrics>,
+    pub latency: Vec<LatencyMetrics>,
     pub raw: Metrics,
 }
 
@@ -316,11 +370,60 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         _ => vec![],
     };
 
+    let mut latency = vec![];
+    if let Some(map) = result
+        .lua_event_latency
+        .as_ref()
+        .and_then(|group| group.value.as_ref())
+    {
+        for (event, entry) in &map.event {
+            latency.push(LatencyMetrics {
+                name: event.to_string(),
+                avg: entry.avg,
+                count: entry.count,
+            });
+        }
+    }
+    if let Some(map) = result
+        .log_submit_latency
+        .as_ref()
+        .and_then(|group| group.value.as_ref())
+    {
+        for (event, entry) in &map.logger {
+            latency.push(LatencyMetrics {
+                name: event.to_string(),
+                avg: entry.avg,
+                count: entry.count,
+            });
+        }
+    }
+    for (name, entry) in [
+        ("bounce_classify_latency", &result.bounce_classify_latency),
+        ("message_save_latency", &result.message_save_latency),
+        (
+            "message_data_load_latency",
+            &result.message_data_load_latency,
+        ),
+        (
+            "message_meta_load_latency",
+            &result.message_meta_load_latency,
+        ),
+    ] {
+        if let Some(entry) = entry {
+            latency.push(LatencyMetrics {
+                name: name.to_string(),
+                avg: entry.value.avg,
+                count: entry.value.count,
+            });
+        }
+    }
+
     Ok(ProcessedMetrics {
         ready: ready_metrics,
         scheduled: scheduled_metrics,
         raw: result,
         thread_pools,
+        latency,
     })
 }
 

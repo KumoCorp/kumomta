@@ -116,6 +116,8 @@ struct State {
     error: String,
 
     thread_pools: BTreeMap<String, Vec<u64>>,
+    latency_avg: BTreeMap<String, Vec<u64>>,
+    latency_count: BTreeMap<String, Vec<u64>>,
 }
 
 struct DiffState {
@@ -124,6 +126,7 @@ struct DiffState {
     received: f64,
     transfail: f64,
     fail: f64,
+    latency: BTreeMap<String, f64>,
 }
 
 impl State {
@@ -180,6 +183,11 @@ impl State {
                                 + m.value.service.get("http_listener").copied().unwrap_or(0.)
                         })
                         .unwrap_or(0.),
+                    latency: metrics
+                        .latency
+                        .iter()
+                        .map(|entry| (entry.name.to_string(), entry.count as f64))
+                        .collect(),
                 };
                 let scheduled = metrics
                     .raw
@@ -213,6 +221,14 @@ impl State {
                     (&mut self.smtp_conns, smtp_conns),
                 ] {
                     push_value(target, value as u64);
+                }
+
+                for event in &metrics.latency {
+                    let avg_entry = self
+                        .latency_avg
+                        .entry(event.name.to_string())
+                        .or_insert_with(Vec::new);
+                    push_value(avg_entry, (event.avg * 1_000_000.0).ceil() as u64);
                 }
 
                 for pool in &metrics.thread_pools {
@@ -261,12 +277,23 @@ impl State {
                     push_value(&mut self.transfail, transfail as u64);
                     push_value(&mut self.fail, fail as u64);
                     push_value(&mut self.received, received as u64);
+
+                    for (name, new_value) in &new_state.latency {
+                        let rate =
+                            (new_value - prior.latency.get(name).copied().unwrap_or(0.0)) / elapsed;
+                        let entry = self
+                            .latency_count
+                            .entry(name.to_string())
+                            .or_insert_with(Vec::new);
+                        push_value(entry, rate as u64);
+                    }
                 }
                 self.diff_state.replace(new_state);
             }
             Err(err) => {
                 self.error = format!("{err:#}");
                 self.diff_state.take();
+                push_value(&mut self.memory, 0);
                 push_value(&mut self.message_count, 0);
                 push_value(&mut self.message_data_resident, 0);
                 push_value(&mut self.scheduled, 0);
@@ -278,6 +305,12 @@ impl State {
                 push_value(&mut self.fail, 0);
                 push_value(&mut self.received, 0);
                 for target in self.thread_pools.values_mut() {
+                    push_value(target, 0);
+                }
+                for target in self.latency_avg.values_mut() {
+                    push_value(target, 0);
+                }
+                for target in self.latency_count.values_mut() {
                     push_value(target, 0);
                 }
             }
@@ -343,6 +376,15 @@ impl State {
                             format!("{}/s", v.to_formatted_string(&Locale::en))
                         } else if self.unit == "%" {
                             format!("{v:3}%")
+                        } else if self.unit == "us" {
+                            let v = *v as f64;
+                            if v >= 1_000_000.0 {
+                                format!("{:.3}s", v / 1_000_000.0)
+                            } else if v >= 1_000.0 {
+                                format!("{:.0}ms", v / 1_000.0)
+                            } else {
+                                format!("{:.0}us", v)
+                            }
                         } else {
                             format!("{v}{}", self.unit)
                         }
@@ -409,6 +451,34 @@ impl State {
                 pool_colors[next_idx % pool_colors.len()],
                 false,
                 "%",
+                1,
+            ));
+        }
+        for (name, data) in self.latency_avg.iter() {
+            if name == "init" || name == "pre_init" {
+                continue;
+            }
+            let next_idx = sparklines.len();
+            sparklines.push(Entry::new(
+                name,
+                data,
+                pool_colors[next_idx % pool_colors.len()],
+                false,
+                "us",
+                1,
+            ));
+        }
+        for (name, data) in self.latency_count.iter() {
+            if name == "init" || name == "pre_init" {
+                continue;
+            }
+            let next_idx = sparklines.len();
+            sparklines.push(Entry::new(
+                name,
+                data,
+                pool_colors[next_idx % pool_colors.len()],
+                false,
+                "/s",
                 1,
             ));
         }
