@@ -318,6 +318,30 @@ async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Va
 
                     apply_to_value(&mut value, this_value, label);
                 }
+                MetricType::HISTOGRAM => {
+                    let hist = mc.get_histogram();
+
+                    let count = hist.get_sample_count();
+                    let sum = hist.get_sample_sum();
+                    let avg = if count != 0 { sum / count as f64 } else { 0. };
+
+                    let mut bucket = Map::new();
+                    for b in hist.get_bucket() {
+                        bucket.insert(
+                            b.get_upper_bound().to_string().into(),
+                            b.get_cumulative_count().into(),
+                        );
+                    }
+
+                    let hist_value = json!({
+                        "count": count,
+                        "sum": sum,
+                        "avg": avg,
+                        "bucket": bucket,
+                    });
+
+                    apply_to_value(&mut value, hist_value, label);
+                }
                 _ => {
                     // Other types are currently not implemented
                     // as we don't currently export any other type
