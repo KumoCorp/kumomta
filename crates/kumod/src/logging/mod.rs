@@ -1,4 +1,4 @@
-use crate::logging::classify::ClassifierParams;
+use crate::logging::classify::{apply_classification, ClassifierParams};
 use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
@@ -240,8 +240,9 @@ impl Logger {
         true
     }
 
-    pub async fn log(&self, record: JsonLogRecord) -> anyhow::Result<()> {
+    pub async fn log(&self, mut record: JsonLogRecord) -> anyhow::Result<()> {
         let _timer = self.submit_latency.start_timer();
+        apply_classification(&mut record).await;
         Ok(self.sender.send(LogCommand::Record(record)).await?)
     }
 

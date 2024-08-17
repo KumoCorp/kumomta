@@ -83,6 +83,8 @@
   authentication handling would stop as soon as we recognized the trusted
   source IP. Either way, the request always did and will still continue
   (assuming that the auth header is valid).
+* Improved the performance of the bounce classifier by exposing configurable
+  thread pool and caching options.
 
 ## Fixes
 

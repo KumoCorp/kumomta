@@ -1,4 +1,3 @@
-use crate::logging::classify::apply_classification;
 use crate::logging::files::LogFileParams;
 use crate::logging::{LogCommand, LogRecordParams, LOGGING_RUNTIME};
 use crate::queue::QueueManager;
@@ -93,7 +92,7 @@ impl LogHookState {
         }
     }
 
-    async fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+    async fn do_record(&mut self, record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
 
         if record.reception_protocol.as_deref() == Some("LogRecord") {
@@ -113,8 +112,6 @@ impl LogHookState {
         // 3. Unbounded growth increases system pressures which increases
         //    the risk of something going wrong.
         let permit = self.sema.clone().acquire_owned().await;
-
-        apply_classification(&mut record);
 
         let mut record_text = Vec::new();
         self.template_engine

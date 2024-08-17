@@ -3046,6 +3046,7 @@ dependencies = [
  "kumo-server-memory",
  "kumo-server-runtime",
  "lazy_static",
+ "lru-cache",
  "lruttl",
  "maildir",
  "mailparsing",

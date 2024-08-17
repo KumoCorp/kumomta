@@ -1,4 +1,3 @@
-use crate::logging::classify::apply_classification;
 use crate::logging::{LogCommand, LogRecordParams};
 use anyhow::Context;
 use async_channel::Receiver;
@@ -243,7 +242,7 @@ impl LogThreadState {
         None
     }
 
-    fn do_record(&mut self, mut record: JsonLogRecord) -> anyhow::Result<()> {
+    fn do_record(&mut self, record: JsonLogRecord) -> anyhow::Result<()> {
         tracing::trace!("do_record {record:?}");
         let file_key = if let Some(per_rec) = self.per_record(record.kind) {
             FileNameKey {
@@ -261,8 +260,6 @@ impl LogThreadState {
                 suffix: None,
             }
         };
-
-        apply_classification(&mut record);
 
         if !self.file_map.contains_key(&file_key) {
             let now = Utc::now();
