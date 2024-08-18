@@ -52,8 +52,8 @@ openssl-sys = { version="0.9" }
 reqwest = {version="0.11", default-features=false, features=["rustls-tls"]}
 rustls = "0.21"
 sqlite = "0.32"
-tempfile = "3.10"
-tokio = "1.32"
+tempfile = "3.12"
+tokio = "1.39"
 tokio-rustls = "0.24"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
 # to match the version that we are using when you update this dep
