@@ -9,6 +9,7 @@ use tokio::task::LocalSet;
 
 pub mod config_handle;
 pub mod diagnostic_logging;
+pub mod disk_space;
 pub mod http_server;
 pub mod nodeid;
 pub mod panic;

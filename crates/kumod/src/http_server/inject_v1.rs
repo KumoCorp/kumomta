@@ -608,6 +608,9 @@ pub async fn inject_v1(
         // Using too much memory
         return Err(anyhow::anyhow!("load shedding").into());
     }
+    if kumo_server_common::disk_space::is_over_limit() {
+        return Err(anyhow::anyhow!("disk is too full").into());
+    }
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
     let (tx, rx) = tokio::sync::oneshot::channel();
 

@@ -5,6 +5,7 @@ use anyhow::Context;
 use async_channel::Sender;
 use config::{any_err, from_lua_value, get_or_create_module};
 pub use kumo_log_types::*;
+use kumo_server_common::disk_space::MonitoredPath;
 use kumo_server_runtime::Runtime;
 use message::Message;
 use minijinja::Environment;
@@ -196,6 +197,14 @@ impl Logger {
         let (sender, receiver) = async_channel::bounded(params.back_pressure);
         let filter_event = params.filter_event.clone();
         let name = format!("dir-{}", params.log_dir.display());
+
+        MonitoredPath {
+            name: format!("log dir {}", params.log_dir.display()),
+            path: params.log_dir.clone(),
+            min_free_space: params.min_free_space,
+            min_free_inodes: params.min_free_inodes,
+        }
+        .register();
 
         let thread = LOGGING_RUNTIME
             .spawn("log file".to_string(), move || {

@@ -3,6 +3,7 @@ use anyhow::Context;
 use async_channel::Receiver;
 use chrono::Utc;
 pub use kumo_log_types::*;
+use kumo_server_common::disk_space::MinFree;
 use minijinja::{Environment, Template};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -51,6 +52,11 @@ pub struct LogFileParams {
     /// log file
     #[serde(default)]
     pub filter_event: Option<String>,
+
+    #[serde(default)]
+    pub min_free_space: MinFree,
+    #[serde(default)]
+    pub min_free_inodes: MinFree,
 }
 
 impl LogFileParams {

@@ -19,6 +19,7 @@ data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
 gethostname.workspace = true
+human_bytes = "0.4.3"
 kumo-api-types = {path="../kumo-api-types"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
@@ -43,7 +44,8 @@ mod-serde = {path="../mod-serde"}
 mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}
 mod-uuid = {path="../mod-uuid"}
-nix = {workspace=true, features=["signal"]}
+nix = {workspace=true, features=["fs", "signal"]}
+num-format = "0.4.4"
 once_cell = "1.17"
 prometheus = "0.13"
 rcgen = "0.10"

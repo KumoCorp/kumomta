@@ -980,6 +980,19 @@ impl SmtpServer {
             .await?;
             return Ok(());
         }
+        if kumo_server_common::disk_space::is_over_limit() {
+            // Bump connection_denied_counter because the operator may care to
+            // investigate this, and we don't otherwise log this class of rejection.
+            self.params.connection_denied_counter().inc();
+
+            self.write_response(
+                421,
+                format!("4.3.2 {} disk is too full. Try later", self.params.hostname),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
 
         if !SpoolManager::get().spool_started() {
             // We don't bump the connection_denied_counter here, because

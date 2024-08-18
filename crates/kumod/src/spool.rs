@@ -3,6 +3,7 @@ use crate::queue::QueueManager;
 use anyhow::Context;
 use chrono::Utc;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
+use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
 use kumo_server_runtime::{spawn, Runtime};
 use message::Message;
@@ -82,9 +83,22 @@ pub struct DefineSpoolParams {
     pub flush: bool,
     #[serde(default)]
     pub rocks_params: Option<RocksSpoolParams>,
+
+    #[serde(default)]
+    pub min_free_space: MinFree,
+    #[serde(default)]
+    pub min_free_inodes: MinFree,
 }
 
 async fn define_spool(params: DefineSpoolParams) -> anyhow::Result<()> {
+    MonitoredPath {
+        name: format!("{} spool", params.name),
+        path: params.path.clone(),
+        min_free_space: params.min_free_space,
+        min_free_inodes: params.min_free_inodes,
+    }
+    .register();
+
     crate::spool::SpoolManager::get()
         .new_local_disk(params)
         .await
