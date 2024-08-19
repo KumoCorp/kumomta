@@ -43,7 +43,7 @@ identity will be made available in the generated message by setting the
   `http_server_validate_auth_basic` event), it will be set to the provided
   username
 * When no HTTP auth is used, access is granted based on the
-  [trusted_hosts](../kumo/start_http_listener.md#trusted_hosts). In this case,
+  [trusted_hosts](../kumo/start_http_listener/trusted_hosts.md). In this case,
   `http_auth` will be set to the peer address that matched the `trusted_hosts`
 
 If you wish to enforce or restrict some capability based on identity, you might

@@ -2,7 +2,7 @@
 
 KumoMTA will listen for message injection in any
 [listener](../..//reference/kumo/start_esmtp_listener/index.md)
-[defined](../../reference/kumo/start_http_listener.md) in
+[defined](../../reference/kumo/start_http_listener/index.md) in
 configuration. You have complete control over the IPs and Ports available for
 message injection.
 

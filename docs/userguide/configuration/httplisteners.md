@@ -15,7 +15,7 @@ kumo.start_http_listener {
 }
 ```
 
-Refer to the [Reference Manual](../../reference/kumo/start_http_listener.md)
+Refer to the [Reference Manual](../../reference/kumo/start_http_listener/index.md)
 for detailed options.
 
 ## What can you use the HTTP listener for?
