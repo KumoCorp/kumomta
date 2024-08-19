@@ -71,7 +71,7 @@ weight = 2
 weight = 1
 {% endcall %}
 
-The sources you define can include any options listed for the [make_egress_source](../../reference/kumo/make_egress_source.md) function.
+The sources you define can include any options listed for the [make_egress_source](../../reference/kumo/make_egress_source/index.md) function.
 
 ## Assigning Messages to Pools
 
@@ -100,7 +100,7 @@ port-based NAT, or a specific configuration for sending over HTTP.
 
 An Egress Source is defined using the **`kumo.make_egress_source`** function,
 called during the init event. For more information, see the
-[make_egress_source](../../reference/kumo/make_egress_source.md) chapter of the
+[make_egress_source](../../reference/kumo/make_egress_source/index.md) chapter of the
 Reference Manual.
 
 By default, the only option required for defining an Egress Source is a name,

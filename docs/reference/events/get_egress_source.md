@@ -9,4 +9,4 @@ kumo.on('get_egress_source', function(source_name)
 end)
 ```
 
-See also [kumo.make_egress_source](../kumo/make_egress_source.md).
+See also [kumo.make_egress_source](../kumo/make_egress_source/index.md).

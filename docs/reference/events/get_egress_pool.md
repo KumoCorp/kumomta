@@ -11,5 +11,5 @@ kumo.on('get_egress_pool', function(pool_name)
 end)
 ```
 
-See also [kumo.make_egress_source](../kumo/make_egress_source.md).
+See also [kumo.make_egress_source](../kumo/make_egress_source/index.md).
 

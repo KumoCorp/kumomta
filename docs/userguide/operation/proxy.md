@@ -21,7 +21,7 @@ Follow the instructions on the [KumoProxy](kumo-proxy.md) page for install and u
 ### Configuring an egress_source for SOCKS5 Proxy Use
 
 Configuring an egress_source to use a SOCKS5 proxy server is done as part of
-the [make_egress_source](../../reference/kumo/make_egress_source.md) function
+the [make_egress_source](../../reference/kumo/make_egress_source/index.md) function
 call:
 
 ```lua
@@ -50,7 +50,7 @@ Each IP address hosted by a SOCKS5 proxy server should be defined as its own
 `egress_source`, IPv4 and IPv6 should be configured as separate sources, but
 can be hosted by the same HAProxy instance(s).
 
-See the [make_egress_source](../../reference/kumo/make_egress_source.md)
+See the [make_egress_source](../../reference/kumo/make_egress_source/index.md)
 page of the Reference Manual for more information.
 
 ## Using HAProxy for Delivery
@@ -63,7 +63,7 @@ messages via IP addresses on the HAProxy host.
 ### Configuring an egress_source for HAProxy Use
 
 Configuring an egress_source to use an HAProxy server is done as part of the
-[make_egress_source](../../reference/kumo/make_egress_source.md) function call:
+[make_egress_source](../../reference/kumo/make_egress_source/index.md) function call:
 
 ```lua
 kumo.on('kumo.get_egress_source', function(source_name)
@@ -91,7 +91,7 @@ Each IP address hosted by an HAProxy instance should be defined as its own
 `egress_source`, IPv4 and IPv6 should be configured as separate sources, but
 can be hosted by the same HAProxy instance(s).
 
-See the [make_egress_source](../../reference/kumo/make_egress_source.md)
+See the [make_egress_source](../../reference/kumo/make_egress_source/index.md)
 page of the Reference Manual for more information.
 
 ### HAProxy Server Configuration
