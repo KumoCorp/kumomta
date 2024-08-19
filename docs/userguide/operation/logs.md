@@ -48,7 +48,7 @@ The default for log segments is to flush them after 1GB of data is written, but
 you can adjust them to flush after a certain amount of time if you find that
 you are regularly wanting to inspect the logs on a live system.
 
-[kumo.configure_local_logs](../../reference/kumo/configure_local_logs.md)
+[kumo.configure_local_logs](../../reference/kumo/configure_local_logs/index.md)
 has all of the available logging configuration options.
 
 Using the example above, we can see the content of the newest file after

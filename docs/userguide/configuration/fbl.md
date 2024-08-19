@@ -99,7 +99,7 @@ end)
 ## FBL Message Logs
 
 All feedback loop messages are logged to the destination configured in the
-[configure_local_logs](../../reference/kumo/configure_local_logs.md) function,
+[configure_local_logs](../../reference/kumo/configure_local_logs/index.md) function,
 using the `Feedback` type.
 
 The format of a Feedback loop message log entry is as follows:

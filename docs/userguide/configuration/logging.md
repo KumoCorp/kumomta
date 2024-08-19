@@ -42,7 +42,7 @@ write large files to disk and compress them during file rotation.
 By default, files are rotated after every 1Gb of uncompressed log data,
 resulting in files on disk that are approximately 50MB in size. The maximum
 size is configurable, see the [Logging Reference
-Page](../../reference/kumo/configure_local_logs.md#max_file_size).
+Page](../../reference/kumo/configure_local_logs/max_file_size.md).
 
 Logs can be viewed in real time using the `tailer` utility:
 
@@ -70,7 +70,7 @@ kumo.configure_local_logs {
 ```
 
 See the [Logging Reference
-Page](../../reference/kumo/configure_local_logs.md#max_segment_duration) for
+Page](../../reference/kumo/configure_local_logs/max_segment_duration.md) for
 more information on this setting.
 
 ## Logging Message Headers

@@ -29,10 +29,10 @@ The following options are configurable for the logging hook and work the same
 way as their counterparts in local log file logging. Rather than duplicate the
 information here, this section links to those options:
 
-* [back_pressure](configure_local_logs.md#back_pressure)
-* [meta](configure_local_logs.md#meta)
-* [headers](configure_local_logs.md#headers)
-* [per_record](configure_local_logs.md#per_record)
+* [back_pressure](configure_local_logs/back_pressure.md)
+* [meta](configure_local_logs/meta.md)
+* [headers](configure_local_logs/headers.md)
+* [per_record](configure_local_logs/per_record.md)
 
 In addition, the following options are supported:
 

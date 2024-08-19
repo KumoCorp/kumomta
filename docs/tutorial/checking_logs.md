@@ -66,8 +66,11 @@ zstd compressed, you can view all but the current one with `zstdcat`.  ZSTD is a
 Using the example above, we can see the content of the newest file after
 stopping KumoMTA with a `zstdcat /var/log/kumomta/20230314-181435`.
 
-The default for log segments is to flush them after 1GB of data is written,
-but you can adjust them to flush after a certain amount of time. The [kumo.configure_local_logs](../reference/kumo/configure_local_logs.md) page of the Reference Manual has all of the available logging configuration options.
+The default for log segments is to flush them after 1GB of data is written, but
+you can adjust them to flush after a certain amount of time. The
+[kumo.configure_local_logs](../reference/kumo/configure_local_logs/index.md)
+page of the Reference Manual has all of the available logging configuration
+options.
 
 ## Next Steps
 

@@ -85,7 +85,7 @@
   (assuming that the auth header is valid).
 * Improved the performance of the bounce classifier by exposing configurable
   thread pool and caching options.
-* [configure_local_logs](../reference/kumo/configure_local_logs.md) and
+* [configure_local_logs](../reference/kumo/configure_local_logs/index.md) and
   [define_spool](../reference/kumo/define_spool.md) now both allow specifying
   the minimum storage space and inodes required for healthy operation. The
   usage will be periodically monitored and the system will begin rejecting new
