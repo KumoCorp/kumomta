@@ -22,4 +22,4 @@ kumo.on(
 )
 ```
 
-See also [kumo.make_egress_path](../kumo/make_egress_path.md).
+See also [kumo.make_egress_path](../kumo/make_egress_path/index.md).

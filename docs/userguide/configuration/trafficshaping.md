@@ -14,7 +14,7 @@ kumo.on('get_egress_path_config', function(domain, egress_source, site_name)
 end)
 ```
 
-The [kumo.make_egress_path](../../reference/kumo/make_egress_path.md) function is called with the relevant parameters for the connection, determined by the Domain, Egress Source, and Site Name.
+The [kumo.make_egress_path](../../reference/kumo/make_egress_path/index.md) function is called with the relevant parameters for the connection, determined by the Domain, Egress Source, and Site Name.
 
 Where the Domain in the event call is the actual domain from the recipient address (for example, corp.com for a message destined to user@corp.com), the site_name is defined in the server by building a string representation of all MX servers that service the destination domain.
 
@@ -55,7 +55,7 @@ connection_limit = 3
 
 As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
 
-The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path.md) page of the Reference Manual.
+The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path/index.md) page of the Reference Manual.
 
 ### MX Rollups and Option Inheritance
 

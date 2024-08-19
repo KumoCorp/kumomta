@@ -36,7 +36,7 @@ where successive files layer and merge over earlier files.
 Each file contains information keyed by the destination domain name.
 
 The values in a domain section must be valid values for
-[kumo.make_egress_path](../kumo/make_egress_path.md), with a couple of special
+[kumo.make_egress_path](../kumo/make_egress_path/index.md), with a couple of special
 additional values indicated below.
 
 The special domain name `"default"` is used to define common, shared values,

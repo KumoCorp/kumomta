@@ -63,7 +63,7 @@ If set, specifies the hostname to be passed with the EHLO command when the serve
 
 If not specified, the kernel will use the server's hostname.
 
-Note that the `ehlo_domain` set by [make_egress_path](make_egress_path.md), if any,
+Note that the `ehlo_domain` set by [make_egress_path](make_egress_path/index.md), if any,
 takes precedence over this value.
 
 ```lua
@@ -88,7 +88,7 @@ If set, will override the remote SMTP port number. This is useful in scenarios
 where your network is set to manage the egress address based on port mapping.
 
 This option takes precedence over
-[kumo.make_egress_path().smtp_port](make_egress_path.md#smtp_port).
+[kumo.make_egress_path().smtp_port](make_egress_path/smtp_port.md).
 
 ## ha_proxy_server
 

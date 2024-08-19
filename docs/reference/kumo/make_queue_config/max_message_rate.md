@@ -35,7 +35,7 @@ If the throttle is exceeded the message will be re-inserted into the scheduled
 queue with a delay based on the acceptance rate of the throttle.
 
 This option is distinct from [the egress path
-max_message_rate](../make_egress_path.md#max_message_rate) option in that this one
+max_message_rate](../make_egress_path/max_message_rate.md) option in that this one
 applies to a specific scheduled queue, whilst the egress path option applies to
 the ready queue for a specific egress path, through which multiple scheduled
 queues send out to the internet.

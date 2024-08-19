@@ -10,8 +10,8 @@
   architectures.  Simply use `docker pull ghcr.io/kumocorp/kumomta-dev:latest`
   to get the appropriate architecture.
 * Split out the banner waiting portion of
-  [connect_timeout](../reference/kumo/make_egress_path.md#connect_timeout) into
-  a new [banner_timeout](../reference/kumo/make_egress_path.md#banner_timeout)
+  [connect_timeout](../reference/kumo/make_egress_path/connect_timeout.md) into
+  a new [banner_timeout](../reference/kumo/make_egress_path/banner_timeout.md)
   option to make it easier to manage the system behavior if, for example, the
   connection is blocked by a firewall. You can now set the connection timeout
   to a smaller value while keeping the banner timeout at a more RFC-compliant,
@@ -50,7 +50,7 @@
   record. `source_address` includes proxy server information. #40 #154
 * Improved diagnostics around connectivity issues in KumoProxy
 * New TLS related options for
-  [kumo.make_egress_path](../reference/kumo/make_egress_path.md):
+  [kumo.make_egress_path](../reference/kumo/make_egress_path/index.md):
   `tls_prefer_openssl`, `openssl_cipher_list`, `openssl_cipher_suites`,
   `openssl_options`, `rustls_cipher_suites`.
 * Improved granularity of scheduled queue maintainer wakeups when small
