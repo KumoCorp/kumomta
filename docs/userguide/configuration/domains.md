@@ -138,5 +138,5 @@ Additional information on the `log_oob` and `log_arf` options can be found in th
 Loop Processing](fbl.md) chapters respectively.
 
 For more information, see the
-[make_listener_domain](../../reference/kumo/make_listener_domain.md) page of
+[make_listener_domain](../../reference/kumo/make_listener_domain/index.md) page of
 the Reference manual.

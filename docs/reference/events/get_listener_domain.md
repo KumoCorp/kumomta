@@ -18,7 +18,7 @@ domain is passed as the *domain* parameter to this event.
     for more information.
 
 The event is expected to return a listener-domain object constructed
-by a call to [kumo.make_listener_domain](../kumo/make_listener_domain.md),
+by a call to [kumo.make_listener_domain](../kumo/make_listener_domain/index.md),
 or a `nil` value to indicate that there is no explicit configuration.
 
 If none of `log_relay`, `log_oob` or `log_arf` are set to true, in the returned
@@ -32,5 +32,5 @@ is parsed and logged), the recipient domain is passed to this event as the
 object, then the message will not be spooled and that will be the end of its
 processing.
 
-See [kumo.make_listener_domain](../kumo/make_listener_domain.md) for some more
+See [kumo.make_listener_domain](../kumo/make_listener_domain/index.md) for some more
 examples.
