@@ -231,6 +231,6 @@ end)
 ```
 
 For more information, see the
-[make_egress_pool](../../reference/kumo/make_egress_pool.md) chapter of the
+[make_egress_pool](../../reference/kumo/make_egress_pool/index.md) chapter of the
 Reference Manual.
 

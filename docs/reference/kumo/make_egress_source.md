@@ -2,7 +2,7 @@
 
 Defines an *egress source*, which is an entity associated with the source of
 outbound traffic from the MTA.  A source must be referenced by a
-[pool](make_egress_pool.md) to be useful.
+[pool](make_egress_pool/index.md) to be useful.
 
 This function is intended to be used inside your
 [get_egress_source](../events/get_egress_source.md) event handler.
