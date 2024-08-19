@@ -84,7 +84,9 @@ class Gen(object):
                         f"  - [{page.title}]({os.path.basename(page.filename)})\n"
                     )
                 elif type(page) is Gen:
-                    idx.write(f"  - [{page.title}]({os.path.basename(page.dirname)})\n")
+                    idx.write(
+                        f"  - [{page.title}]({os.path.basename(page.dirname)}/index.md)\n"
+                    )
                 else:
                     print("WAT", page)
 
