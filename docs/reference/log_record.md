@@ -172,7 +172,7 @@ ARF feedback reports are parsed into a JSON object that has the following
 structure.  The fields of the `feedback_report` correspond to those defined
 by [RFC 5965](https://www.rfc-editor.org/rfc/rfc5965).
 
-See also [trace_headers](kumo/start_esmtp_listener.md#trace_headers) for information
+See also [trace_headers](kumo/start_esmtp_listener/trace_headers.md) for information
 about the `supplemental_trace` field.
 
 ```json

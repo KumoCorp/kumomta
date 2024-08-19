@@ -19,7 +19,7 @@ table tbody tr td:nth-of-type(2) {
 |Connection|`reception_protocol`|indicates the reception protocol, such as `ESMTP`|{{since('2023.08.22-4d895015', inline=True)}}|
 |Connection|`received_via`|indicates the IP:port of the KumoMTA listener that is handling this session|{{since('2023.08.22-4d895015', inline=True)}}|
 |Connection|`received_from`|indicates the IP:port of the sending or peer machine in this session|{{since('2023.08.22-4d895015', inline=True)}}|
-|Connection|`hostname`|A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener.md#hostname)|{{since('2023.11.28-b5252a41', inline=True)}}|
+|Connection|`hostname`|A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener/hostname.md)|{{since('2023.11.28-b5252a41', inline=True)}}|
 |Connection|`authn_id`|the authentication id if the message was received via authenticated SMTP||
 |Connection|`authz_id`|the authorization id if the message was received via authenticated SMTP||
 |Message|`queue`|specify the name of the queue to which the message will be queued. Must be a string value.||

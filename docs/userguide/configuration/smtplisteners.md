@@ -18,7 +18,7 @@ kumo.start_esmtp_listener {
 ```
 
 Refer to the
-[start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md) chapter of
+[start_esmtp_listener](../../reference/kumo/start_esmtp_listener/index.md) chapter of
 the Reference Manual for detailed options.
 
 For most use cases, it will be necessary to configure listeners on a per-domain

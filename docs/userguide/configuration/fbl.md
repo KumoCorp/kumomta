@@ -39,7 +39,7 @@ kumo.start_esmtp_listener {
 ```
 
 See the trace headers section of the
-[start_esmtp_listener](../../reference/kumo/start_esmtp_listener.md#trace_headers)
+[start_esmtp_listener](../../reference/kumo/start_esmtp_listener/trace_headers.md)
 section of the reference manual for more information.
 
 ## Configuring ARF Domains
