@@ -18,6 +18,6 @@ as possible.
 
 !!! note
     The maintainer will also tick over whenever the
-    [refresh_interval](#refresh_interval) elapses, so there isn't a tangible
+    [refresh_interval](refresh_interval.md) elapses, so there isn't a tangible
     benefit to setting `timerwheel_tick_interval` larger than `refresh_interval`.
 

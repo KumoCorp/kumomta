@@ -7,7 +7,7 @@ Optional string.
 If set, then the value will be used to configure openssl option flags.
 
 OpenSSL is used as described under the
-[tls_prefer_openssl](#tls_prefer_openssl) option above.
+[tls_prefer_openssl](tls_prefer_openssl.md) option.
 
 The format of the string is the set of possible option names separated by `|` characters.
 
