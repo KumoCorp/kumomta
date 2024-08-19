@@ -68,7 +68,7 @@ fi
 docker build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
 	
 if [ "$SERVE" == "yes" ] ; then
-  docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material serve
+  docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material $@
 else
   docker run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
 fi

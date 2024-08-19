@@ -41,9 +41,19 @@ class Gen(object):
         self.reverse = reverse
 
     def render(self, output, depth=0):
-        names = sorted(glob.glob(f"{self.dirname}/*.md"), reverse=self.reverse)
+        names = sorted(
+            glob.glob(f"{self.dirname}/*.md")
+            + glob.glob(f"{self.dirname}/*/_index.md"),
+            reverse=self.reverse,
+        )
         children = []
         for filename in names:
+            # Check for nested implicit Gen pages
+            if os.path.dirname(filename) != self.dirname:
+                title = os.path.basename(os.path.dirname(filename))
+                children.append(Gen(title, os.path.dirname(filename)))
+                continue
+
             title = os.path.basename(filename).rsplit(".", 1)[0]
             if title == "index" or title == "_index":
                 continue
@@ -69,7 +79,14 @@ class Gen(object):
                 except FileNotFoundError:
                     pass
             for page in children:
-                idx.write(f"  - [{page.title}]({os.path.basename(page.filename)})\n")
+                if type(page) is Page:
+                    idx.write(
+                        f"  - [{page.title}]({os.path.basename(page.filename)})\n"
+                    )
+                elif type(page) is Gen:
+                    idx.write(f"  - [{page.title}]({os.path.basename(page.dirname)})\n")
+                else:
+                    print("WAT", page)
 
 
 class RustDoc(object):

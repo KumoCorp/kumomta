@@ -253,7 +253,7 @@ sent is longer than the `idle_timeout`, then the messages in the ready queue
 will be delayed until the throttle would permit them to be delievered again.
 
 This option is distinct from [the scheduled queue
-max_message_rate](make_queue_config.md#max_message_rate) option in that the
+max_message_rate](make_queue_config/max_message_rate.md) option in that the
 scheduled queue option applies to a specific scheduled queue, whilst this
 egress path option applies to the ready queue for a specific egress path,
 through which multiple scheduled queues send out to the internet.

@@ -111,7 +111,7 @@ global parameters set separately. When the
 the two collections are merged and the resulting collection of parameters is
 passed to the `kumo.make_queue_config` function and passed back to the event
 handler.  See the
-[make_queue_config](../../reference/kumo/make_queue_config.md) page of the
+[make_queue_config](../../reference/kumo/make_queue_config/index.md) page of the
 Reference Manual for more information.
 
 While the event includes arguments for the destination domain, tenant, and
@@ -141,7 +141,7 @@ end)
 
 Note that the example above is designed specifically to show one method of
 storing and managing the parameters of the
-[kumo.make_queue_config](../../reference/kumo/make_queue_config.md) function,
+[kumo.make_queue_config](../../reference/kumo/make_queue_config/index.md) function,
 but users are free to store and combine parameters as they see fit.
 
 ## Configuring Egress Pool Assignment Using Lua
