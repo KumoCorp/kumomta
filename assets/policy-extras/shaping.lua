@@ -254,6 +254,10 @@ function mod:setup_with_automation(options)
     error 'shaping module has already been configured'
   end
 
+  if options.pre_filter == nil then
+    options.pre_filter = true
+  end
+
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
