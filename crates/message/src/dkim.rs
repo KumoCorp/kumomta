@@ -109,7 +109,8 @@ impl SignerConfig {
     }
 }
 
-#[derive(Clone, mlua::FromLua)]
+#[derive(Clone)]
+#[cfg_attr(feature = "impl", derive(mlua::FromLua))]
 pub struct Signer(Arc<CFSigner>);
 
 impl Signer {
