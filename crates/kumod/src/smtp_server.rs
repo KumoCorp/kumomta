@@ -22,7 +22,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as Mutex;
-use prometheus::{IntCounter, IntGauge};
+use prometheus::{Histogram, HistogramTimer, IntCounter, IntGauge};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,13 @@ use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 
 static CRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n"));
+static TXN_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "smtpsrv_transaction_duration",
+        "how long an incoming SMTP transaction takes",
+    )
+    .unwrap()
+});
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct DomainAndListener {
@@ -425,6 +432,7 @@ pub struct SmtpServer {
 struct TransactionState {
     sender: EnvelopeAddress,
     recipients: Vec<EnvelopeAddress>,
+    _timer: HistogramTimer,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -1342,6 +1350,7 @@ impl SmtpServer {
                     self.state.replace(TransactionState {
                         sender: address.clone(),
                         recipients: vec![],
+                        _timer: TXN_LATENCY.start_timer(),
                     });
                     self.write_response(250, format!("OK {address:?}"), None)
                         .await?;
