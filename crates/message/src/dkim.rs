@@ -5,12 +5,25 @@ use kumo_dkim::DkimPrivateKey;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
+use prometheus::Histogram;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 lazy_static::lazy_static! {
     static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>> = LruCacheWithTtl::new(1024);
+    static ref SIGNER_KEY_FETCH: Histogram = prometheus::register_histogram!(
+        "dkim_signer_key_fetch",
+        "how long it takes to obtain a dkim key").unwrap();
+    static ref SIGNER_CREATE: Histogram = prometheus::register_histogram!(
+        "dkim_signer_creation",
+        "how long it takes to create a signer on a cache miss").unwrap();
+    static ref SIGNER_SIGN: Histogram = prometheus::register_histogram!(
+        "dkim_signer_sign",
+        "how long it takes to dkim sign parsed messages").unwrap();
+    static ref SIGNER_PARSE: Histogram = prometheus::register_histogram!(
+        "dkim_signer_message_parse",
+        "how long it takes to parse messages as prep for signing").unwrap();
 }
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
@@ -132,6 +145,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 return Ok(Signer(inner));
             }
 
+            let signer_creation_timer = SIGNER_CREATE.start_timer();
+            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
             let data = params
                 .key
                 .get()
@@ -140,6 +155,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
             let key = DkimPrivateKey::rsa_key(&data)
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
+            key_fetch_timer.stop_and_record();
 
             let signer = params
                 .configure_kumo_dkim(key)
@@ -150,6 +166,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
+            signer_creation_timer.stop_and_record();
             Ok(Signer(inner))
         })?,
     )?;
@@ -163,6 +180,8 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
                 return Ok(Signer(inner));
             }
 
+            let signer_creation_timer = SIGNER_CREATE.start_timer();
+            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
             let data = params
                 .key
                 .get()
@@ -171,6 +190,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
 
             let key = DkimPrivateKey::ed25519_key(&data)
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
+            key_fetch_timer.stop_and_record();
 
             let signer = params
                 .configure_kumo_dkim(key)
@@ -181,6 +201,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
             let expiration = Instant::now() + Duration::from_secs(params.ttl);
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
+            signer_creation_timer.stop_and_record();
             Ok(Signer(inner))
         })?,
     )?;
@@ -193,12 +214,16 @@ pub struct CFSigner {
 
 impl CFSigner {
     fn sign(&self, message: &[u8]) -> anyhow::Result<String> {
+        let parse_timer = SIGNER_PARSE.start_timer();
         let message_str =
             std::str::from_utf8(message).context("DKIM signer: message is not ASCII or UTF-8")?;
         let mail = kumo_dkim::ParsedEmail::parse(message_str)
             .context("failed to parse message to pass to dkim signer")?;
+        parse_timer.stop_and_record();
 
+        let sign_timer = SIGNER_SIGN.start_timer();
         let dkim_header = self.signer.sign(&mail)?;
+        sign_timer.stop_and_record();
 
         Ok(dkim_header)
     }

@@ -170,6 +170,10 @@ pub struct Metrics {
     pub message_save_latency: Option<LatencyIndividual>,
     pub message_data_load_latency: Option<LatencyIndividual>,
     pub message_meta_load_latency: Option<LatencyIndividual>,
+    pub dkim_signer_key_fetch: Option<LatencyIndividual>,
+    pub dkim_signer_creation: Option<LatencyIndividual>,
+    pub dkim_signer_sign: Option<LatencyIndividual>,
+    pub dkim_signer_message_parse: Option<LatencyIndividual>,
 }
 
 pub struct LatencyMetrics {
@@ -407,6 +411,13 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         (
             "message_meta_load_latency",
             &result.message_meta_load_latency,
+        ),
+        ("dkim_signer_key_fetch", &result.dkim_signer_key_fetch),
+        ("dkim_signer_creation", &result.dkim_signer_creation),
+        ("dkim_signer_sign", &result.dkim_signer_sign),
+        (
+            "dkim_signer_message_parse",
+            &result.dkim_signer_message_parse,
         ),
     ] {
         if let Some(entry) = entry {
