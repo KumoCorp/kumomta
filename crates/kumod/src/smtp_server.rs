@@ -47,6 +47,20 @@ static TXN_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
+static READ_DATA_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "smtpsrv_read_data_duration",
+        "how long it takes to receive the DATA portion",
+    )
+    .unwrap()
+});
+static PROCESS_DATA_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "smtpsrv_process_data_duration",
+        "how long it takes to process the DATA portion and enqueue",
+    )
+    .unwrap()
+});
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct DomainAndListener {
@@ -1465,6 +1479,7 @@ impl SmtpServer {
                     self.write_response(354, "Send body; end with CRLF.CRLF", None)
                         .await?;
 
+                    let read_data_timer = READ_DATA_LATENCY.start_timer();
                     let data = match self.read_data().await? {
                         ReadData::Disconnected => return Ok(()),
                         ReadData::Data(data) => data,
@@ -1497,7 +1512,9 @@ impl SmtpServer {
                             return Ok(());
                         }
                     };
+                    read_data_timer.stop_and_record();
 
+                    let _process_data_timer = PROCESS_DATA_LATENCY.start_timer();
                     self.process_data(data).await?;
                 }
                 Ok(Command::Rset) => {

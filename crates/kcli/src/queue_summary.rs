@@ -175,6 +175,8 @@ pub struct Metrics {
     pub dkim_signer_sign: Option<LatencyIndividual>,
     pub dkim_signer_message_parse: Option<LatencyIndividual>,
     pub smtpsrv_transaction_duration: Option<LatencyIndividual>,
+    pub smtpsrv_read_data_duration: Option<LatencyIndividual>,
+    pub smtpsrv_process_data_duration: Option<LatencyIndividual>,
 }
 
 pub struct LatencyMetrics {
@@ -423,6 +425,14 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         (
             "smtpsrv_transaction_duration",
             &result.smtpsrv_transaction_duration,
+        ),
+        (
+            "smtpsrv_read_data_duration",
+            &result.smtpsrv_read_data_duration,
+        ),
+        (
+            "smtpsrv_process_data_duration",
+            &result.smtpsrv_process_data_duration,
         ),
     ] {
         if let Some(entry) = entry {
