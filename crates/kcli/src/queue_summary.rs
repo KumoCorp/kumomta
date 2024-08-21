@@ -142,9 +142,144 @@ pub struct LatencyIndividual {
 #[derive(Deserialize, Serialize)]
 pub struct LatencyEntry {
     pub avg: f64,
-    pub bucket: HashMap<String, u64>,
+    pub bucket: Vec<(f64, f64)>,
     pub count: u64,
     pub sum: f64,
+}
+
+impl LatencyEntry {
+    /// Given a quantile (eg: p90 would be q=0.9), returns the approximate
+    /// observed latency value that that percentage of samples would
+    /// have recorded.  The value is approximated through linear interpolation
+    /// across the range found in the last matching bucket.
+    ///
+    /// This logic is derived from the histogramQuantile function in prometheus
+    /// <https://github.com/prometheus/prometheus/blob/1435c8ae4aa1041592778018ba62fc3058a9ad3d/promql/quantile.go#L177>
+    pub fn quantile(&self, q: f64) -> f64 {
+        if q < 0.0 {
+            return f64::NEG_INFINITY;
+        }
+        if q > 1.0 {
+            return f64::INFINITY;
+        }
+
+        if self.count == 0 || q.is_nan() {
+            return f64::NAN;
+        }
+
+        #[derive(Debug, Clone, Copy, Default)]
+        struct Bucket {
+            lower_bound: f64,
+            upper_bound: f64,
+            count: f64,
+        }
+
+        let mut buckets = vec![];
+
+        let mut lower_bound = 0.0;
+        for &(upper_bound, cumulative_count) in &self.bucket {
+            buckets.push(Bucket {
+                lower_bound,
+                upper_bound,
+                count: cumulative_count,
+            });
+            lower_bound = upper_bound;
+        }
+
+        // Fixup cumulative counts to be the simple per-bucket counts.
+        // We do this by walking backwards and subtracting the earlier
+        // count from the current count
+        {
+            let mut iter = buckets.iter_mut().rev().peekable();
+            while let Some(b) = iter.next() {
+                if let Some(prev) = iter.peek() {
+                    b.count -= prev.count;
+                }
+            }
+        }
+
+        fn bucket_iter<'a>(
+            buckets: &'a [Bucket],
+            forward: bool,
+        ) -> Box<dyn Iterator<Item = &'a Bucket> + 'a> {
+            if forward {
+                Box::new(buckets.iter())
+            } else {
+                Box::new(buckets.iter().rev())
+            }
+        }
+
+        let forwards = self.sum.is_nan() || q < 0.5;
+
+        let (mut rank, iter) = if forwards {
+            (q * self.count as f64, bucket_iter(&buckets, true))
+        } else {
+            ((1.0 - q) * self.count as f64, bucket_iter(&buckets, false))
+        };
+
+        let mut count = 0.0;
+        let mut bucket = None;
+        for b in iter {
+            bucket.replace(b);
+            if b.count == 0.0 {
+                continue;
+            }
+            count += b.count;
+            if count >= rank {
+                break;
+            }
+        }
+
+        let Some(bucket) = bucket else {
+            return f64::NEG_INFINITY;
+        };
+
+        count = count.min(self.count as f64);
+        if count < rank {
+            return bucket.upper_bound;
+        }
+        if forwards {
+            rank -= count - bucket.count;
+        } else {
+            rank = count - rank;
+        }
+
+        bucket.lower_bound + (bucket.upper_bound - bucket.lower_bound) * (rank / bucket.count)
+    }
+}
+
+#[cfg(test)]
+mod histogram_test {
+    use super::*;
+
+    #[test]
+    fn basics() {
+        let entry = LatencyEntry {
+            avg: 0.03883320766938923,
+            bucket: vec![
+                (0.005, 148571.),
+                (0.01, 149185.),
+                (0.025, 201435.),
+                (0.05, 505005.),
+                (0.1, 611944.),
+                (0.25, 643205.),
+                (0.5, 643876.),
+                (1., 645492.),
+                (2.5, 646039.),
+                (5., 646039.),
+                (10., 646039.),
+            ],
+            count: 646039,
+            sum: 25087.76664952455,
+        };
+
+        assert_eq!(entry.quantile(1.0), 2.5);
+        assert_eq!(entry.quantile(0.99), 0.23259945299254658);
+        assert_eq!(entry.quantile(0.95), 0.10860361152874175);
+        assert_eq!(entry.quantile(0.9), 0.08573537250208063);
+        assert_eq!(entry.quantile(0.75), 0.04831375382942979);
+        assert_eq!(entry.quantile(0.5), 0.03501288829594493);
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -182,7 +317,19 @@ pub struct Metrics {
 pub struct LatencyMetrics {
     pub name: String,
     pub avg: f64,
+    pub p90: f64,
     pub count: u64,
+}
+
+impl LatencyMetrics {
+    fn new(name: &str, entry: &LatencyEntry) -> Self {
+        Self {
+            name: name.to_string(),
+            avg: entry.avg,
+            p90: entry.quantile(0.9),
+            count: entry.count,
+        }
+    }
 }
 
 pub struct ThreadPoolMetrics {
@@ -384,11 +531,7 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         .and_then(|group| group.value.as_ref())
     {
         for (event, entry) in &map.event {
-            latency.push(LatencyMetrics {
-                name: event.to_string(),
-                avg: entry.avg,
-                count: entry.count,
-            });
+            latency.push(LatencyMetrics::new(event, entry));
         }
     }
     if let Some(map) = result
@@ -397,11 +540,7 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         .and_then(|group| group.value.as_ref())
     {
         for (event, entry) in &map.logger {
-            latency.push(LatencyMetrics {
-                name: event.to_string(),
-                avg: entry.avg,
-                count: entry.count,
-            });
+            latency.push(LatencyMetrics::new(event, entry));
         }
     }
     for (name, entry) in [
@@ -436,11 +575,7 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         ),
     ] {
         if let Some(entry) = entry {
-            latency.push(LatencyMetrics {
-                name: name.to_string(),
-                avg: entry.value.avg,
-                count: entry.value.count,
-            });
+            latency.push(LatencyMetrics::new(name, &entry.value));
         }
     }
 

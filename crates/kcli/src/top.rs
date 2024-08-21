@@ -117,6 +117,7 @@ struct State {
 
     thread_pools: BTreeMap<String, Vec<u64>>,
     latency_avg: BTreeMap<String, Vec<u64>>,
+    latency_p90: BTreeMap<String, Vec<u64>>,
     latency_count: BTreeMap<String, Vec<u64>>,
 }
 
@@ -229,6 +230,12 @@ impl State {
                         .entry(event.name.to_string())
                         .or_insert_with(Vec::new);
                     push_value(avg_entry, (event.avg * 1_000_000.0).ceil() as u64);
+
+                    let p90_entry = self
+                        .latency_p90
+                        .entry(event.name.to_string())
+                        .or_insert_with(Vec::new);
+                    push_value(p90_entry, (event.p90 * 1_000_000.0).ceil() as u64);
                 }
 
                 for pool in &metrics.thread_pools {
@@ -308,6 +315,9 @@ impl State {
                     push_value(target, 0);
                 }
                 for target in self.latency_avg.values_mut() {
+                    push_value(target, 0);
+                }
+                for target in self.latency_p90.values_mut() {
                     push_value(target, 0);
                 }
                 for target in self.latency_count.values_mut() {
@@ -454,7 +464,7 @@ impl State {
                 1,
             ));
         }
-        for (name, data) in self.latency_avg.iter() {
+        for (name, data) in self.latency_p90.iter() {
             if name == "init" || name == "pre_init" {
                 continue;
             }

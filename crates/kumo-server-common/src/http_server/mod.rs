@@ -325,12 +325,9 @@ async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Va
                     let sum = hist.get_sample_sum();
                     let avg = if count != 0 { sum / count as f64 } else { 0. };
 
-                    let mut bucket = Map::new();
+                    let mut bucket = vec![];
                     for b in hist.get_bucket() {
-                        bucket.insert(
-                            b.get_upper_bound().to_string().into(),
-                            b.get_cumulative_count().into(),
-                        );
+                        bucket.push(vec![b.get_upper_bound(), b.get_cumulative_count() as f64]);
                     }
 
                     let hist_value = json!({
