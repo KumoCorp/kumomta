@@ -8,14 +8,24 @@ pub use kumo_log_types::*;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use once_cell::sync::Lazy;
+use prometheus::CounterVec;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, TryAcquireError};
 
 pub static SHOULD_ENQ_LOG_RECORD_SIG: Lazy<CallbackSignature<(Message, String), bool>> =
     Lazy::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
+
+static HOOK_BACKLOG_COUNT: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "log_hook_backlog_count",
+        "how many times processing of a log event hit the back_pressure in a hook",
+        &["logger"]
+    )
+    .unwrap()
+});
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
@@ -111,7 +121,18 @@ impl LogHookState {
         //    what happened to the messages we processed.
         // 3. Unbounded growth increases system pressures which increases
         //    the risk of something going wrong.
-        let permit = self.sema.clone().acquire_owned().await;
+        let permit = match self.sema.clone().try_acquire_owned() {
+            Ok(p) => p,
+            Err(TryAcquireError::NoPermits) => {
+                HOOK_BACKLOG_COUNT
+                    .get_metric_with_label_values(&[&self.params.name])?
+                    .inc();
+                self.sema.clone().acquire_owned().await?
+            }
+            Err(TryAcquireError::Closed) => {
+                anyhow::bail!("back_pressure semaphore is closed!?");
+            }
+        };
 
         let mut record_text = Vec::new();
         self.template_engine
