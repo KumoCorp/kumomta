@@ -2,7 +2,7 @@ use crate::logging::classify::{apply_classification, ClassifierParams};
 use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
-use async_channel::Sender;
+use async_channel::{Sender, TrySendError};
 use config::{any_err, from_lua_value, get_or_create_module};
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MonitoredPath;
@@ -13,7 +13,7 @@ use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
-use prometheus::{Histogram, HistogramVec};
+use prometheus::{CounterVec, Histogram, HistogramVec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -31,6 +31,14 @@ pub(crate) mod files;
 pub(crate) mod hooks;
 pub(crate) mod rejection;
 
+static SUBMIT_FULL: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "log_submit_full",
+        "how many times submission of a log event hit the back_pressure",
+        &["logger"]
+    )
+    .unwrap()
+});
 static SUBMIT_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     prometheus::register_histogram_vec!(
         "log_submit_latency",
@@ -252,7 +260,18 @@ impl Logger {
     pub async fn log(&self, mut record: JsonLogRecord) -> anyhow::Result<()> {
         let _timer = self.submit_latency.start_timer();
         apply_classification(&mut record).await;
-        Ok(self.sender.send(LogCommand::Record(record)).await?)
+        match self.sender.try_send(LogCommand::Record(record)) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(record)) => {
+                SUBMIT_FULL
+                    .get_metric_with_label_values(&[&self.name])
+                    .expect("get counter")
+                    .inc();
+                self.sender.send(record).await?;
+                Ok(())
+            }
+            Err(TrySendError::Closed(_)) => anyhow::bail!("log channel was closed"),
+        }
     }
 
     pub fn signal_shutdown() -> Pin<Box<dyn Future<Output = ()>>> {
