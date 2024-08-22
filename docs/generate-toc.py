@@ -170,10 +170,6 @@ TOC = [
                         "Installation Overview",
                         "userguide/installation/overview.md",
                     ),
-                    Page(
-                        "Deployment Architecture",
-                        "userguide/installation/deployment.md",
-                    ),
                     Page("Server Environment", "userguide/installation/environment.md"),
                     Page("Server Hardware", "userguide/installation/hardware.md"),
                     Page(
@@ -311,6 +307,16 @@ TOC = [
                         "Rewriting Remote Server Responses",
                         "userguide/policy/rewrite.md",
                     ),
+                ],
+            ),
+            Page(
+                "Clustering",
+                "userguide/clustering/index.md",
+                children=[
+                    Page("Deployment Architecture", "userguide/installation/deployment.md"),
+                    Page("Aggregating Event Data", "userguide/clustering/eventdata.md"),
+                    Page("Implementing Shared Throttles", "userguide/clustering/throttles.md"),
+                    Page("Clustered Traffic Shaping Automation", "userguide/clustering/trafficshapingautomation.md"),
                 ],
             ),
             Page(
