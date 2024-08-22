@@ -5,7 +5,7 @@ use kumo_dkim::DkimPrivateKey;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
-use prometheus::Histogram;
+use prometheus::{Counter, Histogram};
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,6 +24,15 @@ lazy_static::lazy_static! {
     static ref SIGNER_PARSE: Histogram = prometheus::register_histogram!(
         "dkim_signer_message_parse",
         "how long it takes to parse messages as prep for signing").unwrap();
+    static ref SIGNER_CACHE_HIT: Counter = prometheus::register_counter!(
+        "dkim_signer_cache_hit",
+        "how many cache dkim signer requests hit cache").unwrap();
+    static ref SIGNER_CACHE_MISS: Counter = prometheus::register_counter!(
+        "dkim_signer_cache_miss",
+        "how many cache dkim signer requests miss cache").unwrap();
+    static ref SIGNER_CACHE_LOOKUP: Counter = prometheus::register_counter!(
+        "dkim_signer_cache_lookup_count",
+        "how many cache dkim signer requests occurred").unwrap();
 }
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
@@ -141,9 +150,12 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, params: Value| async move {
             let params: SignerConfig = from_lua_value(lua, params)?;
 
+            SIGNER_CACHE_LOOKUP.inc();
             if let Some(inner) = SIGNER_CACHE.get(&params) {
+                SIGNER_CACHE_HIT.inc();
                 return Ok(Signer(inner));
             }
+            SIGNER_CACHE_MISS.inc();
 
             let signer_creation_timer = SIGNER_CREATE.start_timer();
             let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
