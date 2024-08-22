@@ -2,6 +2,7 @@ use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
 use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
 use once_cell::sync::Lazy;
+use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -268,16 +269,75 @@ impl SemaphoreManager {
 static SEMAPHORES: Lazy<Mutex<SemaphoreManager>> =
     Lazy::new(|| Mutex::new(SemaphoreManager::new()));
 
+static ACQUIRE_BLOCKED: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_semaphore_acquire_blocked_count",
+        "how many times memoize for a specific cache is blocked for concurrent callers",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+static CACHE_LOOKUP: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_cache_lookup_count",
+        "how many times a memoize cache lookup was initiated for a given cache",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+static CACHE_HIT: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_cache_hit_count",
+        "how many times a memoize cache lookup was a hit for a given cache",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+static CACHE_MISS: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_cache_miss_count",
+        "how many times a memoize cache lookup was a miss for a given cache",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+static CACHE_MISS_OTHER: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_cache_miss_satisfied_by_other_count",
+        "how many times a memoize cache lookup was a miss, but was satisfied while waiting for concurrent callers",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+static CACHE_POPULATED: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "memoize_cache_populated_count",
+        "how many times a memoize cache lookup resulted in performing the work to populate the entry",
+        &["cache_name"]
+    )
+    .unwrap()
+});
+
 /// acquire a semaphore permit for a specific cache and cache key combination.
 /// This function will await until the caller is the only caller to hold
 /// the semaphore permit.
 /// This is used to constrain concurrency of workers on a cache miss
 /// and avoid/minimize the thundering herd problem.
 async fn acquire_semaphore(cache_name: &str, key: &str) -> anyhow::Result<OwnedSemaphorePermit> {
-    let key = format!("{cache_name}_@_{key}");
-    let semaphore = SEMAPHORES.lock().unwrap().resolve_semaphore(key);
-    let permit = semaphore.acquire_owned().await?;
-    Ok(permit)
+    let computed_key = format!("{cache_name}_@_{key}");
+    let semaphore = SEMAPHORES.lock().unwrap().resolve_semaphore(computed_key);
+    match semaphore.clone().try_acquire_owned() {
+        Ok(permit) => Ok(permit),
+        Err(TryAcquireError::NoPermits) => {
+            ACQUIRE_BLOCKED
+                .get_metric_with_label_values(&[cache_name])?
+                .inc();
+            Ok(semaphore.acquire_owned().await?)
+        }
+        Err(TryAcquireError::Closed) => {
+            anyhow::bail!("semaphore for {cache_name} {key} is closed!?");
+        }
+    }
 }
 
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
@@ -320,12 +380,34 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 );
             }
 
+            let lookup_counter = CACHE_LOOKUP
+                .get_metric_with_label_values(&[&cache_name])
+                .map_err(any_err)?;
+            let hit_counter = CACHE_HIT
+                .get_metric_with_label_values(&[&cache_name])
+                .map_err(any_err)?;
+            let miss_counter = CACHE_MISS
+                .get_metric_with_label_values(&[&cache_name])
+                .map_err(any_err)?;
+            let miss_other_counter = CACHE_MISS_OTHER
+                .get_metric_with_label_values(&[&cache_name])
+                .map_err(any_err)?;
+            let populate_counter = CACHE_POPULATED
+                .get_metric_with_label_values(&[&cache_name])
+                .map_err(any_err)?;
+
             let func_ref = lua.create_registry_value(func)?;
 
             lua.create_async_function(move |lua, params: MultiValue| {
                 let cache_name = cache_name.clone();
                 let func = lua.registry_value::<mlua::Function>(&func_ref);
+                let lookup_counter = lookup_counter.clone();
+                let hit_counter = hit_counter.clone();
+                let miss_counter = miss_counter.clone();
+                let miss_other_counter = miss_other_counter.clone();
+                let populate_counter = populate_counter.clone();
                 async move {
+                    lookup_counter.inc();
                     let key = multi_value_to_json_value(lua, params.clone())?;
                     let key = serde_json::to_string(&key).map_err(any_err)?;
 
@@ -334,8 +416,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         .map_err(any_err)?;
 
                     if let Some(value) = cache.get(&key) {
+                        hit_counter.inc();
                         return Ok(value.to_value(lua)?);
                     }
+                    miss_counter.inc();
 
                     let permit = acquire_semaphore(&cache_name, &key)
                         .await
@@ -344,8 +428,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     // Check cache again in case we raced with someone else
                     // while waiting for the semaphore
                     if let Some(value) = cache.get(&key) {
+                        miss_other_counter.inc();
                         return Ok(value.to_value(lua)?);
                     }
+
+                    populate_counter.inc();
 
                     let result: MultiValue = (func?).call_async(params).await?;
 

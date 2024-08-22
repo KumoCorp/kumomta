@@ -3787,6 +3787,7 @@ dependencies = [
  "lruttl",
  "mlua",
  "once_cell",
+ "prometheus",
  "serde",
  "serde_json",
  "tokio",
