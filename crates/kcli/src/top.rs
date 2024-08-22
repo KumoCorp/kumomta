@@ -464,7 +464,7 @@ impl State {
                 1,
             ));
         }
-        for (name, data) in self.latency_p90.iter() {
+        for (name, data) in self.latency_avg.iter() {
             if name == "init" || name == "pre_init" {
                 continue;
             }
