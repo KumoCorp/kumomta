@@ -3,6 +3,7 @@ use dns_resolver::MailExchanger;
 use kumo_api_types::{BounceV1ListEntry, SuspendReadyQueueV1ListEntry, SuspendV1ListEntry};
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
+use ordermap::OrderMap;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -106,48 +107,302 @@ pub struct ThreadPoolMap {
     pub pool: HashMap<String, f64>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct LuaEventLatencyGroup {
-    pub help: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub value: Option<LuaEventLatencyMap>,
+#[cfg(test)]
+mod histogram_test {
+    use super::*;
+
+    #[test]
+    fn basics() {
+        let entry = HistogramMetric {
+            avg: 0.03883320766938923,
+            bucket: vec![
+                (0.005, 148571.),
+                (0.01, 149185.),
+                (0.025, 201435.),
+                (0.05, 505005.),
+                (0.1, 611944.),
+                (0.25, 643205.),
+                (0.5, 643876.),
+                (1., 645492.),
+                (2.5, 646039.),
+                (5., 646039.),
+                (10., 646039.),
+            ],
+            count: 646039,
+            sum: 25087.76664952455,
+        };
+
+        assert_eq!(entry.quantile(1.0), 2.5);
+        assert_eq!(entry.quantile(0.99), 0.23259945299254658);
+        assert_eq!(entry.quantile(0.95), 0.10860361152874175);
+        assert_eq!(entry.quantile(0.9), 0.08573537250208063);
+        assert_eq!(entry.quantile(0.75), 0.04831375382942979);
+        assert_eq!(entry.quantile(0.5), 0.03501288829594493);
+    }
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct LuaEventLatencyMap {
-    pub event: HashMap<String, LatencyEntry>,
+pub struct Metrics {
+    pub connection_count: Option<CounterGroup>,
+    pub ready_count: Option<CounterGroup>,
+    pub scheduled_count: Option<QueueCounterGroup>,
+    pub total_connection_count: Option<CounterGroup>,
+    pub total_messages_delivered: Option<CounterGroup>,
+    pub total_messages_transfail: Option<CounterGroup>,
+    pub total_messages_fail: Option<CounterGroup>,
+    pub total_messages_received: Option<CounterGroup>,
+    pub message_count: Option<IndividualCounter>,
+    pub message_data_resident_count: Option<IndividualCounter>,
+    pub message_meta_resident_count: Option<IndividualCounter>,
+    pub memory_usage: Option<IndividualCounter>,
+    pub memory_limit: Option<IndividualCounter>,
+    pub thread_pool_size: Option<ThreadPoolGroup>,
+    pub thread_pool_parked: Option<ThreadPoolGroup>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct LoggerLatencyGroup {
-    pub help: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub value: Option<LoggerLatencyMap>,
-}
-#[derive(Deserialize, Serialize)]
-pub struct LoggerLatencyMap {
-    pub logger: HashMap<String, LatencyEntry>,
+pub struct LatencyMetrics {
+    pub name: MetricName,
+    pub avg: f64,
+    pub p90: f64,
+    pub count: u64,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct LatencyIndividual {
-    pub help: String,
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub value: LatencyEntry,
+impl LatencyMetrics {
+    fn new(name: &MetricName, entry: &HistogramMetric) -> Self {
+        Self {
+            name: name.clone(),
+            avg: entry.avg,
+            p90: entry.quantile(0.9),
+            count: entry.count,
+        }
+    }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct LatencyEntry {
+pub struct ThreadPoolMetrics {
+    pub name: String,
+    pub size: usize,
+    pub parked: usize,
+}
+
+#[derive(Default, Debug)]
+pub struct ReadyQueueMetrics {
+    pub name: String,
+    pub delivered: usize,
+    pub transfail: usize,
+    pub connection_count: usize,
+    pub queue_size: usize,
+}
+
+impl ReadyQueueMetrics {
+    fn with_name(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ..Self::default()
+        }
+    }
+
+    pub fn site_name(&self) -> &str {
+        let source_len = self
+            .source()
+            .map(|s| s.len() + 2 /* for the "->" */)
+            .unwrap_or(0);
+        let proto_len = self
+            .protocol()
+            .map(|p| p.len() + 1 /* for the "@" */)
+            .unwrap_or(0);
+        let len = self.name.len() - (source_len + proto_len);
+        &self.name[source_len..source_len + len]
+    }
+
+    pub fn source(&self) -> Option<&str> {
+        let pos = self.name.find("->")?;
+        Some(&self.name[0..pos])
+    }
+
+    pub fn protocol(&self) -> Option<&str> {
+        if self.name.ends_with("@smtp_client") {
+            return Some("smtp_client");
+        }
+        if let Some(pos) = self.name.rfind("@lua:") {
+            return Some(&self.name[pos + 1..]);
+        }
+        if let Some(pos) = self.name.rfind("@maildir:") {
+            return Some(&self.name[pos + 1..]);
+        }
+        None
+    }
+
+    pub fn volume(&self) -> usize {
+        self.delivered + self.transfail + self.connection_count + self.queue_size
+    }
+
+    pub fn compare_volume(&self, other: &Self) -> Ordering {
+        self.volume().cmp(&other.volume()).reverse()
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct ScheduledQueueMetrics {
+    pub name: String,
+    pub queue_size: usize,
+}
+
+impl ScheduledQueueMetrics {
+    fn with_name(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ..Self::default()
+        }
+    }
+
+    pub fn volume(&self) -> usize {
+        self.queue_size
+    }
+
+    pub fn compare_volume(&self, other: &Self) -> Ordering {
+        self.volume().cmp(&other.volume()).reverse()
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum NumberEntry {
+    Single(f64),
+    Map(HashMap<String, HashMap<String, f64>>),
+}
+
+impl NumberEntry {
+    fn normalize(self, label: String, map: &mut OrderMap<MetricName, f64>) {
+        match self {
+            Self::Single(metric) => {
+                map.insert(MetricName::Label(label), metric);
+            }
+            Self::Map(map1) => {
+                for (label_name, map2) in map1 {
+                    for (k, metric) in map2 {
+                        map.insert(
+                            MetricName::Structured {
+                                name: label.to_string(),
+                                label_name: label_name.to_string(),
+                                label: k,
+                            },
+                            metric,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+pub enum MetricName {
+    Label(String),
+    Structured {
+        name: String,
+        label_name: String,
+        label: String,
+    },
+}
+
+impl MetricName {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Label(n) => n.as_str(),
+            Self::Structured { label, .. } => label.as_str(),
+        }
+    }
+}
+
+impl PartialOrd for MetricName {
+    fn partial_cmp(&self, other: &MetricName) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for MetricName {
+    fn cmp(&self, other: &MetricName) -> Ordering {
+        match (self, other) {
+            (Self::Label(name_a), Self::Label(name_b)) => natural_lexical_cmp(name_a, name_b),
+            (
+                Self::Structured {
+                    name: name_a,
+                    label_name: _label_name_a,
+                    label: _label_a,
+                },
+                Self::Label(name_b),
+            ) => natural_lexical_cmp(name_a, name_b),
+            (
+                Self::Label(name_a),
+                Self::Structured {
+                    name: name_b,
+                    label_name: _label_name_b,
+                    label: _label_b,
+                },
+            ) => natural_lexical_cmp(name_a, name_b),
+            (
+                Self::Structured {
+                    name: name_a,
+                    label_name: _label_name_a,
+                    label: label_a,
+                },
+                Self::Structured {
+                    name: name_b,
+                    label_name: _label_name_b,
+                    label: label_b,
+                },
+            ) => {
+                match natural_lexical_cmp(name_a, name_b) {
+                    Ordering::Equal => {
+                        // if name_a == name_b, then label_name_a must also == label_name_b
+                        natural_lexical_cmp(label_a, label_b)
+                    }
+                    result => result,
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(untagged)]
+enum HistogramEntry {
+    Single(HistogramMetric),
+    Map(HashMap<String, HashMap<String, HistogramMetric>>),
+}
+
+impl HistogramEntry {
+    fn normalize(self, label: String, map: &mut OrderMap<MetricName, HistogramMetric>) {
+        match self {
+            Self::Single(metric) => {
+                map.insert(MetricName::Label(label), metric);
+            }
+            Self::Map(map1) => {
+                for (label_name, map2) in map1 {
+                    for (k, metric) in map2 {
+                        map.insert(
+                            MetricName::Structured {
+                                name: label.to_string(),
+                                label_name: label_name.to_string(),
+                                label: k,
+                            },
+                            metric,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct HistogramMetric {
     pub avg: f64,
     pub bucket: Vec<(f64, f64)>,
     pub count: u64,
     pub sum: f64,
 }
 
-impl LatencyEntry {
+impl HistogramMetric {
     /// Given a quantile (eg: p90 would be q=0.9), returns the approximate
     /// observed latency value that that percentage of samples would
     /// have recorded.  The value is approximated through linear interpolation
@@ -248,174 +503,57 @@ impl LatencyEntry {
     }
 }
 
-#[cfg(test)]
-mod histogram_test {
-    use super::*;
-
-    #[test]
-    fn basics() {
-        let entry = LatencyEntry {
-            avg: 0.03883320766938923,
-            bucket: vec![
-                (0.005, 148571.),
-                (0.01, 149185.),
-                (0.025, 201435.),
-                (0.05, 505005.),
-                (0.1, 611944.),
-                (0.25, 643205.),
-                (0.5, 643876.),
-                (1., 645492.),
-                (2.5, 646039.),
-                (5., 646039.),
-                (10., 646039.),
-            ],
-            count: 646039,
-            sum: 25087.76664952455,
-        };
-
-        assert_eq!(entry.quantile(1.0), 2.5);
-        assert_eq!(entry.quantile(0.99), 0.23259945299254658);
-        assert_eq!(entry.quantile(0.95), 0.10860361152874175);
-        assert_eq!(entry.quantile(0.9), 0.08573537250208063);
-        assert_eq!(entry.quantile(0.75), 0.04831375382942979);
-        assert_eq!(entry.quantile(0.5), 0.03501288829594493);
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Metrics {
-    pub connection_count: Option<CounterGroup>,
-    pub ready_count: Option<CounterGroup>,
-    pub scheduled_count: Option<QueueCounterGroup>,
-    pub total_connection_count: Option<CounterGroup>,
-    pub total_messages_delivered: Option<CounterGroup>,
-    pub total_messages_transfail: Option<CounterGroup>,
-    pub total_messages_fail: Option<CounterGroup>,
-    pub total_messages_received: Option<CounterGroup>,
-    pub message_count: Option<IndividualCounter>,
-    pub message_data_resident_count: Option<IndividualCounter>,
-    pub message_meta_resident_count: Option<IndividualCounter>,
-    pub memory_usage: Option<IndividualCounter>,
-    pub memory_limit: Option<IndividualCounter>,
-    pub thread_pool_size: Option<ThreadPoolGroup>,
-    pub thread_pool_parked: Option<ThreadPoolGroup>,
-    pub lua_event_latency: Option<LuaEventLatencyGroup>,
-    pub log_submit_latency: Option<LoggerLatencyGroup>,
-    pub bounce_classify_latency: Option<LatencyIndividual>,
-    pub message_save_latency: Option<LatencyIndividual>,
-    pub message_data_load_latency: Option<LatencyIndividual>,
-    pub message_meta_load_latency: Option<LatencyIndividual>,
-    pub dkim_signer_key_fetch: Option<LatencyIndividual>,
-    pub dkim_signer_creation: Option<LatencyIndividual>,
-    pub dkim_signer_sign: Option<LatencyIndividual>,
-    pub dkim_signer_message_parse: Option<LatencyIndividual>,
-    pub smtpsrv_transaction_duration: Option<LatencyIndividual>,
-    pub smtpsrv_read_data_duration: Option<LatencyIndividual>,
-    pub smtpsrv_process_data_duration: Option<LatencyIndividual>,
-}
-
-pub struct LatencyMetrics {
-    pub name: String,
-    pub avg: f64,
-    pub p90: f64,
-    pub count: u64,
-}
-
-impl LatencyMetrics {
-    fn new(name: &str, entry: &LatencyEntry) -> Self {
-        Self {
-            name: name.to_string(),
-            avg: entry.avg,
-            p90: entry.quantile(0.9),
-            count: entry.count,
-        }
-    }
-}
-
-pub struct ThreadPoolMetrics {
-    pub name: String,
-    pub size: usize,
-    pub parked: usize,
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum MetricEntry {
+    Gauge {
+        #[allow(unused)]
+        help: String,
+        value: NumberEntry,
+    },
+    Counter {
+        #[allow(unused)]
+        help: String,
+        value: NumberEntry,
+    },
+    Histogram {
+        #[allow(unused)]
+        help: String,
+        value: HistogramEntry,
+    },
 }
 
 #[derive(Default, Debug)]
-pub struct ReadyQueueMetrics {
-    pub name: String,
-    pub delivered: usize,
-    pub transfail: usize,
-    pub connection_count: usize,
-    pub queue_size: usize,
+pub struct DynamicMetrics {
+    pub gauges: OrderMap<MetricName, f64>,
+    pub counters: OrderMap<MetricName, f64>,
+    pub histograms: OrderMap<MetricName, HistogramMetric>,
 }
 
-impl ReadyQueueMetrics {
-    fn with_name(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..Self::default()
+fn parse_dynamic(metrics: serde_json::Value) -> anyhow::Result<DynamicMetrics> {
+    let result: HashMap<String, MetricEntry> = serde_json::from_value(metrics)?;
+
+    let mut metrics = DynamicMetrics::default();
+
+    for (label, v) in result {
+        match v {
+            MetricEntry::Counter { help: _, value } => {
+                value.normalize(label, &mut metrics.counters);
+            }
+            MetricEntry::Gauge { help: _, value } => {
+                value.normalize(label, &mut metrics.gauges);
+            }
+            MetricEntry::Histogram { help: _, value } => {
+                value.normalize(label, &mut metrics.histograms);
+            }
         }
     }
 
-    pub fn site_name(&self) -> &str {
-        let source_len = self
-            .source()
-            .map(|s| s.len() + 2 /* for the "->" */)
-            .unwrap_or(0);
-        let proto_len = self
-            .protocol()
-            .map(|p| p.len() + 1 /* for the "@" */)
-            .unwrap_or(0);
-        let len = self.name.len() - (source_len + proto_len);
-        &self.name[source_len..source_len + len]
-    }
+    metrics.counters.sort_keys();
+    metrics.gauges.sort_keys();
+    metrics.histograms.sort_keys();
 
-    pub fn source(&self) -> Option<&str> {
-        let pos = self.name.find("->")?;
-        Some(&self.name[0..pos])
-    }
-
-    pub fn protocol(&self) -> Option<&str> {
-        if self.name.ends_with("@smtp_client") {
-            return Some("smtp_client");
-        }
-        if let Some(pos) = self.name.rfind("@lua:") {
-            return Some(&self.name[pos + 1..]);
-        }
-        if let Some(pos) = self.name.rfind("@maildir:") {
-            return Some(&self.name[pos + 1..]);
-        }
-        None
-    }
-
-    pub fn volume(&self) -> usize {
-        self.delivered + self.transfail + self.connection_count + self.queue_size
-    }
-
-    pub fn compare_volume(&self, other: &Self) -> Ordering {
-        self.volume().cmp(&other.volume()).reverse()
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct ScheduledQueueMetrics {
-    pub name: String,
-    pub queue_size: usize,
-}
-
-impl ScheduledQueueMetrics {
-    fn with_name(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            ..Self::default()
-        }
-    }
-
-    pub fn volume(&self) -> usize {
-        self.queue_size
-    }
-
-    pub fn compare_volume(&self, other: &Self) -> Ordering {
-        self.volume().cmp(&other.volume()).reverse()
-    }
+    Ok(metrics)
 }
 
 pub struct ProcessedMetrics {
@@ -424,15 +562,20 @@ pub struct ProcessedMetrics {
     pub thread_pools: Vec<ThreadPoolMetrics>,
     pub latency: Vec<LatencyMetrics>,
     pub raw: Metrics,
+    #[allow(unused)]
+    pub dynamic: DynamicMetrics,
 }
 
 pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<ProcessedMetrics> {
-    let result: Metrics = crate::request_with_json_response(
+    let result: serde_json::Value = crate::request_with_json_response(
         reqwest::Method::GET,
         endpoint.join("/metrics.json")?,
         &(),
     )
     .await?;
+
+    let dynamic = parse_dynamic(result.clone())?;
+    let result: Metrics = serde_json::from_value(result)?;
 
     let mut ready_metrics = HashMap::new();
     if let Some(conn_count) = &result.connection_count {
@@ -525,58 +668,8 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
     };
 
     let mut latency = vec![];
-    if let Some(map) = result
-        .lua_event_latency
-        .as_ref()
-        .and_then(|group| group.value.as_ref())
-    {
-        for (event, entry) in &map.event {
-            latency.push(LatencyMetrics::new(event, entry));
-        }
-    }
-    if let Some(map) = result
-        .log_submit_latency
-        .as_ref()
-        .and_then(|group| group.value.as_ref())
-    {
-        for (event, entry) in &map.logger {
-            latency.push(LatencyMetrics::new(event, entry));
-        }
-    }
-    for (name, entry) in [
-        ("bounce_classify_latency", &result.bounce_classify_latency),
-        ("message_save_latency", &result.message_save_latency),
-        (
-            "message_data_load_latency",
-            &result.message_data_load_latency,
-        ),
-        (
-            "message_meta_load_latency",
-            &result.message_meta_load_latency,
-        ),
-        ("dkim_signer_key_fetch", &result.dkim_signer_key_fetch),
-        ("dkim_signer_creation", &result.dkim_signer_creation),
-        ("dkim_signer_sign", &result.dkim_signer_sign),
-        (
-            "dkim_signer_message_parse",
-            &result.dkim_signer_message_parse,
-        ),
-        (
-            "smtpsrv_transaction_duration",
-            &result.smtpsrv_transaction_duration,
-        ),
-        (
-            "smtpsrv_read_data_duration",
-            &result.smtpsrv_read_data_duration,
-        ),
-        (
-            "smtpsrv_process_data_duration",
-            &result.smtpsrv_process_data_duration,
-        ),
-    ] {
-        if let Some(entry) = entry {
-            latency.push(LatencyMetrics::new(name, &entry.value));
-        }
+    for (name, histo) in &dynamic.histograms {
+        latency.push(LatencyMetrics::new(name, histo));
     }
 
     Ok(ProcessedMetrics {
@@ -585,6 +678,7 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
         raw: result,
         thread_pools,
         latency,
+        dynamic,
     })
 }
 

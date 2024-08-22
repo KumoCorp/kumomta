@@ -2785,6 +2785,7 @@ dependencies = [
  "lexicmp",
  "message",
  "num-format",
+ "ordermap",
  "ratatui",
  "reqwest",
  "serde",
