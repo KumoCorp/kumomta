@@ -7,7 +7,7 @@ use ordermap::OrderMap;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tabout::{Alignment, Column};
 
 /// Prints a summary of the state of the queues, for a human to read.
@@ -269,6 +269,15 @@ impl ScheduledQueueMetrics {
 enum NumberEntry {
     Single(f64),
     Map(HashMap<String, HashMap<String, f64>>),
+    List(Vec<NumberListEntry>),
+}
+
+#[derive(Deserialize, Debug)]
+struct NumberListEntry {
+    #[serde(rename = "@")]
+    value: f64,
+    #[serde(flatten)]
+    labels: BTreeMap<String, String>,
 }
 
 impl NumberEntry {
@@ -280,15 +289,27 @@ impl NumberEntry {
             Self::Map(map1) => {
                 for (label_name, map2) in map1 {
                     for (k, metric) in map2 {
+                        let mut labels = BTreeMap::new();
+                        labels.insert(label_name.to_string(), k);
                         map.insert(
                             MetricName::Structured {
                                 name: label.to_string(),
-                                label_name: label_name.to_string(),
-                                label: k,
+                                labels,
                             },
                             metric,
                         );
                     }
+                }
+            }
+            Self::List(entries) => {
+                for entry in entries {
+                    map.insert(
+                        MetricName::Structured {
+                            name: label.to_string(),
+                            labels: entry.labels,
+                        },
+                        entry.value,
+                    );
                 }
             }
         }
@@ -300,16 +321,28 @@ pub enum MetricName {
     Label(String),
     Structured {
         name: String,
-        label_name: String,
-        label: String,
+        labels: BTreeMap<String, String>,
     },
 }
 
 impl MetricName {
-    pub fn label(&self) -> &str {
+    pub fn label(&self) -> String {
         match self {
-            Self::Label(n) => n.as_str(),
-            Self::Structured { label, .. } => label.as_str(),
+            Self::Label(n) => n.to_string(),
+            Self::Structured { labels, .. } => {
+                if labels.len() == 1 {
+                    labels.values().next().unwrap().to_string()
+                } else {
+                    let mut result = String::new();
+                    for k in labels.values() {
+                        if !result.is_empty() {
+                            result.push(',');
+                        }
+                        result.push_str(k);
+                    }
+                    result
+                }
+            }
         }
     }
 }
@@ -326,8 +359,7 @@ impl Ord for MetricName {
             (
                 Self::Structured {
                     name: name_a,
-                    label_name: _label_name_a,
-                    label: _label_a,
+                    labels: _labels_a,
                 },
                 Self::Label(name_b),
             ) => natural_lexical_cmp(name_a, name_b),
@@ -335,30 +367,33 @@ impl Ord for MetricName {
                 Self::Label(name_a),
                 Self::Structured {
                     name: name_b,
-                    label_name: _label_name_b,
-                    label: _label_b,
+                    labels: _labels_b,
                 },
             ) => natural_lexical_cmp(name_a, name_b),
             (
                 Self::Structured {
                     name: name_a,
-                    label_name: _label_name_a,
-                    label: label_a,
+                    labels: labels_a,
                 },
                 Self::Structured {
                     name: name_b,
-                    label_name: _label_name_b,
-                    label: label_b,
+                    labels: labels_b,
                 },
-            ) => {
-                match natural_lexical_cmp(name_a, name_b) {
-                    Ordering::Equal => {
-                        // if name_a == name_b, then label_name_a must also == label_name_b
-                        natural_lexical_cmp(label_a, label_b)
+            ) => match natural_lexical_cmp(name_a, name_b) {
+                Ordering::Equal => {
+                    for key_a in labels_a.keys() {
+                        match labels_b.get(key_a) {
+                            Some(key_b) => match natural_lexical_cmp(key_a, key_b) {
+                                Ordering::Equal => continue,
+                                ordering => return ordering,
+                            },
+                            None => return Ordering::Less,
+                        }
                     }
-                    result => result,
+                    Ordering::Greater
                 }
-            }
+                result => result,
+            },
         }
     }
 }
@@ -368,6 +403,15 @@ impl Ord for MetricName {
 enum HistogramEntry {
     Single(HistogramMetric),
     Map(HashMap<String, HashMap<String, HistogramMetric>>),
+    List(Vec<HistogramListEntry>),
+}
+
+#[derive(Deserialize, Debug)]
+struct HistogramListEntry {
+    #[serde(rename = "@")]
+    value: HistogramMetric,
+    #[serde(flatten)]
+    labels: BTreeMap<String, String>,
 }
 
 impl HistogramEntry {
@@ -379,15 +423,27 @@ impl HistogramEntry {
             Self::Map(map1) => {
                 for (label_name, map2) in map1 {
                     for (k, metric) in map2 {
+                        let mut labels = BTreeMap::new();
+                        labels.insert(label_name.to_string(), k);
                         map.insert(
                             MetricName::Structured {
                                 name: label.to_string(),
-                                label_name: label_name.to_string(),
-                                label: k,
+                                labels,
                             },
                             metric,
                         );
                     }
+                }
+            }
+            Self::List(entries) => {
+                for entry in entries {
+                    map.insert(
+                        MetricName::Structured {
+                            name: label.to_string(),
+                            labels: entry.labels,
+                        },
+                        entry.value,
+                    );
                 }
             }
         }
