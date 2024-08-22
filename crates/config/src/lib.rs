@@ -4,7 +4,7 @@ use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
 use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
-use prometheus::{HistogramTimer, HistogramVec};
+use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -42,10 +42,22 @@ static LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+static EVENT_STARTED_COUNT: Lazy<CounterVec> = Lazy::new(|| {
+    prometheus::register_counter_vec!(
+        "lua_event_started",
+        "Incremented each time we start to call a lua event callback. Use lua_event_latency_count to track completed events",
+        &["event"]
+    )
+    .unwrap()
+});
 
 pub type RegisterFunc = fn(&Lua) -> anyhow::Result<()>;
 
 fn latency_timer(label: &str) -> HistogramTimer {
+    EVENT_STARTED_COUNT
+        .get_metric_with_label_values(&[label])
+        .expect("to get counter")
+        .inc();
     LATENCY_HIST
         .get_metric_with_label_values(&[label])
         .expect("to get histo")
