@@ -313,7 +313,7 @@ TOC = [
                 "Clustering",
                 "userguide/clustering/index.md",
                 children=[
-                    Page("Deployment Architecture", "userguide/installation/deployment.md"),
+                    Page("Deployment Architecture", "userguide/clustering/deployment.md"),
                     Page("Aggregating Event Data", "userguide/clustering/eventdata.md"),
                     Page("Implementing Shared Throttles", "userguide/clustering/throttles.md"),
                     Page("Clustered Traffic Shaping Automation", "userguide/clustering/trafficshapingautomation.md"),

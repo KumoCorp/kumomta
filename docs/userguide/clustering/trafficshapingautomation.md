@@ -28,3 +28,5 @@ When configuring clustered Traffic Shaping Automation, the steps are similar to 
         extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
     }
     ```
+
+The KumoMTA nodes only need to subscribe to a single tsa-daemon instance, or can subscribe to a load balancer for fault tolerance.

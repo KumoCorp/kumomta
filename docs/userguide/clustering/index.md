@@ -6,7 +6,7 @@ To address these needs, KumoMTA has several features and integrations designed a
 
 ## Implementation Approach
 
-The KumoMTA team works from a philosophy of "don't re-invent the wheel". To the degree possible KumoMTA is designed to work with existing solutions rather than implement our own version of existing tools. 
+The KumoMTA team works from a philosophy of "don't re-invent the wheel". To the degree possible KumoMTA is designed to work with existing solutions rather than implement our own version of existing tools.
 
 For example: KumoMTA does not provide a configuration distribution or versioning tool because there are numerous existing options including Git, Puppet, Chef, K8s, etc.
 
