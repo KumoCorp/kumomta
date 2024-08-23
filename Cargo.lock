@@ -1070,6 +1070,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "prometheus",
+ "rand",
  "serde",
  "serde_json",
  "tokio",

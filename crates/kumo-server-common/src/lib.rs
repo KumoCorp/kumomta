@@ -194,6 +194,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_lua_gc_on_put",
+        lua.create_function(move |_, enable: u8| {
+            config::set_gc_on_put(enable);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "available_parallelism",
         lua.create_function(move |_, _: ()| {
             Ok(std::thread::available_parallelism().map_err(any_err)?.get())

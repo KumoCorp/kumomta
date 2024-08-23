@@ -1,5 +1,5 @@
 use crate::pool::{pool_get, pool_put};
-pub use crate::pool::{set_max_age, set_max_spare, set_max_use};
+pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
 use once_cell::sync::Lazy;

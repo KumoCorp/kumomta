@@ -13,6 +13,7 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 once_cell = "1.17"
 parking_lot = "0.12"
 prometheus = "0.13"
+rand = "0.8"
 serde = "1.0"
 serde_json = "1.0"
 tokio = {workspace=true, features=["fs"]}

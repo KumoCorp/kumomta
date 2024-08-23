@@ -20,6 +20,7 @@ static MAX_AGE: AtomicUsize = AtomicUsize::new(300);
 static MAX_USE: AtomicUsize = AtomicUsize::new(1024);
 /// Maximum number of spare lua contexts to maintain in the pool
 static MAX_SPARE: AtomicUsize = AtomicUsize::new(8192);
+static GC_ON_PUT: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_max_use(max_use: usize) {
     MAX_USE.store(max_use, Ordering::Relaxed);
@@ -31,6 +32,11 @@ pub fn set_max_spare(max_spare: usize) {
 
 pub fn set_max_age(max_age: usize) {
     MAX_AGE.store(max_age, Ordering::Relaxed);
+}
+
+/// Set the gc on put percentage chance, in the range 0-100
+pub fn set_gc_on_put(v: u8) {
+    GC_ON_PUT.store(v as usize, Ordering::Relaxed);
 }
 
 #[derive(Default)]
@@ -83,6 +89,17 @@ impl Pool {
         {
             return;
         }
+        let prob = GC_ON_PUT.load(Ordering::Relaxed);
+        if prob != 0 {
+            let chance = (rand::random::<f32>() * 100.) as usize;
+            if chance <= prob {
+                if let Err(err) = config.lua.gc_collect() {
+                    tracing::error!("Error during gc: {err:#}");
+                    return;
+                }
+            }
+        }
+
         self.pool.push_back(config);
         LUA_SPARE_COUNT.increment(1.);
     }
