@@ -167,6 +167,7 @@ impl ConnectionInfo {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct PublishParams {
     pub routing_key: String,
     pub payload: String,
