@@ -42,6 +42,8 @@ pub struct ConnectionInfo {
     pub recycle_timeout: Option<Duration>,
     #[serde(default, with = "duration_serde")]
     pub wait_timeout: Option<Duration>,
+    #[serde(default, with = "duration_serde")]
+    pub publish_timeout: Option<Duration>,
 }
 
 pub struct ConnectionManager(ConnectionInfo);
@@ -254,10 +256,18 @@ pub async fn publish(params: PublishParams) -> anyhow::Result<()> {
                 immediate: params.immediate,
             };
 
-            connection
-                .channel
-                .basic_publish(props, params.payload.into_bytes(), args)
-                .await?;
+            let timeout_duration = params
+                .connection
+                .publish_timeout
+                .unwrap_or_else(|| Duration::from_secs(60));
+
+            tokio::time::timeout(
+                timeout_duration,
+                connection
+                    .channel
+                    .basic_publish(props, params.payload.into_bytes(), args),
+            )
+            .await??;
 
             Ok(())
         })
