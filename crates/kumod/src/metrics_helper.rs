@@ -1,4 +1,4 @@
-use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
+use prometheus::{Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 
 lazy_static::lazy_static! {
     pub static ref CONN_GAUGE: IntGaugeVec = {
@@ -55,6 +55,18 @@ lazy_static::lazy_static! {
             "number of times a message could not fit in the ready queue",
             &["service"]).unwrap()
     };
+    pub static ref DELIVER_MESSAGE_LATENCY_ROLLUP: HistogramVec = {
+        prometheus::register_histogram_vec!(
+            "deliver_message_latency_rollup",
+            "how long a deliver_message call takes for a given protocol",
+            &["service"]).unwrap()
+    };
+}
+
+pub fn deliver_message_rollup_for_service(service: &str) -> Histogram {
+    DELIVER_MESSAGE_LATENCY_ROLLUP
+        .get_metric_with_label_values(&[service])
+        .unwrap()
 }
 
 pub fn connection_denied_for_service(service: &str) -> IntCounter {

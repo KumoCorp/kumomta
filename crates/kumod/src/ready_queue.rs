@@ -979,6 +979,8 @@ impl Dispatcher {
 
             connection_failures.clear();
             consecutive_connection_failures.store(0, Ordering::SeqCst);
+
+            let _timer_rollup = dispatcher.metrics.deliver_message_rollup.start_timer();
             dispatcher
                 .deliver_message(&mut *queue_dispatcher)
                 .await

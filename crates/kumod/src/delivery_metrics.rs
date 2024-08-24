@@ -1,4 +1,4 @@
-use prometheus::{IntCounter, IntGauge};
+use prometheus::{Histogram, IntCounter, IntGauge};
 
 #[derive(Clone, Debug)]
 pub struct DeliveryMetrics {
@@ -18,6 +18,8 @@ pub struct DeliveryMetrics {
 
     msgs_fail: IntCounter,
     global_msgs_fail: IntCounter,
+
+    pub deliver_message_rollup: Histogram,
 }
 
 impl DeliveryMetrics {
@@ -55,6 +57,7 @@ impl DeliveryMetrics {
             ),
             msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
             global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(service_type),
+            deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(service_type),
         }
     }
 
