@@ -68,6 +68,12 @@ lazy_static::lazy_static! {
             "number of times a message was delayed due throttle_insert_ready_queue event",
             &["queue"]).unwrap()
     };
+    static ref TOTAL_QMAINT_RUNS: IntCounter = {
+        prometheus::register_int_counter!(
+            "total_qmaint_runs",
+            "total number of times a scheduled queue maintainer was run"
+            ).unwrap()
+    };
 
     pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
         "qmaint", |cpus| cpus/4, &QMAINT_THREADS).unwrap();
@@ -1591,6 +1597,8 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             _ = q.notify_maintainer.notified() => {"notified"}
             _ = tokio::time::sleep_until(reap_at.into()), if queue_is_empty => {"reap"}
         };
+
+        TOTAL_QMAINT_RUNS.inc();
 
         {
             tracing::debug!(

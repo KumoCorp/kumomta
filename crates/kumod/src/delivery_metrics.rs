@@ -57,7 +57,9 @@ impl DeliveryMetrics {
             ),
             msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
             global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(service_type),
-            deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(service_type),
+            deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
+                service_type,
+            ),
         }
     }
 

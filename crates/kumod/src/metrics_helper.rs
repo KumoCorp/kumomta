@@ -61,6 +61,12 @@ lazy_static::lazy_static! {
             "how long a deliver_message call takes for a given protocol",
             &["service"]).unwrap()
     };
+    pub static ref TOTAL_READYQ_RUNS: IntCounter = {
+        prometheus::register_int_counter!(
+            "total_readyq_runs",
+            "total number of times a readyq maintainer was run"
+            ).unwrap()
+    };
 }
 
 pub fn deliver_message_rollup_for_service(service: &str) -> Histogram {

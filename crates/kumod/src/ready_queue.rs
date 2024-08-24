@@ -6,6 +6,7 @@ use crate::http_server::admin_suspend_ready_q_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
+use crate::metrics_helper::TOTAL_READYQ_RUNS;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::spool::SpoolManager;
@@ -383,6 +384,8 @@ impl ReadyQueueManager {
                     last_change = Instant::now();
                 },
             };
+
+            TOTAL_READYQ_RUNS.inc();
 
             if last_config_refresh.elapsed() >= ONE_MINUTE && !queue.activity.is_shutting_down() {
                 last_config_refresh = tokio::time::Instant::now();
