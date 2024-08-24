@@ -30,20 +30,22 @@ struct Suspensions {
 
 impl Suspensions {
     fn do_expire(&mut self) {
-        let mut changed = false;
-        let now = Instant::now();
+        if !self.entries.is_empty() {
+            let mut changed = false;
+            let now = Instant::now();
 
-        self.entries.retain(|_, entry| {
-            if entry.expires > now {
-                true
-            } else {
-                changed = true;
-                false
+            self.entries.retain(|_, entry| {
+                if entry.expires > now {
+                    true
+                } else {
+                    changed = true;
+                    false
+                }
+            });
+
+            if changed {
+                self.inc_generation();
             }
-        });
-
-        if changed {
-            self.inc_generation();
         }
     }
 

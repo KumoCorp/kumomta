@@ -51,8 +51,10 @@ fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bo
 impl AdminSuspendEntry {
     pub fn get_all() -> Vec<Self> {
         let mut entries = ENTRIES.lock();
-        let now = Instant::now();
-        entries.retain(|ent| ent.expires > now);
+        if !entries.is_empty() {
+            let now = Instant::now();
+            entries.retain(|ent| ent.expires > now);
+        }
         entries.clone()
     }
 
