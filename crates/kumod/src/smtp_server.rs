@@ -12,6 +12,7 @@ use config::{any_err, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
+use kumo_prometheus::{PruningIntCounter, PruningIntGauge};
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
 use lruttl::LruCacheWithTtl;
@@ -22,7 +23,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as Mutex;
-use prometheus::{Histogram, HistogramTimer, IntCounter, IntGauge};
+use prometheus::{Histogram, HistogramTimer};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -182,10 +183,10 @@ pub struct EsmtpListenerParams {
     tls_config: OnceCell<Arc<ServerConfig>>,
 
     #[serde(skip)]
-    connection_gauge: OnceCell<IntGauge>,
+    connection_gauge: OnceCell<PruningIntGauge>,
 
     #[serde(skip)]
-    connection_denied_counter: OnceCell<IntCounter>,
+    connection_denied_counter: OnceCell<PruningIntCounter>,
 
     #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
     max_messages_per_connection: usize,
@@ -270,12 +271,12 @@ impl EsmtpListenerParams {
         }
     }
 
-    pub fn connection_gauge(&self) -> &IntGauge {
+    pub fn connection_gauge(&self) -> &PruningIntGauge {
         self.connection_gauge
             .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
     }
 
-    pub fn connection_denied_counter(&self) -> &IntCounter {
+    pub fn connection_denied_counter(&self) -> &PruningIntCounter {
         self.connection_denied_counter
             .get_or_init(|| crate::metrics_helper::connection_denied_for_service("esmtp_listener"))
     }
@@ -438,8 +439,8 @@ pub struct SmtpServer {
     authorization_id: Option<String>,
     authentication_id: Option<String>,
     meta: ConnectionMetaData,
-    global_reception_count: IntCounter,
-    reception_count: IntCounter,
+    global_reception_count: PruningIntCounter,
+    reception_count: PruningIntCounter,
 }
 
 #[derive(Debug)]

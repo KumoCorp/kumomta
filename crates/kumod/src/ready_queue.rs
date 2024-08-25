@@ -17,6 +17,7 @@ use config::{load_config, CallbackSignature};
 use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::EgressPathConfig;
+use kumo_prometheus::PruningIntGauge;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
@@ -24,7 +25,6 @@ use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex as StdMutex;
-use prometheus::IntGauge;
 use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -52,11 +52,11 @@ pub fn set_readyq_threads(n: usize) {
 
 pub struct Fifo {
     queue: ArcSwap<ArrayQueue<Message>>,
-    count: IntGauge,
+    count: PruningIntGauge,
 }
 
 impl Fifo {
-    pub fn new(capacity: usize, count: IntGauge) -> Self {
+    pub fn new(capacity: usize, count: PruningIntGauge) -> Self {
         Self {
             queue: Arc::new(ArrayQueue::new(capacity)).into(),
             count,
@@ -427,9 +427,6 @@ impl ReadyQueueManager {
                     drop(mgr);
 
                     queue.reinsert_ready_queue("reap").await;
-                    crate::metrics_helper::remove_metrics_for_service(&format!(
-                        "smtp_client:{name}"
-                    ));
                     return Ok(());
                 }
             } else if reap_deadline

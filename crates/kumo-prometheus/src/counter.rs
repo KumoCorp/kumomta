@@ -85,6 +85,12 @@ pub struct PruningIntCounter {
     _label_ref: Arc<()>,
 }
 
+impl std::fmt::Debug for PruningIntCounter {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("PruningIntCounter").finish()
+    }
+}
+
 impl std::ops::Deref for PruningIntCounter {
     type Target = IntCounter;
 

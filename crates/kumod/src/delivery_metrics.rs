@@ -1,25 +1,32 @@
-use prometheus::{Histogram, IntCounter, IntGauge};
+use kumo_prometheus::{PruningIntCounter, PruningIntGauge};
+use prometheus::Histogram;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DeliveryMetrics {
-    connection_gauge: IntGauge,
-    global_connection_gauge: IntGauge,
-    connection_total: IntCounter,
-    global_connection_total: IntCounter,
+    connection_gauge: PruningIntGauge,
+    global_connection_gauge: PruningIntGauge,
+    connection_total: PruningIntCounter,
+    global_connection_total: PruningIntCounter,
 
-    pub ready_count: IntGauge,
-    pub ready_full: IntCounter,
+    pub ready_count: PruningIntGauge,
+    pub ready_full: PruningIntCounter,
 
-    msgs_delivered: IntCounter,
-    global_msgs_delivered: IntCounter,
+    msgs_delivered: PruningIntCounter,
+    global_msgs_delivered: PruningIntCounter,
 
-    msgs_transfail: IntCounter,
-    global_msgs_transfail: IntCounter,
+    msgs_transfail: PruningIntCounter,
+    global_msgs_transfail: PruningIntCounter,
 
-    msgs_fail: IntCounter,
-    global_msgs_fail: IntCounter,
+    msgs_fail: PruningIntCounter,
+    global_msgs_fail: PruningIntCounter,
 
     pub deliver_message_rollup: Histogram,
+}
+
+impl std::fmt::Debug for DeliveryMetrics {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("DeliveryMetrics").finish()
+    }
 }
 
 impl DeliveryMetrics {

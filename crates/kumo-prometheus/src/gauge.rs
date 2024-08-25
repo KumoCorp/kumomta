@@ -85,6 +85,12 @@ pub struct PruningIntGauge {
     _label_ref: Arc<()>,
 }
 
+impl std::fmt::Debug for PruningIntGauge {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("PruningIntGauge").finish()
+    }
+}
+
 impl std::ops::Deref for PruningIntGauge {
     type Target = IntGauge;
 
