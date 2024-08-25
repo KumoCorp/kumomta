@@ -675,18 +675,16 @@ impl QueueStructure {
         }
     }
 
-    fn pop(&self) -> (Vec<Message>, Option<Duration>, bool) {
+    fn pop(&self) -> (Vec<Message>, Option<Duration>) {
         match self {
             Self::TimerWheel(q) => match q.lock().pop() {
-                PopResult::Items(messages) => (messages, None, false),
-                PopResult::Sleep(_) => (vec![], None, false),
-                PopResult::Empty => (vec![], None, true),
+                PopResult::Items(messages) => (messages, None),
+                PopResult::Sleep(_) | PopResult::Empty => (vec![], None),
             },
             Self::SkipList(q) => {
                 let now = Utc::now();
                 let mut messages = vec![];
                 let mut sleep_duration = None;
-                let mut is_empty = true;
 
                 while let Some(entry) = q.front() {
                     let delay = entry.compute_delay(now);
@@ -695,14 +693,13 @@ impl QueueStructure {
                         messages.push(entry.0.clone());
                     } else {
                         sleep_duration = Some(delay);
-                        is_empty = false;
                         break;
                     }
                 }
 
-                (messages, sleep_duration, is_empty)
+                (messages, sleep_duration)
             }
-            Self::SingletonTimerWheel(_) => (vec![], None, false),
+            Self::SingletonTimerWheel(_) => (vec![], None),
         }
     }
 
@@ -886,7 +883,7 @@ impl Queue {
         let mut shutdown = ShutdownSubcription::get();
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                _ = tokio::time::sleep(Duration::from_secs(10)) => {
                     Self::check_config_refresh().await;
                 }
                 _ = shutdown.shutting_down() => {
@@ -903,18 +900,50 @@ impl Queue {
         tracing::debug!("check_config_refresh begins");
         let names = QueueManager::all_queue_names();
         let mut num_due = 0;
+        let mut num_reaped = 0;
+
         for name in names {
             if let Some(queue) = QueueManager::get_opt(&name) {
-                if queue.perform_config_refresh_if_due(now).await {
+                if queue.check_reap(now) {
+                    num_reaped += 1;
+                } else if queue.perform_config_refresh_if_due(now).await {
                     num_due += 1;
                 }
             }
         }
 
         tracing::debug!(
-            "refreshed {num_due} scheduled queue configs in {:?}",
+            "refreshed {num_due}, reaped {num_reaped} scheduled queue configs in {:?}",
             now.elapsed()
         );
+    }
+
+    fn check_reap(&self, now: Instant) -> bool {
+        if !self.queue.is_empty() {
+            return false;
+        }
+
+        let idle_at: Instant = *self.last_change.lock();
+        let reap_after = self.queue_config.borrow().reap_interval;
+
+        if now >= idle_at + reap_after {
+            // NOT using QueueManager::remove here because we need to
+            // be atomic wrt. another resolve operation
+            let mut mgr = MANAGER.lock();
+
+            if !self.queue.is_empty() {
+                // Raced with an insert, cannot reap now
+                return false;
+            }
+
+            tracing::debug!("idling out queue {}", self.name);
+            mgr.named.remove(self.name.as_str());
+            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+
+            return true;
+        }
+
+        false
     }
 
     async fn perform_config_refresh_if_due(&self, now: Instant) -> bool {
@@ -1829,6 +1858,7 @@ impl QueueManager {
         mgr.named.keys().map(|s| s.to_string()).collect()
     }
 
+    /// Coupled with Queue::check_reap!
     pub fn remove(name: &str) {
         let mut mgr = MANAGER.lock();
         mgr.named.remove(name);
@@ -1840,9 +1870,7 @@ impl QueueManager {
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
-    let mut reap_at = Instant::now() + q.queue_config.borrow().reap_interval;
     let mut next_item_due = Instant::now() + ONE_DAY;
-    let mut queue_is_empty = true;
 
     loop {
         let sleeping = Instant::now();
@@ -1851,7 +1879,6 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             _ = shutdown.shutting_down() => {"shutting_down"}
             _ = memory.changed() => {"memory"}
             _ = q.notify_maintainer.notified() => {"notified"}
-            _ = tokio::time::sleep_until(reap_at.into()), if queue_is_empty => {"reap"}
         };
 
         TOTAL_QMAINT_RUNS.inc();
@@ -1879,10 +1906,9 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let (messages, next_due_in, is_empty) = q.queue.pop();
+            let (messages, next_due_in) = q.queue.pop();
 
             let now = Instant::now();
-            queue_is_empty = is_empty;
 
             next_item_due = if q.queue.is_timer_wheel() {
                 // For a timer wheel, we need to (fairly consistently) tick it
@@ -1915,17 +1941,6 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
                 for msg in messages {
                     q.insert_ready(msg).await?;
-                }
-            }
-
-            if queue_is_empty {
-                let idle_at: Instant = *q.last_change.lock();
-                let reap_after = q.queue_config.borrow().reap_interval;
-                reap_at = idle_at + reap_after;
-                if idle_at.elapsed() >= reap_after {
-                    QueueManager::remove(&q.name);
-                    tracing::debug!("idling out queue {}", q.name);
-                    return Ok(());
                 }
             }
         }
