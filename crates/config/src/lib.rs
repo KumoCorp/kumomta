@@ -505,11 +505,6 @@ where
             Ok(_) => String::from_utf8_lossy(&serializer.into_inner()).to_string(),
             Err(err) => format!("<unable to encode as json: {err:#}>"),
         };
-        // Unconditionally log this here; there are a number of contexts where
-        // the error might get logged to the delivery logs instead of showing
-        // up in the face of the administrator, but this class of error implies
-        // a serious issue with the configuration
-        tracing::error!("{err:#}, while processing {serialized}");
         mlua::Error::external(format!("{err:#}, while processing {serialized}"))
     })
 }
