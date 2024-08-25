@@ -1881,7 +1881,6 @@ impl QueueManager {
 #[instrument(skip(q))]
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
-    let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
     let mut next_item_due = Instant::now() + ONE_DAY;
 
     loop {
@@ -1889,7 +1888,6 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
         let reason = tokio::select! {
             _ = tokio::time::sleep_until(next_item_due.into()) => {"due"}
             _ = shutdown.shutting_down() => {"shutting_down"}
-            _ = memory.changed() => {"memory"}
             _ = q.notify_maintainer.notified() => {"notified"}
         };
 
