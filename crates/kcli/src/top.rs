@@ -11,7 +11,7 @@ use reqwest::Url;
 use std::collections::BTreeMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tokio::time::Instant;
+use tokio::time::{Instant, MissedTickBehavior};
 
 /// Continually update and show what's happening in kumod
 #[derive(Debug, Parser)]
@@ -38,16 +38,26 @@ impl TopCommand {
         let mut rx = self.spawn_ticker().await?;
         let mut state = State::default();
 
+        let mut ticker = tokio::time::interval(Duration::from_secs(self.update_interval));
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
         loop {
             t.draw(|f| {
                 state.draw_ui(f, self);
             })?;
 
-            if let Some(action) = rx.recv().await {
-                if action == Action::Quit {
-                    return Ok(());
+            tokio::select! {
+                action = rx.recv() => {
+                    if let Some(action) = action {
+                        if action == Action::Quit {
+                            return Ok(());
+                        }
+                        state.update(action, endpoint).await?;
+                    }
                 }
-                state.update(action, endpoint).await?;
+                _ = ticker.tick() => {
+                    state.update(Action::UpdateData, endpoint).await?;
+                }
             }
         }
     }
@@ -57,27 +67,15 @@ impl TopCommand {
 
         let mut stream = crossterm::event::EventStream::new();
 
-        let update_interval = Duration::from_secs(self.update_interval);
-
         tokio::spawn(async move {
-            let mut next_update = Instant::now();
             loop {
-                let event = tokio::select! {
-                    event = stream.next() => {
-                        match event {
-                            Some(Ok(event)) => {
-                                match Action::from_crossterm(event) {
-                                    Some(event) => event,
-                                    None => continue,
-                                }
-                            },
-                            _ => Action::Quit,
-                        }
-                    }
-                    _ = tokio::time::sleep_until(next_update) => {
-                        next_update = Instant::now() + update_interval;
-                        Action::UpdateData
-                    }
+                let event = stream.next().await;
+                let event = match event {
+                    Some(Ok(event)) => match Action::from_crossterm(event) {
+                        Some(event) => event,
+                        None => continue,
+                    },
+                    _ => Action::Quit,
                 };
 
                 if tx.send(event).is_err() {
