@@ -1167,7 +1167,9 @@ impl Dispatcher {
                     Ok(async move {
                         for msg in msgs {
                             if let Err(err) = Self::reinsert_message(msg).await {
-                                tracing::error!("error reinserting message: {err:#}");
+                                if err.to_string() != "shutting down" {
+                                    tracing::error!("error reinserting message: {err:#}");
+                                }
                             }
                         }
                         drop(activity);
