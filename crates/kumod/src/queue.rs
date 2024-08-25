@@ -1698,17 +1698,22 @@ impl Queue {
                 _ = tokio::time::sleep(Duration::from_secs(3)) => {
                     TOTAL_QMAINT_RUNS.inc();
 
-                    fn pop() -> Vec<WeakMessage> {
-                        if let PopResult::Items(weak_messages) = SINGLETON_WHEEL.lock().pop() {
+                    fn pop() -> (Vec<WeakMessage>, usize) {
+                        let mut wheel = SINGLETON_WHEEL.lock();
+
+                        let msgs = if let PopResult::Items(weak_messages) = wheel.pop() {
                             tracing::debug!("singleton_wheel: popped {} messages", weak_messages.len());
                             weak_messages
                         } else {
                             vec![]
-                        }
+                        };
+
+                        (msgs, wheel.len())
                     }
 
                     let mut reinserted = 0;
-                    for weak_message in pop() {
+                    let (msgs, len) = pop();
+                    for weak_message in msgs {
                         if let Some(msg) = weak_message.upgrade() {
                             reinserted += 1;
                             if let Err(err) = reinsert_ready(msg).await {
@@ -1716,7 +1721,7 @@ impl Queue {
                             }
                         }
                     }
-                    tracing::debug!("singleton_wheel: done reinserting {reinserted}");
+                    tracing::debug!("singleton_wheel: done reinserting {reinserted}. total scheduled={len}");
 
                 }
                 _ = shutdown.shutting_down() => {

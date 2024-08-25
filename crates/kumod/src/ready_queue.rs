@@ -482,11 +482,13 @@ impl ReadyQueue {
         match self.ready.push(msg) {
             Ok(()) => {
                 self.notify_maintainer.notify_one();
-                self.notify_dispatcher.notify_one();
+                self.notify_dispatcher.notify_waiters();
                 Ok(())
             }
             Err(msg) => {
                 self.metrics.ready_full.inc();
+                self.notify_maintainer.notify_one();
+                self.notify_dispatcher.notify_waiters();
                 Err(msg)
             }
         }
@@ -1394,30 +1396,42 @@ impl Dispatcher {
         let idle_timeout = self.path_config.borrow().client_timeouts.idle_timeout;
         let idle_deadline = tokio::time::Instant::now() + idle_timeout;
         loop {
+            let notify_dispatcher = self.notify_dispatcher.clone();
+            // Need to spawn this into a separate task otherwise the notifier future
+            // isn't run in parallel
+            let wait = tokio::spawn(async move {
+                tokio::time::timeout_at(idle_deadline, notify_dispatcher.notified()).await
+            });
+
             tokio::select! {
-                _ = tokio::time::sleep_until(idle_deadline) => {
-                    return Ok(false);
-                },
-                _ = self.notify_dispatcher.notified() => {
-                    if self.activity.is_shutting_down() {
-                        return Ok(false);
+                result = wait => {
+                    match result {
+                        Err(_) => {
+                            // Timeout
+                            return Ok(false);
+                        }
+                        Ok(_) => {
+                            if self.activity.is_shutting_down() {
+                                return Ok(false);
+                            }
+                            if let Some(suspend) = self.get_suspension() {
+                                let duration = suspend.get_duration();
+                                tracing::trace!(
+                                    "{} is suspended until {duration:?}, throttling ready queue",
+                                    self.name,
+                                );
+                                self.reinsert_ready_queue().await;
+                                // Close the connection and stop trying to deliver
+                                return Ok(false);
+                            }
+                            if self.obtain_message().await {
+                                return Ok(true);
+                            }
+                            // we raced with another dispatcher;
+                            // snooze and try again
+                            continue;
+                        }
                     }
-                    if let Some(suspend) = self.get_suspension() {
-                        let duration = suspend.get_duration();
-                        tracing::trace!(
-                            "{} is suspended until {duration:?}, throttling ready queue",
-                            self.name,
-                        );
-                        self.reinsert_ready_queue().await;
-                        // Close the connection and stop trying to deliver
-                        return Ok(false);
-                    }
-                    if self.obtain_message().await {
-                        return Ok(true);
-                    }
-                    // we raced with another dispatcher;
-                    // snooze and try again
-                    continue;
                 }
                 _ = self.shutting_down.shutting_down() => {
                     return Ok(false);
