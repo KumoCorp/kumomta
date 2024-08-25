@@ -23,7 +23,8 @@ use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
-use std::sync::{Arc, Mutex};
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use timeq::TimerEntryWithDelay;
 
@@ -89,6 +90,35 @@ pub struct Message {
     msg_and_id: Arc<MessageWithId>,
 }
 
+impl PartialEq for Message {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+impl Eq for Message {}
+
+impl Hash for Message {
+    fn hash<H>(&self, hasher: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        self.id().hash(hasher)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WeakMessage {
+    weak: Weak<MessageWithId>,
+}
+
+impl WeakMessage {
+    pub fn upgrade(&self) -> Option<Message> {
+        Some(Message {
+            msg_and_id: self.weak.upgrade()?,
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct MetaData {
     sender: EnvelopeAddress,
@@ -141,6 +171,12 @@ impl Message {
                 }),
             }),
         })
+    }
+
+    pub fn weak(&self) -> WeakMessage {
+        WeakMessage {
+            weak: Arc::downgrade(&self.msg_and_id),
+        }
     }
 
     /// Helper for creating a message based on spool enumeration.
@@ -1208,6 +1244,18 @@ impl UserData for Message {
                 }
             },
         );
+    }
+}
+
+impl TimerEntryWithDelay for WeakMessage {
+    fn delay(&self) -> Duration {
+        match self.upgrade() {
+            None => {
+                // Dangling/Cancelled. Make it appear due immediately
+                Duration::from_millis(0)
+            }
+            Some(msg) => msg.delay(),
+        }
     }
 }
 
