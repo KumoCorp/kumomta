@@ -11,15 +11,18 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
+use kumo_prometheus::{
+    PruningIntCounter, PruningIntCounterVec, PruningIntGauge, PruningIntGaugeVec,
+};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
 use mlua::prelude::*;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as StdMutex;
-use prometheus::{Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
+use prometheus::{Histogram, IntCounter, IntGauge};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -42,41 +45,6 @@ lazy_static::lazy_static! {
         prometheus::register_int_gauge!("scheduled_queue_maintainer_count",
             "how many scheduled queues have active maintainer tasks").unwrap()
     };
-    static ref DELAY_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("scheduled_count",
-            "number of messages in the scheduled queue",
-            &["queue"]).unwrap()
-    };
-    static ref TENANT_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("scheduled_by_tenant",
-            "number of messages in the scheduled queue for a specific tenant",
-            &["tenant"]).unwrap()
-    };
-    static ref TENANT_CAMPAIGN_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("scheduled_by_tenant_campaign",
-            "number of messages in the scheduled queue for a specific tenant and campaign combination",
-            &["tenant", "campaign"]).unwrap()
-    };
-    static ref DOMAIN_GAUGE: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!("scheduled_by_domain",
-            "number of messages in the scheduled queue for a specific domain",
-            &["domain"]).unwrap()
-    };
-    static ref DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: IntCounterVec = {
-        prometheus::register_int_counter_vec!("delayed_due_to_ready_queue_full",
-            "number of times a message was delayed due to the corresponding ready queue being full",
-            &["queue"]).unwrap()
-    };
-    static ref DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: IntCounterVec = {
-        prometheus::register_int_counter_vec!("delayed_due_to_message_rate_throttle",
-            "number of times a message was delayed due to max_message_rate",
-            &["queue"]).unwrap()
-    };
-    static ref DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: IntCounterVec = {
-        prometheus::register_int_counter_vec!("delayed_due_to_throttle_insert_ready",
-            "number of times a message was delayed due throttle_insert_ready_queue event",
-            &["queue"]).unwrap()
-    };
     static ref TOTAL_QMAINT_RUNS: IntCounter = {
         prometheus::register_int_counter!(
             "total_qmaint_runs",
@@ -98,6 +66,56 @@ lazy_static::lazy_static! {
 
     static ref SINGLETON_WHEEL: Arc<StdMutex<TimeQ<WeakMessage>>> = Arc::new(StdMutex::new(TimeQ::new()));
 }
+
+static DELAY_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
+    PruningIntGaugeVec::register(
+        "scheduled_count",
+        "number of messages in the scheduled queue",
+        &["queue"],
+    )
+});
+static TENANT_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
+    PruningIntGaugeVec::register(
+        "scheduled_by_tenant",
+        "number of messages in the scheduled queue for a specific tenant",
+        &["tenant"],
+    )
+});
+static TENANT_CAMPAIGN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
+    PruningIntGaugeVec::register(
+        "scheduled_by_tenant_campaign",
+        "number of messages in the scheduled queue for a specific tenant and campaign combination",
+        &["tenant", "campaign"],
+    )
+});
+static DOMAIN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
+    PruningIntGaugeVec::register(
+        "scheduled_by_domain",
+        "number of messages in the scheduled queue for a specific domain",
+        &["domain"],
+    )
+});
+static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
+    PruningIntCounterVec::register(
+        "delayed_due_to_ready_queue_full",
+        "number of times a message was delayed due to the corresponding ready queue being full",
+        &["queue"],
+    )
+});
+static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
+    PruningIntCounterVec::register(
+        "delayed_due_to_message_rate_throttle",
+        "number of times a message was delayed due to max_message_rate",
+        &["queue"],
+    )
+});
+static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
+    PruningIntCounterVec::register(
+        "delayed_due_to_throttle_insert_ready",
+        "number of times a message was delayed due throttle_insert_ready_queue event",
+        &["queue"],
+    )
+});
 static RESOLVE_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     prometheus::register_histogram!(
         "queue_resolve_latency",
@@ -122,80 +140,72 @@ const ONE_MINUTE: Duration = Duration::from_secs(60);
 const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
 struct ScheduledMetrics {
-    name: String,
-    domain: String,
-    tenant: Option<String>,
-    campaign: Option<String>,
+    name: Arc<String>,
+    scheduled: PruningIntGauge,
+    by_domain: PruningIntGauge,
+    by_tenant: Option<PruningIntGauge>,
+    by_tenant_campaign: Option<PruningIntGauge>,
+    delay_due_to_message_rate_throttle: OnceCell<PruningIntCounter>,
+    delay_due_to_throttle_insert_ready: OnceCell<PruningIntCounter>,
+    delay_due_to_ready_queue_full: OnceCell<PruningIntCounter>,
 }
 
 impl ScheduledMetrics {
-    pub fn new(name: &str) -> anyhow::Result<Self> {
-        let components = QueueNameComponents::parse(name);
+    pub fn new(name: Arc<String>) -> Self {
+        let components = QueueNameComponents::parse(&name);
+        let scheduled = DELAY_GAUGE.with_label_values(&[&name]);
 
-        Ok(Self {
-            name: name.to_string(),
-            domain: components.domain.to_string(),
-            tenant: components.tenant.map(|s| s.to_string()),
-            campaign: components.campaign.map(|s| s.to_string()),
-        })
-    }
-
-    fn scheduled(&self) -> IntGauge {
-        DELAY_GAUGE
-            .get_metric_with_label_values(&[&self.name])
-            .expect("get counter")
-    }
-    fn by_domain(&self) -> IntGauge {
-        DOMAIN_GAUGE
-            .get_metric_with_label_values(&[&self.domain])
-            .expect("get counter")
-    }
-    fn by_tenant(&self) -> Option<IntGauge> {
-        self.tenant.as_ref().map(|tenant| {
-            TENANT_GAUGE
-                .get_metric_with_label_values(&[tenant])
-                .expect("get counter")
-        })
-    }
-    fn by_tenant_campaign(&self) -> Option<IntGauge> {
-        match &self.campaign {
-            Some(campaign) => Some(
-                TENANT_CAMPAIGN_GAUGE
-                    .get_metric_with_label_values(&[
-                        self.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
-                        campaign,
-                    ])
-                    .expect("get counter"),
-            ),
+        let by_domain = DOMAIN_GAUGE.with_label_values(&[components.domain]);
+        let by_tenant = components
+            .tenant
+            .map(|tenant| TENANT_GAUGE.with_label_values(&[tenant]));
+        let by_tenant_campaign = match &components.campaign {
+            Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.with_label_values(&[
+                components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
+                campaign,
+            ])),
             None => None,
+        };
+
+        Self {
+            name,
+            by_domain,
+            by_tenant,
+            by_tenant_campaign,
+            scheduled,
+            delay_due_to_message_rate_throttle: OnceCell::new(),
+            delay_due_to_throttle_insert_ready: OnceCell::new(),
+            delay_due_to_ready_queue_full: OnceCell::new(),
         }
     }
 
+    pub fn delay_due_to_message_rate_throttle(&self) -> &PruningIntCounter {
+        self.delay_due_to_message_rate_throttle.get_or_init(|| {
+            DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER.with_label_values(&[&self.name])
+        })
+    }
+    pub fn delay_due_to_throttle_insert_ready(&self) -> &PruningIntCounter {
+        self.delay_due_to_throttle_insert_ready.get_or_init(|| {
+            DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER.with_label_values(&[&self.name])
+        })
+    }
+    pub fn delay_due_to_ready_queue_full(&self) -> &PruningIntCounter {
+        self.delay_due_to_ready_queue_full
+            .get_or_init(|| DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER.with_label_values(&[&self.name]))
+    }
+
     pub fn inc(&self) {
-        self.scheduled().inc();
-        self.by_domain().inc();
-        self.by_tenant().as_ref().map(|m| m.inc());
-        self.by_tenant_campaign().as_ref().map(|m| m.inc());
+        self.scheduled.inc();
+        self.by_domain.inc();
+        self.by_tenant.as_ref().map(|m| m.inc());
+        self.by_tenant_campaign.as_ref().map(|m| m.inc());
     }
 
     pub fn sub(&self, amount: i64) {
-        self.scheduled().sub(amount);
-        self.by_domain().sub(amount);
-        self.by_tenant().as_ref().map(|m| m.sub(amount));
-        self.by_tenant_campaign().as_ref().map(|m| m.sub(amount));
-    }
-
-    pub fn remove_metrics_for_queue(name: &str) {
-        DELAY_GAUGE.remove_label_values(&[name]).ok();
-        DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
-            .remove_label_values(&[name])
-            .ok();
-        DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
-            .remove_label_values(&[name])
-            .ok();
-        DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
-            .remove_label_values(&[name])
-            .ok();
+        self.scheduled.sub(amount);
+        self.by_domain.sub(amount);
+        self.by_tenant.as_ref().map(|m| m.sub(amount));
+        self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
     }
 }
 
@@ -793,12 +803,12 @@ impl QueueStructure {
 }
 
 pub struct Queue {
-    name: String,
+    name: Arc<String>,
     queue: QueueStructure,
     notify_maintainer: Arc<Notify>,
     last_change: StdMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
-    metrics: ScheduledMetrics,
+    metrics: OnceCell<ScheduledMetrics>,
     activity: Activity,
     rr: EgressPoolRoundRobin,
     ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
@@ -835,11 +845,10 @@ impl Queue {
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
         let rr = EgressPoolRoundRobin::new(&pool);
 
-        let metrics = ScheduledMetrics::new(&name)?;
-
         let activity = Activity::get(format!("Queue {name}"))?;
         let strategy = queue_config.strategy;
         let next_config_refresh = StdMutex::new(Instant::now() + queue_config.refresh_interval);
+        let name = Arc::new(name);
 
         let handle = Arc::new(Queue {
             name: name.clone(),
@@ -847,7 +856,7 @@ impl Queue {
             last_change: StdMutex::new(Instant::now()),
             queue_config: ConfigHandle::new(queue_config),
             notify_maintainer: Arc::new(Notify::new()),
-            metrics,
+            metrics: OnceCell::new(),
             activity,
             rr,
             ready_queue_names: StdMutex::new(HashMap::new()),
@@ -950,7 +959,7 @@ impl Queue {
         tracing::trace!("timeq_insert {} due={:?}", self.name, msg.get_due());
         match self.queue.insert(msg) {
             QueueInsertResult::Inserted { should_notify } => {
-                self.metrics.inc();
+                self.metrics().inc();
                 if should_notify {
                     self.notify_maintainer.notify_one();
                 }
@@ -963,8 +972,8 @@ impl Queue {
     /// Removes all messages from the timeq, and updates the counters
     fn drain_timeq(&self) -> Vec<Message> {
         let msgs = self.queue.drain();
-        self.metrics.sub(msgs.len() as i64);
         if !msgs.is_empty() {
+            self.metrics().sub(msgs.len() as i64);
             // Wake the maintainer so that it can see that the queue is
             // now empty and decide what it wants to do next.
             self.notify_maintainer.notify_one();
@@ -1277,6 +1286,11 @@ impl Queue {
         }
     }
 
+    fn metrics(&self) -> &ScheduledMetrics {
+        self.metrics
+            .get_or_init(|| ScheduledMetrics::new(self.name.clone()))
+    }
+
     #[instrument(skip(self, msg))]
     async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
         if let Some(result) = self.check_message_rate_throttle().await? {
@@ -1288,10 +1302,7 @@ impl Queue {
                 // (intentionally) perturb that.
                 msg.delay_by(delay).await?;
 
-                DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
-                    .get_metric_with_label_values(&[&self.name])
-                    .expect("get counter")
-                    .inc();
+                self.metrics().delay_due_to_message_rate_throttle().inc();
 
                 return self.force_into_delayed(msg).await;
             }
@@ -1308,10 +1319,7 @@ impl Queue {
                     "{}: throttle_insert_ready_queue event throttled message rate, due={due:?}",
                     self.name
                 );
-                DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
-                    .get_metric_with_label_values(&[&self.name])
-                    .expect("get counter")
-                    .inc();
+                self.metrics().delay_due_to_throttle_insert_ready().inc();
 
                 return self.force_into_delayed(msg).await;
             }
@@ -1330,10 +1338,7 @@ impl Queue {
                 }
             } else {
                 // Queue is full; try again shortly
-                DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
-                    .get_metric_with_label_values(&[&self.name])
-                    .expect("get counter")
-                    .inc();
+                self.metrics().delay_due_to_ready_queue_full().inc();
                 self.force_into_delayed(msg).await?;
             }
         }
@@ -1633,7 +1638,7 @@ impl Queue {
                     }
 
                     if remove(q, &msg) {
-                        queue.metrics.sub(1);
+                        queue.metrics().sub(1);
                         queue.insert_ready(msg).await?;
                     }
                 }
@@ -1828,10 +1833,6 @@ impl QueueManager {
         let mut mgr = MANAGER.lock();
         mgr.named.remove(name);
         SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
-        // Remove any metrics that go with it, so that we don't
-        // end up using a lot of memory remembering stats from
-        // what might be a long tail of tiny domains forever.
-        ScheduledMetrics::remove_metrics_for_queue(name);
     }
 }
 
@@ -1839,9 +1840,9 @@ impl QueueManager {
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
-    let mut reap_at = Instant::now() + ONE_DAY;
-    let mut next_item_due = reap_at;
-    let mut queue_is_empty = false;
+    let mut reap_at = Instant::now() + q.queue_config.borrow().reap_interval;
+    let mut next_item_due = Instant::now() + ONE_DAY;
+    let mut queue_is_empty = true;
 
     loop {
         let sleeping = Instant::now();
@@ -1909,7 +1910,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             };
 
             if !messages.is_empty() {
-                q.metrics.sub(messages.len() as i64);
+                q.metrics().sub(messages.len() as i64);
                 tracing::debug!("{} {} msgs are now ready", q.name, messages.len());
 
                 for msg in messages {

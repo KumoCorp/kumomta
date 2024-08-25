@@ -2906,6 +2906,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-prometheus"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "once_cell",
+ "prometheus",
+]
+
+[[package]]
 name = "kumo-server-common"
 version = "0.1.0"
 dependencies = [
@@ -3044,6 +3053,7 @@ dependencies = [
  "kumo-api-types",
  "kumo-chrono-helper",
  "kumo-log-types",
+ "kumo-prometheus",
  "kumo-server-common",
  "kumo-server-lifecycle",
  "kumo-server-memory",

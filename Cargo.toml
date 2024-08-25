@@ -6,6 +6,7 @@ members = [
   "crates/integration-tests",
   "crates/kcli",
   "crates/kumo-chrono-helper",
+  "crates/kumo-prometheus",
   "crates/kumod",
   "crates/mailparsing",
   "crates/mod-uuid",
