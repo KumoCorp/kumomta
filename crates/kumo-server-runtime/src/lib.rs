@@ -112,6 +112,18 @@ impl Runtime {
                     let runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_io()
                         .enable_time()
+                        .event_interval(
+                            std::env::var("KUMOD_EVENT_INTERVAL")
+                                .ok()
+                                .and_then(|n| n.parse().ok())
+                                .unwrap_or(61),
+                        )
+                        .event_interval(
+                            std::env::var("KUMOD_IO_EVENTS_PER_TICK")
+                                .ok()
+                                .and_then(|n| n.parse().ok())
+                                .unwrap_or(1024),
+                        )
                         .on_thread_park({
                             let num_parked = num_parked.clone();
                             move || {

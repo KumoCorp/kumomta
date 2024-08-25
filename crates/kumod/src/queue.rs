@@ -17,8 +17,9 @@ use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::prelude::*;
+use once_cell::sync::Lazy;
 use parking_lot::FairMutex as StdMutex;
-use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
+use prometheus::{Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -33,6 +34,14 @@ use tracing::instrument;
 
 lazy_static::lazy_static! {
     static ref MANAGER: StdMutex<QueueManager> = StdMutex::new(QueueManager::new());
+    static ref SCHEDULED_QUEUE_COUNT: IntGauge = {
+        prometheus::register_int_gauge!("scheduled_queue_count",
+            "how many scheduled queues are tracked by the QueueManager").unwrap()
+    };
+    static ref QMAINT_COUNT: IntGauge = {
+        prometheus::register_int_gauge!("scheduled_queue_maintainer_count",
+            "how many scheduled queues have active maintainer tasks").unwrap()
+    };
     static ref DELAY_GAUGE: IntGaugeVec = {
         prometheus::register_int_gauge_vec!("scheduled_count",
             "number of messages in the scheduled queue",
@@ -87,6 +96,20 @@ lazy_static::lazy_static! {
     static ref REBIND_MESSAGE_SIG: CallbackSignature::<'static,
         (Message, HashMap<String, String>), ()> = CallbackSignature::new("rebind_message");
 }
+static RESOLVE_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "queue_resolve_latency",
+        "latency of QueueManager::resolve operations",
+    )
+    .unwrap()
+});
+static INSERT_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "queue_insert_latency",
+        "latency of QueueManager::insert operations",
+    )
+    .unwrap()
+});
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
 const ZERO_DURATION: Duration = Duration::from_secs(0);
@@ -96,63 +119,67 @@ const ONE_MINUTE: Duration = Duration::from_secs(60);
 const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
 struct ScheduledMetrics {
-    scheduled: IntGauge,
-    by_domain: IntGauge,
-    by_tenant: Option<IntGauge>,
-    by_tenant_campaign: Option<IntGauge>,
-    delay_full: IntCounter,
-    delay_message_rate: IntCounter,
-    delay_throttle_insert_ready: IntCounter,
+    name: String,
+    domain: String,
+    tenant: Option<String>,
+    campaign: Option<String>,
 }
 
 impl ScheduledMetrics {
     pub fn new(name: &str) -> anyhow::Result<Self> {
         let components = QueueNameComponents::parse(name);
 
-        let scheduled = DELAY_GAUGE.get_metric_with_label_values(&[name])?;
-        let by_domain = DOMAIN_GAUGE.get_metric_with_label_values(&[&components.domain])?;
-        let by_tenant = match &components.tenant {
-            Some(tenant) => Some(TENANT_GAUGE.get_metric_with_label_values(&[tenant])?),
-            None => None,
-        };
-        let by_tenant_campaign = match &components.campaign {
-            Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.get_metric_with_label_values(&[
-                components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
-                campaign,
-            ])?),
-            None => None,
-        };
-
-        let delay_full =
-            DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER.get_metric_with_label_values(&[name])?;
-        let delay_message_rate =
-            DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER.get_metric_with_label_values(&[name])?;
-        let delay_throttle_insert_ready =
-            DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER.get_metric_with_label_values(&[name])?;
-
         Ok(Self {
-            scheduled,
-            by_domain,
-            by_tenant,
-            by_tenant_campaign,
-            delay_full,
-            delay_message_rate,
-            delay_throttle_insert_ready,
+            name: name.to_string(),
+            domain: components.domain.to_string(),
+            tenant: components.tenant.map(|s| s.to_string()),
+            campaign: components.campaign.map(|s| s.to_string()),
         })
     }
 
+    fn scheduled(&self) -> IntGauge {
+        DELAY_GAUGE
+            .get_metric_with_label_values(&[&self.name])
+            .expect("get counter")
+    }
+    fn by_domain(&self) -> IntGauge {
+        DOMAIN_GAUGE
+            .get_metric_with_label_values(&[&self.domain])
+            .expect("get counter")
+    }
+    fn by_tenant(&self) -> Option<IntGauge> {
+        self.tenant.as_ref().map(|tenant| {
+            TENANT_GAUGE
+                .get_metric_with_label_values(&[tenant])
+                .expect("get counter")
+        })
+    }
+    fn by_tenant_campaign(&self) -> Option<IntGauge> {
+        match &self.campaign {
+            Some(campaign) => Some(
+                TENANT_CAMPAIGN_GAUGE
+                    .get_metric_with_label_values(&[
+                        self.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
+                        campaign,
+                    ])
+                    .expect("get counter"),
+            ),
+            None => None,
+        }
+    }
+
     pub fn inc(&self) {
-        self.scheduled.inc();
-        self.by_domain.inc();
-        self.by_tenant.as_ref().map(|m| m.inc());
-        self.by_tenant_campaign.as_ref().map(|m| m.inc());
+        self.scheduled().inc();
+        self.by_domain().inc();
+        self.by_tenant().as_ref().map(|m| m.inc());
+        self.by_tenant_campaign().as_ref().map(|m| m.inc());
     }
 
     pub fn sub(&self, amount: i64) {
-        self.scheduled.sub(amount);
-        self.by_domain.sub(amount);
-        self.by_tenant.as_ref().map(|m| m.sub(amount));
-        self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
+        self.scheduled().sub(amount);
+        self.by_domain().sub(amount);
+        self.by_tenant().as_ref().map(|m| m.sub(amount));
+        self.by_tenant_campaign().as_ref().map(|m| m.sub(amount));
     }
 
     pub fn remove_metrics_for_queue(name: &str) {
@@ -782,17 +809,18 @@ impl Queue {
             rr,
             ready_queue_names: StdMutex::new(HashMap::new()),
         });
-
         let queue_clone = handle.clone();
         QMAINT_RUNTIME
-            .spawn(format!("maintain {name}"), move || {
+            .spawn_non_blocking(format!("maintain {name}"), move || {
                 Ok(async move {
+                    QMAINT_COUNT.inc();
                     if let Err(err) = maintain_named_queue(&queue_clone).await {
                         tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
                     }
+                    QMAINT_COUNT.dec();
                 })
             })
-            .await?;
+            .expect("failed to spawn maintainer");
 
         Ok(handle)
     }
@@ -1140,7 +1168,10 @@ impl Queue {
                 // (intentionally) perturb that.
                 msg.delay_by(delay).await?;
 
-                self.metrics.delay_message_rate.inc();
+                DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER
+                    .get_metric_with_label_values(&[&self.name])
+                    .expect("get counter")
+                    .inc();
 
                 return self.force_into_delayed(msg).await;
             }
@@ -1157,7 +1188,11 @@ impl Queue {
                     "{}: throttle_insert_ready_queue event throttled message rate, due={due:?}",
                     self.name
                 );
-                self.metrics.delay_throttle_insert_ready.inc();
+                DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER
+                    .get_metric_with_label_values(&[&self.name])
+                    .expect("get counter")
+                    .inc();
+
                 return self.force_into_delayed(msg).await;
             }
         }
@@ -1175,7 +1210,10 @@ impl Queue {
                 }
             } else {
                 // Queue is full; try again shortly
-                self.metrics.delay_full.inc();
+                DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER
+                    .get_metric_with_label_values(&[&self.name])
+                    .expect("get counter")
+                    .inc();
                 self.force_into_delayed(msg).await?;
             }
         }
@@ -1471,8 +1509,45 @@ enum QueueSlot {
     Resolving(Arc<Notify>),
 }
 
+enum SlotLease {
+    Handle(QueueHandle),
+    Resolving(Arc<Notify>),
+    MustCreate(Arc<Notify>),
+}
+
+async fn queue_meta_maintainer() -> anyhow::Result<()> {
+    let activity = Activity::get(format!("Queue Manager Meta Maintainer"))?;
+    let mut shutdown = ShutdownSubcription::get();
+    shutdown.shutting_down().await;
+    loop {
+        let names = QueueManager::all_queue_names();
+        if names.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
+            tracing::debug!("All queues are reaped");
+            drop(activity);
+            return Ok(());
+        }
+
+        for name in names {
+            if let Some(queue) = QueueManager::get_opt(&name) {
+                for msg in queue.drain_timeq() {
+                    Queue::save_if_needed_and_log(&msg).await;
+                }
+                if queue.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
+                    tracing::debug!(
+                        "{name}: there are no more queues and the scheduled queue is empty, reaping"
+                    );
+                    QueueManager::remove(&name);
+                }
+            }
+        }
+
+        tokio::time::sleep(ONE_SECOND).await;
+    }
+}
+
 impl QueueManager {
     pub fn new() -> Self {
+        kumo_server_runtime::get_main_runtime().spawn(queue_meta_maintainer());
         Self {
             named: HashMap::new(),
         }
@@ -1482,35 +1557,43 @@ impl QueueManager {
     #[instrument(skip(msg))]
     pub async fn insert(name: &str, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("QueueManager::insert");
+        let timer = RESOLVE_LATENCY.start_timer();
         let entry = Self::resolve(name).await?;
+        timer.stop_and_record();
+
+        let _timer = INSERT_LATENCY.start_timer();
         entry.insert(msg).await
+    }
+
+    fn resolve_lease(name: &str) -> SlotLease {
+        let mut mgr = MANAGER.lock();
+        match mgr.named.get(name) {
+            Some(QueueSlot::Handle(e)) => SlotLease::Handle(Arc::clone(e)),
+            Some(QueueSlot::Resolving(notify)) => SlotLease::Resolving(notify.clone()),
+            None => {
+                // Insert a Resolving slot, so that other actors know to wait
+                let notify = Arc::new(Notify::new());
+                mgr.named
+                    .insert(name.to_string(), QueueSlot::Resolving(notify.clone()));
+                SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+
+                SlotLease::MustCreate(notify)
+            }
+        }
     }
 
     /// Resolve a scheduled queue name to a handle,
     /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
-        let mut mgr = MANAGER.lock();
-        match mgr.named.get(name) {
-            Some(QueueSlot::Handle(e)) => Ok(Arc::clone(e)),
-            Some(QueueSlot::Resolving(notify)) => {
-                let notify = notify.clone();
-                drop(mgr);
-
+        match Self::resolve_lease(name) {
+            SlotLease::Handle(e) => Ok(e),
+            SlotLease::Resolving(notify) => {
                 notify.notified().await;
                 Self::get_opt(name)
                     .ok_or_else(|| anyhow::anyhow!("other actor failed to resolve {name}"))
             }
-            None => {
-                // Insert a Resolving slot, so that other actors know to wait
-                let notify = Arc::new(Notify::new());
-                mgr.named
-                    .insert(name.to_string(), QueueSlot::Resolving(notify.clone()));
-
-                // release the lock so that we can take our time without
-                // blocking other Self::resolve calls for other names
-                drop(mgr);
-
+            SlotLease::MustCreate(notify) => {
                 let result = Queue::new(name.to_string()).await;
                 let mut mgr = MANAGER.lock();
                 // Wake up any other waiters, regardless of the outcome
@@ -1521,11 +1604,13 @@ impl QueueManager {
                         // Success! move from Resolving -> Handle
                         mgr.named
                             .insert(name.to_string(), QueueSlot::Handle(entry.clone()));
+                        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
                         Ok(entry)
                     }
                     Err(err) => {
                         // Failed! remove the Resolving slot
                         mgr.named.remove(name);
+                        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
                         Err(err)
                     }
                 }
@@ -1547,7 +1632,13 @@ impl QueueManager {
     }
 
     pub fn remove(name: &str) {
-        MANAGER.lock().named.remove(name);
+        let mut mgr = MANAGER.lock();
+        mgr.named.remove(name);
+        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+        // Remove any metrics that go with it, so that we don't
+        // end up using a lot of memory remembering stats from
+        // what might be a long tail of tiny domains forever.
+        ScheduledMetrics::remove_metrics_for_queue(name);
     }
 }
 
@@ -1555,18 +1646,16 @@ impl QueueManager {
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
-    let mut is_shutting_down = false;
     let mut next_config_refresh = Instant::now() + q.queue_config.borrow().refresh_interval;
     let mut reap_at = Instant::now() + ONE_DAY;
-    let mut next_item_due = Instant::now();
+    let mut next_item_due = reap_at;
     let mut warned_strategy_change = false;
     let mut queue_is_empty = false;
 
     loop {
         let sleeping = Instant::now();
         let reason = tokio::select! {
-            _ = tokio::time::sleep(ONE_SECOND), if is_shutting_down => {"shutting_down"}
-            _ = tokio::time::sleep_until(next_item_due.into()), if !is_shutting_down => {"due"}
+            _ = tokio::time::sleep_until(next_item_due.into()) => {"due"}
             _ = tokio::time::sleep_until(next_config_refresh.into()) => {
                 if let Ok(mut config) = load_config().await {
                     if let Ok(queue_config) =
@@ -1592,7 +1681,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
                 "config_refresh"
             }
-            _ = shutdown.shutting_down(), if !is_shutting_down => {"shutting_down"}
+            _ = shutdown.shutting_down() => {"shutting_down"}
             _ = memory.changed() => {"memory"}
             _ = q.notify_maintainer.notified() => {"notified"}
             _ = tokio::time::sleep_until(reap_at.into()), if queue_is_empty => {"reap"}
@@ -1614,21 +1703,13 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             }
 
             if q.activity.is_shutting_down() {
-                is_shutting_down = true;
                 for msg in q.drain_timeq() {
                     Queue::save_if_needed_and_log(&msg).await;
                     drop(msg);
                 }
 
-                if q.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
-                    tracing::debug!(
-                        "{}: there are no more queues and the scheduled queue is empty, reaping",
-                        q.name
-                    );
-                    QueueManager::remove(&q.name);
-                    return Ok(());
-                }
-                continue;
+                // Bow out and let the queue_meta_maintainer finish up
+                return Ok(());
             }
 
             let (messages, next_due_in, is_empty) = q.queue.pop();
@@ -1677,10 +1758,6 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 if idle_at.elapsed() >= reap_after {
                     QueueManager::remove(&q.name);
                     tracing::debug!("idling out queue {}", q.name);
-                    // Remove any metrics that go with it, so that we don't
-                    // end up using a lot of memory remembering stats from
-                    // what might be a long tail of tiny domains forever.
-                    ScheduledMetrics::remove_metrics_for_queue(&q.name);
                     return Ok(());
                 }
             }

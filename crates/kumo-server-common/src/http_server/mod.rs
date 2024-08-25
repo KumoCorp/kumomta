@@ -9,6 +9,9 @@ use axum_server::tls_rustls::RustlsConfig;
 use cidr_map::CidrSet;
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
+use once_cell::sync::Lazy;
+use prometheus::proto::MetricFamily;
+use prometheus::Histogram;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
@@ -25,6 +28,14 @@ use kumo_api_types::*;
 pub mod auth;
 
 use auth::*;
+
+static GATHER_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "metrics_gather_latency",
+        "latency of prometheus metric export gather operation",
+    )
+    .unwrap()
+});
 
 #[derive(OpenApi)]
 #[openapi(
@@ -226,11 +237,16 @@ struct PrometheusMetricsParams {
     prefix: Option<String>,
 }
 
+fn gather_metrics() -> Vec<MetricFamily> {
+    let _timer = GATHER_LATENCY.start_timer();
+    prometheus::default_registry().gather()
+}
+
 async fn report_metrics(
     _: TrustedIpRequired,
     Query(params): Query<PrometheusMetricsParams>,
 ) -> Result<String, AppError> {
-    let mut metrics = prometheus::default_registry().gather();
+    let mut metrics = gather_metrics();
     if let Some(prefix) = params.prefix {
         metrics.iter_mut().for_each(|metric| {
             let name = format!("{prefix}{}", metric.get_name());
@@ -247,7 +263,7 @@ async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Va
 
     let mut result = Map::new();
 
-    let metrics = prometheus::default_registry().gather();
+    let metrics = gather_metrics();
     for mf in metrics {
         let name = mf.get_name();
         let help = mf.get_help();
