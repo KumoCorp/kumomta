@@ -1657,7 +1657,19 @@ impl Queue {
                 msg.load_meta().await?;
             }
             let queue_name = msg.get_queue_name()?;
-            let queue = QueueManager::resolve(&queue_name).await?;
+            // Use get_opt rather than resolve here. If the queue is not currently
+            // tracked in the QueueManager then this message cannot possibly belong
+            // to it. Using resolve would have the side effect of creating an empty
+            // queue for it, which will then age out later. It's a waste to do that,
+            // so we just check and skip.
+            let queue = QueueManager::get_opt(&queue_name)
+                .ok_or_else(|| anyhow::anyhow!("no scheduled queue"))?;
+
+            if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
+                // Note that this will cause the msg to be removed from the
+                // queue so the remove() check below will return false
+                queue.bounce_all(&b).await;
+            }
 
             // Verify that the message is still in the queue
             match &queue.queue {
