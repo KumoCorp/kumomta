@@ -14,7 +14,7 @@ use crossbeam_skiplist::SkipSet;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
-use message::message::QueueNameComponents;
+use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
 use mlua::prelude::*;
 use once_cell::sync::Lazy;
@@ -22,9 +22,9 @@ use parking_lot::FairMutex as StdMutex;
 use prometheus::{Histogram, IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
@@ -95,6 +95,8 @@ lazy_static::lazy_static! {
         ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
     static ref REBIND_MESSAGE_SIG: CallbackSignature::<'static,
         (Message, HashMap<String, String>), ()> = CallbackSignature::new("rebind_message");
+
+    static ref SINGLETON_WHEEL: Arc<StdMutex<TimeQ<WeakMessage>>> = Arc::new(StdMutex::new(TimeQ::new()));
 }
 static RESOLVE_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     prometheus::register_histogram!(
@@ -111,6 +113,7 @@ static INSERT_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     .unwrap()
 });
 
+static STARTED_SINGLETON_WHEEL: Once = Once::new();
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
 const ZERO_DURATION: Duration = Duration::from_secs(0);
 const ONE_SECOND: Duration = Duration::from_secs(1);
@@ -240,6 +243,7 @@ pub enum QueueStrategy {
     #[default]
     TimerWheel,
     SkipList,
+    SingletonTimerWheel,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
@@ -647,6 +651,7 @@ enum QueueInsertResult {
 enum QueueStructure {
     TimerWheel(StdMutex<TimeQ<Message>>),
     SkipList(SkipSet<DelayedEntry>),
+    SingletonTimerWheel(StdMutex<HashSet<Message>>),
 }
 
 impl QueueStructure {
@@ -654,6 +659,9 @@ impl QueueStructure {
         match strategy {
             QueueStrategy::TimerWheel => Self::TimerWheel(StdMutex::new(TimeQ::new())),
             QueueStrategy::SkipList => Self::SkipList(SkipSet::new()),
+            QueueStrategy::SingletonTimerWheel => {
+                Self::SingletonTimerWheel(StdMutex::new(HashSet::new()))
+            }
         }
     }
 
@@ -684,6 +692,7 @@ impl QueueStructure {
 
                 (messages, sleep_duration, is_empty)
             }
+            Self::SingletonTimerWheel(_) => (vec![], None, false),
         }
     }
 
@@ -697,6 +706,7 @@ impl QueueStructure {
                 }
                 msgs
             }
+            Self::SingletonTimerWheel(q) => q.lock().drain().collect(),
         }
     }
 
@@ -724,6 +734,32 @@ impl QueueStructure {
                     should_notify: now_due < due,
                 }
             }
+            Self::SingletonTimerWheel(q) => {
+                match SINGLETON_WHEEL.lock().insert(msg.weak()) {
+                    Ok(()) => {
+                        q.lock().insert(msg);
+                        STARTED_SINGLETON_WHEEL.call_once(|| {
+                            QMAINT_RUNTIME
+                                .spawn_non_blocking("singleton_wheel".to_string(), move || {
+                                    Ok(async move {
+                                        if let Err(err) = Queue::run_singleton_wheel().await {
+                                            tracing::error!("run_singleton_wheel: {err:#}");
+                                        }
+                                    })
+                                })
+                                .expect("failed to spawn singleton_wheel");
+                        });
+
+                        QueueInsertResult::Inserted {
+                            // We never notify for TimerWheel because we always tick
+                            // on a regular(ish) schedule
+                            should_notify: false,
+                        }
+                    }
+                    Err(TimerError::Expired(_weak_msg)) => QueueInsertResult::Full(msg),
+                    Err(TimerError::NotFound) => unreachable!(),
+                }
+            }
         }
     }
 
@@ -731,6 +767,7 @@ impl QueueStructure {
         match self {
             Self::TimerWheel(q) => q.lock().len(),
             Self::SkipList(q) => q.len(),
+            Self::SingletonTimerWheel(q) => q.lock().len(),
         }
     }
 
@@ -738,6 +775,7 @@ impl QueueStructure {
         match self {
             Self::TimerWheel(q) => q.lock().is_empty(),
             Self::SkipList(q) => q.is_empty(),
+            Self::SingletonTimerWheel(q) => q.lock().is_empty(),
         }
     }
 
@@ -749,6 +787,7 @@ impl QueueStructure {
         match self {
             Self::TimerWheel(_) => QueueStrategy::TimerWheel,
             Self::SkipList(_) => QueueStrategy::SkipList,
+            Self::SingletonTimerWheel(_) => QueueStrategy::SingletonTimerWheel,
         }
     }
 }
@@ -763,6 +802,8 @@ pub struct Queue {
     activity: Activity,
     rr: EgressPoolRoundRobin,
     ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
+    next_config_refresh: StdMutex<Instant>,
+    warned_strategy_change: AtomicBool,
 }
 
 impl Queue {
@@ -797,10 +838,12 @@ impl Queue {
         let metrics = ScheduledMetrics::new(&name)?;
 
         let activity = Activity::get(format!("Queue {name}"))?;
+        let strategy = queue_config.strategy;
+        let next_config_refresh = StdMutex::new(Instant::now() + queue_config.refresh_interval);
 
         let handle = Arc::new(Queue {
             name: name.clone(),
-            queue: QueueStructure::new(queue_config.strategy),
+            queue: QueueStructure::new(strategy),
             last_change: StdMutex::new(Instant::now()),
             queue_config: ConfigHandle::new(queue_config),
             notify_maintainer: Arc::new(Notify::new()),
@@ -808,21 +851,98 @@ impl Queue {
             activity,
             rr,
             ready_queue_names: StdMutex::new(HashMap::new()),
+            next_config_refresh,
+            warned_strategy_change: AtomicBool::new(false),
         });
-        let queue_clone = handle.clone();
-        QMAINT_RUNTIME
-            .spawn_non_blocking(format!("maintain {name}"), move || {
-                Ok(async move {
-                    QMAINT_COUNT.inc();
-                    if let Err(err) = maintain_named_queue(&queue_clone).await {
-                        tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
-                    }
-                    QMAINT_COUNT.dec();
+
+        if !matches!(strategy, QueueStrategy::SingletonTimerWheel) {
+            let queue_clone = handle.clone();
+            QMAINT_RUNTIME
+                .spawn_non_blocking(format!("maintain {name}"), move || {
+                    Ok(async move {
+                        QMAINT_COUNT.inc();
+                        if let Err(err) = maintain_named_queue(&queue_clone).await {
+                            tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
+                        }
+                        QMAINT_COUNT.dec();
+                    })
                 })
-            })
-            .expect("failed to spawn maintainer");
+                .expect("failed to spawn maintainer");
+        }
 
         Ok(handle)
+    }
+
+    async fn queue_config_maintainer() {
+        let mut shutdown = ShutdownSubcription::get();
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                    Self::check_config_refresh().await;
+                }
+                _ = shutdown.shutting_down() => {
+                    tracing::info!("queue_config_maintainer stopping");
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn check_config_refresh() {
+        let now = Instant::now();
+
+        tracing::debug!("check_config_refresh begins");
+        let names = QueueManager::all_queue_names();
+        let mut num_due = 0;
+        for name in names {
+            if let Some(queue) = QueueManager::get_opt(&name) {
+                if queue.perform_config_refresh_if_due(now).await {
+                    num_due += 1;
+                }
+            }
+        }
+
+        tracing::debug!(
+            "refreshed {num_due} scheduled queue configs in {:?}",
+            now.elapsed()
+        );
+    }
+
+    async fn perform_config_refresh_if_due(&self, now: Instant) -> bool {
+        let due = *self.next_config_refresh.lock();
+        if now >= due {
+            self.perform_config_refresh().await;
+            return true;
+        }
+
+        false
+    }
+
+    async fn perform_config_refresh(&self) {
+        if let Ok(mut config) = load_config().await {
+            if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
+                let strategy = queue_config.strategy;
+
+                self.queue_config.update(queue_config);
+
+                if self.queue.strategy() != strategy
+                    && !self.warned_strategy_change.load(Ordering::Relaxed)
+                {
+                    tracing::warn!(
+                        "queue {} strategy change from {:?} to {:?} \
+                                requires either the queue to be reaped, \
+                                or a restart of kumod to take effect. \
+                                This warning will be shown only once per scheduled queue.",
+                        self.name,
+                        self.queue.strategy(),
+                        strategy
+                    );
+                    self.warned_strategy_change.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        *self.next_config_refresh.lock() =
+            Instant::now() + self.queue_config.borrow().refresh_interval;
     }
 
     /// Insert into the timeq, and updates the counters.
@@ -1492,6 +1612,72 @@ impl Queue {
     pub fn get_config(&self) -> &ConfigHandle<QueueConfig> {
         &self.queue_config
     }
+
+    async fn run_singleton_wheel() -> anyhow::Result<()> {
+        let mut shutdown = ShutdownSubcription::get();
+
+        tracing::debug!("singleton_wheel: starting up");
+
+        async fn reinsert_ready(msg: Message) -> anyhow::Result<()> {
+            if !msg.is_meta_loaded() {
+                msg.load_meta().await?;
+            }
+            let queue_name = msg.get_queue_name()?;
+            let queue = QueueManager::resolve(&queue_name).await?;
+
+            // Verify that the message is still in the queue
+            match &queue.queue {
+                QueueStructure::SingletonTimerWheel(q) => {
+                    fn remove(q: &StdMutex<HashSet<Message>>, msg: &Message) -> bool {
+                        q.lock().remove(msg)
+                    }
+
+                    if remove(q, &msg) {
+                        queue.metrics.sub(1);
+                        queue.insert_ready(msg).await?;
+                    }
+                }
+                _ => {
+                    anyhow::bail!("impossible queue strategy");
+                }
+            }
+
+            Ok(())
+        }
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                    TOTAL_QMAINT_RUNS.inc();
+
+                    fn pop() -> Vec<WeakMessage> {
+                        if let PopResult::Items(weak_messages) = SINGLETON_WHEEL.lock().pop() {
+                            tracing::debug!("singleton_wheel: popped {} messages", weak_messages.len());
+                            weak_messages
+                        } else {
+                            vec![]
+                        }
+                    }
+
+                    let mut reinserted = 0;
+                    for weak_message in pop() {
+                        if let Some(msg) = weak_message.upgrade() {
+                            reinserted += 1;
+                            if let Err(err) = reinsert_ready(msg).await {
+                                tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
+                            }
+                        }
+                    }
+                    tracing::debug!("singleton_wheel: done reinserting {reinserted}");
+
+                }
+                _ = shutdown.shutting_down() => {
+                    tracing::info!("singleton_wheel: stopping");
+                    return Ok(());
+                }
+            }
+        }
+    }
 }
 
 #[must_use]
@@ -1548,6 +1734,13 @@ async fn queue_meta_maintainer() -> anyhow::Result<()> {
 impl QueueManager {
     pub fn new() -> Self {
         kumo_server_runtime::get_main_runtime().spawn(queue_meta_maintainer());
+        QMAINT_RUNTIME
+            .spawn_non_blocking("queue_config_maintainer".to_string(), move || {
+                Ok(async move {
+                    Queue::queue_config_maintainer().await;
+                })
+            })
+            .expect("failed to spawn queue_config_maintainer");
         Self {
             named: HashMap::new(),
         }
@@ -1646,41 +1839,14 @@ impl QueueManager {
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
     let mut memory = kumo_server_memory::subscribe_to_memory_status_changes();
-    let mut next_config_refresh = Instant::now() + q.queue_config.borrow().refresh_interval;
     let mut reap_at = Instant::now() + ONE_DAY;
     let mut next_item_due = reap_at;
-    let mut warned_strategy_change = false;
     let mut queue_is_empty = false;
 
     loop {
         let sleeping = Instant::now();
         let reason = tokio::select! {
             _ = tokio::time::sleep_until(next_item_due.into()) => {"due"}
-            _ = tokio::time::sleep_until(next_config_refresh.into()) => {
-                if let Ok(mut config) = load_config().await {
-                    if let Ok(queue_config) =
-                        Queue::call_get_queue_config(&q.name, &mut config).await
-                    {
-                        let strategy = queue_config.strategy;
-
-                        q.queue_config.update(queue_config);
-
-                        if q.queue.strategy() != strategy && !warned_strategy_change {
-                            tracing::warn!(
-                                "queue {} strategy change from {:?} to {:?} \
-                                requires either the queue to be reaped, \
-                                or a restart of kumod to take effect. \
-                                This warning will be shown only once per scheduled queue.",
-                                q.name,
-                                q.queue.strategy(), strategy);
-                            warned_strategy_change = true;
-                        }
-                    }
-                }
-                next_config_refresh = Instant::now() + q.queue_config.borrow().refresh_interval;
-
-                "config_refresh"
-            }
             _ = shutdown.shutting_down() => {"shutting_down"}
             _ = memory.changed() => {"memory"}
             _ = q.notify_maintainer.notified() => {"notified"}

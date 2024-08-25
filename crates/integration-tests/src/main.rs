@@ -1091,6 +1091,10 @@ DeliverySummary {
     async fn retry_schedule_skiplist() -> anyhow::Result<()> {
         retry_schedule_impl("SkipList").await
     }
+    #[tokio::test]
+    async fn retry_schedule_singleton_wheel() -> anyhow::Result<()> {
+        retry_schedule_impl("SingletonTimerWheel").await
+    }
 
     async fn retry_schedule_impl(strategy: &str) -> anyhow::Result<()> {
         let mut daemon = DaemonWithMaildir::start_with_env(vec![

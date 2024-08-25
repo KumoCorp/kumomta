@@ -91,6 +91,11 @@
   messages when the available storage falls below the minimum, until it
   recovers. Usage is exported via prometheus metrics. The default minimum level
   is `10%`.
+* Scheduled queue configuration refreshes are now performed sequentially by
+  a dedicated configuration refresh task. In prior releases they could be
+  performed concurrently by multiple tasks running in the qmaint pool.
+  This change reduces overhead from speculative processing of config changes,
+  especially when there are very many scheduled queues.
 
 ## Fixes
 
