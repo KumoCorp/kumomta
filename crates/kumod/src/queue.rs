@@ -901,6 +901,7 @@ impl Queue {
         let names = QueueManager::all_queue_names();
         let mut num_due = 0;
         let mut num_reaped = 0;
+        let num_queues = names.len();
 
         for name in names {
             if let Some(queue) = QueueManager::get_opt(&name) {
@@ -913,7 +914,8 @@ impl Queue {
         }
 
         tracing::debug!(
-            "refreshed {num_due}, reaped {num_reaped} scheduled queue configs in {:?}",
+            "refreshed {num_due} configs, reaped {num_reaped} \
+             out of {num_queues} scheduled queues in {:?}",
             now.elapsed()
         );
     }
