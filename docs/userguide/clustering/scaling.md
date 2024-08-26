@@ -25,7 +25,9 @@ When a node needs to come offline the following steps can be used:
 
 1. Remove the node from the load balancer to prevent future injections.
 1. Call the [rebind](https://docs.kumomta.com/reference/rapidoc/#post-/api/admin/rebind/v1) endpoint of the KumoMTA API to redirect all messages back to the load balancer. In the following example the load balancer is an IP literal in square brackets, a hostname can be used without the square brackets:
-    ```
+
+    ```bash
         rebind --everything --set 'routing_domain=[192.168.1.100]'
     ```
+
 1. Monitor the [metrics](https://docs.kumomta.com/reference/http/metrics.json/) API endpoint to determine when the node's queues are empty, you can then shut down the node.
