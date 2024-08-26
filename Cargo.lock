@@ -4936,6 +4936,7 @@ dependencies = [
  "futures-util",
  "itoa",
  "log",
+ "native-tls",
  "num-bigint 0.4.6",
  "percent-encoding",
  "pin-project-lite",
@@ -4944,6 +4945,7 @@ dependencies = [
  "sha1_smol",
  "socket2 0.5.7",
  "tokio",
+ "tokio-native-tls",
  "tokio-retry",
  "tokio-util",
  "url",
@@ -6413,6 +6415,16 @@ dependencies = [
  "prometheus",
  "tokio",
  "tokio-metrics",
+]
+
+[[package]]
+name = "tokio-native-tls"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbae76ab933c85776efabc971569dd6119c580d8f5d448769dec1764bf796ef2"
+dependencies = [
+ "native-tls",
+ "tokio",
 ]
 
 [[package]]
