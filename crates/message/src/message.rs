@@ -1640,7 +1640,7 @@ Content-Type: application/octet-stream\r\n\
 Content-Transfer-Encoding: base64\r\n\
 Content-Disposition: attachment;\r\n\
 \tfilename=\"woot.bin\"\r\n\
-Content-ID: <woot.id>\r\n\
+Content-ID: <woot.id@somewhere>\r\n\
 \r\n\
 AAECAw==\r\n\
 --my-boundary--\r\n\
@@ -1699,7 +1699,7 @@ Content-Type: application/octet-stream\r
 Content-Transfer-Encoding: base64\r
 Content-Disposition: attachment;\r
 \tfilename="woot.bin"\r
-Content-ID: <woot.id>\r
+Content-ID: <woot.id@somewhere>\r
 \r
 AAECAw==\r
 --my-boundary--\r
@@ -1773,7 +1773,7 @@ Content-Type: application/octet-stream\r
 Content-Transfer-Encoding: base64\r
 Content-Disposition: attachment;\r
 \tfilename="woot.bin"\r
-Content-ID: <woot.id>\r
+Content-ID: <woot.id@somewhere>\r
 \r
 AAECAw==\r
 --my-boundary--\r
@@ -1790,6 +1790,15 @@ Message-ID: <<1234@example.com>>\r
 \r
 Hello";
         let msg = new_msg_body(DOUBLE_ANGLE_ONLY);
+        k9::snapshot!(
+            msg.check_fix_conformance(
+                MessageConformance::MISSING_MESSAGE_ID_HEADER,
+                MessageConformance::empty(),
+            )
+            .unwrap_err(),
+            "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
+        );
+
         msg.check_fix_conformance(
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
             MessageConformance::MISSING_MESSAGE_ID_HEADER,

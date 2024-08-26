@@ -32,6 +32,13 @@ fn is_ctl(c: char) -> bool {
     }
 }
 
+fn not_angle(c: char) -> bool {
+    match c {
+        '<' | '>' => false,
+        _ => true,
+    }
+}
+
 // char = { '\u{01}'..'\u{7f}' }
 fn is_char(c: char) -> bool {
     match c {
@@ -803,31 +810,27 @@ fn qcontent(input: Span) -> IResult<Span, char> {
     context("qcontent", alt((satisfy(is_qtext), quoted_pair)))(input)
 }
 
-// msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
+fn content_id(input: Span) -> IResult<Span, MessageID> {
+    let (loc, id) = context("content_id", msg_id)(input)?;
+    Ok((loc, id))
+}
+
 fn msg_id(input: Span) -> IResult<Span, MessageID> {
-    let (loc, (left, _, right)) = context(
+    let (loc, id) = context("msg_id", alt((strict_msg_id, relaxed_msg_id)))(input)?;
+    Ok((loc, id))
+}
+
+fn relaxed_msg_id(input: Span) -> IResult<Span, MessageID> {
+    let (loc, id) = context(
         "msg_id",
         delimited(
             preceded(opt(cfws), char('<')),
-            tuple((id_left, char('@'), id_right)),
+            many0(satisfy(not_angle)),
             preceded(char('>'), opt(cfws)),
         ),
     )(input)?;
 
-    Ok((loc, MessageID(format!("{left}@{right}"))))
-}
-
-fn content_id(input: Span) -> IResult<Span, MessageID> {
-    let (loc, id) = context(
-        "content_id",
-        delimited(
-            preceded(opt(cfws), char('<')),
-            id_right,
-            preceded(char('>'), opt(cfws)),
-        ),
-    )(input)?;
-
-    Ok((loc, MessageID(id)))
+    Ok((loc, MessageID(id.into_iter().collect())))
 }
 
 // msg_id_list = { msg_id+ }
@@ -856,6 +859,20 @@ fn no_fold_literal(input: Span) -> IResult<Span, String> {
             |s: Span| s.to_string(),
         ),
     )(input)
+}
+
+// msg_id = { cfws? ~ "<" ~ id_left ~ "@" ~ id_right ~ ">" ~ cfws? }
+fn strict_msg_id(input: Span) -> IResult<Span, MessageID> {
+    let (loc, (left, _, right)) = context(
+        "msg_id",
+        delimited(
+            preceded(opt(cfws), char('<')),
+            tuple((id_left, char('@'), id_right)),
+            preceded(char('>'), opt(cfws)),
+        ),
+    )(input)?;
+
+    Ok((loc, MessageID(format!("{left}@{right}"))))
 }
 
 // obs_unstruct = { (( "\r"* ~ "\n"* ~ ((encoded_word | obs_utext)~ "\r"* ~ "\n"*)+) | fws)+ }

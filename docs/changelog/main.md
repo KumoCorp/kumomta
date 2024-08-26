@@ -133,3 +133,5 @@
 * log hooks only partially respected the `back_pressure` parameter, which could
   leave to more system pressure (higher RAM and larger number of concurrent
   tasks) in overload scenarios.
+* Improved Content-ID header parsing conformance in
+  [msg:check_fix_conformance](../reference/message/check_fix_conformance.md). #259
