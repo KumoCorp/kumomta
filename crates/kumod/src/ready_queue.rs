@@ -1408,7 +1408,7 @@ impl Dispatcher {
             tokio::select! {
                 result = wait => {
                     match result {
-                        Err(_) => {
+                        Ok(Err(_)) | Err(_) => {
                             // Timeout
                             return Ok(false);
                         }
