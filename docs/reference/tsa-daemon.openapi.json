@@ -6,9 +6,24 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.05.07-138a1eab"
+    "version": "2024.08.25-22edf4ae"
   },
   "paths": {
+    "/api/admin/bump-config-epoch": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Allows the system operator to trigger a configuration epoch bump,",
+        "description": "which causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
+        "operationId": "bump_config_epoch",
+        "responses": {
+          "200": {
+            "description": "bump successful"
+          }
+        }
+      }
+    },
     "/api/admin/set_diagnostic_log_filter/v1": {
       "post": {
         "tags": [

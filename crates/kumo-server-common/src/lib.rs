@@ -202,6 +202,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_config_monitor_globs",
+        lua.create_function(move |_, globs: Vec<String>| {
+            config::epoch::set_globs(globs).map_err(any_err)?;
+            Ok(())
+        })?,
+    )?;
+    kumo_mod.set(
+        "eval_config_monitor_globs",
+        lua.create_async_function(|_, _: ()| async move {
+            config::epoch::eval_globs().await.map_err(any_err)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "available_parallelism",
         lua.create_function(move |_, _: ()| {
             Ok(std::thread::available_parallelism().map_err(any_err)?.get())

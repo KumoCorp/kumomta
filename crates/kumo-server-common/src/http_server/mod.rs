@@ -41,7 +41,7 @@ static GATHER_LATENCY: Lazy<Histogram> = Lazy::new(|| {
 #[derive(OpenApi)]
 #[openapi(
     info(license(name = "Apache-2.0")),
-    paths(set_diagnostic_log_filter_v1),
+    paths(set_diagnostic_log_filter_v1, bump_config_epoch),
     // Indicate that all paths can accept http basic auth.
     // the "basic_auth" name corresponds with the scheme
     // defined by the OptionalAuth addon defined below
@@ -165,6 +165,7 @@ impl HttpListenerParams {
                 "/api/admin/set_diagnostic_log_filter/v1",
                 post(set_diagnostic_log_filter_v1),
             )
+            .route("/api/admin/bump-config-epoch", post(bump_config_epoch))
             .route("/metrics", get(report_metrics))
             .route("/metrics.json", get(report_metrics_json))
             // Require that all requests be authenticated as either coming
@@ -236,6 +237,22 @@ where
     fn from(err: E) -> Self {
         Self(err.into())
     }
+}
+
+/// Allows the system operator to trigger a configuration epoch bump,
+/// which causes various configs that are using the Epoch strategy to
+/// be re-evaluated by triggering the appropriate callbacks.
+#[utoipa::path(
+    post,
+    tag="config",
+    path="/api/admin/bump-config-epoch",
+    responses(
+        (status=200, description = "bump successful")
+    ),
+)]
+async fn bump_config_epoch(_: TrustedIpRequired) -> Result<(), AppError> {
+    config::epoch::bump_current_epoch();
+    Ok(())
 }
 
 #[derive(Deserialize)]

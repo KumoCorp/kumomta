@@ -238,7 +238,9 @@ end
 local function resolve_config(data, domain, tenant, campaign, allow_all)
   -- print('resolve_config', domain, tenant, campaign)
 
-  local params = {}
+  local params = {
+    refresh_strategy = 'Epoch',
+  }
 
   local default_config = data.queues.default
   if default_config then
@@ -521,6 +523,28 @@ kumo.on('validate_config', function()
         print ' - (inline table)'
       else
         print(string.format(' - %s', file_name))
+      end
+    end
+  end
+
+  local monitored = {}
+  for _, path in ipairs(kumo.eval_config_monitor_globs()) do
+    monitored[path] = path
+  end
+
+  for _, file_name in ipairs(mod.CONFIGURED.options.file_names) do
+    if type(file_name) == 'string' then
+      if not monitored[file_name] then
+        kumo.validation_failed()
+        print(
+          string.format(
+            'queue.lua: %s is listed as a data file but it is not covered by '
+              .. 'the globs set by kumo.set_config_monitor_globs(). Changes will not '
+              .. 'be detected at runtime unless the globs are expanded to cover '
+              .. 'your full set of data files.',
+            file_name
+          )
+        )
       end
     end
   end

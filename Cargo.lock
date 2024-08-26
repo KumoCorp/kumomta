@@ -1077,6 +1077,8 @@ name = "config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "data-encoding",
+ "filenamegen",
  "lazy_static",
  "metrics",
  "mlua",
@@ -1086,6 +1088,7 @@ dependencies = [
  "rand",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
 ]
@@ -1812,9 +1815,9 @@ dependencies = [
 
 [[package]]
 name = "filenamegen"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f40529622e8c4e7c28f600abb501b0ca07047d4e15d576aff1837cca8318ab6"
+checksum = "b57c1f17080e8d88a15dc3040f324d4ada892f5bc5f0dc605017f26c85dd0303"
 dependencies = [
  "anyhow",
  "bstr",

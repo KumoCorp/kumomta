@@ -1,3 +1,4 @@
+use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
 use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
@@ -183,13 +184,15 @@ impl CacheEntry {
 
 struct MemoizeCache {
     params: MemoizeParams,
-    cache: Arc<LruCacheWithTtl<String, CacheEntry>>,
+    cache: Arc<LruCacheWithTtl<CacheKey, CacheEntry>>,
 }
 
 static CACHES: Lazy<Mutex<HashMap<String, MemoizeCache>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-fn get_cache_by_name(name: &str) -> Option<(Arc<LruCacheWithTtl<String, CacheEntry>>, Duration)> {
+type CacheKey = (ConfigEpoch, String);
+
+fn get_cache_by_name(name: &str) -> Option<(Arc<LruCacheWithTtl<CacheKey, CacheEntry>>, Duration)> {
     CACHES
         .lock()
         .unwrap()
@@ -323,8 +326,11 @@ static CACHE_POPULATED: Lazy<CounterVec> = Lazy::new(|| {
 /// the semaphore permit.
 /// This is used to constrain concurrency of workers on a cache miss
 /// and avoid/minimize the thundering herd problem.
-async fn acquire_semaphore(cache_name: &str, key: &str) -> anyhow::Result<OwnedSemaphorePermit> {
-    let computed_key = format!("{cache_name}_@_{key}");
+async fn acquire_semaphore(
+    cache_name: &str,
+    key: &CacheKey,
+) -> anyhow::Result<OwnedSemaphorePermit> {
+    let computed_key = format!("{cache_name}_@_{key:?}");
     let semaphore = SEMAPHORES.lock().unwrap().resolve_semaphore(computed_key);
     match semaphore.clone().try_acquire_owned() {
         Ok(permit) => Ok(permit),
@@ -335,7 +341,7 @@ async fn acquire_semaphore(cache_name: &str, key: &str) -> anyhow::Result<OwnedS
             Ok(semaphore.acquire_owned().await?)
         }
         Err(TryAcquireError::Closed) => {
-            anyhow::bail!("semaphore for {cache_name} {key} is closed!?");
+            anyhow::bail!("semaphore for {cache_name} {key:?} is closed!?");
         }
     }
 }
@@ -410,6 +416,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     lookup_counter.inc();
                     let key = multi_value_to_json_value(lua, params.clone())?;
                     let key = serde_json::to_string(&key).map_err(any_err)?;
+
+                    // We use the epoch from the start of the lookup as part
+                    // of the cache key. If the epoch changes while we are in
+                    // the middle of computing this value then subsequent calls
+                    // through to the cached function will see the newer epoch
+                    // and encounter a cache miss. This prevents a race condition
+                    // poisoning the cache with a stale value during an epoch
+                    // bump. The caller will still observe the stale value, so
+                    // ultimately should have some accommodation for detecting
+                    // the epoch change and retrying their call through here,
+                    // if it is important to not see a stale value.
+                    let epoch_at_start = get_current_epoch();
+                    let key = (epoch_at_start, key);
 
                     let (cache, ttl) = get_cache_by_name(&cache_name)
                         .ok_or_else(|| anyhow::anyhow!("cache is somehow undefined!?"))

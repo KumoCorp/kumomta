@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.07.30-b5596183"
+    "version": "2024.08.25-22edf4ae"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -87,6 +87,21 @@
           },
           "404": {
             "description": "The requested bounce id is no longer, or never was, valid"
+          }
+        }
+      }
+    },
+    "/api/admin/bump-config-epoch": {
+      "post": {
+        "tags": [
+          "config"
+        ],
+        "summary": "Allows the system operator to trigger a configuration epoch bump,",
+        "description": "which causes various configs that are using the Epoch strategy to\nbe re-evaluated by triggering the appropriate callbacks.",
+        "operationId": "bump_config_epoch",
+        "responses": {
+          "200": {
+            "description": "bump successful"
           }
         }
       }

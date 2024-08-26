@@ -236,6 +236,8 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
                 .start_spool()
                 .await
                 .context("start_spool")?;
+
+            config::epoch::start_monitor();
         }
 
         Ok(())
@@ -254,7 +256,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             default_filter: if opts.validate || opts.script {
                 ""
             } else {
-                "kumod=info,kumo_server_common=info,kumo_server_runtime=info"
+                "kumod=info,config=info,kumo_server_common=info,kumo_server_runtime=info"
             },
         },
         lua_funcs: &[

@@ -9,6 +9,7 @@ use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
 use kumo_prometheus::{
@@ -256,6 +257,13 @@ pub enum QueueStrategy {
     SingletonTimerWheel,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, FromLua, Default, Copy, PartialEq, Eq)]
+pub enum QueueRefreshStrategy {
+    #[default]
+    Ttl,
+    Epoch,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct QueueConfig {
@@ -312,6 +320,9 @@ pub struct QueueConfig {
 
     #[serde(default)]
     pub strategy: QueueStrategy,
+
+    #[serde(default)]
+    pub refresh_strategy: QueueRefreshStrategy,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -329,6 +340,7 @@ impl Default for QueueConfig {
             refresh_interval: Self::default_refresh_interval(),
             strategy: QueueStrategy::default(),
             timerwheel_tick_interval: None,
+            refresh_strategy: QueueRefreshStrategy::default(),
         }
     }
 }
@@ -811,6 +823,7 @@ pub struct Queue {
     ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
     next_config_refresh: StdMutex<Instant>,
     warned_strategy_change: AtomicBool,
+    config_epoch: StdMutex<ConfigEpoch>,
 }
 
 impl Queue {
@@ -836,6 +849,7 @@ impl Queue {
     }
 
     pub async fn new(name: String) -> anyhow::Result<QueueHandle> {
+        let epoch = get_current_epoch();
         let mut config = load_config().await?;
         let queue_config = Self::call_get_queue_config(&name, &mut config).await?;
 
@@ -859,6 +873,7 @@ impl Queue {
             ready_queue_names: StdMutex::new(HashMap::new()),
             next_config_refresh,
             warned_strategy_change: AtomicBool::new(false),
+            config_epoch: StdMutex::new(epoch),
         });
 
         if !matches!(strategy, QueueStrategy::SingletonTimerWheel) {
@@ -881,10 +896,19 @@ impl Queue {
 
     async fn queue_config_maintainer() {
         let mut shutdown = ShutdownSubcription::get();
+        let mut epoch_subscriber = config::epoch::subscribe();
+        let mut last_epoch = epoch_subscriber.borrow_and_update().clone();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                    Self::check_config_refresh().await;
+                    Self::check_config_refresh(&last_epoch, false).await;
+                }
+                _ = epoch_subscriber.changed() => {
+                    let this_epoch = epoch_subscriber.borrow_and_update().clone();
+                    tracing::debug!("queue_config_maintainer: epoch changed from \
+                                     {last_epoch:?} -> {this_epoch:?}");
+                    last_epoch = this_epoch.clone();
+                    Self::check_config_refresh(&last_epoch, true).await;
                 }
                 _ = shutdown.shutting_down() => {
                     tracing::info!("queue_config_maintainer stopping");
@@ -894,7 +918,7 @@ impl Queue {
         }
     }
 
-    async fn check_config_refresh() {
+    async fn check_config_refresh(epoch: &ConfigEpoch, epoch_changed: bool) {
         let now = Instant::now();
 
         tracing::debug!("check_config_refresh begins");
@@ -907,7 +931,10 @@ impl Queue {
             if let Some(queue) = QueueManager::get_opt(&name) {
                 if queue.check_reap(now) {
                     num_reaped += 1;
-                } else if queue.perform_config_refresh_if_due(now).await {
+                } else if queue
+                    .perform_config_refresh_if_due(now, epoch, epoch_changed)
+                    .await
+                {
                     num_due += 1;
                 }
             }
@@ -948,22 +975,40 @@ impl Queue {
         false
     }
 
-    async fn perform_config_refresh_if_due(&self, now: Instant) -> bool {
-        let due = *self.next_config_refresh.lock();
-        if now >= due {
-            self.perform_config_refresh().await;
-            return true;
-        }
+    async fn perform_config_refresh_if_due(
+        &self,
+        now: Instant,
+        epoch: &ConfigEpoch,
+        epoch_changed: bool,
+    ) -> bool {
+        match self.queue_config.borrow().refresh_strategy {
+            QueueRefreshStrategy::Ttl => {
+                let due = *self.next_config_refresh.lock();
+                if now >= due {
+                    self.perform_config_refresh(epoch).await;
+                    return true;
+                }
 
-        false
+                false
+            }
+            QueueRefreshStrategy::Epoch => {
+                if epoch_changed || *self.config_epoch.lock() != *epoch {
+                    self.perform_config_refresh(epoch).await;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
     }
 
-    async fn perform_config_refresh(&self) {
+    async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
         if let Ok(mut config) = load_config().await {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
                 let strategy = queue_config.strategy;
 
                 self.queue_config.update(queue_config);
+                *self.config_epoch.lock() = epoch.clone();
 
                 if self.queue.strategy() != strategy
                     && !self.warned_strategy_change.load(Ordering::Relaxed)
