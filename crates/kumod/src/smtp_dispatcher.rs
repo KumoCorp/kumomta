@@ -503,7 +503,14 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
-                        client.send_command(&rfc5321::Command::Quit).await.ok();
+                        // Don't try too hard to send the quit here; the connection may
+                        // be busted by the failed handshake and never succeed
+                        tokio::time::timeout(
+                            tokio::time::Duration::from_secs(2),
+                            client.send_command(&rfc5321::Command::Quit),
+                        )
+                        .await
+                        .ok();
                         anyhow::bail!(
                             "TLS handshake with {address:?}:{port} failed: {handshake_error}"
                         );
