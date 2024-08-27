@@ -13,10 +13,11 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use config::epoch::ConfigEpoch;
 use config::{load_config, CallbackSignature};
 use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
-use kumo_api_types::egress_path::EgressPathConfig;
+use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
 use kumo_prometheus::PruningIntGauge;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
@@ -161,11 +162,23 @@ pub struct ReadyQueueManager {
 
 impl ReadyQueueManager {
     pub fn new() -> Self {
+        QMAINT_RUNTIME
+            .spawn_non_blocking("ready_queue_config_maintainer".to_string(), move || {
+                Ok(async move {
+                    ReadyQueueManager::queue_config_maintainer().await;
+                })
+            })
+            .expect("failed to spawn ReadyQueueManager::queue_config_maintainer");
+
         Self::default()
     }
 
     pub fn number_of_queues() -> usize {
         MANAGER.lock().queues.len()
+    }
+
+    pub fn all_queues() -> Vec<ReadyQueueHandle> {
+        MANAGER.lock().queues.values().map(Arc::clone).collect()
     }
 
     pub async fn compute_queue_name(
@@ -293,6 +306,7 @@ impl ReadyQueueManager {
         queue_config: &ConfigHandle<QueueConfig>,
         egress_source: &str,
         egress_pool: &str,
+        config_epoch: ConfigEpoch,
     ) -> anyhow::Result<ReadyQueueHandle> {
         let ReadyQueueConfig {
             name,
@@ -323,6 +337,8 @@ impl ReadyQueueManager {
                 metrics.global_ready_count.clone(),
             ));
             let notify_dispatcher = Arc::new(Notify::new());
+            let next_config_refresh = Instant::now() + path_config.refresh_interval;
+
             Arc::new(ReadyQueue {
                 name: name.clone(),
                 queue_name_for_config_change_purposes_only: queue_name.to_string(),
@@ -338,18 +354,64 @@ impl ReadyQueueManager {
                 activity,
                 consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
                 egress_pool: egress_pool.to_string(),
+                next_config_refresh: StdMutex::new(next_config_refresh),
+                config_epoch: StdMutex::new(config_epoch),
             })
         });
         Ok(handle.clone())
     }
 
-    async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
-        const ONE_MINUTE: Duration = Duration::from_secs(60);
+    async fn queue_config_maintainer() {
         let mut shutdown = ShutdownSubcription::get();
-        let mut interval = ONE_MINUTE;
+        let mut epoch_subscriber = config::epoch::subscribe();
+        let mut last_epoch = epoch_subscriber.borrow_and_update().clone();
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                    Self::check_config_refresh(&last_epoch, false).await;
+                }
+                _ = epoch_subscriber.changed() => {
+                    let this_epoch = epoch_subscriber.borrow_and_update().clone();
+                    tracing::debug!("queue_config_maintainer: epoch changed from \
+                                     {last_epoch:?} -> {this_epoch:?}");
+                    last_epoch = this_epoch.clone();
+                    Self::check_config_refresh(&last_epoch, true).await;
+                }
+                _ = shutdown.shutting_down() => {
+                    tracing::info!("queue_config_maintainer stopping");
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn check_config_refresh(epoch: &ConfigEpoch, epoch_changed: bool) {
+        let now = Instant::now();
+
+        tracing::debug!("check_config_refresh begins");
+        let queues = ReadyQueueManager::all_queues();
+        let mut num_due = 0;
+        let num_queues = queues.len();
+
+        for queue in queues {
+            if queue
+                .perform_config_refresh_if_due(now, epoch, epoch_changed)
+                .await
+            {
+                num_due += 1;
+            }
+        }
+
+        tracing::debug!(
+            "refreshed {num_due} configs out of {num_queues} ready queues in {:?}",
+            now.elapsed()
+        );
+    }
+
+    async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
+        let mut shutdown = ShutdownSubcription::get();
         let mut memory = subscribe_to_memory_status_changes();
         let mut last_change = Instant::now();
-        let mut last_config_refresh = tokio::time::Instant::now();
         let mut reap_deadline = None;
         let mut done_abort = false;
         let mut shutting_down = false;
@@ -367,19 +429,9 @@ impl ReadyQueueManager {
                 }
             };
 
-            let wait_for_config_refresh = async {
-                if shutting_down {
-                    tokio::time::sleep(Duration::from_secs(1)).await
-                } else {
-                    tokio::time::sleep_until(last_config_refresh + interval).await
-                }
-            };
-
             tokio::select! {
-                _ = wait_for_config_refresh => {},
                 _ = wait_for_shutdown => {
                     shutting_down = true;
-                    interval = Duration::from_secs(1);
                     if reap_deadline.is_none() {
                         let duration = queue.path_config.borrow().client_timeouts.total_message_send_duration();
                         reap_deadline.replace(tokio::time::Instant::now() + duration);
@@ -393,35 +445,6 @@ impl ReadyQueueManager {
             };
 
             TOTAL_READYQ_RUNS.inc();
-
-            if last_config_refresh.elapsed() >= ONE_MINUTE && !queue.activity.is_shutting_down() {
-                last_config_refresh = tokio::time::Instant::now();
-                match Self::compute_config(
-                    &queue.queue_name_for_config_change_purposes_only,
-                    &queue.queue_config,
-                    &queue.egress_source.name,
-                )
-                .await
-                {
-                    Ok(ReadyQueueConfig { path_config, .. }) => {
-                        if path_config != **queue.path_config.borrow() {
-                            let max_ready = path_config.max_ready;
-
-                            let generation = queue.path_config.update(path_config);
-                            tracing::trace!("{name}: refreshed get_egress_path_config to generation {generation}");
-                            queue.notify_dispatcher.notify_waiters();
-                            for msg in queue.ready.update_capacity(max_ready) {
-                                if let Err(err) = Dispatcher::reinsert_message(msg).await {
-                                    tracing::error!("error reinserting message: {err:#}");
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        tracing::error!("{name}: refreshing get_egress_path_config: {err:#}");
-                    }
-                }
-            }
 
             let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&name);
             queue.maintain(&suspend).await;
@@ -474,6 +497,8 @@ pub struct ReadyQueue {
     queue_config: ConfigHandle<QueueConfig>,
     egress_pool: String,
     egress_source: EgressSource,
+    next_config_refresh: StdMutex<Instant>,
+    config_epoch: StdMutex<ConfigEpoch>,
 }
 
 impl ReadyQueue {
@@ -745,6 +770,69 @@ impl ReadyQueue {
             && ((last_change.elapsed() > Duration::from_secs(10 * 60))
                 | self.activity.is_shutting_down())
             && self.ready_count() == 0
+    }
+
+    async fn perform_config_refresh_if_due(
+        &self,
+        now: Instant,
+        epoch: &ConfigEpoch,
+        epoch_changed: bool,
+    ) -> bool {
+        match self.path_config.borrow().refresh_strategy {
+            ConfigRefreshStrategy::Ttl => {
+                let due = *self.next_config_refresh.lock();
+                if now >= due {
+                    self.perform_config_refresh(epoch).await;
+                    return true;
+                }
+                false
+            }
+            ConfigRefreshStrategy::Epoch => {
+                if epoch_changed || *self.config_epoch.lock() != *epoch {
+                    self.perform_config_refresh(epoch).await;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
+        *self.config_epoch.lock() = epoch.clone();
+        tracing::trace!("perform_config_refresh for {}", self.name);
+
+        match ReadyQueueManager::compute_config(
+            &self.queue_name_for_config_change_purposes_only,
+            &self.queue_config,
+            &self.egress_source.name,
+        )
+        .await
+        {
+            Ok(ReadyQueueConfig { path_config, .. }) => {
+                if path_config != **self.path_config.borrow() {
+                    let max_ready = path_config.max_ready;
+
+                    let generation = self.path_config.update(path_config);
+                    tracing::trace!(
+                        "{}: refreshed get_egress_path_config to generation {generation}",
+                        self.name
+                    );
+                    self.notify_dispatcher.notify_waiters();
+                    for msg in self.ready.update_capacity(max_ready) {
+                        if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                            tracing::error!("error reinserting message: {err:#}");
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::error!("{}: refreshing get_egress_path_config: {err:#}", self.name);
+            }
+        }
+
+        *self.next_config_refresh.lock() =
+            Instant::now() + self.path_config.borrow().refresh_interval;
     }
 }
 

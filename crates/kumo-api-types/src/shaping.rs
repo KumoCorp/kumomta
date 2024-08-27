@@ -887,6 +887,8 @@ MergedEntry {
         ehlo_domain: None,
         suspended: false,
         aggressive_connection_opening: false,
+        refresh_interval: 60s,
+        refresh_strategy: Ttl,
     },
     sources: {},
     automation: [
@@ -1050,6 +1052,8 @@ MergedEntry {
         ehlo_domain: None,
         suspended: false,
         aggressive_connection_opening: false,
+        refresh_interval: 60s,
+        refresh_strategy: Ttl,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -1121,6 +1125,8 @@ MergedEntry {
             ehlo_domain: None,
             suspended: false,
             aggressive_connection_opening: false,
+            refresh_interval: 60s,
+            refresh_strategy: Ttl,
         },
     },
     automation: [
@@ -1290,6 +1296,8 @@ MergedEntry {
         ehlo_domain: None,
         suspended: false,
         aggressive_connection_opening: false,
+        refresh_interval: 60s,
+        refresh_strategy: Ttl,
     },
     sources: {},
     automation: [

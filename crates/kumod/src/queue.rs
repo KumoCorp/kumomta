@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
+use kumo_api_types::egress_path::ConfigRefreshStrategy;
 use kumo_prometheus::{
     PruningIntCounter, PruningIntCounterVec, PruningIntGauge, PruningIntGaugeVec,
 };
@@ -257,13 +258,6 @@ pub enum QueueStrategy {
     SingletonTimerWheel,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, FromLua, Default, Copy, PartialEq, Eq)]
-pub enum QueueRefreshStrategy {
-    #[default]
-    Ttl,
-    Epoch,
-}
-
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct QueueConfig {
@@ -322,7 +316,7 @@ pub struct QueueConfig {
     pub strategy: QueueStrategy,
 
     #[serde(default)]
-    pub refresh_strategy: QueueRefreshStrategy,
+    pub refresh_strategy: ConfigRefreshStrategy,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -340,7 +334,7 @@ impl Default for QueueConfig {
             refresh_interval: Self::default_refresh_interval(),
             strategy: QueueStrategy::default(),
             timerwheel_tick_interval: None,
-            refresh_strategy: QueueRefreshStrategy::default(),
+            refresh_strategy: ConfigRefreshStrategy::default(),
         }
     }
 }
@@ -982,7 +976,7 @@ impl Queue {
         epoch_changed: bool,
     ) -> bool {
         match self.queue_config.borrow().refresh_strategy {
-            QueueRefreshStrategy::Ttl => {
+            ConfigRefreshStrategy::Ttl => {
                 let due = *self.next_config_refresh.lock();
                 if now >= due {
                     self.perform_config_refresh(epoch).await;
@@ -991,7 +985,7 @@ impl Queue {
 
                 false
             }
-            QueueRefreshStrategy::Epoch => {
+            ConfigRefreshStrategy::Epoch => {
                 if epoch_changed || *self.config_epoch.lock() != *epoch {
                     self.perform_config_refresh(epoch).await;
                     true
@@ -1536,6 +1530,7 @@ impl Queue {
                     &self.queue_config,
                     &egress_source,
                     &self.rr.name,
+                    self.config_epoch.lock().clone(),
                 )
                 .await
                 {

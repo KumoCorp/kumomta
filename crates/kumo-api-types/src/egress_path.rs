@@ -6,6 +6,7 @@ use openssl::ssl::SslOptions;
 use rfc5321::SmtpClientTimeouts;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::time::Duration;
 use throttle::ThrottleSpec;
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
@@ -123,6 +124,14 @@ pub fn find_rustls_cipher_suite(name: &str) -> Option<SupportedCipherSuite> {
     None
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "lua", derive(FromLua))]
+pub enum ConfigRefreshStrategy {
+    #[default]
+    Ttl,
+    Epoch,
+}
+
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
 #[serde(deny_unknown_fields)]
@@ -200,6 +209,18 @@ pub struct EgressPathConfig {
     // TODO: decide if we want to keep this and then document
     #[serde(default)]
     pub aggressive_connection_opening: bool,
+
+    /// How long to wait between calls to get_egress_path_config for
+    /// any given ready queue. Making this longer uses fewer
+    /// resources (in aggregate) but means that it will take longer
+    /// to detect and adjust to changes in the queue configuration.
+    #[serde(
+        default = "EgressPathConfig::default_refresh_interval",
+        with = "duration_serde"
+    )]
+    pub refresh_interval: Duration,
+    #[serde(default)]
+    pub refresh_strategy: ConfigRefreshStrategy,
 }
 
 #[cfg(feature = "lua")]
@@ -233,6 +254,8 @@ impl Default for EgressPathConfig {
             openssl_cipher_list: None,
             openssl_cipher_suites: None,
             openssl_options: None,
+            refresh_interval: Self::default_refresh_interval(),
+            refresh_strategy: ConfigRefreshStrategy::default(),
         }
     }
 }
@@ -264,5 +287,9 @@ impl EgressPathConfig {
 
     fn default_max_deliveries_per_connection() -> usize {
         1024
+    }
+
+    fn default_refresh_interval() -> Duration {
+        Duration::from_secs(60)
     }
 }

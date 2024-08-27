@@ -358,6 +358,16 @@ function mod:setup_with_automation(options)
     )
     ]]
 
+    -- When using only local files, use the Epoch strategy.
+    -- We'll need to add a websocket push on config changes
+    -- before we can enable this in all cases
+    if
+      (not options.subscribe or #options.subscribe == 0)
+      and not params.refresh_strategy
+    then
+      params.refresh_strategy = 'Epoch'
+    end
+
     if skip_make then
       -- For test harness purposes, we can set skip_make to true so that
       -- we can manipulate the params before constructing an egress path

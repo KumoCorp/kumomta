@@ -18,7 +18,7 @@ kumo.on(
   }
 )
 
-shaping:setup_with_automation {
+local shaper = shaping:setup_with_automation {
   no_default_files = true,
   extra_files = { 'assets/policy-extras/shaping.toml' },
 }
@@ -43,6 +43,7 @@ sources:setup {
 
 local queue_module = require 'policy-extras.queue'
 local queue_helper = queue_module:setup {
+  -- '/tmp/invalid/file.toml',
   {
     scheduling_header = 'X-Schedule',
     tenant = {
@@ -53,6 +54,10 @@ local queue_helper = queue_module:setup {
     queue = {
       default = {
         egress_pool = 'pool0',
+        -- refresh_interval = '2 hours',
+        strategy = 'SingletonTimerWheel',
+        retry_interval = '5m',
+        -- reap_interval = '10s',
       },
     },
   },
@@ -86,6 +91,11 @@ local dkim_signer = dkim_sign:setup {
 
 -- Called on startup to initialize the system
 kumo.on('init', function()
+  kumo.set_config_monitor_globs {
+    '/home/wez/kumocorp/kumomta/**/*.{lua,toml}',
+  }
+
+  kumo.set_lua_gc_on_put(1)
   kumo.configure_accounting_db_path(os.tmpname())
 
   -- Define a listener.
@@ -110,7 +120,7 @@ kumo.on('init', function()
     -- Saves IO but may cause you to lose messages
     -- if something happens to this server before
     -- the message is spooled.
-    deferred_spool = false,
+    -- deferred_spool = true,
 
     -- max_recipients_per_message = 1024
     -- max_messages_per_connection = 10000,
@@ -224,6 +234,8 @@ local function common_processing(msg)
   -- then remove that header from the message
   msg:import_scheduling_header('X-Schedule', true)
 
+  msg:set_meta('tenant', tostring(math.random(128 * 1024)))
+
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:from_header().domain,
     selector = 'default',
@@ -274,7 +286,7 @@ kumo.on(
       connect_timeout = '5s',
       connection_limit = 32,
       -- max_connection_rate = '1/s',
-      -- max_ready = 16,
+      max_ready = 20000,
       -- smtp_port = 2026,
       -- max_deliveries_per_connection = 5,
 
@@ -285,6 +297,8 @@ kumo.on(
       -- with fake domains that explicitly return loopback
       -- addresses!
       prohibited_hosts = {},
+
+      refresh_strategy = 'Epoch',
     }
   end
 )
