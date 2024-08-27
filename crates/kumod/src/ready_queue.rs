@@ -53,19 +53,22 @@ pub fn set_readyq_threads(n: usize) {
 pub struct Fifo {
     queue: ArcSwap<ArrayQueue<Message>>,
     count: PruningIntGauge,
+    global_count: PruningIntGauge,
 }
 
 impl Fifo {
-    pub fn new(capacity: usize, count: PruningIntGauge) -> Self {
+    pub fn new(capacity: usize, count: PruningIntGauge, global_count: PruningIntGauge) -> Self {
         Self {
             queue: Arc::new(ArrayQueue::new(capacity)).into(),
             count,
+            global_count,
         }
     }
 
     pub fn push(&self, msg: Message) -> Result<(), Message> {
         self.queue.load().push(msg)?;
         self.count.inc();
+        self.global_count.inc();
         Ok(())
     }
 
@@ -73,6 +76,7 @@ impl Fifo {
     pub fn pop(&self) -> Option<Message> {
         let msg = self.queue.load().pop()?;
         self.count.dec();
+        self.global_count.dec();
         Some(msg)
     }
 
@@ -84,6 +88,7 @@ impl Fifo {
             messages.push(msg);
         }
         self.count.sub(messages.len() as i64);
+        self.global_count.sub(messages.len() as i64);
         messages
     }
 
@@ -116,6 +121,7 @@ impl Fifo {
             }
         }
         self.count.sub(messages.len() as i64);
+        self.global_count.sub(messages.len() as i64);
         messages
     }
 
@@ -314,6 +320,7 @@ impl ReadyQueueManager {
             let ready = Arc::new(Fifo::new(
                 path_config.max_ready,
                 metrics.ready_count.clone(),
+                metrics.global_ready_count.clone(),
             ));
             let notify_dispatcher = Arc::new(Notify::new());
             Arc::new(ReadyQueue {

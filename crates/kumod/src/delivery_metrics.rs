@@ -9,6 +9,7 @@ pub struct DeliveryMetrics {
     global_connection_total: PruningIntCounter,
 
     pub ready_count: PruningIntGauge,
+    pub global_ready_count: PruningIntGauge,
     pub ready_full: PruningIntCounter,
 
     msgs_delivered: PruningIntCounter,
@@ -54,6 +55,7 @@ impl DeliveryMetrics {
             ),
             ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
             ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
+            global_ready_count: crate::metrics_helper::ready_count_gauge_for_service(service_type),
             msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
             global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
                 service_type,
