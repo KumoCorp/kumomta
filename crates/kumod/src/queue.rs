@@ -738,7 +738,7 @@ impl QueueStructure {
                     // we do not want to wake up for every message insertion,
                     // as that would generally be a waste of effort and bog
                     // down the system without gain.
-                    should_notify: now_due < due,
+                    should_notify: if due.is_none() { true } else { now_due < due },
                 }
             }
             Self::SingletonTimerWheel(q) => {
@@ -1888,7 +1888,7 @@ impl QueueManager {
 #[instrument(skip(q))]
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
-    let mut next_item_due = Instant::now() + ONE_DAY;
+    let mut next_item_due = Instant::now();
 
     loop {
         let sleeping = Instant::now();

@@ -1134,6 +1134,9 @@ DeliverySummary {
             })
             .collect();
 
+        println!("***** event_times: {event_times:?}");
+        assert!(event_times.len() > 1);
+
         let mut last = None;
         let mut intervals: Vec<_> = event_times
             .iter()
