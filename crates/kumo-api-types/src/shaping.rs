@@ -247,13 +247,14 @@ impl Rule {
 struct ShapingInner {
     by_site: OrderMap<String, PartialEntry>,
     by_domain: OrderMap<String, PartialEntry>,
+    by_provider: OrderMap<String, ProviderEntry>,
     warnings: Vec<String>,
     hash: String,
 }
 
 #[cfg(feature = "lua")]
 impl ShapingInner {
-    pub fn get_egress_path_config(
+    pub async fn get_egress_path_config(
         &self,
         domain: &str,
         egress_source: &str,
@@ -264,6 +265,27 @@ impl ShapingInner {
         // Apply basic/default configuration
         if let Some(default) = self.by_domain.get("default") {
             params.merge_from(default.clone());
+        }
+
+        // Provider rules come next
+        for prov in self.by_provider.values() {
+            if prov.domain_matches(domain).await {
+                toml_table_merge_from(&mut params.params, &prov.params);
+                prov.apply_provider_params_to(egress_source, &mut params.params);
+            }
+        }
+
+        // Then Provider source rules
+        for prov in self.by_provider.values() {
+            if prov.sources.is_empty() {
+                continue;
+            }
+            if prov.domain_matches(domain).await {
+                if let Some(source) = prov.sources.get(egress_source) {
+                    toml_table_merge_from(&mut params.params, &source);
+                    prov.apply_provider_params_to(egress_source, &mut params.params);
+                }
+            }
         }
 
         // Then site config
@@ -293,7 +315,7 @@ impl ShapingInner {
         params
     }
 
-    pub fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
         use rfc5321::ForwardPath;
         // Extract the domain from the recipient.
         let recipient = ForwardPath::try_from(record.recipient.as_str())
@@ -389,7 +411,7 @@ pub struct Shaping {
 
 #[cfg(feature = "lua")]
 impl Shaping {
-    async fn load_from_file(path: &str) -> anyhow::Result<OrderMap<String, PartialEntry>> {
+    async fn load_from_file(path: &str) -> anyhow::Result<ShapingFile> {
         let data: String = if path.starts_with("http://") || path.starts_with("https://") {
             // To facilitate startup ordering races, and listing multiple subscription
             // host replicas and allowing one or more of them to be temporarily down,
@@ -409,7 +431,7 @@ impl Shaping {
                 Ok(s) => s,
                 Err(err) => {
                     tracing::error!("{err:#}. Ignoring this shaping source for now");
-                    return Ok(OrderMap::new());
+                    return Ok(ShapingFile::default());
                 }
             }
         } else {
@@ -419,8 +441,21 @@ impl Shaping {
 
         if path.ends_with(".toml") {
             toml::from_str(&data).with_context(|| format!("parsing toml from file {path}"))
-        } else {
+        } else if path.ends_with(".json") {
             serde_json::from_str(&data).with_context(|| format!("parsing json from file {path}"))
+        } else {
+            // Try parsing both ways and see which wins
+            let mut errors = vec![];
+            match toml::from_str(&data) {
+                Ok(s) => return Ok(s),
+                Err(err) => errors.push(format!("as toml: {err:#}")),
+            }
+            match serde_json::from_str(&data) {
+                Ok(s) => return Ok(s),
+                Err(err) => errors.push(format!("as json: {err:#}")),
+            }
+
+            anyhow::bail!("parsing {path}: {}", errors.join(", "));
         }
     }
 
@@ -435,6 +470,7 @@ impl Shaping {
 
         let mut by_site: OrderMap<String, PartialEntry> = OrderMap::new();
         let mut by_domain: OrderMap<String, PartialEntry> = OrderMap::new();
+        let mut by_provider: OrderMap<String, ProviderEntry> = OrderMap::new();
         let mut warnings = vec![];
 
         // Pre-resolve domains. We don't interleave the resolution with
@@ -444,14 +480,8 @@ impl Shaping {
         let mut mx = std::collections::HashMap::new();
         let mut lookups = FuturesUnordered::new();
         for item in &loaded {
-            for (domain, partial) in item {
-                let mx_rollup = if domain == "default" {
-                    false
-                } else {
-                    partial.mx_rollup
-                };
-
-                if mx_rollup {
+            for (domain, partial) in &item.domains {
+                if partial.mx_rollup {
                     let domain = domain.to_string();
                     let limiter = limiter.clone();
                     lookups.push(tokio::spawn(async move {
@@ -472,29 +502,36 @@ impl Shaping {
             mx.insert(domain, result);
         }
 
-        for item in loaded {
-            for (domain, mut partial) in item {
+        for mut item in loaded {
+            if let Some(mut partial) = item.default.take() {
+                let domain = "default";
+                partial.domain_name.replace(domain.to_string());
+                match by_domain.get_mut(domain) {
+                    Some(existing) => {
+                        existing.merge_from(partial);
+                    }
+                    None => {
+                        by_domain.insert(domain.to_string(), partial);
+                    }
+                }
+            }
+
+            for (domain, mut partial) in item.domains {
                 partial.domain_name.replace(domain.clone());
 
-                let mx_rollup = if domain == "default" {
-                    false
-                } else {
-                    if let Ok(name) = fully_qualify(&domain) {
-                        if name.num_labels() == 1 {
-                            warnings.push(format!(
-                                "Entry for domain '{domain}' consists of a \
+                if let Ok(name) = fully_qualify(&domain) {
+                    if name.num_labels() == 1 {
+                        warnings.push(format!(
+                            "Entry for domain '{domain}' consists of a \
                                  single DNS label. Domain names in TOML sections \
                                  need to be quoted like '[\"{domain}.com\"]` otherwise \
                                  the '.' will create a nested table rather than being \
                                  added to the domain name."
-                            ));
-                        }
+                        ));
                     }
+                }
 
-                    partial.mx_rollup
-                };
-
-                if mx_rollup {
+                if partial.mx_rollup {
                     let mx = match mx.get(&domain) {
                         Some(Ok(mx)) => mx,
                         Some(Err(err)) => {
@@ -539,6 +576,18 @@ impl Shaping {
                     }
                 }
             }
+
+            for (provider, mut prov) in item.provider {
+                prov.provider_name = provider.to_string();
+                match by_provider.get_mut(&provider) {
+                    Some(existing) => {
+                        existing.merge_from(prov);
+                    }
+                    None => {
+                        by_provider.insert(provider.to_string(), prov);
+                    }
+                }
+            }
         }
 
         for (site, partial) in &by_site {
@@ -555,6 +604,11 @@ impl Shaping {
                 .with_context(|| format!("domain: {domain}"))?;
         }
 
+        for (provider, prov) in &by_provider {
+            prov.finish_params()
+                .with_context(|| format!("provider: {provider}"))?;
+        }
+
         let mut ctx = Sha256::new();
         ctx.update("by_site");
         for (site, entry) in &by_site {
@@ -565,6 +619,11 @@ impl Shaping {
         for (domain, entry) in &by_domain {
             ctx.update(domain);
             entry.hash_into(&mut ctx);
+        }
+        ctx.update("by_provider");
+        for (provider, prov) in &by_provider {
+            ctx.update(provider);
+            prov.hash_into(&mut ctx);
         }
         ctx.update("warnings");
         for warn in &warnings {
@@ -577,13 +636,14 @@ impl Shaping {
             inner: Arc::new(ShapingInner {
                 by_site,
                 by_domain,
+                by_provider,
                 warnings,
                 hash,
             }),
         })
     }
 
-    fn get_egress_path_config(
+    async fn get_egress_path_config(
         &self,
         domain: &str,
         egress_source: &str,
@@ -591,14 +651,15 @@ impl Shaping {
     ) -> PartialEntry {
         self.inner
             .get_egress_path_config(domain, egress_source, site_name)
+            .await
     }
 
     pub fn get_warnings(&self) -> &[String] {
         &self.inner.warnings
     }
 
-    pub fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
-        self.inner.match_rules(record)
+    pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
+        self.inner.match_rules(record).await
     }
 
     pub fn get_referenced_sources(&self) -> BTreeMap<String, Vec<String>> {
@@ -633,10 +694,12 @@ impl Shaping {
 impl LuaUserData for Shaping {
     fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
-        methods.add_method(
+        methods.add_async_method(
             "get_egress_path_config",
-            move |lua, this, (domain, egress_source, site_name): (String, String, String)| {
-                let params = this.get_egress_path_config(&domain, &egress_source, &site_name);
+            |lua, this, (domain, egress_source, site_name): (String, String, String)| async move {
+                let params = this
+                    .get_egress_path_config(&domain, &egress_source, &site_name)
+                    .await;
                 lua.to_value_with(&params.params, serialize_options())
             },
         );
@@ -649,9 +712,9 @@ impl LuaUserData for Shaping {
             Ok(this.get_referenced_sources())
         });
 
-        methods.add_method("match_rules", move |lua, this, record: mlua::Value| {
+        methods.add_async_method("match_rules", |lua, this, record: mlua::Value| async move {
             let record: JsonLogRecord = lua.from_value(record)?;
-            let rules = this.match_rules(&record).map_err(any_err)?;
+            let rules = this.match_rules(&record).await.map_err(any_err)?;
             let mut result = vec![];
             for rule in rules {
                 result.push(lua.to_value(&rule)?);
@@ -668,6 +731,16 @@ pub struct MergedEntry {
     pub params: EgressPathConfig,
     pub sources: OrderMap<String, EgressPathConfig>,
     pub automation: Vec<Rule>,
+}
+
+#[cfg(feature = "lua")]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+struct ShapingFile {
+    pub default: Option<PartialEntry>,
+    #[serde(flatten, default)]
+    pub domains: OrderMap<String, PartialEntry>,
+    #[serde(default)]
+    pub provider: OrderMap<String, ProviderEntry>,
 }
 
 #[cfg(feature = "lua")]
@@ -693,9 +766,248 @@ struct PartialEntry {
 }
 
 #[cfg(feature = "lua")]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct ProviderEntry {
+    #[serde(skip, default)]
+    pub provider_name: String,
+
+    #[serde(default)]
+    pub provider_connection_limit: Option<usize>,
+
+    #[serde(default)]
+    pub provider_max_message_rate: Option<ThrottleSpec>,
+
+    #[serde(default, rename = "match")]
+    pub matches: Vec<ProviderMatch>,
+
+    #[serde(default)]
+    pub replace_base: bool,
+
+    #[serde(flatten)]
+    pub params: toml::Table,
+
+    #[serde(default)]
+    pub automation: Vec<Rule>,
+
+    #[serde(default)]
+    pub sources: OrderMap<String, toml::Table>,
+}
+
+#[cfg(feature = "lua")]
+fn suffix_matches(candidate: &str, suffix: &str) -> bool {
+    // Remove trailing dot from candidate, as our resolver tends
+    // to leave the canonical dot on the input host name
+    let candidate = candidate.strip_suffix(".").unwrap_or(candidate);
+    if candidate.len() < suffix.len() {
+        return false;
+    }
+    let candidate = &candidate[candidate.len() - suffix.len()..];
+    candidate.eq_ignore_ascii_case(suffix)
+}
+
+#[cfg(feature = "lua")]
+#[cfg(test)]
+#[test]
+fn test_suffix_matches() {
+    assert!(suffix_matches("a", "a"));
+    assert!(suffix_matches("foo.Com", ".com"));
+    assert!(!suffix_matches("foo.Cam", ".com"));
+    assert!(suffix_matches("foo.com", "foo.com"));
+    assert!(!suffix_matches("foo.com", ".foo.com"));
+    assert!(!suffix_matches("foo.com", "longer.com"));
+}
+
+#[cfg(feature = "lua")]
+impl ProviderEntry {
+    async fn domain_matches(&self, domain: &str) -> bool {
+        // We'd like to avoid doing DNS if we can do a simple suffix match,
+        // so we bias to looking at those first
+        let mut has_mx_rules = false;
+
+        for rule in &self.matches {
+            match rule {
+                ProviderMatch::DomainSuffix(suffix) => {
+                    if suffix_matches(domain, suffix) {
+                        return true;
+                    }
+                }
+                ProviderMatch::MXSuffix(_) => {
+                    has_mx_rules = true;
+                }
+            }
+        }
+
+        if !has_mx_rules {
+            return false;
+        }
+
+        // Now we can consider DNS
+        match MailExchanger::resolve(&domain).await {
+            Err(err) => {
+                tracing::error!(
+                    "Error resolving MX for {domain}: {err:#}. \
+                    Provider {} match rules will be ignored",
+                    self.provider_name
+                );
+                false
+            }
+            Ok(mx) => {
+                for rule in &self.matches {
+                    match rule {
+                        ProviderMatch::MXSuffix(suffix) => {
+                            // For a given MX suffix rule, all hosts must match
+                            // it for it to be valid. This is so that we don't
+                            // falsely lump a vanity domain that blends providers
+                            // together.
+                            let mut matched = true;
+                            for host in &mx.hosts {
+                                if !suffix_matches(host, suffix) {
+                                    matched = false;
+                                    break;
+                                }
+                            }
+
+                            if matched {
+                                return true;
+                            }
+                        }
+                        ProviderMatch::DomainSuffix(_) => {}
+                    }
+                }
+
+                false
+            }
+        }
+    }
+
+    fn merge_from(&mut self, mut other: Self) {
+        if other.replace_base {
+            self.provider_connection_limit = other.provider_connection_limit;
+            self.matches = other.matches;
+            self.params = other.params;
+            self.sources = other.sources;
+            self.automation = other.automation;
+        } else {
+            if other.provider_connection_limit.is_some() {
+                self.provider_connection_limit = other.provider_connection_limit;
+            }
+
+            toml_table_merge_from(&mut self.params, &other.params);
+
+            for (source, tbl) in other.sources {
+                match self.sources.get_mut(&source) {
+                    Some(existing) => {
+                        toml_table_merge_from(existing, &tbl);
+                    }
+                    None => {
+                        self.sources.insert(source, tbl);
+                    }
+                }
+            }
+
+            self.matches.append(&mut other.matches);
+            self.automation.append(&mut other.automation);
+        }
+    }
+
+    fn apply_provider_params_to(&self, source: &str, target: &mut toml::Table) {
+        let mut implied = toml::Table::new();
+        if let Some(limit) = &self.provider_connection_limit {
+            let mut limits = toml::Table::new();
+            limits.insert(
+                format!("shaping-provider-{}-{source}-limit", self.provider_name),
+                toml::Value::Integer((*limit) as i64),
+            );
+            implied.insert(
+                "additional_connection_limits".to_string(),
+                toml::Value::Table(limits),
+            );
+        }
+        if let Some(rate) = &self.provider_max_message_rate {
+            match rate.as_string() {
+                Ok(rate) => {
+                    let mut limits = toml::Table::new();
+                    limits.insert(
+                        format!("shaping-provider-{}-{source}-rate", self.provider_name),
+                        rate.into(),
+                    );
+                    implied.insert(
+                        "additional_message_rate_throttles".to_string(),
+                        toml::Value::Table(limits),
+                    );
+                }
+                Err(err) => {
+                    tracing::error!("Error representing provider_max_message_rate: {err}");
+                }
+            }
+        }
+
+        toml_table_merge_from(target, &implied);
+    }
+
+    fn finish_params(&self) -> anyhow::Result<MergedEntry> {
+        let provider_name = &self.provider_name;
+
+        let params = EgressPathConfig::deserialize(self.params.clone()).with_context(|| {
+            format!(
+                "interpreting provider '{provider_name}' params {:#?} as EgressPathConfig",
+                self.params
+            )
+        })?;
+        let mut sources = OrderMap::new();
+
+        for (source, params) in &self.sources {
+            sources.insert(
+                source.clone(),
+                EgressPathConfig::deserialize(params.clone()).with_context(|| {
+                    format!("interpreting provider '{provider_name}' source '{source}' {params:#} as EgressPathConfig")
+                })?,
+            );
+        }
+
+        Ok(MergedEntry {
+            params,
+            sources,
+            automation: self.automation.clone(),
+        })
+    }
+
+    fn hash_into(&self, ctx: &mut Sha256) {
+        ctx.update(&self.provider_name);
+        ctx.update(serde_json::to_string(self).unwrap_or_else(|_| String::new()));
+    }
+}
+
+#[cfg(feature = "lua")]
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub enum ProviderMatch {
+    MXSuffix(String),
+    DomainSuffix(String),
+}
+
+#[cfg(feature = "lua")]
 fn toml_table_merge_from(tbl: &mut toml::Table, source: &toml::Table) {
+    // Limit merging to just the throttle related fields, as their purpose
+    // is for creating broader scoped limits that cut across normal boundaries
+    fn is_mergeable(name: &str) -> bool {
+        match name {
+            "additional_connection_limits" | "additional_message_rate_throttles" => true,
+            _ => false,
+        }
+    }
+
     for (k, v) in source {
-        tbl.insert(k.clone(), v.clone());
+        match (tbl.get_mut(k), v.as_table()) {
+            // Merge Table values together, rather than simply replacing them.
+            (Some(toml::Value::Table(existing)), Some(v)) if is_mergeable(k) => {
+                for (inner_k, inner_v) in v {
+                    existing.insert(inner_k.clone(), inner_v.clone());
+                }
+            }
+            _ => {
+                tbl.insert(k.clone(), v.clone());
+            }
+        }
     }
 }
 
@@ -824,6 +1136,112 @@ pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    async fn make_shaping_configs(inputs: &[&str]) -> Shaping {
+        let mut files = vec![];
+        let mut file_names = vec![];
+
+        for (i, content) in inputs.iter().enumerate() {
+            let mut shaping_file = NamedTempFile::with_prefix(format!("file{i}")).unwrap();
+            shaping_file.write_all(content.as_bytes()).unwrap();
+            file_names.push(shaping_file.path().to_str().unwrap().to_string());
+            files.push(shaping_file);
+        }
+
+        Shaping::merge_files(&file_names).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_merge_additional() {
+        let shaping = make_shaping_configs(&[
+            r#"
+["example.com"]
+mx_rollup = false
+additional_connection_limits = {"first"=10}
+        "#,
+            r#"
+["example.com"]
+mx_rollup = false
+additional_connection_limits = {"second"=32}
+additional_message_rate_throttles = {"second"="100/hr"}
+        "#,
+        ])
+        .await;
+
+        let resolved = shaping
+            .get_egress_path_config("example.com", "invalid.source", "invalid.site")
+            .await
+            .finish()
+            .unwrap();
+
+        k9::snapshot!(
+            resolved.params.additional_connection_limits,
+            r#"
+{
+    "first": 10,
+    "second": 32,
+}
+"#
+        );
+        k9::snapshot!(
+            resolved.params.additional_message_rate_throttles,
+            r#"
+{
+    "second": ThrottleSpec {
+        limit: 100,
+        period: 3600,
+        max_burst: None,
+    },
+}
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_provider() {
+        let shaping = make_shaping_configs(&[r#"
+[provider."Office 365"]
+match=[{MXSuffix=".olc.protection.outlook.com"},{DomainSuffix=".outlook.com"}]
+enable_tls = "Required"
+provider_connection_limit = 10
+provider_max_message_rate = "120/s"
+        "#])
+        .await;
+
+        let resolved = shaping
+            .get_egress_path_config("outlook.com", "invalid.source", "invalid.site")
+            .await
+            .finish()
+            .unwrap();
+
+        k9::assert_equal!(
+            resolved.params.enable_tls,
+            crate::egress_path::Tls::Required
+        );
+
+        k9::snapshot!(
+            resolved.params.additional_connection_limits,
+            r#"
+{
+    "shaping-provider-Office 365-invalid.source-limit": 10,
+}
+"#
+        );
+        k9::snapshot!(
+            resolved.params.additional_message_rate_throttles,
+            r#"
+{
+    "shaping-provider-Office 365-invalid.source-rate": ThrottleSpec {
+        limit: 120,
+        period: 1,
+        max_burst: None,
+    },
+}
+"#
+        );
+    }
 
     #[tokio::test]
     async fn test_defaults() {
@@ -833,6 +1251,7 @@ mod test {
 
         let default = shaping
             .get_egress_path_config("invalid.domain", "invalid.source", "invalid.site")
+            .await
             .finish()
             .unwrap();
         k9::snapshot!(
@@ -841,6 +1260,7 @@ mod test {
 MergedEntry {
     params: EgressPathConfig {
         connection_limit: 10,
+        additional_connection_limits: {},
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
@@ -875,6 +1295,7 @@ MergedEntry {
                 max_burst: None,
             },
         ),
+        additional_message_rate_throttles: {},
         max_connection_rate: Some(
             ThrottleSpec {
                 limit: 100,
@@ -998,6 +1419,7 @@ MergedEntry {
 
         let example_com = shaping
             .get_egress_path_config("example.com", "invalid.source", "invalid.site")
+            .await
             .finish()
             .unwrap();
         k9::snapshot!(
@@ -1006,6 +1428,7 @@ MergedEntry {
 MergedEntry {
     params: EgressPathConfig {
         connection_limit: 3,
+        additional_connection_limits: {},
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
@@ -1040,6 +1463,7 @@ MergedEntry {
                 max_burst: None,
             },
         ),
+        additional_message_rate_throttles: {},
         max_connection_rate: Some(
             ThrottleSpec {
                 limit: 100,
@@ -1091,6 +1515,7 @@ MergedEntry {
     sources: {
         "my source name": EgressPathConfig {
             connection_limit: 5,
+            additional_connection_limits: {},
             enable_tls: Opportunistic,
             enable_mta_sts: true,
             enable_dane: false,
@@ -1119,6 +1544,7 @@ MergedEntry {
             smtp_auth_plain_password: None,
             allow_smtp_auth_plain_without_tls: false,
             max_message_rate: None,
+            additional_message_rate_throttles: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
             prohibited_hosts: CidrSet(
@@ -1242,6 +1668,7 @@ MergedEntry {
                 "invalid.source",
                 "(mta5|mta6|mta7).am0.yahoodns.net",
             )
+            .await
             .finish()
             .unwrap();
         k9::snapshot!(
@@ -1250,6 +1677,7 @@ MergedEntry {
 MergedEntry {
     params: EgressPathConfig {
         connection_limit: 10,
+        additional_connection_limits: {},
         enable_tls: Opportunistic,
         enable_mta_sts: true,
         enable_dane: false,
@@ -1284,6 +1712,7 @@ MergedEntry {
                 max_burst: None,
             },
         ),
+        additional_message_rate_throttles: {},
         max_connection_rate: Some(
             ThrottleSpec {
                 limit: 100,

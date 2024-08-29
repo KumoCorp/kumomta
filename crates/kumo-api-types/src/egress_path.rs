@@ -3,6 +3,7 @@ use data_loader::KeySource;
 #[cfg(feature = "lua")]
 use mlua::prelude::*;
 use openssl::ssl::SslOptions;
+use ordermap::OrderMap;
 use rfc5321::SmtpClientTimeouts;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -140,6 +141,9 @@ pub struct EgressPathConfig {
     pub connection_limit: usize,
 
     #[serde(default)]
+    pub additional_connection_limits: OrderMap<String, usize>,
+
+    #[serde(default)]
     pub enable_tls: Tls,
 
     #[serde(default = "EgressPathConfig::default_enable_mta_sts")]
@@ -184,6 +188,9 @@ pub struct EgressPathConfig {
 
     #[serde(default)]
     pub max_message_rate: Option<ThrottleSpec>,
+
+    #[serde(default)]
+    pub additional_message_rate_throttles: OrderMap<String, ThrottleSpec>,
 
     #[serde(default)]
     pub max_connection_rate: Option<ThrottleSpec>,
@@ -256,6 +263,8 @@ impl Default for EgressPathConfig {
             openssl_options: None,
             refresh_interval: Self::default_refresh_interval(),
             refresh_strategy: ConfigRefreshStrategy::default(),
+            additional_message_rate_throttles: OrderMap::default(),
+            additional_connection_limits: OrderMap::default(),
         }
     }
 }

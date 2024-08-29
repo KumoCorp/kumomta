@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpec};
+use throttle::ThrottleSpec;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::instrument; // TODO move to here
@@ -682,78 +683,101 @@ impl ReadyQueue {
         );
 
         if current_connection_count < ideal {
-            let limit = LimitSpec {
-                limit: path_config.connection_limit,
-                duration: path_config.client_timeouts.total_message_send_duration(),
-            };
+            let lease_duration = path_config.client_timeouts.total_message_send_duration();
+            let limit_name = format!("kumomta.connection_limit.{}", self.name);
+            let mut limits = vec![(
+                &limit_name,
+                LimitSpec {
+                    limit: path_config.connection_limit,
+                    duration: lease_duration,
+                },
+            )];
 
-            for _ in current_connection_count..ideal {
-                match limit.acquire_lease(&self.name).await {
-                    Ok(lease) => {
-                        // Open a new connection
-                        let name = self.name.clone();
-                        let queue_name_for_config_change_purposes_only =
-                            self.queue_name_for_config_change_purposes_only.clone();
-                        let mx = self.mx.clone();
-                        let ready = Arc::clone(&self.ready);
-                        let notify_dispatcher = self.notify_dispatcher.clone();
-                        let path_config = self.path_config.clone();
-                        let queue_config = self.queue_config.clone();
-                        let metrics = self.metrics.clone();
-                        let egress_source = self.egress_source.clone();
-                        let egress_pool = self.egress_pool.clone();
-                        let consecutive_connection_failures =
-                            self.consecutive_connection_failures.clone();
+            for (label, limit) in &path_config.additional_connection_limits {
+                limits.push((
+                    label,
+                    LimitSpec {
+                        limit: *limit,
+                        duration: lease_duration,
+                    },
+                ));
+            }
+            // Check limits from smallest to largest so that we avoid
+            // taking up a slot from a larger one only to hit a smaller
+            // one and not do anything useful with the larger one
+            limits.sort_by_key(|(_, LimitSpec { limit, .. })| *limit);
 
-                        tracing::trace!("spawning client for {name}");
-                        if let Ok(handle) = READYQ_RUNTIME
-                            .spawn(format!("smtp client {name}"), move || {
-                                Ok(async move {
-                                    if let Err(err) = Dispatcher::run(
-                                        &name,
-                                        queue_name_for_config_change_purposes_only,
-                                        mx,
-                                        ready,
-                                        notify_dispatcher,
-                                        queue_config,
-                                        path_config,
-                                        metrics,
-                                        consecutive_connection_failures.clone(),
-                                        egress_source,
-                                        egress_pool,
-                                        lease,
-                                    )
-                                    .await
-                                    {
-                                        tracing::debug!(
-                                            "Error in Dispatcher::run for {name}: {err:#} \
-                         (consecutive_connection_failures={consecutive_connection_failures:?})"
-                                        );
-                                    }
-                                })
-                            })
-                            .await
-                        {
-                            self.connections.lock().push(handle);
+            'new_dispatcher: for _ in current_connection_count..ideal {
+                let mut leases = vec![];
+                for (label, limit) in &limits {
+                    match limit.acquire_lease(label).await {
+                        Ok(lease) => {
+                            leases.push(lease);
+                        }
+                        Err(err @ throttle::Error::TooManyLeases(_)) => {
+                            // Over budget; we'll try again later
+                            tracing::debug!(
+                                "maintain {}: could not acquire connection lease {label}: {err:#}",
+                                self.name
+                            );
+                            break 'new_dispatcher;
+                        }
+                        Err(err) => {
+                            // Some kind of error trying to acquire the lease, could be
+                            // a redis/connectivity error, let's surface it
+                            tracing::error!(
+                                "maintain {}: could not acquire connection lease {label}: {err:#}",
+                                self.name
+                            );
+                            break 'new_dispatcher;
                         }
                     }
-                    Err(err @ throttle::Error::TooManyLeases(_)) => {
-                        // Over budget; we'll try again later
-                        tracing::debug!(
-                            "maintain {}: could not acquire connection lease: {err:#}",
-                            self.name
-                        );
-                        break;
-                    }
-                    Err(err) => {
-                        // Some kind of error trying to acquire the lease, could be
-                        // a redis/connectivity error, let's surface it
-                        tracing::error!(
-                            "maintain {}: could not acquire connection lease: {err:#}",
-                            self.name
-                        );
-                        break;
-                    }
+                }
+
+                // Open a new connection
+                let name = self.name.clone();
+                let queue_name_for_config_change_purposes_only =
+                    self.queue_name_for_config_change_purposes_only.clone();
+                let mx = self.mx.clone();
+                let ready = Arc::clone(&self.ready);
+                let notify_dispatcher = self.notify_dispatcher.clone();
+                let path_config = self.path_config.clone();
+                let queue_config = self.queue_config.clone();
+                let metrics = self.metrics.clone();
+                let egress_source = self.egress_source.clone();
+                let egress_pool = self.egress_pool.clone();
+                let consecutive_connection_failures = self.consecutive_connection_failures.clone();
+
+                tracing::trace!("spawning client for {name}");
+                if let Ok(handle) = READYQ_RUNTIME
+                    .spawn(format!("smtp client {name}"), move || {
+                        Ok(async move {
+                            if let Err(err) = Dispatcher::run(
+                                &name,
+                                queue_name_for_config_change_purposes_only,
+                                mx,
+                                ready,
+                                notify_dispatcher,
+                                queue_config,
+                                path_config,
+                                metrics,
+                                consecutive_connection_failures.clone(),
+                                egress_source,
+                                egress_pool,
+                                leases,
+                            )
+                            .await
+                            {
+                                tracing::debug!(
+                                    "Error in Dispatcher::run for {name}: {err:#} \
+                         (consecutive_connection_failures={consecutive_connection_failures:?})"
+                                );
+                            }
+                        })
+                    })
+                    .await
+                {
+                    self.connections.lock().push(handle);
                 }
             }
         }
@@ -880,7 +904,7 @@ pub struct Dispatcher {
     pub msg: Option<Message>,
     pub delivery_protocol: String,
     pub suspended: Option<AdminSuspendReadyQEntryRef>,
-    lease: LimitLease,
+    leases: Vec<LimitLease>,
 }
 
 impl Drop for Dispatcher {
@@ -929,7 +953,7 @@ impl Dispatcher {
         consecutive_connection_failures: Arc<AtomicUsize>,
         egress_source: EgressSource,
         egress_pool: String,
-        lease: LimitLease,
+        leases: Vec<LimitLease>,
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
@@ -953,7 +977,7 @@ impl Dispatcher {
             egress_pool,
             delivered_this_connection: 0,
             delivery_protocol,
-            lease,
+            leases,
             suspended: None,
         };
 
@@ -986,7 +1010,7 @@ impl Dispatcher {
             if dispatcher.msg.is_none() {
                 // We raced with another dispatcher and there is no
                 // more work to be done; no need to open a new connection.
-                dispatcher.lease.release().await;
+                dispatcher.release_leases().await;
                 return Ok(());
             }
         }
@@ -1003,7 +1027,7 @@ impl Dispatcher {
                 // No more messages within our idle time; we can close
                 // the connection
                 tracing::debug!("{} Idling out connection", dispatcher.name);
-                dispatcher.lease.release().await;
+                dispatcher.release_leases().await;
                 queue_dispatcher.close_connection(&mut dispatcher).await?;
                 return Ok(());
             }
@@ -1011,7 +1035,7 @@ impl Dispatcher {
             let result = tokio::select! {
                 _ = shutting_down.shutting_down() => {
                     tracing::debug!("{} shutting down", dispatcher.name);
-                    dispatcher.lease.release().await;
+                    dispatcher.release_leases().await;
                     queue_dispatcher.close_connection(&mut dispatcher).await?;
                     return Ok(());
                 }
@@ -1074,7 +1098,7 @@ impl Dispatcher {
                     {
                         dispatcher.delay_ready_queue().await;
                     }
-                    dispatcher.lease.release().await;
+                    dispatcher.release_leases().await;
                     return Err(err);
                 }
                 tracing::debug!("{err:#}");
@@ -1090,6 +1114,38 @@ impl Dispatcher {
                 .deliver_message(&mut *queue_dispatcher)
                 .await
                 .context("deliver_message")?;
+        }
+    }
+
+    async fn check_throttle(
+        &mut self,
+        throttle: &ThrottleSpec,
+        throttle_key: &str,
+        throttle_label: &str,
+        path_config: &EgressPathConfig,
+    ) -> anyhow::Result<bool> {
+        loop {
+            let result = throttle
+                .throttle(throttle_key)
+                .await
+                .with_context(|| format!("apply {throttle_label} throttle"))?;
+
+            if let Some(delay) = result.retry_after {
+                if delay >= path_config.client_timeouts.idle_timeout {
+                    self.throttle_ready_queue(delay).await;
+                    return Ok(true);
+                }
+                tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
+                let mut shutdown = ShutdownSubcription::get();
+                tokio::select! {
+                    _ = tokio::time::sleep(delay) => {},
+                    _ = shutdown.shutting_down() => {
+                        return Ok(true);
+                    }
+                };
+            } else {
+                return Ok(false);
+            }
         }
     }
 
@@ -1113,28 +1169,36 @@ impl Dispatcher {
         // guard, so that a delay due to throttling doesn't result
         // in a delay of shutdown
         let path_config = self.path_config.borrow();
-        if let Some(throttle) = &path_config.max_message_rate {
-            loop {
-                let result = throttle
-                    .throttle(format!("{}-message-rate", self.name))
-                    .await
-                    .context("apply max_message_rate throttle")?;
+        let num_throttles = if path_config.max_message_rate.is_some() {
+            1
+        } else {
+            0
+        } + path_config.additional_message_rate_throttles.len();
+        if num_throttles > 0 {
+            let mut throttles = Vec::with_capacity(num_throttles);
+            let message_rate_name;
 
-                if let Some(delay) = result.retry_after {
-                    if delay >= path_config.client_timeouts.idle_timeout {
-                        self.throttle_ready_queue(delay).await;
-                        return Ok(());
-                    }
-                    tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
-                    let mut shutdown = ShutdownSubcription::get();
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {},
-                        _ = shutdown.shutting_down() => {
-                            return Ok(());
-                        }
-                    };
-                } else {
-                    break;
+            if let Some(throttle) = &path_config.max_message_rate {
+                message_rate_name = format!("kumomta.max_message_rate.{}", self.name);
+                throttles.push((&message_rate_name, throttle));
+            }
+            for (key, throttle) in &path_config.additional_message_rate_throttles {
+                throttles.push((key, throttle));
+            }
+
+            // Check throttles from smallest to largest so that we avoid
+            // taking up a slot from a larger one only to hit a smaller
+            // one and not do anything useful with the larger one
+            throttles.sort_by_key(|(_, spec)| {
+                ((spec.limit as f64 / spec.period as f64) * 1_000_000.0) as u64
+            });
+
+            for (key, throttle) in throttles {
+                if !self
+                    .check_throttle(&throttle, key, key, &path_config)
+                    .await?
+                {
+                    return Ok(());
                 }
             }
         }
@@ -1477,22 +1541,23 @@ impl Dispatcher {
             return Ok(false);
         }
 
-        if self
-            .lease
-            .extend(
-                self.path_config
-                    .borrow()
-                    .client_timeouts
-                    .total_message_send_duration(),
-            )
-            .await
-            .is_err()
-        {
-            tracing::trace!(
-                "{}: unable to extend lease, closing out this connection",
-                self.name,
-            );
-            return Ok(false);
+        for lease in &self.leases {
+            if lease
+                .extend(
+                    self.path_config
+                        .borrow()
+                        .client_timeouts
+                        .total_message_send_duration(),
+                )
+                .await
+                .is_err()
+            {
+                tracing::trace!(
+                    "{}: unable to extend lease, closing out this connection",
+                    self.name,
+                );
+                return Ok(false);
+            }
         }
 
         if self.obtain_message().await {
@@ -1543,6 +1608,12 @@ impl Dispatcher {
                     return Ok(false);
                 }
             };
+        }
+    }
+
+    async fn release_leases(&mut self) {
+        for lease in &mut self.leases {
+            lease.release().await;
         }
     }
 }

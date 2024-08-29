@@ -98,6 +98,88 @@ The *mx_rollup* option indicates whether or not the settings should apply to the
 
 While the default max_deliveries_per_connection is 100, it is overridden for yahoo.com (and all domains that share the same site name as the yahoo.com domain) to 20. The foo.com domain is part of the same site name as yahoo.com, but because mx_rollup is set to false the foo.com domain is treated separately and instead is set to 50. Because there is a sources entry for IP-1, the max_deliveries_per_connection is further overridden to 5 for that source's traffic in particular.
 
+### Pattern Matching Rollups
+
+{{since('dev')}}
+
+There are a number of mailbox providers for which the default MX-based rollup
+scheme cannot be used because their MX records and infrastructure are
+distributed in such a way that the automatic MX grouping is not effective when
+it comes to shaping traffic across that infrastructure.
+
+For those situations is is desirable to adopt hostname based pattern matching
+and employ connection limits and message rate throttles for all destination hosts
+that match.
+
+You can configure this using a `provide` block in your shaping file(s).
+
+For an example, let's consider Outlook and Hotmail. They are both run by the
+same provider and backend, but their domain names are very different, and their
+MX hostnames are also both different from each other, so the normal MX-based
+rollup is not effective:
+
+```console
+dig +short mx hotmail.com
+2 hotmail-com.olc.protection.outlook.com.
+dig +short mx outlook.com
+5 outlook-com.olc.protection.outlook.com.
+```
+
+However, we can see that the individual MX hostnames have the same
+`.olc.protection.outlook.com` suffix, so we can use that to identify this
+provider:
+
+{% call toml_data() %}
+[provider."Office 365"]
+# Every domain whose MX hostnames ALL have .old.protection.outlook.com will
+# match this provider block
+match=[{MXSuffix=".olc.protection.outlook.com"}]
+# Let's require TLS for this provider
+enable_tls = "Required"
+# And set a provider-specific connection limit and message rate
+provider_connection_limit = 10
+provider_max_message_rate = "120/s"
+{% endcall %}
+
+Now, messages destined for either `hotmail.com` or `outlook.com`, or any
+other domain whose MX host names all have the suffix `.olc.protection.outlook.com`,
+will match the provider block and have the options defined there applied.
+
+The `match` field is an array and can list multiple match candidates. A provider
+block matches if *any* of the `match` elements matches.
+
+The match can be one of two possible options:
+
+* `{MXSuffix="SUFFIX"}` - matches if ALL of the individual MX hostname suffixes
+  match the specified suffix string.
+* `{DomainSuffix="SUFFIX"}` - matches if the domain name suffix matches the
+  specified suffix string.
+
+### Shaping Option Resolution Order and Precedence
+
+When resolving the configuration for a site, the options are resolved in the
+following order:
+
+1. The values for the `default` domain block are taken as the base
+2. Any matching `provider` blocks are then merged in
+3. Any matching `provider` + `source` blocks for the current source are merged in
+4. Any matching *site name* blocks are merged in. These are domain blocks that have the default (implied) or explicitly configured `mx_rollup = true` option set in them.
+5. Any matching domain blocks are merged in. These are domain blocks that have `mx_rollup=false` set in them.
+6. Any matching *site name* + `source` blocks are merged.
+7. Any matching domain + `source` blocks are merged.
+
+Within any of these steps above, the options are merged in the order that they
+appear across your configuration files, so the most recently specified value
+will take precedence overall.
+
+You can specify `replace_base=true` in a block to have that block override the
+current set of accumulated values.
+
+Most options merge directly over the top of earlier options, but the
+[additional_connection_limits](../../reference/kumo/make_egress_path/additional_connection_limits.md) and
+[additional_message_rate_throttles](../../reference/kumo/make_egress_path/additional_message_rate_throttles.md)
+options merge the maps together.
+
 ### Overriding the shaping.toml File
 
 The `shaping.toml` file provides a community-contributed collection of traffic shaping rules that are useful for new servers, but traffic shaping rules are often configured in the context of the reputation of the various domains and IP addresses in a given environment, making it necessary to customize the rules according to your specific use cases.

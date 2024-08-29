@@ -2910,6 +2910,7 @@ dependencies = [
  "serde_with",
  "sha2",
  "spool",
+ "tempfile",
  "throttle",
  "tokio",
  "toml",

@@ -59,6 +59,23 @@ impl ThrottleSpec {
     }
 }
 
+impl ThrottleSpec {
+    pub fn as_string(&self) -> Result<String, String> {
+        let period = match self.period {
+            86400 => "d",
+            3600 => "h",
+            60 => "m",
+            1 => "s",
+            _ => return Err(format!("cannot represent period {} as string", self.period)),
+        };
+        if let Some(burst) = self.max_burst {
+            return Err(format!("cannot represent max_burst {burst} as string"));
+        }
+
+        Ok(format!("{}/{period}", self.limit))
+    }
+}
+
 impl TryFrom<String> for ThrottleSpec {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
