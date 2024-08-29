@@ -19,6 +19,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::formats::PreferOne;
 use serde_with::{serde_as, OneOrMany};
 #[cfg(feature = "lua")]
+use sha2::{Digest, Sha256};
+#[cfg(feature = "lua")]
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -246,6 +248,7 @@ struct ShapingInner {
     by_site: OrderMap<String, PartialEntry>,
     by_domain: OrderMap<String, PartialEntry>,
     warnings: Vec<String>,
+    hash: String,
 }
 
 #[cfg(feature = "lua")]
@@ -552,11 +555,30 @@ impl Shaping {
                 .with_context(|| format!("domain: {domain}"))?;
         }
 
+        let mut ctx = Sha256::new();
+        ctx.update("by_site");
+        for (site, entry) in &by_site {
+            ctx.update(site);
+            entry.hash_into(&mut ctx);
+        }
+        ctx.update("by_domain");
+        for (domain, entry) in &by_domain {
+            ctx.update(domain);
+            entry.hash_into(&mut ctx);
+        }
+        ctx.update("warnings");
+        for warn in &warnings {
+            ctx.update(warn);
+        }
+        let hash = ctx.finalize();
+        let hash = data_encoding::HEXLOWER.encode(&hash);
+
         Ok(Self {
             inner: Arc::new(ShapingInner {
                 by_site,
                 by_domain,
                 warnings,
+                hash,
             }),
         })
     }
@@ -601,6 +623,10 @@ impl Shaping {
 
         result
     }
+
+    pub fn hash(&self) -> String {
+        self.inner.hash.clone()
+    }
 }
 
 #[cfg(feature = "lua")]
@@ -632,6 +658,8 @@ impl LuaUserData for Shaping {
             }
             Ok(result)
         });
+
+        methods.add_method("hash", move |_, this, ()| Ok(this.hash()));
     }
 }
 
@@ -643,7 +671,7 @@ pub struct MergedEntry {
 }
 
 #[cfg(feature = "lua")]
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 struct PartialEntry {
     #[serde(skip)]
     pub domain_name: Option<String>,
@@ -721,6 +749,11 @@ impl PartialEntry {
             sources,
             automation: self.automation,
         })
+    }
+
+    fn hash_into(&self, ctx: &mut Sha256) {
+        self.domain_name.as_ref().map(|name| ctx.update(name));
+        ctx.update(serde_json::to_string(self).unwrap_or_else(|_| String::new()));
     }
 }
 

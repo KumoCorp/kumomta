@@ -214,6 +214,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             config::epoch::eval_globs().await.map_err(any_err)
         })?,
     )?;
+    kumo_mod.set(
+        "bump_config_epoch",
+        lua.create_function(move |_, _: ()| {
+            config::epoch::bump_current_epoch();
+            Ok(())
+        })?,
+    )?;
 
     kumo_mod.set(
         "available_parallelism",

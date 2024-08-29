@@ -194,6 +194,26 @@ local function apply_sched_q_suspension(item)
   end
 end
 
+kumo.on('kumo.tsa.config.monitor', function(args)
+  local last_hash = ''
+  print 'TSA config monitor running'
+  while true do
+    local status, err = pcall(function()
+      local shaping = mod.CONFIGURED.load_shaping_data()
+      local hash = shaping:hash()
+      if last_hash ~= hash then
+        print 'TSA config changed'
+        last_hash = hash
+        kumo.bump_config_epoch()
+      end
+    end)
+    if not status then
+      print('TSA Error, will retry in 30 seconds', status, err)
+    end
+    kumo.sleep(30)
+  end
+end)
+
 local function process_suspension_subscriptions(url)
   -- Generate the websocket URL from the user-provided HTTP URL
   local endpoint =
@@ -331,6 +351,10 @@ function mod:setup_with_automation(options)
           args = { url },
         }
       end
+      kumo.spawn_task {
+        event_name = 'kumo.tsa.config.monitor',
+        args = {},
+      }
     end
   end
 
@@ -358,13 +382,7 @@ function mod:setup_with_automation(options)
     )
     ]]
 
-    -- When using only local files, use the Epoch strategy.
-    -- We'll need to add a websocket push on config changes
-    -- before we can enable this in all cases
-    if
-      (not options.subscribe or #options.subscribe == 0)
-      and not params.refresh_strategy
-    then
+    if not params.refresh_strategy then
       params.refresh_strategy = 'Epoch'
     end
 
