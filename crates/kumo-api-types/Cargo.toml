@@ -41,4 +41,5 @@ uuid = {workspace=true, features=["serde"]}
 
 [dev-dependencies]
 k9 = "0.12"
+tempfile.workspace = true
 tokio = {workspace=true, features=["full"]}

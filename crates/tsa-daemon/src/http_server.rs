@@ -328,7 +328,7 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
         .await
         .context("in tsa_load_shaping_data event")?;
 
-    let matches = shaping.match_rules(&record)?;
+    let matches = shaping.match_rules(&record).await?;
     let record_hash = sha256hex(&record)?;
 
     for m in &matches {
