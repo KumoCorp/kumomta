@@ -71,7 +71,7 @@ lazy_static::lazy_static! {
 
 #[derive(Debug)]
 struct MessageInner {
-    metadata: Option<MetaData>,
+    metadata: Option<Box<MetaData>>,
     data: Arc<Box<[u8]>>,
     flags: MessageFlags,
     num_attempts: u16,
@@ -158,12 +158,12 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(MetaData {
+                    metadata: Some(Box::new(MetaData {
                         sender,
                         recipient,
                         meta,
                         schedule: None,
-                    }),
+                    })),
                     data,
                     flags: MessageFlags::META_DIRTY | MessageFlags::DATA_DIRTY,
                     num_attempts: 0,
@@ -197,7 +197,7 @@ impl Message {
             msg_and_id: Arc::new(MessageWithId {
                 id,
                 inner: Mutex::new(MessageInner {
-                    metadata: Some(metadata),
+                    metadata: Some(Box::new(metadata)),
                     data: NO_DATA.clone(),
                     flags,
                     num_attempts: 0,
@@ -324,7 +324,7 @@ impl Message {
     fn get_meta_if_dirty(&self) -> Option<MetaData> {
         let inner = self.msg_and_id.inner.lock().unwrap();
         if inner.flags.contains(MessageFlags::META_DIRTY) {
-            inner.metadata.clone()
+            inner.metadata.as_ref().map(|md| (**md).clone())
         } else {
             None
         }
@@ -503,7 +503,7 @@ impl Message {
         let mut inner = self.msg_and_id.inner.lock().unwrap();
         let was_not_loaded = inner.metadata.is_none();
         let metadata: MetaData = serde_json::from_slice(&data)?;
-        inner.metadata.replace(metadata);
+        inner.metadata.replace(Box::new(metadata));
         if was_not_loaded {
             META_COUNT.inc();
         }
@@ -1925,5 +1925,12 @@ Body\r
         assert!(due - now >= one_day, "due time is at least 1 day away");
 
         Ok(())
+    }
+
+    #[cfg(all(test, target_pointer_width = "64"))]
+    #[test]
+    fn sizes() {
+        assert_eq!(std::mem::size_of::<Message>(), 8);
+        assert_eq!(std::mem::size_of::<MessageInner>(), 32);
     }
 }
