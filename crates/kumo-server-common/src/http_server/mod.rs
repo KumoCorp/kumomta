@@ -6,12 +6,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
+use axum_streams::{HttpHeaderValue, StreamBodyAsOptions};
 use cidr_map::CidrSet;
 use data_loader::KeySource;
 use kumo_server_runtime::spawn;
-use once_cell::sync::Lazy;
-use prometheus::proto::MetricFamily;
-use prometheus::Histogram;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
@@ -29,14 +27,6 @@ use kumo_api_types::*;
 pub mod auth;
 
 use auth::*;
-
-static GATHER_LATENCY: Lazy<Histogram> = Lazy::new(|| {
-    prometheus::register_histogram!(
-        "metrics_gather_latency",
-        "latency of prometheus metric export gather operation",
-    )
-    .unwrap()
-});
 
 #[derive(OpenApi)]
 #[openapi(
@@ -261,137 +251,23 @@ struct PrometheusMetricsParams {
     prefix: Option<String>,
 }
 
-fn gather_metrics() -> Vec<MetricFamily> {
-    let _timer = GATHER_LATENCY.start_timer();
-    prometheus::default_registry().gather()
-}
-
 async fn report_metrics(
     _: TrustedIpRequired,
     Query(params): Query<PrometheusMetricsParams>,
-) -> Result<String, AppError> {
-    let mut metrics = gather_metrics();
-    if let Some(prefix) = params.prefix {
-        metrics.iter_mut().for_each(|metric| {
-            let name = format!("{prefix}{}", metric.get_name());
-            metric.set_name(name);
-        });
-    }
-    let report = prometheus::TextEncoder::new().encode_to_string(&metrics)?;
-    Ok(report)
+) -> impl IntoResponse {
+    StreamBodyAsOptions::new()
+        .content_type(HttpHeaderValue::from_static("text/plain; charset=utf-8"))
+        .text(kumo_prometheus::registry::Registry::stream_text(
+            params.prefix.clone(),
+        ))
 }
 
-async fn report_metrics_json(_: TrustedIpRequired) -> Result<Json<serde_json::Value>, AppError> {
-    use prometheus::proto::MetricType;
-    use serde_json::{json, Map, Number, Value};
-
-    let mut result = Map::new();
-
-    let metrics = gather_metrics();
-    for mf in metrics {
-        let name = mf.get_name();
-        let help = mf.get_help();
-
-        let mut family = Map::new();
-        let metric_type = mf.get_field_type();
-        family.insert(
-            "type".to_string(),
-            format!("{metric_type:?}").to_lowercase().into(),
-        );
-        if !help.is_empty() {
-            family.insert("help".to_string(), help.into());
-        }
-
-        let mut value = Value::Null;
-
-        fn apply_to_value(
-            value: &mut Value,
-            this_value: Value,
-            label: &[prometheus::proto::LabelPair],
-        ) {
-            if label.is_empty() {
-                *value = this_value;
-            } else if label.len() == 1 {
-                let only_pair = &label[0];
-                if value.is_null() {
-                    let mut map = Map::new();
-                    map.insert(only_pair.get_name().to_string(), json!({}));
-                    *value = Value::Object(map);
-                }
-                let by_label = value
-                    .as_object_mut()
-                    .unwrap()
-                    .entry(only_pair.get_name().to_string())
-                    .or_insert_with(|| json!({}));
-                by_label
-                    .as_object_mut()
-                    .unwrap()
-                    .insert(only_pair.get_value().to_string(), this_value);
-            } else {
-                if value.is_null() {
-                    *value = json!([]);
-                }
-                let mut pairs = Map::new();
-                for p in label {
-                    pairs.insert(p.get_name().to_string(), p.get_value().to_string().into());
-                }
-                pairs.insert("@".to_string(), this_value);
-                value.as_array_mut().unwrap().push(Value::Object(pairs));
-            }
-        }
-
-        for mc in mf.get_metric() {
-            let label = mc.get_label();
-
-            match metric_type {
-                MetricType::COUNTER => {
-                    let this_value = Value::Number(
-                        Number::from_f64(mc.get_counter().get_value()).unwrap_or_else(|| 0.into()),
-                    );
-
-                    apply_to_value(&mut value, this_value, label);
-                }
-                MetricType::GAUGE => {
-                    let this_value = Value::Number(
-                        Number::from_f64(mc.get_gauge().get_value()).unwrap_or_else(|| 0.into()),
-                    );
-
-                    apply_to_value(&mut value, this_value, label);
-                }
-                MetricType::HISTOGRAM => {
-                    let hist = mc.get_histogram();
-
-                    let count = hist.get_sample_count();
-                    let sum = hist.get_sample_sum();
-                    let avg = if count != 0 { sum / count as f64 } else { 0. };
-
-                    let mut bucket = vec![];
-                    for b in hist.get_bucket() {
-                        bucket.push(vec![b.get_upper_bound(), b.get_cumulative_count() as f64]);
-                    }
-
-                    let hist_value = json!({
-                        "count": count,
-                        "sum": sum,
-                        "avg": avg,
-                        "bucket": bucket,
-                    });
-
-                    apply_to_value(&mut value, hist_value, label);
-                }
-                _ => {
-                    // Other types are currently not implemented
-                    // as we don't currently export any other type
-                }
-            }
-        }
-
-        family.insert("value".to_string(), value);
-
-        result.insert(name.to_string(), Value::Object(family));
-    }
-
-    Ok(Json(Value::Object(result)))
+async fn report_metrics_json(_: TrustedIpRequired) -> impl IntoResponse {
+    StreamBodyAsOptions::new()
+        .content_type(HttpHeaderValue::from_static(
+            "application/json; charset=utf-8",
+        ))
+        .text(kumo_prometheus::registry::Registry::stream_json())
 }
 
 /// Changes the diagnostic log filter dynamically.

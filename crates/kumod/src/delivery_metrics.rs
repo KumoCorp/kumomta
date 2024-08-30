@@ -1,4 +1,4 @@
-use kumo_prometheus::{PruningIntCounter, PruningIntGauge};
+use kumo_prometheus::AtomicCounter;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use prometheus::Histogram;
@@ -7,23 +7,23 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct DeliveryMetrics {
-    connection_gauge: PruningIntGauge,
-    global_connection_gauge: PruningIntGauge,
-    connection_total: PruningIntCounter,
-    global_connection_total: PruningIntCounter,
+    connection_gauge: AtomicCounter,
+    global_connection_gauge: AtomicCounter,
+    connection_total: AtomicCounter,
+    global_connection_total: AtomicCounter,
 
-    pub ready_count: PruningIntGauge,
-    pub global_ready_count: PruningIntGauge,
-    pub ready_full: PruningIntCounter,
+    pub ready_count: AtomicCounter,
+    pub global_ready_count: AtomicCounter,
+    pub ready_full: AtomicCounter,
 
-    msgs_delivered: PruningIntCounter,
-    global_msgs_delivered: PruningIntCounter,
+    msgs_delivered: AtomicCounter,
+    global_msgs_delivered: AtomicCounter,
 
-    msgs_transfail: PruningIntCounter,
-    global_msgs_transfail: PruningIntCounter,
+    msgs_transfail: AtomicCounter,
+    global_msgs_transfail: AtomicCounter,
 
-    msgs_fail: PruningIntCounter,
-    global_msgs_fail: PruningIntCounter,
+    msgs_fail: AtomicCounter,
+    global_msgs_fail: AtomicCounter,
 
     pub deliver_message_rollup: Histogram,
 }
@@ -55,12 +55,12 @@ impl DeliveryMetrics {
         // low cardinality (a couple) vs. the potentially unbounded number of service
         // counters that we might create.
         struct GlobalMetrics {
-            global_connection_gauge: PruningIntGauge,
-            global_connection_total: PruningIntCounter,
-            global_ready_count: PruningIntGauge,
-            global_msgs_delivered: PruningIntCounter,
-            global_msgs_transfail: PruningIntCounter,
-            global_msgs_fail: PruningIntCounter,
+            global_connection_gauge: AtomicCounter,
+            global_connection_total: AtomicCounter,
+            global_ready_count: AtomicCounter,
+            global_msgs_delivered: AtomicCounter,
+            global_msgs_transfail: AtomicCounter,
+            global_msgs_fail: AtomicCounter,
         }
 
         static GLOBALS: Lazy<Mutex<HashMap<String, Arc<GlobalMetrics>>>> =
@@ -119,8 +119,8 @@ impl DeliveryMetrics {
     }
 
     pub fn inc_transfail_by(&self, amount: usize) {
-        self.msgs_transfail.inc_by(amount as u64);
-        self.global_msgs_transfail.inc_by(amount as u64);
+        self.msgs_transfail.inc_by(amount);
+        self.global_msgs_transfail.inc_by(amount);
     }
 
     pub fn inc_fail(&self) {
@@ -129,8 +129,8 @@ impl DeliveryMetrics {
     }
 
     pub fn inc_fail_by(&self, amount: usize) {
-        self.msgs_fail.inc_by(amount as u64);
-        self.global_msgs_fail.inc_by(amount as u64);
+        self.msgs_fail.inc_by(amount);
+        self.global_msgs_fail.inc_by(amount);
     }
 
     pub fn inc_delivered(&self) {

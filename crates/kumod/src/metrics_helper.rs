@@ -1,73 +1,61 @@
-use kumo_prometheus::{
-    PruningIntCounter, PruningIntCounterVec, PruningIntGauge, PruningIntGaugeVec,
-};
+use kumo_prometheus::{label_key, AtomicCounter, CounterRegistry, PruningCounterRegistry};
 use once_cell::sync::Lazy;
-use prometheus::{Histogram, HistogramVec, IntCounter, IntCounterVec};
+use prometheus::{Histogram, HistogramVec, IntCounter};
 
-pub static CONN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
-        "connection_count",
-        "number of active connections",
-        &["service"],
-    )
+label_key! {
+    pub struct ServiceKey {
+        pub service: String,
+    }
+}
+
+pub static CONN_GAUGE: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge("connection_count", "number of active connections")
 });
-pub static CONN_DENIED: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static CONN_DENIED: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "total_connections_denied",
         "total number of connections rejected due to load shedding or concurrency limits",
-        &["service"],
     )
 });
 
-pub static TOTAL_CONN: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static TOTAL_CONN: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "total_connection_count",
         "total number of active connections ever made",
-        &["service"],
     )
 });
 
-pub static TOTAL_MSGS_DELIVERED: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static TOTAL_MSGS_DELIVERED: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "total_messages_delivered",
         "total number of messages ever delivered",
-        &["service"],
     )
 });
-pub static TOTAL_MSGS_TRANSFAIL: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static TOTAL_MSGS_TRANSFAIL: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "total_messages_transfail",
         "total number of message delivery attempts that transiently failed",
-        &["service"],
     )
 });
-pub static TOTAL_MSGS_FAIL: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static TOTAL_MSGS_FAIL: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "total_messages_fail",
         "total number of message delivery attempts that permanently failed",
-        &["service"],
     )
 });
-pub static READY_COUNT_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
-        "ready_count",
-        "number of messages in the ready queue",
-        &["service"],
-    )
+pub static READY_COUNT_GAUGE: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register("ready_count", "number of messages in the ready queue")
 });
-pub static TOTAL_MSGS_RECVD: Lazy<IntCounterVec> = Lazy::new(|| {
-    prometheus::register_int_counter_vec!(
+pub static TOTAL_MSGS_RECVD: Lazy<CounterRegistry<ServiceKey>> = Lazy::new(|| {
+    CounterRegistry::register(
         "total_messages_received",
         "total number of messages ever received",
-        &["service"],
     )
-    .unwrap()
 });
-pub static READY_FULL_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static READY_FULL_COUNTER: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register(
         "ready_full",
         "number of times a message could not fit in the ready queue",
-        &["service"],
     )
 });
 pub static DELIVER_MESSAGE_LATENCY_ROLLUP: Lazy<HistogramVec> = Lazy::new(|| {
@@ -92,38 +80,47 @@ pub fn deliver_message_rollup_for_service(service: &str) -> Histogram {
         .unwrap()
 }
 
-pub fn connection_denied_for_service(service: &str) -> PruningIntCounter {
-    CONN_DENIED.with_label_values(&[service])
+pub fn connection_denied_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    CONN_DENIED.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn ready_full_counter_for_service(service: &str) -> PruningIntCounter {
-    READY_FULL_COUNTER.with_label_values(&[service])
+pub fn ready_full_counter_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    READY_FULL_COUNTER.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn ready_count_gauge_for_service(service: &str) -> PruningIntGauge {
-    READY_COUNT_GAUGE.with_label_values(&[service])
+pub fn ready_count_gauge_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    READY_COUNT_GAUGE.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn connection_gauge_for_service(service: &str) -> PruningIntGauge {
-    CONN_GAUGE.with_label_values(&[service])
+pub fn connection_gauge_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    CONN_GAUGE.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn connection_total_for_service(service: &str) -> PruningIntCounter {
-    TOTAL_CONN.with_label_values(&[service])
+pub fn connection_total_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    TOTAL_CONN.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn total_msgs_received_for_service(service: &str) -> IntCounter {
-    TOTAL_MSGS_RECVD.with_label_values(&[service])
+pub fn total_msgs_received_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    TOTAL_MSGS_RECVD.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn total_msgs_delivered_for_service(service: &str) -> PruningIntCounter {
-    TOTAL_MSGS_DELIVERED.with_label_values(&[service])
+pub fn total_msgs_delivered_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    TOTAL_MSGS_DELIVERED.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn total_msgs_transfail_for_service(service: &str) -> PruningIntCounter {
-    TOTAL_MSGS_TRANSFAIL.with_label_values(&[service])
+pub fn total_msgs_transfail_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    TOTAL_MSGS_TRANSFAIL.get_or_create(&service as &dyn ServiceKeyTrait)
 }
 
-pub fn total_msgs_fail_for_service(service: &str) -> PruningIntCounter {
-    TOTAL_MSGS_FAIL.with_label_values(&[service])
+pub fn total_msgs_fail_for_service(service: &str) -> AtomicCounter {
+    let service = BorrowedServiceKey { service };
+    TOTAL_MSGS_FAIL.get_or_create(&service as &dyn ServiceKeyTrait)
 }

@@ -1,100 +1,111 @@
-use crate::labels::Labels;
-use prometheus::core::{Collector, Desc};
-use prometheus::proto::MetricFamily;
-use prometheus::{IntCounter, IntCounterVec, Opts};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
 
-/// Vends out labelled IntCounters that will automatically remove themselves
-/// when they are no longer referenced.
+/// This trait enables having prunable and non-pruning value types
+/// in the CounterRegistry.
+pub trait AtomicCounterEntry: Send + Sync {
+    /// resolve this entry to an AtomicCounter instance
+    fn resolve(&self) -> Option<AtomicCounter>;
+    /// Given a new strong AtomicCounter reference, return Self
+    /// suitable for storing in the counter registry
+    fn make_storable(strong: &AtomicCounter) -> Self;
+    /// Indicate whether this type of value requires pruning the
+    /// containing counter registry
+    fn needs_pruning() -> bool;
+}
+
 #[derive(Clone)]
-pub struct PruningIntCounterVec {
-    gauges: IntCounterVec,
-    labels: Arc<Mutex<HashMap<Labels, Weak<()>>>>,
-}
+pub struct WeakAtomicCounter(Weak<AtomicUsize>);
 
-impl PruningIntCounterVec {
-    pub fn register(name: &str, help: &str, label_names: &[&str]) -> Self {
-        let me = Self {
-            gauges: IntCounterVec::new(Opts::new(name, help), label_names)
-                .expect("create IntCounterVec failed"),
-            labels: Arc::new(Mutex::new(HashMap::new())),
-        };
-
-        prometheus::register(Box::new(me.clone())).expect("register PruningIntCounterVec failed");
-
-        me
-    }
-
-    pub fn with_label_values(&self, labels: &[&str]) -> PruningIntCounter {
-        let label_key = Labels::new(labels);
-        let mut label_mgr = self.labels.lock().unwrap();
-        let label_ref = match label_mgr.get(&label_key).and_then(|weak| weak.upgrade()) {
-            Some(entry) => entry,
-            None => {
-                let strong = Arc::new(());
-                label_mgr.insert(label_key, Arc::downgrade(&strong));
-                strong
-            }
-        };
-
-        PruningIntCounter {
-            gauge: self.gauges.with_label_values(labels),
-            _label_ref: label_ref,
-        }
-    }
-
-    /// The values in the labels map are Weak refs to the corresponding
-    /// strong ref maintained in the wrapped individual counter that we
-    /// hand out.
-    /// The weak ref is upgradable to the strong ref while there are
-    /// any live counter references in existence, but not when they
-    /// are all out of scope.
-    /// This prune method uses that fact to prune out unreachable
-    /// metrics, reducing the size of the generated metrics for
-    /// the endpoint.
-    pub fn prune_dead(&self) {
-        self.labels
-            .lock()
-            .unwrap()
-            .retain(|labels, weak| match weak.upgrade() {
-                Some(_) => true,
-                None => {
-                    self.gauges
-                        .remove_label_values(&labels.labels_ref())
-                        .unwrap();
-                    false
-                }
-            });
+impl WeakAtomicCounter {
+    pub fn upgrade(&self) -> Option<AtomicCounter> {
+        Some(AtomicCounter(self.0.upgrade()?))
     }
 }
 
-impl Collector for PruningIntCounterVec {
-    fn desc(&self) -> Vec<&Desc> {
-        self.gauges.desc()
+/// WeakAtomicCounter stores values as weak references and thus
+/// requires pruning.
+impl AtomicCounterEntry for WeakAtomicCounter {
+    fn resolve(&self) -> Option<AtomicCounter> {
+        self.upgrade()
     }
-    fn collect(&self) -> Vec<MetricFamily> {
-        self.prune_dead();
-        self.gauges.collect()
+
+    fn make_storable(strong: &AtomicCounter) -> WeakAtomicCounter {
+        strong.weak()
+    }
+
+    fn needs_pruning() -> bool {
+        true
     }
 }
 
 #[derive(Clone)]
-pub struct PruningIntCounter {
-    gauge: IntCounter,
-    _label_ref: Arc<()>,
+pub struct AtomicCounter(Arc<AtomicUsize>);
+
+/// AtomicCounter is a direct store of the underlying counter value.
+/// No pruning is required for this type of value.
+impl AtomicCounterEntry for AtomicCounter {
+    fn resolve(&self) -> Option<AtomicCounter> {
+        Some(self.clone())
+    }
+
+    fn make_storable(strong: &AtomicCounter) -> AtomicCounter {
+        strong.clone()
+    }
+
+    fn needs_pruning() -> bool {
+        false
+    }
 }
 
-impl std::fmt::Debug for PruningIntCounter {
+impl std::fmt::Debug for AtomicCounter {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        fmt.debug_struct("PruningIntCounter").finish()
+        fmt.debug_struct("AtomicCounter").finish()
     }
 }
 
-impl std::ops::Deref for PruningIntCounter {
-    type Target = IntCounter;
+impl AtomicCounter {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicUsize::new(0)))
+    }
 
-    fn deref(&self) -> &IntCounter {
-        &self.gauge
+    pub fn weak(&self) -> WeakAtomicCounter {
+        WeakAtomicCounter(Arc::downgrade(&self.0))
+    }
+
+    #[inline]
+    pub fn get(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set(&self, v: usize) {
+        self.0.store(v, Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn inc(&self) {
+        self.inc_by(1);
+    }
+
+    #[inline]
+    pub fn inc_by(&self, n: usize) {
+        self.0.fetch_add(n, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn dec(&self) {
+        self.sub(1);
+    }
+
+    #[inline]
+    pub fn sub(&self, n: usize) {
+        self.0.fetch_sub(n, Ordering::Relaxed);
+    }
+}
+
+impl Default for AtomicCounter {
+    fn default() -> Self {
+        Self::new()
     }
 }

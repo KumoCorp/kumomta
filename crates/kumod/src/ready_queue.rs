@@ -18,7 +18,7 @@ use config::{load_config, CallbackSignature};
 use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
-use kumo_prometheus::PruningIntGauge;
+use kumo_prometheus::AtomicCounter;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
@@ -53,12 +53,12 @@ pub fn set_readyq_threads(n: usize) {
 
 pub struct Fifo {
     queue: ArcSwap<ArrayQueue<Message>>,
-    count: PruningIntGauge,
-    global_count: PruningIntGauge,
+    count: AtomicCounter,
+    global_count: AtomicCounter,
 }
 
 impl Fifo {
-    pub fn new(capacity: usize, count: PruningIntGauge, global_count: PruningIntGauge) -> Self {
+    pub fn new(capacity: usize, count: AtomicCounter, global_count: AtomicCounter) -> Self {
         Self {
             queue: Arc::new(ArrayQueue::new(capacity)).into(),
             count,
@@ -88,8 +88,8 @@ impl Fifo {
         while let Some(msg) = queue.pop() {
             messages.push(msg);
         }
-        self.count.sub(messages.len() as i64);
-        self.global_count.sub(messages.len() as i64);
+        self.count.sub(messages.len());
+        self.global_count.sub(messages.len());
         messages
     }
 
@@ -121,8 +121,8 @@ impl Fifo {
                 messages.push(msg);
             }
         }
-        self.count.sub(messages.len() as i64);
-        self.global_count.sub(messages.len() as i64);
+        self.count.sub(messages.len());
+        self.global_count.sub(messages.len());
         messages
     }
 

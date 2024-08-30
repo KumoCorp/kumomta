@@ -13,9 +13,7 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
 use kumo_api_types::egress_path::ConfigRefreshStrategy;
-use kumo_prometheus::{
-    PruningIntCounter, PruningIntCounterVec, PruningIntGauge, PruningIntGaugeVec,
-};
+use kumo_prometheus::{label_key, AtomicCounter, PruningCounterRegistry};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
@@ -69,55 +67,85 @@ lazy_static::lazy_static! {
     static ref SINGLETON_WHEEL: Arc<StdMutex<TimeQ<WeakMessage>>> = Arc::new(StdMutex::new(TimeQ::new()));
 }
 
-static DELAY_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
+static TOTAL_DELAY_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
+    prometheus::register_int_gauge!(
+        "scheduled_count_total",
+        "toal number of messages across all scheduled queues",
+    )
+    .unwrap()
+});
+
+label_key! {
+    pub struct QueueKey {
+        pub queue: String,
+    }
+}
+label_key! {
+    pub struct TenantKey {
+        pub tenant: String,
+    }
+}
+label_key! {
+    pub struct TenantCampaignKey {
+        pub tenant: String,
+        pub campaign: String,
+    }
+}
+label_key! {
+    pub struct DomainKey{
+        pub domain: String,
+    }
+}
+
+static DELAY_GAUGE: Lazy<PruningCounterRegistry<QueueKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
         "scheduled_count",
         "number of messages in the scheduled queue",
-        &["queue"],
     )
 });
-static TENANT_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
+static TENANT_GAUGE: Lazy<PruningCounterRegistry<TenantKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
         "scheduled_by_tenant",
         "number of messages in the scheduled queue for a specific tenant",
-        &["tenant"],
     )
 });
-static TENANT_CAMPAIGN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
+
+static TENANT_CAMPAIGN_GAUGE: Lazy<PruningCounterRegistry<TenantCampaignKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
         "scheduled_by_tenant_campaign",
         "number of messages in the scheduled queue for a specific tenant and campaign combination",
-        &["tenant", "campaign"],
     )
 });
-static DOMAIN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
-    PruningIntGaugeVec::register(
+
+static DOMAIN_GAUGE: Lazy<PruningCounterRegistry<DomainKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
         "scheduled_by_domain",
         "number of messages in the scheduled queue for a specific domain",
-        &["domain"],
     )
 });
-static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
-        "delayed_due_to_ready_queue_full",
-        "number of times a message was delayed due to the corresponding ready queue being full",
-        &["queue"],
-    )
-});
-static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
-        "delayed_due_to_message_rate_throttle",
-        "number of times a message was delayed due to max_message_rate",
-        &["queue"],
-    )
-});
-static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
-        "delayed_due_to_throttle_insert_ready",
-        "number of times a message was delayed due throttle_insert_ready_queue event",
-        &["queue"],
-    )
-});
+
+static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "delayed_due_to_ready_queue_full",
+            "number of times a message was delayed due to the corresponding ready queue being full",
+        )
+    });
+
+static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "delayed_due_to_message_rate_throttle",
+            "number of times a message was delayed due to max_message_rate",
+        )
+    });
+static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "delayed_due_to_throttle_insert_ready",
+            "number of times a message was delayed due throttle_insert_ready_queue event",
+        )
+    });
 static RESOLVE_LATENCY: Lazy<Histogram> = Lazy::new(|| {
     prometheus::register_histogram!(
         "queue_resolve_latency",
@@ -143,29 +171,42 @@ const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
 struct ScheduledMetrics {
     name: Arc<String>,
-    scheduled: PruningIntGauge,
-    by_domain: PruningIntGauge,
-    by_tenant: Option<PruningIntGauge>,
-    by_tenant_campaign: Option<PruningIntGauge>,
-    delay_due_to_message_rate_throttle: OnceCell<PruningIntCounter>,
-    delay_due_to_throttle_insert_ready: OnceCell<PruningIntCounter>,
-    delay_due_to_ready_queue_full: OnceCell<PruningIntCounter>,
+    scheduled: AtomicCounter,
+    by_domain: AtomicCounter,
+    by_tenant: Option<AtomicCounter>,
+    by_tenant_campaign: Option<AtomicCounter>,
+    delay_due_to_message_rate_throttle: OnceCell<AtomicCounter>,
+    delay_due_to_throttle_insert_ready: OnceCell<AtomicCounter>,
+    delay_due_to_ready_queue_full: OnceCell<AtomicCounter>,
 }
 
 impl ScheduledMetrics {
     pub fn new(name: Arc<String>) -> Self {
         let components = QueueNameComponents::parse(&name);
-        let scheduled = DELAY_GAUGE.with_label_values(&[&name]);
 
-        let by_domain = DOMAIN_GAUGE.with_label_values(&[components.domain]);
-        let by_tenant = components
-            .tenant
-            .map(|tenant| TENANT_GAUGE.with_label_values(&[tenant]));
+        let queue_key = BorrowedQueueKey {
+            queue: name.as_str(),
+        };
+        let domain_key = BorrowedDomainKey {
+            domain: components.domain,
+        };
+
+        let scheduled = DELAY_GAUGE.get_or_create(&queue_key as &dyn QueueKeyTrait);
+
+        let by_domain = DOMAIN_GAUGE.get_or_create(&domain_key as &dyn DomainKeyTrait);
+
+        let by_tenant = components.tenant.map(|tenant| {
+            let tenant_key = BorrowedTenantKey { tenant };
+            TENANT_GAUGE.get_or_create(&tenant_key as &dyn TenantKeyTrait)
+        });
         let by_tenant_campaign = match &components.campaign {
-            Some(campaign) => Some(TENANT_CAMPAIGN_GAUGE.with_label_values(&[
-                components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
-                campaign,
-            ])),
+            Some(campaign) => {
+                let key = BorrowedTenantCampaignKey {
+                    tenant: components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
+                    campaign,
+                };
+                Some(TENANT_CAMPAIGN_GAUGE.get_or_create(&key as &dyn TenantCampaignKeyTrait))
+            }
             None => None,
         };
 
@@ -181,29 +222,42 @@ impl ScheduledMetrics {
         }
     }
 
-    pub fn delay_due_to_message_rate_throttle(&self) -> &PruningIntCounter {
+    pub fn delay_due_to_message_rate_throttle(&self) -> &AtomicCounter {
         self.delay_due_to_message_rate_throttle.get_or_init(|| {
-            DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER.with_label_values(&[&self.name])
+            let key = BorrowedQueueKey {
+                queue: self.name.as_str(),
+            };
+            DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER.get_or_create(&key as &dyn QueueKeyTrait)
         })
     }
-    pub fn delay_due_to_throttle_insert_ready(&self) -> &PruningIntCounter {
+    pub fn delay_due_to_throttle_insert_ready(&self) -> &AtomicCounter {
         self.delay_due_to_throttle_insert_ready.get_or_init(|| {
-            DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER.with_label_values(&[&self.name])
+            let key = BorrowedQueueKey {
+                queue: self.name.as_str(),
+            };
+            DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER.get_or_create(&key as &dyn QueueKeyTrait)
         })
     }
-    pub fn delay_due_to_ready_queue_full(&self) -> &PruningIntCounter {
-        self.delay_due_to_ready_queue_full
-            .get_or_init(|| DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER.with_label_values(&[&self.name]))
+    pub fn delay_due_to_ready_queue_full(&self) -> &AtomicCounter {
+        self.delay_due_to_ready_queue_full.get_or_init(|| {
+            let key = BorrowedQueueKey {
+                queue: self.name.as_str(),
+            };
+
+            DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER.get_or_create(&key as &dyn QueueKeyTrait)
+        })
     }
 
     pub fn inc(&self) {
+        TOTAL_DELAY_GAUGE.inc();
         self.scheduled.inc();
         self.by_domain.inc();
         self.by_tenant.as_ref().map(|m| m.inc());
         self.by_tenant_campaign.as_ref().map(|m| m.inc());
     }
 
-    pub fn sub(&self, amount: i64) {
+    pub fn sub(&self, amount: usize) {
+        TOTAL_DELAY_GAUGE.sub(amount as i64);
         self.scheduled.sub(amount);
         self.by_domain.sub(amount);
         self.by_tenant.as_ref().map(|m| m.sub(amount));
@@ -1043,7 +1097,7 @@ impl Queue {
     fn drain_timeq(&self) -> Vec<Message> {
         let msgs = self.queue.drain();
         if !msgs.is_empty() {
-            self.metrics().sub(msgs.len() as i64);
+            self.metrics().sub(msgs.len());
             // Wake the maintainer so that it can see that the queue is
             // now empty and decide what it wants to do next.
             self.notify_maintainer.notify_one();
@@ -1993,7 +2047,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             };
 
             if !messages.is_empty() {
-                q.metrics().sub(messages.len() as i64);
+                q.metrics().sub(messages.len());
                 tracing::debug!("{} {} msgs are now ready", q.name, messages.len());
 
                 for msg in messages {
