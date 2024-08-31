@@ -15,6 +15,7 @@ use prometheus::Histogram;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
+use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
@@ -149,6 +150,11 @@ impl HttpListenerParams {
     pub async fn start(self, router_and_docs: RouterAndDocs) -> anyhow::Result<()> {
         let api_docs = router_and_docs.make_docs();
 
+        let compression_layer: CompressionLayer = CompressionLayer::new()
+            .deflate(true)
+            .gzip(true)
+            .quality(tower_http::CompressionLevel::Fastest);
+
         let app = router_and_docs
             .router
             .layer(DefaultBodyLimit::max(
@@ -169,6 +175,7 @@ impl HttpListenerParams {
                 },
                 auth_middleware,
             ))
+            .layer(compression_layer)
             .layer(TraceLayer::new_for_http());
         let socket = TcpListener::bind(&self.listen)
             .with_context(|| format!("listen on {}", self.listen))?;
