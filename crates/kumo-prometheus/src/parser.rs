@@ -51,6 +51,10 @@ impl InternString {
     pub fn new(s: &str) -> Self {
         Self(Arc::new(s.to_string()))
     }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 impl AsRef<str> for InternString {
@@ -316,6 +320,14 @@ impl Metric {
             Self::Counter(c) => &c.labels,
             Self::Gauge(g) => &g.labels,
             Self::Histogram(h) => &h.labels,
+        }
+    }
+
+    pub fn value(&self) -> f64 {
+        match self {
+            Self::Counter(c) => c.value,
+            Self::Gauge(g) => g.value,
+            Self::Histogram(h) => h.sum / h.count,
         }
     }
 

@@ -130,7 +130,7 @@ struct DiffState {
 
 impl State {
     async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
-        match crate::queue_summary::obtain_metrics(endpoint, true).await {
+        match crate::queue_summary::obtain_metrics(endpoint).await {
             Ok(metrics) => {
                 self.error.clear();
 

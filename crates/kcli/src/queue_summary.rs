@@ -1,6 +1,8 @@
 use clap::Parser;
 use dns_resolver::MailExchanger;
+use futures::StreamExt;
 use kumo_api_types::{BounceV1ListEntry, SuspendReadyQueueV1ListEntry, SuspendV1ListEntry};
+use kumo_prometheus::parser::Metric;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
 use ordermap::OrderMap;
@@ -612,9 +614,128 @@ fn parse_dynamic(metrics: serde_json::Value) -> anyhow::Result<DynamicMetrics> {
     Ok(metrics)
 }
 
-pub struct ProcessedMetrics {
+pub async fn get_metrics<T, F: FnMut(&Metric) -> Option<T>>(
+    endpoint: &Url,
+    mut filter_map: F,
+) -> anyhow::Result<Vec<T>> {
+    let mut parser = kumo_prometheus::parser::Parser::new();
+    let mut stream = crate::request_with_streaming_text_response(
+        reqwest::Method::GET,
+        endpoint.join("/metrics")?,
+        &(),
+    )
+    .await?;
+
+    let mut result = vec![];
+    while let Some(item) = stream.next().await {
+        let bytes = item?;
+        parser.push_bytes(bytes, false, |m| {
+            if let Some(r) = (filter_map)(&m) {
+                result.push(r);
+            }
+        })?;
+    }
+
+    Ok(result)
+}
+
+pub struct QueueMetricsParams {
+    pub by_volume: bool,
+    pub limit: usize,
+}
+
+pub struct QueueMetrics {
     pub ready: Vec<ReadyQueueMetrics>,
     pub scheduled: Vec<ScheduledQueueMetrics>,
+}
+
+impl QueueMetrics {
+    pub async fn obtain(endpoint: &Url, params: QueueMetricsParams) -> anyhow::Result<Self> {
+        let mut ready = HashMap::new();
+        let mut scheduled: HashMap<String, ScheduledQueueMetrics> = HashMap::new();
+        let _: Vec<()> = get_metrics(endpoint, |m| {
+            let name = m.name().as_str();
+            match name {
+                "connection_count" | "delivered_count" | "transfail_count" | "ready_count" => {
+                    if let Some(service) = m.labels().get("service") {
+                        if let Some((_protocol, queue_name)) = service.split_once(":") {
+                            let value = m.value() as usize;
+
+                            let entry = ready
+                                .entry(queue_name.to_string())
+                                .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
+                            match name {
+                                "connection_count" => {
+                                    entry.connection_count += value;
+                                }
+                                "delivered_count" => {
+                                    entry.delivered += value;
+                                }
+                                "transfail_count" => {
+                                    entry.transfail += value;
+                                }
+                                "ready_count" => {
+                                    entry.queue_size += value;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "scheduled_count" => {
+                    if let Some(queue) = m.labels().get("queue") {
+                        let queue_size = m.value() as usize;
+
+                        if params.by_volume && scheduled.len() == params.limit {
+                            scheduled.retain(|_k, entry| entry.queue_size > queue_size);
+                        }
+
+                        if scheduled.len() <= params.limit {
+                            let entry = scheduled
+                                .entry(queue.to_string())
+                                .or_insert_with(|| ScheduledQueueMetrics::with_name(queue));
+                            entry.queue_size += queue_size;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            None
+        })
+        .await?;
+
+        let mut ready_metrics: Vec<ReadyQueueMetrics> =
+            ready.into_iter().map(|(_k, v)| v).collect();
+
+        if params.by_volume {
+            ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
+                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
+                ordering => ordering,
+            });
+        } else {
+            ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
+        }
+
+        let mut scheduled_metrics: Vec<ScheduledQueueMetrics> =
+            scheduled.into_iter().map(|(_k, v)| v).collect();
+
+        if params.by_volume {
+            scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
+                Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
+                ordering => ordering,
+            });
+        } else {
+            scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
+        }
+
+        Ok(Self {
+            ready: ready_metrics,
+            scheduled: scheduled_metrics,
+        })
+    }
+}
+
+pub struct ProcessedMetrics {
     pub thread_pools: Vec<ThreadPoolMetrics>,
     pub latency: Vec<LatencyMetrics>,
     pub raw: Metrics,
@@ -622,7 +743,7 @@ pub struct ProcessedMetrics {
     pub dynamic: DynamicMetrics,
 }
 
-pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<ProcessedMetrics> {
+pub async fn obtain_metrics(endpoint: &Url) -> anyhow::Result<ProcessedMetrics> {
     let result: serde_json::Value = crate::request_with_json_response(
         reqwest::Method::GET,
         endpoint.join("/metrics.json")?,
@@ -632,82 +753,6 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
 
     let dynamic = parse_dynamic(result.clone())?;
     let result: Metrics = serde_json::from_value(result)?;
-
-    let mut ready_metrics = HashMap::new();
-    if let Some(conn_count) = &result.connection_count {
-        for (service, &count) in conn_count.value.service.iter() {
-            if let Some((_protocol, queue_name)) = service.split_once(':') {
-                let entry = ready_metrics
-                    .entry(queue_name)
-                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                entry.connection_count += count as usize;
-            }
-        }
-    }
-    if let Some(delivered_count) = &result.total_messages_delivered {
-        for (service, &count) in delivered_count.value.service.iter() {
-            if let Some((_protocol, queue_name)) = service.split_once(':') {
-                let entry = ready_metrics
-                    .entry(queue_name)
-                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                entry.delivered += count as usize;
-            }
-        }
-    }
-    if let Some(transfail_count) = &result.total_messages_transfail {
-        for (service, &count) in transfail_count.value.service.iter() {
-            if let Some((_protocol, queue_name)) = service.split_once(':') {
-                let entry = ready_metrics
-                    .entry(queue_name)
-                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                entry.transfail += count as usize;
-            }
-        }
-    }
-    if let Some(ready_count) = &result.ready_count {
-        for (service, &count) in ready_count.value.service.iter() {
-            if let Some((_protocol, queue_name)) = service.split_once(':') {
-                let entry = ready_metrics
-                    .entry(queue_name)
-                    .or_insert_with(|| ReadyQueueMetrics::with_name(queue_name));
-                entry.queue_size += count as usize;
-            }
-        }
-    }
-
-    let mut ready_metrics: Vec<ReadyQueueMetrics> =
-        ready_metrics.into_iter().map(|(_k, v)| v).collect();
-
-    if by_volume {
-        ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
-            Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
-            ordering => ordering,
-        });
-    } else {
-        ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
-    }
-
-    let mut scheduled_metrics = HashMap::new();
-    if let Some(item) = &result.scheduled_count {
-        for (domain, &count) in item.value.queue.iter() {
-            let entry = scheduled_metrics
-                .entry(domain)
-                .or_insert_with(|| ScheduledQueueMetrics::with_name(domain));
-            entry.queue_size += count as usize;
-        }
-    }
-
-    let mut scheduled_metrics: Vec<ScheduledQueueMetrics> =
-        scheduled_metrics.into_iter().map(|(_k, v)| v).collect();
-
-    if by_volume {
-        scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
-            Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),
-            ordering => ordering,
-        });
-    } else {
-        scheduled_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
-    }
 
     let thread_pools = match (&result.thread_pool_size, &result.thread_pool_parked) {
         (Some(sizes), Some(values)) => sizes
@@ -729,8 +774,6 @@ pub async fn obtain_metrics(endpoint: &Url, by_volume: bool) -> anyhow::Result<P
     }
 
     Ok(ProcessedMetrics {
-        ready: ready_metrics,
-        scheduled: scheduled_metrics,
         raw: result,
         thread_pools,
         latency,
@@ -761,7 +804,14 @@ impl QueueSummaryCommand {
         )
         .await?;
 
-        let mut metrics = obtain_metrics(endpoint, self.by_volume).await?;
+        let mut metrics = QueueMetrics::obtain(
+            endpoint,
+            QueueMetricsParams {
+                by_volume: self.by_volume,
+                limit: self.limit.unwrap_or(usize::MAX),
+            },
+        )
+        .await?;
 
         if let Some(domain) = &self.domain {
             let mx = MailExchanger::resolve(domain).await?;

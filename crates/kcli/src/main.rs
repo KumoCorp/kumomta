@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::{Parser, ValueEnum};
+use futures::Stream;
 use reqwest::Url;
 use std::time::Duration;
 
@@ -186,6 +187,22 @@ pub async fn request_with_text_response<T: reqwest::IntoUrl, B: serde::Serialize
     }
 
     Ok(body_text.to_string())
+}
+
+pub async fn request_with_streaming_text_response<T: reqwest::IntoUrl, B: serde::Serialize>(
+    method: reqwest::Method,
+    url: T,
+    body: &B,
+) -> anyhow::Result<impl Stream<Item = reqwest::Result<bytes::Bytes>>> {
+    let response = reqwest::Client::builder()
+        .timeout(TIMEOUT)
+        .build()?
+        .request(method, url)
+        .json(body)
+        .send()
+        .await?;
+
+    Ok(response.bytes_stream())
 }
 
 pub async fn request_with_json_response<
