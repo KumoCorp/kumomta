@@ -10,7 +10,7 @@ use ratatui::symbols::bar::NINE_LEVELS;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, RenderDirection, WidgetRef, Wrap};
 use ratatui::Terminal;
 use reqwest::Url;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::time::{Instant, MissedTickBehavior};
@@ -38,7 +38,98 @@ impl TopCommand {
         let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
 
         let mut rx = self.spawn_ticker().await?;
-        let mut state = State::default();
+        let mut state = State {
+            time_series: HashMap::new(),
+            factories: vec![],
+
+            error: String::new(),
+        };
+
+        state.factories.push(Box::new(ThreadPoolFactory {}));
+        state.factories.push(Box::new(HistogramEventFreqFactory {}));
+        state.factories.push(Box::new(HistogramEventAvgFactory {}));
+
+        state.add_series(
+            "message_count",
+            TimeSeries::new(DirectAccumulator::new("message_count")),
+        );
+        state.add_series(
+            "message_data_resident_count",
+            TimeSeries::new(DirectAccumulator::new("message_data_resident_count")),
+        );
+        state.add_series(
+            "memory_usage",
+            TimeSeries::new(DirectAccumulator::new("memory_usage")),
+        );
+        state.add_series(
+            "scheduled_count_total",
+            TimeSeries::new(DirectAccumulator::new("scheduled_count_total")),
+        );
+        state.add_series(
+            "ready_count",
+            TimeSeries::new(SummingAccumulator::new("ready_count")),
+        );
+        state.add_series(
+            "total_messages_delivered_rate",
+            TimeSeries::new(RateAccumulator::new(
+                DirectAccumulator::new_with_label_match(
+                    "total_messages_delivered",
+                    "service",
+                    "smtp_client",
+                ),
+            )),
+        );
+        state.add_series(
+            "total_messages_transfail_rate",
+            TimeSeries::new(RateAccumulator::new(
+                DirectAccumulator::new_with_label_match(
+                    "total_messages_transfail",
+                    "service",
+                    "smtp_client",
+                ),
+            )),
+        );
+        state.add_series(
+            "total_messages_fail_rate",
+            TimeSeries::new(RateAccumulator::new(
+                DirectAccumulator::new_with_label_match(
+                    "total_messages_fail",
+                    "service",
+                    "smtp_client",
+                ),
+            )),
+        );
+        state.add_series(
+            "total_messages_received_rate",
+            TimeSeries::new(RateAccumulator::new(SumMultipleAccumulator::new(vec![
+                Box::new(DirectAccumulator::new_with_label_match(
+                    "total_messages_received",
+                    "service",
+                    "esmtp_listener",
+                )),
+                Box::new(DirectAccumulator::new_with_label_match(
+                    "total_messages_received",
+                    "service",
+                    "http_listener",
+                )),
+            ]))),
+        );
+        state.add_series(
+            "listener_conns",
+            TimeSeries::new(DirectAccumulator::new_with_label_match(
+                "connection_count",
+                "service",
+                "esmtp_listener",
+            )),
+        );
+        state.add_series(
+            "smtp_conns",
+            TimeSeries::new(DirectAccumulator::new_with_label_match(
+                "connection_count",
+                "service",
+                "smtp_client",
+            )),
+        );
 
         let mut ticker = tokio::time::interval(Duration::from_secs(self.update_interval));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -90,238 +181,445 @@ impl TopCommand {
     }
 }
 
-fn push_value(target: &mut Vec<u64>, value: f64) {
-    target.insert(0, value as u64);
-    target.truncate(1024);
+trait SeriesFactory {
+    /// Returns the series name that should be created for this metric
+    fn matches(&self, metric: &Metric) -> Option<String>;
+    /// Constructs the appropriate series for this metric
+    fn factory(&self, series_name: &str, metric: &Metric) -> TimeSeries;
 }
 
-#[derive(Default)]
+trait Accumulator {
+    fn accumulate(&mut self, metric: &Metric);
+    fn commit(&mut self) -> f64;
+}
+
+struct SeriesChartOptions {
+    name: String,
+    inverted: bool,
+    unit: String,
+}
+
+struct TimeSeries {
+    data: Vec<u64>,
+    accumulator: Box<dyn Accumulator + 'static>,
+    chart: Option<SeriesChartOptions>,
+}
+
+impl TimeSeries {
+    fn new<A: Accumulator + 'static>(accumulator: A) -> Self {
+        Self {
+            data: vec![],
+            accumulator: Box::new(accumulator),
+            chart: None,
+        }
+    }
+
+    fn set_chart(&mut self, chart: SeriesChartOptions) {
+        self.chart.replace(chart);
+    }
+
+    fn accumulate(&mut self, metric: &Metric) {
+        self.accumulator.accumulate(metric);
+    }
+
+    fn commit(&mut self) {
+        let value = self.accumulator.commit();
+        self.data.insert(0, value as u64);
+        self.data.truncate(1024);
+    }
+}
+
+#[allow(unused)]
+enum AccumulatorTarget {
+    Value,
+    HistogramCount,
+    HistogramSum,
+    HistogramQuantile(f64),
+}
+impl AccumulatorTarget {
+    fn get_value(&self, metric: &Metric) -> f64 {
+        match self {
+            AccumulatorTarget::Value => metric.value(),
+            AccumulatorTarget::HistogramCount => metric.as_histogram().count,
+            AccumulatorTarget::HistogramSum => metric.as_histogram().sum,
+            AccumulatorTarget::HistogramQuantile(n) => metric.as_histogram().quantile(*n),
+        }
+    }
+}
+
+struct DirectAccumulator {
+    name: String,
+    label: Option<String>,
+    label_value: Option<String>,
+    value: Option<f64>,
+    target: AccumulatorTarget,
+    scale: f64,
+}
+
+impl DirectAccumulator {
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            label: None,
+            label_value: None,
+            value: None,
+            target: AccumulatorTarget::Value,
+            scale: 1.0,
+        }
+    }
+
+    pub fn new_with_label_match<N: Into<String>, L: Into<String>, V: Into<String>>(
+        name: N,
+        label: L,
+        label_value: V,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            label: Some(label.into()),
+            label_value: Some(label_value.into()),
+            value: None,
+            target: AccumulatorTarget::Value,
+            scale: 1.0,
+        }
+    }
+
+    pub fn set_target(&mut self, target: AccumulatorTarget) {
+        self.target = target;
+    }
+
+    pub fn set_scale(&mut self, scale: f64) {
+        self.scale = scale;
+    }
+}
+
+impl Accumulator for DirectAccumulator {
+    fn accumulate(&mut self, metric: &Metric) {
+        if metric.name().as_str() == self.name.as_str() {
+            match (&self.label, &self.label_value) {
+                (Some(label_name), Some(label_value)) => {
+                    if metric.label_is(label_name, label_value) {
+                        self.value
+                            .replace(self.target.get_value(metric) * self.scale);
+                    }
+                }
+                _ => {
+                    self.value
+                        .replace(self.target.get_value(metric) * self.scale);
+                }
+            }
+        }
+    }
+
+    fn commit(&mut self) -> f64 {
+        self.value.take().unwrap_or(0.0)
+    }
+}
+
+struct SumMultipleAccumulator {
+    accumulators: Vec<Box<dyn Accumulator + 'static>>,
+}
+
+impl SumMultipleAccumulator {
+    pub fn new(accumulators: Vec<Box<dyn Accumulator + 'static>>) -> Self {
+        Self { accumulators }
+    }
+}
+
+impl Accumulator for SumMultipleAccumulator {
+    fn accumulate(&mut self, metric: &Metric) {
+        for a in &mut self.accumulators {
+            a.accumulate(metric);
+        }
+    }
+    fn commit(&mut self) -> f64 {
+        let mut result = 0.0;
+        for a in &mut self.accumulators {
+            result += a.commit();
+        }
+        result
+    }
+}
+
+struct SummingAccumulator {
+    name: String,
+    value: Option<f64>,
+}
+
+impl SummingAccumulator {
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            value: None,
+        }
+    }
+}
+
+impl Accumulator for SummingAccumulator {
+    fn accumulate(&mut self, metric: &Metric) {
+        if metric.name().as_str() == self.name.as_str() {
+            let value = self.value.take().unwrap_or(0.) + metric.value();
+            self.value.replace(value);
+        }
+    }
+
+    fn commit(&mut self) -> f64 {
+        self.value.take().unwrap_or(0.)
+    }
+}
+
+struct RateAccumulator {
+    accumulator: Box<dyn Accumulator + 'static>,
+    prior: Option<(Instant, f64)>,
+}
+
+impl RateAccumulator {
+    pub fn new<A: Accumulator + 'static>(accumulator: A) -> Self {
+        Self {
+            accumulator: Box::new(accumulator),
+            prior: None,
+        }
+    }
+}
+
+impl Accumulator for RateAccumulator {
+    fn accumulate(&mut self, metric: &Metric) {
+        self.accumulator.accumulate(metric);
+    }
+
+    fn commit(&mut self) -> f64 {
+        let value = self.accumulator.commit();
+
+        let result = if let Some((when, prior_value)) = self.prior.take() {
+            let elapsed = when.elapsed().as_secs_f64();
+
+            (value - prior_value) / elapsed
+        } else {
+            0.0
+        };
+
+        self.prior.replace((Instant::now(), value));
+
+        result
+    }
+}
+
+struct ThreadPoolAccumulator {
+    pool: String,
+    size: f64,
+    parked: f64,
+}
+
+impl ThreadPoolAccumulator {
+    fn new(pool: &str) -> Self {
+        Self {
+            pool: pool.to_string(),
+            size: 0.,
+            parked: 0.,
+        }
+    }
+}
+
+impl Accumulator for ThreadPoolAccumulator {
+    fn accumulate(&mut self, metric: &Metric) {
+        match metric.name().as_str() {
+            "thread_pool_size" => {
+                if metric.label_is("pool", &self.pool) {
+                    self.size = metric.value();
+                }
+            }
+            "thread_pool_parked" => {
+                if metric.label_is("pool", &self.pool) {
+                    self.parked = metric.value();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn commit(&mut self) -> f64 {
+        if self.size == 0.0 {
+            0.0
+        } else {
+            let utilization_percent = (100. * (self.size - self.parked)) / self.size;
+            self.parked = self.size;
+            self.size = 0.0;
+            utilization_percent
+        }
+    }
+}
+
+struct ThreadPoolFactory {}
+
+impl SeriesFactory for ThreadPoolFactory {
+    fn matches(&self, metric: &Metric) -> Option<String> {
+        match metric.name().as_str() {
+            "thread_pool_size" | "thread_pool_parked" => {
+                metric.labels().get("pool").map(|s| format!("pool {s}"))
+            }
+            _ => None,
+        }
+    }
+
+    fn factory(&self, series_name: &str, metric: &Metric) -> TimeSeries {
+        let pool = metric.labels().get("pool").unwrap();
+        let mut series = TimeSeries::new(ThreadPoolAccumulator::new(&pool));
+
+        series.set_chart(SeriesChartOptions {
+            name: series_name.to_string(),
+            inverted: false,
+            unit: "%".to_string(),
+        });
+
+        series
+    }
+}
+
+struct HistogramEventFreqFactory {}
+
+impl SeriesFactory for HistogramEventFreqFactory {
+    fn matches(&self, metric: &Metric) -> Option<String> {
+        if metric.is_histogram() {
+            let h = metric.as_histogram();
+
+            let label = match h.labels.values().next() {
+                Some(l) => l.as_str(),
+                None => h.name.as_str(),
+            };
+
+            if label == "init" || label == "pre_init" {
+                return None;
+            }
+
+            Some(format!("freq: {label}"))
+        } else {
+            None
+        }
+    }
+
+    fn factory(&self, series_name: &str, metric: &Metric) -> TimeSeries {
+        let h = metric.as_histogram();
+        let mut count_series = match h.labels.iter().next() {
+            Some((key, value)) => DirectAccumulator::new_with_label_match(
+                metric.name().to_string(),
+                key.to_string(),
+                value.to_string(),
+            ),
+            None => DirectAccumulator::new(metric.name().to_string()),
+        };
+        count_series.set_target(AccumulatorTarget::HistogramCount);
+
+        let mut series = TimeSeries::new(RateAccumulator::new(count_series));
+
+        series.set_chart(SeriesChartOptions {
+            name: series_name.to_string(),
+            inverted: false,
+            unit: "/s".to_string(),
+        });
+
+        series
+    }
+}
+
+struct HistogramEventAvgFactory {}
+
+impl SeriesFactory for HistogramEventAvgFactory {
+    fn matches(&self, metric: &Metric) -> Option<String> {
+        if metric.is_histogram() {
+            let h = metric.as_histogram();
+
+            let label = match h.labels.values().next() {
+                Some(l) => l.as_str(),
+                None => h.name.as_str(),
+            };
+
+            if label == "init" || label == "pre_init" {
+                return None;
+            }
+
+            Some(format!("avg: {label}"))
+        } else {
+            None
+        }
+    }
+
+    fn factory(&self, series_name: &str, metric: &Metric) -> TimeSeries {
+        let h = metric.as_histogram();
+        let mut count_series = match h.labels.iter().next() {
+            Some((key, value)) => DirectAccumulator::new_with_label_match(
+                metric.name().to_string(),
+                key.to_string(),
+                value.to_string(),
+            ),
+            None => DirectAccumulator::new(metric.name().to_string()),
+        };
+        // The "Value" of a histogram is sum / count which == avg over its lifetime
+        count_series.set_target(AccumulatorTarget::Value);
+        count_series.set_scale(1_000_000.0);
+
+        let mut series = TimeSeries::new(count_series);
+
+        series.set_chart(SeriesChartOptions {
+            name: series_name.to_string(),
+            inverted: false,
+            unit: "us".to_string(),
+        });
+
+        series
+    }
+}
 struct State {
-    message_count: Vec<u64>,
-    message_data_resident: Vec<u64>,
-    message_meta_resident: Vec<u64>,
-    listener_conns: Vec<u64>,
-    smtp_conns: Vec<u64>,
-
-    received: Vec<u64>,
-    delivered: Vec<u64>,
-    transfail: Vec<u64>,
-    fail: Vec<u64>,
-
-    diff_state: Option<DiffState>,
-
-    scheduled: Vec<u64>,
-    ready: Vec<u64>,
-    memory: Vec<u64>,
+    time_series: HashMap<String, TimeSeries>,
+    factories: Vec<Box<dyn SeriesFactory + 'static>>,
     error: String,
-
-    thread_pools: BTreeMap<String, Vec<u64>>,
-    latency_avg: BTreeMap<String, Vec<u64>>,
-    latency_p90: BTreeMap<String, Vec<u64>>,
-    latency_count: BTreeMap<String, Vec<u64>>,
-}
-
-struct DiffState {
-    when: Instant,
-    delivered: f64,
-    received: f64,
-    transfail: f64,
-    fail: f64,
-    latency: BTreeMap<String, f64>,
 }
 
 impl State {
-    async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
-        let mut delivered = 0.;
-        let mut transfail = 0.;
-        let mut fail = 0.;
-        let mut received = 0.;
-        let mut latency = BTreeMap::new();
-        let mut ready = 0.;
-
-        #[derive(Default)]
-        struct ThreadPoolMetrics {
-            size: f64,
-            parked: f64,
+    fn accumulate_series(&mut self, metric: &Metric) {
+        let mut new_series = vec![];
+        for factory in &self.factories {
+            if let Some(name) = factory.matches(metric) {
+                if !self.time_series.contains_key(&name) {
+                    let series = factory.factory(&name, metric);
+                    new_series.push((name, series));
+                }
+            }
         }
-        let mut thread_pools = BTreeMap::<String, ThreadPoolMetrics>::new();
+        for (name, series) in new_series {
+            self.add_series(name, series);
+        }
 
+        for series in self.time_series.values_mut() {
+            series.accumulate(metric);
+        }
+    }
+    fn commit_series(&mut self) {
+        for series in self.time_series.values_mut() {
+            series.commit();
+        }
+    }
+
+    fn get_series(&self, name: &str) -> Option<&TimeSeries> {
+        self.time_series.get(name)
+    }
+
+    fn add_series<S: Into<String>>(&mut self, name: S, series: TimeSeries) {
+        self.time_series.insert(name.into(), series);
+    }
+
+    async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
         match get_metrics::<Vec<()>, _>(endpoint, |m| {
-            let name = m.name().as_str();
-            let value = m.value();
-
-            match name {
-                "message_count" => push_value(&mut self.message_count, value),
-                "message_data_resident_count" => push_value(&mut self.message_data_resident, value),
-                "message_meta_resident_count" => push_value(&mut self.message_meta_resident, value),
-                "memory_usage" => push_value(&mut self.memory, value),
-                "total_messages_delivered" => {
-                    if m.label_is("service", "smtp_client") {
-                        delivered = value;
-                    }
-                }
-                "total_messages_transfail" => {
-                    if m.label_is("service", "smtp_client") {
-                        transfail = value;
-                    }
-                }
-                "total_messages_fail" => {
-                    if m.label_is("service", "smtp_client") {
-                        fail = value;
-                    }
-                }
-                "total_messages_received" => {
-                    if m.label_is("service", "esmtp_listener")
-                        || m.label_is("service", "http_listener")
-                    {
-                        received += value;
-                    }
-                }
-                "scheduled_count_total" => {
-                    push_value(&mut self.scheduled, value);
-                }
-                "ready_count" => {
-                    ready += value;
-                }
-                "connection_count" => {
-                    if m.label_is("service", "esmtp_listener") {
-                        push_value(&mut self.listener_conns, value);
-                    }
-                    if m.label_is("service", "smtp_client") {
-                        push_value(&mut self.smtp_conns, value);
-                    }
-                }
-                "thread_pool_size" => {
-                    if let Some(pool) = m.labels().get("pool") {
-                        thread_pools.entry(pool.to_string()).or_default().size = value;
-                    }
-                }
-                "thread_pool_parked" => {
-                    if let Some(pool) = m.labels().get("pool") {
-                        thread_pools.entry(pool.to_string()).or_default().parked = value;
-                    }
-                }
-                _ => match &m {
-                    Metric::Histogram(h) => {
-                        let label = match m.labels().values().next() {
-                            Some(l) => l.as_str().to_string(),
-                            None => h.name.as_str().to_string(),
-                        };
-                        latency.insert(label.clone(), h.count);
-
-                        let avg_entry = self
-                            .latency_avg
-                            .entry(label.clone())
-                            .or_insert_with(Vec::new);
-                        push_value(avg_entry, (h.sum / h.count * 1_000_000.0).ceil());
-
-                        let p90_entry = self
-                            .latency_p90
-                            .entry(label.clone())
-                            .or_insert_with(Vec::new);
-                        push_value(p90_entry, (h.quantile(0.9) * 1_000_000.0).ceil());
-                    }
-                    _ => {}
-                },
-            };
-
+            self.accumulate_series(&m);
             None
         })
         .await
         {
             Ok(_) => {
                 self.error.clear();
-                push_value(&mut self.ready, ready);
-
-                for (name, pool) in &thread_pools {
-                    let entry = self
-                        .thread_pools
-                        .entry(name.clone())
-                        .or_insert_with(Vec::new);
-                    let utilization_percent = (100. * (pool.size - pool.parked)) / pool.size;
-                    push_value(entry, utilization_percent);
-                }
-
-                let mut dead_pools = vec![];
-                for (key, entry) in self.thread_pools.iter_mut() {
-                    if !thread_pools.contains_key(key) {
-                        // The pool has gone away.
-                        // This can happen for eg: the spoolin pool once
-                        // it has completed its work.
-                        // We'll treat this as clocking a 0 through.
-                        // Once all the data is zero, we'll remove it
-                        push_value(entry, 0.0);
-                        if entry.iter().sum::<u64>() == 0 {
-                            dead_pools.push(key.to_string());
-                        }
-                    }
-                }
-                // Remove any dead thread pools
-                for name in dead_pools {
-                    self.thread_pools.remove(&name);
-                }
-
-                let new_state = DiffState {
-                    when: Instant::now(),
-                    delivered,
-                    transfail,
-                    fail,
-                    received,
-                    latency,
-                };
-                if let Some(prior) = self.diff_state.take() {
-                    let elapsed = prior.when.elapsed().as_secs_f64();
-
-                    // Compute msgs/s
-                    let delivered = (new_state.delivered - prior.delivered) / elapsed;
-                    let transfail = (new_state.transfail - prior.transfail) / elapsed;
-                    let fail = (new_state.fail - prior.fail) / elapsed;
-                    let received = (new_state.received - prior.received) / elapsed;
-
-                    // and add to historical data
-                    push_value(&mut self.delivered, delivered);
-                    push_value(&mut self.transfail, transfail);
-                    push_value(&mut self.fail, fail);
-                    push_value(&mut self.received, received);
-
-                    for (name, new_value) in &new_state.latency {
-                        let rate =
-                            (new_value - prior.latency.get(name).copied().unwrap_or(0.0)) / elapsed;
-                        let entry = self
-                            .latency_count
-                            .entry(name.to_string())
-                            .or_insert_with(Vec::new);
-                        push_value(entry, rate);
-                    }
-                }
-                self.diff_state.replace(new_state);
+                self.commit_series();
             }
             Err(err) => {
                 self.error = format!("{err:#}");
-                self.diff_state.take();
-                push_value(&mut self.memory, 0.0);
-                push_value(&mut self.message_count, 0.0);
-                push_value(&mut self.message_data_resident, 0.0);
-                push_value(&mut self.scheduled, 0.0);
-                push_value(&mut self.ready, 0.0);
-                push_value(&mut self.listener_conns, 0.0);
-                push_value(&mut self.smtp_conns, 0.0);
-                push_value(&mut self.delivered, 0.0);
-                push_value(&mut self.transfail, 0.0);
-                push_value(&mut self.fail, 0.0);
-                push_value(&mut self.received, 0.0);
-                for target in self.thread_pools.values_mut() {
-                    push_value(target, 0.0);
-                }
-                for target in self.latency_avg.values_mut() {
-                    push_value(target, 0.0);
-                }
-                for target in self.latency_p90.values_mut() {
-                    push_value(target, 0.0);
-                }
-                for target in self.latency_count.values_mut() {
-                    push_value(target, 0.0);
-                }
+                self.commit_series();
             }
         }
         Ok(())
@@ -423,73 +721,127 @@ impl State {
         }
 
         let mut sparklines = vec![
-            Entry::new("Delivered", &self.delivered, Color::Green, false, "/s", 2),
-            Entry::new("Received", &self.received, Color::LightGreen, true, "/s", 2),
-            Entry::new("Transfail", &self.transfail, Color::Red, false, "/s", 2),
-            Entry::new("Permfail", &self.fail, Color::LightRed, false, "/s", 2),
-            Entry::new("Scheduled", &self.scheduled, Color::Green, false, "", 2),
-            Entry::new("Ready", &self.ready, Color::LightGreen, false, "", 2),
-            Entry::new("Messages", &self.message_count, Color::Green, false, "", 2),
             Entry::new(
-                "Resident",
-                &self.message_data_resident,
+                "Delivered",
+                &self
+                    .get_series("total_messages_delivered_rate")
+                    .unwrap()
+                    .data,
+                Color::Green,
+                false,
+                "/s",
+                2,
+            ),
+            Entry::new(
+                "Received",
+                &self
+                    .get_series("total_messages_received_rate")
+                    .unwrap()
+                    .data,
                 Color::LightGreen,
                 true,
-                "",
-                1,
+                "/s",
+                2,
             ),
-            Entry::new("Memory", &self.memory, Color::Green, false, "b", 2),
             Entry::new(
-                "Conn Out",
-                &self.smtp_conns,
+                "Transfail",
+                &self
+                    .get_series("total_messages_transfail_rate")
+                    .unwrap()
+                    .data,
+                Color::Red,
+                false,
+                "/s",
+                2,
+            ),
+            Entry::new(
+                "Permfail",
+                &self.get_series("total_messages_fail_rate").unwrap().data,
+                Color::LightRed,
+                false,
+                "/s",
+                2,
+            ),
+            Entry::new(
+                "Scheduled",
+                &self.get_series("scheduled_count_total").unwrap().data,
+                Color::Green,
+                false,
+                "",
+                2,
+            ),
+            Entry::new(
+                "Ready",
+                &self.get_series("ready_count").unwrap().data,
                 Color::LightGreen,
                 false,
                 "",
                 2,
             ),
-            Entry::new("Conn In", &self.listener_conns, Color::Green, true, "", 2),
+            Entry::new(
+                "Messages",
+                &self.get_series("message_count").unwrap().data,
+                Color::Green,
+                false,
+                "",
+                2,
+            ),
+            Entry::new(
+                "Resident",
+                &self.get_series("message_data_resident_count").unwrap().data,
+                Color::LightGreen,
+                true,
+                "",
+                1,
+            ),
+            Entry::new(
+                "Memory",
+                &self.get_series("memory_usage").unwrap().data,
+                Color::Green,
+                false,
+                "b",
+                2,
+            ),
+            Entry::new(
+                "Conn Out",
+                &self.get_series("smtp_conns").unwrap().data,
+                Color::LightGreen,
+                false,
+                "",
+                2,
+            ),
+            Entry::new(
+                "Conn In",
+                &self.get_series("listener_conns").unwrap().data,
+                Color::Green,
+                true,
+                "",
+                2,
+            ),
         ];
 
         let pool_colors = [Color::LightGreen, Color::Green];
 
-        for (pool, data) in self.thread_pools.iter() {
-            let next_idx = sparklines.len();
-            sparklines.push(Entry::new(
-                pool,
-                data,
-                pool_colors[next_idx % pool_colors.len()],
-                false,
-                "%",
-                1,
-            ));
-        }
-        for (name, data) in self.latency_avg.iter() {
-            if name == "init" || name == "pre_init" {
-                continue;
+        let mut dynamic_series = self
+            .time_series
+            .iter()
+            .filter(|(_name, series)| series.chart.is_some())
+            .collect::<Vec<_>>();
+        dynamic_series
+            .sort_by_key(|(_series_name, series)| series.chart.as_ref().unwrap().name.clone());
+
+        for (series_name, series) in dynamic_series {
+            if let Some(chart) = &series.chart {
+                let next_idx = sparklines.len();
+                sparklines.push(Entry::new(
+                    &chart.name,
+                    &self.get_series(series_name).unwrap().data,
+                    pool_colors[next_idx % pool_colors.len()],
+                    chart.inverted,
+                    &chart.unit,
+                    1,
+                ));
             }
-            let next_idx = sparklines.len();
-            sparklines.push(Entry::new(
-                name,
-                data,
-                pool_colors[next_idx % pool_colors.len()],
-                false,
-                "us",
-                1,
-            ));
-        }
-        for (name, data) in self.latency_count.iter() {
-            if name == "init" || name == "pre_init" {
-                continue;
-            }
-            let next_idx = sparklines.len();
-            sparklines.push(Entry::new(
-                name,
-                data,
-                pool_colors[next_idx % pool_colors.len()],
-                false,
-                "/s",
-                1,
-            ));
         }
 
         // Figure out the layout; first see if the ideal heights will fit
