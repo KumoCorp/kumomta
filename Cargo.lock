@@ -2976,6 +2976,8 @@ dependencies = [
  "anyhow",
  "async-stream",
  "futures",
+ "map_vec",
+ "memchr",
  "once_cell",
  "parking_lot",
  "paste",
@@ -3477,6 +3479,15 @@ dependencies = [
  "textwrap",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "map_vec"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "111eca49e254749133fc156821beda7b9a0445e2f3a37e9bd88701a6ebecf85f"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

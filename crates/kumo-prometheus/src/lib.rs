@@ -15,6 +15,7 @@ mod counter;
 
 #[macro_use]
 pub mod labels;
+pub mod parser;
 pub mod registry;
 
 struct CounterRegistryInner<K, V: AtomicCounterEntry> {
