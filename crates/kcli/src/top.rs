@@ -1,7 +1,9 @@
+use crate::queue_summary::get_metrics;
 use clap::Parser;
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use futures::StreamExt;
 use human_bytes::human_bytes;
+use kumo_prometheus::parser::Metric;
 use num_format::{Locale, ToFormattedString};
 use ratatui::prelude::*;
 use ratatui::symbols::bar::NINE_LEVELS;
@@ -88,8 +90,8 @@ impl TopCommand {
     }
 }
 
-fn push_value(target: &mut Vec<u64>, value: u64) {
-    target.insert(0, value);
+fn push_value(target: &mut Vec<u64>, value: f64) {
+    target.insert(0, value as u64);
     target.truncate(1024);
 }
 
@@ -130,134 +132,125 @@ struct DiffState {
 
 impl State {
     async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
-        match crate::queue_summary::obtain_metrics(endpoint).await {
-            Ok(metrics) => {
+        let mut delivered = 0.;
+        let mut transfail = 0.;
+        let mut fail = 0.;
+        let mut received = 0.;
+        let mut latency = BTreeMap::new();
+        let mut ready = 0.;
+
+        #[derive(Default)]
+        struct ThreadPoolMetrics {
+            size: f64,
+            parked: f64,
+        }
+        let mut thread_pools = BTreeMap::<String, ThreadPoolMetrics>::new();
+
+        match get_metrics::<Vec<()>, _>(endpoint, |m| {
+            let name = m.name().as_str();
+            let value = m.value();
+
+            match name {
+                "message_count" => push_value(&mut self.message_count, value),
+                "message_data_resident_count" => push_value(&mut self.message_data_resident, value),
+                "message_meta_resident_count" => push_value(&mut self.message_meta_resident, value),
+                "memory_usage" => push_value(&mut self.memory, value),
+                "total_messages_delivered" => {
+                    if m.label_is("service", "smtp_client") {
+                        delivered = value;
+                    }
+                }
+                "total_messages_transfail" => {
+                    if m.label_is("service", "smtp_client") {
+                        transfail = value;
+                    }
+                }
+                "total_messages_fail" => {
+                    if m.label_is("service", "smtp_client") {
+                        fail = value;
+                    }
+                }
+                "total_messages_received" => {
+                    if m.label_is("service", "esmtp_listener")
+                        || m.label_is("service", "http_listener")
+                    {
+                        received += value;
+                    }
+                }
+                "scheduled_count_total" => {
+                    push_value(&mut self.scheduled, value);
+                }
+                "ready_count" => {
+                    ready += value;
+                }
+                "connection_count" => {
+                    if m.label_is("service", "esmtp_listener") {
+                        push_value(&mut self.listener_conns, value);
+                    }
+                    if m.label_is("service", "smtp_client") {
+                        push_value(&mut self.smtp_conns, value);
+                    }
+                }
+                "thread_pool_size" => {
+                    if let Some(pool) = m.labels().get("pool") {
+                        thread_pools.entry(pool.to_string()).or_default().size = value;
+                    }
+                }
+                "thread_pool_parked" => {
+                    if let Some(pool) = m.labels().get("pool") {
+                        thread_pools.entry(pool.to_string()).or_default().parked = value;
+                    }
+                }
+                _ => match &m {
+                    Metric::Histogram(h) => {
+                        let label = match m.labels().values().next() {
+                            Some(l) => l.as_str().to_string(),
+                            None => h.name.as_str().to_string(),
+                        };
+                        latency.insert(label.clone(), h.count);
+
+                        let avg_entry = self
+                            .latency_avg
+                            .entry(label.clone())
+                            .or_insert_with(Vec::new);
+                        push_value(avg_entry, (h.sum / h.count * 1_000_000.0).ceil());
+
+                        let p90_entry = self
+                            .latency_p90
+                            .entry(label.clone())
+                            .or_insert_with(Vec::new);
+                        push_value(p90_entry, (h.quantile(0.9) * 1_000_000.0).ceil());
+                    }
+                    _ => {}
+                },
+            };
+
+            None
+        })
+        .await
+        {
+            Ok(_) => {
                 self.error.clear();
+                push_value(&mut self.ready, ready);
 
-                for (target, source) in &mut [
-                    (&mut self.message_count, &metrics.raw.message_count),
-                    (
-                        &mut self.message_data_resident,
-                        &metrics.raw.message_data_resident_count,
-                    ),
-                    (
-                        &mut self.message_meta_resident,
-                        &metrics.raw.message_meta_resident_count,
-                    ),
-                    (&mut self.memory, &metrics.raw.memory_usage),
-                ] {
-                    push_value(target, source.as_ref().map_or(0, |m| m.value as u64));
-                    target.truncate(1024);
-                }
-
-                let new_state = DiffState {
-                    when: Instant::now(),
-                    delivered: metrics
-                        .raw
-                        .total_messages_delivered
-                        .as_ref()
-                        .and_then(|m| m.value.service.get("smtp_client"))
-                        .copied()
-                        .unwrap_or(0.),
-                    transfail: metrics
-                        .raw
-                        .total_messages_transfail
-                        .as_ref()
-                        .and_then(|m| m.value.service.get("smtp_client"))
-                        .copied()
-                        .unwrap_or(0.),
-                    fail: metrics
-                        .raw
-                        .total_messages_fail
-                        .as_ref()
-                        .and_then(|m| m.value.service.get("smtp_client"))
-                        .copied()
-                        .unwrap_or(0.),
-                    received: metrics
-                        .raw
-                        .total_messages_received
-                        .as_ref()
-                        .map(|m| {
-                            m.value.service.get("esmtp_listener").copied().unwrap_or(0.)
-                                + m.value.service.get("http_listener").copied().unwrap_or(0.)
-                        })
-                        .unwrap_or(0.),
-                    latency: metrics
-                        .latency
-                        .iter()
-                        .map(|entry| (entry.name.label().to_string(), entry.count as f64))
-                        .collect(),
-                };
-                let scheduled = metrics
-                    .raw
-                    .scheduled_count
-                    .as_ref()
-                    .map(|m| m.value.queue.values().copied().sum())
-                    .unwrap_or(0.);
-                let ready = metrics
-                    .raw
-                    .ready_count
-                    .as_ref()
-                    .map(|m| m.value.service.values().copied().sum())
-                    .unwrap_or(0.);
-                let listener_conns = metrics
-                    .raw
-                    .connection_count
-                    .as_ref()
-                    .and_then(|g| g.value.service.get("esmtp_listener").copied())
-                    .unwrap_or(0.);
-                let smtp_conns = metrics
-                    .raw
-                    .connection_count
-                    .as_ref()
-                    .and_then(|g| g.value.service.get("smtp_client").copied())
-                    .unwrap_or(0.);
-
-                for (target, value) in [
-                    (&mut self.scheduled, scheduled),
-                    (&mut self.ready, ready),
-                    (&mut self.listener_conns, listener_conns),
-                    (&mut self.smtp_conns, smtp_conns),
-                ] {
-                    push_value(target, value as u64);
-                }
-
-                for event in &metrics.latency {
-                    let avg_entry = self
-                        .latency_avg
-                        .entry(event.name.label().to_string())
-                        .or_insert_with(Vec::new);
-                    push_value(avg_entry, (event.avg * 1_000_000.0).ceil() as u64);
-
-                    let p90_entry = self
-                        .latency_p90
-                        .entry(event.name.label().to_string())
-                        .or_insert_with(Vec::new);
-                    push_value(p90_entry, (event.p90 * 1_000_000.0).ceil() as u64);
-                }
-
-                for pool in &metrics.thread_pools {
+                for (name, pool) in &thread_pools {
                     let entry = self
                         .thread_pools
-                        .entry(pool.name.to_string())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new);
-                    let utilization_percent = (100 * (pool.size - pool.parked)) / pool.size;
-                    push_value(entry, utilization_percent as u64);
+                    let utilization_percent = (100. * (pool.size - pool.parked)) / pool.size;
+                    push_value(entry, utilization_percent);
                 }
+
                 let mut dead_pools = vec![];
                 for (key, entry) in self.thread_pools.iter_mut() {
-                    if metrics
-                        .thread_pools
-                        .iter()
-                        .find(|entry| entry.name == *key)
-                        .is_none()
-                    {
+                    if !thread_pools.contains_key(key) {
                         // The pool has gone away.
                         // This can happen for eg: the spoolin pool once
                         // it has completed its work.
                         // We'll treat this as clocking a 0 through.
                         // Once all the data is zero, we'll remove it
-                        push_value(entry, 0);
+                        push_value(entry, 0.0);
                         if entry.iter().sum::<u64>() == 0 {
                             dead_pools.push(key.to_string());
                         }
@@ -268,6 +261,14 @@ impl State {
                     self.thread_pools.remove(&name);
                 }
 
+                let new_state = DiffState {
+                    when: Instant::now(),
+                    delivered,
+                    transfail,
+                    fail,
+                    received,
+                    latency,
+                };
                 if let Some(prior) = self.diff_state.take() {
                     let elapsed = prior.when.elapsed().as_secs_f64();
 
@@ -278,10 +279,10 @@ impl State {
                     let received = (new_state.received - prior.received) / elapsed;
 
                     // and add to historical data
-                    push_value(&mut self.delivered, delivered as u64);
-                    push_value(&mut self.transfail, transfail as u64);
-                    push_value(&mut self.fail, fail as u64);
-                    push_value(&mut self.received, received as u64);
+                    push_value(&mut self.delivered, delivered);
+                    push_value(&mut self.transfail, transfail);
+                    push_value(&mut self.fail, fail);
+                    push_value(&mut self.received, received);
 
                     for (name, new_value) in &new_state.latency {
                         let rate =
@@ -290,7 +291,7 @@ impl State {
                             .latency_count
                             .entry(name.to_string())
                             .or_insert_with(Vec::new);
-                        push_value(entry, rate as u64);
+                        push_value(entry, rate);
                     }
                 }
                 self.diff_state.replace(new_state);
@@ -298,28 +299,28 @@ impl State {
             Err(err) => {
                 self.error = format!("{err:#}");
                 self.diff_state.take();
-                push_value(&mut self.memory, 0);
-                push_value(&mut self.message_count, 0);
-                push_value(&mut self.message_data_resident, 0);
-                push_value(&mut self.scheduled, 0);
-                push_value(&mut self.ready, 0);
-                push_value(&mut self.listener_conns, 0);
-                push_value(&mut self.smtp_conns, 0);
-                push_value(&mut self.delivered, 0);
-                push_value(&mut self.transfail, 0);
-                push_value(&mut self.fail, 0);
-                push_value(&mut self.received, 0);
+                push_value(&mut self.memory, 0.0);
+                push_value(&mut self.message_count, 0.0);
+                push_value(&mut self.message_data_resident, 0.0);
+                push_value(&mut self.scheduled, 0.0);
+                push_value(&mut self.ready, 0.0);
+                push_value(&mut self.listener_conns, 0.0);
+                push_value(&mut self.smtp_conns, 0.0);
+                push_value(&mut self.delivered, 0.0);
+                push_value(&mut self.transfail, 0.0);
+                push_value(&mut self.fail, 0.0);
+                push_value(&mut self.received, 0.0);
                 for target in self.thread_pools.values_mut() {
-                    push_value(target, 0);
+                    push_value(target, 0.0);
                 }
                 for target in self.latency_avg.values_mut() {
-                    push_value(target, 0);
+                    push_value(target, 0.0);
                 }
                 for target in self.latency_p90.values_mut() {
-                    push_value(target, 0);
+                    push_value(target, 0.0);
                 }
                 for target in self.latency_count.values_mut() {
-                    push_value(target, 0);
+                    push_value(target, 0.0);
                 }
             }
         }
