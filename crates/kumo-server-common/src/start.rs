@@ -25,6 +25,10 @@ impl<'a> StartConfig<'a> {
     {
         self.logging.init()?;
 
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|_| anyhow::anyhow!("failed to install default crypto provider"))?;
+
         kumo_server_memory::setup_memory_limit().context("setup_memory_limit")?;
 
         prometheus::register(Box::new(

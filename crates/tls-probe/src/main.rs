@@ -2,7 +2,8 @@ use anyhow::Context;
 use clap::Parser;
 use kumo_api_types::egress_path::parse_openssl_options;
 use rfc5321::openssl::ssl::SslOptions;
-use rfc5321::tokio_rustls::rustls::{SupportedCipherSuite, ALL_CIPHER_SUITES};
+use rfc5321::tokio_rustls::rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
+use rfc5321::tokio_rustls::rustls::SupportedCipherSuite;
 use rfc5321::{SmtpClient, SmtpClientTimeouts, TlsOptions};
 
 /// Show information about available TLS ciphers and capabilities

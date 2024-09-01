@@ -5,6 +5,7 @@ use mlua::prelude::*;
 use openssl::ssl::SslOptions;
 use ordermap::OrderMap;
 use rfc5321::SmtpClientTimeouts;
+use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::time::Duration;
@@ -116,7 +117,7 @@ where
 }
 
 pub fn find_rustls_cipher_suite(name: &str) -> Option<SupportedCipherSuite> {
-    for suite in rustls::ALL_CIPHER_SUITES {
+    for suite in ALL_CIPHER_SUITES {
         let sname = format!("{:?}", suite.suite());
         if sname.eq_ignore_ascii_case(name) {
             return Some(*suite);

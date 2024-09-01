@@ -198,7 +198,7 @@ impl TraceSmtpClientCommand {
         let mut endpoint = endpoint.join("/api/admin/trace-smtp-client/v1")?;
         endpoint.set_scheme("ws").expect("ws to be valid scheme");
 
-        let (mut socket, _response) = connect(endpoint)?;
+        let (mut socket, _response) = connect(endpoint.to_string())?;
 
         socket.send(Message::Text(serde_json::to_string(
             &TraceSmtpClientV1Request {
