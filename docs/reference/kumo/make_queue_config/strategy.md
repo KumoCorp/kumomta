@@ -19,6 +19,12 @@ values:
   scenario where the destination is not accepting mail and causing the
   scheduled queue to grow is logarithmically more expensive as the queue
   grows.
+* `"SingletonTimerWheel"` - Like `"TimerWheel"` above, but there is one shared
+  wheel for all queues that use the `"SingletonTimerWheel"` strategy. This
+  mitigates the per-queue aggregate maintenance overhead mentioned above, and
+  is ideal especially for deployments with very many (more than 100,000 or so)
+  scheduled queues. This option is slated to become the default in a later
+  stable release.
 
 Which should you use? Whichever works best for your environment! Make sure that
 you test normal healthy operation with a lot of queues as well as the worst
