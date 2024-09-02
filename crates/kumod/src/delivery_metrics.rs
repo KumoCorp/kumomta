@@ -1,5 +1,9 @@
 use kumo_prometheus::{PruningIntCounter, PruningIntGauge};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use prometheus::Histogram;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct DeliveryMetrics {
@@ -44,28 +48,65 @@ impl DeliveryMetrics {
     }
 
     pub fn new(service: &str, service_type: &str) -> Self {
+        // Since these metrics live in a pruning registry, we want to take an extra
+        // step to pin these global counters into the register. We do that by holding
+        // on to them for the life of the program.
+        // We do this only for the service_type counters created here, as those have
+        // low cardinality (a couple) vs. the potentially unbounded number of service
+        // counters that we might create.
+        struct GlobalMetrics {
+            global_connection_gauge: PruningIntGauge,
+            global_connection_total: PruningIntCounter,
+            global_ready_count: PruningIntGauge,
+            global_msgs_delivered: PruningIntCounter,
+            global_msgs_transfail: PruningIntCounter,
+            global_msgs_fail: PruningIntCounter,
+        }
+
+        static GLOBALS: Lazy<Mutex<HashMap<String, Arc<GlobalMetrics>>>> =
+            Lazy::new(|| Mutex::new(HashMap::new()));
+
+        let globals = {
+            let mut g = GLOBALS.lock();
+            match g.get(service_type) {
+                Some(metrics) => Arc::clone(metrics),
+                None => {
+                    let metrics = Arc::new(GlobalMetrics {
+                        global_connection_gauge:
+                            crate::metrics_helper::connection_gauge_for_service(service_type),
+                        global_connection_total:
+                            crate::metrics_helper::connection_total_for_service(service_type),
+                        global_ready_count: crate::metrics_helper::ready_count_gauge_for_service(
+                            service_type,
+                        ),
+                        global_msgs_delivered:
+                            crate::metrics_helper::total_msgs_delivered_for_service(service_type),
+                        global_msgs_transfail:
+                            crate::metrics_helper::total_msgs_transfail_for_service(service_type),
+                        global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(
+                            service_type,
+                        ),
+                    });
+                    g.insert(service_type.to_string(), Arc::clone(&metrics));
+                    metrics
+                }
+            }
+        };
+
         DeliveryMetrics {
             connection_gauge: crate::metrics_helper::connection_gauge_for_service(&service),
-            global_connection_gauge: crate::metrics_helper::connection_gauge_for_service(
-                service_type,
-            ),
+            global_connection_gauge: globals.global_connection_gauge.clone(),
             connection_total: crate::metrics_helper::connection_total_for_service(&service),
-            global_connection_total: crate::metrics_helper::connection_total_for_service(
-                service_type,
-            ),
+            global_connection_total: globals.global_connection_total.clone(),
             ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
             ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
-            global_ready_count: crate::metrics_helper::ready_count_gauge_for_service(service_type),
+            global_ready_count: globals.global_ready_count.clone(),
             msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
-            global_msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(
-                service_type,
-            ),
+            global_msgs_delivered: globals.global_msgs_delivered.clone(),
             msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(&service),
-            global_msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(
-                service_type,
-            ),
+            global_msgs_transfail: globals.global_msgs_transfail.clone(),
             msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
-            global_msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(service_type),
+            global_msgs_fail: globals.global_msgs_fail.clone(),
             deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
                 service_type,
             ),
