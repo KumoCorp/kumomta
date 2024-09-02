@@ -2,7 +2,7 @@ use kumo_prometheus::{
     PruningIntCounter, PruningIntCounterVec, PruningIntGauge, PruningIntGaugeVec,
 };
 use once_cell::sync::Lazy;
-use prometheus::{Histogram, HistogramVec, IntCounter};
+use prometheus::{Histogram, HistogramVec, IntCounter, IntCounterVec};
 
 pub static CONN_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
     PruningIntGaugeVec::register(
@@ -55,12 +55,13 @@ pub static READY_COUNT_GAUGE: Lazy<PruningIntGaugeVec> = Lazy::new(|| {
         &["service"],
     )
 });
-pub static TOTAL_MSGS_RECVD: Lazy<PruningIntCounterVec> = Lazy::new(|| {
-    PruningIntCounterVec::register(
+pub static TOTAL_MSGS_RECVD: Lazy<IntCounterVec> = Lazy::new(|| {
+    prometheus::register_int_counter_vec!(
         "total_messages_received",
         "total number of messages ever received",
         &["service"],
     )
+    .unwrap()
 });
 pub static READY_FULL_COUNTER: Lazy<PruningIntCounterVec> = Lazy::new(|| {
     PruningIntCounterVec::register(
@@ -111,7 +112,7 @@ pub fn connection_total_for_service(service: &str) -> PruningIntCounter {
     TOTAL_CONN.with_label_values(&[service])
 }
 
-pub fn total_msgs_received_for_service(service: &str) -> PruningIntCounter {
+pub fn total_msgs_received_for_service(service: &str) -> IntCounter {
     TOTAL_MSGS_RECVD.with_label_values(&[service])
 }
 

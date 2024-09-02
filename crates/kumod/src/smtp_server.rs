@@ -23,7 +23,7 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as Mutex;
-use prometheus::{Histogram, HistogramTimer};
+use prometheus::{Histogram, HistogramTimer, IntCounter};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -439,8 +439,8 @@ pub struct SmtpServer {
     authorization_id: Option<String>,
     authentication_id: Option<String>,
     meta: ConnectionMetaData,
-    global_reception_count: PruningIntCounter,
-    reception_count: PruningIntCounter,
+    global_reception_count: IntCounter,
+    reception_count: IntCounter,
 }
 
 #[derive(Debug)]

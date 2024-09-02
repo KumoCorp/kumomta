@@ -5,7 +5,6 @@ use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
 use kumo_log_types::ResolvedAddress;
-use kumo_prometheus::PruningIntCounter;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::Runtime;
@@ -15,6 +14,7 @@ use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, LuaSerdeExt};
 use once_cell::sync::Lazy;
+use prometheus::IntCounter;
 use rfc5321::Response;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use utoipa::{ToResponse, ToSchema};
 
-static MSGS_RECVD: Lazy<PruningIntCounter> =
+static MSGS_RECVD: Lazy<IntCounter> =
     Lazy::new(|| crate::metrics_helper::total_msgs_received_for_service("http_listener"));
 
 static HTTPINJECT: Lazy<Runtime> =
