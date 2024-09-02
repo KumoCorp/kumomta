@@ -24,5 +24,9 @@
 * Optimized per-message overheads in the scheduled queue, reduced the memory
   utilization by 112 bytes per message.
 
+* Changed the default [queue
+  strategy](../reference/kumo/make_queue_config/strategy.md) to
+  `SingletonTimerWheel`.
+
 ## Fixes
 

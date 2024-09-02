@@ -5,7 +5,7 @@
 Optional string to specify the scheduled queue strategy.  There are two possible
 values:
 
-* `"TimerWheel"` - the default. The timer wheel has `O(1)` insertion and `O(1)`
+* `"TimerWheel"` - The timer wheel has `O(1)` insertion and `O(1)`
   pop costs, making it good for very large scheduled queues, but that comes in
   exchange for a flat periodic tick overhead.  As the number of scheduled queues
   increases and/or the `retry_interval` decreases, so does the aggregate overhead
@@ -23,8 +23,16 @@ values:
   wheel for all queues that use the `"SingletonTimerWheel"` strategy. This
   mitigates the per-queue aggregate maintenance overhead mentioned above, and
   is ideal especially for deployments with very many (more than 100,000 or so)
-  scheduled queues. This option is slated to become the default in a later
-  stable release.
+  scheduled queues. This option is the default in `dev` builds and will be
+  the default in the next stable release.
+
+The default value depends on the version:
+
+|Version|Default|
+|-------|-------|
+|2024.09.02-c5476b89 and earlier|`"TimerWheel"`|
+|{{since('dev', inline=True)}}|`"SingletonTimerWheel"`|
+
 
 Which should you use? Whichever works best for your environment! Make sure that
 you test normal healthy operation with a lot of queues as well as the worst

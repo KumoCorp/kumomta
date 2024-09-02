@@ -306,9 +306,9 @@ impl Default for DeliveryProto {
 
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua, Default, Copy, PartialEq, Eq)]
 pub enum QueueStrategy {
-    #[default]
     TimerWheel,
     SkipList,
+    #[default]
     SingletonTimerWheel,
 }
 
