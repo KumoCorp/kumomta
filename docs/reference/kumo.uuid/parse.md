@@ -1,6 +1,6 @@
 # `kumo.uuid.parse(UUID)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Parses a UUID from a string and into a UUID object.
 

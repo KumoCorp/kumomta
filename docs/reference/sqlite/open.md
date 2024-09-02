@@ -69,7 +69,7 @@ Queries and query results are not implicitly cached.
 
 ## `db:close()`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Explicitly close the sqlite connection.
 

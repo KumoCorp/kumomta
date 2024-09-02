@@ -36,20 +36,20 @@ print(conn:query('incr', 'test-count'))
 * `wait_timeout` - optional duration string. Specify how long to wait for an
   available connection. If the pool is at capacity (`pool_size`), then an `open`
   call will block for up this duration for a connection to be released and made 
-  to connect to redis. The default is `30 seconds`. {{since('dev', inline=True)}}
+  to connect to redis. The default is `30 seconds`. {{since('2024.09.02-c5476b89', inline=True)}}
 
 * `response_timeout` - optional duration string. Specify how long to wait for the
-  response to a query.  {{since('dev', inline=True)}}
+  response to a query.  {{since('2024.09.02-c5476b89', inline=True)}}
 
 * `recycle_timeout` - optional duration string. Specify how long to wait for the
   liveness check when testing whether a connection can be resused.
-  {{since('dev', inline=True)}}
+  {{since('2024.09.02-c5476b89', inline=True)}}
 
 * `cluster` - optional boolean. Set this to true to explicit use a cluster-enabled
   client. The default is false if the number of nodes is one, or true if the
   number of nodes is greater than one. You generally don't need to set this,
   but can do so to force a cluster connection when you have only a single
-  node address. {{since('dev', inline=True)}}
+  node address. {{since('2024.09.02-c5476b89', inline=True)}}
 
 The returned connection handle has a single `"query"` method:
 

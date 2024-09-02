@@ -49,6 +49,6 @@ request to the specified URL.  The URL is a string.
 
 ### client:close()
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Explicitly destroy the client, closing any connections in its cache.

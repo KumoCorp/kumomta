@@ -42,6 +42,6 @@ producer:send {
 
 ### client:close()
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Explicitly close the client object and associated connection.

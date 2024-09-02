@@ -1,6 +1,6 @@
 # banner_timeout
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 How long to wait between a connection being established and receiving a 220
 from a receiving host. The default is `60s`.

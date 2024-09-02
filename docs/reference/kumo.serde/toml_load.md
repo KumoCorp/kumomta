@@ -1,6 +1,6 @@
 # `kumo.serde.toml_load(FILENAME)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 !!! note
     In earlier versions of kumomta, this function was available

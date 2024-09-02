@@ -1,6 +1,6 @@
 # `kumo.serde.yaml_parse(STRING)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Parses STRING as YAML, returning a lua representation of the parsed YAML.
 

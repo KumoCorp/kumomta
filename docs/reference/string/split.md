@@ -1,6 +1,6 @@
 # `kumo.string.split(STRING, PATTERN)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Splits `STRING` by `PATTERN`, returning an array-style table
 holding the substrings.

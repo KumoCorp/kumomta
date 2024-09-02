@@ -1,6 +1,6 @@
 # timerwheel_tick_interval
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 When using the default `strategy = "TimerWheel"`, the timer wheel needs to
 be ticked regularly in order to promote messages into the ready queue. The default

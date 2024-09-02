@@ -1,6 +1,6 @@
 # max_connections
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Specifies the maximum number of concurrent connections that are permitted
 to this listener. Connections above this will be accepted and then closed

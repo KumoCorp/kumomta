@@ -13,22 +13,22 @@ event handler.
 * `files` - required array-style table listing the paths to the set of
   classification files that define the classification rules.
 * `back_pressure` - optional integer. default is `131072`. Specifies the maximum
-  number of in-flight classifications before submission blocks. {{since('dev', inline=True)}}
+  number of in-flight classifications before submission blocks. {{since('2024.09.02-c5476b89', inline=True)}}
 * `pool_size` - optional integer. default is 1/4 of the available parallelism.
   Specifies the number of threads to be used to process bounce classification.
   Classification is CPU intensive and the cost of any given classification scales
   with the size of the classification rules you have defined. You will likely need
   to have more than a single thread available for the most optimal throughput.
   The `pool_size` option allows you to specify that number of threads.
-  {{since('dev', inline=True)}}
+  {{since('2024.09.02-c5476b89', inline=True)}}
 * `cache_size` - optional integer. default is `1024`. Specifies the size of
   the bounce classification cache used to hold successful classification results.
-  {{since('dev', inline=True)}}
+  {{since('2024.09.02-c5476b89', inline=True)}}
 * `uncategorized_cache_size` - optional integer. default is `1024`. Specifies the size of
   the bounce classification cache used to hold *unclassified* results.  These are in
   a separate cache from the positive classifications to prevent uncategorized results
   from churning the successful classifications out of the cache.
-  {{since('dev', inline=True)}}
+  {{since('2024.09.02-c5476b89', inline=True)}}
 
 
 The following classifications are pre-defined:

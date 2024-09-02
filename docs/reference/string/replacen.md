@@ -1,6 +1,6 @@
 # `kumo.string.replacen(STRING, FROM, TO, COUNT)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Replaces the first N matches of `FROM` with `TO` and returns the resulting string.
 

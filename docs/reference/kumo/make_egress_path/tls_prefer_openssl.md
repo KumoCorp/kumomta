@@ -1,6 +1,6 @@
 # tls_prefer_openssl
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Optional boolean. Defaults to `false`.
 

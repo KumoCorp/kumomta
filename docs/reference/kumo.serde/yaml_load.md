@@ -1,6 +1,6 @@
 # `kumo.serde.yaml_load(FILENAME)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Reads the content of the file name `FILENAME` and parses it as YAML,
 returning a lua representation of the parsed JSON.

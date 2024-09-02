@@ -1,6 +1,6 @@
 # strategy
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Optional string to specify the scheduled queue strategy.  There are two possible
 values:

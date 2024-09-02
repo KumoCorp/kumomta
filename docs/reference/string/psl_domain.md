@@ -1,6 +1,6 @@
 # `kumo.string.psl_domain(STRING)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Get the registrable domain as defined by Mozilla's [Public Suffix
 List](https://publicsuffix.org/).

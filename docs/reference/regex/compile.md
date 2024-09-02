@@ -1,6 +1,6 @@
 # `kumo.regex.compile(PATTERN)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Compiles the regular expression `PATTERN`.
 The supported syntax is [described in the Rust regex crate

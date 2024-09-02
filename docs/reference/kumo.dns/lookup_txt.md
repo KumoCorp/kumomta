@@ -1,6 +1,6 @@
 # `kumo.dns.lookup_txt(DOMAIN)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Resolve a TXT record for the requested `DOMAIN`.
 

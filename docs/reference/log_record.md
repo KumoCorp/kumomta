@@ -89,7 +89,7 @@ The log record is a JSON object with the following shape:
     "egress_source": "source2",
 
     // For SMTP delivery, the source address (and port) that was used.
-    // {{since('dev', inline=True)}}
+    // {{since('2024.09.02-c5476b89', inline=True)}}
     "source_address": {
         // The source address. The port number may be unknown and reported
         // as zero when using a proxy protocol.

@@ -91,7 +91,7 @@ All policy helpers listed below are implemented in the [Example Lua Policy](./ex
 
 ## Validating Your Configuration
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 You can perform a deep validation on your configuration before you deploy it by
 running `kumod` in validation mode:

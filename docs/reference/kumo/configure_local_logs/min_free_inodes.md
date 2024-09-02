@@ -1,6 +1,6 @@
 # min_free_inodes
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Specifies the desired minimum amount of free inodes for the log storage
 in this location.  Can be specified using either a string like `"10%"` to

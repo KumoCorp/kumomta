@@ -52,7 +52,7 @@ assert(result.status == 'NotRequested')
 
 ### client:close()
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Explicitly and cleanly closes the connection to the AMQP server.
 Calling it multiple times will yield an error.

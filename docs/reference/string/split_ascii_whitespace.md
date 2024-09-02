@@ -1,6 +1,6 @@
 # `kumo.string.split_ascii_whitespace(STRING)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Splits `STRING` by ASCII whitespace,.
 

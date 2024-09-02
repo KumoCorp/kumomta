@@ -1,6 +1,6 @@
 # How do I flush a queue?
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 You can use `kcli rebind` for this; the following will flush `example.com` for all
 tenant/campaigns:

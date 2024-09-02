@@ -3,7 +3,7 @@
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and
     will be removed in a future release.
-    {{since('dev', inline=True)}}
+    {{since('2024.09.02-c5476b89', inline=True)}}
 
 Attempts to encode VALUE as its JSON equivalent, and returns that value
 serialized as a string.

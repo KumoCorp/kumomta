@@ -1,6 +1,6 @@
 # `kumo.uuid.new_v1()`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Create a new [version 1
 UUID](https://www.ietf.org/rfc/rfc9562.html#section-5.1) with the current

@@ -1,6 +1,6 @@
 # `kumo.string.trim_start(STRING)`
 
-{{since('dev')}}
+{{since('2024.09.02-c5476b89')}}
 
 Returns a string with leading whitespace removed.
 
