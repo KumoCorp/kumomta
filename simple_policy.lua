@@ -234,7 +234,7 @@ local function common_processing(msg)
   -- then remove that header from the message
   msg:import_scheduling_header('X-Schedule', true)
 
-  msg:set_meta('tenant', tostring(math.random(128 * 1024)))
+  -- msg:set_meta('tenant', tostring(math.random(128 * 1024)))
 
   local signer = kumo.dkim.rsa_sha256_signer {
     domain = msg:from_header().domain,
