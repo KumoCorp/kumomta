@@ -5,6 +5,8 @@ use rfc5321::openssl::ssl::SslOptions;
 use rfc5321::tokio_rustls::rustls::{SupportedCipherSuite, ALL_CIPHER_SUITES};
 use rfc5321::{SmtpClient, SmtpClientTimeouts, TlsOptions};
 
+/// Show information about available TLS ciphers and capabilities
+/// of a remote host.
 #[derive(Clone, Debug, Parser)]
 #[command(about = "MX TLS prober")]
 struct Opt {
