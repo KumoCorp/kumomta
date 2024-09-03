@@ -134,7 +134,7 @@ match=[{MXSuffix=".icloud.com"}]
 provider_connection_limit = 10
 max_deliveries_per_connection = 5
 
-# PROVIDED BY COMCAST DIRECTLY
+# PROVIDED DIRECTLY BY COMCAST
 # https://spa.xfinity.com/postmaster
 # https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
 ["comcast.net"]
@@ -143,6 +143,19 @@ max_deliveries_per_connection = 250
 enable_tls = "Required"
 idle_timeout = "30s"
 consecutive_connection_failures_before_delay = 24
+
+# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-gateway
+# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-smtp-error-codes
+
+# PROVIDED DIRECTLY BY MIMECAST
+
+# NOTE: Each sitename is a separate region with separate MTAs, so we do not use provider_connection_limit
+# For Mimecast because the connection limit should be enforced for each sitename separately.
+
+[provider."mimecast"]
+match=[{MXSuffix=".mimecast.com"},{MXSuffix=".mimecast.co.za"},{MXSuffix=".mimecast-offshore.com"}]
+max_deliveries_per_connection = 100
+connection_limit = 10
 
 # PROVIDED DIRECTLY BY MAIL.COM
 ["mail.com"]
