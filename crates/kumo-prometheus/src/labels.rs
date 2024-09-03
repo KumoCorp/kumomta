@@ -5,7 +5,7 @@ pub trait MetricLabel {
 }
 
 /// `macro_rules!` implementation of `count_tts`.
-/// Source: https://github.com/camsteffen/count-tts
+/// Source: <https://github.com/camsteffen/count-tts>
 #[macro_export]
 macro_rules! count_tts {
     () => (0);
