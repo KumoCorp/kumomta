@@ -19,7 +19,7 @@ local SignatureSigningPolicy =
 local SigningAlgo = typing.enum('SigningAlgo', 'sha256', 'ed25519')
 
 local DkimSignConfig = Record('DkimSignConfig', {
-  base = Record('DkimSignConfig.Base', {
+  base = Option(Record('DkimSignConfig.Base', {
     vault_mount = Option(String),
     vault_path_prefix = Option(String),
     additional_signatures = Option(List(String)),
@@ -29,9 +29,9 @@ local DkimSignConfig = Record('DkimSignConfig', {
     header_canonicalization = Option(String),
     body_canonicalization = Option(String),
     over_sign = Option(Bool),
-  }),
+  })),
 
-  domain = typing.map(
+  domain = Option(typing.map(
     String,
     Record('DkimSignConfig.Domain', {
       selector = Option(String),
@@ -43,7 +43,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       body_canonicalization = Option(String),
       over_sign = Option(Bool),
     })
-  ),
+  )),
 
   signature = Option(typing.map(
     String,
@@ -129,7 +129,11 @@ domain = "myesp.com"
 ]]
 
 local function load_dkim_data_from_file(file_name, target)
-  local data = DkimSignConfig(utils.load_json_or_toml_file(file_name))
+  local raw_data = utils.load_json_or_toml_file(file_name)
+  local is_ok, data = pcall(DkimSignConfig, raw_data)
+  if not is_ok then
+    error(string.format("reading data from file '%s': %s'", file_name, data))
+  end
 
   if data.base then
     utils.merge_into(data.base, target.base)

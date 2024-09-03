@@ -40,3 +40,7 @@
   `0ns` for sessions for which we had not observed the session opening. Now we
   will assume a start time time of the first record observed for a session, so
   that some sense of relative time can be gleaned from the trace output.
+
+* When using the dkim helper and splitting the configuration
+  across multiple files, a missing `domain` or `base` configuration section in
+  any individual file would raise a validation error.
