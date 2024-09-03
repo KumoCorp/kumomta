@@ -90,8 +90,7 @@ duration = "30 days"
 match=[
         {MXSuffix=".google.com"},
         {MXSuffix=".googlemail.com"}
-        ]
-
+]
 max_deliveries_per_connection = 50
 provider_connection_limit = 5
 consecutive_connection_failures_before_delay = 5

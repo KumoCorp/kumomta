@@ -1917,4 +1917,11 @@ MergedEntry {
 "#
         );
     }
+
+    #[tokio::test]
+    async fn test_load_default_shaping_toml() {
+        Shaping::merge_files(&["../../assets/policy-extras/shaping.toml".into()])
+            .await
+            .unwrap();
+    }
 }
