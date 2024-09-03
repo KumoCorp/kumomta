@@ -1245,9 +1245,79 @@ provider_max_message_rate = "120/s"
 
     #[tokio::test]
     async fn test_defaults() {
-        let shaping = Shaping::merge_files(&["../../assets/policy-extras/shaping.toml".into()])
-            .await
-            .unwrap();
+        let shaping = make_shaping_configs(&[
+            r#"
+["default"]
+connection_limit = 10
+max_connection_rate = "100/min"
+max_deliveries_per_connection = 100
+max_message_rate = "100/s"
+idle_timeout = "60s"
+data_timeout = "30s"
+data_dot_timeout = "60s"
+enable_tls = "Opportunistic"
+consecutive_connection_failures_before_delay = 100
+
+[["default".automation]]
+regex=[
+        '/Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/',
+        '/All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/',
+        '/has been temporarily rate limited due to IP reputation/',
+        '/Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/',
+        '/Server busy\. Please try again later from/'
+]
+action = [
+        {SetConfig={name="max_message_rate", value="1/minute"}},
+        {SetConfig={name="connection_limit", value=1}}
+]
+duration = "90m"
+
+[["default".automation]]
+regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
+action = {SetConfig={name="enable_tls", value="Disabled"}}
+duration = "30 days"
+
+["gmail.com"]
+max_deliveries_per_connection = 50
+connection_limit = 5
+enable_tls = "Required"
+consecutive_connection_failures_before_delay = 5
+
+["yahoo.com"]
+max_deliveries_per_connection = 20
+
+[["yahoo.com".automation]]
+regex = "\\[TS04\\]"
+action = "Suspend"
+duration = "2 hours"
+
+["comcast.net"]
+connection_limit = 25
+max_deliveries_per_connection = 250
+enable_tls = "Required"
+idle_timeout = "30s"
+consecutive_connection_failures_before_delay = 24
+
+["mail.com"]
+max_deliveries_per_connection = 100
+
+["orange.fr"]
+connection_limit = 3
+
+["smtp.mailgun.com"]
+connection_limit = 7000
+max_deliveries_per_connection = 3
+
+["example.com"]
+mx_rollup = false
+max_deliveries_per_connection = 100
+connection_limit = 3
+
+["example.com".sources."my source name"]
+connection_limit = 5
+        "#,
+        ])
+        .await;
 
         let default = shaping
             .get_egress_path_config("invalid.domain", "invalid.source", "invalid.site")
