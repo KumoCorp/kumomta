@@ -14,7 +14,7 @@
 #   }
 #   kumo.configure_bounce_classifier {
 #     files = {
-#       '/opt/kumomta/etc/bounces.toml',
+#       '/opt/kumomta/etc/policy/bounces.toml',
 #       '/opt/kumomta/share/community/bounces.toml',
 #        '/opt/kumomta/share/bounce_classifier/iana.toml',
 #     },
