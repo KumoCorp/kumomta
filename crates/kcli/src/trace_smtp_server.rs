@@ -1,5 +1,5 @@
 use crate::ColorMode;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use clap::Parser;
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
@@ -33,6 +33,21 @@ pub struct TraceSmtpServerCommand {
     /// Whether to colorize the output
     #[arg(long, default_value = "tty")]
     pub color: ColorMode,
+
+    /// Trace only newly opened sessions; ignore data from previously
+    /// opened sessions
+    #[arg(long)]
+    pub only_new: bool,
+
+    /// Trace the first session that we observe, ignoring all others
+    #[arg(long)]
+    pub only_one: bool,
+
+    /// Abbreviate especially the read side of the transaction trace,
+    /// which is useful when examining high traffic and/or large message
+    /// transmission
+    #[arg(long)]
+    pub terse: bool,
 }
 
 impl TraceSmtpServerCommand {
@@ -89,6 +104,8 @@ impl TraceSmtpServerCommand {
         let red = if color { "\u{1b}[31m" } else { "" };
         let normal = if color { "\u{1b}[0m" } else { "" };
 
+        let mut wanted_key = None;
+
         loop {
             let msg = socket.read()?;
             match msg {
@@ -96,15 +113,31 @@ impl TraceSmtpServerCommand {
                     let event: TraceSmtpV1Event = serde_json::from_str(&s)?;
 
                     let key = conn_key(&event.conn_meta)?;
-                    let delta = meta_by_conn
-                        .get(&key)
-                        .map(|m| event.when - m.opened)
-                        .unwrap_or_else(Duration::zero);
-                    let delta = delta.to_std().unwrap();
-                    let delta = format!("{delta: >5.0?}");
 
-                    match event.payload {
-                        TraceSmtpV1Payload::Connected => {
+                    if let Some(wanted_key) = &wanted_key {
+                        if *wanted_key != key {
+                            continue;
+                        }
+                    }
+
+                    let delta = match meta_by_conn.get(&key).map(|m| event.when - m.opened) {
+                        Some(delta) => {
+                            let delta = delta.to_std().unwrap();
+                            format!("{delta: >5.0?}")
+                        }
+                        None => {
+                            if event.payload != TraceSmtpV1Payload::Connected {
+                                if self.only_new {
+                                    // We haven't seen this one before, and we're only tracing new
+                                    // sessions, so ignore it
+                                    continue;
+                                }
+                            }
+
+                            if self.only_one && wanted_key.is_none() {
+                                wanted_key.replace(key.clone());
+                            }
+
                             meta_by_conn.insert(
                                 key.clone(),
                                 ConnState {
@@ -112,14 +145,27 @@ impl TraceSmtpServerCommand {
                                     opened: event.when,
                                 },
                             );
+                            "     ".to_string()
+                        }
+                    };
+
+                    match event.payload {
+                        TraceSmtpV1Payload::Connected => {
                             println!("[{key}] {delta} === Connected {}", event.when,);
                         }
                         TraceSmtpV1Payload::Closed => {
                             meta_by_conn.remove(&key);
                             println!("[{key}] {delta} === Closed");
+                            if self.only_one {
+                                return Ok(());
+                            }
                         }
                         TraceSmtpV1Payload::Read(data) => {
-                            for line in data.lines() {
+                            for (idx, line) in data.lines().enumerate() {
+                                if idx > 0 && self.terse {
+                                    println!("[{key}] {delta} === bytes read={}", data.len());
+                                    break;
+                                }
                                 println!(
                                     "[{key}] {delta} {green} -> {}{normal}",
                                     line.escape_debug()

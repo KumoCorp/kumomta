@@ -323,7 +323,7 @@ pub struct TraceSmtpV1Event {
     pub when: DateTime<Utc>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, Debug, ToSchema, PartialEq)]
 pub enum TraceSmtpV1Payload {
     Connected,
     Closed,
@@ -357,7 +357,7 @@ pub struct TraceSmtpClientV1Event {
     pub when: DateTime<Utc>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, Debug, ToSchema, PartialEq)]
 pub enum TraceSmtpClientV1Payload {
     BeginSession,
     Connected,

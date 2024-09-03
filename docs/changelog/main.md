@@ -28,5 +28,15 @@
   strategy](../reference/kumo/make_queue_config/strategy.md) to
   `SingletonTimerWheel`.
 
+* `kcli trace-smtp-client` and `kcli trace-smtp-server` both have some new
+  options: `--terse` to make it easier to get the sense of the flow of messages
+  without seeing all of the message body data, `--only-new` to trace only sessions
+  for which the tracer client has observed the session opening, and
+  `--only-one` to trace just a single session.
+
 ## Fixes
 
+* `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report
+  `0ns` for sessions for which we had not observed the session opening. Now we
+  will assume a start time time of the first record observed for a session, so
+  that some sense of relative time can be gleaned from the trace output.

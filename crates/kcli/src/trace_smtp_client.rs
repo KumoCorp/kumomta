@@ -1,5 +1,5 @@
 use crate::ColorMode;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use clap::Parser;
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
@@ -175,6 +175,21 @@ pub struct TraceSmtpClientCommand {
     /// Whether to colorize the output
     #[arg(long, default_value = "tty")]
     pub color: ColorMode,
+
+    /// Trace only newly opened sessions; ignore data from previously
+    /// opened sessions
+    #[arg(long)]
+    pub only_new: bool,
+
+    /// Trace the first session that we observe, ignoring all others
+    #[arg(long)]
+    pub only_one: bool,
+
+    /// Abbreviate especially the write side of the transaction trace,
+    /// which is useful when examining high traffic and/or large message
+    /// transmission
+    #[arg(long)]
+    pub terse: bool,
 }
 
 impl TraceSmtpClientCommand {
@@ -246,6 +261,8 @@ impl TraceSmtpClientCommand {
         let red = if color { "\u{1b}[31m" } else { "" };
         let normal = if color { "\u{1b}[0m" } else { "" };
 
+        let mut wanted_key = None;
+
         loop {
             let msg = socket.read()?;
             match msg {
@@ -253,15 +270,34 @@ impl TraceSmtpClientCommand {
                     let event: TraceSmtpClientV1Event = serde_json::from_str(&s)?;
 
                     let key = conn_key(&event.conn_meta)?;
-                    let delta = meta_by_conn
-                        .get(&key)
-                        .map(|m| event.when - m.opened)
-                        .unwrap_or_else(Duration::zero);
-                    let delta = delta.to_std().unwrap();
-                    let delta = format!("{delta: >5.0?}");
 
-                    match event.payload {
-                        TraceSmtpClientV1Payload::BeginSession => {
+                    if let Some(wanted_key) = &wanted_key {
+                        if *wanted_key != key {
+                            continue;
+                        }
+                    }
+
+                    let delta = match meta_by_conn.get(&key).map(|m| event.when - m.opened) {
+                        Some(delta) => {
+                            let delta = delta.to_std().unwrap();
+                            format!("{delta: >5.0?}")
+                        }
+                        None => {
+                            if event.payload != TraceSmtpClientV1Payload::BeginSession {
+                                if self.only_new {
+                                    // We haven't seen this one before, and we're only tracing new
+                                    // sessions, so ignore it
+                                    continue;
+                                }
+                            }
+
+                            if self.only_one && wanted_key.is_none() {
+                                wanted_key.replace(key.clone());
+                            }
+
+                            // Let's create an entry to indicate when we first observed
+                            // this session, so that we can display timing for the rest
+                            // of it
                             meta_by_conn.insert(
                                 key.clone(),
                                 ConnState {
@@ -269,6 +305,13 @@ impl TraceSmtpClientCommand {
                                     opened: event.when,
                                 },
                             );
+
+                            "     ".to_string()
+                        }
+                    };
+
+                    match event.payload {
+                        TraceSmtpClientV1Payload::BeginSession => {
                             println!("[{key}] {delta} === BeginSession {}", event.when);
                         }
                         TraceSmtpClientV1Payload::Connected => {
@@ -280,6 +323,9 @@ impl TraceSmtpClientCommand {
                         TraceSmtpClientV1Payload::Closed => {
                             meta_by_conn.remove(&key);
                             println!("[{key}] {delta} === Closed");
+                            if self.only_one {
+                                return Ok(());
+                            }
                         }
                         TraceSmtpClientV1Payload::Read(data) => {
                             for line in data.lines() {
@@ -290,7 +336,11 @@ impl TraceSmtpClientCommand {
                             }
                         }
                         TraceSmtpClientV1Payload::Write(data) => {
-                            for line in data.lines() {
+                            for (idx, line) in data.lines().enumerate() {
+                                if idx > 0 && self.terse {
+                                    println!("[{key}] {delta} === bytes written={}", data.len());
+                                    break;
+                                }
                                 println!(
                                     "[{key}] {delta} {green}->  {}{normal}",
                                     line.escape_debug()
