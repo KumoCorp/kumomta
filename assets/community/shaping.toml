@@ -1,0 +1,88 @@
+# THIS FILE IS FOR COMMUNITY CONTRIBUTED BOUNCE CLASSIFICATION RULES
+# THESE ARE PROVIDED AS-IS BY THEIR RESPECTIVE CONTRIBUTERS
+# THIS FILE SHOULD BE USED IN COMBINATION WITH shaping.toml TO GET FULL
+# COVERAGE INCLUDING STATUS CODE BASED RULES.
+
+# THIS FILE IS OVERWRITTEN DURING UPDATES, IF YOU MAKE CHANGES TO THIS FILE
+# YOU WILL NEED TO DO A PULL REQUEST TO THE REPO AND HAVE IT ACCEPTED FOR 
+# YOUR CHANGES TO PERSIST, OTHERWISE MAKE THESE CHANGES TO YOUR OWN CUSTOM
+# SHAPING FILE:
+# -- load the community shaping.toml + local settings
+# kumo.on(
+#  'get_egress_path_config',
+#  shaping:setup {
+#  '/opt/kumomta/etc/shaping.toml', 
+#  '/opt/kumomta/share/policy-extras/shaping.toml',
+#  '/opt/kumomta/share/community/shaping.toml`, 
+#  }
+# )
+
+["default"]
+connection_limit = 10
+max_connection_rate = "100/min"
+max_deliveries_per_connection = 100
+max_message_rate = "100/s"
+idle_timeout = "60s"
+data_timeout = "30s"
+data_dot_timeout = "60s"
+enable_tls = "Opportunistic"
+consecutive_connection_failures_before_delay = 100
+
+[["default".automation]]
+regex=[
+        '/Messages from \d+\.\d+\.\d+\.\d+ temporarily deferred/',
+        '/All messages from \d+\.\d+\.\d+\.\d+ will be permanently deferred/',
+        '/has been temporarily rate limited due to IP reputation/',
+        '/Unfortunately, messages from \d+\.\d+\.\d+\.\d+ weren.t sent/',
+        '/Server busy\. Please try again later from/'
+]
+action = [
+        {SetConfig={name="max_message_rate", value="1/minute"}},
+        {SetConfig={name="connection_limit", value=1}}
+]
+duration = "90m"
+
+[["default".automation]]
+regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
+action = {SetConfig={name="enable_tls", value="Disabled"}}
+duration = "30 days"
+
+# https://support.google.com/mail/answer/81126
+["gmail.com"]
+max_deliveries_per_connection = 50
+connection_limit = 5
+enable_tls = "Required"
+consecutive_connection_failures_before_delay = 5
+
+# PROVIDED BY YAHOO! DIRECTLY
+# https://senders.yahooinc.com/best-practices
+["yahoo.com"]
+max_deliveries_per_connection = 20
+
+[["yahoo.com".automation]]
+regex = "\\[TS04\\]"
+action = "Suspend"
+duration = "2 hours"
+
+# PROVIDED BY COMCAST DIRECTLY
+# https://spa.xfinity.com/postmaster
+# https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
+["comcast.net"]
+connection_limit = 25
+max_deliveries_per_connection = 250
+enable_tls = "Required"
+idle_timeout = "30s"
+consecutive_connection_failures_before_delay = 24
+
+# PROVIDED DIRECTLY BY MAIL.COM
+["mail.com"]
+max_deliveries_per_connection = 100
+
+# https://www.postmastery.com/orange-postmaster-smtp-error-codes-ofr/
+["orange.fr"]
+connection_limit = 3
+
+# PROVIDED DIRECTLY FROM MAILGUN FOR SENDERS WHO SMARTHOST VIA MAILGUN
+["smtp.mailgun.com"]
+connection_limit = 7000
+max_deliveries_per_connection = 3

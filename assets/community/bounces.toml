@@ -1,0 +1,52 @@
+# THIS FILE IS FOR COMMUNITY CONTRIBUTED BOUNCE CLASSIFICATION RULES
+# THESE ARE PROVIDED AS-IS BY THEIR RESPECTIVE CONTRIBUTERS
+# THIS FILE SHOULD BE USED IN COMBINATION WITH iana.toml TO GET FULL
+# COVERAGE INCLUDING STATUS CODE BASED RULES.
+
+# THIS FILE IS OVERWRITTEN DURING UPDATES, IF YOU MAKE CHANGES TO THIS FILE
+# YOU WILL NEED TO DO A PULL REQUEST TO THE REPO AND HAVE IT ACCEPTED FOR 
+# YOUR CHANGES TO PERSIST, OTHERWISE MAKE THESE CHANGES TO YOUR OWN CUSTOM
+# BOUNCE RULES FILE:
+# -- load the community bounces.toml + iana.toml + local settings
+# kumo.on('init', function()
+#   kumo.configure_local_logs {
+#     log_dir = '/var/log/kumomta',
+#   }
+#   kumo.configure_bounce_classifier {
+#     files = {
+#       '/opt/kumomta/etc/bounces.toml',
+#       '/opt/kumomta/share/community/bounces.toml',
+#        '/opt/kumomta/share/bounce_classifier/iana.toml',
+#     },
+#   }
+# end)
+
+[rules]
+InvalidRecipient = [
+]
+BadDomain = [
+]
+InactiveMailbox = [
+]
+InvalidSender = [
+]
+QuotaIssues = [
+]
+NoAnswerFromHost = [
+]
+BadConnection = [
+]
+DNSFailure = [
+]
+RoutingErrors = [
+]
+TransientFailure = [
+]
+MessageExpired = [
+]
+ProtocolErrors = [
+]
+AuthenticationFailed = [
+]
+PolicyRelated = [
+]
