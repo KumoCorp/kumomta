@@ -216,24 +216,20 @@ impl<'a> Compiled<'a> {
         global_subst: &HashMap<String, Value>,
         content: &Content,
     ) -> anyhow::Result<String> {
-        let mut subst = serde_json::json!({});
+        let mut subst = serde_json::Map::new();
         for (k, v) in global_subst {
-            subst.as_object_mut().unwrap().insert(k.clone(), v.clone());
+            subst.insert(k.clone(), v.clone());
         }
-        subst
-            .as_object_mut()
-            .unwrap()
-            .insert("email".to_string(), recip.email.to_string().into());
+        subst.insert("email".to_string(), recip.email.to_string().into());
         if let Some(name) = &recip.name {
-            subst
-                .as_object_mut()
-                .unwrap()
-                .insert("name".to_string(), name.to_string().into());
+            subst.insert("name".to_string(), name.to_string().into());
         }
 
         for (k, v) in &recip.substitutions {
-            subst.as_object_mut().unwrap().insert(k.clone(), v.clone());
+            subst.insert(k.clone(), v.clone());
         }
+
+        let subst = serde_json::Value::Object(subst);
 
         let mut id = 0;
         match content {
