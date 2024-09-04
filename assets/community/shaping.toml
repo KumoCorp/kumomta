@@ -11,9 +11,17 @@
 # kumo.on(
 #  'get_egress_path_config',
 #  shaping:setup {
-#  '/opt/kumomta/etc/policy/shaping.toml', 
 #  '/opt/kumomta/share/policy-extras/shaping.toml',
 #  '/opt/kumomta/share/community/shaping.toml`, 
+#  '/opt/kumomta/etc/policy/custom-shaping.toml', 
 #  }
 # )
 
+# kumo.on(
+#  'get_egress_path_config',
+#  shaping:setup { 
+#  '/opt/kumomta/share/policy-extras/shaping.toml',
+#  '/opt/kumomta/share/community/shaping.toml`, 
+#  '/opt/kumomta/etc/policy/custom-shaping.toml',
+#  }
+# )
