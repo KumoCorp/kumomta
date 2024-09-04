@@ -34,6 +34,9 @@
   for which the tracer client has observed the session opening, and
   `--only-one` to trace just a single session.
 
+* The HTTP injection API now supports an optional `deferred_spool` parameter
+  that allows deferring writing the message(s) spool for a given send attempt.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

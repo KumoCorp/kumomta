@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.08.25-22edf4ae"
+    "version": "2024.09.02-3ae6ef42"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -703,11 +703,16 @@
         "required": [
           "envelope_sender",
           "recipients",
-          "content"
+          "content",
+          "deferred_spool"
         ],
         "properties": {
           "content": {
             "$ref": "#/components/schemas/Content"
+          },
+          "deferred_spool": {
+            "type": "boolean",
+            "description": "When set to true, the message will not be written to\nthe spool until it encounters its first transient failure.\nThis can improve injection rate but introduces the risk\nof loss of accountability for the message if the system\nwere to crash before the message is delivered or written\nto spool, so use with caution!"
           },
           "envelope_sender": {
             "type": "string",

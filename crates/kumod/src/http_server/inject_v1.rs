@@ -96,6 +96,14 @@ pub struct InjectV1Request {
         "campaign_title": "Fall Campaign",
     }))]
     pub substitutions: HashMap<String, Value>,
+
+    /// When set to true, the message will not be written to
+    /// the spool until it encounters its first transient failure.
+    /// This can improve injection rate but introduces the risk
+    /// of loss of accountability for the message if the system
+    /// were to crash before the message is delivered or written
+    /// to spool, so use with caution!
+    pub deferred_spool: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
@@ -491,8 +499,7 @@ async fn process_recipient<'a>(
     let queue_name = message.get_queue_name()?;
 
     if queue_name != "null" {
-        let deferred_spool = false; // TODO: configurable somehow
-        if !deferred_spool {
+        if !request.deferred_spool {
             message.save().await?;
         }
         log_disposition(LogDisposition {
@@ -644,6 +651,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             }],
             substitutions: HashMap::new(),
             content: Content::Rfc822(input.to_string()),
+            deferred_spool: true,
         };
 
         let compiled = request.compile().unwrap();
@@ -700,6 +708,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
                 reply_to: None,
                 headers: Default::default(),
             },
+            deferred_spool: true,
         };
 
         request.normalize().unwrap();
@@ -777,6 +786,7 @@ Some(
                 headers: Default::default(),
                 attachments: vec![],
             },
+            deferred_spool: true,
         };
 
         request.normalize().unwrap();
