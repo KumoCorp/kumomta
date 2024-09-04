@@ -1,6 +1,7 @@
 # `kumo.amqp.build_client(URI)`
 
-Constructs an AMQP client object.
+Constructs an AMQP client object, using the underlying
+[lapin](https://docs.rs/lapin/) client implementation.
 
 `URI` is the URI that references the AMQP server to which you want to connect.
 
