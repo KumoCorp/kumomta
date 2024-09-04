@@ -1023,6 +1023,14 @@ impl Queue {
         false
     }
 
+    fn get_config_epoch(&self) -> ConfigEpoch {
+        self.config_epoch.lock().clone()
+    }
+
+    fn set_config_epoch(&self, epoch: &ConfigEpoch) {
+        *self.config_epoch.lock() = epoch.clone();
+    }
+
     async fn perform_config_refresh_if_due(
         &self,
         now: Instant,
@@ -1040,7 +1048,7 @@ impl Queue {
                 false
             }
             ConfigRefreshStrategy::Epoch => {
-                if epoch_changed || *self.config_epoch.lock() != *epoch {
+                if epoch_changed || self.get_config_epoch() != *epoch {
                     self.perform_config_refresh(epoch).await;
                     true
                 } else {
@@ -1056,7 +1064,7 @@ impl Queue {
                 let strategy = queue_config.strategy;
 
                 self.queue_config.update(queue_config);
-                *self.config_epoch.lock() = epoch.clone();
+                self.set_config_epoch(epoch);
 
                 if self.queue.strategy() != strategy
                     && !self.warned_strategy_change.load(Ordering::Relaxed)
@@ -1584,7 +1592,7 @@ impl Queue {
                     &self.queue_config,
                     &egress_source,
                     &self.rr.name,
-                    self.config_epoch.lock().clone(),
+                    self.get_config_epoch(),
                 )
                 .await
                 {
