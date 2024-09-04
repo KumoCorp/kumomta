@@ -92,5 +92,11 @@ The main session property that is known at initiation is the ready queue name, s
     Possible values: `tty`, `yes`, `no`
 
 
+* `--only-new` — Trace only newly opened sessions; ignore data from previously opened sessions
+
+* `--only-one` — Trace the first session that we observe, ignoring all others
+
+* `--terse` — Abbreviate especially the write side of the transaction trace, which is useful when examining high traffic and/or large message transmission
+
 
 

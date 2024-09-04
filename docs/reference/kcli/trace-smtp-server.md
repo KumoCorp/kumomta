@@ -28,5 +28,11 @@ Take care to use an appropriate `--source` when using this with a live busy serv
     Possible values: `tty`, `yes`, `no`
 
 
+* `--only-new` — Trace only newly opened sessions; ignore data from previously opened sessions
+
+* `--only-one` — Trace the first session that we observe, ignoring all others
+
+* `--terse` — Abbreviate especially the read side of the transaction trace, which is useful when examining high traffic and/or large message transmission
+
 
 
