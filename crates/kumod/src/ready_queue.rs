@@ -1117,6 +1117,7 @@ impl Dispatcher {
         }
     }
 
+    /// Returns true if we are throttled
     async fn check_throttle(
         &mut self,
         throttle: &ThrottleSpec,
@@ -1194,7 +1195,7 @@ impl Dispatcher {
             });
 
             for (key, throttle) in throttles {
-                if !self
+                if self
                     .check_throttle(&throttle, key, key, &path_config)
                     .await?
                 {
