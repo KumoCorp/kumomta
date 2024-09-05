@@ -1189,11 +1189,7 @@ additional_message_rate_throttles = {"second"="100/hr"}
             resolved.params.additional_message_rate_throttles,
             r#"
 {
-    "second": ThrottleSpec {
-        limit: 100,
-        period: 3600,
-        max_burst: None,
-    },
+    "second": 100/h,
 }
 "#
         );
@@ -1233,11 +1229,7 @@ provider_max_message_rate = "120/s"
             resolved.params.additional_message_rate_throttles,
             r#"
 {
-    "shaping-provider-Office 365-invalid.source-rate": ThrottleSpec {
-        limit: 120,
-        period: 1,
-        max_burst: None,
-    },
+    "shaping-provider-Office 365-invalid.source-rate": 120/s,
 }
 "#
         );
@@ -1359,19 +1351,11 @@ MergedEntry {
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
         max_message_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 1,
-                max_burst: None,
-            },
+            100/s,
         ),
         additional_message_rate_throttles: {},
         max_connection_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 60,
-                max_burst: None,
-            },
+            100/m,
         ),
         max_deliveries_per_connection: 100,
         prohibited_hosts: CidrSet(
@@ -1527,19 +1511,11 @@ MergedEntry {
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
         max_message_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 1,
-                max_burst: None,
-            },
+            100/s,
         ),
         additional_message_rate_throttles: {},
         max_connection_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 60,
-                max_burst: None,
-            },
+            100/m,
         ),
         max_deliveries_per_connection: 100,
         prohibited_hosts: CidrSet(
@@ -1776,19 +1752,11 @@ MergedEntry {
         smtp_auth_plain_password: None,
         allow_smtp_auth_plain_without_tls: false,
         max_message_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 1,
-                max_burst: None,
-            },
+            100/s,
         ),
         additional_message_rate_throttles: {},
         max_connection_rate: Some(
-            ThrottleSpec {
-                limit: 100,
-                period: 60,
-                max_burst: None,
-            },
+            100/m,
         ),
         max_deliveries_per_connection: 20,
         prohibited_hosts: CidrSet(

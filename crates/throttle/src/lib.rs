@@ -38,13 +38,14 @@ pub enum Error {
     NonExistentLease,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
+#[derive(Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
 #[serde(try_from = "String")]
 pub struct ThrottleSpec {
     pub limit: u64,
     /// Period, in seconds
     pub period: u64,
     pub max_burst: Option<u64>,
+    pub force_local: bool,
 }
 
 #[cfg(feature = "impl")]
@@ -55,7 +56,33 @@ impl ThrottleSpec {
         let period = self.period;
         let max_burst = self.max_burst.unwrap_or(limit);
         let key = format!("{key}:{limit}:{max_burst}:{period}");
-        throttle(&key, limit, Duration::from_secs(period), max_burst, Some(1)).await
+        throttle(
+            &key,
+            limit,
+            Duration::from_secs(period),
+            max_burst,
+            Some(1),
+            self.force_local,
+        )
+        .await
+    }
+}
+
+impl std::fmt::Debug for ThrottleSpec {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.as_string() {
+            Ok(s) => write!(fmt, "{}", s),
+            Err(_) => Err(std::fmt::Error),
+        }
+    }
+}
+
+impl std::fmt::Display for ThrottleSpec {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.as_string() {
+            Ok(s) => write!(fmt, "{}", s),
+            Err(_) => Err(std::fmt::Error),
+        }
     }
 }
 
@@ -72,7 +99,11 @@ impl ThrottleSpec {
             return Err(format!("cannot represent max_burst {burst} as string"));
         }
 
-        Ok(format!("{}/{period}", self.limit))
+        Ok(format!(
+            "{}{}/{period}",
+            if self.force_local { "local:" } else { "" },
+            self.limit
+        ))
     }
 }
 
@@ -86,6 +117,10 @@ impl TryFrom<String> for ThrottleSpec {
 impl TryFrom<&str> for ThrottleSpec {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, String> {
+        let (force_local, s) = match s.strip_prefix("local:") {
+            Some(s) => (true, s),
+            None => (false, s),
+        };
         let (limit, period) = s
             .split_once("/")
             .ok_or_else(|| format!("expected 'limit/period', got {s}"))?;
@@ -121,6 +156,7 @@ impl TryFrom<&str> for ThrottleSpec {
             limit,
             period,
             max_burst: None,
+            force_local,
         })
     }
 }
@@ -243,6 +279,8 @@ async fn redis_throttle(
 ///                 to spread out across time.
 /// * `quantity` - how many tokens to add to the throttle. If omitted,
 ///                1 token is added.
+/// * `force_local` - if true, always use the in-memory store on the local
+///                   machine even if the redis backend has been configured.
 #[cfg(feature = "impl")]
 pub async fn throttle(
     key: &str,
@@ -250,8 +288,11 @@ pub async fn throttle(
     period: Duration,
     max_burst: u64,
     quantity: Option<u64>,
+    force_local: bool,
 ) -> Result<ThrottleResult, Error> {
-    if let Some(redis) = REDIS.get().cloned() {
+    if force_local {
+        local_throttle(key, limit, period, max_burst, quantity)
+    } else if let Some(redis) = REDIS.get().cloned() {
         redis_throttle(redis, key, limit, period, max_burst, quantity).await
     } else {
         local_throttle(key, limit, period, max_burst, quantity)
@@ -340,14 +381,49 @@ mod test {
                 limit: 100,
                 period: 3600,
                 max_burst: None,
+                force_local: false,
             }
         );
+        assert_eq!(
+            ThrottleSpec::try_from("local:100/hr").unwrap(),
+            ThrottleSpec {
+                limit: 100,
+                period: 3600,
+                max_burst: None,
+                force_local: true,
+            }
+        );
+
+        assert_eq!(
+            ThrottleSpec {
+                limit: 100,
+                period: 3600,
+                max_burst: None,
+                force_local: false,
+            }
+            .as_string()
+            .unwrap(),
+            "100/h"
+        );
+        assert_eq!(
+            ThrottleSpec {
+                limit: 100,
+                period: 3600,
+                max_burst: None,
+                force_local: true,
+            }
+            .as_string()
+            .unwrap(),
+            "local:100/h"
+        );
+
         assert_eq!(
             ThrottleSpec::try_from("1_0,0/hour").unwrap(),
             ThrottleSpec {
                 limit: 100,
                 period: 3600,
                 max_burst: None,
+                force_local: false,
             }
         );
         assert_eq!(
