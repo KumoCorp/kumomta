@@ -11,6 +11,7 @@ chrono = {version="0.4", default-features=false, features=["clock"]}
 clap = {version="4.5", features=["derive"]}
 futures = "0.3"
 futures-util = "0.3"
+hdrhistogram = "7.5"
 humansize = "2.1" # for printing
 humanize-rs = "0.1" # for parsing
 lipsum = "0.9"

@@ -6931,6 +6931,7 @@ dependencies = [
  "clap",
  "futures",
  "futures-util",
+ "hdrhistogram",
  "humanize-rs",
  "humansize",
  "lipsum",

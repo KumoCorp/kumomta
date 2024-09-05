@@ -4,6 +4,8 @@ use clap::builder::ValueParser;
 use clap::Parser;
 use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
+use hdrhistogram::sync::Recorder;
+use hdrhistogram::Histogram;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use once_cell::sync::OnceCell;
@@ -233,7 +235,11 @@ impl Opt {
         counter.fetch_sub(1, Ordering::SeqCst);
     }
 
-    async fn run(&self, counter: Arc<AtomicUsize>) -> anyhow::Result<()> {
+    async fn run(
+        &self,
+        counter: Arc<AtomicUsize>,
+        mut latency: Recorder<u64>,
+    ) -> anyhow::Result<()> {
         let start = Instant::now();
         'reconnect: while !self.done(start, &counter) {
             let mut client = self.make_client().await?;
@@ -255,7 +261,11 @@ impl Opt {
                 }
 
                 let (sender, recip, body) = self.generate_message();
-                match client.send_mail(sender, recip, body).await
+                let start = Instant::now();
+                let result = client.send_mail(sender, recip, body).await;
+                latency.record(start.elapsed().as_micros() as u64).ok();
+
+                match result
                 {
                     Ok(_) => {
                     }
@@ -309,12 +319,15 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let mut latency = Histogram::new(3)?.into_sync();
+
     let mut clients = FuturesUnordered::new();
     for _ in 0..concurrency {
         let opts = opts.clone();
         let counter = Arc::clone(&counter);
+        let latency = latency.recorder();
         clients.push(tokio::spawn(async move {
-            if let Err(err) = opts.run(counter).await {
+            if let Err(err) = opts.run(counter, latency).await {
                 eprintln!("\n{err:#}");
             }
             Ok::<(), anyhow::Error>(())
@@ -331,6 +344,7 @@ async fn main() -> anyhow::Result<()> {
         msgs_per_second: usize,
         msgs_per_minute: usize,
         msgs_per_hour: usize,
+        per_second: String,
         per_minute: String,
         per_hour: String,
     }
@@ -341,6 +355,7 @@ async fn main() -> anyhow::Result<()> {
             let msgs_per_minute = msgs_per_second * 60;
             let msgs_per_hour = msgs_per_minute * 60;
 
+            let per_second = msgs_per_second.to_formatted_string(&Locale::en);
             let per_minute = msgs_per_minute.to_formatted_string(&Locale::en);
             let per_hour = msgs_per_hour.to_formatted_string(&Locale::en);
 
@@ -348,6 +363,7 @@ async fn main() -> anyhow::Result<()> {
                 msgs_per_second,
                 msgs_per_minute,
                 msgs_per_hour,
+                per_second,
                 per_minute,
                 per_hour,
             }
@@ -357,7 +373,7 @@ async fn main() -> anyhow::Result<()> {
             let mut out = std::io::stdout();
             write!(out,
                 "{prefix}{per_second} msgs/s, {per_minute} msgs/minute, {per_hour} msgs/hour{suffix}",
-                per_second = self.msgs_per_second,
+                per_second = self.per_second,
                 per_minute = self.per_minute,
                 per_hour = self.per_hour
             ).unwrap();
@@ -381,7 +397,9 @@ async fn main() -> anyhow::Result<()> {
 
                 let rate = Rates::new(total_sent - last_sent, elapsed);
                 rate.print("\r\x1b[Kcurrent rate: ",
-                    &format!(" (sent={total_sent}, clients={running_clients})"));
+                    &format!(" (sent={total_sent}, clients={running_clients})",
+                    total_sent=total_sent.to_formatted_string(&Locale::en),
+                    running_clients=running_clients.to_formatted_string(&Locale::en)));
                 last_sent = total_sent;
             },
             item = clients.next() => {
@@ -398,7 +416,22 @@ async fn main() -> anyhow::Result<()> {
     let elapsed = started.elapsed();
     let rates = Rates::new(total_sent, elapsed);
 
-    println!("did {total_sent} messages over {elapsed:?}.");
+    println!(
+        "did {total_sent} messages over {elapsed:?}.",
+        total_sent = total_sent.to_formatted_string(&Locale::en)
+    );
+
+    print!("transaction latency: ");
+    latency.refresh();
+    print!("avg={:?} ", Duration::from_micros(latency.mean() as u64));
+    print!("min={:?} ", Duration::from_micros(latency.min()));
+    print!("max={:?} ", Duration::from_micros(latency.max()));
+    for p in [50., 75., 90.0, 95., 99.0, 99.9] {
+        let duration = Duration::from_micros(latency.value_at_quantile(p / 100.));
+        print!("p{p}={duration:?} ",);
+    }
+    println!();
+
     rates.print("overall rate: ", "");
     println!();
 
