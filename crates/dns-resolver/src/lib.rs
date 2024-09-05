@@ -6,6 +6,7 @@ use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
+use rand::prelude::SliceRandom;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
@@ -301,40 +302,54 @@ impl MailExchanger {
         }
     }
 
+    /// Returns the list of resolve MX hosts in *reverse* preference
+    /// order; the first one to try is the last element.
+    /// smtp_dispatcher.rs relies on this ordering, as it will pop
+    /// off candidates until it has exhausted its connection plan.
     pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
         let mut result = vec![];
 
-        for mx_host in &self.hosts {
-            // '.' is a null mx; skip trying to resolve it
-            if mx_host == "." {
-                return ResolvedMxAddresses::NullMx;
-            }
+        let mut rng = rand::thread_rng();
+        for hosts in self.by_pref.values().rev() {
+            let mut by_pref = vec![];
 
-            // Handle the literal address case
-            if let Ok(addr) = mx_host.parse::<IpAddr>() {
-                result.push(ResolvedAddress {
-                    name: mx_host.to_string(),
-                    addr,
-                });
-                continue;
-            }
+            for mx_host in hosts {
+                // '.' is a null mx; skip trying to resolve it
+                if mx_host == "." {
+                    return ResolvedMxAddresses::NullMx;
+                }
 
-            match ip_lookup(mx_host).await {
-                Err(err) => {
-                    tracing::error!("failed to resolve {mx_host}: {err:#}");
+                // Handle the literal address case
+                if let Ok(addr) = mx_host.parse::<IpAddr>() {
+                    by_pref.push(ResolvedAddress {
+                        name: mx_host.to_string(),
+                        addr,
+                    });
                     continue;
                 }
-                Ok((addresses, _expires)) => {
-                    for addr in addresses.iter() {
-                        result.push(ResolvedAddress {
-                            name: mx_host.to_string(),
-                            addr: *addr,
-                        });
+
+                match ip_lookup(mx_host).await {
+                    Err(err) => {
+                        tracing::error!("failed to resolve {mx_host}: {err:#}");
+                        continue;
+                    }
+                    Ok((addresses, _expires)) => {
+                        for addr in addresses.iter() {
+                            by_pref.push(ResolvedAddress {
+                                name: mx_host.to_string(),
+                                addr: *addr,
+                            });
+                        }
                     }
                 }
             }
+
+            // Randomize the list of addresses within this preference
+            // level. This probablistically "load balances" outgoing
+            // traffic across MX hosts with equal preference value.
+            by_pref.shuffle(&mut rng);
+            result.append(&mut by_pref);
         }
-        result.reverse();
         ResolvedMxAddresses::Addresses(result)
     }
 }
@@ -742,9 +757,10 @@ Addresses(
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn lookup_gmail_mx() {
-        let gmail = MailExchanger::resolve("gmail.com").await.unwrap();
+        let mut gmail = (*MailExchanger::resolve("gmail.com").await.unwrap()).clone();
+        gmail.expires.take();
         k9::snapshot!(
-            gmail,
+            &gmail,
             r#"
 MailExchanger {
     domain_name: "gmail.com.",
@@ -776,7 +792,66 @@ MailExchanger {
     is_domain_literal: false,
     is_secure: false,
     is_mx: true,
+    expires: None,
 }
+"#
+        );
+
+        // This is a bad thing to have in a snapshot test really,
+        // but the whole set of live-dns-tests are already inherently
+        // unstable and flakey anyway.
+        // The main thing we expect to see here is that the list of
+        // names starts with alt4 and goes backwards through the priority
+        // order such that the last element is gmail-smtp.
+        // We expect the addresses within a given preference level to
+        // be randomized, because that is what resolve_addresses does.
+        k9::snapshot!(
+            gmail.resolve_addresses().await,
+            r#"
+Addresses(
+    [
+        ResolvedAddress {
+            name: "alt4.gmail-smtp-in.l.google.com.",
+            addr: 2607:f8b0:4023:401::1b,
+        },
+        ResolvedAddress {
+            name: "alt4.gmail-smtp-in.l.google.com.",
+            addr: 173.194.77.27,
+        },
+        ResolvedAddress {
+            name: "alt3.gmail-smtp-in.l.google.com.",
+            addr: 2607:f8b0:4023:1::1a,
+        },
+        ResolvedAddress {
+            name: "alt3.gmail-smtp-in.l.google.com.",
+            addr: 172.253.113.26,
+        },
+        ResolvedAddress {
+            name: "alt2.gmail-smtp-in.l.google.com.",
+            addr: 2607:f8b0:4001:c1d::1b,
+        },
+        ResolvedAddress {
+            name: "alt2.gmail-smtp-in.l.google.com.",
+            addr: 74.125.126.27,
+        },
+        ResolvedAddress {
+            name: "alt1.gmail-smtp-in.l.google.com.",
+            addr: 2607:f8b0:4003:c04::1b,
+        },
+        ResolvedAddress {
+            name: "alt1.gmail-smtp-in.l.google.com.",
+            addr: 108.177.104.27,
+        },
+        ResolvedAddress {
+            name: "gmail-smtp-in.l.google.com.",
+            addr: 2607:f8b0:4023:c06::1b,
+        },
+        ResolvedAddress {
+            name: "gmail-smtp-in.l.google.com.",
+            addr: 142.251.2.26,
+        },
+    ],
+)
 "#
         );
     }

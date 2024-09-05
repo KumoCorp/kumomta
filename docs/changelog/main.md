@@ -37,6 +37,10 @@
 * The HTTP injection API now supports an optional `deferred_spool` parameter
   that allows deferring writing the message(s) spool for a given send attempt.
 
+* We now randomize the set of hosts within a given MX preference level when
+  computing the connection plan for an individual session. This helps to
+  probablistically load balance across the advertised hosts for the destination.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

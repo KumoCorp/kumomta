@@ -1608,6 +1608,7 @@ dependencies = [
  "lazy_static",
  "libunbound",
  "lruttl",
+ "rand",
  "serde",
  "tokio",
  "tracing",
