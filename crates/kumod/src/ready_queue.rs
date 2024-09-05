@@ -132,6 +132,7 @@ impl Fifo {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct ReadyQueueName {
     pub name: String,
     pub site_name: String,

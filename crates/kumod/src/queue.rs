@@ -4,7 +4,7 @@ use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
-use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
+use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -665,12 +665,6 @@ struct ReadyQueueFull;
 
 type QueueHandle = Arc<Queue>;
 
-struct CachedReadyQueueName {
-    name: ReadyQueueName,
-    /// queue_config.generation()
-    generation: usize,
-}
-
 #[derive(Debug)]
 struct DelayedEntry(Message);
 
@@ -868,7 +862,6 @@ pub struct Queue {
     metrics: OnceCell<ScheduledMetrics>,
     activity: Activity,
     rr: EgressPoolRoundRobin,
-    ready_queue_names: StdMutex<HashMap<String, Arc<CachedReadyQueueName>>>,
     next_config_refresh: StdMutex<Instant>,
     warned_strategy_change: AtomicBool,
     config_epoch: StdMutex<ConfigEpoch>,
@@ -918,7 +911,6 @@ impl Queue {
             metrics: OnceCell::new(),
             activity,
             rr,
-            ready_queue_names: StdMutex::new(HashMap::new()),
             next_config_refresh,
             warned_strategy_change: AtomicBool::new(false),
             config_epoch: StdMutex::new(epoch),
@@ -1477,48 +1469,21 @@ impl Queue {
         Ok(())
     }
 
-    fn get_ready_queue_for_source(&self, source: &str) -> Option<Arc<CachedReadyQueueName>> {
-        let mut ready_queue_names = self.ready_queue_names.lock();
-        let name = ready_queue_names.get(source)?;
-
-        if self.queue_config.generation() != name.generation || name.name.has_expired() {
-            ready_queue_names.remove(source);
-            return None;
-        }
-
-        Some(Arc::clone(name))
-    }
-
-    async fn compute_ready_queue_name(
-        &self,
-        source: &str,
-    ) -> anyhow::Result<Arc<CachedReadyQueueName>> {
-        if let Some(entry) = self.get_ready_queue_for_source(source) {
-            return Ok(entry);
-        }
-
-        let generation = self.queue_config.generation();
-
-        let name =
-            ReadyQueueManager::compute_queue_name(&self.name, &self.queue_config, source).await?;
-
-        let cached = Arc::new(CachedReadyQueueName { name, generation });
-
-        self.ready_queue_names
-            .lock()
-            .insert(source.to_string(), cached.clone());
-
-        Ok(cached)
-    }
-
     #[instrument(skip(self, msg))]
     async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
         match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. } | DeliveryProto::Lua { .. } => {
-                let egress_source = match self.rr.next(&self.name, &self.queue_config).await {
-                    RoundRobinResult::Source(source) => source,
+                let (egress_source, ready_name) = match self
+                    .rr
+                    .next(&self.name, &self.queue_config)
+                    .await
+                {
+                    RoundRobinResult::Source {
+                        name,
+                        ready_queue_name,
+                    } => (name, ready_queue_name),
                     RoundRobinResult::Delay(duration) => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
@@ -1581,9 +1546,11 @@ impl Queue {
                 };
 
                 // Hot path: use cached source -> ready queue mapping
-                let ready_name = self.compute_ready_queue_name(&egress_source).await?;
-                if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
-                    return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                if let Some(ready_name) = &ready_name {
+                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
+                    {
+                        return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                    }
                 }
 
                 // Miss: compute and establish a new queue

@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
@@ -297,6 +299,14 @@ pub struct EgressPoolRoundRobin {
     entries: Vec<EgressPoolEntry>,
 
     index_and_weight: Mutex<IndexAndWeight>,
+    ready_queue_names: Mutex<HashMap<String, Arc<CachedReadyQueueName>>>,
+}
+
+#[derive(Debug)]
+pub struct CachedReadyQueueName {
+    pub name: ReadyQueueName,
+    /// queue_config.generation()
+    generation: usize,
 }
 
 #[derive(Debug)]
@@ -308,7 +318,10 @@ struct IndexAndWeight {
 #[derive(Debug, Clone)]
 pub enum RoundRobinResult {
     /// Use the source with this name
-    Source(String),
+    Source {
+        name: String,
+        ready_queue_name: Option<Arc<CachedReadyQueueName>>,
+    },
     /// All pathways are suspended. The smallest time until one
     /// of them is enabled is this delay
     Delay(chrono::Duration),
@@ -334,27 +347,77 @@ impl EgressPoolRoundRobin {
                 current_index: 0,
                 current_weight: 0,
             }),
+            ready_queue_names: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn get_ready_queue_for_source(
+        &self,
+        queue_config: &ConfigHandle<QueueConfig>,
+        source: &str,
+    ) -> Option<Arc<CachedReadyQueueName>> {
+        let mut ready_queue_names = self.ready_queue_names.lock();
+        let name = ready_queue_names.get(source)?;
+
+        if queue_config.generation() != name.generation || name.name.has_expired() {
+            ready_queue_names.remove(source);
+            return None;
+        }
+
+        Some(Arc::clone(name))
+    }
+
+    async fn compute_ready_queue_name(
+        &self,
+        queue_name: &str,
+        queue_config: &ConfigHandle<QueueConfig>,
+        source: &str,
+    ) -> anyhow::Result<Arc<CachedReadyQueueName>> {
+        if let Some(entry) = self.get_ready_queue_for_source(queue_config, source) {
+            return Ok(entry);
+        }
+
+        let generation = queue_config.generation();
+
+        let name = ReadyQueueManager::compute_queue_name(queue_name, queue_config, source).await?;
+
+        let cached = Arc::new(CachedReadyQueueName { name, generation });
+
+        self.ready_queue_names
+            .lock()
+            .insert(source.to_string(), cached.clone());
+
+        Ok(cached)
     }
 
     #[cfg(test)]
     fn next_ignoring_suspend(&self) -> Option<String> {
-        let entries = self.entries.clone();
+        let entries = self
+            .entries
+            .iter()
+            .map(|entry| (entry.clone(), None))
+            .collect::<Vec<_>>();
         self.next_impl(&entries)
+            .map(|(entry, _ready_queue_name)| entry)
     }
 
-    fn next_impl(&self, entries: &[EgressPoolEntry]) -> Option<String> {
+    fn next_impl(
+        &self,
+        entries: &[(EgressPoolEntry, Option<Arc<CachedReadyQueueName>>)],
+    ) -> Option<(String, Option<Arc<CachedReadyQueueName>>)> {
         if entries.is_empty() {
             return None;
         }
 
         if entries.len() == 1 {
-            return entries.get(0).map(|entry| entry.name.to_string());
+            return entries.get(0).map(|(entry, ready_queue_name)| {
+                (entry.name.to_string(), ready_queue_name.clone())
+            });
         }
 
         let mut max_weight = 0;
         let mut gcd = 0;
-        for entry in entries {
+        for (entry, _ready_queue_name) in entries {
             max_weight = max_weight.max(entry.weight);
             gcd = gcd.gcd(entry.weight);
         }
@@ -374,9 +437,9 @@ impl EgressPoolRoundRobin {
                 }
             }
 
-            if let Some(entry) = entries.get(iaw.current_index) {
+            if let Some((entry, ready_queue_name)) = entries.get(iaw.current_index) {
                 if entry.weight >= iaw.current_weight {
-                    return Some(entry.name.to_string());
+                    return Some((entry.name.to_string(), ready_queue_name.clone()));
                 }
             }
         }
@@ -396,36 +459,41 @@ impl EgressPoolRoundRobin {
 
         // filter to non-suspended pathways
         for entry in &self.entries {
-            if let Ok(ReadyQueueName {
-                name: path_name, ..
-            }) =
-                ReadyQueueManager::compute_queue_name(queue_name, queue_config, &entry.name).await
+            match self
+                .compute_ready_queue_name(queue_name, queue_config, &entry.name)
+                .await
             {
-                match AdminSuspendReadyQEntry::get_for_queue_name(&path_name) {
-                    Some(suspend) => {
-                        let duration = suspend.get_duration_chrono();
-                        min_delay.replace(min_delay.unwrap_or(duration).min(duration));
-                    }
-                    None => {
-                        entries.push(entry.clone());
+                Ok(ready_name) => {
+                    match AdminSuspendReadyQEntry::get_for_queue_name(&ready_name.name.name) {
+                        Some(suspend) => {
+                            let duration = suspend.get_duration_chrono();
+                            min_delay.replace(min_delay.unwrap_or(duration).min(duration));
+                        }
+                        None => {
+                            entries.push((entry.clone(), Some(ready_name)));
+                        }
                     }
                 }
-            } else {
-                // Likely a DNS resolution issue that prevented us from computing
-                // the site name to use for the ready queue.
-                // We're not in an appropriate context to handle that issue here,
-                // but the good news is that without a valid site name, there can't
-                // possibly be any suspensions for a ready queue that we can't name
-                // so we can continue to populate the entries and pick one.
-                // The DNS issue will bubble up almost immediately after we return
-                // a source name as our caller will call
-                // ReadyQueueManager::resolve_by_queue_name which will surface it.
-                entries.push(entry.clone());
+                Err(_) => {
+                    // Likely a DNS resolution issue that prevented us from computing
+                    // the site name to use for the ready queue.
+                    // We're not in an appropriate context to handle that issue here,
+                    // but the good news is that without a valid site name, there can't
+                    // possibly be any suspensions for a ready queue that we can't name
+                    // so we can continue to populate the entries and pick one.
+                    // The DNS issue will bubble up almost immediately after we return
+                    // a source name as our caller will call
+                    // ReadyQueueManager::resolve_by_queue_name which will surface it.
+                    entries.push((entry.clone(), None));
+                }
             }
         }
 
         match self.next_impl(&entries) {
-            Some(name) => RoundRobinResult::Source(name),
+            Some((name, ready_queue_name)) => RoundRobinResult::Source {
+                name,
+                ready_queue_name,
+            },
             None => match min_delay {
                 Some(duration) => RoundRobinResult::Delay(duration),
                 None => RoundRobinResult::NoSources,
