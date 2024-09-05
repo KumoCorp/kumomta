@@ -161,6 +161,18 @@ fn main() -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+        .event_interval(
+            std::env::var("KUMOD_EVENT_INTERVAL")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(61),
+        )
+        .max_io_events_per_tick(
+            std::env::var("KUMOD_IO_EVENTS_PER_TICK")
+                .ok()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(1024),
+        )
         .max_blocking_threads(
             std::env::var("KUMOD_MAX_BLOCKING_THREADS")
                 .ok()

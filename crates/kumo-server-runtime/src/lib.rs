@@ -118,7 +118,7 @@ impl Runtime {
                                 .and_then(|n| n.parse().ok())
                                 .unwrap_or(61),
                         )
-                        .event_interval(
+                        .max_io_events_per_tick(
                             std::env::var("KUMOD_IO_EVENTS_PER_TICK")
                                 .ok()
                                 .and_then(|n| n.parse().ok())
