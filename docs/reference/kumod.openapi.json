@@ -703,8 +703,7 @@
         "required": [
           "envelope_sender",
           "recipients",
-          "content",
-          "deferred_spool"
+          "content"
         ],
         "properties": {
           "content": {

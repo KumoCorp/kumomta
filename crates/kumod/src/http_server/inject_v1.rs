@@ -103,6 +103,7 @@ pub struct InjectV1Request {
     /// of loss of accountability for the message if the system
     /// were to crash before the message is delivered or written
     /// to spool, so use with caution!
+    #[serde(default)]
     pub deferred_spool: bool,
 }
 
