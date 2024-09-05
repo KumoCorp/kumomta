@@ -182,7 +182,10 @@ impl QueueMetrics {
         let _: Vec<()> = get_metrics(endpoint, |m| {
             let name = m.name().as_str();
             match name {
-                "connection_count" | "total_messages_delivered" | "total_messages_transfail" | "ready_count" => {
+                "connection_count"
+                | "total_messages_delivered"
+                | "total_messages_transfail"
+                | "ready_count" => {
                     if let Some(service) = m.labels().get("service") {
                         if let Some((_protocol, queue_name)) = service.split_once(":") {
                             let value = m.value() as usize;
