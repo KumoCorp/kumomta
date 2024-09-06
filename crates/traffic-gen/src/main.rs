@@ -9,7 +9,9 @@ use hdrhistogram::Histogram;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
 use once_cell::sync::OnceCell;
+use reqwest::{Client as HttpClient, Url};
 use rfc5321::*;
+use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -74,10 +76,95 @@ struct Opt {
 
     #[arg(skip)]
     body_size_content: OnceCell<String>,
+
+    /// Use http injection API instead of SMTP
+    #[arg(long)]
+    http: bool,
+
+    /// When using http injection, enable deferred_spool
+    #[arg(long)]
+    http_defer_spool: bool,
+
+    /// When using http injection, enable deferred_generation
+    #[arg(long)]
+    http_defer_generation: bool,
+
+    /// When using http injection, how many recipients to generate
+    /// in a single request
+    #[arg(long, default_value = "1")]
+    http_batch_size: usize,
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
     ThrottleSpec::try_from(arg)
+}
+
+struct InjectClient {
+    url: Url,
+    client: HttpClient,
+    defer_spool: bool,
+    defer_generation: bool,
+    batch_size: usize,
+}
+
+impl InjectClient {
+    async fn send_mail(
+        &mut self,
+        sender: ReversePath,
+        recip: ForwardPath,
+        body: String,
+    ) -> anyhow::Result<()> {
+        #[derive(Serialize)]
+        struct Recipient {
+            email: String,
+        }
+
+        #[derive(Serialize)]
+        struct InjectRequest {
+            content: String,
+            envelope_sender: String,
+            recipients: Vec<Recipient>,
+            deferred_spool: bool,
+            deferred_generation: bool,
+        }
+
+        let mut recipients = vec![];
+        for _ in 0..self.batch_size {
+            recipients.push(Recipient {
+                email: recip.to_string(),
+            });
+        }
+
+        let response = self
+            .client
+            .request(reqwest::Method::POST, self.url.clone())
+            .json(&InjectRequest {
+                content: body,
+                envelope_sender: sender.to_string(),
+                recipients,
+                deferred_spool: self.defer_spool,
+                deferred_generation: self.defer_generation,
+            })
+            .send()
+            .await?;
+        let status = response.status();
+        let body_bytes = response.bytes().await.with_context(|| {
+            format!(
+                "request status {}: {}, and failed to read response body",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("")
+            )
+        })?;
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        if !status.is_success() {
+            anyhow::bail!(
+                "request status {}: {}. Response body: {body_text}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or(""),
+            );
+        }
+        Ok(())
+    }
 }
 
 enum SendDisposition {
@@ -88,6 +175,7 @@ enum SendDisposition {
 
 enum Client {
     Smtp(SmtpClient),
+    Http(InjectClient),
 }
 
 impl Client {
@@ -97,6 +185,7 @@ impl Client {
                 client.send_command(&Command::Quit).await?;
                 Ok(())
             }
+            Self::Http(_) => Ok(()),
         }
     }
 
@@ -135,6 +224,10 @@ impl Client {
                     }
                 }
             }
+            Self::Http(client) => match client.send_mail(sender, recip, body).await {
+                Ok(_) => SendDisposition::Ok,
+                Err(err) => SendDisposition::Failed(err),
+            },
         }
     }
 }
@@ -240,9 +333,35 @@ impl Opt {
     }
 
     async fn make_client(&self) -> anyhow::Result<Client> {
-        self.make_smtp_client()
-            .await
-            .map(|client| Client::Smtp(client))
+        if self.http {
+            self.make_http_client()
+                .await
+                .map(|client| Client::Http(client))
+        } else {
+            self.make_smtp_client()
+                .await
+                .map(|client| Client::Smtp(client))
+        }
+    }
+
+    async fn make_http_client(&self) -> anyhow::Result<InjectClient> {
+        let client = HttpClient::builder()
+            .timeout(Duration::from_secs(60))
+            .build()?;
+        let url = if self.target == "127.0.0.1:2025" {
+            "http://127.0.0.1:8000"
+        } else {
+            &self.target
+        };
+        let url = Url::parse(&format!("{url}/api/inject/v1"))?;
+
+        Ok(InjectClient {
+            client,
+            url,
+            defer_spool: self.http_defer_spool,
+            defer_generation: self.http_defer_generation,
+            batch_size: self.http_batch_size,
+        })
     }
 
     async fn make_smtp_client(&self) -> anyhow::Result<SmtpClient> {
@@ -286,10 +405,11 @@ impl Opt {
     }
 
     fn claim_one(&self, counter: &Arc<AtomicUsize>) -> bool {
-        let mine = counter.fetch_add(1, Ordering::SeqCst);
+        let n = if self.http { self.http_batch_size } else { 1 };
+        let mine = counter.fetch_add(n, Ordering::SeqCst);
         if let Some(limit) = self.message_count {
             if mine >= limit {
-                counter.fetch_sub(1, Ordering::SeqCst);
+                counter.fetch_sub(n, Ordering::SeqCst);
                 return false;
             }
         }
@@ -297,7 +417,8 @@ impl Opt {
     }
 
     fn release_one(&self, counter: &Arc<AtomicUsize>) {
-        counter.fetch_sub(1, Ordering::SeqCst);
+        let n = if self.http { self.http_batch_size } else { 1 };
+        counter.fetch_sub(n, Ordering::SeqCst);
     }
 
     async fn run(
