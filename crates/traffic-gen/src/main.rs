@@ -80,6 +80,65 @@ fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
     ThrottleSpec::try_from(arg)
 }
 
+enum SendDisposition {
+    Ok,
+    Reconnect,
+    Failed(anyhow::Error),
+}
+
+enum Client {
+    Smtp(SmtpClient),
+}
+
+impl Client {
+    async fn disconnect(&mut self) -> anyhow::Result<()> {
+        match self {
+            Self::Smtp(client) => {
+                client.send_command(&Command::Quit).await?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn send_mail(
+        &mut self,
+        sender: ReversePath,
+        recip: ForwardPath,
+        body: String,
+    ) -> SendDisposition {
+        match self {
+            Self::Smtp(client) => {
+                let result = client.send_mail(sender, recip, body).await;
+                match result
+                {
+                    Ok(_) => SendDisposition::Ok,
+                    Err(ClientError::Io(_) |
+                        ClientError::Rejected(Response { code: 421, .. }) |
+                        ClientError::TimeOutResponse{..} |
+                        ClientError::TimeOutRequest{..} |
+                        ClientError::TimeOutData |
+                        ClientError::Rejected(Response {
+                        code: 451,
+                        enhanced_code:
+                            // Too many recipients
+                            Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 5,
+                                detail: 3,
+                            }),
+                        ..
+                    })) => {
+                        SendDisposition::Reconnect
+                    }
+                    err @ Err(_) => {
+                        SendDisposition::Failed(err.context("Failed to send mail").unwrap_err())
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl Opt {
     fn pick_a_domain(&self) -> String {
         let number: usize = rand::random();
@@ -180,7 +239,13 @@ impl Opt {
         )
     }
 
-    async fn make_client(&self) -> anyhow::Result<SmtpClient> {
+    async fn make_client(&self) -> anyhow::Result<Client> {
+        self.make_smtp_client()
+            .await
+            .map(|client| Client::Smtp(client))
+    }
+
+    async fn make_smtp_client(&self) -> anyhow::Result<SmtpClient> {
         let timeouts = SmtpClientTimeouts::default();
 
         let stream =
@@ -245,7 +310,7 @@ impl Opt {
             let mut client = self.make_client().await?;
             while !self.done(start, &counter) {
                 if !self.claim_one(&counter) {
-                    client.send_command(&Command::Quit).await?;
+                    client.disconnect().await?;
                     return Ok(());
                 }
 
@@ -265,36 +330,19 @@ impl Opt {
                 let result = client.send_mail(sender, recip, body).await;
                 latency.record(start.elapsed().as_micros() as u64).ok();
 
-                match result
-                {
-                    Ok(_) => {
-                    }
-                    Err(ClientError::Io(_) |
-                        ClientError::Rejected(Response { code: 421, .. }) |
-                        ClientError::TimeOutResponse{..} |
-                        ClientError::TimeOutRequest{..} |
-                        ClientError::TimeOutData |
-                        ClientError::Rejected(Response {
-                        code: 451,
-                        enhanced_code:
-                            // Too many recipients
-                            Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 5,
-                                detail: 3,
-                            }),
-                        ..
-                    })) => {
+                match result {
+                    SendDisposition::Ok => {}
+                    SendDisposition::Reconnect => {
                         self.release_one(&counter);
                         continue 'reconnect;
                     }
-                    Err(err) => {
+                    SendDisposition::Failed(err) => {
                         self.release_one(&counter);
-                        return Err(err).context("Error sending mail");
+                        return Err(err);
                     }
                 };
             }
-            client.send_command(&Command::Quit).await?;
+            client.disconnect().await?;
         }
         Ok(())
     }
