@@ -46,6 +46,7 @@ lazy_static::lazy_static! {
         "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
 }
 
+const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);
 static READYQ_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_readyq_threads(n: usize) {
@@ -413,8 +414,9 @@ impl ReadyQueueManager {
     async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
         let mut memory = subscribe_to_memory_status_changes();
-        let mut last_change = Instant::now();
-        let mut reap_deadline = None;
+        let mut last_notify = Instant::now();
+        let mut force_reap_deadline = None;
+        let mut age_out_time = last_notify + AGE_OUT_INTERVAL;
         let mut done_abort = false;
         let mut shutting_down = false;
 
@@ -434,15 +436,17 @@ impl ReadyQueueManager {
             tokio::select! {
                 _ = wait_for_shutdown => {
                     shutting_down = true;
-                    if reap_deadline.is_none() {
+                    if force_reap_deadline.is_none() {
                         let duration = queue.path_config.borrow().client_timeouts.total_message_send_duration();
-                        reap_deadline.replace(tokio::time::Instant::now() + duration);
+                        force_reap_deadline.replace(tokio::time::Instant::now() + duration);
                         tracing::debug!("{name}: reap deadline in {duration:?}");
                     }
                 },
+                _ = tokio::time::sleep_until(age_out_time.into()) => {},
                 _ = memory.changed() => {},
                 _ = notify_maintainer.notified() => {
-                    last_change = Instant::now();
+                    last_notify = Instant::now();
+                    age_out_time = last_notify + AGE_OUT_INTERVAL;
                 },
             };
 
@@ -451,9 +455,9 @@ impl ReadyQueueManager {
             let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&name);
             queue.maintain(&suspend).await;
 
-            if queue.reapable(&last_change, &suspend) {
+            if queue.reapable(&last_notify, &suspend) {
                 let mut mgr = MANAGER.lock();
-                if queue.reapable(&last_change, &suspend) {
+                if queue.reapable(&last_notify, &suspend) {
                     tracing::debug!("reaping site {name}");
                     mgr.queues.remove(&name);
                     drop(mgr);
@@ -461,7 +465,7 @@ impl ReadyQueueManager {
                     queue.reinsert_ready_queue("reap").await;
                     return Ok(());
                 }
-            } else if reap_deadline
+            } else if force_reap_deadline
                 .as_ref()
                 .map(|deadline| *deadline <= tokio::time::Instant::now())
                 .unwrap_or(false)
@@ -792,8 +796,7 @@ impl ReadyQueue {
         let ideal = self.ideal_connection_count(suspend);
         ideal == 0
             && self.connections.lock().is_empty()
-            && ((last_change.elapsed() > Duration::from_secs(10 * 60))
-                | self.activity.is_shutting_down())
+            && ((last_change.elapsed() >= AGE_OUT_INTERVAL) | self.activity.is_shutting_down())
             && self.ready_count() == 0
     }
 
