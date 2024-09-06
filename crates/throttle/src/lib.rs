@@ -51,6 +51,14 @@ pub struct ThrottleSpec {
 #[cfg(feature = "impl")]
 impl ThrottleSpec {
     pub async fn throttle<S: AsRef<str>>(&self, key: S) -> Result<ThrottleResult, Error> {
+        self.throttle_quantity(key, 1).await
+    }
+
+    pub async fn throttle_quantity<S: AsRef<str>>(
+        &self,
+        key: S,
+        quantity: u64,
+    ) -> Result<ThrottleResult, Error> {
         let key = key.as_ref();
         let limit = self.limit;
         let period = self.period;
@@ -61,7 +69,7 @@ impl ThrottleSpec {
             limit,
             Duration::from_secs(period),
             max_burst,
-            Some(1),
+            Some(quantity),
             self.force_local,
         )
         .await

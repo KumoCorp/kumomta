@@ -2,6 +2,7 @@ use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
+use crate::http_server::inject_v1::{make_generate_queue_config, GENERATOR_QUEUE_NAME};
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
 use crate::ready_queue::ReadyQueueManager;
@@ -275,6 +276,7 @@ pub enum DeliveryProto {
     Smtp { smtp: SmtpProtocol },
     Maildir { maildir_path: std::path::PathBuf },
     Lua { custom_lua: LuaDeliveryProtocol },
+    HttpInjectionGenerator,
 }
 
 impl DeliveryProto {
@@ -283,6 +285,7 @@ impl DeliveryProto {
             Self::Smtp { .. } => "smtp_client",
             Self::Maildir { .. } => "maildir",
             Self::Lua { .. } => "lua",
+            Self::HttpInjectionGenerator { .. } => "httpinject",
         }
     }
 
@@ -292,6 +295,7 @@ impl DeliveryProto {
             Self::Smtp { .. } => proto_name.to_string(),
             Self::Maildir { maildir_path } => format!("{proto_name}:{}", maildir_path.display()),
             Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
+            Self::HttpInjectionGenerator => format!("{proto_name}:generator"),
         }
     }
 }
@@ -872,6 +876,10 @@ impl Queue {
         name: &str,
         config: &mut LuaConfig,
     ) -> anyhow::Result<QueueConfig> {
+        if name == GENERATOR_QUEUE_NAME {
+            return make_generate_queue_config();
+        }
+
         let components = QueueNameComponents::parse(&name);
 
         let queue_config: QueueConfig = config
@@ -1474,7 +1482,9 @@ impl Queue {
         tracing::trace!("insert_ready {}", msg.id());
 
         match &self.queue_config.borrow().protocol {
-            DeliveryProto::Smtp { .. } | DeliveryProto::Lua { .. } => {
+            DeliveryProto::Smtp { .. }
+            | DeliveryProto::Lua { .. }
+            | DeliveryProto::HttpInjectionGenerator => {
                 let (egress_source, ready_name) = match self
                     .rr
                     .next(&self.name, &self.queue_config)

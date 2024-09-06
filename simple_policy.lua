@@ -7,6 +7,12 @@ package.path = 'assets/?.lua;' .. package.path
 local shaping = require 'policy-extras.shaping'
 local listener_domains = require 'policy-extras.listener_domains'
 
+kumo.on('pre_init', function()
+  kumo.set_httpinject_recipient_rate_limit 'local:6,000/s'
+  kumo.set_httpinject_threads(math.ceil(kumo.available_parallelism() / 2))
+  kumo.set_readyq_threads(math.ceil(kumo.available_parallelism() / 2))
+end)
+
 kumo.on(
   'get_listener_domain',
   listener_domains:setup {
@@ -126,10 +132,14 @@ kumo.on('init', function()
     -- max_messages_per_connection = 10000,
   }
 
-  kumo.configure_local_logs {
-    log_dir = '/var/tmp/kumo-logs',
-    max_segment_duration = '1s',
-  }
+  local do_logging = true
+  if do_logging then
+    kumo.configure_local_logs {
+      log_dir = '/var/tmp/kumo-logs',
+      max_segment_duration = '1s',
+      back_pressure = 512 * 1024,
+    }
+  end
 
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
@@ -236,21 +246,24 @@ local function common_processing(msg)
 
   -- msg:set_meta('tenant', tostring(math.random(128 * 1024)))
 
-  local signer = kumo.dkim.rsa_sha256_signer {
-    domain = msg:from_header().domain,
-    selector = 'default',
-    headers = { 'From', 'To', 'Subject' },
-    -- Using a file:
-    key = 'example-private-dkim-key.pem',
-    -- Using HashiCorp Vault:
-    --[[
-    key = {
-      vault_mount = "secret",
-      vault_path = "dkim/" .. msg:sender().domain
+  local do_signing = true
+  if do_signing then
+    local signer = kumo.dkim.rsa_sha256_signer {
+      domain = msg:from_header().domain,
+      selector = 'default',
+      headers = { 'From', 'To', 'Subject' },
+      -- Using a file:
+      key = 'example-private-dkim-key.pem',
+      -- Using HashiCorp Vault:
+      --[[
+      key = {
+        vault_mount = "secret",
+        vault_path = "dkim/" .. msg:sender().domain
+      }
+      ]]
     }
-    ]]
-  }
-  msg:dkim_sign(signer)
+    msg:dkim_sign(signer)
+  end
 
   -- msg:set_meta('queue', 'null')
 
@@ -275,6 +288,14 @@ end)
 kumo.on(
   'get_egress_path_config',
   function(routing_domain, egress_source, site_name)
+    if routing_domain == 'generator.kumomta.internal' then
+      return kumo.make_egress_path {
+        connection_limit = kumo.available_parallelism(),
+        refresh_strategy = 'Epoch',
+        max_ready = 80000,
+      }
+    end
+
     -- print('get_egress_path_config', routing_domain, egress_source, site_name)
     return kumo.make_egress_path {
       -- enable_tls = 'OpportunisticInsecure',
@@ -284,9 +305,9 @@ kumo.on(
       data_timeout = '20s',
       data_dot_timeout = '25s',
       connect_timeout = '5s',
-      connection_limit = 32,
+      connection_limit = 300,
       -- max_connection_rate = '1/s',
-      max_ready = 20000,
+      max_ready = 80000,
       -- smtp_port = 2026,
       -- max_deliveries_per_connection = 5,
 

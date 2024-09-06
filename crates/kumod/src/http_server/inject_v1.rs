@@ -1,6 +1,11 @@
+use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::QueueManager;
+use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
+use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::spool::SpoolManager;
 use anyhow::Context;
+use arc_swap::ArcSwap;
+use async_trait::async_trait;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
@@ -8,9 +13,9 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
-use kumo_server_runtime::Runtime;
+use kumo_server_runtime::{Runtime, RUNTIME};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
-use message::EnvelopeAddress;
+use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, LuaSerdeExt};
@@ -24,7 +29,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+use throttle::ThrottleSpec;
 use utoipa::{ToResponse, ToSchema};
+
+pub const GENERATOR_QUEUE_NAME: &str = "generator.kumomta.internal";
 
 static MSGS_RECVD: Lazy<AtomicCounter> =
     Lazy::new(|| crate::metrics_helper::total_msgs_received_for_service("http_listener"));
@@ -33,6 +42,12 @@ static HTTPINJECT: Lazy<Runtime> =
     Lazy::new(|| Runtime::new("httpinject", |cpus| cpus * 3 / 8, &HTTPINJECT_THREADS).unwrap());
 
 static HTTPINJECT_THREADS: AtomicUsize = AtomicUsize::new(0);
+static LIMIT: Lazy<ArcSwap<Option<ThrottleSpec>>> = Lazy::new(|| ArcSwap::new(Arc::new(None)));
+
+pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
+    let spec = Arc::new(spec);
+    LIMIT.store(spec);
+}
 
 pub fn set_httpinject_threads(n: usize) {
     HTTPINJECT_THREADS.store(n, Ordering::SeqCst);
@@ -105,6 +120,12 @@ pub struct InjectV1Request {
     /// to spool, so use with caution!
     #[serde(default)]
     pub deferred_spool: bool,
+
+    /// When set to true, the injection request will be queued
+    /// and the actual generation and substitution will happen
+    /// asynchronously with respect to the injection request.
+    #[serde(default)]
+    pub deferred_generation: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
@@ -476,7 +497,7 @@ async fn process_recipient<'a>(
 
     // build into a Message
     let id = SpoolId::new();
-    let message = message::Message::new_dirty(
+    let message = Message::new_dirty(
         id,
         sender.clone(),
         recip_addr,
@@ -527,6 +548,62 @@ async fn process_recipient<'a>(
     Ok(())
 }
 
+async fn queue_deferred(
+    auth: AuthKind,
+    sender: EnvelopeAddress,
+    peer_address: IpAddr,
+    mut request: InjectV1Request,
+) -> anyhow::Result<InjectV1Response> {
+    request.deferred_generation = false;
+    // build into a Message
+    let id = SpoolId::new();
+    let payload: Vec<u8> = serde_json::to_string(&request)?.into();
+    let message = message::Message::new_dirty(
+        id,
+        sender.clone(),
+        EnvelopeAddress::null_sender(),
+        serde_json::json!({}),
+        Arc::new(payload.into_boxed_slice()),
+    )?;
+
+    message.set_meta("http_auth", auth.summarize())?;
+    message.set_meta("reception_protocol", "HTTP")?;
+    message.set_meta("received_from", peer_address.to_string())?;
+    message.set_meta("queue", GENERATOR_QUEUE_NAME)?;
+    if !request.deferred_spool {
+        message.save().await?;
+    }
+    log_disposition(LogDisposition {
+        kind: RecordType::Reception,
+        msg: message.clone(),
+        site: "",
+        peer_address: Some(&ResolvedAddress {
+            name: "".to_string(),
+            addr: peer_address,
+        }),
+        response: Response {
+            code: 250,
+            enhanced_code: None,
+            command: None,
+            content: "".to_string(),
+        },
+        egress_source: None,
+        egress_pool: None,
+        relay_disposition: None,
+        delivery_protocol: None,
+        tls_info: None,
+        source_address: None,
+    })
+    .await;
+    QueueManager::insert(GENERATOR_QUEUE_NAME, message).await?;
+    Ok(InjectV1Response {
+        success_count: 0,
+        fail_count: 0,
+        failed_recipients: vec![],
+        errors: vec![],
+    })
+}
+
 async fn inject_v1_impl(
     auth: AuthKind,
     sender: EnvelopeAddress,
@@ -534,6 +611,13 @@ async fn inject_v1_impl(
     mut request: InjectV1Request,
 ) -> Result<Json<InjectV1Response>, AppError> {
     request.normalize()?;
+
+    if request.deferred_generation {
+        return Ok(Json(
+            queue_deferred(auth, sender, peer_address, request).await?,
+        ));
+    }
+
     let compiled = request.compile()?;
     let mut success_count = 0;
     let mut fail_count = 0;
@@ -568,6 +652,14 @@ async fn inject_v1_impl(
         failed_recipients,
         errors,
     }))
+}
+
+pub fn make_generate_queue_config() -> anyhow::Result<QueueConfig> {
+    Ok(QueueConfig {
+        protocol: DeliveryProto::HttpInjectionGenerator,
+        retry_interval: Duration::from_secs(10),
+        ..QueueConfig::default()
+    })
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -615,16 +707,157 @@ pub async fn inject_v1(
     if kumo_server_common::disk_space::is_over_limit() {
         return Err(anyhow::anyhow!("disk is too full").into());
     }
+
+    let limit = LIMIT.load();
+    if let Some(limit) = limit.as_ref() {
+        loop {
+            let result = limit
+                .throttle_quantity(
+                    "kumomta.httpinject.ratelimit",
+                    request.recipients.len() as u64,
+                )
+                .await?;
+            if let Some(delay) = result.retry_after {
+                tokio::time::sleep(delay).await;
+                continue;
+            } else {
+                break;
+            }
+        }
+    }
+
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
+
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Bounce to the thread pool where we can run async lua
-    HTTPINJECT
-        .spawn(format!("http inject_v1 for {peer_address:?}"), move || {
-            Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
-        })
-        .await?;
+    let pool = if request.deferred_generation {
+        &*RUNTIME
+    } else {
+        &*HTTPINJECT
+    };
+
+    pool.spawn(format!("http inject_v1 for {peer_address:?}"), move || {
+        Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
+    })
+    .await?;
     rx.await?
+}
+
+#[derive(Debug)]
+pub struct HttpInjectionGeneratorDispatcher {
+    connection: Option<MetricsWrappedConnection<()>>,
+}
+
+impl HttpInjectionGeneratorDispatcher {
+    pub fn new() -> Self {
+        Self { connection: None }
+    }
+
+    async fn try_send(&self, msg: Message) -> anyhow::Result<()> {
+        HTTPINJECT
+            .spawn("http inject_v1".to_string(), move || {
+                Ok(async move {
+                    msg.load_data_if_needed().await?;
+                    msg.load_meta_if_needed().await?;
+                    let data = msg.get_data();
+                    let request: InjectV1Request = serde_json::from_slice(&data)?;
+                    let peer_address = msg
+                        .get_meta_string("received_from")?
+                        .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
+                        .parse()?;
+
+                    let sender = msg.sender()?;
+
+                    let _ = inject_v1_impl(
+                        AuthKind::TrustedIp(peer_address),
+                        sender,
+                        peer_address,
+                        request,
+                    )
+                    .await
+                    .map_err(|err| err.0)?;
+
+                    Ok(())
+                })
+            })
+            .await?
+            .await?
+    }
+}
+
+#[async_trait(?Send)]
+impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
+    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        match self.connection.take() {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+        if self.connection.is_none() {
+            self.connection
+                .replace(dispatcher.metrics.wrap_connection(()));
+        }
+        Ok(())
+    }
+    async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
+        false
+    }
+    async fn deliver_message(
+        &mut self,
+        msg: Message,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<()> {
+        // parse out the inject payload and run it
+
+        let response = match self.try_send(msg).await {
+            Ok(()) => Response {
+                code: 250,
+                enhanced_code: None,
+                content: "ok".to_string(),
+                command: None,
+            },
+            Err(err) => Response {
+                code: 500,
+                enhanced_code: None,
+                content: format!("{err:#}"),
+                command: None,
+            },
+        };
+
+        tracing::debug!("Delivered OK! {response:?}");
+        let was_ok = response.code == 250;
+
+        if let Some(msg) = dispatcher.msg.take() {
+            log_disposition(LogDisposition {
+                kind: if was_ok {
+                    RecordType::Delivery
+                } else {
+                    RecordType::Bounce
+                },
+                msg: msg.clone(),
+                site: &dispatcher.name,
+                peer_address: None,
+                response,
+                egress_pool: None,
+                egress_source: None,
+                relay_disposition: None,
+                delivery_protocol: Some("HttpInjectionGenerator"),
+                tls_info: None,
+                source_address: None,
+            })
+            .await;
+            SpoolManager::remove_from_spool(*msg.id()).await?;
+        }
+        if was_ok {
+            dispatcher.metrics.inc_delivered();
+        } else {
+            dispatcher.metrics.inc_fail();
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -649,6 +882,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             substitutions: HashMap::new(),
             content: Content::Rfc822(input.to_string()),
             deferred_spool: true,
+            deferred_generation: false,
         };
 
         let compiled = request.compile().unwrap();
@@ -706,6 +940,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
                 headers: Default::default(),
             },
             deferred_spool: true,
+            deferred_generation: false,
         };
 
         request.normalize().unwrap();
@@ -784,6 +1019,7 @@ Some(
                 attachments: vec![],
             },
             deferred_spool: true,
+            deferred_generation: false,
         };
 
         request.normalize().unwrap();

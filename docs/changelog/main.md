@@ -34,8 +34,12 @@
   for which the tracer client has observed the session opening, and
   `--only-one` to trace just a single session.
 
-* The HTTP injection API now supports an optional `deferred_spool` parameter
-  that allows deferring writing the message(s) spool for a given send attempt.
+* The [HTTP injection API](../reference/http/api_inject_v1.md) now supports an
+  optional `deferred_spool` parameter that allows deferring writing the
+  message(s) spool for a given send attempt, `deferred_generation` for quickly
+  accepting a batch for asynchronous generation, and you can control a rate
+  limit for ingress using
+  [kumo.set_httpinject_recipient_rate_limit](../reference/kumo/set_httpinject_recipient_rate_limit.md).
 
 * We now randomize the set of hosts within a given MX preference level when
   computing the connection plan for an individual session. This helps to

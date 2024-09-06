@@ -31,6 +31,9 @@ The response will look something like:
 }
 ```
 
+!!! note
+    The `success_count` will always be reported as `0` when using `deferred_generation: true`.
+
 The following fields are defined for the inject request:
 
 ## content
@@ -145,6 +148,80 @@ Specifies a set of global substitutions to for template expansion:
     }
 }
 ```
+
+## deferred_spool
+
+{{since('dev')}}
+
+!!! danger
+    Enabling this option may result in loss of accountability for messages.
+    You should satisfy yourself that your system is able to recognize and
+    deal with that scenario if/when it arises.
+
+When set to `true`, the generated message(s) will not be written to the spool
+until it encounters its first transient failure.  This can improve injection
+rate but introduces the risk of loss of accountability for the message if the
+system were to crash before the message is delivered or written to spool, so
+use with caution!
+
+When used in conjunction with `deferred_generation`, both the queued generation
+request and the messages which it produces are subject to deferred spooling.
+
+## deferred_generation
+
+{{since('dev')}}
+
+The default mode of operation is to respond to the injection request only
+once every message in the request has been enqueued to the internal queue
+system. This provides *back pressure* to the injection system and prevents
+the service from being overwhelmed if the rate of ingress exceeds the
+maximum rate of egress.
+
+The result of this back pressure is that the latency of the injection request
+depends on the load of the system.
+
+Setting `deferred_generation: true` in the request alters the processing flow:
+instead of immediately expanding the request into the desired number of
+messages and queueing them up, the injection request is itself queued up and
+processed asynchronously with respect to the incoming request.
+
+This `deferred_generation` submission is typically several orders of magnitude
+faster than the immediate generation mode, so it is possible to very very quickly
+queue up large batches of messages this way.
+
+The deferred generation requests are queued internally to a special queue
+named `generator.kumomta.internal` that will process them by spawning each
+request into the `httpinject` thread pool.
+
+You will likely want and need to configure shaping to accomodate this queue
+for best performance:
+
+```lua
+-- Locate this before any other helpers or modules that define
+-- `get_egress_path_config` event handlers in order for it to take effect
+kumo.on(
+  'get_egress_path_config',
+  function(routing_domain, egress_source, site_name)
+    if routing_domain == 'generator.kumomta.internal' then
+      return kumo.make_egress_path {
+        -- This is a good place to start, but you may want to
+        -- experiment with 1/2, 3/4, or 1.5 times this to find
+        -- what works best in your environment
+        connection_limit = kumo.available_parallelism(),
+        refresh_strategy = 'Epoch',
+        max_ready = 80000,
+      }
+    end
+end)
+```
+
+!!! note
+    It is possible to very quickly generate millions of queued messages when
+    using `deferred_generation: true`. You may wish to look into configuring
+    a rate limit to constrain the system appropriately for your environment.
+    [kumo.set_httpinject_recipient_rate_limit](../kumo/set_httpinject_recipient_rate_limit.md)
+    can be used for this purpose.
+
 
 # Template Substitution
 

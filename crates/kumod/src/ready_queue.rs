@@ -4,6 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
 };
+use crate::http_server::inject_v1::HttpInjectionGeneratorDispatcher;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
@@ -965,6 +966,7 @@ impl Dispatcher {
             DeliveryProto::Smtp { .. } => "ESMTP".to_string(),
             DeliveryProto::Lua { .. } => "Lua".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
+            DeliveryProto::HttpInjectionGenerator => "HttpInjectionGenerator".to_string(),
         };
 
         let mut dispatcher = Self {
@@ -1000,6 +1002,9 @@ impl Dispatcher {
             }
             DeliveryProto::Maildir { .. } => {
                 anyhow::bail!("Should not reach Dispatcher::run with DeliveryProto::Maildir")
+            }
+            DeliveryProto::HttpInjectionGenerator => {
+                Box::new(HttpInjectionGeneratorDispatcher::new())
             }
         };
 

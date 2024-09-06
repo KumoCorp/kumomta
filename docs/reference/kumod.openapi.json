@@ -709,6 +709,10 @@
           "content": {
             "$ref": "#/components/schemas/Content"
           },
+          "deferred_generation": {
+            "type": "boolean",
+            "description": "When set to true, the injection request will be queued\nand the actual generation and substitution will happen\nasynchronously with respect to the injection request."
+          },
           "deferred_spool": {
             "type": "boolean",
             "description": "When set to true, the message will not be written to\nthe spool until it encounters its first transient failure.\nThis can improve injection rate but introduces the risk\nof loss of accountability for the message if the system\nwere to crash before the message is delivered or written\nto spool, so use with caution!"

@@ -40,6 +40,12 @@ Examples of throttles:
 "10,000/day" -- 10,000 per day
 ```
 
+{{since('dev', indent=True)}}
+    You can use the literal prefix `"local:"` to explicitly use a
+    node-local throttle, even when you have enabled redis throttles,
+    so `"local:10,000/s"` defines a `10,000/s` throttle that is node-local
+    and that doesn't use redis to share the throttle state with other nodes.
+
 The returned throttle object has the following methods:
 
 ## throttle:sleep_if_throttled()
