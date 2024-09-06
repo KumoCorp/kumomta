@@ -339,48 +339,6 @@ async fn main() -> anyhow::Result<()> {
     let mut last_update_time = Instant::now();
     let mut last_sent = 0;
 
-    #[allow(dead_code)]
-    struct Rates {
-        msgs_per_second: usize,
-        msgs_per_minute: usize,
-        msgs_per_hour: usize,
-        per_second: String,
-        per_minute: String,
-        per_hour: String,
-    }
-
-    impl Rates {
-        fn new(total_sent: usize, elapsed: Duration) -> Self {
-            let msgs_per_second = (total_sent as f64 / elapsed.as_secs_f64()) as usize;
-            let msgs_per_minute = msgs_per_second * 60;
-            let msgs_per_hour = msgs_per_minute * 60;
-
-            let per_second = msgs_per_second.to_formatted_string(&Locale::en);
-            let per_minute = msgs_per_minute.to_formatted_string(&Locale::en);
-            let per_hour = msgs_per_hour.to_formatted_string(&Locale::en);
-
-            Self {
-                msgs_per_second,
-                msgs_per_minute,
-                msgs_per_hour,
-                per_second,
-                per_minute,
-                per_hour,
-            }
-        }
-
-        fn print(&self, prefix: &str, suffix: &str) {
-            let mut out = std::io::stdout();
-            write!(out,
-                "{prefix}{per_second} msgs/s, {per_minute} msgs/minute, {per_hour} msgs/hour{suffix}",
-                per_second = self.per_second,
-                per_minute = self.per_minute,
-                per_hour = self.per_hour
-            ).unwrap();
-            out.flush().unwrap();
-        }
-    }
-
     let mut running_clients = concurrency;
 
     loop {
@@ -436,4 +394,48 @@ async fn main() -> anyhow::Result<()> {
     println!();
 
     Ok(())
+}
+
+#[allow(dead_code)]
+struct Rates {
+    msgs_per_second: usize,
+    msgs_per_minute: usize,
+    msgs_per_hour: usize,
+    per_second: String,
+    per_minute: String,
+    per_hour: String,
+}
+
+impl Rates {
+    fn new(total_sent: usize, elapsed: Duration) -> Self {
+        let msgs_per_second = (total_sent as f64 / elapsed.as_secs_f64()) as usize;
+        let msgs_per_minute = msgs_per_second * 60;
+        let msgs_per_hour = msgs_per_minute * 60;
+
+        let per_second = msgs_per_second.to_formatted_string(&Locale::en);
+        let per_minute = msgs_per_minute.to_formatted_string(&Locale::en);
+        let per_hour = msgs_per_hour.to_formatted_string(&Locale::en);
+
+        Self {
+            msgs_per_second,
+            msgs_per_minute,
+            msgs_per_hour,
+            per_second,
+            per_minute,
+            per_hour,
+        }
+    }
+
+    fn print(&self, prefix: &str, suffix: &str) {
+        let mut out = std::io::stdout();
+        write!(
+            out,
+            "{prefix}{per_second} msgs/s, {per_minute} msgs/minute, {per_hour} msgs/hour{suffix}",
+            per_second = self.per_second,
+            per_minute = self.per_minute,
+            per_hour = self.per_hour
+        )
+        .unwrap();
+        out.flush().unwrap();
+    }
 }
