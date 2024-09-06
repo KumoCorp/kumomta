@@ -47,6 +47,7 @@ lazy_static::lazy_static! {
         "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
 }
 
+const ONE_MINUTE: Duration = Duration::from_secs(60);
 const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);
 static READYQ_THREADS: AtomicUsize = AtomicUsize::new(0);
 
@@ -443,7 +444,12 @@ impl ReadyQueueManager {
                         tracing::debug!("{name}: reap deadline in {duration:?}");
                     }
                 },
-                _ = tokio::time::sleep_until(age_out_time.into()) => {},
+                _ = tokio::time::sleep_until(age_out_time.into()) => {
+                    // Push it forward by a minute, so that we don't busy loop if we are
+                    // not ready to age out now (still have open connections), and are not
+                    // otherwise notified in a short time span
+                    age_out_time = Instant::now() + ONE_MINUTE;
+                },
                 _ = memory.changed() => {},
                 _ = notify_maintainer.notified() => {
                     last_notify = Instant::now();
