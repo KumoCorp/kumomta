@@ -125,6 +125,7 @@ dependencies = [
  "serde_bytes",
  "tokio",
  "tokio-rustls 0.26.0",
+ "tracing",
  "webpki-roots 0.26.5",
 ]
 
