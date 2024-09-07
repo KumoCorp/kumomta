@@ -212,7 +212,8 @@ kumo.on(
         max_ready = 80000,
       }
     end
-end)
+  end
+)
 ```
 
 !!! note
