@@ -119,17 +119,18 @@ local shaping = require 'policy-extras.shaping'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
-  extra_files = { 
-        '/opt/kumomta/share/policy-extras/shaping.toml',
-        '/opt/kumomta/share/community/shaping.toml', 
-        '/opt/kumomta/etc/policy/shaping_custom.toml',
-        },
+  extra_files = {
+    '/opt/kumomta/share/policy-extras/shaping.toml',
+    '/opt/kumomta/share/community/shaping.toml',
+    '/opt/kumomta/etc/policy/shaping_custom.toml',
+  },
 }
 ```
 
-Note that when a given scope is defined in multiple files, the more recently read file does not completely replace the configuration defined in the previous file, the options within that scope are merged.
+!!!Note
+    When a given scope is defined in multiple files, the more recently read file does not completely replace the configuration defined in the previous file, the options within that scope are merged.
 
-If you want to completely replace the information for a domain, you
+If you want to completely replace the information for a given block, you
 can indicate that by using `replace_base = true`:
 
 {% call toml_data() %}
@@ -337,11 +338,11 @@ local shaping = require 'policy-extras.shaping'
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
-  extra_files = { 
-        '/opt/kumomta/share/policy-extras/shaping.toml',
-        '/opt/kumomta/share/community/shaping.toml', 
-        '/opt/kumomta/etc/policy/shaping_custom.toml',
-        },
+  extra_files = {
+    '/opt/kumomta/share/policy-extras/shaping.toml',
+    '/opt/kumomta/share/community/shaping.toml',
+    '/opt/kumomta/etc/policy/shaping_custom.toml',
+  },
 }
 ```
 
@@ -406,8 +407,8 @@ local cached_load_shaping_data = kumo.memoize(kumo.shaping.load, {
 kumo.on('tsa_load_shaping_data', function()
   local shaping = cached_load_shaping_data {
     '/opt/kumomta/share/policy-extras/shaping.toml',
-    '/opt/kumomta/share/community/shaping.toml', 
-    '/opt/kumomta/etc/policy/custom-shaping.toml'
+    '/opt/kumomta/share/community/shaping.toml',
+    '/opt/kumomta/etc/policy/custom-shaping.toml',
   }
   return shaping
 end)
