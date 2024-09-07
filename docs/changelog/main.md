@@ -76,6 +76,9 @@
   `load_validation_options` (for regular load-time checks) and
   `validation_options` (for `--validate` mode).
 
+* The [requeue_message](../reference/events/requeue_message.md) event now also
+  receives the SMTP response that led to the requeue event being triggered.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report
@@ -110,3 +113,7 @@
   reception could result in messages that wouldn't be eligible to shrink
   until after their next attempt. In addition, we could repeatedly try this
   each time the readyq maintainer would trigger during a memory shortage.
+
+* The [requeue_message](../reference/events/requeue_message.md) event was
+  internally named `message_requeued`, contrary to the documentation. This has
+  now been corrected. #236

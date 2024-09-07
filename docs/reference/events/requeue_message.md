@@ -1,11 +1,22 @@
-# `kumo.on('requeue_message', function(message))`
+# `kumo.on('requeue_message', function(message, smtp_response))`
 
-{{since('2024.06.10-84e84b89')}}
+{{since('dev')}}
+
+!!! note
+    This event was actually added in `2024.06.10-84e84b89` but under
+    the erroneous name `message_requeued`. That was corrected
+    in dev builds when the `smtp_response` parameter was added.
 
 This event is triggered when a message encountered a transient failure.
 Its purpose is to allow you to re-bind the message to an alternative
 queue, perhaps to relay it via an alternate tier or to use an alternative
 pool for egress.
+
+The `smtp_response` parameter is a one-line rendition of the SMTP
+response that resulted in the message being requeued. There are a couple
+of internal triggers for a requeue that are not directly caused by
+an SMTP response. Those responses have `KumoMTA internal:` prefixed
+the to textual portion of the response.
 
 Multiple instances of the `requeue_message` event can be registered,
 and they will be called in the order in which they were registered,
@@ -52,4 +63,13 @@ kumo.on('requeue_message', function(msg)
   end
 end)
 ```
+
+Calling [kumo.reject](../kumo/reject.md) to raise an error in your event
+handler (regardless of the code parameter passed to `kumo.reject`) will
+cause the message to bounced; a `Bounce` record will be logged and the
+message will be removed from the spool.
+
+Any other kind of error raised by the event handler will cause the error
+to be logged to the diagnostic log, and the message returned to its
+original scheduled queue.
 

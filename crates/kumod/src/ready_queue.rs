@@ -11,6 +11,7 @@ use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
 use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
+use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -41,8 +42,8 @@ use tracing::instrument; // TODO move to here
 
 static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
     LazyLock::new(|| StdMutex::new(ReadyQueueManager::new()));
-pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<'static, Message, ()>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("message_requeued"));
+pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<'static, (Message, String), ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("requeue_message"));
 pub static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
@@ -942,7 +943,21 @@ impl Drop for Dispatcher {
                         if activity.is_shutting_down() {
                             Queue::save_if_needed_and_log(&msg).await;
                         } else {
-                            if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
+                            let response = Response {
+                                code: 451,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 1,
+                                }),
+                                content: "KumoMTA internal: returning message to scheduled queue"
+                                    .to_string(),
+                                command: None,
+                            };
+
+                            if let Err(err) =
+                                Dispatcher::requeue_message(msg, false, None, response).await
+                            {
                                 tracing::error!("error requeuing message on Drop: {err:#}");
                             }
                         }
@@ -1089,22 +1104,24 @@ impl Dispatcher {
                             ""
                         };
 
+                        let response = Response {
+                            code: 400,
+                            enhanced_code: None,
+                            content: format!(
+                                "KumoMTA internal: \
+                                     failed to connect to any candidate \
+                                     hosts: {summary}{}",
+                                connection_failures.join(", ")
+                            ),
+                            command: None,
+                        };
+
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
                             site: &dispatcher.name,
                             peer_address: None,
-                            response: Response {
-                                code: 400,
-                                enhanced_code: None,
-                                content: format!(
-                                    "KumoMTA internal: \
-                                     failed to connect to any candidate \
-                                     hosts: {summary}{}",
-                                    connection_failures.join(", ")
-                                ),
-                                command: None,
-                            },
+                            response: response.clone(),
                             egress_pool: Some(&dispatcher.egress_pool),
                             egress_source: Some(&dispatcher.egress_source.name),
                             relay_disposition: None,
@@ -1114,7 +1131,7 @@ impl Dispatcher {
                             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         })
                         .await;
-                        Dispatcher::requeue_message(msg, true, None).await?;
+                        Dispatcher::requeue_message(msg, true, None, response).await?;
                         dispatcher.metrics.inc_transfail();
                     }
 
@@ -1268,6 +1285,7 @@ impl Dispatcher {
         msg: Message,
         mut increment_attempts: bool,
         mut delay: Option<chrono::Duration>,
+        response: Response,
     ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
@@ -1284,7 +1302,10 @@ impl Dispatcher {
             match load_config().await {
                 Ok(mut config) => {
                     let result: anyhow::Result<()> = config
-                        .async_call_callback(&REQUEUE_MESSAGE_SIG, msg.clone())
+                        .async_call_callback(
+                            &REQUEUE_MESSAGE_SIG,
+                            (msg.clone(), response.to_single_line()),
+                        )
                         .await;
 
                     match result {
@@ -1308,6 +1329,37 @@ impl Dispatcher {
                             }
                         }
                         Err(err) => {
+                            // If they did a kumo.reject() in the handler, translate that
+                            // into a Bounce. We do this even if they used a 4xx code; it
+                            // only makes sense to map it to a Bounce rather than a
+                            // TransientFailure because we already just had a TransientFailure.
+                            if let Some(rej) = RejectError::from_anyhow(&err) {
+                                log_disposition(LogDisposition {
+                                    kind: RecordType::Bounce,
+                                    msg: msg.clone(),
+                                    // There is no site because this was a policy bounce
+                                    // triggered in an event handler
+                                    site: "",
+                                    peer_address: None,
+                                    response: Response {
+                                        code: rej.code,
+                                        enhanced_code: None,
+                                        content: rej.message,
+                                        command: None,
+                                    },
+                                    egress_pool: None,
+                                    egress_source: None,
+                                    relay_disposition: None,
+                                    delivery_protocol: None,
+                                    tls_info: None,
+                                    source_address: None,
+                                    provider: None,
+                                })
+                                .await;
+                                SpoolManager::remove_from_spool(*msg.id()).await.ok();
+                                return Ok(());
+                            }
+
                             tracing::error!(
                                 "Error while calling requeue_message event: {err:#}. \
                                  will reuse current queue"
@@ -1392,9 +1444,22 @@ impl Dispatcher {
             READYQ_RUNTIME
                 .spawn("requeue for throttle".to_string(), move || {
                     Ok(async move {
+                        let response = Response {
+                            code: 451,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 1,
+                            }),
+                            content: "KumoMTA internal: ready queue throttled".to_string(),
+                            command: None,
+                        };
                         for msg in msgs {
-                            if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                                tracing::error!("error requeuing for throttle: {err:#}");
+                            if let Err(err) =
+                                Self::requeue_message(msg, false, Some(delay), response.clone())
+                                    .await
+                            {
+                                tracing::error!("error requeuing message for throttle: {err:#}");
                             }
                         }
                         drop(activity);
@@ -1441,7 +1506,9 @@ impl Dispatcher {
             .await;
 
             if response.is_transient() {
-                if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await {
+                if let Err(err) =
+                    Self::requeue_message(msg, increment_attempts, None, response.clone()).await
+                {
                     tracing::error!("error requeuing for bulk {} operation: {err:#}", self.name);
                 }
             } else if response.is_permanent() {
@@ -1486,24 +1553,25 @@ impl Dispatcher {
                         continue;
                     }
                     if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&queue_name) {
+                        let response = rfc5321::Response {
+                            code: 451,
+                            enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 4,
+                            }),
+                            content: format!(
+                                "KumoMTA internal: scheduled queue is suspended: {}",
+                                suspend.reason
+                            ),
+                            command: None,
+                        };
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
                             site: &self.name,
                             peer_address: None,
-                            response: rfc5321::Response {
-                                code: 451,
-                                enhanced_code: Some(rfc5321::EnhancedStatusCode {
-                                    class: 4,
-                                    subject: 4,
-                                    detail: 4,
-                                }),
-                                content: format!(
-                                    "KumoMTA internal: scheduled queue is suspended: {}",
-                                    suspend.reason
-                                ),
-                                command: None,
-                            },
+                            response: response.clone(),
                             egress_source: None,
                             egress_pool: None,
                             relay_disposition: None,
@@ -1515,7 +1583,7 @@ impl Dispatcher {
                         .await;
 
                         let increment_attempts = true;
-                        Self::requeue_message(msg, increment_attempts, None)
+                        Self::requeue_message(msg, increment_attempts, None, response)
                             .await
                             .ok();
                         continue;

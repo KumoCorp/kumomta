@@ -707,7 +707,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             msg: msg.clone(),
                             site: &dispatcher.name,
                             peer_address: self.client_address.as_ref(),
-                            response,
+                            response: response.clone(),
                             egress_pool: Some(&dispatcher.egress_pool),
                             egress_source: Some(&dispatcher.egress_source.name),
                             relay_disposition: None,
@@ -719,7 +719,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         .await;
                         spawn_local(
                             "requeue message".to_string(),
-                            Dispatcher::requeue_message(msg, true, None),
+                            Dispatcher::requeue_message(msg, true, None, response),
                         )?;
                     }
                     dispatcher.metrics.inc_transfail();
@@ -780,21 +780,22 @@ impl QueueDispatcher for SmtpDispatcher {
                 );
                 tracing::debug!("{reason}");
                 if let Some(msg) = dispatcher.msgs.pop() {
+                    let response = Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: Some(command.encode()),
+                    };
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
                         msg: msg.clone(),
                         site: &dispatcher.name,
                         peer_address: self.client_address.as_ref(),
-                        response: Response {
-                            code: 421,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 4,
-                                detail: 2,
-                            }),
-                            content: reason.clone(),
-                            command: Some(command.encode()),
-                        },
+                        response: response.clone(),
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
@@ -806,7 +807,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
-                        Dispatcher::requeue_message(msg, true, None),
+                        Dispatcher::requeue_message(msg, true, None, response),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();
@@ -823,21 +824,22 @@ impl QueueDispatcher for SmtpDispatcher {
 
                 tracing::debug!("{reason}");
                 if let Some(msg) = dispatcher.msgs.pop() {
+                    let response = Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: command.map(|c| c.encode()),
+                    };
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
                         msg: msg.clone(),
                         site: &dispatcher.name,
                         peer_address: self.client_address.as_ref(),
-                        response: Response {
-                            code: 421,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 4,
-                                detail: 2,
-                            }),
-                            content: reason.clone(),
-                            command: command.map(|c| c.encode()),
-                        },
+                        response: response.clone(),
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
@@ -849,7 +851,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
-                        Dispatcher::requeue_message(msg, true, None),
+                        Dispatcher::requeue_message(msg, true, None, response),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();

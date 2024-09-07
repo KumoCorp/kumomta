@@ -224,7 +224,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             .await;
                             spawn_local(
                                 "requeue message".to_string(),
-                                Dispatcher::requeue_message(msg, true, None),
+                                Dispatcher::requeue_message(msg, true, None, response.clone()),
                             )?;
                             dispatcher.metrics.inc_transfail();
                         }
