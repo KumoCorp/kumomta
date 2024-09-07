@@ -84,6 +84,10 @@ impl Activity {
     }
 }
 
+pub fn is_shutting_down() -> bool {
+    SHUTTING_DOWN.load(Ordering::Relaxed)
+}
+
 struct ShutdownState {
     tx: WatchSender<()>,
     rx: WatchReceiver<()>,

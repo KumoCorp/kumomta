@@ -21,7 +21,7 @@ use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::config_handle::ConfigHandle;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
 use kumo_server_runtime::{spawn, Runtime};
 use message::message::QueueNameComponents;
@@ -399,6 +399,9 @@ impl ReadyQueueManager {
         let num_queues = queues.len();
 
         for queue in queues {
+            if is_shutting_down() {
+                return;
+            }
             if queue
                 .perform_config_refresh_if_due(now, epoch, epoch_changed)
                 .await

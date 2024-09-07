@@ -16,7 +16,7 @@ use crossbeam_skiplist::SkipSet;
 use kumo_api_types::egress_path::ConfigRefreshStrategy;
 use kumo_prometheus::{label_key, AtomicCounter, PruningCounterRegistry};
 use kumo_server_common::config_handle::ConfigHandle;
-use kumo_server_lifecycle::{Activity, ShutdownSubcription};
+use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
@@ -976,6 +976,9 @@ impl Queue {
         let num_queues = names.len();
 
         for name in names {
+            if is_shutting_down() {
+                return;
+            }
             if let Some(queue) = QueueManager::get_opt(&name) {
                 if queue.check_reap(now) {
                     num_reaped += 1;
