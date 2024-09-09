@@ -365,7 +365,15 @@ impl DomainSpec {
                 continue;
             }
             if s.starts_with("%{") {
-                let name = MacroName::parse(&s[2..3])?;
+                if s.len() < 4 {
+                    return Err(format!("unexpected end of input in {s}"));
+                }
+
+                let (name, url_escape) = MacroName::parse(
+                    s.chars()
+                        .nth(2)
+                        .ok_or_else(|| format!("unexpected end of input in {s}"))?,
+                )?;
                 let mut transformer_digits = None;
                 let mut reverse = false;
 
@@ -391,6 +399,7 @@ impl DomainSpec {
                     name,
                     transformer_digits,
                     reverse,
+                    url_escape,
                     delimiters: delimiters.to_string(),
                 }));
 
@@ -421,6 +430,8 @@ pub struct MacroTerm {
     pub name: MacroName,
     /// digits were present in the transformer section
     pub transformer_digits: Option<u32>,
+    /// The output needs to be URL-escaped
+    pub url_escape: bool,
     /// the `r` transformer was present
     pub reverse: bool,
     /// The list of delimiters, if any, otherwise an empty string
@@ -454,21 +465,25 @@ pub enum MacroName {
 }
 
 impl MacroName {
-    fn parse(s: &str) -> Result<Self, String> {
-        Ok(match s {
-            "s" | "S" => Self::Sender,
-            "l" | "L" => Self::LocalPart,
-            "o" | "O" => Self::SenderDomain,
-            "d" | "D" => Self::Domain,
-            "i" | "I" => Self::Ip,
-            "p" | "P" => Self::ValidatedDomainName,
-            "v" | "V" => Self::ReverseDns,
-            "h" | "H" => Self::HeloDomain,
-            "c" | "C" => Self::ClientIp,
-            "r" | "R" => Self::RelayingHostName,
-            "t" | "T" => Self::CurrentUnixTimeStamp,
-            _ => return Err(format!("invalid macro name {s}")),
-        })
+    fn parse(c: char) -> Result<(Self, bool), String> {
+        let escape = c.is_ascii_uppercase();
+        Ok((
+            match c.to_ascii_lowercase() {
+                's' => Self::Sender,
+                'l' => Self::LocalPart,
+                'o' => Self::SenderDomain,
+                'd' => Self::Domain,
+                'i' => Self::Ip,
+                'p' => Self::ValidatedDomainName,
+                'v' => Self::ReverseDns,
+                'h' => Self::HeloDomain,
+                'c' => Self::ClientIp,
+                'r' => Self::RelayingHostName,
+                't' => Self::CurrentUnixTimeStamp,
+                _ => return Err(format!("invalid macro name {c}")),
+            },
+            escape,
+        ))
     }
 }
 
@@ -533,6 +548,7 @@ Record {
                             MacroTerm {
                                 name: Domain,
                                 transformer_digits: None,
+                                url_escape: false,
                                 reverse: false,
                                 delimiters: "",
                             },
@@ -561,6 +577,7 @@ Record {
                                 MacroTerm {
                                     name: Ip,
                                     transformer_digits: None,
+                                    url_escape: false,
                                     reverse: true,
                                     delimiters: "",
                                 },
