@@ -244,7 +244,8 @@ local function common_processing(msg)
   -- then remove that header from the message
   msg:import_scheduling_header('X-Schedule', true)
 
-  -- msg:set_meta('tenant', tostring(math.random(128 * 1024)))
+  msg:set_meta('tenant', 't'..tostring(math.random(1000)))
+  msg:set_meta('campaign', 'c'..tostring(math.random(1000)))
 
   local do_signing = true
   if do_signing then
@@ -300,6 +301,7 @@ kumo.on(
     return kumo.make_egress_path {
       -- enable_tls = 'OpportunisticInsecure',
       enable_tls = 'Disabled',
+      enable_mta_sts = false,
       -- max_message_rate = '5/min',
       idle_timeout = '25s',
       data_timeout = '20s',

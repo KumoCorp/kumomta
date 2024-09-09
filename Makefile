@@ -36,6 +36,11 @@ sink: unsink
 	./target/release/kumod --user `id -un` --policy sink.lua
 	#smtp-sink 127.0.0.1:2026 2000 || exit 0
 
+smartsink: unsink
+	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
+	sudo iptables -t nat -L -n
+	SINK_PORT=2026 SINK_HTTP=8002 SINK_SPOOL=/tmp/kumo-sink SINK_DATA=`pwd`/examples/smart-sink-docker/policy/responses.toml ./target/release/kumod --user `id -un` --policy `pwd`/examples/smart-sink-docker/policy/init.lua
+
 hugesink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 192.168.1.54:2026
 	sudo iptables -t nat -L -n

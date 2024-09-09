@@ -1,0 +1,279 @@
+# Configure the default chance of a bounce or deferral
+[default]
+bounce=10
+defer=5
+
+# Configure the chances per domain
+[domain."yahoo.ca"]
+bounce = 5
+defer =  20
+
+[domain."yahoo.com"]
+bounce = 5
+defer =  20
+
+[domain."aol.com"]
+bounce = 5
+defer =  20
+
+[domain."hotmail.com"]
+bounce = 5
+defer =  10
+
+[domain."gmail.com"]
+bounce = 10
+defer =  10
+
+# Configure a set of potential bounce messages per domain by using `[[bounce."DOMAIN"]]`
+[[bounce."aol.com"]]
+code=550
+msg="MAILBOX NOT FOUND"
+
+# Configure a set of potential deferral messages per domain by using `[[defer."DOMAIN"]]`
+[[defer."aol.com"]]
+code=421
+msg="[IPTS04] Messages from (100.100.100.100) temporarily deferred due to unexpected volume or user complaints - 100.100.100.100; see https://postmaster.yahooinc.com/error-codes"
+
+[[defer."aol.com"]]
+code=421
+msg="4.7.0 [TSS04] Messages from (100.100.100.100) temporarily deferred due to unexpected volume or user complaints - 100.100.100.100; see https://postmaster.yahooinc.com/error-codes"
+
+[[bounce."aol.com"]]
+code=550
+msg="We would love to have gotten this email to email@mydomain.comanks."
+
+[[defer."gmail.com"]]
+code=421
+msg="4.7.0 [x.xx.xx.xx] Our system has detected that this message is suspicious due to the nature of the content and/or the links within. To best protect our users from spam, the message has been blocked. Please visit https://support.google.com/mail/answer/188131 for more information. - gsmtp"
+
+[[defer."gmail.com"]]
+code=421
+msg="4.7.0 [x.xx.xx.xx] Our system has detected that this message is suspicious due to the very low reputation of the sending domain. To best protect our users from spam, the message has been blocked. Please visit https://support.google.com/mail/answer/188131 for more information. - gsmtp"
+
+[[defer."gmail.com"]]
+code=421
+msg="4.7.28 [x.xx.xx.xx] Our system has detected an unusual rate of unsolicited mail originating from your IP address. To protect our users from spam, mail sent from your IP address has been temporarily rate limited. Please visit https://support.google.com/mail/?p=UnsolicitedRateLimitError to review our Bulk Email Senders Guidelines. - gsmtp"
+
+[[defer."gmail.com"]]
+code=450
+msg="4.2.1 The user you are trying to contact is receiving mail at a rate that prevents additional messages from being delivered. Please resend your message at a later time. If the user is able to receive mail at that time, your message will be delivered. For more information, please visit https://support.google.com/mail/?p=ReceivingRate - gsmtp"
+
+[[defer."gmail.com"]]
+code=451
+msg="4.3.0 Mail server temporarily rejected message. - gsmtp"
+
+[[defer."gmail.com"]]
+code=452
+msg="4.2.2 The email account that you tried to reach is over quota. Please direct the recipient to https://support.google.com/mail/?p=OverQuotaTemp - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces. Learn more at https://support.google.com/mail/?p=NoSuchUser - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.2.1 The email account that you tried to reach is disabled. 4si211252vws.10"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.2.1 The email account that you tried to reach is disabled. Learn more at https://support.google.com/mail/?p=DisabledUser - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.2.1 The user you are trying to contact is receiving mail at a rate that prevents additional messages from being delivered. For more information, please visit https://support.google.com/mail/?p=ReceivingRatePerm - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.7.1 [x.xx.xx.xx 14] Messages missing a valid address in From: header, or having no From: header, are not accepted. - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.7.1 [x.xx.xx.xx] Our system has detected that this message is likely suspicious due to the very low reputation of the sending domain. To best protect our users from spam, the message has been blocked. Please visit https://support.google.com/mail/answer/188131 for more information. - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.7.1 [x.xx.xx.xx] Our system has detected that this message is likely unsolicited mail. To reduce the amount of spam sent to Gmail, this message has been blocked. Please visit https://support.google.com/mail/?p=UnsolicitedMessageError for more information. - gsmtp"
+
+[[bounce."gmail.com"]]
+code=550
+msg="5.7.1 Unauthenticated email from example.com is not accepted due to domain's DMARC policy. Please contact the administrator of example.com domain if this was a legitimate mail. Please visit https://support.google.com/mail/answer/2451690 to learn about the DMARC initiative. - gsmtp"
+
+[[bounce."gmail.com"]]
+code=552
+msg="5.2.2 The email account that you tried to reach is over quota. Please direct the recipient to https://support.google.com/mail/?p=OverQuotaPerm - gsmtp"
+
+[[bounce."gmail.com"]]
+code=552
+msg="5.2.3 Your message exceeded Google's message size limits. Please visit http://mail.google.com/support/bin/answer.py?answer=8770 to review our size guidelines."
+
+[[bounce."gmail.com"]]
+code=552
+msg="5.7.0 Our system detected an illegal attachment on your message. Please visit http://mail.google.com/support/bin/answer.py?answer=6590 to review our attachment guidelines."
+
+[[bounce."gmail.com"]]
+code=553
+msg="5.1.2 The recipient address <example@example.com> is not a valid RFC-5321 address. - gsmtp"
+
+[[defer."gmail.com"]]
+code=421
+msg="421-4.7.0 [100.100.100.100] Our system has detected an unusual amount of\r\n421-4.7.0 unsolicited mail originating from your IP address. To protect our\r\n421-4.7.0 users from spam, mail sent from your IP address has been temporarily\r\n421-4.7.0 blocked. Please visit http://www.google.com/mail/help/bulk_mail.html\r\n421,4.7.0 to review our Bulk Email Senders Guidelines. 39si2626666ywh.98"
+
+[[bounce."gmail.com"]]
+code=550
+msg="550-5.1.1 The email account that you tried to reach does not exist. Please\r\n550-5.1.1 try double-checking the recipient's email address for typos\r\n550-5.1.1 or unnecessary spaces. Learn more at\r\n550,5.1.1 http://mail.google.com/support/bin/answer.py?answer=6596 b11si4410389ana.36"
+
+[[bounce."hotmail.com"]]
+code=550
+msg="Requested action not taken: mailbox unavailable"
+
+[[defer."rocketmail.com"]]
+code=421
+msg="4.7.0 [TSS04] Messages from (100.100.100.100) temporarily deferred due to unexpected volume or user complaints - 100.100.100.100; see https://postmaster.yahooinc.com/error-codes"
+
+[[defer."rocketmail.com"]]
+code=421
+msg="4.7.1 [TS03] All messages from 100.100.100.100 will be permanently deferred; Retrying will NOT succeed. See http://postmaster.yahoo.com/421-ts03.html"
+
+[[defer."rocketmail.com"]]
+code=451
+msg="Message temporarily deferred - [170]"
+
+[[defer."shaw.com"]]
+code=452
+msg="<email@mydomain.com> Mailbox delivery restricted by policy error"
+
+[[defer."shaw.com"]]
+code=451
+msg="4.7.1 Received too many messages from a new or untrusted IP: 100.100.100.100 (Z27/6828692) (G28)"
+
+[[defer."shaw.com"]]
+code=451
+msg="Internal resource temporarily unavailable - https://community.mimecast.com/docs/DOC-1369#451 [__8EfOo0Oty2fp09HOzgSw.us354]"
+
+[[defer."shaw.com"]]
+code=451
+msg="Internal resource temporarily unavailable - https://community.mimecast.com/docs/DOC-1369#451 [__8EfOo0Oty2fp09HOzgSw.us354]"
+
+[[defer."yahoo.ca"]]
+code=451
+msg="4.7.1 Received too many messages from a new or untrusted IP: 100.100.100.100 (Z27/6828692) (G28)"
+
+[[defer."yahoo.ca"]]
+code=451
+msg="Internal resource temporarily unavailable - https://community.mimecast.com/docs/DOC-1369#451 [__8EfOo0Oty2fp09HOzgSw.us354]"
+
+[[defer."yahoo.ca"]]
+code=451
+msg="4.4.2 This is a really long, multiline dispositon message. \n451 This is a really long, multiline dispositon message. \n 451 This is a really long, multiline dispositon message. \n451 This is a really long, multiline dispositon message. \n451 This is a really long, multiline dispositon message."
+
+[[defer."yahoo.ca"]]
+code=550
+msg="5.5.0 mailbox unavailable \n550 user has moved with no forwarding address \n550 This is line 3 of a multi-line DSN"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="5.4.4 Domain Lookup Failed"
+
+[[defer."yahoo.com"]]
+code=421
+msg="4.7.1 [TS03] All messages from 100.100.100.100 will be permanently deferred; Retrying will NOT succeed. See http://postmaster.yahoo.com/421-ts03.html"
+
+[[defer."yahoo.com"]]
+code=421
+msg="4.7.0 [TSS04] Messages from 0.0.0.0 temporarily deferred due to unexpected volume or user complaints - 4.16.55.1; see https://postmaster.yahooinc.com/error-codes"
+
+[[defer."yahoo.com"]]
+code=421
+msg="421 Max message per connection reached closing transmission channel"
+
+[[defer."yahoo.com"]]
+code=421
+msg="Message from 100.100.100.100 temporarily deferred - 4.16.50. Please refer to http://help.yahoo.com/help/us/mail/defer/defer-06.html"
+
+[[defer."yahoo.com"]]
+code=450
+msg="User is receiving mail too quickly"
+
+[[defer."yahoo.com"]]
+code=451
+msg="4.3.2 Internal server error"
+
+[[defer."yahoo.com"]]
+code=451
+msg="example.yahoo.com Resources temporarily unavailable. Please try again later [#4.16.1]."
+
+[[defer."yahoo.com"]]
+code=451
+msg="Message temporarily deferred - [170]"
+
+[[defer."yahoo.com"]]
+code=451
+msg="mta349.mail.mud.yahoo.com Resources temporarily unavailable. Please try again later [#4.16.1]."
+
+[[defer."yahoo.com"]]
+code=452
+msg="temporary domain failure <example@example.com>"
+
+[[bounce."yahoo.com"]]
+code=501
+msg="Syntax error in parameters or arguments"
+
+[[bounce."yahoo.com"]]
+code=550
+msg="relaying denied for <example@example.com>"
+
+[[bounce."yahoo.com"]]
+code=552
+msg="Requested mail action aborted, mailbox not found"
+
+[[bounce."yahoo.com"]]
+code=553
+msg="host xx.yahoodns.net [x.xx.xx.xx] SMTP error from remote mail server after MAIL FROM:<user@example.com> SIZE=2022: 553 5.7.1 [BL21] Connections will not be accepted from x.xx.xx.xx, because the ip is in Spamhaus's list; see http://postmaster.yahoo.com/550-bl23.html"
+
+[[bounce."yahoo.com"]]
+code=553
+msg="host xx.yahoodns.net [x.xx.xx.xx] SMTP error from remote mail server after MAIL FROM:<user@example.com> SIZE=2022: 553 Mail from x.xx.xx.xx not allowed - 5.7.1 [BL23] Connections not accepted from IP addresses on Spamhaus XBL; see http://postmaster.yahoo.com/errors/550-bl23.html [550]"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="5.7.9 Message not accepted for policy reasons. See https://postmaster.yahooinc.com/error-codes"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd example@example.com is no longer valid. [-20] - example.yahoo.com"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd Requested mail action aborted - example.yahoo.com"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd Sorry your message to email@mydomain.com cannot be delivered"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd Sorry, your message to example@example.com cannot be delivered. This mailbox is disabled (554.30). - example.yahoo.com"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd This user doesn't have a example.com account (example@example.com) [-9] - example.yahoo.com"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="delivery error: dd This user doesn't have a yahoo.com account email@mydomain.com"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="Message not allowed - [299]"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="Message not allowed - [PH01] Email not accepted for policy reasons. Please visit https://postmaster.yahooinc.com/error-codes"
+
+[[bounce."yahoo.com"]]
+code=554
+msg="Message not allowed - Headers are not RFC compliant[291]"
+
+[[defer."yahoo.com"]]
+code=421
+msg="Message from 100.100.100.100 temporarily deferred - 4.16.50. Please refer to http://help.yahoo.com/help/us/mail/defer/defer-06.html"
