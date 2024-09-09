@@ -85,7 +85,7 @@ All policy helpers listed below are implemented in the [Example Lua Policy](./ex
 * [Listener_Domains](./domains.md#using-the-listener_domainslua-policy-helper) - Helper for configuring which domains are allowed to relay, process bounces, and process abuse reports.
 * [Sources](./sendingips.md#using-the-sourceslua-policy-helper) - Helper for configuring the egress sources and pools used for relaying messages.
 * [Queues](./queuemanagement.md#using-the-queues-helper) - Helper for configuring tenant and queue configuration, including retry intervals, tenant identifier headers, and the mapping from tenant to egress pool.
-* [Shaping](./trafficshaping.md#using-the-shapinglua-helper) - Helper for configuring traffic shaping rules to use for destination domains. Also can be configured for [Traffic Shaping Automation](./trafficshapingautomation.md).
+* [Shaping](./trafficshaping.md#using-the-shapinglua-helper) - Helper for configuring traffic shaping rules to use for destination domains. Also can be configured for [Traffic Shaping Automation](trafficshaping.md).
 * [Dkim_Sign](./dkim.md#using-the-dkim_signlua-policy-helper) - Helper for configuring parameters for DKIM signing for each signing domain.
 * [Log_Hooks](../operation/webhooks.md#using-the-log_hookslua-helper) - Helper for configuring webhooks.
 
