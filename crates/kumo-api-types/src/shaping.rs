@@ -410,6 +410,18 @@ pub struct Shaping {
 }
 
 #[cfg(feature = "lua")]
+fn from_json<'a, T: Deserialize<'a>>(json: &'a str) -> anyhow::Result<T> {
+    let d = &mut serde_json::Deserializer::from_str(json);
+    Ok(serde_path_to_error::deserialize(d)?)
+}
+
+#[cfg(feature = "lua")]
+fn from_toml<'a, T: Deserialize<'a>>(toml: &'a str) -> anyhow::Result<T> {
+    let d = toml::Deserializer::new(toml);
+    Ok(serde_path_to_error::deserialize(d)?)
+}
+
+#[cfg(feature = "lua")]
 impl Shaping {
     async fn load_from_file(path: &str) -> anyhow::Result<ShapingFile> {
         let data: String = if path.starts_with("http://") || path.starts_with("https://") {
@@ -440,17 +452,17 @@ impl Shaping {
         };
 
         if path.ends_with(".toml") {
-            toml::from_str(&data).with_context(|| format!("parsing toml from file {path}"))
+            from_toml(&data).with_context(|| format!("parsing toml from file {path}"))
         } else if path.ends_with(".json") {
-            serde_json::from_str(&data).with_context(|| format!("parsing json from file {path}"))
+            from_json(&data).with_context(|| format!("parsing json from file {path}"))
         } else {
             // Try parsing both ways and see which wins
             let mut errors = vec![];
-            match toml::from_str(&data) {
+            match from_toml(&data) {
                 Ok(s) => return Ok(s),
                 Err(err) => errors.push(format!("as toml: {err:#}")),
             }
-            match serde_json::from_str(&data) {
+            match from_json(&data) {
                 Ok(s) => return Ok(s),
                 Err(err) => errors.push(format!("as json: {err:#}")),
             }

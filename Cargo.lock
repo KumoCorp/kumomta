@@ -2898,6 +2898,7 @@ dependencies = [
  "rustls 0.23.12",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "serde_with",
  "sha2",
  "spool",
