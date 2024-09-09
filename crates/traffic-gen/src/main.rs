@@ -93,6 +93,11 @@ struct Opt {
     /// in a single request
     #[arg(long, default_value = "1")]
     http_batch_size: usize,
+
+    /// Continue sending even if errors are returned by the
+    /// target
+    #[arg(long)]
+    keep_going: bool,
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
@@ -424,6 +429,7 @@ impl Opt {
     async fn run(
         &self,
         counter: Arc<AtomicUsize>,
+        error_counter: Arc<AtomicUsize>,
         mut latency: Recorder<u64>,
     ) -> anyhow::Result<()> {
         let start = Instant::now();
@@ -459,7 +465,10 @@ impl Opt {
                     }
                     SendDisposition::Failed(err) => {
                         self.release_one(&counter);
-                        return Err(err);
+                        error_counter.fetch_add(1, Ordering::SeqCst);
+                        if !self.keep_going {
+                            return Err(err);
+                        }
                     }
                 };
             }
@@ -478,6 +487,7 @@ async fn main() -> anyhow::Result<()> {
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;
 
     let counter = Arc::new(AtomicUsize::new(0));
+    let error_counter = Arc::new(AtomicUsize::new(0));
     let started = Instant::now();
     let duration = Duration::from_secs(opts.duration);
     let concurrency = match opts.concurrency {
@@ -494,9 +504,10 @@ async fn main() -> anyhow::Result<()> {
     for _ in 0..concurrency {
         let opts = opts.clone();
         let counter = Arc::clone(&counter);
+        let error_counter = Arc::clone(&error_counter);
         let latency = latency.recorder();
         clients.push(tokio::spawn(async move {
-            if let Err(err) = opts.run(counter, latency).await {
+            if let Err(err) = opts.run(counter, error_counter, latency).await {
                 eprintln!("\n{err:#}");
             }
             Ok::<(), anyhow::Error>(())
@@ -540,12 +551,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let total_sent = counter.load(Ordering::Acquire);
+    let failed_count = error_counter.load(Ordering::Acquire);
     let elapsed = started.elapsed();
     let rates = Rates::new(total_sent, elapsed);
 
     println!(
-        "did {total_sent} messages over {elapsed:?}.",
-        total_sent = total_sent.to_formatted_string(&Locale::en)
+        "sent {total_sent} messages, failed {failed} over {elapsed:?}.",
+        total_sent = total_sent.to_formatted_string(&Locale::en),
+        failed = failed_count.to_formatted_string(&Locale::en),
     );
 
     print!("transaction latency: ");
