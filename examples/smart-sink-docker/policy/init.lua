@@ -9,7 +9,7 @@ local SINK_DATA_FILE = os.getenv('SINK_DATA') or '/opt/kumomta/etc/policy/respon
 -- This assumes that the network is a /24 and that HOSTNAME is
 -- injected by docker and resolves to the container IP on that network
 local function resolve_docker_network()
-  local MY_IPS = kumo.dns.lookup_addr(os.getenv 'HOSTNAME')
+  local MY_IPS = kumo.dns.lookup_addr(os.getenv('HOSTNAME') or 'localhost')
   local DOCKER_NETWORK = string.match(MY_IPS[1], '^(.*)%.%d+$') .. '.0/24'
   return DOCKER_NETWORK
 end
