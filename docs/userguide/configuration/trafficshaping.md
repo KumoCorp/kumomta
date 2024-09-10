@@ -128,7 +128,7 @@ local shaper = shaping:setup_with_automation {
 ```
 
 !!!Note
-    When a given scope is defined in multiple files, the more recently read file does not completely replace the configuration defined in the previous file, the options within that scope are merged.
+    When a given scope is defined in multiple files, the more recently read file does not completely replace the configuration defined in the previous file, instead the options within that scope are merged.
 
 If you want to completely replace the information for a given block, you
 can indicate that by using `replace_base = true`:
@@ -432,7 +432,7 @@ $ curl -s 'http://localhost:8008/get_config_v1/shaping.toml'
 This call returns the current set of shaping rules in the same format as shaping.toml, the example is of an empty set.
 
 ### Debugging Tips
-If the tsa-deamon does not appear to be working, you can check to see if it is running with 'sudo systemctl status kumo-tsa-daemon' which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
+If the tsa-deamon does not appear to be working, you can check to see if it is running with `sudo systemctl status kumo-tsa-daemon` which should return a message that includes "active (running)".  If not you can stop and start it in a similar way.
 
 ```bash
 sudo systemctl stop kumo-tsa-daemon
