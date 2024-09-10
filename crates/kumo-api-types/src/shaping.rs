@@ -212,7 +212,7 @@ pub enum Trigger {
 #[serde_as]
 #[derive(Deserialize, Serialize, Debug, Hash, Clone)]
 pub struct Rule {
-    #[serde(deserialize_with = "string_or_array")]
+    #[serde(deserialize_with = "regex_string_or_array")]
     pub regex: Vec<Regex>,
 
     #[serde_as(deserialize_as = "OneOrMany<_, PreferOne>")]
@@ -1081,7 +1081,14 @@ impl PartialEntry {
     }
 }
 
-fn string_or_array<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
+fn regex_string_or_array<'de, D>(deserializer: D) -> Result<Vec<Regex>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    string_or_array(deserializer, "regex string or array of regex strings for field regex")
+}
+
+fn string_or_array<'de, T, D>(deserializer: D, expecting: &'static str) -> Result<Vec<T>, D::Error>
 where
     T: Deserialize<'de> + TryFrom<String>,
     <T as TryFrom<String>>::Error: std::fmt::Debug,
@@ -1092,7 +1099,7 @@ where
     // keep the compiler from complaining about T being an unused generic type
     // parameter. We need T in order to know the Value type for the Visitor
     // impl.
-    struct StringOrArray<T>(PhantomData<fn() -> T>);
+    struct StringOrArray<T>(PhantomData<fn() -> T>, &'static str);
 
     impl<'de, T> Visitor<'de> for StringOrArray<T>
     where
@@ -1102,7 +1109,7 @@ where
         type Value = Vec<T>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("string or array")
+            formatter.write_str(self.1)
         }
 
         fn visit_str<E>(self, value: &str) -> Result<Vec<T>, E>
@@ -1122,7 +1129,7 @@ where
         }
     }
 
-    deserializer.deserialize_any(StringOrArray(PhantomData))
+    deserializer.deserialize_any(StringOrArray(PhantomData, expecting))
 }
 
 #[cfg(feature = "lua")]
