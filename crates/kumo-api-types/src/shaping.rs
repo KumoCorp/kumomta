@@ -1085,7 +1085,10 @@ fn regex_string_or_array<'de, D>(deserializer: D) -> Result<Vec<Regex>, D::Error
 where
     D: Deserializer<'de>,
 {
-    string_or_array(deserializer, "regex string or array of regex strings for field regex")
+    string_or_array(
+        deserializer,
+        "regex string or array of regex strings for field regex",
+    )
 }
 
 fn string_or_array<'de, T, D>(deserializer: D, expecting: &'static str) -> Result<Vec<T>, D::Error>
