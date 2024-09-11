@@ -104,9 +104,6 @@ enable_tls = "Required"
 idle_timeout = "30s"
 consecutive_connection_failures_before_delay = 24
 
-# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-gateway
-# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-smtp-error-codes
-
 [["comcast.net".automation]]
 regex = "RL0000"
 # sets max_connection_rate="10,000 per hour"
@@ -121,6 +118,8 @@ duration = "2 hours"
 As a special case, the domain can be named *default*, in which case those settings will apply globally. The global settings are superseded by the domain settings, which are superseded by the source settings.
 
 The full set of available options is listed in the [kumo.make_egress_path](../../reference/kumo/make_egress_path/index.md) page of the Reference Manual.
+
+The full set of Traffic Shaping Automation actions is available on the [traffic shaping](../../reference/kumo.shaping/load.md) page of the Reference Manual.
 
 #### The Community shaping.toml File
 
