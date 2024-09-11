@@ -961,6 +961,11 @@ impl ProviderEntry {
 
     fn apply_provider_params_to(&self, source: &str, target: &mut toml::Table) {
         let mut implied = toml::Table::new();
+        implied.insert(
+            "provider_name".to_string(),
+            toml::Value::String(self.provider_name.to_string()),
+        );
+
         if let Some(limit) = &self.provider_connection_limit {
             let mut limits = toml::Table::new();
             limits.insert(
@@ -1303,6 +1308,7 @@ provider_max_message_rate = "120/s"
             resolved.params.enable_tls,
             crate::egress_path::Tls::Required
         );
+        k9::assert_equal!(resolved.params.provider_name.unwrap(), "Office 365");
 
         k9::snapshot!(
             resolved.params.additional_connection_limits,
@@ -1391,6 +1397,7 @@ duration = "1hr"
                 tls_cipher: None,
                 tls_protocol_version: None,
                 tls_peer_subject_name: None,
+                provider_name: None,
             }
         }
 
@@ -1601,6 +1608,7 @@ MergedEntry {
         aggressive_connection_opening: false,
         refresh_interval: 60s,
         refresh_strategy: Ttl,
+        provider_name: None,
     },
     sources: {},
     automation: [
@@ -1761,6 +1769,7 @@ MergedEntry {
         aggressive_connection_opening: false,
         refresh_interval: 60s,
         refresh_strategy: Ttl,
+        provider_name: None,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -1836,6 +1845,7 @@ MergedEntry {
             aggressive_connection_opening: false,
             refresh_interval: 60s,
             refresh_strategy: Ttl,
+            provider_name: None,
         },
     },
     automation: [
@@ -2002,6 +2012,7 @@ MergedEntry {
         aggressive_connection_opening: false,
         refresh_interval: 60s,
         refresh_strategy: Ttl,
+        provider_name: None,
     },
     sources: {},
     automation: [

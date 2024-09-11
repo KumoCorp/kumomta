@@ -1,5 +1,6 @@
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::queue::QueueConfig;
+use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
@@ -135,6 +136,22 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let config: EgressPathConfig = from_lua_value(lua, params)?;
             Ok(config)
         })?,
+    )?;
+
+    kumo_mod.set(
+        "invoke_get_egress_path_config",
+        lua.create_async_function(
+            |lua, (routing_domain, egress_source, site_name): (String, String, String)| async move {
+                let path_config: EgressPathConfig = config::async_call_callback(
+                    lua,
+                    &GET_EGRESS_PATH_CONFIG_SIG,
+                    (routing_domain, egress_source, site_name),
+                )
+                .await
+                .map_err(any_err)?;
+                lua.to_value(&path_config)
+            },
+        )?,
     )?;
 
     kumo_mod.set(

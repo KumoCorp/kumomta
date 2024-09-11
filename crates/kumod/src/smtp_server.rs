@@ -1735,6 +1735,7 @@ impl SmtpServer {
                 delivery_protocol: None,
                 tls_info: None, // TODO: populate with peer info
                 source_address: None,
+                provider: None,
             })
             .await;
             if queue_name != "null" {

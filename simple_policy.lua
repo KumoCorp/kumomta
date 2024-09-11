@@ -297,32 +297,35 @@ kumo.on(
       }
     end
 
+    local skip_make = true
+    local params = shaper.get_egress_path_config(
+      routing_domain,
+      egress_source,
+      site_name,
+      skip_make
+    )
+
     -- print('get_egress_path_config', routing_domain, egress_source, site_name)
-    return kumo.make_egress_path {
-      -- enable_tls = 'OpportunisticInsecure',
-      enable_tls = 'Disabled',
-      enable_mta_sts = false,
-      -- max_message_rate = '5/min',
-      idle_timeout = '25s',
-      data_timeout = '20s',
-      data_dot_timeout = '25s',
-      connect_timeout = '5s',
-      connection_limit = 300,
-      -- max_connection_rate = '1/s',
-      max_ready = 80000,
-      -- smtp_port = 2026,
-      -- max_deliveries_per_connection = 5,
+    -- enable_tls = 'OpportunisticInsecure',
+    params.enable_tls = 'Disabled'
+    params.enable_mta_sts = false
+    -- max_message_rate = '5/min',
+    params.connection_limit = 300
+    -- max_connection_rate = '1/s',
+    params.max_ready = 80000
+    -- smtp_port = 2026,
+    -- max_deliveries_per_connection = 5,
 
-      -- hosts that we should consider to be poison because
-      -- they are a mail loop. The default for this is
-      -- { "127.0.0.0/8", "::1" }, but it is emptied out
-      -- in this config because we're using this to test
-      -- with fake domains that explicitly return loopback
-      -- addresses!
-      prohibited_hosts = {},
+    -- hosts that we should consider to be poison because
+    -- they are a mail loop. The default for this is
+    -- { "127.0.0.0/8", "::1" }, but it is emptied out
+    -- in this config because we're using this to test
+    -- with fake domains that explicitly return loopback
+    -- addresses!
+    params.prohibited_hosts = {}
 
-      refresh_strategy = 'Epoch',
-    }
+    refresh_strategy = 'Epoch'
+    return kumo.make_egress_path(params)
   end
 )
 

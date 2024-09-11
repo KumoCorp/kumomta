@@ -45,6 +45,8 @@ lazy_static::lazy_static! {
         Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
     pub static ref READYQ_RUNTIME: Runtime = Runtime::new(
         "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
+    pub static ref GET_EGRESS_PATH_CONFIG_SIG: CallbackSignature<'static,
+        (String, String, String), EgressPathConfig> = CallbackSignature::new("get_egress_path_config");
 }
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);
@@ -269,15 +271,11 @@ impl ReadyQueueManager {
 
         let egress_source = EgressSource::resolve(egress_source, &mut config).await?;
 
-        let sig = CallbackSignature::<(&str, String, String), EgressPathConfig>::new(
-            "get_egress_path_config",
-        );
-
         let path_config: EgressPathConfig = config
             .async_call_callback(
-                &sig,
+                &GET_EGRESS_PATH_CONFIG_SIG,
                 (
-                    routing_domain,
+                    routing_domain.to_string(),
                     egress_source.name.to_string(),
                     site_name.clone(),
                 ),
@@ -1102,6 +1100,7 @@ impl Dispatcher {
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: None,
                             source_address: None,
+                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         Dispatcher::requeue_message(msg, true, None).await?;
@@ -1411,6 +1410,7 @@ impl Dispatcher {
             let name = self.name.clone();
             let egress_pool = self.egress_pool.clone();
             let egress_source = self.egress_source.name.clone();
+            let provider = self.path_config.borrow().provider_name.clone();
             if response.is_transient() {
                 self.metrics.inc_transfail_by(msgs.len());
             } else {
@@ -1439,6 +1439,7 @@ impl Dispatcher {
                                     delivery_protocol: None,
                                     tls_info: None,
                                     source_address: None,
+                                    provider: provider.as_deref(),
                                 })
                                 .await;
 

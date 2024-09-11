@@ -4,11 +4,11 @@ use anyhow::{anyhow, Context};
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 #[cfg(feature = "impl")]
 use mlua::Lua;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "impl")]
 use vaultrs::client::{VaultClient, VaultClientSettingsBuilder};
 
-#[derive(Deserialize, Clone, Hash, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, Clone, Hash, PartialEq, Eq, Debug)]
 #[serde(untagged)]
 pub enum KeySource {
     File(String),

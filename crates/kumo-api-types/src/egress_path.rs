@@ -134,7 +134,7 @@ pub enum ConfigRefreshStrategy {
     Epoch,
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
 #[serde(deny_unknown_fields)]
 pub struct EgressPathConfig {
@@ -160,10 +160,18 @@ pub struct EgressPathConfig {
     pub openssl_cipher_list: Option<String>,
     #[serde(default)]
     pub openssl_cipher_suites: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_ssl_options")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_ssl_options",
+        skip_serializing // FIXME
+    )]
     pub openssl_options: Option<SslOptions>,
 
-    #[serde(default, deserialize_with = "deserialize_supported_ciphersuite")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_supported_ciphersuite",
+        skip_serializing // FIXME
+    )]
     pub rustls_cipher_suites: Vec<SupportedCipherSuite>,
 
     #[serde(flatten)]
@@ -229,6 +237,12 @@ pub struct EgressPathConfig {
     pub refresh_interval: Duration,
     #[serde(default)]
     pub refresh_strategy: ConfigRefreshStrategy,
+
+    /// Specify an explicit provider name that should apply to this
+    /// path. The provider name will be used when computing metrics
+    /// rollups by provider. If omitted, then
+    #[serde(default)]
+    pub provider_name: Option<String>,
 }
 
 #[cfg(feature = "lua")]
@@ -266,6 +280,7 @@ impl Default for EgressPathConfig {
             refresh_strategy: ConfigRefreshStrategy::default(),
             additional_message_rate_throttles: OrderMap::default(),
             additional_connection_limits: OrderMap::default(),
+            provider_name: None,
         }
     }
 }

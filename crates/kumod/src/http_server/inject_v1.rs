@@ -540,6 +540,7 @@ async fn process_recipient<'a>(
             delivery_protocol: None,
             tls_info: None,
             source_address: None,
+            provider: None,
         })
         .await;
         QueueManager::insert(&queue_name, message).await?;
@@ -593,6 +594,7 @@ async fn queue_deferred(
         delivery_protocol: None,
         tls_info: None,
         source_address: None,
+        provider: None,
     })
     .await;
     QueueManager::insert(GENERATOR_QUEUE_NAME, message).await?;
@@ -846,6 +848,7 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
                 delivery_protocol: Some("HttpInjectionGenerator"),
                 tls_info: None,
                 source_address: None,
+                provider: dispatcher.path_config.borrow().provider_name.as_deref(),
             })
             .await;
             SpoolManager::remove_from_spool(*msg.id()).await?;

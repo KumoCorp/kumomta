@@ -22,6 +22,7 @@ pub struct LogDisposition<'a> {
     pub delivery_protocol: Option<&'a str>,
     pub tls_info: Option<&'a TlsInformation>,
     pub source_address: Option<MaybeProxiedSourceAddress>,
+    pub provider: Option<&'a str>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -37,6 +38,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         delivery_protocol,
         tls_info,
         source_address,
+        provider,
     } = args;
 
     let loggers = Logger::get_loggers();
@@ -154,6 +156,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             tls_protocol_version,
             tls_peer_subject_name,
             source_address: source_address.clone(),
+            provider_name: provider.map(|s| s.to_string()),
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -239,6 +242,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             tls_protocol_version: None,
                             tls_peer_subject_name: None,
                             source_address: None,
+                            provider_name: provider.map(|s| s.to_string()),
                         };
 
                         if let Err(err) = logger.log(record).await {

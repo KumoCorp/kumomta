@@ -168,6 +168,7 @@ impl AdminBounceEntry {
                 egress_pool: None,
                 relay_disposition: None,
                 delivery_protocol: None,
+                provider: None,
                 tls_info: None,
                 source_address: None,
             })

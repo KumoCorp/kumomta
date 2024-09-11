@@ -110,6 +110,12 @@ pub struct JsonLogRecord {
     /// The Subject Name from the peer TLS certificate, if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_peer_subject_name: Option<Vec<String>>,
+
+    /// The provider name, if any.
+    /// This is a way of grouping destination sites operated
+    /// by the same provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

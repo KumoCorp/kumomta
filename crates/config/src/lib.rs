@@ -227,43 +227,9 @@ impl LuaConfig {
         args: A,
     ) -> anyhow::Result<R> {
         let name = sig.name();
-        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
-
-        if sig.allow_multiple() {
-            return match lua
-                .lua
-                .named_registry_value::<mlua::Value>(&decorated_name)?
-            {
-                Value::Table(tbl) => {
-                    for func in tbl.sequence_values::<mlua::Function>() {
-                        let func = func?;
-                        let _timer = latency_timer(name);
-                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                        if result.is_empty() {
-                            // Continue with other handlers
-                            continue;
-                        }
-                        let result = R::from_lua_multi(result, &lua.lua)?;
-                        return Ok(result);
-                    }
-                    Ok(R::default())
-                }
-                _ => Ok(R::default()),
-            };
-        }
-
-        match lua
-            .lua
-            .named_registry_value::<mlua::Function>(&decorated_name)
-        {
-            Ok(func) => {
-                let _timer = latency_timer(name);
-                Ok(func.call_async(args.clone()).await?)
-            }
-            _ => Ok(R::default()),
-        }
+        async_call_callback(&lua.lua, sig, args).await
     }
 
     pub async fn async_call_callback_non_default<
@@ -276,43 +242,9 @@ impl LuaConfig {
         args: A,
     ) -> anyhow::Result<R> {
         let name = sig.name();
-        let decorated_name = sig.decorated_name();
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
-
-        if sig.allow_multiple() {
-            match lua
-                .lua
-                .named_registry_value::<mlua::Value>(&decorated_name)?
-            {
-                Value::Table(tbl) => {
-                    for func in tbl.sequence_values::<mlua::Function>() {
-                        let func = func?;
-                        let _timer = latency_timer(name);
-                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                        if result.is_empty() {
-                            // Continue with other handlers
-                            continue;
-                        }
-                        let result = R::from_lua_multi(result, &lua.lua)?;
-                        return Ok(result);
-                    }
-                }
-                _ => {}
-            };
-            anyhow::bail!("invalid return type for {name} event");
-        }
-
-        match lua
-            .lua
-            .named_registry_value::<mlua::Function>(&decorated_name)
-        {
-            Ok(func) => {
-                let _timer = latency_timer(name);
-                Ok(func.call_async(args.clone()).await?)
-            }
-            _ => anyhow::bail!("Event {name} has not been registered"),
-        }
+        async_call_callback_non_default(&lua.lua, sig, args).await
     }
 
     pub async fn async_call_callback_non_default_opt<
@@ -426,6 +358,88 @@ impl LuaConfig {
         let value = inner.lua.registry_value(value)?;
         let future = (func)(value)?;
         future.await
+    }
+}
+
+pub async fn async_call_callback<
+    'lua,
+    A: IntoLuaMulti<'lua> + Clone,
+    R: FromLuaMulti<'lua> + Default,
+>(
+    lua: &'lua Lua,
+    sig: &CallbackSignature<'lua, A, R>,
+    args: A,
+) -> anyhow::Result<R> {
+    let name = sig.name();
+    let decorated_name = sig.decorated_name();
+
+    if sig.allow_multiple() {
+        return match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
+            Value::Table(tbl) => {
+                for func in tbl.sequence_values::<mlua::Function>() {
+                    let func = func?;
+                    let _timer = latency_timer(name);
+                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                    if result.is_empty() {
+                        // Continue with other handlers
+                        continue;
+                    }
+                    let result = R::from_lua_multi(result, lua)?;
+                    return Ok(result);
+                }
+                Ok(R::default())
+            }
+            _ => Ok(R::default()),
+        };
+    }
+
+    match lua.named_registry_value::<mlua::Function>(&decorated_name) {
+        Ok(func) => {
+            let _timer = latency_timer(name);
+            Ok(func.call_async(args.clone()).await?)
+        }
+        _ => Ok(R::default()),
+    }
+}
+
+pub async fn async_call_callback_non_default<
+    'lua,
+    A: IntoLuaMulti<'lua> + Clone,
+    R: FromLuaMulti<'lua>,
+>(
+    lua: &'lua Lua,
+    sig: &CallbackSignature<'lua, A, R>,
+    args: A,
+) -> anyhow::Result<R> {
+    let name = sig.name();
+    let decorated_name = sig.decorated_name();
+
+    if sig.allow_multiple() {
+        match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
+            Value::Table(tbl) => {
+                for func in tbl.sequence_values::<mlua::Function>() {
+                    let func = func?;
+                    let _timer = latency_timer(name);
+                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                    if result.is_empty() {
+                        // Continue with other handlers
+                        continue;
+                    }
+                    let result = R::from_lua_multi(result, lua)?;
+                    return Ok(result);
+                }
+            }
+            _ => {}
+        };
+        anyhow::bail!("invalid return type for {name} event");
+    }
+
+    match lua.named_registry_value::<mlua::Function>(&decorated_name) {
+        Ok(func) => {
+            let _timer = latency_timer(name);
+            Ok(func.call_async(args.clone()).await?)
+        }
+        _ => anyhow::bail!("Event {name} has not been registered"),
     }
 }
 

@@ -707,6 +707,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
                             source_address: self.source_address.clone(),
+                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         spawn_local(
@@ -730,6 +731,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
                             source_address: self.source_address.clone(),
+                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -755,6 +757,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             delivery_protocol: Some(&dispatcher.delivery_protocol),
                             tls_info: self.tls_info.as_ref(),
                             source_address: self.source_address.clone(),
+                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
@@ -791,6 +794,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
                         source_address: self.source_address.clone(),
+                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                     })
                     .await;
                     spawn_local(
@@ -833,6 +837,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
                         source_address: self.source_address.clone(),
+                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                     })
                     .await;
                     spawn_local(
@@ -868,6 +873,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         delivery_protocol: Some(&dispatcher.delivery_protocol),
                         tls_info: self.tls_info.as_ref(),
                         source_address: self.source_address.clone(),
+                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;

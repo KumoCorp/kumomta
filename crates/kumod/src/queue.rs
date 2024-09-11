@@ -375,6 +375,14 @@ pub struct QueueConfig {
 
     #[serde(default)]
     pub refresh_strategy: ConfigRefreshStrategy,
+
+    /// Specify an explicit provider name that should apply to this
+    /// queue. The provider name will be used when computing metrics
+    /// rollups by provider. If omitted, then a provider derived
+    /// from the site_name, which is in turn derived from the
+    /// routing_domain for this queue, will be used instead.
+    #[serde(default)]
+    pub provider_name: Option<String>,
 }
 
 impl LuaUserData for QueueConfig {}
@@ -393,6 +401,7 @@ impl Default for QueueConfig {
             strategy: QueueStrategy::default(),
             timerwheel_tick_interval: None,
             refresh_strategy: ConfigRefreshStrategy::default(),
+            provider_name: None,
         }
     }
 }
@@ -1208,6 +1217,7 @@ impl Queue {
                 delivery_protocol: None,
                 tls_info: None,
                 source_address: None,
+                provider: None,
             })
             .await;
         }
@@ -1311,6 +1321,7 @@ impl Queue {
                 delivery_protocol: None,
                 tls_info: None,
                 source_address: None,
+                provider: self.queue_config.borrow().provider_name.as_deref(),
             })
             .await;
             SpoolManager::remove_from_spool(id).await?;
@@ -1522,6 +1533,7 @@ impl Queue {
                             delivery_protocol: None,
                             tls_info: None,
                             source_address: None,
+                            provider: self.queue_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         msg.delay_by_and_jitter(duration).await?;
@@ -1552,6 +1564,7 @@ impl Queue {
                             delivery_protocol: None,
                             tls_info: None,
                             source_address: None,
+                            provider: self.queue_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
@@ -1601,6 +1614,7 @@ impl Queue {
                             delivery_protocol: None,
                             tls_info: None,
                             source_address: None,
+                            provider: self.queue_config.borrow().provider_name.as_deref(),
                         })
                         .await;
                         anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
@@ -1655,6 +1669,7 @@ impl Queue {
                             delivery_protocol: Some("Maildir"),
                             tls_info: None,
                             source_address: None,
+                            provider: None,
                         })
                         .await;
                         spawn("remove from spool", async move {
@@ -1680,6 +1695,7 @@ impl Queue {
                             delivery_protocol: Some("Maildir"),
                             tls_info: None,
                             source_address: None,
+                            provider: None,
                         })
                         .await;
                         anyhow::bail!("failed maildir store: {err:#}");

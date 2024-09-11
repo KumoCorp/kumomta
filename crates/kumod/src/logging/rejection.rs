@@ -56,6 +56,7 @@ pub async fn log_rejection(args: LogRejection) {
             tls_protocol_version: None,
             tls_peer_subject_name: None,
             source_address: None,
+            provider_name: None,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");

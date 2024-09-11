@@ -444,10 +444,31 @@ function mod:setup_with_options(options)
   if not options.skip_queue_config_hook then
     kumo.on(
       'get_queue_config',
-      function(domain, tenant, campaign, _routing_domain)
+      function(domain, tenant, campaign, routing_domain)
         local data = cached_load_data(options.file_names)
         local params = resolve_config(data, domain, tenant, campaign)
         if params then
+          if params.provider_name == nil then
+            -- Back-propagate the provider_name from the probable
+            -- egress path configuration for this routing domain.
+            -- Wrapped this in a pcall in case the domain doesn't resolve.
+            pcall(function()
+              local routing_domain = routing_domain or domain
+              local mx = kumo.dns.lookup_mx(routing_domain)
+              local path_config = kumo.invoke_get_egress_path_config(
+                routing_domain,
+                -- We use unspecified for the source. We don't and cannot
+                -- know the actual source at this point, however, the
+                -- provider is a function of destination so it doesn't
+                -- actually matter which source we request here, so
+                -- long as the defined event handlers populate the
+                -- provider_name for us
+                'unspecified',
+                mx.site_name
+              )
+              params.provider_name = path_config.provider_name
+            end)
+          end
           return kumo.make_queue_config(params)
         end
       end
