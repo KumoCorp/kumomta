@@ -810,11 +810,10 @@ fn suffix_matches(candidate: &str, suffix: &str) -> bool {
     // Remove trailing dot from candidate, as our resolver tends
     // to leave the canonical dot on the input host name
     let candidate = candidate.strip_suffix(".").unwrap_or(candidate);
-    if candidate.len() < suffix.len() {
-        return false;
-    }
-    let candidate = &candidate[candidate.len() - suffix.len()..];
-    candidate.eq_ignore_ascii_case(suffix)
+    // We DON'T handle case mismatches in this code.
+    // We assume that the dns-resolver crate normalized the
+    // names to lowercase and that the input suffix is lowercase as well.
+    candidate.ends_with(suffix)
 }
 
 #[cfg(feature = "lua")]
@@ -822,11 +821,16 @@ fn suffix_matches(candidate: &str, suffix: &str) -> bool {
 #[test]
 fn test_suffix_matches() {
     assert!(suffix_matches("a", "a"));
-    assert!(suffix_matches("foo.Com", ".com"));
-    assert!(!suffix_matches("foo.Cam", ".com"));
     assert!(suffix_matches("foo.com", "foo.com"));
     assert!(!suffix_matches("foo.com", ".foo.com"));
     assert!(!suffix_matches("foo.com", "longer.com"));
+    assert!(!suffix_matches("réputation.net", ".mx.microsoft"));
+
+    // We DON'T handle case mismatches in this code.
+    // We assume that the dns-resolver crate normalized the
+    // names to lowercase and that the input suffix is lowercase as well.
+    assert!(!suffix_matches("foo.Com", ".com"));
+    assert!(!suffix_matches("foo.Cam", ".com"));
 }
 
 #[cfg(feature = "lua")]
