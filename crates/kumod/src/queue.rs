@@ -71,7 +71,7 @@ lazy_static::lazy_static! {
 static TOTAL_DELAY_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
     prometheus::register_int_gauge!(
         "scheduled_count_total",
-        "toal number of messages across all scheduled queues",
+        "total number of messages across all scheduled queues",
     )
     .unwrap()
 });
