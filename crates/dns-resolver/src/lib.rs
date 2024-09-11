@@ -278,7 +278,7 @@ impl MailExchanger {
         let site_name = factor_names(&hosts);
         let mx = Self {
             hosts,
-            domain_name: name_fq.to_string(),
+            domain_name: name_fq.to_ascii(),
             site_name,
             by_pref,
             is_domain_literal: false,
@@ -381,7 +381,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 
         return Ok((
             vec![ByPreference {
-                hosts: vec![domain_name.to_string()],
+                hosts: vec![domain_name.to_lowercase().to_ascii()],
                 pref: 1,
                 is_secure: false,
                 is_mx: false,
@@ -854,6 +854,14 @@ Addresses(
 )
 "#
         );
+    }
+
+    #[cfg(feature = "live-dns-tests")]
+    #[tokio::test]
+    async fn lookup_punycode_no_mx_only_a() {
+        let mx = MailExchanger::resolve("xn--bb-eka.at").await.unwrap();
+        assert_eq!(mx.domain_name, "xn--bb-eka.at.");
+        assert_eq!(mx.hosts[0], "xn--bb-eka.at.");
     }
 
     #[cfg(feature = "live-dns-tests")]

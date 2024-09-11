@@ -55,3 +55,8 @@
 * When using the dkim helper and splitting the configuration
   across multiple files, a missing `domain` or `base` configuration section in
   any individual file would raise a validation error.
+
+* Punycode encoded domain names would resolve to the unicode representation of
+  the domain name internally, and in the case of domains with no explicit MX
+  records, the fallback record that was synthesized from the domain name would
+  also be encoded in the unicode representation.
