@@ -74,6 +74,20 @@ idle_timeout = "60s"
 enable_tls = "Opportunistic"
 consecutive_connection_failures_before_delay = 100
 
+[provider."google"]
+match=[
+        {MXSuffix=".google.com"},
+        {MXSuffix=".googlemail.com"}
+]
+max_deliveries_per_connection = 50
+provider_connection_limit = 5
+consecutive_connection_failures_before_delay = 5
+
+[["gmail.com".automation]]
+regex = "This message does not have authentication information"
+action = "SuspendTenant"
+duration = "3 hours"
+
 [provider."yahoo"]
 match=[{MXSuffix=".yahoodns.net"}]
 max_deliveries_per_connection = 20

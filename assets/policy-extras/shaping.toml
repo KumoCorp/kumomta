@@ -105,6 +105,14 @@ max_deliveries_per_connection = 50
 provider_connection_limit = 5
 consecutive_connection_failures_before_delay = 5
 
+### THIS AUTOMATION IS COMMENTED OUT BECAUSE IT CAN SUPEND ENTIRE TENANTS AND IS
+### PROVIDED AS AN EXAMPLE TO USE IN YOUR OWN CUSTOM SHAPING FILE.
+
+# [["gmail.com".automation]]
+# regex = "This message does not have authentication information"
+# action = "SuspendTenant"
+# duration = "3 hours"
+
 # PROVIDED BY YAHOO! DIRECTLY
 # https://senders.yahooinc.com/best-practices
 [provider."yahoo"]
