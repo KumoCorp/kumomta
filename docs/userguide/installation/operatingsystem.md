@@ -7,21 +7,19 @@ So far we've run non-production tests on the following systems:
 
 * Rocky (8, 9)
 * Alma (8, 9)
-* Debian (11)
-* Ubuntu (18, 20, 22, 20.04ARM (aarch64) )
+* Debian (11,12)
+* Ubuntu (18, 20, 22, 24)
 * OpenSuse Leap (15.4)
 * Azure Linux (CBL-Mariner2)
 * Amazon Linux 2
+* Amazon Linux 2023
 * Kali (2003.1)
-* CentOS 7
+* CentOS 7 (obsolete and not recommended)
 * RHEL 7,8,9
 * Mariner2
 
-and the following machine types:
+KumoMTA works with x86 and Arm processors
 
-* AWS
-* Azure
-* GCP
-* VMWare
-* Bare Metal
+Note that most "dnf" systems work fine with the Rocky install [instructions](../installation/linux.md).
+And that most "apt" systems work fine with the Ubuntu install [instructions](../installation/linux.md).
 
