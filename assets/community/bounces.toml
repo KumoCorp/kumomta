@@ -9,16 +9,16 @@
 # BOUNCE RULES FILE:
 # -- load the community bounces.toml + iana.toml + local settings
 # kumo.on('init', function()
-#   kumo.configure_local_logs {
-#     log_dir = '/var/log/kumomta',
-#   }
-#   kumo.configure_bounce_classifier {
-#     files = {
-#       '/opt/kumomta/etc/policy/bounces.toml',
-#       '/opt/kumomta/share/community/bounces.toml',
-#        '/opt/kumomta/share/bounce_classifier/iana.toml',
-#     },
-#   }
+# kumo.configure_local_logs {
+#  log_dir = '/var/log/kumomta',
+# }
+# kumo.configure_bounce_classifier {
+#  files = {
+#   '/opt/kumomta/etc/policy/bounces.toml',
+#   '/opt/kumomta/share/community/bounces.toml',
+#    '/opt/kumomta/share/bounce_classifier/iana.toml',
+#  },
+# }
 # end)
 
 [rules]
@@ -31,6 +31,19 @@ InactiveMailbox = [
 InvalidSender = [
 ]
 QuotaIssues = [
+  "account is temporarily suspended",
+  "mailbox .*full",
+  "mailbox has exceeded the limit",
+  "mailbox quota",
+  "mailbox size limit exceeded",
+  "mailbox temporarily disabled",
+  "mailbox temporarily unavailable",
+  "mailbox temporary unavailable",
+  "over quota",
+  "quota exceeded",
+  "recipient overquota",
+  "this account is temporarily disabled",
+  "this address is over storage limit",
 ]
 NoAnswerFromHost = [
 ]
@@ -49,4 +62,22 @@ ProtocolErrors = [
 AuthenticationFailed = [
 ]
 PolicyRelated = [
+]
+ReputationBlock = [
+  "black.*list",
+  "block.*list",
+  "blocked",
+  "dnsbl",
+  "ip is rejected",
+  "policy rejection",
+  "rejected due to.*reputation",
+  "sender denied",
+  "spamrl",
+  "uceprotect",
+]
+SpamBlock = [
+  "High probability of spam",
+  "High scoring spam message has been dropped",
+  "This email from IP SENDERIP has been rejected\\. The email message was detected as spam"
+  "This email has been rejected\\. The email message was detected as spam"
 ]
