@@ -148,13 +148,23 @@ max_deliveries_per_connection = 5
 # https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
 ["comcast.net"]
 connection_limit = 25
-max_deliveries_per_connection = 250
+max_deliveries_per_connection = 1000
 enable_tls = "Required"
 idle_timeout = "30s"
 consecutive_connection_failures_before_delay = 24
 
 # https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-gateway
 # https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-smtp-error-codes
+
+[["comcast.net".automation]]
+regex = "RL0000"
+# sets max_connection_rate="100/s"
+action = {SetConfig={name="max_connection_rate", value="10000/h"}}
+# if we see 2 or more matches in an hour. Unlike throttles, this
+# doesn't divide down to per-second rates.
+trigger = {Threshold="2/hr"}
+# The config override will last for 2 hours
+duration = "2 hours"
 
 # PROVIDED DIRECTLY BY MIMECAST
 
