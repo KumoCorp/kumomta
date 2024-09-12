@@ -109,11 +109,6 @@ algo = "sha256" # or "ed25519". Omit to use the default of "sha256"
 # Default is "/opt/kumomta/etc/dkim/DOMAIN/SELECTOR.key"
 filename = "/full/path/to/key."
 
-# TODO: reception-time policy for signing based on DNS.
-policy = "TempFailIfNotInDNS" # Reject
-#policy = "SignAlways"         # Sign and relay
-#policy = "SignOnlyIfInDNS"    # Don't sign. Allow fallback to additional_signatures
-
 # The signature block is independent of the sender domain.
 # They are consulted based on the value of `base.additional_signatures`
 # above.
