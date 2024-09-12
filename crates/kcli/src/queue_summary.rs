@@ -16,7 +16,7 @@ use tabout::{Alignment, Column};
 /// for a machine to parse. It is expressly unstable and you must not
 /// depend upon it in automation.
 ///
-/// The data behind this output is pulled from the metrics.json endpoint,
+/// The data behind this output is pulled from the metrics endpoint,
 /// which is machine readable.
 ///
 /// The output is presented in two sections:
