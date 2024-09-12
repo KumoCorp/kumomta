@@ -12,6 +12,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 mod counter;
+pub mod counter_bundle;
 
 #[macro_use]
 pub mod labels;

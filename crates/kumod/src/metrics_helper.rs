@@ -7,10 +7,41 @@ label_key! {
         pub service: String,
     }
 }
+label_key! {
+    pub struct ProviderKey {
+        pub provider: String,
+    }
+}
+label_key! {
+    pub struct ProviderAndSourceKey {
+        pub provider: String,
+        pub source: String,
+        pub pool: String,
+    }
+}
+label_key! {
+    pub struct ProviderAndPoolKey {
+        pub provider: String,
+        pub pool: String,
+    }
+}
 
 pub static CONN_GAUGE: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
     PruningCounterRegistry::register_gauge("connection_count", "number of active connections")
 });
+pub static CONN_GAUGE_BY_PROVIDER: Lazy<PruningCounterRegistry<ProviderKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
+        "connection_count_by_provider",
+        "number of active connections",
+    )
+});
+pub static CONN_GAUGE_BY_PROVIDER_AND_POOL: Lazy<PruningCounterRegistry<ProviderAndPoolKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register_gauge(
+            "connection_count_by_provider_and_pool",
+            "number of active connections",
+        )
+    });
 pub static CONN_DENIED: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
     PruningCounterRegistry::register(
         "total_connections_denied",
@@ -43,9 +74,74 @@ pub static TOTAL_MSGS_FAIL: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new
         "total number of message delivery attempts that permanently failed",
     )
 });
-pub static READY_COUNT_GAUGE: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
-    PruningCounterRegistry::register("ready_count", "number of messages in the ready queue")
+
+pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER: Lazy<PruningCounterRegistry<ProviderKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "total_messages_delivered_by_provider",
+            "total number of messages ever delivered",
+        )
+    });
+pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER: Lazy<PruningCounterRegistry<ProviderKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "total_messages_transfail_by_provider",
+            "total number of message delivery attempts that transiently failed",
+        )
+    });
+pub static TOTAL_MSGS_FAIL_BY_PROVIDER: Lazy<PruningCounterRegistry<ProviderKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register(
+            "total_messages_fail_by_provider",
+            "total number of message delivery attempts that permanently failed",
+        )
+    });
+
+pub static TOTAL_MSGS_DELIVERED_BY_PROVIDER_AND_SOURCE: Lazy<
+    PruningCounterRegistry<ProviderAndSourceKey>,
+> = Lazy::new(|| {
+    PruningCounterRegistry::register(
+        "total_messages_delivered_by_provider_and_source",
+        "total number of messages ever delivered",
+    )
 });
+pub static TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE: Lazy<
+    PruningCounterRegistry<ProviderAndSourceKey>,
+> = Lazy::new(|| {
+    PruningCounterRegistry::register(
+        "total_messages_transfail_by_provider_and_source",
+        "total number of message delivery attempts that transiently failed",
+    )
+});
+pub static TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE: Lazy<
+    PruningCounterRegistry<ProviderAndSourceKey>,
+> = Lazy::new(|| {
+    PruningCounterRegistry::register(
+        "total_messages_fail_by_provider_and_source",
+        "total number of message delivery attempts that permanently failed",
+    )
+});
+
+pub static READY_COUNT_GAUGE: Lazy<PruningCounterRegistry<ServiceKey>> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge("ready_count", "number of messages in the ready queue")
+});
+
+pub static QUEUED_COUNT_GAUGE_BY_PROVIDER: Lazy<PruningCounterRegistry<ProviderKey>> =
+    Lazy::new(|| {
+        PruningCounterRegistry::register_gauge(
+            "queued_count_by_provider",
+            "number of messages in the scheduled and ready queue",
+        )
+    });
+pub static QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL: Lazy<
+    PruningCounterRegistry<ProviderAndPoolKey>,
+> = Lazy::new(|| {
+    PruningCounterRegistry::register_gauge(
+        "queued_count_by_provider_and_pool",
+        "number of messages in the scheduled and ready queue",
+    )
+});
+
 pub static TOTAL_MSGS_RECVD: Lazy<CounterRegistry<ServiceKey>> = Lazy::new(|| {
     CounterRegistry::register(
         "total_messages_received",

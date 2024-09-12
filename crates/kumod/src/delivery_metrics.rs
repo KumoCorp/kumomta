@@ -1,29 +1,55 @@
-use kumo_prometheus::AtomicCounter;
+use crate::metrics_helper::{
+    BorrowedProviderAndPoolKey, BorrowedProviderAndSourceKey, BorrowedProviderKey,
+    ProviderAndPoolKeyTrait, ProviderAndSourceKeyTrait, ProviderKeyTrait,
+    QUEUED_COUNT_GAUGE_BY_PROVIDER, QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL,
+    TOTAL_MSGS_DELIVERED_BY_PROVIDER, TOTAL_MSGS_DELIVERED_BY_PROVIDER_AND_SOURCE,
+    TOTAL_MSGS_FAIL_BY_PROVIDER, TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE,
+    TOTAL_MSGS_TRANSFAIL_BY_PROVIDER, TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE,
+};
+use kumo_prometheus::{counter_bundle, AtomicCounter};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use prometheus::Histogram;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+counter_bundle! {
+    pub struct ReadyCountBundle {
+        pub ready_count_by_service: AtomicCounter,
+        pub global_ready_count: AtomicCounter,
+        pub queued_by_provider: AtomicCounter,
+        pub queued_by_provider_and_pool: AtomicCounter,
+    }
+}
+counter_bundle! {
+    pub struct DispositionBundle {
+        pub msgs: AtomicCounter,
+        pub provider: AtomicCounter,
+        pub source_provider: AtomicCounter,
+        pub global: AtomicCounter,
+    }
+}
+counter_bundle! {
+    pub struct ConnectionGaugeBundle {
+        pub connections: AtomicCounter,
+        pub global: AtomicCounter,
+        pub provider: AtomicCounter,
+        pub provider_and_pool: AtomicCounter,
+    }
+}
+
 #[derive(Clone)]
 pub struct DeliveryMetrics {
-    connection_gauge: AtomicCounter,
-    global_connection_gauge: AtomicCounter,
+    connection_gauge: ConnectionGaugeBundle,
     connection_total: AtomicCounter,
     global_connection_total: AtomicCounter,
 
-    pub ready_count: AtomicCounter,
-    pub global_ready_count: AtomicCounter,
+    pub ready_count: ReadyCountBundle,
     pub ready_full: AtomicCounter,
 
-    msgs_delivered: AtomicCounter,
-    global_msgs_delivered: AtomicCounter,
-
-    msgs_transfail: AtomicCounter,
-    global_msgs_transfail: AtomicCounter,
-
-    msgs_fail: AtomicCounter,
-    global_msgs_fail: AtomicCounter,
+    delivered: DispositionBundle,
+    transfail: DispositionBundle,
+    fail: DispositionBundle,
 
     pub deliver_message_rollup: Histogram,
 }
@@ -37,7 +63,6 @@ impl std::fmt::Debug for DeliveryMetrics {
 impl DeliveryMetrics {
     pub fn wrap_connection<T>(&self, client: T) -> MetricsWrappedConnection<T> {
         self.connection_gauge.inc();
-        self.global_connection_gauge.inc();
         self.connection_total.inc();
         self.global_connection_total.inc();
         MetricsWrappedConnection {
@@ -47,7 +72,14 @@ impl DeliveryMetrics {
         }
     }
 
-    pub fn new(service: &str, service_type: &str) -> Self {
+    pub fn new(
+        service: &str,
+        service_type: &str,
+        pool: &str,
+        source: &str,
+        provider_name: &Option<String>,
+        site_name: &str,
+    ) -> Self {
         // Since these metrics live in a pruning registry, we want to take an extra
         // step to pin these global counters into the register. We do that by holding
         // on to them for the life of the program.
@@ -93,49 +125,105 @@ impl DeliveryMetrics {
             }
         };
 
+        let provider = provider_name
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or(site_name);
+
+        let provider_pool_key = BorrowedProviderAndPoolKey { provider, pool };
+        let provider_source_key = BorrowedProviderAndSourceKey {
+            provider,
+            source,
+            pool,
+        };
+        let provider_key = BorrowedProviderKey { provider };
+
+        let source_provider_msgs_fail = TOTAL_MSGS_FAIL_BY_PROVIDER_AND_SOURCE
+            .get_or_create(&provider_source_key as &dyn ProviderAndSourceKeyTrait);
+        let source_provider_msgs_delivered = TOTAL_MSGS_DELIVERED_BY_PROVIDER_AND_SOURCE
+            .get_or_create(&provider_source_key as &dyn ProviderAndSourceKeyTrait);
+        let source_provider_msgs_transfail = TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE
+            .get_or_create(&provider_source_key as &dyn ProviderAndSourceKeyTrait);
+
+        let provider_msgs_fail =
+            TOTAL_MSGS_FAIL_BY_PROVIDER.get_or_create(&provider_key as &dyn ProviderKeyTrait);
+        let provider_msgs_delivered =
+            TOTAL_MSGS_DELIVERED_BY_PROVIDER.get_or_create(&provider_key as &dyn ProviderKeyTrait);
+        let provider_msgs_transfail =
+            TOTAL_MSGS_TRANSFAIL_BY_PROVIDER.get_or_create(&provider_key as &dyn ProviderKeyTrait);
+
+        let ready_count = ReadyCountBundle {
+            ready_count_by_service: crate::metrics_helper::ready_count_gauge_for_service(&service),
+            global_ready_count: globals.global_ready_count.clone(),
+            queued_by_provider: QUEUED_COUNT_GAUGE_BY_PROVIDER
+                .get_or_create(&provider_key as &dyn ProviderKeyTrait),
+            queued_by_provider_and_pool: QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL
+                .get_or_create(&provider_pool_key as &dyn ProviderAndPoolKeyTrait),
+        };
+
+        let delivered = DispositionBundle {
+            msgs: crate::metrics_helper::total_msgs_delivered_for_service(&service),
+            global: globals.global_msgs_delivered.clone(),
+            provider: provider_msgs_delivered,
+            source_provider: source_provider_msgs_delivered,
+        };
+
+        let transfail = DispositionBundle {
+            msgs: crate::metrics_helper::total_msgs_transfail_for_service(&service),
+            global: globals.global_msgs_transfail.clone(),
+            provider: provider_msgs_transfail,
+            source_provider: source_provider_msgs_transfail,
+        };
+
+        let fail = DispositionBundle {
+            msgs: crate::metrics_helper::total_msgs_fail_for_service(&service),
+            global: globals.global_msgs_fail.clone(),
+            provider: provider_msgs_fail,
+            source_provider: source_provider_msgs_fail,
+        };
+
+        let connection_gauge = ConnectionGaugeBundle {
+            connections: crate::metrics_helper::connection_gauge_for_service(&service),
+            global: globals.global_connection_gauge.clone(),
+            provider: crate::metrics_helper::CONN_GAUGE_BY_PROVIDER
+                .get_or_create(&provider_key as &dyn ProviderKeyTrait),
+            provider_and_pool: crate::metrics_helper::CONN_GAUGE_BY_PROVIDER_AND_POOL
+                .get_or_create(&provider_pool_key as &dyn ProviderAndPoolKeyTrait),
+        };
+
         DeliveryMetrics {
-            connection_gauge: crate::metrics_helper::connection_gauge_for_service(&service),
-            global_connection_gauge: globals.global_connection_gauge.clone(),
+            connection_gauge,
             connection_total: crate::metrics_helper::connection_total_for_service(&service),
             global_connection_total: globals.global_connection_total.clone(),
             ready_full: crate::metrics_helper::ready_full_counter_for_service(&service),
-            ready_count: crate::metrics_helper::ready_count_gauge_for_service(&service),
-            global_ready_count: globals.global_ready_count.clone(),
-            msgs_delivered: crate::metrics_helper::total_msgs_delivered_for_service(&service),
-            global_msgs_delivered: globals.global_msgs_delivered.clone(),
-            msgs_transfail: crate::metrics_helper::total_msgs_transfail_for_service(&service),
-            global_msgs_transfail: globals.global_msgs_transfail.clone(),
-            msgs_fail: crate::metrics_helper::total_msgs_fail_for_service(&service),
-            global_msgs_fail: globals.global_msgs_fail.clone(),
+            ready_count,
             deliver_message_rollup: crate::metrics_helper::deliver_message_rollup_for_service(
                 service_type,
             ),
+            delivered,
+            transfail,
+            fail,
         }
     }
 
     pub fn inc_transfail(&self) {
-        self.msgs_transfail.inc();
-        self.global_msgs_transfail.inc();
+        self.transfail.inc();
     }
 
     pub fn inc_transfail_by(&self, amount: usize) {
-        self.msgs_transfail.inc_by(amount);
-        self.global_msgs_transfail.inc_by(amount);
+        self.transfail.inc_by(amount);
     }
 
     pub fn inc_fail(&self) {
-        self.msgs_fail.inc();
-        self.global_msgs_fail.inc();
+        self.fail.inc();
     }
 
     pub fn inc_fail_by(&self, amount: usize) {
-        self.msgs_fail.inc_by(amount);
-        self.global_msgs_fail.inc_by(amount);
+        self.fail.inc_by(amount);
     }
 
     pub fn inc_delivered(&self) {
-        self.msgs_delivered.inc();
-        self.global_msgs_delivered.inc();
+        self.delivered.inc();
     }
 }
 
@@ -163,7 +251,6 @@ impl<T> MetricsWrappedConnection<T> {
     pub fn take(mut self) -> T {
         if self.armed {
             self.metrics.connection_gauge.dec();
-            self.metrics.global_connection_gauge.dec();
             self.armed = false;
         }
         self.client.take().expect("to take only once")
@@ -174,7 +261,6 @@ impl<T> Drop for MetricsWrappedConnection<T> {
     fn drop(&mut self) {
         if self.armed {
             self.metrics.connection_gauge.dec();
-            self.metrics.global_connection_gauge.dec();
         }
     }
 }

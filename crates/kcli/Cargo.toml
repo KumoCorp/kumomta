@@ -14,6 +14,7 @@ clap = {version="4.5", features=["derive", "wrap_help"]}
 clap-markdown = "0.1"
 dns-resolver = {path="../dns-resolver"}
 futures = "0.3"
+futures-util = "0.3"
 humantime = "2.1"
 lexicmp = "0.1"
 message = {path="../message", default-features=false}

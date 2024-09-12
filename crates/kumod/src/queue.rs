@@ -5,6 +5,10 @@ use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::http_server::inject_v1::{make_generate_queue_config, GENERATOR_QUEUE_NAME};
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaDeliveryProtocol;
+use crate::metrics_helper::{
+    BorrowedProviderAndPoolKey, BorrowedProviderKey, ProviderAndPoolKeyTrait, ProviderKeyTrait,
+    QUEUED_COUNT_GAUGE_BY_PROVIDER, QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL,
+};
 use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_dispatcher::SmtpProtocol;
 use crate::spool::SpoolManager;
@@ -14,7 +18,7 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
 use kumo_api_types::egress_path::ConfigRefreshStrategy;
-use kumo_prometheus::{label_key, AtomicCounter, PruningCounterRegistry};
+use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
@@ -170,10 +174,18 @@ const ONE_DAY: Duration = Duration::from_secs(86400);
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const TEN_MINUTES: Duration = Duration::from_secs(10 * 60);
 
+counter_bundle! {
+    pub struct ScheduledCountBundle {
+        pub delay_gauge: AtomicCounter,
+        pub queued_by_provider: AtomicCounter,
+        pub queued_by_provider_and_pool: AtomicCounter,
+        pub by_domain: AtomicCounter,
+    }
+}
+
 struct ScheduledMetrics {
     name: Arc<String>,
-    scheduled: AtomicCounter,
-    by_domain: AtomicCounter,
+    scheduled: ScheduledCountBundle,
     by_tenant: Option<AtomicCounter>,
     by_tenant_campaign: Option<AtomicCounter>,
     delay_due_to_message_rate_throttle: OnceCell<AtomicCounter>,
@@ -182,7 +194,7 @@ struct ScheduledMetrics {
 }
 
 impl ScheduledMetrics {
-    pub fn new(name: Arc<String>) -> Self {
+    pub fn new(name: Arc<String>, pool: &str, site: &str, provider_name: &Option<String>) -> Self {
         let components = QueueNameComponents::parse(&name);
 
         let queue_key = BorrowedQueueKey {
@@ -191,8 +203,6 @@ impl ScheduledMetrics {
         let domain_key = BorrowedDomainKey {
             domain: components.domain,
         };
-
-        let scheduled = DELAY_GAUGE.get_or_create(&queue_key as &dyn QueueKeyTrait);
 
         let by_domain = DOMAIN_GAUGE.get_or_create(&domain_key as &dyn DomainKeyTrait);
 
@@ -211,9 +221,29 @@ impl ScheduledMetrics {
             None => None,
         };
 
+        let provider_key = match provider_name {
+            Some(provider) => BorrowedProviderKey { provider },
+            None => BorrowedProviderKey { provider: site },
+        };
+        let provider_pool_key = match provider_name {
+            Some(provider) => BorrowedProviderAndPoolKey { provider, pool },
+            None => BorrowedProviderAndPoolKey {
+                provider: site,
+                pool,
+            },
+        };
+
+        let scheduled = ScheduledCountBundle {
+            delay_gauge: DELAY_GAUGE.get_or_create(&queue_key as &dyn QueueKeyTrait),
+            queued_by_provider: QUEUED_COUNT_GAUGE_BY_PROVIDER
+                .get_or_create(&provider_key as &dyn ProviderKeyTrait),
+            queued_by_provider_and_pool: QUEUED_COUNT_GAUGE_BY_PROVIDER_AND_POOL
+                .get_or_create(&provider_pool_key as &dyn ProviderAndPoolKeyTrait),
+            by_domain,
+        };
+
         Self {
             name,
-            by_domain,
             by_tenant,
             by_tenant_campaign,
             scheduled,
@@ -252,7 +282,6 @@ impl ScheduledMetrics {
     pub fn inc(&self) {
         TOTAL_DELAY_GAUGE.inc();
         self.scheduled.inc();
-        self.by_domain.inc();
         self.by_tenant.as_ref().map(|m| m.inc());
         self.by_tenant_campaign.as_ref().map(|m| m.inc());
     }
@@ -260,7 +289,6 @@ impl ScheduledMetrics {
     pub fn sub(&self, amount: usize) {
         TOTAL_DELAY_GAUGE.sub(amount as i64);
         self.scheduled.sub(amount);
-        self.by_domain.sub(amount);
         self.by_tenant.as_ref().map(|m| m.sub(amount));
         self.by_tenant_campaign.as_ref().map(|m| m.sub(amount));
     }
@@ -878,6 +906,7 @@ pub struct Queue {
     next_config_refresh: StdMutex<Instant>,
     warned_strategy_change: AtomicBool,
     config_epoch: StdMutex<ConfigEpoch>,
+    site_name: String,
 }
 
 impl Queue {
@@ -917,13 +946,26 @@ impl Queue {
         let activity = Activity::get(format!("Queue {name}"))?;
         let strategy = queue_config.strategy;
         let next_config_refresh = StdMutex::new(Instant::now() + queue_config.refresh_interval);
+
+        let queue_config = ConfigHandle::new(queue_config);
+        let site_name = match ReadyQueueManager::compute_queue_name(
+            &name,
+            &queue_config,
+            "unspecified",
+        )
+        .await
+        {
+            Ok(ready_name) => ready_name.site_name,
+            Err(_) => name.clone(),
+        };
+
         let name = Arc::new(name);
 
         let handle = Arc::new(Queue {
             name: name.clone(),
             queue: QueueStructure::new(strategy),
             last_change: StdMutex::new(Instant::now()),
-            queue_config: ConfigHandle::new(queue_config),
+            queue_config,
             notify_maintainer: Arc::new(Notify::new()),
             metrics: OnceCell::new(),
             activity,
@@ -931,6 +973,7 @@ impl Queue {
             next_config_refresh,
             warned_strategy_change: AtomicBool::new(false),
             config_epoch: StdMutex::new(epoch),
+            site_name,
         });
 
         if !matches!(strategy, QueueStrategy::SingletonTimerWheel) {
@@ -1433,8 +1476,15 @@ impl Queue {
     }
 
     fn metrics(&self) -> &ScheduledMetrics {
-        self.metrics
-            .get_or_init(|| ScheduledMetrics::new(self.name.clone()))
+        self.metrics.get_or_init(|| {
+            let queue_config = self.queue_config.borrow();
+            ScheduledMetrics::new(
+                self.name.clone(),
+                queue_config.egress_pool.as_deref().unwrap_or("unspecified"),
+                &self.site_name,
+                &queue_config.provider_name,
+            )
+        })
     }
 
     #[instrument(skip(self, msg))]

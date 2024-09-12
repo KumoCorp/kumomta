@@ -1,4 +1,4 @@
-use crate::delivery_metrics::DeliveryMetrics;
+use crate::delivery_metrics::{DeliveryMetrics, ReadyCountBundle};
 use crate::egress_source::EgressSource;
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
@@ -19,7 +19,6 @@ use config::{load_config, CallbackSignature};
 use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
-use kumo_prometheus::AtomicCounter;
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
@@ -59,23 +58,20 @@ pub fn set_readyq_threads(n: usize) {
 
 pub struct Fifo {
     queue: ArcSwap<ArrayQueue<Message>>,
-    count: AtomicCounter,
-    global_count: AtomicCounter,
+    count: ReadyCountBundle,
 }
 
 impl Fifo {
-    pub fn new(capacity: usize, count: AtomicCounter, global_count: AtomicCounter) -> Self {
+    pub fn new(capacity: usize, count: ReadyCountBundle) -> Self {
         Self {
             queue: Arc::new(ArrayQueue::new(capacity)).into(),
             count,
-            global_count,
         }
     }
 
     pub fn push(&self, msg: Message) -> Result<(), Message> {
         self.queue.load().push(msg)?;
         self.count.inc();
-        self.global_count.inc();
         Ok(())
     }
 
@@ -83,7 +79,6 @@ impl Fifo {
     pub fn pop(&self) -> Option<Message> {
         let msg = self.queue.load().pop()?;
         self.count.dec();
-        self.global_count.dec();
         Some(msg)
     }
 
@@ -95,7 +90,6 @@ impl Fifo {
             messages.push(msg);
         }
         self.count.sub(messages.len());
-        self.global_count.sub(messages.len());
         messages
     }
 
@@ -128,7 +122,6 @@ impl Fifo {
             }
         }
         self.count.sub(messages.len());
-        self.global_count.sub(messages.len());
         messages
     }
 
@@ -333,11 +326,19 @@ impl ReadyQueueManager {
                 .expect("failed to spawn maintainer");
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
-            let metrics = DeliveryMetrics::new(&service, &proto);
+            let metrics = DeliveryMetrics::new(
+                &service,
+                &proto,
+                egress_pool,
+                &egress_source.name,
+                &path_config.provider_name,
+                mx.as_ref()
+                    .map(|m| m.site_name.as_str())
+                    .unwrap_or(queue_name),
+            );
             let ready = Arc::new(Fifo::new(
                 path_config.max_ready,
                 metrics.ready_count.clone(),
-                metrics.global_ready_count.clone(),
             ));
             let notify_dispatcher = Arc::new(Notify::new());
             let next_config_refresh = Instant::now() + path_config.refresh_interval;
@@ -656,7 +657,7 @@ impl ReadyQueue {
             self.name,
             suspend.is_some(),
             self.ready_count(),
-            self.metrics.ready_count.get(),
+            self.metrics.ready_count.ready_count_by_service.get(),
         );
 
         if self.activity.is_shutting_down() {

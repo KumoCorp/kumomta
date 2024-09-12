@@ -9,6 +9,7 @@ mod bounce_cancel;
 mod bounce_list;
 mod inspect_message;
 mod logfilter;
+mod provider_summary;
 mod queue_summary;
 mod rebind;
 mod suspend;
@@ -64,6 +65,7 @@ enum SubCommand {
     SuspendReadyQCancel(suspend_ready_q_cancel::SuspendReadyQCancelCommand),
     SetLogFilter(logfilter::SetLogFilterCommand),
     InspectMessage(inspect_message::InspectMessageCommand),
+    ProviderSummary(provider_summary::ProviderSummaryCommand),
     QueueSummary(queue_summary::QueueSummaryCommand),
     TraceSmtpClient(trace_smtp_client::TraceSmtpClientCommand),
     TraceSmtpServer(trace_smtp_server::TraceSmtpServerCommand),
@@ -123,6 +125,7 @@ impl SubCommand {
             Self::SuspendReadyQList(cmd) => cmd.run(endpoint).await,
             Self::SetLogFilter(cmd) => cmd.run(endpoint).await,
             Self::InspectMessage(cmd) => cmd.run(endpoint).await,
+            Self::ProviderSummary(cmd) => cmd.run(endpoint).await,
             Self::QueueSummary(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpClient(cmd) => cmd.run(endpoint).await,
             Self::TraceSmtpServer(cmd) => cmd.run(endpoint).await,
