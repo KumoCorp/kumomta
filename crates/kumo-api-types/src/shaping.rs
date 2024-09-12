@@ -351,10 +351,10 @@ impl ShapingInner {
             .trim_end_matches("@smtp_client")
             .to_string();
 
-        Ok(self.match_rules_impl(record, &domain, &site_name))
+        Ok(self.match_rules_impl(record, &domain, &site_name).await)
     }
 
-    pub fn match_rules_impl(
+    pub async fn match_rules_impl(
         &self,
         record: &JsonLogRecord,
         domain: &str,
@@ -375,6 +375,20 @@ impl ShapingInner {
                     // automation.  Honestly, it's best to avoid
                     // using `default` for automation.
                     result.push(rule.clone_and_set_rollup());
+                }
+            }
+        }
+
+        for prov in self.by_provider.values() {
+            if prov.domain_matches(domain).await {
+                for rule in &prov.automation {
+                    tracing::trace!(
+                        "Consider provider \"{}\" rule {rule:?} for {response}",
+                        prov.provider_name
+                    );
+                    if rule.matches(&response) {
+                        result.push(rule.clone());
+                    }
                 }
             }
         }
@@ -543,6 +557,18 @@ impl Shaping {
                     }
                 }
 
+                #[cfg(test)]
+                if partial._treat_domain_name_as_site_name {
+                    match by_site.get_mut(&domain) {
+                        Some(existing) => {
+                            existing.merge_from(partial);
+                        }
+                        None => {
+                            by_site.insert(domain.to_string(), partial);
+                        }
+                    }
+                    continue;
+                }
                 if partial.mx_rollup {
                     let mx = match mx.get(&domain) {
                         Some(Ok(mx)) => mx,
@@ -766,6 +792,13 @@ struct PartialEntry {
 
     #[serde(default = "default_true")]
     pub mx_rollup: bool,
+
+    // This is present to facilitate unit testing without requiring
+    // DNS to resolve the site_name. When set to true, the domain_name
+    // is considered to be the site_name for this entry.
+    #[cfg(test)]
+    #[serde(default)]
+    pub _treat_domain_name_as_site_name: bool,
 
     #[serde(default)]
     pub replace_base: bool,
@@ -1162,8 +1195,11 @@ pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use kumo_log_types::RecordType;
+    use rfc5321::Response;
     use std::io::Write;
     use tempfile::NamedTempFile;
+    use uuid::Uuid;
 
     async fn make_shaping_configs(inputs: &[&str]) -> Shaping {
         let mut files = vec![];
@@ -1258,6 +1294,123 @@ provider_max_message_rate = "120/s"
     "shaping-provider-Office 365-invalid.source-rate": 120/s,
 }
 "#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_matching() {
+        let shaping = make_shaping_configs(&[r#"
+[["default".automation]]
+regex="default"
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1hr"
+
+["fake.site"]
+_treat_domain_name_as_site_name = true
+
+[["fake.site".automation]]
+regex="fake_rollup"
+action = {SetConfig={name="connection_limit", value=2}}
+duration = "1hr"
+
+["woot.provider"]
+mx_rollup = false
+
+[["woot.provider".automation]]
+regex="woot_domain"
+action = {SetConfig={name="connection_limit", value=2}}
+duration = "1hr"
+
+[provider."provider"]
+match=[{DomainSuffix=".provider"}]
+
+[[provider."provider".automation]]
+regex="provider"
+action = {SetConfig={name="connection_limit", value=3}}
+duration = "1hr"
+
+"#])
+        .await;
+
+        eprintln!("{:?}", shaping.inner.warnings);
+
+        fn make_record(content: &str, recipient: &str, site: &str) -> JsonLogRecord {
+            JsonLogRecord {
+                kind: RecordType::TransientFailure,
+                id: String::new(),
+                sender: String::new(),
+                recipient: recipient.to_string(),
+                queue: String::new(),
+                site: site.to_string(),
+                size: 0,
+                response: Response {
+                    code: 400,
+                    command: None,
+                    enhanced_code: None,
+                    content: content.to_string(),
+                },
+                peer_address: None,
+                timestamp: Default::default(),
+                created: Default::default(),
+                num_attempts: 1,
+                bounce_classification: Default::default(),
+                egress_pool: None,
+                egress_source: None,
+                source_address: None,
+                feedback_report: None,
+                meta: Default::default(),
+                headers: Default::default(),
+                delivery_protocol: None,
+                reception_protocol: None,
+                nodeid: Uuid::default(),
+                tls_cipher: None,
+                tls_protocol_version: None,
+                tls_peer_subject_name: None,
+            }
+        }
+
+        let matches = shaping
+            .match_rules(&make_record("default", "user@example.com", "dummy_site"))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].regex[0].to_string(),
+            "default",
+            "matches against default automation rule"
+        );
+
+        let matches = shaping
+            .match_rules(&make_record(
+                "woot_domain",
+                "user@woot.provider",
+                "dummy_site",
+            ))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].regex[0].to_string(),
+            "woot_domain",
+            "matches against domain rule with mx_rollup=false"
+        );
+
+        let matches = shaping
+            .match_rules(&make_record("fake_rollup", "user@fake.rollup", "fake.site"))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].regex[0].to_string(),
+            "fake_rollup",
+            "matches against domain rule with mx_rollup=true"
+        );
+
+        let matches = shaping
+            .match_rules(&make_record("provider", "user@woot.provider", "dummy_site"))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].regex[0].to_string(),
+            "provider",
+            "matches against provider rule"
         );
     }
 
