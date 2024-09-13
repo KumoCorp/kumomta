@@ -432,13 +432,13 @@ fn domain_matches(
     tenant: &Option<String>,
     domain: &Option<String>,
 ) -> bool {
-    if !match_criteria(campaign.as_deref(), components.campaign.as_deref()) {
+    if !match_criteria(components.campaign.as_deref(), campaign.as_deref()) {
         return false;
     }
-    if !match_criteria(tenant.as_deref(), components.tenant.as_deref()) {
+    if !match_criteria(components.tenant.as_deref(), tenant.as_deref()) {
         return false;
     }
-    if !match_criteria(domain.as_deref(), Some(components.domain)) {
+    if !match_criteria(Some(components.domain), domain.as_deref()) {
         return false;
     }
     true
