@@ -75,6 +75,10 @@ pub struct BounceV1Response {
     /// This can be used later to delete the rule if desired.
     #[schema(example = "552016f1-08e7-4e90-9da3-fd5c25acd069")]
     pub id: Uuid,
+    /// Deprecated: this field is no longer populated, as bounces
+    /// are now always asynchronous. In earlier versions the following
+    /// applies:
+    ///
     /// A map of queue name to number of bounced messages that
     /// were processed as part of the initial sweep.
     /// Additional bounces may be generated if/when other messages
@@ -85,6 +89,9 @@ pub struct BounceV1Response {
         "yahoo.com": 100
     }))]
     pub bounced: HashMap<String, usize>,
+    /// Deprecated: this field is no longer populated, as bounces are
+    /// now always asynchronous. In earlier versions the following applies:
+    ///
     /// The sum of the number of bounced messages reported by
     /// the `bounced` field.
     #[schema(example = 300)]

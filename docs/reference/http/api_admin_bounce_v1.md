@@ -16,24 +16,16 @@ The body of the post request must be a JSON object; here's an example:
 }
 ```
 
-and the response will look something like this, with an entry for
-each matching queue name and the count of matching messages that
-were bounced *so far*:
+and the response will look something like this, returning a unique
+identifier for the bounce entry:
 
 ```json
-{"bounced":{"gmail.com":42}, "total_bounced":42}
+{"id": "eab8cf70-4f64-4e02-9493-0b2f190a9a73"}
 ```
 
-!!! note
-    More recent builds of KumoMTA perform most of the bouncing
-    asynchronously with respect to this bounce request being
-    made, in order to make the overall system more responsive
-    and performant. As a result, the numbers reported in the
-    response to this command will often show as either zero
-    or some smaller number than the total that will be affected.
-    Use the [GET /api/admin/bounce/v1](api_admin_bounce_v1.md)
-    API or the `kcli bounce-list` command to review the current
-    totals.
+Use the [GET /api/admin/bounce/v1](api_admin_bounce_v1.md)
+API or the `kcli bounce-list` command to review the current
+totals for the bounces that have been registered in the system.
 
 The following fields are possible in the request:
 
@@ -81,12 +73,9 @@ bounce criteria will also be bounced.
 In addition to making raw API requests, you may use the kumo CLI:
 
 ```console
-$ kcli --endpoint http://127.0.0.1:8000 bounce --everything --reason purge
-{
-  "id": "0234c7c9-afd3-49f9-9a4c-a1cc37fcc53b",
-  "bounced": {},
-  "total_bounced": 0
-}
+$ kcli bounce --everything --reason purge
+NOTE: the bounce is running async. Use the bounce-list command to review ongoing status!
+eab8cf70-4f64-4e02-9493-0b2f190a9a73
 ```
 
 Run `kcli bounce --help` for more informtion.

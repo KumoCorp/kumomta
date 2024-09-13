@@ -200,8 +200,10 @@ pub async fn bounce_v1(
     Json(request): Json<BounceV1Request>,
 ) -> Result<Json<BounceV1Response>, AppError> {
     let duration = request.duration();
+
+    let id = Uuid::new_v4();
     let entry = AdminBounceEntry {
-        id: Uuid::new_v4(),
+        id,
         campaign: request.campaign,
         tenant: request.tenant,
         domain: request.domain,
@@ -215,7 +217,6 @@ pub async fn bounce_v1(
     AdminBounceEntry::add(entry.clone());
 
     let queue_names = entry.list_matching_queues().await;
-    let (tx, rx) = tokio::sync::oneshot::channel();
 
     // Move into a lua-capable thread so that logging related
     // lua events can be triggered by log_disposition.
@@ -226,19 +227,13 @@ pub async fn bounce_v1(
                     q.bounce_all(&entry).await;
                 }
             }
-            tx.send(entry)
         })
     })?;
 
-    let entry = rx.await?;
-
-    let bounced = entry.bounced.lock().clone();
-    let total_bounced = bounced.values().sum();
-
     Ok(Json(BounceV1Response {
-        id: entry.id,
-        bounced,
-        total_bounced,
+        id,
+        bounced: Default::default(),
+        total_bounced: 0,
     }))
 }
 

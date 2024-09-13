@@ -93,10 +93,9 @@ impl BounceCommand {
         .await?;
 
         eprintln!(
-            "NOTE: the numbers shown here are not final; the bounce is \
-             running async. Use the bounce-list command to review ongoing status!"
+            "NOTE: the bounce is running async. Use the bounce-list command to review ongoing status!"
         );
-        println!("{}", serde_json::to_string_pretty(&result)?);
+        println!("{}", result.id);
 
         Ok(())
     }

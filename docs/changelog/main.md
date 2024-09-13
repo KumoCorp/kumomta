@@ -45,6 +45,12 @@
   computing the connection plan for an individual session. This helps to
   probablistically load balance across the advertised hosts for the destination.
 
+* The [/api/admin/bounce/v1](../reference/http/api_admin_bounce_v1.md) no longer
+  returns *any* partial statistics from the bounce. On systems with very large
+  numbers of queues, returning data in this context would take too long. The endpoint
+  will now return immediately and report the `id` of the bounce entry, but no
+  other statistics.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report
