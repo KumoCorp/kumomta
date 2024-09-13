@@ -1,6 +1,8 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* `kcli bounce-list` no longer returns json output by default. Use `--json`
+  to explicitly request json output.
 
 ## Other Changes and Enhancements
 * Queue and Egress configs can now be set to work in a mode where they refresh
@@ -50,6 +52,10 @@
   numbers of queues, returning data in this context would take too long. The endpoint
   will now return immediately and report the `id` of the bounce entry, but no
   other statistics.
+
+* `kcli bounce-list` now summarizes the bounce information in a human readable
+  format by default, rather than showing the underlying json data as we did
+  in previous releases.
 
 ## Fixes
 
