@@ -168,7 +168,6 @@ pub async fn get_metrics<T, F: FnMut(&Metric) -> Option<T>>(
 
 pub struct QueueMetricsParams {
     pub by_volume: bool,
-    pub limit: usize,
 }
 
 pub struct QueueMetrics {
@@ -215,17 +214,10 @@ impl QueueMetrics {
                 "scheduled_count" => {
                     if let Some(queue) = m.labels().get("queue") {
                         let queue_size = m.value() as usize;
-
-                        if params.by_volume && scheduled.len() == params.limit {
-                            scheduled.retain(|_k, entry| entry.queue_size > queue_size);
-                        }
-
-                        if scheduled.len() <= params.limit {
-                            let entry = scheduled
-                                .entry(queue.to_string())
-                                .or_insert_with(|| ScheduledQueueMetrics::with_name(queue));
-                            entry.queue_size += queue_size;
-                        }
+                        let entry = scheduled
+                            .entry(queue.to_string())
+                            .or_insert_with(|| ScheduledQueueMetrics::with_name(queue));
+                        entry.queue_size += queue_size;
                     }
                 }
                 _ => {}
@@ -292,7 +284,6 @@ impl QueueSummaryCommand {
             endpoint,
             QueueMetricsParams {
                 by_volume: self.by_volume,
-                limit: self.limit.unwrap_or(usize::MAX),
             },
         )
         .await?;
