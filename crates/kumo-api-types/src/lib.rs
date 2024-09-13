@@ -84,7 +84,7 @@ pub struct BounceV1Response {
     /// Additional bounces may be generated if/when other messages
     /// that match the rule are discovered, but those obviously
     /// cannot be reported in the context of the initial request.
-    #[schema(example=json!({
+    #[schema(deprecated, example=json!({
         "gmail.com": 200,
         "yahoo.com": 100
     }))]
@@ -94,7 +94,7 @@ pub struct BounceV1Response {
     ///
     /// The sum of the number of bounced messages reported by
     /// the `bounced` field.
-    #[schema(example = 300)]
+    #[schema(deprecated, example = 300)]
     pub total_bounced: usize,
 }
 

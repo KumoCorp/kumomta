@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.09.02-3ae6ef42"
+    "version": "2024.09.12-e7ec3be8"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -575,11 +575,12 @@
         "properties": {
           "bounced": {
             "type": "object",
-            "description": "A map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
+            "description": "Deprecated: this field is no longer populated, as bounces\nare now always asynchronous. In earlier versions the following\napplies:\n\nA map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
             "additionalProperties": {
               "type": "integer",
               "minimum": 0
             },
+            "deprecated": true,
             "example": {
               "gmail.com": 200,
               "yahoo.com": 100
@@ -593,7 +594,8 @@
           },
           "total_bounced": {
             "type": "integer",
-            "description": "The sum of the number of bounced messages reported by\nthe `bounced` field.",
+            "description": "Deprecated: this field is no longer populated, as bounces are\nnow always asynchronous. In earlier versions the following applies:\n\nThe sum of the number of bounced messages reported by\nthe `bounced` field.",
+            "deprecated": true,
             "example": 300,
             "minimum": 0
           }
@@ -1099,11 +1101,12 @@
               "properties": {
                 "bounced": {
                   "type": "object",
-                  "description": "A map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
+                  "description": "Deprecated: this field is no longer populated, as bounces\nare now always asynchronous. In earlier versions the following\napplies:\n\nA map of queue name to number of bounced messages that\nwere processed as part of the initial sweep.\nAdditional bounces may be generated if/when other messages\nthat match the rule are discovered, but those obviously\ncannot be reported in the context of the initial request.",
                   "additionalProperties": {
                     "type": "integer",
                     "minimum": 0
                   },
+                  "deprecated": true,
                   "example": {
                     "gmail.com": 200,
                     "yahoo.com": 100
@@ -1117,7 +1120,8 @@
                 },
                 "total_bounced": {
                   "type": "integer",
-                  "description": "The sum of the number of bounced messages reported by\nthe `bounced` field.",
+                  "description": "Deprecated: this field is no longer populated, as bounces are\nnow always asynchronous. In earlier versions the following applies:\n\nThe sum of the number of bounced messages reported by\nthe `bounced` field.",
+                  "deprecated": true,
                   "example": 300,
                   "minimum": 0
                 }

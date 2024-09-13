@@ -42,6 +42,8 @@ Full docs available at: <https://docs.kumomta.com>
 
 * `inspect-message` — Returns information about a message in the spool
 
+* `provider-summary` — Prints a summary of the aggregate state of the queues from the perspective of the provider or destination site
+
 * `queue-summary` — Prints a summary of the state of the queues, for a human to read
 
 * `trace-smtp-client` — Trace outgoing sessions made by the SMTP service
