@@ -5,6 +5,7 @@ use kumo_api_types::{BounceV1ListEntry, SuspendReadyQueueV1ListEntry, SuspendV1L
 use kumo_prometheus::parser::Metric;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
+use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -376,10 +377,10 @@ impl QueueSummaryCommand {
                 m.site_name().to_string(),
                 m.source().unwrap_or("").to_string(),
                 m.protocol().unwrap_or("").to_string(),
-                m.delivered.to_string(),
-                m.transfail.to_string(),
-                m.connection_count.to_string(),
-                m.queue_size.to_string(),
+                m.delivered.to_formatted_string(&Locale::en),
+                m.transfail.to_formatted_string(&Locale::en),
+                m.connection_count.to_formatted_string(&Locale::en),
+                m.queue_size.to_formatted_string(&Locale::en),
                 status.to_string(),
             ]);
         }
@@ -421,7 +422,7 @@ impl QueueSummaryCommand {
 
             sched_rows.push(vec![
                 m.name.to_string(),
-                m.queue_size.to_string(),
+                m.queue_size.to_formatted_string(&Locale::en),
                 status.to_string(),
             ]);
         }

@@ -6,6 +6,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::StreamExt;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
+use num_format::{Locale, ToFormattedString};
 use reqwest::Url;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -275,11 +276,11 @@ impl ProviderSummaryCommand {
                 let mut row = vec![
                     m.name.to_string(),
                     m.pool.as_ref().unwrap().to_string(),
-                    m.delivered.to_string(),
-                    m.transfail.to_string(),
-                    m.fail.to_string(),
-                    m.queue_size.to_string(),
-                    m.connections.to_string(),
+                    m.delivered.to_formatted_string(&Locale::en),
+                    m.transfail.to_formatted_string(&Locale::en),
+                    m.fail.to_formatted_string(&Locale::en),
+                    m.queue_size.to_formatted_string(&Locale::en),
+                    m.connections.to_formatted_string(&Locale::en),
                 ];
 
                 if let Some(domains) = resolve_domains(&mut site_to_domains, &m.name) {
@@ -341,11 +342,11 @@ impl ProviderSummaryCommand {
                 }
                 let mut row = vec![
                     m.name.to_string(),
-                    m.delivered.to_string(),
-                    m.transfail.to_string(),
-                    m.fail.to_string(),
-                    m.queue_size.to_string(),
-                    m.connections.to_string(),
+                    m.delivered.to_formatted_string(&Locale::en),
+                    m.transfail.to_formatted_string(&Locale::en),
+                    m.fail.to_formatted_string(&Locale::en),
+                    m.queue_size.to_formatted_string(&Locale::en),
+                    m.connections.to_formatted_string(&Locale::en),
                 ];
 
                 if let Some(domains) = resolve_domains(&mut site_to_domains, &m.name) {
