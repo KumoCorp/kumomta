@@ -361,8 +361,11 @@ impl QueueSummaryCommand {
 
         let mut ready_rows = vec![];
         for m in &metrics.ready {
-            let paused = suspended_sites.iter().any(|s| s.name == m.name);
-            let status = if paused { "🛑" } else { "" };
+            let status = if let Some(s) = suspended_sites.iter().find(|s| s.name == m.name) {
+                format!("🛑suspend: {}", s.reason)
+            } else {
+                String::new()
+            };
 
             ready_rows.push(vec![
                 m.site_name().to_string(),
@@ -372,7 +375,7 @@ impl QueueSummaryCommand {
                 m.transfail.to_formatted_string(&Locale::en),
                 m.connection_count.to_formatted_string(&Locale::en),
                 m.queue_size.to_formatted_string(&Locale::en),
-                status.to_string(),
+                status,
             ]);
         }
 
@@ -396,25 +399,25 @@ impl QueueSummaryCommand {
         let mut sched_rows = vec![];
         for m in &metrics.scheduled {
             let components = QueueNameComponents::parse(&m.name);
-            let paused = suspended_domains
-                .iter()
-                .any(|s| domain_matches(&components, &s.campaign, &s.tenant, &s.domain));
-            let bounced = bounced_domains
-                .iter()
-                .any(|s| domain_matches(&components, &s.campaign, &s.tenant, &s.domain));
 
-            let status = if bounced {
-                "🗑️"
-            } else if paused {
-                "🛑"
+            let status = if let Some(b) = bounced_domains
+                .iter()
+                .find(|s| domain_matches(&components, &s.campaign, &s.tenant, &s.domain))
+            {
+                format!("🗑️ bounce: {}", b.reason)
+            } else if let Some(s) = suspended_domains
+                .iter()
+                .find(|s| domain_matches(&components, &s.campaign, &s.tenant, &s.domain))
+            {
+                format!("🛑suspend: {}", s.reason)
             } else {
-                ""
+                String::new()
             };
 
             sched_rows.push(vec![
                 m.name.to_string(),
                 m.queue_size.to_formatted_string(&Locale::en),
-                status.to_string(),
+                status,
             ]);
         }
 
