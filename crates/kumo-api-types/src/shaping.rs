@@ -17,7 +17,7 @@ use ordermap::OrderMap;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_with::formats::PreferOne;
-use serde_with::{serde_as, OneOrMany};
+use serde_with::{serde_as, DeserializeAs, OneOrMany};
 #[cfg(feature = "lua")]
 use sha2::{Digest, Sha256};
 #[cfg(feature = "lua")]
@@ -215,7 +215,7 @@ pub struct Rule {
     #[serde(deserialize_with = "regex_string_or_array")]
     pub regex: Vec<Regex>,
 
-    #[serde_as(deserialize_as = "OneOrMany<_, PreferOne>")]
+    #[serde(deserialize_with = "one_or_many_action")]
     pub action: Vec<Action>,
 
     #[serde(default)]
@@ -1116,6 +1116,31 @@ impl PartialEntry {
         self.domain_name.as_ref().map(|name| ctx.update(name));
         ctx.update(serde_json::to_string(self).unwrap_or_else(|_| String::new()));
     }
+}
+
+fn one_or_many<'de, T, D>(deserializer: D, expecting: &str) -> Result<Vec<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    let result: Result<Vec<T>, _> =
+        OneOrMany::<serde_with::Same, PreferOne>::deserialize_as(deserializer);
+    match result {
+        Ok(r) => Ok(r),
+        Err(err) => Err(serde::de::Error::custom(format!(
+            "{expecting}.\nThe underlying error message is:\n{err:#}"
+        ))),
+    }
+}
+
+fn one_or_many_action<'de, D>(deserializer: D) -> Result<Vec<Action>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    one_or_many(
+        deserializer,
+        "\"action\" field expected either a single Action or an array of Actions",
+    )
 }
 
 fn regex_string_or_array<'de, D>(deserializer: D) -> Result<Vec<Regex>, D::Error>
