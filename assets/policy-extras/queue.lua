@@ -412,6 +412,43 @@ function mod:setup(file_names)
   }
 end
 
+local function resolve_provider(domain, routing_domain)
+  local is_ok, result = pcall(function()
+    local routing_domain = routing_domain or domain
+    local mx = kumo.dns.lookup_mx(routing_domain)
+    local path_config = kumo.invoke_get_egress_path_config(
+      routing_domain,
+      -- We use unspecified for the source. We don't and cannot
+      -- know the actual source at this point, however, the
+      -- provider is a function of destination so it doesn't
+      -- actually matter which source we request here, so
+      -- long as the defined event handlers populate the
+      -- provider_name for us
+      'unspecified',
+      mx.site_name
+    )
+    return path_config.provider_name
+  end)
+  if is_ok then
+    return result
+  end
+  return nil
+end
+
+local cached_resolve_provider = kumo.memoize(resolve_provider, {
+  name = 'queue.lua_resolve_provider',
+  ttl = '1 minute',
+  capacity = 128,
+})
+
+-- Given a domain and optional routing_domain (set to nil if you have
+-- no explicit routing domain), determine the provider_name that would
+-- be set by the shaping layer by speculatively evaluating the egress
+-- path configuration for an unspecified source.
+function mod:resolve_provider(domain, routing_domain)
+  return cached_resolve_provider(domain, routing_domain)
+end
+
 function mod:setup_with_options(options)
   if mod.CONFIGURED then
     error 'queues module has already been configured'
@@ -451,23 +488,8 @@ function mod:setup_with_options(options)
           if params.provider_name == nil then
             -- Back-propagate the provider_name from the probable
             -- egress path configuration for this routing domain.
-            -- Wrapped this in a pcall in case the domain doesn't resolve.
-            pcall(function()
-              local routing_domain = routing_domain or domain
-              local mx = kumo.dns.lookup_mx(routing_domain)
-              local path_config = kumo.invoke_get_egress_path_config(
-                routing_domain,
-                -- We use unspecified for the source. We don't and cannot
-                -- know the actual source at this point, however, the
-                -- provider is a function of destination so it doesn't
-                -- actually matter which source we request here, so
-                -- long as the defined event handlers populate the
-                -- provider_name for us
-                'unspecified',
-                mx.site_name
-              )
-              params.provider_name = path_config.provider_name
-            end)
+            params.provider_name =
+              cached_resolve_provider(domain, routing_domain)
           end
           return kumo.make_queue_config(params)
         end
