@@ -5,7 +5,17 @@
 
 <iframe width="560" height="315" src="https://www.youtube.com/embed/ClJX5mIxy7g?si=GcpBpegzsTRz01H5" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
-This tutorial assumes the reader has a basic understanding of Linux administration, experience installing and managing an [MTA](https://en.wikipedia.org/wiki/Message_transfer_agent), a provisioned physical or virtual machine, and a minimal installer for Rocky Linux 9.
+## Prerequisites
+
+This tutorial requires the following:
+
+* A basic understanding of Linux administration. 
+* Experience installing and managing an [MTA](https://en.wikipedia.org/wiki/Message_transfer_agent), preferably in a high-volume sending environment.
+* A provisioned physical or virtual machine. 
+* A minimal installer for Rocky Linux 9.
+
+!!!danger
+    Reaching the inbox in bulk requires extensive knowledge and experience in both MailOps and Deliverability. If you have not previously operated a high-volume email sending environment we do *not* recommend taking this step lightly. Those without the requisite skills are strongly recommended to utilize a SaaS relay solution.
 
 1. Provision an AWS t2.xlarge (or larger) instance (or any physical or virtual server with at least 4 CPUs, 16Gb RAM, 300Gb Hard Drive).
 

@@ -291,6 +291,10 @@ The match can be one of two possible options:
 * `{DomainSuffix="SUFFIX"}` - matches if the domain name suffix matches the
   specified suffix string.
 
+!!!note
+    The suffix matching is *not* a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.
+
+
 The provider block introduces two new options: `provider_connection_limit` and `provider_max_message_rate`. When a provider is defined, it does not merge the various `site_name` queues covered by the provider together, which means that the `connection_limit` and `max_message_rate` options will not be enforced across all matching queues, but will be applied separately to each ready queue covered by the provider block.
 
 When the `provider_connection_limit` and `provider_max_message_rate` options are set, the throttles defined will be enforced across all matching site_name ready queues for that provider. This is typically the desired behavior. One example of a scenario where the provider_ options would not be used is Mimecast: each regional MX pattern used by Mimecast is a separate set of servers in that region, but traffic shaping expectations are the same for all regions. To address this we use a provider block without the `provider_` throttles:
