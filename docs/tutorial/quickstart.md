@@ -20,7 +20,7 @@ This tutorial requires the following:
 1. Provision an AWS t2.xlarge (or larger) instance (or any physical or virtual server with at least 4 CPUs, 16Gb RAM, 300Gb Hard Drive).
 
     !!!Note
-        The hardware here is for a high-throughput sending environment, but KumoMTA can run on a smaller footprint for low-volume environments. if your sending needs are smaller, you can deploy to a server with 1 CPU, 2GB RAM, and 10Gb of storage.
+        The hardware here is for a medium throughput sending environment, but KumoMTA can run on a smaller footprint for low-volume environments. if your sending needs are smaller, you can deploy to a server with 1 CPU, 2GB RAM, and 10Gb of storage.
 
 1. [Install Rocky Linux 9](https://docs.rockylinux.org/guides/installation/). A minimal install is sufficient.
 
@@ -134,7 +134,7 @@ This tutorial requires the following:
 
     !!!note
         In the default configuration, it will take about 10 seconds for the log files to flush and show the log entries in the `tailer` output.
-        You can speed that up by changing the `max_segment_duration` in the `init.lua` file, or just by restarting the server via
+        You can speed that up by changing the `max_segment_duration` in the `init.lua` file, or through flushing the log files by restarting the server via
         `sudo systemctl restart kumomta`.
 
         These example log entries have been formatted for ease of reading in the documentation.
