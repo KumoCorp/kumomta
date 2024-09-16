@@ -141,8 +141,8 @@ impl MonitoredPath {
         let info = nix::sys::statvfs::statvfs(&self.path)
             .with_context(|| format!("statvfs({}) failed", self.path.display()))?;
 
-        let blocks_avail = info.blocks_available();
-        let blocks_total = info.blocks();
+        let blocks_avail = info.blocks_available() as u64;
+        let blocks_total = info.blocks() as u64;
 
         let space_avail_percent =
             ((blocks_avail as f64 / blocks_total as f64) * 100.0).floor() as u8;
@@ -156,7 +156,7 @@ impl MonitoredPath {
             .unwrap()
             .set(space_avail_percent as i64);
 
-        let inodes_avail = info.files_available();
+        let inodes_avail = info.files_available() as u64;
         let inodes_total = info.files();
         let inodes_avail_percent =
             ((inodes_avail as f64 / inodes_total as f64) * 100.0).floor() as u8;
