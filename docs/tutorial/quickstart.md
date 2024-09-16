@@ -9,9 +9,9 @@
 
 This tutorial requires the following:
 
-* A basic understanding of Linux administration. 
+* A basic understanding of Linux administration.
 * Experience installing and managing an [MTA](https://en.wikipedia.org/wiki/Message_transfer_agent), preferably in a high-volume sending environment.
-* A provisioned physical or virtual machine. 
+* A provisioned physical or virtual machine.
 * A minimal installer for Rocky Linux 9.
 
 !!!danger
@@ -94,8 +94,8 @@ This tutorial requires the following:
 
 1. View the log entries related to your test message:
 
-    ```console
-    $ sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta
+    ```bash
+    sudo /opt/kumomta/sbin/tailer --tail /var/log/kumomta
     ```
 
     ```json
