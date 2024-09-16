@@ -166,7 +166,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         };
 
         let _timer = latency_timer("context-creation");
-        func.call_async(()).await?;
+        func.call_async::<_, ()>(()).await?;
     }
     LUA_COUNT.increment(1.);
 
