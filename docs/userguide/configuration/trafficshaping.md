@@ -308,6 +308,9 @@ connection_limit = 10
 
 In this case we can define traffic shaping rules that apply to Mimecast globally, but which are still enforced by each region's ready queue without limiting worldwide traffic.
 
+!!!note
+    Both the `provider_` and regular throttles can be set, where `connection_limit` would be for the individual site names, and `provider_connection_limit` would cap the overall connection count. The same would apply for `max_message_rate` and `provider_max_message_rate`.
+
 #### Shaping Option Resolution Order and Precedence
 
 When resolving the configuration for a site, the options are resolved in the
