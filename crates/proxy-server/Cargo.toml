@@ -13,4 +13,6 @@ libc = "0.2"
 log = "0.4"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 tokio = {workspace=true, features=["full", "tracing"]}
+
+[target.'cfg(target_os = "linux")'.dependencies]
 tokio-splice = "0.2"

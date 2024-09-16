@@ -13,6 +13,7 @@ pub async fn handle_proxy_client(
     mut stream: TcpStream,
     peer_address: SocketAddr,
     timeout_duration: std::time::Duration,
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
     no_splice: bool,
 ) -> anyhow::Result<()> {
     let mut state = ClientState::None;
