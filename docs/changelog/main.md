@@ -57,6 +57,9 @@
   format by default, rather than showing the underlying json data as we did
   in previous releases.
 
+* The log_hooks helper now supports batching using the new `batch_size` parameter
+  and `send_batch` method. [See the example](../userguide/operation/webhooks.md#batched-hooks)
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

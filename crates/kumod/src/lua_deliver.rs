@@ -20,6 +20,15 @@ pub struct LuaDeliveryProtocol {
     /// The name of an event to fire that will construct
     /// the delivery implementation
     pub constructor: String,
+
+    #[serde(default = "LuaDeliveryProtocol::default_batch_size")]
+    batch_size: usize,
+}
+
+impl LuaDeliveryProtocol {
+    fn default_batch_size() -> usize {
+        1
+    }
 }
 
 #[derive(Debug)]
@@ -99,6 +108,10 @@ impl QueueDispatcher for LuaQueueDispatcher {
         }
     }
 
+    fn max_batch_size(&self) -> usize {
+        self.proto_config.batch_size
+    }
+
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         match &self.connection {
             ConnectionState::Connected(_) => return Ok(()),
@@ -137,7 +150,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
     async fn deliver_message(
         &mut self,
-        msg: Message,
+        mut msgs: Vec<Message>,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
         let connection = match &self.connection {
@@ -147,15 +160,28 @@ impl QueueDispatcher for LuaQueueDispatcher {
             }
         };
 
+        let batch_size = self.proto_config.batch_size;
+
         let result: anyhow::Result<String> = self
             .lua_config
             .with_registry_value(connection, move |connection| {
                 Ok(async move {
                     match &connection {
                         Value::Table(tbl) => {
-                            let send_method: mlua::Function = tbl.get("send")?;
+                            if batch_size == 1 {
+                                anyhow::ensure!(
+                                    msgs.len() == 1,
+                                    "lua_dispatcher was configured with a batch size of 1, but multiple messages were popped"
+                                );
+                                let msg = msgs.pop().expect("just verified that there is one");
+                                let send_method: mlua::Function = tbl.get("send").context("sender:send method not found")?;
 
-                            Ok(send_method.call_async((connection, msg)).await?)
+                                Ok(send_method.call_async((connection, msg)).await.context("sender:send method failed")?)
+                            } else {
+                                let send_method: mlua::Function = tbl.get("send_batch").context("sender:send_batch method not found")?;
+
+                                Ok(send_method.call_async((connection, msgs)).await.context("sender:send_batch method failed")?)
+                            }
                         }
                         _ => anyhow::bail!("invalid connection object"),
                     }
@@ -179,13 +205,13 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             "failed to send message to {}: {response:?}",
                             dispatcher.name,
                         );
-                        if let Some(msg) = dispatcher.msg.take() {
+                        for msg in dispatcher.msgs.drain(..) {
                             log_disposition(LogDisposition {
                                 kind: RecordType::TransientFailure,
                                 msg: msg.clone(),
                                 site: &dispatcher.name,
                                 peer_address: Some(&self.peer_address),
-                                response,
+                                response: response.clone(),
                                 egress_pool: Some(&dispatcher.egress_pool),
                                 egress_source: Some(&dispatcher.egress_source.name),
                                 relay_disposition: None,
@@ -199,8 +225,8 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 "requeue message".to_string(),
                                 Dispatcher::requeue_message(msg, true, None),
                             )?;
+                            dispatcher.metrics.inc_transfail();
                         }
-                        dispatcher.metrics.inc_transfail();
 
                         if rejection.code == 421 {
                             // Explicit signal that we want to close
@@ -209,18 +235,18 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             }
                         }
                     } else {
-                        dispatcher.metrics.inc_fail();
                         tracing::debug!(
                             "failed to send message to {}: {response:?}",
                             dispatcher.name,
                         );
-                        if let Some(msg) = dispatcher.msg.take() {
+                        for msg in dispatcher.msgs.drain(..) {
+                            dispatcher.metrics.inc_fail();
                             log_disposition(LogDisposition {
                                 kind: RecordType::Bounce,
                                 msg: msg.clone(),
                                 site: &dispatcher.name,
                                 peer_address: Some(&self.peer_address),
-                                response,
+                                response: response.clone(),
                                 egress_pool: Some(&dispatcher.egress_pool),
                                 egress_source: Some(&dispatcher.egress_source.name),
                                 relay_disposition: None,
@@ -251,13 +277,13 @@ impl QueueDispatcher for LuaQueueDispatcher {
                 };
 
                 tracing::debug!("Delivered OK! {response:?}");
-                if let Some(msg) = dispatcher.msg.take() {
+                for msg in dispatcher.msgs.drain(..) {
                     log_disposition(LogDisposition {
                         kind: RecordType::Delivery,
                         msg: msg.clone(),
                         site: &dispatcher.name,
                         peer_address: Some(&self.peer_address),
-                        response,
+                        response: response.clone(),
                         egress_pool: Some(&dispatcher.egress_pool),
                         egress_source: Some(&dispatcher.egress_source.name),
                         relay_disposition: None,
@@ -268,8 +294,8 @@ impl QueueDispatcher for LuaQueueDispatcher {
                     })
                     .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;
+                    dispatcher.metrics.inc_delivered();
                 }
-                dispatcher.metrics.inc_delivered();
             }
         }
 

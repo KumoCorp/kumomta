@@ -20,6 +20,7 @@ impl WebHookServer {
 
         let app = Router::new()
             .route("/log", post(log_record))
+            .route("/log-batch", post(log_batch))
             .layer(Extension(Arc::clone(&records)));
 
         let handle = Handle::new();
@@ -75,6 +76,13 @@ impl WebHookServer {
     pub fn return_logs(&self) -> Vec<JsonLogRecord> {
         (*self.records.lock().unwrap()).clone()
     }
+}
+
+async fn log_batch(
+    Extension(records): Extension<Arc<Mutex<Vec<JsonLogRecord>>>>,
+    Json(mut batch): Json<Vec<JsonLogRecord>>,
+) {
+    records.lock().unwrap().append(&mut batch);
 }
 
 async fn log_record(

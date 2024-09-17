@@ -808,10 +808,15 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
     }
     async fn deliver_message(
         &mut self,
-        msg: Message,
+        mut msgs: Vec<Message>,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
         // parse out the inject payload and run it
+        anyhow::ensure!(
+            msgs.len() == 1,
+            "smtp_dispatcher only supports a batch size of 1"
+        );
+        let msg = msgs.pop().expect("just verified that there is one");
 
         let response = match self.try_send(msg).await {
             Ok(()) => Response {
@@ -831,7 +836,7 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
         tracing::debug!("Delivered OK! {response:?}");
         let was_ok = response.code == 250;
 
-        if let Some(msg) = dispatcher.msg.take() {
+        if let Some(msg) = dispatcher.msgs.pop() {
             log_disposition(LogDisposition {
                 kind: if was_ok {
                     RecordType::Delivery

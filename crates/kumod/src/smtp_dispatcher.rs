@@ -596,9 +596,15 @@ impl QueueDispatcher for SmtpDispatcher {
 
     async fn deliver_message(
         &mut self,
-        msg: Message,
+        mut msgs: Vec<Message>,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            msgs.len() == 1,
+            "smtp_dispatcher only supports a batch size of 1"
+        );
+        let msg = msgs.pop().expect("just verified that there is one");
+
         msg.load_meta_if_needed().await.context("loading meta")?;
         msg.load_data_if_needed().await.context("loading data")?;
 
@@ -694,7 +700,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         dispatcher.name,
                         self.client_address
                     );
-                    if let Some(msg) = dispatcher.msg.take() {
+                    if let Some(msg) = dispatcher.msgs.pop() {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -718,7 +724,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     dispatcher.metrics.inc_transfail();
                 } else if response.code >= 200 && response.code < 300 {
                     tracing::debug!("Delivered OK! {response:?}");
-                    if let Some(msg) = dispatcher.msg.take() {
+                    if let Some(msg) = dispatcher.msgs.pop() {
                         log_disposition(LogDisposition {
                             kind: RecordType::Delivery,
                             msg: msg.clone(),
@@ -744,7 +750,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         dispatcher.name,
                         self.client_address
                     );
-                    if let Some(msg) = dispatcher.msg.take() {
+                    if let Some(msg) = dispatcher.msgs.pop() {
                         log_disposition(LogDisposition {
                             kind: RecordType::Bounce,
                             msg: msg.clone(),
@@ -772,7 +778,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     dispatcher.name, self.client_address
                 );
                 tracing::debug!("{reason}");
-                if let Some(msg) = dispatcher.msg.take() {
+                if let Some(msg) = dispatcher.msgs.pop() {
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
                         msg: msg.clone(),
@@ -815,7 +821,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 );
 
                 tracing::debug!("{reason}");
-                if let Some(msg) = dispatcher.msg.take() {
+                if let Some(msg) = dispatcher.msgs.pop() {
                     log_disposition(LogDisposition {
                         kind: RecordType::TransientFailure,
                         msg: msg.clone(),
@@ -860,7 +866,7 @@ impl QueueDispatcher for SmtpDispatcher {
             }
             Ok(response) => {
                 tracing::debug!("Delivered OK! {response:?}");
-                if let Some(msg) = dispatcher.msg.take() {
+                if let Some(msg) = dispatcher.msgs.pop() {
                     log_disposition(LogDisposition {
                         kind: RecordType::Delivery,
                         msg: msg.clone(),

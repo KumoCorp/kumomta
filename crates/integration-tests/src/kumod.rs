@@ -555,6 +555,10 @@ pub struct DaemonWithMaildirAndWebHook {
 
 impl DaemonWithMaildirAndWebHook {
     pub async fn start() -> anyhow::Result<Self> {
+        Self::start_batched(1).await
+    }
+
+    pub async fn start_batched(batch_size: usize) -> anyhow::Result<Self> {
         let webhook = WebHookServer::start().await?;
         let sink = KumoDaemon::spawn_maildir().await?;
         let smtp = sink.listener("smtp");
@@ -565,6 +569,10 @@ impl DaemonWithMaildirAndWebHook {
                 (
                     "KUMOD_WEBHOOK_PORT".to_string(),
                     webhook.addr.port().to_string(),
+                ),
+                (
+                    "KUMOD_WEBHOOK_BATCH_SIZE".to_string(),
+                    batch_size.to_string(),
                 ),
             ],
         })

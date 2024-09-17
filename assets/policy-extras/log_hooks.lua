@@ -18,6 +18,7 @@ local LogHookOptions = Record('LogHookOptions', {
   log_parameters = Option(Map(String, Any)),
   queue_config = Option(QueueConfig),
   constructor = typing.Function,
+  batch_size = Option(typing.number),
 })
 
 --[[
@@ -128,6 +129,7 @@ function mod:new(options)
   queue_config.protocol = {
     custom_lua = {
       constructor = constructor_name,
+      batch_size = options.batch_size or 1,
     },
   }
 

@@ -122,3 +122,92 @@ log_hooks:new {
 You can use the above to define logging that uses other protocols
 than HTTP, such as AMQP or Kafka.
 
+## batched hooks
+
+{{since('dev')}}
+
+It can be desirable for log events to be delivered to the destination
+system in a batch; the primary motivation for this is to amortize the
+cost of a database transaction on the remote system by handle more than
+one record per transaction.
+
+You can implementing batching by setting the `batch_size` parameter
+to a value greater than 1. When you do this, the hook is run in a batch
+mode and it is expected to return a `connection` object that has
+a `send_batch` method rather than the `send` method shown in the example
+above.
+
+When in batch mode, the connection will receive a batch consisting of
+1 or more messages, up to the `batch_size` that you configured. The batch
+can be less than the `batch_size`; the connection will pop off up-to the
+configured number of messages from the *ready queue*. That queue holds
+only a finite number of messages that are immediately ready for delivery.
+The popping process does not artificially delay to encourage a larger
+batch size. It will grab whatever is immediately ready and send it
+as a batch.
+
+Here's how you would write something that is similar to the above example
+using batching:
+
+```lua
+local log_hooks = require 'policy-extras.log_hooks'
+log_hooks:new {
+  name = 'webhookbatch',
+  -- batches of up to 100 messages at a time
+  batch_size = 100,
+  constructor = function(domain, tenant, campaign)
+    local connection = {}
+    local client = kumo.http.build_client {}
+
+    -- This method must be named send_batch when batch_size > 1
+    function connection:send_batch(messages)
+      local payload = {}
+      for _, msg in ipairs(messages) do
+        -- Rather than collecting the pre-templated record as
+        -- a string, get it as an object.  This makes it easier
+        -- to compose it as an array and json encode than doing
+        -- the string manipulation by-hand.
+        table.insert(payload, msg:get_meta 'log_record')
+      end
+
+      -- encode the array of objects as json
+      local data = kumo.serde.json_encode(payload)
+
+      local response = client
+        :post('http://10.0.0.1:4242/log')
+        :header('Content-Type', 'application/json')
+        :body(data)
+        :send()
+
+      local disposition = string.format(
+        '%d %s: %s',
+        response:status_code(),
+        response:status_reason(),
+        response:text()
+      )
+
+      if response:status_is_success() then
+        return disposition
+      end
+      kumo.reject(500, disposition)
+    end
+
+    function connection:close()
+      client:close()
+    end
+
+    return connection
+  end,
+}
+```
+
+If your `send_batch` method returns a transient failure, either by allowing
+errors to escape the function without being caught by `pcall`, or by
+explicitly using `kumo.reject` with a `4xx` status code, then that
+transient disposition applies to every message in the batch. Each
+transiently failed message will have its own jittered retry time computed,
+and it will be reattempted at a later time.  This per-message jitter can
+help to break out of a situation where one message in the batch is somehow
+objectionable to the destination endpoint and continues to cause the
+messages that get lumped into its batch to transiently fail.
+

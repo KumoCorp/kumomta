@@ -886,7 +886,7 @@ impl Drop for ReadyQueue {
 pub trait QueueDispatcher: Debug + Send {
     async fn deliver_message(
         &mut self,
-        message: Message,
+        message: Vec<Message>,
         dispatcher: &mut Dispatcher,
     ) -> anyhow::Result<()>;
 
@@ -894,6 +894,9 @@ pub trait QueueDispatcher: Debug + Send {
     async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool;
 
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool>;
+    fn max_batch_size(&self) -> usize {
+        1
+    }
 }
 
 pub struct Dispatcher {
@@ -914,7 +917,7 @@ pub struct Dispatcher {
     pub egress_source: EgressSource,
     pub egress_pool: String,
     pub delivered_this_connection: usize,
-    pub msg: Option<Message>,
+    pub msgs: Vec<Message>,
     pub delivery_protocol: String,
     pub suspended: Option<AdminSuspendReadyQEntryRef>,
     leases: Vec<LimitLease>,
@@ -923,14 +926,16 @@ pub struct Dispatcher {
 impl Drop for Dispatcher {
     fn drop(&mut self) {
         // Ensure that we re-queue any message that we had popped
-        let msg = self.msg.take();
+        let msgs = std::mem::take(&mut self.msgs);
         let activity = self.activity.clone();
         let name = self.name.to_string();
         let notify_dispatcher = self.notify_dispatcher.clone();
         READYQ_RUNTIME
             .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
                 Ok(async move {
-                    if let Some(msg) = msg {
+                    let had_msgs = !msgs.is_empty();
+
+                    for msg in msgs {
                         if activity.is_shutting_down() {
                             Queue::save_if_needed_and_log(&msg).await;
                         } else {
@@ -938,7 +943,9 @@ impl Drop for Dispatcher {
                                 tracing::error!("error requeuing message: {err:#}");
                             }
                         }
-                    } else {
+                    }
+
+                    if !had_msgs {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         let ready_queue = ReadyQueueManager::get_by_name(&name);
                         if let Some(q) = ready_queue {
@@ -983,7 +990,7 @@ impl Dispatcher {
             ready,
             notify_dispatcher,
             mx,
-            msg: None,
+            msgs: vec![],
             path_config,
             metrics,
             activity,
@@ -1023,8 +1030,8 @@ impl Dispatcher {
             .borrow()
             .aggressive_connection_opening
         {
-            dispatcher.obtain_message().await;
-            if dispatcher.msg.is_none() {
+            dispatcher.obtain_message(&mut *queue_dispatcher).await;
+            if dispatcher.msgs.is_empty() {
                 // We raced with another dispatcher and there is no
                 // more work to be done; no need to open a new connection.
                 dispatcher.release_leases().await;
@@ -1070,7 +1077,7 @@ impl Dispatcher {
                     .have_more_connection_candidates(&mut dispatcher)
                     .await
                 {
-                    if let Some(msg) = dispatcher.msg.take() {
+                    for msg in dispatcher.msgs.drain(..) {
                         let summary = if num_opportunistic_tls_failures == connection_failures.len()
                         {
                             "All failures are related to OpportunisticInsecure STARTTLS. \
@@ -1222,10 +1229,10 @@ impl Dispatcher {
             }
         }
 
-        let msg = self.msg.as_ref().unwrap().clone();
-
-        msg.load_meta_if_needed().await?;
-        msg.load_data_if_needed().await?;
+        for msg in &self.msgs {
+            msg.load_meta_if_needed().await?;
+            msg.load_data_if_needed().await?;
+        }
 
         let activity = match Activity::get_opt(format!(
             "ready_queue Dispatcher deliver_message {}",
@@ -1237,15 +1244,14 @@ impl Dispatcher {
             }
         };
 
-        self.delivered_this_connection += 1;
+        self.delivered_this_connection += self.msgs.len();
 
-        if let Err(err) = queue_dispatcher.deliver_message(msg.clone(), self).await {
+        if let Err(err) = queue_dispatcher
+            .deliver_message(self.msgs.clone(), self)
+            .await
+        {
             // Transient failure; continue with another host
-            tracing::debug!(
-                "failed to send message id {:?} to {}: {err:#}",
-                msg.id(),
-                self.name,
-            );
+            tracing::debug!("failed to send message batch to {}: {err:#}", self.name,);
             return Err(err.into());
         }
 
@@ -1338,9 +1344,7 @@ impl Dispatcher {
     /// if it transpires that no sources are enabled for the message.
     pub async fn reinsert_ready_queue(&mut self) {
         let mut msgs = self.ready.drain();
-        if let Some(msg) = self.msg.take() {
-            msgs.push(msg);
-        }
+        msgs.append(&mut self.msgs);
         if !msgs.is_empty() {
             tracing::debug!(
                 "suspend: reinserting ready queue {} - {} messages",
@@ -1368,9 +1372,7 @@ impl Dispatcher {
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
         let mut msgs = self.ready.drain();
-        if let Some(msg) = self.msg.take() {
-            msgs.push(msg);
-        }
+        msgs.append(&mut self.msgs);
         if !msgs.is_empty() {
             tracing::debug!(
                 "throttled: delaying ready queue {} - {} messages",
@@ -1403,9 +1405,7 @@ impl Dispatcher {
     #[instrument(skip(self))]
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs = self.ready.drain();
-        if let Some(msg) = self.msg.take() {
-            msgs.push(msg);
-        }
+        msgs.append(&mut self.msgs);
         if !msgs.is_empty() {
             let activity = self.activity.clone();
             let name = self.name.clone();
@@ -1486,27 +1486,25 @@ impl Dispatcher {
     }
 
     #[instrument(skip(self))]
-    async fn obtain_message(&mut self) -> bool {
-        if self.msg.is_some() {
+    async fn obtain_message(&mut self, queue_dispatcher: &mut dyn QueueDispatcher) -> bool {
+        if !self.msgs.is_empty() {
             return true;
         }
-        loop {
-            self.msg = self.ready.pop();
-            if let Some(msg) = &self.msg {
+        while self.msgs.len() < queue_dispatcher.max_batch_size() {
+            if let Some(msg) = self.ready.pop() {
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
-                        let msg = self.msg.take().unwrap();
                         entry.log(msg.clone(), None).await;
                         SpoolManager::remove_from_spool(*msg.id()).await.ok();
                         continue;
                     }
                 }
-
-                return true;
+                self.msgs.push(msg);
             } else {
-                return false;
+                break;
             }
         }
+        !self.msgs.is_empty()
     }
 
     fn get_suspension(&mut self) -> Option<AdminSuspendReadyQEntryRef> {
@@ -1532,7 +1530,7 @@ impl Dispatcher {
         shutting_down: &mut ShutdownSubcription,
     ) -> anyhow::Result<bool> {
         if self.activity.is_shutting_down() {
-            if let Some(msg) = self.msg.take() {
+            for msg in self.msgs.drain(..) {
                 Queue::save_if_needed_and_log(&msg).await;
             }
             return Ok(false);
@@ -1581,7 +1579,7 @@ impl Dispatcher {
             }
         }
 
-        if self.obtain_message().await {
+        if self.obtain_message(queue_dispatcher).await {
             return Ok(true);
         }
 
@@ -1616,7 +1614,7 @@ impl Dispatcher {
                                 // Close the connection and stop trying to deliver
                                 return Ok(false);
                             }
-                            if self.obtain_message().await {
+                            if self.obtain_message(queue_dispatcher).await {
                                 return Ok(true);
                             }
                             // we raced with another dispatcher;
