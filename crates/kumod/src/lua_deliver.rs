@@ -3,6 +3,7 @@ use crate::logging::disposition::{log_disposition, LogDisposition};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
+use anyhow::Context;
 use async_trait::async_trait;
 use config::{CallbackSignature, LuaConfig};
 use kumo_log_types::{RecordType, ResolvedAddress};
