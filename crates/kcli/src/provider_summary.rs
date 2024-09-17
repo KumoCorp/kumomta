@@ -46,9 +46,9 @@ use tabout::{Alignment, Column};
 ///
 /// F        - the total number of failed/bounced messages
 ///
-/// Q        - the total number of ready and scheduled messages in queue
-///
 /// C        - the current number of open connections
+///
+/// Q        - the total number of ready and scheduled messages in queue
 ///
 /// DOMAINS  - (when --show-domains is used) a list of domains that correspond to
 ///            rows that do not have an explicitly configured provider.
@@ -250,11 +250,11 @@ impl ProviderSummaryCommand {
                     alignment: Alignment::Right,
                 },
                 Column {
-                    name: "Q".to_string(),
+                    name: "C".to_string(),
                     alignment: Alignment::Right,
                 },
                 Column {
-                    name: "C".to_string(),
+                    name: "Q".to_string(),
                     alignment: Alignment::Right,
                 },
             ];
@@ -279,8 +279,8 @@ impl ProviderSummaryCommand {
                     m.delivered.to_formatted_string(&Locale::en),
                     m.transfail.to_formatted_string(&Locale::en),
                     m.fail.to_formatted_string(&Locale::en),
-                    m.queue_size.to_formatted_string(&Locale::en),
                     m.connections.to_formatted_string(&Locale::en),
+                    m.queue_size.to_formatted_string(&Locale::en),
                 ];
 
                 if let Some(domains) = resolve_domains(&mut site_to_domains, &m.name) {
@@ -317,11 +317,11 @@ impl ProviderSummaryCommand {
                     alignment: Alignment::Right,
                 },
                 Column {
-                    name: "Q".to_string(),
+                    name: "C".to_string(),
                     alignment: Alignment::Right,
                 },
                 Column {
-                    name: "C".to_string(),
+                    name: "Q".to_string(),
                     alignment: Alignment::Right,
                 },
             ];
@@ -345,8 +345,8 @@ impl ProviderSummaryCommand {
                     m.delivered.to_formatted_string(&Locale::en),
                     m.transfail.to_formatted_string(&Locale::en),
                     m.fail.to_formatted_string(&Locale::en),
-                    m.queue_size.to_formatted_string(&Locale::en),
                     m.connections.to_formatted_string(&Locale::en),
+                    m.queue_size.to_formatted_string(&Locale::en),
                 ];
 
                 if let Some(domains) = resolve_domains(&mut site_to_domains, &m.name) {

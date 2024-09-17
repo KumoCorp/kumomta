@@ -25,9 +25,9 @@ T        - the total number of transiently failed messages
 
 F        - the total number of failed/bounced messages
 
-Q        - the total number of ready and scheduled messages in queue
-
 C        - the current number of open connections
+
+Q        - the total number of ready and scheduled messages in queue
 
 DOMAINS  - (when --show-domains is used) a list of domains that correspond to rows that do not have an explicitly configured provider.
 
