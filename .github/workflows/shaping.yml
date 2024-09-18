@@ -18,7 +18,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-code-formatting:
+  check-shaping:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
