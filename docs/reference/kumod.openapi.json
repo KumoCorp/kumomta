@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.09.12-e7ec3be8"
+    "version": "2024.09.17-b6a73f08"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1058,6 +1058,14 @@
           "duration": {
             "type": "string",
             "description": "Specifies how long this suspension remains active.",
+            "nullable": true
+          },
+          "expires": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              }
+            ],
             "nullable": true
           },
           "reason": {

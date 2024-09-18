@@ -14,6 +14,7 @@ fn main() {
 mod test {
     use super::kumod::*;
     use anyhow::Context;
+    use chrono::Utc;
     use k9::assert_equal;
     use kumo_api_types::{SuspendReadyQueueV1ListEntry, SuspendV1ListEntry, SuspendV1Response};
     use kumo_log_types::RecordType;
@@ -1278,6 +1279,11 @@ DeliverySummary {
         assert_eq!(status[0].name, "unspecified->localhost@smtp_client");
         let reason = &status[0].reason;
         assert!(reason.contains("you said"), "{reason}");
+        let remaining = status[0].expires - Utc::now();
+        assert!(
+            remaining.num_minutes() > 50,
+            "expiration should be about an hour remaining, {remaining:?}"
+        );
 
         daemon.stop().await?;
         Ok(())
@@ -1352,6 +1358,10 @@ DeliverySummary {
         assert!(reason.contains("you said"), "{reason}");
         assert_eq!(item.campaign.as_deref(), Some("mycamp"));
         assert_eq!(item.tenant.as_deref(), Some("mytenant"));
+        assert!(
+            item.duration.as_secs() > 50 * 60,
+            "expiration should be about an hour remaining, {item:?}"
+        );
 
         daemon.stop().await?;
         Ok(())

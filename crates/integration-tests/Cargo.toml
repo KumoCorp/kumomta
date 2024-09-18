@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0"
 axum = {workspace=true}
 axum-server = {workspace=true}
+chrono = {version="0.4", default-features=false, features=["std", "clock"]}
 futures-lite = "2.3"
 k9 = "0.12"
 kumo-api-types = {path="../kumo-api-types"}

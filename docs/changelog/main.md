@@ -75,3 +75,6 @@
   the domain name internally, and in the case of domains with no explicit MX
   records, the fallback record that was synthesized from the domain name would
   also be encoded in the unicode representation.
+
+* TSA SuspendTenant rules didn't respect the duration specified in the rule,
+  instead defaulting to 5 minutes.

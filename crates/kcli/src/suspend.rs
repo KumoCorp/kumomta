@@ -55,6 +55,7 @@ impl SuspendCommand {
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),
+                expires: None,
             },
         )
         .await?;
