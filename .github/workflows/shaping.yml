@@ -1,0 +1,31 @@
+name: Check shaping files
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "assets/community/shaping.toml"
+      - "assets/policy-extras/shaping.toml"
+      - ".github/workflows/shaping.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "assets/community/shaping.toml"
+      - "assets/policy-extras/shaping.toml"
+      - ".github/workflows/shaping.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-code-formatting:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: "Install Rust"
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: validate shaping
+      run: cargo run -p validate-shaping -- assets/community/shaping.toml assets/policy-extras/shaping.toml
+
