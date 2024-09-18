@@ -7205,6 +7205,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "validate-bounces"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bounce-classify",
+ "clap",
+]
+
+[[package]]
 name = "validate-shaping"
 version = "0.1.0"
 dependencies = [

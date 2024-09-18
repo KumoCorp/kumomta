@@ -1,0 +1,29 @@
+name: Check bounce files
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "assets/community/bounces.toml"
+      - ".github/workflows/bounce.yml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "assets/community/shaping.toml"
+      - "assets/community/bounces.toml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-bounces:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: "Install Rust"
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: validate bounces
+      run: cargo run -p validate-bounces -- assets/community/bounces.toml
+

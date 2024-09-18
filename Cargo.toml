@@ -24,6 +24,7 @@ members = [
   "crates/traffic-gen",
   "crates/tsa-daemon",
   "crates/uuid-helper",
+  "crates/validate-bounces",
   "crates/validate-shaping",
   "crates/version-info",
 ]
