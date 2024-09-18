@@ -956,7 +956,28 @@ impl Queue {
         .await
         {
             Ok(ready_name) => ready_name.site_name,
-            Err(_) => name.clone(),
+            Err(err) => {
+                // DNS resolution failed for whatever reason. We need to cook up a reasonable
+                // site_name even though we cannot actually establish a connection or ready
+                // queue for this domain.
+                // We'll base it off the effective routing domain, but throw in a string to
+                // help indicate at a glance that there is an issue with its DNS
+                let reason = format!("{err:#}");
+                let reason = if reason.contains("NXDOMAIN") {
+                    "NXDOMAIN"
+                } else {
+                    // Any other DNS resolution failure
+                    "DNSFAIL"
+                };
+
+                let components = QueueNameComponents::parse(&name);
+                let routing_domain = components
+                    .routing_domain
+                    .as_deref()
+                    .unwrap_or(&components.domain);
+
+                format!("{reason}:{routing_domain}")
+            }
         };
 
         let name = Arc::new(name);
