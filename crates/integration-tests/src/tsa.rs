@@ -1,3 +1,4 @@
+#![cfg(test)]
 use crate::kumod::target_bin;
 use anyhow::Context;
 use std::collections::BTreeMap;

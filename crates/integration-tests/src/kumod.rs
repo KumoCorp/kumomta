@@ -1,3 +1,4 @@
+#![cfg(test)]
 use crate::tsa::{TsaArgs, TsaDaemon};
 use crate::webhook::WebHookServer;
 use anyhow::Context;

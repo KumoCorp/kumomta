@@ -1,3 +1,4 @@
+#![cfg(test)]
 use axum::extract::{Extension, Json};
 use axum::routing::post;
 use axum::Router;
