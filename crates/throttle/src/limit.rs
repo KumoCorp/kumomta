@@ -59,7 +59,7 @@ enum Backend {
 impl LimitSpec {
     pub async fn acquire_lease<S: AsRef<str>>(&self, key: S) -> Result<LimitLease, Error> {
         if let Some(redis) = REDIS.get() {
-            self.acquire_lease_redis(redis, key.as_ref()).await
+            self.acquire_lease_redis(&redis, key.as_ref()).await
         } else {
             self.acquire_lease_memory(key.as_ref()).await
         }
@@ -149,7 +149,7 @@ impl LimitLease {
             Backend::Memory => self.extend_memory(duration).await,
             Backend::Redis => {
                 if let Some(redis) = REDIS.get() {
-                    self.extend_redis(redis, duration).await
+                    self.extend_redis(&redis, duration).await
                 } else {
                     Err(anyhow::anyhow!(
                         "LimitLease::extend: backend is Redis but REDIS is not set"

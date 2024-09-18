@@ -17,16 +17,45 @@ mod throttle;
 #[cfg(feature = "redis")]
 mod redis {
     use super::*;
-    use mod_redis::RedisConnection;
+    use mod_redis::{Cmd, RedisConnection, RedisValue};
+    use std::ops::Deref;
     use std::sync::OnceLock;
 
-    #[cfg(feature = "redis")]
-    pub(crate) static REDIS: OnceLock<RedisConnection> = OnceLock::new();
+    #[derive(Debug)]
+    pub(crate) struct RedisContext {
+        pub(crate) connection: RedisConnection,
+        pub(crate) has_redis_cell: bool,
+    }
 
-    #[cfg(feature = "redis")]
-    pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
+    impl RedisContext {
+        pub async fn try_from(connection: RedisConnection) -> anyhow::Result<Self> {
+            let mut cmd = Cmd::new();
+            cmd.arg("COMMAND").arg("INFO").arg("CL.THROTTLE");
+
+            let rsp = connection.query(cmd).await?;
+            let has_redis_cell = rsp
+                .as_sequence()
+                .map_or(false, |arr| arr.iter().any(|v| v != &RedisValue::Nil));
+
+            Ok(Self {
+                has_redis_cell,
+                connection,
+            })
+        }
+    }
+
+    impl Deref for RedisContext {
+        type Target = RedisConnection;
+        fn deref(&self) -> &Self::Target {
+            &self.connection
+        }
+    }
+
+    pub(crate) static REDIS: OnceLock<RedisContext> = OnceLock::new();
+
+    pub async fn use_redis(conn: RedisConnection) -> Result<(), Error> {
         REDIS
-            .set(conn)
+            .set(RedisContext::try_from(conn).await?)
             .map_err(|_| Error::Generic("redis already configured for throttles".to_string()))?;
         Ok(())
     }
