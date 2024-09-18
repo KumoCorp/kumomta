@@ -1,10 +1,72 @@
 use crate::{Error, ThrottleResult, REDIS};
-use mod_redis::{Cmd, FromRedisValue, RedisConnection};
+use anyhow::Context;
+use mod_redis::{Cmd, FromRedisValue, RedisConnection, Script};
 use redis_cell_impl::{time, MemoryStore, Rate, RateLimiter, RateQuota};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 static MEMORY: LazyLock<Mutex<MemoryStore>> = LazyLock::new(|| Mutex::new(MemoryStore::new()));
+
+// Adapted from https://github.com/Losant/redis-gcra/blob/master/lib/gcra.lua
+static GCRA_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
+    Script::new(
+        r#"
+local key = KEYS[1]
+local limit = ARGV[1]
+local period = ARGV[2]
+local max_burst = ARGV[3]
+local quantity = ARGV[4]
+
+local interval = period / limit
+local increment = interval * quantity
+local burst_offset = interval * max_burst
+
+local now = tonumber(redis.call("TIME")[1])
+local tat = redis.call("GET", key)
+
+if not tat then
+  tat = now
+else
+  tat = tonumber(tat)
+end
+tat = math.max(tat, now)
+
+local new_tat = tat + increment
+local allow_at = new_tat - burst_offset
+local diff = now - allow_at
+
+local throttled
+local reset_after
+local retry_after
+
+local remaining = math.floor(diff / interval) -- poor man's round
+
+if remaining < 0 then
+  throttled = 1
+  -- calculate how many tokens there actually are, since
+  -- remaining is how many there would have been if we had been able to limit
+  -- and we did not limit
+  remaining = math.floor((now - (tat - burst_offset)) / interval)
+  reset_after = math.ceil(tat - now)
+  retry_after = math.ceil(diff * -1)
+elseif remaining == 0 and increment <= 0 then
+  -- request with cost of 0
+  -- cost of 0 with remaining 0 is still limited
+  throttled = 1
+  remaining = 0
+  reset_after = math.ceil(tat - now)
+  retry_after = 0 -- retry_after is meaningless when quantity is 0
+else
+  throttled = 0
+  reset_after = math.ceil(new_tat - now)
+  retry_after = 0
+  redis.call("SET", key, new_tat, "PX", reset_after)
+end
+
+return {throttled, remaining, reset_after, retry_after, tostring(diff), tostring(interval)}
+"#,
+    )
+});
 
 fn local_throttle(
     key: &str,
@@ -85,6 +147,41 @@ async fn redis_cell_throttle(
     })
 }
 
+async fn redis_script_throttle(
+    conn: &RedisConnection,
+    key: &str,
+    limit: u64,
+    period: Duration,
+    max_burst: u64,
+    quantity: Option<u64>,
+) -> Result<ThrottleResult, Error> {
+    let mut script = GCRA_SCRIPT.prepare_invoke();
+    script
+        .key(key)
+        .arg(limit)
+        .arg(period.as_secs())
+        .arg(max_burst)
+        .arg(quantity.unwrap_or(1));
+
+    let result = conn
+        .invoke_script(script)
+        .await
+        .context("error invoking redis GCRA script")?;
+    let result =
+        <(u64, u64, u64, u64, String, String) as FromRedisValue>::from_redis_value(&result)?;
+
+    Ok(ThrottleResult {
+        throttled: result.0 == 1,
+        limit: max_burst + 1,
+        remaining: result.1,
+        retry_after: match result.3 {
+            n if n <= 0 => None,
+            n => Some(Duration::from_secs(n.max(0) as u64)),
+        },
+        reset_after: Duration::from_secs(result.2),
+    })
+}
+
 /// It is very important for `key` to be used with the same `limit`,
 /// `period` and `max_burst` values in order to produce meaningful
 /// results.
@@ -114,9 +211,10 @@ pub async fn throttle(
     force_local: bool,
 ) -> Result<ThrottleResult, Error> {
     match (force_local, REDIS.get()) {
-        (false, Some(redis)) => {
-            redis_cell_throttle(redis, key, limit, period, max_burst, quantity).await
-        }
+        (false, Some(cx)) => match cx.has_redis_cell {
+            true => redis_cell_throttle(&cx, key, limit, period, max_burst, quantity).await,
+            false => redis_script_throttle(&cx, key, limit, period, max_burst, quantity).await,
+        },
         _ => local_throttle(key, limit, period, max_burst, quantity),
     }
 }

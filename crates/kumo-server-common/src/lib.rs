@@ -235,7 +235,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let key: RedisConnKey = from_lua_value(lua, params)?;
             let conn = key.open().map_err(any_err)?;
             conn.ping().await.map_err(any_err)?;
-            throttle::use_redis(conn).map_err(any_err)
+            throttle::use_redis(conn).await.map_err(any_err)
         })?,
     )?;
 
