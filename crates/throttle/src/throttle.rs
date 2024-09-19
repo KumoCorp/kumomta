@@ -56,7 +56,7 @@ fn local_throttle(
 }
 
 async fn redis_throttle(
-    conn: RedisConnection,
+    conn: &RedisConnection,
     key: &str,
     limit: u64,
     period: Duration,
@@ -113,12 +113,11 @@ pub async fn throttle(
     quantity: Option<u64>,
     force_local: bool,
 ) -> Result<ThrottleResult, Error> {
-    if force_local {
-        local_throttle(key, limit, period, max_burst, quantity)
-    } else if let Some(redis) = REDIS.get().cloned() {
-        redis_throttle(redis, key, limit, period, max_burst, quantity).await
-    } else {
-        local_throttle(key, limit, period, max_burst, quantity)
+    match (force_local, REDIS.get()) {
+        (false, Some(redis)) => {
+            redis_throttle(redis, key, limit, period, max_burst, quantity).await
+        }
+        _ => local_throttle(key, limit, period, max_burst, quantity),
     }
 }
 
