@@ -6,8 +6,8 @@
 use mod_redis::{RedisConnection, RedisError};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use std::time::Duration;
 use std::sync::OnceLock;
+use std::time::Duration;
 use thiserror::Error;
 
 #[cfg(feature = "redis")]
