@@ -222,6 +222,8 @@ pub async fn throttle(
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::redis::RedisContext;
+    use mod_redis::test::RedisServer;
 
     trait Throttler {
         async fn throttle(
@@ -244,6 +246,36 @@ mod test {
             quantity: Option<u64>,
         ) -> Result<ThrottleResult, Error> {
             local_throttle(key, limit, period, max_burst, quantity)
+        }
+    }
+
+    struct RedisWithCell(RedisConnection);
+
+    impl Throttler for RedisWithCell {
+        async fn throttle(
+            &self,
+            key: &str,
+            limit: u64,
+            period: Duration,
+            max_burst: u64,
+            quantity: Option<u64>,
+        ) -> Result<ThrottleResult, Error> {
+            redis_cell_throttle(&self.0, key, limit, period, max_burst, quantity).await
+        }
+    }
+
+    struct VanillaRedis(RedisConnection);
+
+    impl Throttler for VanillaRedis {
+        async fn throttle(
+            &self,
+            key: &str,
+            limit: u64,
+            period: Duration,
+            max_burst: u64,
+            quantity: Option<u64>,
+        ) -> Result<ThrottleResult, Error> {
+            redis_script_throttle(&self.0, key, limit, period, max_burst, quantity).await
         }
     }
 
@@ -314,5 +346,33 @@ mod test {
         // test case because the variance is due to timing issues with very small
         // time periods produced by the overally limit, rather than the burst.
         test_big_limits(60_000, Some(30_000), 0.05, &*MEMORY).await;
+    }
+
+    #[tokio::test]
+    async fn redis_cell_throttle_1_000() {
+        if !RedisServer::is_available() {
+            return;
+        }
+
+        let redis = RedisServer::spawn("").await.unwrap();
+        let conn = redis.connection().await.unwrap();
+        let cx = RedisContext::try_from(conn).await.unwrap();
+        if !cx.has_redis_cell {
+            return;
+        }
+
+        test_big_limits(1_000, None, 0.02, &RedisWithCell(cx.connection)).await;
+    }
+
+    #[tokio::test]
+    async fn redis_script_throttle_1_000() {
+        if !RedisServer::is_available() {
+            return;
+        }
+
+        let redis = RedisServer::spawn("").await.unwrap();
+        let conn = redis.connection().await.unwrap();
+        let cx = RedisContext::try_from(conn).await.unwrap();
+        test_big_limits(1_000, None, 0.02, &VanillaRedis(cx.connection)).await;
     }
 }
