@@ -55,7 +55,7 @@ fn local_throttle(
     })
 }
 
-async fn redis_throttle(
+async fn redis_cell_throttle(
     conn: &RedisConnection,
     key: &str,
     limit: u64,
@@ -115,7 +115,7 @@ pub async fn throttle(
 ) -> Result<ThrottleResult, Error> {
     match (force_local, REDIS.get()) {
         (false, Some(redis)) => {
-            redis_throttle(redis, key, limit, period, max_burst, quantity).await
+            redis_cell_throttle(redis, key, limit, period, max_burst, quantity).await
         }
         _ => local_throttle(key, limit, period, max_burst, quantity),
     }
