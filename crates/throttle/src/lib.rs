@@ -3,10 +3,9 @@
 //! to support using a redis-cell equipped redis server to share the throttles
 //! among multiple machines.
 #[cfg(feature = "redis")]
-use mod_redis::{RedisConnection, RedisError};
+use mod_redis::RedisError;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
-use std::sync::OnceLock;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -16,7 +15,27 @@ pub mod limit;
 mod throttle;
 
 #[cfg(feature = "redis")]
-static REDIS: OnceLock<RedisConnection> = OnceLock::new();
+mod redis {
+    use super::*;
+    use mod_redis::RedisConnection;
+    use std::sync::OnceLock;
+
+    #[cfg(feature = "redis")]
+    pub(crate) static REDIS: OnceLock<RedisConnection> = OnceLock::new();
+
+    #[cfg(feature = "redis")]
+    pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
+        REDIS
+            .set(conn)
+            .map_err(|_| Error::Generic("redis already configured for throttles".to_string()))?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "redis")]
+pub use redis::use_redis;
+#[cfg(feature = "redis")]
+pub(crate) use redis::REDIS;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -179,14 +198,6 @@ pub struct ThrottleResult {
     /// The number of seconds until the user should retry, but None if the action was
     /// allowed. Equivalent to Retry-After.
     pub retry_after: Option<Duration>,
-}
-
-#[cfg(feature = "redis")]
-pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
-    REDIS
-        .set(conn)
-        .map_err(|_| Error::Generic("redis already configured for throttles".to_string()))?;
-    Ok(())
 }
 
 #[cfg(test)]
