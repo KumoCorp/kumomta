@@ -45,7 +45,7 @@ impl Manager for ClientManager {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RedisConnection(Arc<RedisConnKey>);
 
 impl RedisConnection {
