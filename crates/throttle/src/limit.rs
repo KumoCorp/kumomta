@@ -58,7 +58,7 @@ enum Backend {
 
 impl LimitSpec {
     pub async fn acquire_lease<S: AsRef<str>>(&self, key: S) -> Result<LimitLease, Error> {
-        if let Some(redis) = REDIS.get().cloned() {
+        if let Some(redis) = REDIS.get() {
             self.acquire_lease_redis(redis, key.as_ref()).await
         } else {
             self.acquire_lease_memory(key.as_ref()).await
@@ -67,7 +67,7 @@ impl LimitSpec {
 
     pub async fn acquire_lease_redis(
         &self,
-        conn: RedisConnection,
+        conn: &RedisConnection,
         key: &str,
     ) -> Result<LimitLease, Error> {
         let now_ts = SystemTime::now()
@@ -135,8 +135,8 @@ impl LimitLease {
         match self.backend {
             Backend::Memory => self.release_memory().await,
             Backend::Redis => {
-                if let Some(redis) = REDIS.get().cloned() {
-                    self.release_redis(redis).await;
+                if let Some(redis) = REDIS.get() {
+                    self.release_redis(&redis).await;
                 } else {
                     eprintln!("LimitLease::release: backend is Redis but REDIS is not set");
                 }
@@ -148,7 +148,7 @@ impl LimitLease {
         match self.backend {
             Backend::Memory => self.extend_memory(duration).await,
             Backend::Redis => {
-                if let Some(redis) = REDIS.get().cloned() {
+                if let Some(redis) = REDIS.get() {
                     self.extend_redis(redis, duration).await
                 } else {
                     Err(anyhow::anyhow!(
@@ -180,7 +180,7 @@ impl LimitLease {
         }
     }
 
-    async fn extend_redis(&self, conn: RedisConnection, duration: Duration) -> Result<(), Error> {
+    async fn extend_redis(&self, conn: &RedisConnection, duration: Duration) -> Result<(), Error> {
         let now_ts = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs_f64())
@@ -210,7 +210,7 @@ impl LimitLease {
         }
     }
 
-    async fn release_redis(&mut self, conn: RedisConnection) {
+    async fn release_redis(&mut self, conn: &RedisConnection) {
         let mut cmd = mod_redis::cmd("ZREM");
         cmd.arg(&self.name).arg(self.uuid.to_string());
         conn.query(cmd).await.ok();
@@ -348,28 +348,28 @@ mod test {
         };
 
         let key = format!("test_redis-{}", Uuid::new_v4());
-        let mut lease1 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease1 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
         eprintln!("lease1: {lease1:?}");
-        let mut lease2 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease2 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
         eprintln!("lease2: {lease2:?}");
         // Cannot acquire a 3rd lease while the other two are alive
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         // Release and try to get a third
-        lease2.release_redis(conn.clone()).await;
-        let mut lease3 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        lease2.release_redis(&conn).await;
+        let mut lease3 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
 
         // Cannot acquire while the other two are alive
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         // Wait for some number of leases to expire
         tokio::time::sleep(limit.duration + limit.duration).await;
 
-        let mut lease4 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease4 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
 
-        lease1.release_redis(conn.clone()).await;
-        lease3.release_redis(conn.clone()).await;
-        lease4.release_redis(conn.clone()).await;
+        lease1.release_redis(&conn).await;
+        lease3.release_redis(&conn).await;
+        lease4.release_redis(&conn).await;
     }
 
     #[tokio::test]
@@ -386,28 +386,28 @@ mod test {
         };
 
         let key = format!("test_redis-{}", Uuid::new_v4());
-        let mut lease1 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease1 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
         eprintln!("lease1: {lease1:?}");
-        let mut lease2 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease2 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
         eprintln!("lease2: {lease2:?}");
         // Cannot acquire a 3rd lease while the other two are alive
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         // Release and try to get a third
-        lease2.release_redis(conn.clone()).await;
-        let mut lease3 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        lease2.release_redis(&conn).await;
+        let mut lease3 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
 
         // Cannot acquire while the other two are alive
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         // Wait for some number of leases to expire
         tokio::time::sleep(limit.duration + limit.duration).await;
 
-        let mut lease4 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease4 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
 
-        lease1.release_redis(conn.clone()).await;
-        lease3.release_redis(conn.clone()).await;
-        lease4.release_redis(conn.clone()).await;
+        lease1.release_redis(&conn).await;
+        lease3.release_redis(&conn).await;
+        lease4.release_redis(&conn).await;
     }
 
     #[tokio::test]
@@ -453,15 +453,15 @@ mod test {
         };
 
         let key = format!("test_redis-{}", Uuid::new_v4());
-        let mut lease1 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease1 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
         eprintln!("lease1: {lease1:?}");
         // Cannot acquire a 2nd lease while the first is are alive
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         lease1
-            .extend_redis(conn.clone(), Duration::from_secs(6))
+            .extend_redis(&conn, Duration::from_secs(6))
             .await
             .unwrap();
 
@@ -469,14 +469,14 @@ mod test {
         tokio::time::sleep(limit.duration + limit.duration).await;
 
         // Cannot acquire because we have an extended lease
-        assert!(limit.acquire_lease_redis(conn.clone(), &key).await.is_err());
+        assert!(limit.acquire_lease_redis(&conn, &key).await.is_err());
 
         // Wait for extension to pass
         tokio::time::sleep(limit.duration + limit.duration).await;
 
-        let mut lease2 = limit.acquire_lease_redis(conn.clone(), &key).await.unwrap();
+        let mut lease2 = limit.acquire_lease_redis(&conn, &key).await.unwrap();
 
-        lease1.release_redis(conn.clone()).await;
-        lease2.release_redis(conn.clone()).await;
+        lease1.release_redis(&conn).await;
+        lease2.release_redis(&conn).await;
     }
 }
