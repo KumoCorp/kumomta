@@ -223,7 +223,36 @@ pub async fn throttle(
 mod test {
     use super::*;
 
-    fn test_big_limits(limit: u64, max_burst: Option<u64>, permitted_tolerance: f64) {
+    trait Throttler {
+        async fn throttle(
+            &self,
+            key: &str,
+            limit: u64,
+            period: Duration,
+            max_burst: u64,
+            quantity: Option<u64>,
+        ) -> Result<ThrottleResult, Error>;
+    }
+
+    impl Throttler for Mutex<MemoryStore> {
+        async fn throttle(
+            &self,
+            key: &str,
+            limit: u64,
+            period: Duration,
+            max_burst: u64,
+            quantity: Option<u64>,
+        ) -> Result<ThrottleResult, Error> {
+            local_throttle(key, limit, period, max_burst, quantity)
+        }
+    }
+
+    async fn test_big_limits(
+        limit: u64,
+        max_burst: Option<u64>,
+        permitted_tolerance: f64,
+        throttler: &impl Throttler,
+    ) {
         let period = Duration::from_secs(60);
         let max_burst = max_burst.unwrap_or(limit);
         let key = format!("test_big_limits-{limit}-{max_burst}");
@@ -231,7 +260,10 @@ mod test {
         let mut throttled_iter = None;
 
         for i in 0..limit * 2 {
-            let result = local_throttle(&key, limit, period, max_burst, None).unwrap();
+            let result = throttler
+                .throttle(&key, limit, period, max_burst, None)
+                .await
+                .unwrap();
             if result.throttled {
                 println!("iter: {i} -> {result:?}");
                 throttled_iter.replace(i);
@@ -256,31 +288,31 @@ mod test {
         );
     }
 
-    #[test]
-    fn basic_throttle_100() {
-        test_big_limits(100, None, 0.01);
+    #[tokio::test]
+    async fn basic_throttle_100() {
+        test_big_limits(100, None, 0.01, &*MEMORY).await;
     }
 
-    #[test]
-    fn basic_throttle_1_000() {
-        test_big_limits(1_000, None, 0.02);
+    #[tokio::test]
+    async fn basic_throttle_1_000() {
+        test_big_limits(1_000, None, 0.02, &*MEMORY).await;
     }
 
-    #[test]
-    fn basic_throttle_6_000() {
-        test_big_limits(6_000, None, 0.02);
+    #[tokio::test]
+    async fn basic_throttle_6_000() {
+        test_big_limits(6_000, None, 0.02, &*MEMORY).await;
     }
 
-    #[test]
-    fn basic_throttle_60_000() {
-        test_big_limits(60_000, None, 0.05);
+    #[tokio::test]
+    async fn basic_throttle_60_000() {
+        test_big_limits(60_000, None, 0.05, &*MEMORY).await;
     }
 
-    #[test]
-    fn basic_throttle_60_000_burst_30k() {
+    #[tokio::test]
+    async fn basic_throttle_60_000_burst_30k() {
         // Note that the 5% tolerance here is the same as the basic_throttle_60_000
         // test case because the variance is due to timing issues with very small
         // time periods produced by the overally limit, rather than the burst.
-        test_big_limits(60_000, Some(30_000), 0.05);
+        test_big_limits(60_000, Some(30_000), 0.05, &*MEMORY).await;
     }
 }
