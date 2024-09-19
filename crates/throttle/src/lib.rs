@@ -2,21 +2,21 @@
 //! The implementation uses an in-memory store, but can be adjusted in the future
 //! to support using a redis-cell equipped redis server to share the throttles
 //! among multiple machines.
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 use mod_redis::{RedisConnection, RedisError};
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::time::Duration;
 use thiserror::Error;
 
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 pub mod limit;
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 mod throttle;
 
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 static REDIS: OnceCell<RedisConnection> = OnceCell::new();
 
 #[derive(Error, Debug)]
@@ -25,7 +25,7 @@ pub enum Error {
     Generic(String),
     #[error("{0}")]
     AnyHow(#[from] anyhow::Error),
-    #[cfg(feature = "impl")]
+    #[cfg(feature = "redis")]
     #[error("{0}")]
     Redis(#[from] RedisError),
     #[error("TooManyLeases, try again in {0:?}")]
@@ -44,7 +44,7 @@ pub struct ThrottleSpec {
     pub force_local: bool,
 }
 
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 impl ThrottleSpec {
     pub async fn throttle<S: AsRef<str>>(&self, key: S) -> Result<ThrottleResult, Error> {
         self.throttle_quantity(key, 1).await
@@ -182,7 +182,7 @@ pub struct ThrottleResult {
     pub retry_after: Option<Duration>,
 }
 
-#[cfg(feature = "impl")]
+#[cfg(feature = "redis")]
 pub fn use_redis(conn: RedisConnection) -> Result<(), Error> {
     REDIS
         .set(conn)
