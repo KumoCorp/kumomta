@@ -1,15 +1,14 @@
 use crate::{Error, REDIS};
 use anyhow::{anyhow, Context};
 use mod_redis::{RedisConnection, Script};
-use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use uuid::Uuid;
 
-static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
+static MEMORY: LazyLock<Mutex<MemoryStore>> = LazyLock::new(|| Mutex::new(MemoryStore::new()));
 
-static ACQUIRE_SCRIPT: Lazy<Script> = Lazy::new(|| {
+static ACQUIRE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r#"
 local now_ts = tonumber(ARGV[1])
@@ -114,10 +113,7 @@ impl LimitSpec {
 
     pub async fn acquire_lease_memory(&self, key: &str) -> Result<LimitLease, Error> {
         let uuid = Uuid::new_v4();
-        let mut store = MEMORY
-            .get_or_init(|| Mutex::new(MemoryStore::new()))
-            .lock()
-            .unwrap();
+        let mut store = MEMORY.lock().unwrap();
 
         let set = store.get_or_create(key);
         set.expire_old();
@@ -176,11 +172,7 @@ impl LimitLease {
     }
 
     async fn extend_memory(&self, duration: Duration) -> Result<(), Error> {
-        let mut store = MEMORY
-            .get()
-            .ok_or_else(|| anyhow!("MEMORY is not initialized"))?
-            .lock()
-            .unwrap();
+        let mut store = MEMORY.lock().unwrap();
         if let Some(set) = store.get(&self.name) {
             set.extend(self.uuid, duration)
         } else {
@@ -212,11 +204,9 @@ impl LimitLease {
     }
 
     async fn release_memory(&mut self) {
-        if let Some(store) = MEMORY.get() {
-            let mut store = store.lock().unwrap();
-            if let Some(set) = store.get(&self.name) {
-                set.release(self.uuid);
-            }
+        let mut store = MEMORY.lock().unwrap();
+        if let Some(set) = store.get(&self.name) {
+            set.release(self.uuid);
         }
     }
 

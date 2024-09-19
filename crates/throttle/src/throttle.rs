@@ -1,11 +1,10 @@
 use crate::{Error, ThrottleResult, REDIS};
 use mod_redis::{Cmd, FromRedisValue, RedisConnection};
-use once_cell::sync::OnceCell;
 use redis_cell_impl::{time, MemoryStore, Rate, RateLimiter, RateQuota};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-static MEMORY: OnceCell<Mutex<MemoryStore>> = OnceCell::new();
+static MEMORY: LazyLock<Mutex<MemoryStore>> = LazyLock::new(|| Mutex::new(MemoryStore::new()));
 
 fn local_throttle(
     key: &str,
@@ -14,10 +13,7 @@ fn local_throttle(
     max_burst: u64,
     quantity: Option<u64>,
 ) -> Result<ThrottleResult, Error> {
-    let mut store = MEMORY
-        .get_or_init(|| Mutex::new(MemoryStore::new()))
-        .lock()
-        .unwrap();
+    let mut store = MEMORY.lock().unwrap();
     let max_rate = Rate::per_period(
         limit as i64,
         time::Duration::try_from(period).map_err(|err| Error::Generic(format!("{err:#}")))?,
