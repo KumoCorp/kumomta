@@ -4,11 +4,10 @@
 //! among multiple machines.
 #[cfg(feature = "redis")]
 use mod_redis::{RedisConnection, RedisError};
-#[cfg(feature = "redis")]
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::time::Duration;
+use std::sync::OnceLock;
 use thiserror::Error;
 
 #[cfg(feature = "redis")]
@@ -17,7 +16,7 @@ pub mod limit;
 mod throttle;
 
 #[cfg(feature = "redis")]
-static REDIS: OnceCell<RedisConnection> = OnceCell::new();
+static REDIS: OnceLock<RedisConnection> = OnceLock::new();
 
 #[derive(Error, Debug)]
 pub enum Error {

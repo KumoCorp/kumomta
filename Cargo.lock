@@ -6407,7 +6407,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "mod-redis",
- "once_cell",
  "redis-cell-impl",
  "serde",
  "thiserror",
