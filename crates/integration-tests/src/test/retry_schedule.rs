@@ -2,20 +2,31 @@ use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
 use kumo_log_types::RecordType::TransientFailure;
 use std::time::Duration;
 
+const VALID_DOMAIN: &str = "foo.mx-sink.wezfurlong.org";
+/// this nxdomain string is coupled with logic in source.lua
+const NO_DOMAIN: &str = "nxdomain";
+
 #[tokio::test]
 async fn retry_schedule_timerwheel() -> anyhow::Result<()> {
-    retry_schedule_impl("TimerWheel").await
-}
-#[tokio::test]
-async fn retry_schedule_skiplist() -> anyhow::Result<()> {
-    retry_schedule_impl("SkipList").await
-}
-#[tokio::test]
-async fn retry_schedule_singleton_wheel() -> anyhow::Result<()> {
-    retry_schedule_impl("SingletonTimerWheel").await
+    retry_schedule_impl("TimerWheel", VALID_DOMAIN).await
 }
 
-async fn retry_schedule_impl(strategy: &str) -> anyhow::Result<()> {
+#[tokio::test]
+async fn retry_schedule_skiplist() -> anyhow::Result<()> {
+    retry_schedule_impl("SkipList", VALID_DOMAIN).await
+}
+
+#[tokio::test]
+async fn retry_schedule_singleton_wheel() -> anyhow::Result<()> {
+    retry_schedule_impl("SingletonTimerWheel", VALID_DOMAIN).await
+}
+
+#[tokio::test]
+async fn retry_schedule_nxdomain() -> anyhow::Result<()> {
+    retry_schedule_impl("SingletonTimerWheel", NO_DOMAIN).await
+}
+
+async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start_with_env(vec![
         ("KUMOD_RETRY_INTERVAL", "5s"),
         ("KUMOD_QUEUE_STRATEGY", strategy),
@@ -27,7 +38,7 @@ async fn retry_schedule_impl(strategy: &str) -> anyhow::Result<()> {
     let body = generate_message_text(1024, 78);
     let response = MailGenParams {
         body: Some(&body),
-        recip: Some("tempfail@foo.mx-sink.wezfurlong.org"),
+        recip: Some(&format!("tempfail@{domain}")),
         ..Default::default()
     }
     .send(&mut client)
