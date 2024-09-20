@@ -60,6 +60,12 @@
 * The log_hooks helper now supports batching using the new `batch_size` parameter
   and `send_batch` method. [See the example](../userguide/operation/webhooks.md#batched-hooks)
 
+* Added `proxy_connection_failures` and `bind_failures` counters to track
+  the number of times that kumod either failed to connect to an egress proxy
+  server, or failed to directly bind a source address. Both of these events
+  typically indicate a severe issue with the local infrastructure, either in
+  terms of a configuration error or production service availability.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

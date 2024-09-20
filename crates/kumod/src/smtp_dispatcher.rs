@@ -291,11 +291,12 @@ impl SmtpDispatcher {
             // awaiting the shutdown subscription, causing us to uselessly wait
             // for the full connect timeout during shutdown.
             tokio::spawn(async move {
-                let (stream, source_address) = tokio::time::timeout(
-                    timeouts.connect_timeout,
-                    egress_source.connect_to(SocketAddr::new(address.addr, port)),
-                )
-                .await??;
+                let (stream, source_address) = egress_source
+                    .connect_to(
+                        SocketAddr::new(address.addr, port),
+                        timeouts.connect_timeout,
+                    )
+                    .await?;
 
                 tracing::debug!(
                     "connected to {address:?} port {port} via source address {source_address:?}"

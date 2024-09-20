@@ -10,13 +10,14 @@ use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
+use prometheus::IntCounter;
 use serde::{Deserialize, Serialize};
 use socksv5::v5::{
     SocksV5AuthMethod, SocksV5Command, SocksV5Host, SocksV5RequestStatus, SocksV5Response,
 };
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
@@ -173,19 +174,23 @@ impl EgressSource {
     pub async fn connect_to(
         &self,
         address: SocketAddr,
+        timeout_duration: Duration,
     ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
         let source_name = &self.name;
 
         let proxy_proto = self.resolve_proxy_protocol(address)?;
         let transport_address = proxy_proto.transport_address(address);
 
-        tracing::trace!("will connect {address:?} {transport_address:?} {proxy_proto:?}");
+        let transport_context = format!("{transport_address:?} {proxy_proto:?}");
+        let connect_context =
+            format!("{address:?} transport={transport_address:?} proto={proxy_proto:?}");
+        tracing::trace!("will connect to {connect_context}");
 
         let socket = match transport_address {
             SocketAddr::V4(_) => TcpSocket::new_v4(),
             SocketAddr::V6(_) => TcpSocket::new_v6(),
         }
-        .with_context(|| format!("make socket to connect to {transport_address:?}"))?;
+        .with_context(|| format!("make socket to connect to {connect_context}"))?;
 
         // No need for Nagle with SMTP request/response
         socket.set_nodelay(true)?;
@@ -194,22 +199,70 @@ impl EgressSource {
             if let Err(err) = socket.bind(SocketAddr::new(source, 0)) {
                 let error = format!(
                     "bind {source:?} for source:{source_name} failed: {err:#} \
-                    while attempting to connect to {transport_address:?}"
+                    while attempting to connect to {connect_context}"
                 );
+                static FAILED_BIND: LazyLock<IntCounter> = LazyLock::new(|| {
+                    prometheus::register_int_counter!(
+                        "bind_failures",
+                        "how many times that directly binding a source address has failed"
+                    )
+                    .unwrap()
+                });
+                FAILED_BIND.inc();
                 anyhow::bail!("{error}");
             }
         }
-        let mut stream = socket
-            .connect(transport_address)
-            .await
-            .with_context(|| format!("connect to {transport_address:?}"))?;
 
-        let source_address = proxy_proto
-            .perform_handshake(&mut stream, &source_name)
-            .await?;
+        let deadline = Instant::now() + timeout_duration;
+        let is_proxy = proxy_proto.is_proxy();
+
+        let mut stream =
+            match tokio::time::timeout_at(deadline.into(), socket.connect(transport_address)).await
+            {
+                Err(_) => {
+                    inc_failed_proxy_connection_attempts(is_proxy);
+                    anyhow::bail!(
+                        "timeout after {timeout_duration:?} \
+                         while connecting to {transport_context}"
+                    );
+                }
+                Ok(Err(err)) => {
+                    inc_failed_proxy_connection_attempts(is_proxy);
+                    anyhow::bail!("failed to connect to {transport_context}: {err:#}");
+                }
+                Ok(Ok(stream)) => stream,
+            };
+
+        let source_address = tokio::time::timeout_at(
+            deadline.into(),
+            proxy_proto.perform_handshake(&mut stream, &source_name),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "timeout after {timeout_duration:?} \
+                    while performing proxy handshake with {transport_context}"
+            )
+        })?
+        .with_context(|| format!("failed to perform proxy handshake with {transport_context}"))?;
 
         Ok((stream, source_address))
     }
+}
+
+fn inc_failed_proxy_connection_attempts(is_proxy: bool) {
+    if !is_proxy {
+        return;
+    }
+
+    static FAILED: LazyLock<IntCounter> = LazyLock::new(|| {
+        prometheus::register_int_counter!(
+            "proxy_connection_failures",
+            "how many times a connection attempt to a proxy server has failed"
+        )
+        .unwrap()
+    });
+    FAILED.inc();
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
@@ -565,6 +618,13 @@ impl<'a> ProxyProto<'a> {
         match self {
             Self::Socks5 { server, .. } | Self::HA { server, .. } => *server,
             Self::None => addr,
+        }
+    }
+
+    fn is_proxy(&self) -> bool {
+        match self {
+            Self::None => false,
+            _ => true,
         }
     }
 
