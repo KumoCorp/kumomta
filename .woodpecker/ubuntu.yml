@@ -172,10 +172,6 @@ steps:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
     image: plugins/manifest
     failure: ignore
-    environment: &docker_manifest_env
-      # Legacy env var to prevent the plugin from throwing an error
-      # when converting an empty string to a number
-      PULLREQUEST_DRONE_PULL_REQUEST: 0
     settings: &docker_manifest_settings_tag
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
@@ -193,8 +189,6 @@ steps:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "tag"'
     image: plugins/manifest
     failure: ignore
-    environment:
-      <<: *docker_manifest_env
     settings:
       <<: *docker_manifest_settings_tag
 
@@ -234,8 +228,6 @@ steps:
       - evaluate: 'platform == "linux/aarch64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
-    environment:
-      <<: *docker_manifest_env
     settings: &docker_manifest_settings
       <<: *docker_credentials
       target: "ghcr.io/kumocorp/kumomta-dev"
@@ -253,8 +245,6 @@ steps:
       - evaluate: 'platform == "linux/amd64" && UBUNTU_IMAGE == "ubuntu:22.04" && CI_PIPELINE_EVENT == "push" && CI_COMMIT_BRANCH == "main"'
     image: plugins/manifest
     failure: ignore
-    environment:
-      <<: *docker_manifest_env
     settings:
       <<: *docker_manifest_settings
 
