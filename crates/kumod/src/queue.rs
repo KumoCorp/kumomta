@@ -25,14 +25,13 @@ use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
 use mlua::prelude::*;
-use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as StdMutex;
 use prometheus::{Histogram, IntCounter, IntGauge};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Once};
+use std::sync::{Arc, LazyLock, Once, OnceLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
@@ -84,7 +83,7 @@ static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, 
 pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =
     LazyLock::new(|| Arc::new(StdMutex::new(TimeQ::new())));
 
-static TOTAL_DELAY_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
+static TOTAL_DELAY_GAUGE: LazyLock<IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
         "scheduled_count_total",
         "total number of messages across all scheduled queues",
@@ -114,63 +113,64 @@ label_key! {
     }
 }
 
-static DELAY_GAUGE: Lazy<PruningCounterRegistry<QueueKey>> = Lazy::new(|| {
+static DELAY_GAUGE: LazyLock<PruningCounterRegistry<QueueKey>> = LazyLock::new(|| {
     PruningCounterRegistry::register_gauge(
         "scheduled_count",
         "number of messages in the scheduled queue",
     )
 });
-static TENANT_GAUGE: Lazy<PruningCounterRegistry<TenantKey>> = Lazy::new(|| {
+static TENANT_GAUGE: LazyLock<PruningCounterRegistry<TenantKey>> = LazyLock::new(|| {
     PruningCounterRegistry::register_gauge(
         "scheduled_by_tenant",
         "number of messages in the scheduled queue for a specific tenant",
     )
 });
 
-static TENANT_CAMPAIGN_GAUGE: Lazy<PruningCounterRegistry<TenantCampaignKey>> = Lazy::new(|| {
-    PruningCounterRegistry::register_gauge(
+static TENANT_CAMPAIGN_GAUGE: LazyLock<PruningCounterRegistry<TenantCampaignKey>> =
+    LazyLock::new(|| {
+        PruningCounterRegistry::register_gauge(
         "scheduled_by_tenant_campaign",
         "number of messages in the scheduled queue for a specific tenant and campaign combination",
     )
-});
+    });
 
-static DOMAIN_GAUGE: Lazy<PruningCounterRegistry<DomainKey>> = Lazy::new(|| {
+static DOMAIN_GAUGE: LazyLock<PruningCounterRegistry<DomainKey>> = LazyLock::new(|| {
     PruningCounterRegistry::register_gauge(
         "scheduled_by_domain",
         "number of messages in the scheduled queue for a specific domain",
     )
 });
 
-static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
-    Lazy::new(|| {
+static DELAY_DUE_TO_READY_QUEUE_FULL_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
+    LazyLock::new(|| {
         PruningCounterRegistry::register(
             "delayed_due_to_ready_queue_full",
             "number of times a message was delayed due to the corresponding ready queue being full",
         )
     });
 
-static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
-    Lazy::new(|| {
+static DELAY_DUE_TO_MESSAGE_RATE_THROTTLE_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
+    LazyLock::new(|| {
         PruningCounterRegistry::register(
             "delayed_due_to_message_rate_throttle",
             "number of times a message was delayed due to max_message_rate",
         )
     });
-static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: Lazy<PruningCounterRegistry<QueueKey>> =
-    Lazy::new(|| {
+static DELAY_DUE_TO_THROTTLE_INSERT_READY_COUNTER: LazyLock<PruningCounterRegistry<QueueKey>> =
+    LazyLock::new(|| {
         PruningCounterRegistry::register(
             "delayed_due_to_throttle_insert_ready",
             "number of times a message was delayed due throttle_insert_ready_queue event",
         )
     });
-static RESOLVE_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static RESOLVE_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "queue_resolve_latency",
         "latency of QueueManager::resolve operations",
     )
     .unwrap()
 });
-static INSERT_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "queue_insert_latency",
         "latency of QueueManager::insert operations",
@@ -200,9 +200,9 @@ struct ScheduledMetrics {
     scheduled: ScheduledCountBundle,
     by_tenant: Option<AtomicCounter>,
     by_tenant_campaign: Option<AtomicCounter>,
-    delay_due_to_message_rate_throttle: OnceCell<AtomicCounter>,
-    delay_due_to_throttle_insert_ready: OnceCell<AtomicCounter>,
-    delay_due_to_ready_queue_full: OnceCell<AtomicCounter>,
+    delay_due_to_message_rate_throttle: OnceLock<AtomicCounter>,
+    delay_due_to_throttle_insert_ready: OnceLock<AtomicCounter>,
+    delay_due_to_ready_queue_full: OnceLock<AtomicCounter>,
 }
 
 impl ScheduledMetrics {
@@ -259,9 +259,9 @@ impl ScheduledMetrics {
             by_tenant,
             by_tenant_campaign,
             scheduled,
-            delay_due_to_message_rate_throttle: OnceCell::new(),
-            delay_due_to_throttle_insert_ready: OnceCell::new(),
-            delay_due_to_ready_queue_full: OnceCell::new(),
+            delay_due_to_message_rate_throttle: OnceLock::new(),
+            delay_due_to_throttle_insert_ready: OnceLock::new(),
+            delay_due_to_ready_queue_full: OnceLock::new(),
         }
     }
 
@@ -912,7 +912,7 @@ pub struct Queue {
     notify_maintainer: Arc<Notify>,
     last_change: StdMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
-    metrics: OnceCell<ScheduledMetrics>,
+    metrics: OnceLock<ScheduledMetrics>,
     activity: Activity,
     rr: EgressPoolRoundRobin,
     next_config_refresh: StdMutex<Instant>,
@@ -1000,7 +1000,7 @@ impl Queue {
             last_change: StdMutex::new(Instant::now()),
             queue_config,
             notify_maintainer: Arc::new(Notify::new()),
-            metrics: OnceCell::new(),
+            metrics: OnceLock::new(),
             activity,
             rr,
             next_config_refresh,

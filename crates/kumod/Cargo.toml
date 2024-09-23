@@ -49,7 +49,6 @@ minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
-once_cell = "1.17"
 parking_lot = "0.12"
 ppp = "2.2"
 prometheus = "0.13"

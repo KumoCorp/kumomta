@@ -1,20 +1,19 @@
 use anyhow::Context;
 use human_bytes::human_bytes;
 use num_format::{Locale, ToFormattedString};
-use once_cell::sync::Lazy;
 use prometheus::IntGaugeVec;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, Once};
+use std::sync::{LazyLock, Mutex, Once};
 use std::time::Duration;
 
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
-static PATHS: Lazy<Mutex<Vec<MonitoredPath>>> = Lazy::new(Default::default);
+static PATHS: LazyLock<Mutex<Vec<MonitoredPath>>> = LazyLock::new(Default::default);
 static MONITOR: Once = Once::new();
-static FREE_INODES: Lazy<IntGaugeVec> = Lazy::new(|| {
+static FREE_INODES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     prometheus::register_int_gauge_vec!(
         "disk_free_inodes",
         "number of available inodes in a monitored location",
@@ -22,7 +21,7 @@ static FREE_INODES: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static FREE_INODES_PCT: Lazy<IntGaugeVec> = Lazy::new(|| {
+static FREE_INODES_PCT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     prometheus::register_int_gauge_vec!(
         "disk_free_inodes_percent",
         "percentage of available inodes in a monitored location",
@@ -30,7 +29,7 @@ static FREE_INODES_PCT: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static FREE_SPACE: Lazy<IntGaugeVec> = Lazy::new(|| {
+static FREE_SPACE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     prometheus::register_int_gauge_vec!(
         "disk_free_bytes",
         "number of available bytes in a monitored location",
@@ -38,7 +37,7 @@ static FREE_SPACE: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static FREE_SPACE_PCT: Lazy<IntGaugeVec> = Lazy::new(|| {
+static FREE_SPACE_PCT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     prometheus::register_int_gauge_vec!(
         "disk_free_percent",
         "percentage of available bytes in a monitored location",

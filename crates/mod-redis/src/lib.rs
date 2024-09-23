@@ -2,7 +2,6 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
 use mlua::{Lua, MultiValue, UserData, UserDataMethods, Value};
-use once_cell::sync::Lazy;
 use redis::aio::{ConnectionLike, ConnectionManager, ConnectionManagerConfig};
 use redis::cluster::ClusterClient;
 use redis::cluster_async::ClusterConnection;
@@ -15,13 +14,13 @@ use redis::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 pub mod test;
 
-static POOLS: Lazy<Mutex<HashMap<RedisConnKey, Pool<ClientManager>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static POOLS: LazyLock<Mutex<HashMap<RedisConnKey, Pool<ClientManager>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub struct ClientManager(ClientWrapper);
 

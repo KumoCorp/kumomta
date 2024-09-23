@@ -12,4 +12,3 @@ config = { path = "../config" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 tokio = {workspace=true}
 lruttl = {path="../lruttl"}
-once_cell = "1.17"

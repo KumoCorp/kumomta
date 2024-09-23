@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use flume::Sender;
-use once_cell::sync::OnceCell;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub mod local_disk;
 #[cfg(feature = "rocksdb")]
@@ -45,8 +44,8 @@ pub trait Spool: Send + Sync {
     async fn cleanup(&self) -> anyhow::Result<()>;
 }
 
-static DATA: OnceCell<Arc<dyn Spool + Send + Sync>> = OnceCell::new();
-static META: OnceCell<Arc<dyn Spool + Send + Sync>> = OnceCell::new();
+static DATA: OnceLock<Arc<dyn Spool + Send + Sync>> = OnceLock::new();
+static META: OnceLock<Arc<dyn Spool + Send + Sync>> = OnceLock::new();
 
 pub fn get_meta_spool() -> &'static Arc<dyn Spool + Send + Sync> {
     META.get().expect("set_meta_spool has not been called")

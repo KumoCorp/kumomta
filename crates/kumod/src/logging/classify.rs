@@ -4,22 +4,21 @@ use bounce_classify::{
 };
 use kumo_log_types::{JsonLogRecord, RecordType};
 use lru_cache::LruCache;
-use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::Mutex;
 use prometheus::Histogram;
 use rfc5321::Response;
 use serde::Deserialize;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 use tokio::sync::oneshot;
 
-static CLASSIFY_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static CLASSIFY_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "bounce_classify_latency",
         "latency of bounce classification",
     )
     .unwrap()
 });
-static CLASSIFY: OnceCell<ClassifierWrapper> = OnceCell::new();
+static CLASSIFY: OnceLock<ClassifierWrapper> = OnceLock::new();
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

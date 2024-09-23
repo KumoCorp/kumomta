@@ -7,18 +7,17 @@ use config::{load_config, CallbackSignature};
 pub use kumo_log_types::*;
 use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
-use once_cell::sync::Lazy;
 use prometheus::CounterVec;
 use serde::Deserialize;
 use spool::SpoolId;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::{Semaphore, TryAcquireError};
 
-pub static SHOULD_ENQ_LOG_RECORD_SIG: Lazy<CallbackSignature<(Message, String), bool>> =
-    Lazy::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
+pub static SHOULD_ENQ_LOG_RECORD_SIG: LazyLock<CallbackSignature<(Message, String), bool>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
 
-static HOOK_BACKLOG_COUNT: Lazy<CounterVec> = Lazy::new(|| {
+static HOOK_BACKLOG_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "log_hook_backlog_count",
         "how many times processing of a log event hit the back_pressure in a hook",

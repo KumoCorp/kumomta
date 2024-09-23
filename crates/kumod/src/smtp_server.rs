@@ -21,7 +21,6 @@ use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
-use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::FairMutex as Mutex;
 use prometheus::{Histogram, HistogramTimer};
 use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
@@ -32,7 +31,7 @@ use spool::SpoolId;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -40,22 +39,22 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 
-static CRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n"));
-static TXN_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
+static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "smtpsrv_transaction_duration",
         "how long an incoming SMTP transaction takes",
     )
     .unwrap()
 });
-static READ_DATA_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static READ_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "smtpsrv_read_data_duration",
         "how long it takes to receive the DATA portion",
     )
     .unwrap()
 });
-static PROCESS_DATA_LATENCY: Lazy<Histogram> = Lazy::new(|| {
+static PROCESS_DATA_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "smtpsrv_process_data_duration",
         "how long it takes to process the DATA portion and enqueue",
@@ -69,11 +68,11 @@ struct DomainAndListener {
     pub listener: String,
 }
 
-static DOMAINS: Lazy<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
-    Lazy::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
+static DOMAINS: LazyLock<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
 
-static SMTPSRV: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());
+static SMTPSRV: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());
 
 static SMTPSRV_THREADS: AtomicUsize = AtomicUsize::new(0);
 
@@ -180,13 +179,13 @@ pub struct EsmtpListenerParams {
     pub client_timeout: Duration,
 
     #[serde(skip)]
-    tls_config: OnceCell<Arc<ServerConfig>>,
+    tls_config: OnceLock<Arc<ServerConfig>>,
 
     #[serde(skip)]
-    connection_gauge: OnceCell<AtomicCounter>,
+    connection_gauge: OnceLock<AtomicCounter>,
 
     #[serde(skip)]
-    connection_denied_counter: OnceCell<AtomicCounter>,
+    connection_denied_counter: OnceLock<AtomicCounter>,
 
     #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
     max_messages_per_connection: usize,
@@ -266,9 +265,9 @@ impl EsmtpListenerParams {
         .await?;
 
         // If we race to create, take the winner's version
-        match self.tls_config.try_insert(config) {
-            Ok(config) | Err((config, _)) => Ok(TlsAcceptor::from(config.clone())),
-        }
+        Ok(TlsAcceptor::from(
+            self.tls_config.get_or_init(|| config).clone(),
+        ))
     }
 
     pub fn connection_gauge(&self) -> &AtomicCounter {
@@ -737,7 +736,7 @@ impl SmtpServer {
         let mut too_big = false;
         tracing::trace!("reading data");
 
-        static CRLFDOTCRLF: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n.\r\n"));
+        static CRLFDOTCRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n.\r\n"));
         let mut data = DebugabbleReadBuffer(vec![0u8; self.params.data_buffer_size]);
         let mut next_index = 0;
 
@@ -1842,7 +1841,7 @@ enum ReadData {
 }
 
 fn unstuff(data: Vec<u8>) -> Vec<u8> {
-    static CRLFDOTDOT: Lazy<Finder> = Lazy::new(|| Finder::new("\r\n.."));
+    static CRLFDOTDOT: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n.."));
     let mut stuffing_finder = CRLFDOTDOT.find_iter(&data);
     if let Some(stuffed) = stuffing_finder.next() {
         let mut unstuffed = Vec::with_capacity(data.len());

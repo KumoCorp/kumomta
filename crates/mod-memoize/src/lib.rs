@@ -2,11 +2,10 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
 use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
-use once_cell::sync::Lazy;
 use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
@@ -187,8 +186,8 @@ struct MemoizeCache {
     cache: Arc<LruCacheWithTtl<CacheKey, CacheEntry>>,
 }
 
-static CACHES: Lazy<Mutex<HashMap<String, MemoizeCache>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 type CacheKey = (ConfigEpoch, String);
 
@@ -269,10 +268,10 @@ impl SemaphoreManager {
     }
 }
 
-static SEMAPHORES: Lazy<Mutex<SemaphoreManager>> =
-    Lazy::new(|| Mutex::new(SemaphoreManager::new()));
+static SEMAPHORES: LazyLock<Mutex<SemaphoreManager>> =
+    LazyLock::new(|| Mutex::new(SemaphoreManager::new()));
 
-static ACQUIRE_BLOCKED: Lazy<CounterVec> = Lazy::new(|| {
+static ACQUIRE_BLOCKED: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_semaphore_acquire_blocked_count",
         "how many times memoize for a specific cache is blocked for concurrent callers",
@@ -280,7 +279,7 @@ static ACQUIRE_BLOCKED: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CACHE_LOOKUP: Lazy<CounterVec> = Lazy::new(|| {
+static CACHE_LOOKUP: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_lookup_count",
         "how many times a memoize cache lookup was initiated for a given cache",
@@ -288,7 +287,7 @@ static CACHE_LOOKUP: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CACHE_HIT: Lazy<CounterVec> = Lazy::new(|| {
+static CACHE_HIT: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_hit_count",
         "how many times a memoize cache lookup was a hit for a given cache",
@@ -296,7 +295,7 @@ static CACHE_HIT: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CACHE_MISS: Lazy<CounterVec> = Lazy::new(|| {
+static CACHE_MISS: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_miss_count",
         "how many times a memoize cache lookup was a miss for a given cache",
@@ -304,7 +303,7 @@ static CACHE_MISS: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CACHE_MISS_OTHER: Lazy<CounterVec> = Lazy::new(|| {
+static CACHE_MISS_OTHER: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_miss_satisfied_by_other_count",
         "how many times a memoize cache lookup was a miss, but was satisfied while waiting for concurrent callers",
@@ -312,7 +311,7 @@ static CACHE_MISS_OTHER: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static CACHE_POPULATED: Lazy<CounterVec> = Lazy::new(|| {
+static CACHE_POPULATED: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_populated_count",
         "how many times a memoize cache lookup resulted in performing the work to populate the entry",

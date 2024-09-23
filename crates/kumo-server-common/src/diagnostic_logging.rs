@@ -1,8 +1,8 @@
 use anyhow::Context;
 use clap::ValueEnum;
 use metrics_prometheus::recorder::Layer as _;
-use once_cell::sync::OnceCell;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
@@ -22,9 +22,9 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 //
 // This way we don't need to name the type, and won't need to struggle with re-naming
 // it if we change the layering of the log subscriber.
-static TRACING_FILTER_RELOAD_HANDLE: OnceCell<
+static TRACING_FILTER_RELOAD_HANDLE: OnceLock<
     Box<dyn Fn(&str) -> anyhow::Result<()> + Send + Sync>,
-> = OnceCell::new();
+> = OnceLock::new();
 
 pub fn set_diagnostic_log_filter(new_filter: &str) -> anyhow::Result<()> {
     let func = TRACING_FILTER_RELOAD_HANDLE

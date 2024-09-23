@@ -2,7 +2,6 @@ use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
 use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
-use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
 use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
@@ -35,7 +34,7 @@ static CALLBACK_ALLOWS_MULTIPLE: LazyLock<Mutex<HashSet<String>>> =
 
 pub static VALIDATE_ONLY: AtomicBool = AtomicBool::new(false);
 pub static VALIDATION_FAILED: AtomicBool = AtomicBool::new(false);
-static LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
+static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
     prometheus::register_histogram_vec!(
         "lua_event_latency",
         "how long a given lua event callback took",
@@ -43,7 +42,7 @@ static LATENCY_HIST: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static EVENT_STARTED_COUNT: Lazy<CounterVec> = Lazy::new(|| {
+static EVENT_STARTED_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "lua_event_started",
         "Incremented each time we start to call a lua event callback. Use lua_event_latency_count to track completed events",

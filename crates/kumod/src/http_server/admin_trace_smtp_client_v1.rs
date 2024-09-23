@@ -3,14 +3,13 @@ use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
-use once_cell::sync::Lazy;
 use rfc5321::DeferredTracer;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use tokio::sync::broadcast::{channel, Sender};
 use tracing::Level;
 
-static MGR: Lazy<SmtpClientTraceManager> = Lazy::new(|| SmtpClientTraceManager::new());
+static MGR: LazyLock<SmtpClientTraceManager> = LazyLock::new(|| SmtpClientTraceManager::new());
 
 pub struct SmtpClientTraceManager {
     tx: Sender<SmtpClientTraceEvent>,

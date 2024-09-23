@@ -7,11 +7,10 @@ use crate::metrics_helper::{
     TOTAL_MSGS_TRANSFAIL_BY_PROVIDER, TOTAL_MSGS_TRANSFAIL_BY_PROVIDER_AND_SOURCE,
 };
 use kumo_prometheus::{counter_bundle, AtomicCounter};
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use prometheus::Histogram;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 counter_bundle! {
     pub struct ReadyCountBundle {
@@ -95,8 +94,8 @@ impl DeliveryMetrics {
             global_msgs_fail: AtomicCounter,
         }
 
-        static GLOBALS: Lazy<Mutex<HashMap<String, Arc<GlobalMetrics>>>> =
-            Lazy::new(|| Mutex::new(HashMap::new()));
+        static GLOBALS: LazyLock<Mutex<HashMap<String, Arc<GlobalMetrics>>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
 
         let globals = {
             let mut g = GLOBALS.lock();

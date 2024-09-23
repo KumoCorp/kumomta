@@ -2,8 +2,7 @@ use anyhow::anyhow;
 use config::get_or_create_module;
 use lruttl::LruCacheWithTtl;
 use mlua::Lua;
-use once_cell::sync::Lazy;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 const GLOB_CACHE_CAPACITY: usize = 32;
@@ -15,8 +14,8 @@ struct GlobKey {
     path: Option<String>,
 }
 
-static CACHE: Lazy<Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>>> =
-    Lazy::new(|| make_cache());
+static CACHE: LazyLock<Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>>> =
+    LazyLock::new(|| make_cache());
 
 fn make_cache() -> Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>> {
     Arc::new(LruCacheWithTtl::new(GLOB_CACHE_CAPACITY))

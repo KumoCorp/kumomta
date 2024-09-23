@@ -8,7 +8,6 @@ use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
 use kumo_server_runtime::{spawn, Runtime};
 use message::Message;
 use mlua::{Lua, Value};
-use once_cell::sync::Lazy;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Deserialize;
 use spool::local_disk::LocalDiskSpool;
@@ -17,12 +16,12 @@ use spool::{get_data_spool, get_meta_spool, Spool as SpoolTrait, SpoolEntry, Spo
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-static MANAGER: Lazy<SpoolManager> = Lazy::new(|| SpoolManager::new());
+static MANAGER: LazyLock<SpoolManager> = LazyLock::new(|| SpoolManager::new());
 static SPOOLIN_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_spoolin_threads(n: usize) {

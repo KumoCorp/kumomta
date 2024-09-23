@@ -6,15 +6,15 @@ use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
-use once_cell::sync::Lazy;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::LazyLock;
 
-pub static PRE_INIT_SIG: Lazy<CallbackSignature<(), ()>> =
-    Lazy::new(|| CallbackSignature::new_with_multiple("pre_init"));
-pub static VALIDATE_SIG: Lazy<CallbackSignature<(), ()>> =
-    Lazy::new(|| CallbackSignature::new_with_multiple("validate_config"));
+pub static PRE_INIT_SIG: LazyLock<CallbackSignature<(), ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("pre_init"));
+pub static VALIDATE_SIG: LazyLock<CallbackSignature<(), ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("validate_config"));
 
 mod accounting;
 mod delivery_metrics;
