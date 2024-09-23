@@ -14,7 +14,7 @@ use cgroups_rs::{Hierarchy, MaxValue};
 use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::watch::Receiver;
@@ -22,25 +22,22 @@ use tokio::sync::watch::Receiver;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-lazy_static::lazy_static! {
-    static ref OVER_LIMIT_COUNT: metrics::Counter = {
-        metrics::describe_counter!(
-            "memory_over_limit_count",
-            "how many times the soft memory limit was exceeded");
-        metrics::counter!("memory_over_limit_count")
-    };
-    static ref MEM_USAGE: metrics::Gauge = {
-        metrics::describe_gauge!(
-            "memory_usage", "number of bytes of used memory");
-        metrics::gauge!("memory_usage")
-    };
-    static ref MEM_LIMIT: metrics::Gauge = {
-        metrics::describe_gauge!(
-            "memory_limit", "soft memory limit measured in bytes");
-        metrics::gauge!("memory_limit")
-    };
-    static ref SUBSCRIBER: Mutex<Option<Receiver<()>>> = Mutex::new(None);
-}
+static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
+    metrics::describe_counter!(
+        "memory_over_limit_count",
+        "how many times the soft memory limit was exceeded"
+    );
+    metrics::counter!("memory_over_limit_count")
+});
+static MEM_USAGE: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!("memory_usage", "number of bytes of used memory");
+    metrics::gauge!("memory_usage")
+});
+static MEM_LIMIT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!("memory_limit", "soft memory limit measured in bytes");
+    metrics::gauge!("memory_limit")
+});
+static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mutex::new(None));
 
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
 static LOW_MEM: AtomicBool = AtomicBool::new(false);

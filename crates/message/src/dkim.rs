@@ -7,33 +7,60 @@ use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
 use prometheus::{Counter, Histogram};
 use serde::Deserialize;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-lazy_static::lazy_static! {
-    static ref SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>> = LruCacheWithTtl::new(1024);
-    static ref SIGNER_KEY_FETCH: Histogram = prometheus::register_histogram!(
+static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
+    LazyLock::new(|| LruCacheWithTtl::new(1024));
+static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "dkim_signer_key_fetch",
-        "how long it takes to obtain a dkim key").unwrap();
-    static ref SIGNER_CREATE: Histogram = prometheus::register_histogram!(
+        "how long it takes to obtain a dkim key"
+    )
+    .unwrap()
+});
+static SIGNER_CREATE: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "dkim_signer_creation",
-        "how long it takes to create a signer on a cache miss").unwrap();
-    static ref SIGNER_SIGN: Histogram = prometheus::register_histogram!(
+        "how long it takes to create a signer on a cache miss"
+    )
+    .unwrap()
+});
+static SIGNER_SIGN: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "dkim_signer_sign",
-        "how long it takes to dkim sign parsed messages").unwrap();
-    static ref SIGNER_PARSE: Histogram = prometheus::register_histogram!(
+        "how long it takes to dkim sign parsed messages"
+    )
+    .unwrap()
+});
+static SIGNER_PARSE: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "dkim_signer_message_parse",
-        "how long it takes to parse messages as prep for signing").unwrap();
-    static ref SIGNER_CACHE_HIT: Counter = prometheus::register_counter!(
+        "how long it takes to parse messages as prep for signing"
+    )
+    .unwrap()
+});
+static SIGNER_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
         "dkim_signer_cache_hit",
-        "how many cache dkim signer requests hit cache").unwrap();
-    static ref SIGNER_CACHE_MISS: Counter = prometheus::register_counter!(
+        "how many cache dkim signer requests hit cache"
+    )
+    .unwrap()
+});
+static SIGNER_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
         "dkim_signer_cache_miss",
-        "how many cache dkim signer requests miss cache").unwrap();
-    static ref SIGNER_CACHE_LOOKUP: Counter = prometheus::register_counter!(
+        "how many cache dkim signer requests miss cache"
+    )
+    .unwrap()
+});
+static SIGNER_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
         "dkim_signer_cache_lookup_count",
-        "how many cache dkim signer requests occurred").unwrap();
-}
+        "how many cache dkim signer requests occurred"
+    )
+    .unwrap()
+});
 
 #[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
 pub enum Canon {

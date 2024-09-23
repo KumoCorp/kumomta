@@ -15,26 +15,28 @@ use async_channel::{bounded, unbounded, Sender};
 use prometheus::IntGaugeVec;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
 use tokio::runtime::Handle;
 use tokio::task::{JoinHandle, LocalSet};
 
-lazy_static::lazy_static! {
-    pub static ref RUNTIME: Runtime = Runtime::new(
-        "localset", |cpus| cpus/4, &LOCALSET_THREADS).unwrap();
-
-    static ref PARKED_THREADS: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!(
-            "thread_pool_parked",
-            "number of parked(idle) threads in a thread pool",
-            &["pool"]).unwrap()
-    };
-    static ref NUM_THREADS: IntGaugeVec = {
-        prometheus::register_int_gauge_vec!(
-            "thread_pool_size",
-            "number of threads in a thread pool",
-            &["pool"]).unwrap()
-    };
-}
+pub static RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("localset", |cpus| cpus / 4, &LOCALSET_THREADS).unwrap());
+static PARKED_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "thread_pool_parked",
+        "number of parked(idle) threads in a thread pool",
+        &["pool"]
+    )
+    .unwrap()
+});
+static NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "thread_pool_size",
+        "number of threads in a thread pool",
+        &["pool"]
+    )
+    .unwrap()
+});
 
 pub static MAIN_RUNTIME: std::sync::Mutex<Option<tokio::runtime::Handle>> =
     std::sync::Mutex::new(None);

@@ -21,7 +21,6 @@ dns-resolver = {path="../dns-resolver", optional=true}
 futures = "0.3"
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
-lazy_static = "1.4"
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}

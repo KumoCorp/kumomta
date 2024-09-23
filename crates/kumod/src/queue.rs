@@ -32,7 +32,7 @@ use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Once};
+use std::sync::{Arc, LazyLock, Once};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
@@ -40,37 +40,49 @@ use timeq::{PopResult, TimeQ, TimerError};
 use tokio::sync::Notify;
 use tracing::instrument;
 
-lazy_static::lazy_static! {
-    static ref MANAGER: StdMutex<QueueManager> = StdMutex::new(QueueManager::new());
-    static ref SCHEDULED_QUEUE_COUNT: IntGauge = {
-        prometheus::register_int_gauge!("scheduled_queue_count",
-            "how many scheduled queues are tracked by the QueueManager").unwrap()
-    };
-    static ref QMAINT_COUNT: IntGauge = {
-        prometheus::register_int_gauge!("scheduled_queue_maintainer_count",
-            "how many scheduled queues have active maintainer tasks").unwrap()
-    };
-    static ref TOTAL_QMAINT_RUNS: IntCounter = {
-        prometheus::register_int_counter!(
-            "total_qmaint_runs",
-            "total number of times a scheduled queue maintainer was run"
-            ).unwrap()
-    };
+static MANAGER: LazyLock<StdMutex<QueueManager>> =
+    LazyLock::new(|| StdMutex::new(QueueManager::new()));
+static SCHEDULED_QUEUE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!(
+        "scheduled_queue_count",
+        "how many scheduled queues are tracked by the QueueManager"
+    )
+    .unwrap()
+});
+static QMAINT_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!(
+        "scheduled_queue_maintainer_count",
+        "how many scheduled queues have active maintainer tasks"
+    )
+    .unwrap()
+});
+static TOTAL_QMAINT_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
+    prometheus::register_int_counter!(
+        "total_qmaint_runs",
+        "total number of times a scheduled queue maintainer was run"
+    )
+    .unwrap()
+});
 
-    pub static ref QMAINT_RUNTIME: Runtime = Runtime::new(
-        "qmaint", |cpus| cpus/4, &QMAINT_THREADS).unwrap();
-
-    pub static ref GET_Q_CONFIG_SIG: CallbackSignature::<'static,
-        (&'static str, Option<&'static str>, Option<&'static str>, Option<&'static str>),
-        QueueConfig> = CallbackSignature::new_with_multiple("get_queue_config");
-    pub static ref THROTTLE_INSERT_READY_SIG: CallbackSignature::<'static,
-        Message,
-        ()> = CallbackSignature::new_with_multiple("throttle_insert_ready_queue");
-    static ref REBIND_MESSAGE_SIG: CallbackSignature::<'static,
-        (Message, HashMap<String, String>), ()> = CallbackSignature::new("rebind_message");
-
-    static ref SINGLETON_WHEEL: Arc<StdMutex<TimeQ<WeakMessage>>> = Arc::new(StdMutex::new(TimeQ::new()));
-}
+pub static QMAINT_RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("qmaint", |cpus| cpus / 4, &QMAINT_THREADS).unwrap());
+pub static GET_Q_CONFIG_SIG: LazyLock<
+    CallbackSignature<
+        (
+            &'static str,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+        ),
+        QueueConfig,
+    >,
+> = LazyLock::new(|| CallbackSignature::new_with_multiple("get_queue_config"));
+pub static THROTTLE_INSERT_READY_SIG: LazyLock<CallbackSignature<'static, Message, ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("throttle_insert_ready_queue"));
+static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, String>), ()>> =
+    LazyLock::new(|| CallbackSignature::new("rebind_message"));
+pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =
+    LazyLock::new(|| Arc::new(StdMutex::new(TimeQ::new())));
 
 static TOTAL_DELAY_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
     prometheus::register_int_gauge!(

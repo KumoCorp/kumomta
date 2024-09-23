@@ -2,17 +2,17 @@ use crate::{LuaConfig, LuaConfigInner};
 use parking_lot::FairMutex as Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
 use std::time::Duration;
 
-lazy_static::lazy_static! {
-    static ref POOL: Mutex<Pool> = Mutex::new(Pool::new());
-    static ref LUA_SPARE_COUNT: metrics::Gauge = {
-        metrics::describe_gauge!(
-            "lua_spare_count",
-            "the number of lua contexts available for reuse in the pool");
-        metrics::gauge!("lua_spare_count")
-    };
-}
+static POOL: LazyLock<Mutex<Pool>> = LazyLock::new(|| Mutex::new(Pool::new()));
+static LUA_SPARE_COUNT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!(
+        "lua_spare_count",
+        "the number of lua contexts available for reuse in the pool"
+    );
+    metrics::gauge!("lua_spare_count")
+});
 
 /// Maximum age of a lua context before we release it, in seconds
 static MAX_AGE: AtomicUsize = AtomicUsize::new(300);

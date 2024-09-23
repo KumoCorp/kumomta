@@ -9,7 +9,6 @@ edition = "2021"
 anyhow = "1.0"
 async-channel = "1.8"
 kumo-server-memory = {path="../kumo-server-memory"}
-lazy_static = "1.4"
 prometheus = "0.13"
 tokio = {workspace=true, features=["full", "tracing"]}
 tracing = "0.1"

@@ -11,13 +11,11 @@ use message::message::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex as Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use uuid::Uuid;
 
-lazy_static::lazy_static! {
-    static ref ENTRIES: Mutex<Vec<AdminBounceEntry>> = Mutex::new(vec![]);
-}
+static ENTRIES: LazyLock<Mutex<Vec<AdminBounceEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Clone, Debug)]
 pub struct AdminBounceEntry {

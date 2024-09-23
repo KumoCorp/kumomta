@@ -25,7 +25,7 @@ use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
 use timeq::TimerEntryWithDelay;
 
@@ -43,32 +43,45 @@ bitflags::bitflags! {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref MESSAGE_COUNT: IntGauge = prometheus::register_int_gauge!(
-        "message_count",
-        "total number of Message objects"
-    ).unwrap();
-    static ref META_COUNT: IntGauge = prometheus::register_int_gauge!(
+static MESSAGE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!("message_count", "total number of Message objects").unwrap()
+});
+static META_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!(
         "message_meta_resident_count",
         "total number of Message objects with metadata loaded"
-    ).unwrap();
-    static ref DATA_COUNT: IntGauge = prometheus::register_int_gauge!(
+    )
+    .unwrap()
+});
+static DATA_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!(
         "message_data_resident_count",
         "total number of Message objects with body data loaded"
-    ).unwrap();
-    /// A shared placeholder representing no data, to avoid having
-    /// two tiny heap allocations for each data payload
-    static ref NO_DATA: Arc<Box<[u8]>> = Arc::new(vec![].into_boxed_slice());
-    static ref SAVE_HIST: Histogram = prometheus::register_histogram!(
+    )
+    .unwrap()
+});
+static NO_DATA: LazyLock<Arc<Box<[u8]>>> = LazyLock::new(|| Arc::new(vec![].into_boxed_slice()));
+static SAVE_HIST: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "message_save_latency",
-        "how long it takes to save a message to spool").unwrap();
-    static ref LOAD_DATA_HIST: Histogram = prometheus::register_histogram!(
+        "how long it takes to save a message to spool"
+    )
+    .unwrap()
+});
+static LOAD_DATA_HIST: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "message_data_load_latency",
-        "how long it takes to load message data from spool").unwrap();
-    static ref LOAD_META_HIST: Histogram = prometheus::register_histogram!(
+        "how long it takes to load message data from spool"
+    )
+    .unwrap()
+});
+static LOAD_META_HIST: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
         "message_meta_load_latency",
-        "how long it takes to load message metadata from spool").unwrap();
-}
+        "how long it takes to load message metadata from spool"
+    )
+    .unwrap()
+});
 
 #[derive(Debug)]
 struct MessageInner {

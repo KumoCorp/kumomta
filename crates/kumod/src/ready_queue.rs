@@ -30,7 +30,7 @@ use rfc5321::{EnhancedStatusCode, Response};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use throttle::limit::{LimitLease, LimitSpec};
 use throttle::ThrottleSpec;
@@ -38,15 +38,15 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::instrument; // TODO move to here
 
-lazy_static::lazy_static! {
-    static ref MANAGER: StdMutex<ReadyQueueManager> = StdMutex::new(ReadyQueueManager::new());
-    pub static ref REQUEUE_MESSAGE_SIG: CallbackSignature::<'static,
-        Message, ()> = CallbackSignature::new_with_multiple("message_requeued");
-    pub static ref READYQ_RUNTIME: Runtime = Runtime::new(
-        "readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap();
-    pub static ref GET_EGRESS_PATH_CONFIG_SIG: CallbackSignature<'static,
-        (String, String, String), EgressPathConfig> = CallbackSignature::new("get_egress_path_config");
-}
+static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
+    LazyLock::new(|| StdMutex::new(ReadyQueueManager::new()));
+pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<'static, Message, ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("message_requeued"));
+pub static READYQ_RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
+pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
+    CallbackSignature<'static, (String, String, String), EgressPathConfig>,
+> = LazyLock::new(|| CallbackSignature::new("get_egress_path_config"));
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);

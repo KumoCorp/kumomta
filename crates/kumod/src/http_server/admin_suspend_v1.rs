@@ -10,12 +10,11 @@ use kumo_server_common::http_server::AppError;
 use message::message::QueueNameComponents;
 use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::FairMutex as Mutex;
+use std::sync::LazyLock;
 use std::time::Instant;
 use uuid::Uuid;
 
-lazy_static::lazy_static! {
-    static ref ENTRIES: Mutex<Vec<AdminSuspendEntry>> = Mutex::new(vec![]);
-}
+static ENTRIES: LazyLock<Mutex<Vec<AdminSuspendEntry>>> = LazyLock::new(|| Mutex::new(vec![]));
 
 #[derive(Clone, Debug)]
 pub struct AdminSuspendEntry {
