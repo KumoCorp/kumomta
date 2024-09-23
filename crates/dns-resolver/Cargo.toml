@@ -19,7 +19,6 @@ unbound = ["dep:libunbound"]
 anyhow = "1.0"
 arc-swap = "1.6"
 kumo-log-types = {path="../kumo-log-types"}
-lazy_static = "1.4"
 libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
 rand = "0.8"

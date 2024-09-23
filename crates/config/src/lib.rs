@@ -10,28 +10,28 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use std::time::Instant;
 
 pub mod epoch;
 mod pool;
 
-lazy_static::lazy_static! {
-    static ref POLICY_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
-    static ref FUNCS: Mutex<Vec<RegisterFunc>> = Mutex::new(vec![]);
-    static ref LUA_LOAD_COUNT: metrics::Counter = {
-        metrics::describe_counter!(
-            "lua_load_count",
-            "how many times the policy lua script has been \
-             loaded into a new context");
-        metrics::counter!("lua_load_count")
-    };
-    static ref LUA_COUNT: metrics::Gauge = {
-        metrics::describe_gauge!(
-            "lua_count", "the number of lua contexts currently alive");
-        metrics::gauge!("lua_count")
-    };
-    static ref CALLBACK_ALLOWS_MULTIPLE: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
-}
+static POLICY_FILE: LazyLock<Mutex<Option<PathBuf>>> = LazyLock::new(|| Mutex::new(None));
+static FUNCS: LazyLock<Mutex<Vec<RegisterFunc>>> = LazyLock::new(|| Mutex::new(vec![]));
+static LUA_LOAD_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
+    metrics::describe_counter!(
+        "lua_load_count",
+        "how many times the policy lua script has been \
+         loaded into a new context"
+    );
+    metrics::counter!("lua_load_count")
+});
+static LUA_COUNT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!("lua_count", "the number of lua contexts currently alive");
+    metrics::gauge!("lua_count")
+});
+static CALLBACK_ALLOWS_MULTIPLE: LazyLock<Mutex<HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 pub static VALIDATE_ONLY: AtomicBool = AtomicBool::new(false);
 pub static VALIDATION_FAILED: AtomicBool = AtomicBool::new(false);

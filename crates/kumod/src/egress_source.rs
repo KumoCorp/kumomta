@@ -22,10 +22,10 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
-lazy_static::lazy_static! {
-    static ref SOURCES: Mutex<LruCacheWithTtl<String, EgressSource>> = Mutex::new(LruCacheWithTtl::new(128));
-    static ref POOLS: Mutex<LruCacheWithTtl<String, EgressPool>> = Mutex::new(LruCacheWithTtl::new(128));
-}
+static SOURCES: LazyLock<Mutex<LruCacheWithTtl<String, EgressSource>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
+static POOLS: LazyLock<Mutex<LruCacheWithTtl<String, EgressPool>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]

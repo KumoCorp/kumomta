@@ -10,18 +10,21 @@ use rand::prelude::SliceRandom;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::Instant;
 
 pub mod resolver;
 
-lazy_static::lazy_static! {
-    static ref RESOLVER: ArcSwap<Resolver> = ArcSwap::from_pointee(default_resolver());
-    static ref MX_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>> = StdMutex::new(LruCacheWithTtl::new(64 * 1024));
-    static ref IPV4_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
-    static ref IPV6_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
-    static ref IP_CACHE: StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> = StdMutex::new(LruCacheWithTtl::new(1024));
-}
+static RESOLVER: LazyLock<ArcSwap<Resolver>> =
+    LazyLock::new(|| ArcSwap::from_pointee(default_resolver()));
+static MX_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>>> =
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(64 * 1024)));
+static IPV4_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
+static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
+static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
 
 #[cfg(feature = "default-unbound")]
 fn default_resolver() -> Resolver {

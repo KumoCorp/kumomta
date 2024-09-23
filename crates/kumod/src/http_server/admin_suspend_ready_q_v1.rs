@@ -12,12 +12,11 @@ use mlua::{Lua, LuaSerdeExt, Value};
 use parking_lot::FairMutex as Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
 use std::time::Instant;
 use uuid::Uuid;
 
-lazy_static::lazy_static! {
-    static ref ENTRIES: Mutex<Suspensions> = Mutex::new(Suspensions::default());
-}
+static ENTRIES: LazyLock<Mutex<Suspensions>> = LazyLock::new(|| Mutex::new(Suspensions::default()));
 
 static GENERATION: AtomicUsize = AtomicUsize::new(0);
 
