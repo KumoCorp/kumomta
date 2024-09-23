@@ -19,7 +19,6 @@ use message::{EnvelopeAddress, Message};
 use minijinja::{Environment, Template};
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, LuaSerdeExt};
-use once_cell::sync::Lazy;
 use rfc5321::Response;
 use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
@@ -28,21 +27,22 @@ use spool::SpoolId;
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use throttle::ThrottleSpec;
 use utoipa::{ToResponse, ToSchema};
 
 pub const GENERATOR_QUEUE_NAME: &str = "generator.kumomta.internal";
 
-static MSGS_RECVD: Lazy<AtomicCounter> =
-    Lazy::new(|| crate::metrics_helper::total_msgs_received_for_service("http_listener"));
+static MSGS_RECVD: LazyLock<AtomicCounter> =
+    LazyLock::new(|| crate::metrics_helper::total_msgs_received_for_service("http_listener"));
 
-static HTTPINJECT: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new("httpinject", |cpus| cpus * 3 / 8, &HTTPINJECT_THREADS).unwrap());
+static HTTPINJECT: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("httpinject", |cpus| cpus * 3 / 8, &HTTPINJECT_THREADS).unwrap());
 
 static HTTPINJECT_THREADS: AtomicUsize = AtomicUsize::new(0);
-static LIMIT: Lazy<ArcSwap<Option<ThrottleSpec>>> = Lazy::new(|| ArcSwap::new(Arc::new(None)));
+static LIMIT: LazyLock<ArcSwap<Option<ThrottleSpec>>> =
+    LazyLock::new(|| ArcSwap::new(Arc::new(None)));
 
 pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
     let spec = Arc::new(spec);

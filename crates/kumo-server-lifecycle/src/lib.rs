@@ -2,20 +2,20 @@
 //! and to shut things down gracefully.
 //!
 //! See <https://tokio.rs/tokio/topics/shutdown> for more information.
-use once_cell::sync::{Lazy, OnceCell};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex, OnceLock};
 use tokio::signal::unix::SignalKind;
 use tokio::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use uuid::Uuid;
 
-static ACTIVE: OnceCell<Mutex<Option<Activity>>> = OnceCell::new();
+static ACTIVE: OnceLock<Mutex<Option<Activity>>> = OnceLock::new();
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-static STOPPING: OnceCell<ShutdownState> = OnceCell::new();
+static STOPPING: OnceLock<ShutdownState> = OnceLock::new();
 
-static ACTIVE_LABELS: Lazy<Mutex<HashMap<Uuid, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_LABELS: LazyLock<Mutex<HashMap<Uuid, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any

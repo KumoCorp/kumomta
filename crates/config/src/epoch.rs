@@ -1,17 +1,16 @@
 use filenamegen::Glob;
-use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::watch::{channel, Receiver, Sender};
 use tokio::task::spawn_blocking;
 
-static CONFIG: Lazy<Mutex<ConfigurationParams>> =
-    Lazy::new(|| Mutex::new(ConfigurationParams::new()));
+static CONFIG: LazyLock<Mutex<ConfigurationParams>> =
+    LazyLock::new(|| Mutex::new(ConfigurationParams::new()));
 
 static EPOCH: AtomicUsize = AtomicUsize::new(0);
 

@@ -11,7 +11,6 @@ use message::Message;
 use minijinja::Environment;
 use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
-use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
 use prometheus::{CounterVec, Histogram, HistogramVec};
 use serde::Deserialize;
@@ -21,7 +20,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::task::JoinHandle;
 
@@ -31,7 +30,7 @@ pub(crate) mod files;
 pub(crate) mod hooks;
 pub(crate) mod rejection;
 
-static SUBMIT_FULL: Lazy<CounterVec> = Lazy::new(|| {
+static SUBMIT_FULL: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "log_submit_full",
         "how many times submission of a log event hit the back_pressure",
@@ -39,7 +38,7 @@ static SUBMIT_FULL: Lazy<CounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static SUBMIT_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+static SUBMIT_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     prometheus::register_histogram_vec!(
         "log_submit_latency",
         "latency of log event submission operations",
@@ -47,11 +46,11 @@ static SUBMIT_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-static LOGGER: Lazy<Mutex<Vec<Arc<Logger>>>> = Lazy::new(|| Mutex::new(vec![]));
+static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(|| Mutex::new(vec![]));
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
-pub static LOGGING_RUNTIME: Lazy<Runtime> =
-    Lazy::new(|| Runtime::new("logging", |cpus| cpus / 4, &LOGGING_THREADS).unwrap());
+pub static LOGGING_RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("logging", |cpus| cpus / 4, &LOGGING_THREADS).unwrap());
 
 pub fn set_logging_threads(n: usize) {
     LOGGING_THREADS.store(n, Ordering::SeqCst);

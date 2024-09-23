@@ -1,6 +1,6 @@
 use crate::hash::LimitHasher;
 use memchr::memmem::Finder;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum Type {
@@ -85,7 +85,7 @@ impl<'haystack> Iterator for IterLines<'haystack> {
 }
 
 fn iter_lines(haystack: &[u8]) -> IterLines {
-    static CRLF: Lazy<Finder> = Lazy::new(|| memchr::memmem::Finder::new("\r\n"));
+    static CRLF: LazyLock<Finder> = LazyLock::new(|| memchr::memmem::Finder::new("\r\n"));
     IterLines {
         haystack,
         inner: CRLF.find_iter(haystack),

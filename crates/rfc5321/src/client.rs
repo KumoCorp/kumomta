@@ -3,14 +3,13 @@ use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardP
 use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
-use once_cell::sync::Lazy;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -927,7 +926,7 @@ pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
 }
 
 fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
-    static LFDOT: Lazy<Finder> = Lazy::new(|| memchr::memmem::Finder::new("\n."));
+    static LFDOT: LazyLock<Finder> = LazyLock::new(|| memchr::memmem::Finder::new("\n."));
 
     if !data.starts_with(b".") && LFDOT.find(&data).is_none() {
         return None;

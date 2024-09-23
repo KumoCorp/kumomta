@@ -1,8 +1,8 @@
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 pub use uuid;
 use uuid::Uuid;
 
-static MAC: Lazy<[u8; 6]> = Lazy::new(get_mac_address_once);
+static MAC: LazyLock<[u8; 6]> = LazyLock::new(get_mac_address_once);
 
 /// Obtain the mac address of the first non-loopback interface on the system.
 /// If there are no candidate interfaces, fall back to the `gethostid()` function,

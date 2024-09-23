@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 dns-resolver = {path="../dns-resolver"}
-once_cell = {workspace=true}
 futures = {workspace=true}
 lruttl = {path="../lruttl"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}

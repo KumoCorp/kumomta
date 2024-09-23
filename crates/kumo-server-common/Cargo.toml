@@ -48,7 +48,6 @@ mod-string = {path="../mod-string"}
 mod-uuid = {path="../mod-uuid"}
 nix = {workspace=true, features=["fs", "signal"]}
 num-format = "0.4.4"
-once_cell = "1.17"
 prometheus = "0.13"
 rcgen = "0.13"
 regex-set-map = {path="../regex-set-map"}

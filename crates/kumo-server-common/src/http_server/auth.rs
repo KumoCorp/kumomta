@@ -7,13 +7,12 @@ use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
 use kumo_server_runtime::rt_spawn;
 use lruttl::LruCacheWithTtl;
-use once_cell::sync::Lazy;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-static AUTH_CACHE: Lazy<Mutex<LruCacheWithTtl<AuthKind, Result<bool, String>>>> =
-    Lazy::new(|| Mutex::new(LruCacheWithTtl::new(128)));
+static AUTH_CACHE: LazyLock<Mutex<LruCacheWithTtl<AuthKind, Result<bool, String>>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
 
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference

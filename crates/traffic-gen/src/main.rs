@@ -8,14 +8,13 @@ use hdrhistogram::sync::Recorder;
 use hdrhistogram::Histogram;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
-use once_cell::sync::OnceCell;
 use reqwest::{Client as HttpClient, Url};
 use rfc5321::*;
 use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use throttle::ThrottleSpec;
 use tokio::net::TcpStream;
@@ -58,7 +57,7 @@ struct Opt {
     body_file: Option<PathBuf>,
 
     #[arg(skip)]
-    body_file_content: OnceCell<String>,
+    body_file_content: OnceLock<String>,
 
     /// Include this domain in the list of domains for which mail
     /// will be generated.
@@ -75,7 +74,7 @@ struct Opt {
     body_size: humanize_rs::bytes::Bytes,
 
     #[arg(skip)]
-    body_size_content: OnceCell<String>,
+    body_size_content: OnceLock<String>,
 
     /// Use http injection API instead of SMTP
     #[arg(long)]

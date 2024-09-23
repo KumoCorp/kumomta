@@ -12,7 +12,6 @@ use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
-use once_cell::sync::Lazy;
 use rfc5321::ForwardPath;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -20,15 +19,16 @@ use sha2::{Digest, Sha256};
 use sqlite::{Connection, ConnectionThreadSafe};
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use tokio::sync::broadcast::{channel, Sender};
 use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
 
-pub static DB_PATH: Lazy<Mutex<String>> =
-    Lazy::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
-static HISTORY: Lazy<ConnectionThreadSafe> = Lazy::new(|| open_history_db().unwrap());
-static SUSPENSION_TX: Lazy<SuspensionSubscriberMgr> = Lazy::new(|| SuspensionSubscriberMgr::new());
+pub static DB_PATH: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
+static HISTORY: LazyLock<ConnectionThreadSafe> = LazyLock::new(|| open_history_db().unwrap());
+static SUSPENSION_TX: LazyLock<SuspensionSubscriberMgr> =
+    LazyLock::new(|| SuspensionSubscriberMgr::new());
 
 fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();

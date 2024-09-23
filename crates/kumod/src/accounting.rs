@@ -7,16 +7,16 @@ use chrono::prelude::*;
 use core::sync::atomic::AtomicUsize;
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::get_main_runtime;
-use once_cell::sync::Lazy;
 use parking_lot::FairMutex as Mutex;
 use sqlite::{Connection, ConnectionThreadSafe};
 use std::sync::atomic::Ordering;
+use std::sync::LazyLock;
 use tokio::task::JoinHandle;
 
-pub static ACCT: Lazy<Accounting> = Lazy::new(|| Accounting::default());
-static FLUSHER: Lazy<JoinHandle<()>> = Lazy::new(|| tokio::task::spawn(flusher()));
-pub static DB_PATH: Lazy<Mutex<String>> =
-    Lazy::new(|| Mutex::new("/var/spool/kumomta/accounting.db".to_string()));
+pub static ACCT: LazyLock<Accounting> = LazyLock::new(|| Accounting::default());
+static FLUSHER: LazyLock<JoinHandle<()>> = LazyLock::new(|| tokio::task::spawn(flusher()));
+pub static DB_PATH: LazyLock<Mutex<String>> =
+    LazyLock::new(|| Mutex::new("/var/spool/kumomta/accounting.db".to_string()));
 
 #[derive(Default)]
 pub struct Accounting {
@@ -29,14 +29,14 @@ impl Accounting {
     fn inc_received(&self, amount: usize) {
         self.received.fetch_add(amount, Ordering::SeqCst);
         // and ensure that the flusher gets started
-        Lazy::force(&FLUSHER);
+        LazyLock::force(&FLUSHER);
     }
 
     /// Increment the delivered counter by the specified amount
     fn inc_delivered(&self, amount: usize) {
         self.delivered.fetch_add(amount, Ordering::SeqCst);
         // and ensure that the flusher gets started
-        Lazy::force(&FLUSHER);
+        LazyLock::force(&FLUSHER);
     }
 
     /// Grab the current counters, zeroing the state out.

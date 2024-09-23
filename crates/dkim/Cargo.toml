@@ -21,7 +21,6 @@ indexmap = "2.2"
 mailparsing = { path="../mailparsing" }
 memchr = "2.5"
 nom = "7.1.0"
-once_cell = "1.17"
 foreign-types = "0.3"
 openssl = { workspace=true }
 openssl-sys = { workspace=true }

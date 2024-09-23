@@ -1,13 +1,12 @@
 use futures::future::BoxFuture;
 use hickory_resolver::Name;
 use lruttl::LruCacheWithTtl;
-use once_cell::sync::Lazy;
 use policy::MtaStsPolicy;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-static CACHE: Lazy<Mutex<LruCacheWithTtl<Name, CachedPolicy>>> =
-    Lazy::new(|| Mutex::new(LruCacheWithTtl::new(64 * 1024)));
+static CACHE: LazyLock<Mutex<LruCacheWithTtl<Name, CachedPolicy>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(64 * 1024)));
 
 pub mod dns;
 pub mod policy;

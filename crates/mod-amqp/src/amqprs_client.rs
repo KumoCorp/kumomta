@@ -4,15 +4,14 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 use amqprs::tls::TlsAdaptor;
 use amqprs::{BasicProperties, FieldTable, TimeStamp};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
-use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-static POOLS: Lazy<Mutex<HashMap<ConnectionInfo, Pool<ConnectionManager>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static POOLS: LazyLock<Mutex<HashMap<ConnectionInfo, Pool<ConnectionManager>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]

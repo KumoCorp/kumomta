@@ -9,5 +9,4 @@ edition = "2021"
 anyhow = "1.0"
 tracing = "0.1"
 tokio = {workspace=true, features=["full", "tracing"]}
-once_cell = "1.17"
 uuid = {workspace=true, features=["v4", "fast-rng"]}

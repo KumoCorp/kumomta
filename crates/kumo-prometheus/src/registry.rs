@@ -1,10 +1,9 @@
 use async_stream::stream;
 use futures::prelude::*;
 use futures::stream::BoxStream;
-use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use prometheus::proto::{Metric, MetricFamily};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 pub trait StreamingCollector {
     /// Stream chunks of text in prometheus text exposition format
@@ -24,7 +23,7 @@ impl Registry {
     /// Get the Registry singleton, and spawn the pruning task if it
     /// hasn't already been launched.
     pub fn get() -> &'static Self {
-        static REG: Lazy<Registry> = Lazy::new(|| {
+        static REG: LazyLock<Registry> = LazyLock::new(|| {
             tokio::spawn(Registry::pruner());
             Registry {
                 collectors: Mutex::new(Arc::new(vec![])),
