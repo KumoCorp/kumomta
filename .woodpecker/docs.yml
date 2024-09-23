@@ -24,13 +24,6 @@ when:
   - event: manual
 
 steps:
-  restore-mtime:
-    image: python:3-bookworm
-    commands:
-      - git config --global --add safe.directory /woodpecker/src
-      - ./assets/ci/git-restore-mtime crates
-      - git diff-index --name-status HEAD --
-
   setup-cache:
     image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     pull: true

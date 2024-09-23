@@ -46,13 +46,6 @@ variables:
         from_secret: gh_package_publish_token
 
 steps:
-  restore-mtime:
-    image: python:3-bookworm
-    commands:
-      - git config --global --add safe.directory /woodpecker/src
-      - ./assets/ci/git-restore-mtime crates
-      - git diff-index --name-status HEAD --
-
   setup-cache:
     image: ${BUILDER_IMAGE}
     pull: true
@@ -62,7 +55,7 @@ steps:
       - ./assets/ci/populate-cache-vars.sh
 
   test:
-    depends_on: [restore-mtime, setup-cache]
+    depends_on: [setup-cache]
     environment:
       CARGO_TERM_COLOR: always
     image: ${BUILDER_IMAGE}
