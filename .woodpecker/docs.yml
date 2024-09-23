@@ -46,6 +46,8 @@ steps:
     environment:
       CARDS: "true"
       GIT_DATES: "true"
+    commands:
+      - mkdocs build
 
   push-docs:
     when:
