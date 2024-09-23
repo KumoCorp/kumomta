@@ -1,0 +1,44 @@
+name: Ubuntu LTS
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "crates/**/*.rs"
+      - ".github/workflows/kumomta.yml"
+      - "assets/build-deb.sh"
+      - "assets/policy-extras/**"
+      - "**/Cargo.toml"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-ubuntu:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - name: whoami
+      run: |
+        whoami
+        env
+    - name: Free Disk Space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: false
+        swap-storage: true
+    - name: Run tests
+      uses: docker://ghcr.io/kumocorp/builder-for-ubuntu:22.04
+      env:
+        KUMOD_TESTCONTAINERS: 0
+        REF_TYPE: ${{ github.ref_type }}
+      with:
+        args: /bin/bash -c "HOME=/root PATH=$PATH:/root/.cargo/bin make test"
