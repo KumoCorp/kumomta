@@ -14,8 +14,7 @@ static ACTIVE: OnceLock<Mutex<Option<Activity>>> = OnceLock::new();
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static STOPPING: OnceLock<ShutdownState> = OnceLock::new();
 
-static ACTIVE_LABELS: LazyLock<Mutex<HashMap<Uuid, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static ACTIVE_LABELS: LazyLock<Mutex<HashMap<Uuid, String>>> = LazyLock::new(Mutex::default);
 
 /// Represents some activity which cannot be ruthlessly interrupted.
 /// Obtain an Activity instance via Activity::get(). While any

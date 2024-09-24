@@ -9,7 +9,7 @@ use std::sync::{LazyLock, Mutex};
 use tokio::sync::broadcast::{channel, Sender};
 use tracing::Level;
 
-static MGR: LazyLock<SmtpClientTraceManager> = LazyLock::new(|| SmtpClientTraceManager::new());
+static MGR: LazyLock<SmtpClientTraceManager> = LazyLock::new(SmtpClientTraceManager::new);
 
 pub struct SmtpClientTraceManager {
     tx: Sender<SmtpClientTraceEvent>,

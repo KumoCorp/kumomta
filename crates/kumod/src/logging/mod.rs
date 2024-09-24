@@ -46,7 +46,7 @@ static SUBMIT_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(|| Mutex::new(vec![]));
+static LOGGER: LazyLock<Mutex<Vec<Arc<Logger>>>> = LazyLock::new(Mutex::default);
 
 static LOGGING_THREADS: AtomicUsize = AtomicUsize::new(0);
 pub static LOGGING_RUNTIME: LazyLock<Runtime> =

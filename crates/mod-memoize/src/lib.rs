@@ -186,8 +186,7 @@ struct MemoizeCache {
     cache: Arc<LruCacheWithTtl<CacheKey, CacheEntry>>,
 }
 
-static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> = LazyLock::new(Mutex::default);
 
 type CacheKey = (ConfigEpoch, String);
 
