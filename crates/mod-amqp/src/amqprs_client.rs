@@ -11,7 +11,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 static POOLS: LazyLock<Mutex<HashMap<ConnectionInfo, Pool<ConnectionManager>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+    LazyLock::new(Mutex::default);
 
 #[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]

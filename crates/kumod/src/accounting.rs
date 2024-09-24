@@ -13,7 +13,7 @@ use std::sync::atomic::Ordering;
 use std::sync::LazyLock;
 use tokio::task::JoinHandle;
 
-pub static ACCT: LazyLock<Accounting> = LazyLock::new(|| Accounting::default());
+pub static ACCT: LazyLock<Accounting> = LazyLock::new(Accounting::default);
 static FLUSHER: LazyLock<JoinHandle<()>> = LazyLock::new(|| tokio::task::spawn(flusher()));
 pub static DB_PATH: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new("/var/spool/kumomta/accounting.db".to_string()));

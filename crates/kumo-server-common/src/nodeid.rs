@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use uuid::Uuid;
 
-static NODEID: LazyLock<NodeId> = LazyLock::new(|| NodeId::new());
+static NODEID: LazyLock<NodeId> = LazyLock::new(NodeId::new);
 const DEFAULT_NODE_ID_PATH: &str = "/opt/kumomta/etc/.nodeid";
 
 /// The NodeId is intended to identify a specific instance of KumoMTA

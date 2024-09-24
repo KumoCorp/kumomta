@@ -95,7 +95,7 @@ impl DeliveryMetrics {
         }
 
         static GLOBALS: LazyLock<Mutex<HashMap<String, Arc<GlobalMetrics>>>> =
-            LazyLock::new(|| Mutex::new(HashMap::new()));
+            LazyLock::new(Mutex::default);
 
         let globals = {
             let mut g = GLOBALS.lock();

@@ -20,7 +20,7 @@ use std::time::Duration;
 pub mod test;
 
 static POOLS: LazyLock<Mutex<HashMap<RedisConnKey, Pool<ClientManager>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+    LazyLock::new(Mutex::default);
 
 pub struct ClientManager(ClientWrapper);
 

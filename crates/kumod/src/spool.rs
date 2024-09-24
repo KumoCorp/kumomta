@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-static MANAGER: LazyLock<SpoolManager> = LazyLock::new(|| SpoolManager::new());
+static MANAGER: LazyLock<SpoolManager> = LazyLock::new(SpoolManager::new);
 static SPOOLIN_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_spoolin_threads(n: usize) {

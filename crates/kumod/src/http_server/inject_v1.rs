@@ -41,8 +41,7 @@ static HTTPINJECT: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("httpinject", |cpus| cpus * 3 / 8, &HTTPINJECT_THREADS).unwrap());
 
 static HTTPINJECT_THREADS: AtomicUsize = AtomicUsize::new(0);
-static LIMIT: LazyLock<ArcSwap<Option<ThrottleSpec>>> =
-    LazyLock::new(|| ArcSwap::new(Arc::new(None)));
+static LIMIT: LazyLock<ArcSwap<Option<ThrottleSpec>>> = LazyLock::new(ArcSwap::default);
 
 pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
     let spec = Arc::new(spec);
