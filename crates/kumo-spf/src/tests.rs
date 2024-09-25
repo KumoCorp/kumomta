@@ -75,6 +75,28 @@ async fn ip() {
         },
         "{result:?}"
     );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_zone(EXAMPLE_ORG)
+        .with_spf("example.com", "v=spf1 a:example.org -all".to_string());
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 10])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
 }
 
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A
@@ -90,6 +112,12 @@ bob         A   192.0.2.66
 mail-a      A   192.0.2.129
 mail-b      A   192.0.2.130
 www         CNAME example.com."#;
+
+/// https://www.rfc-editor.org/rfc/rfc7208#appendix-A
+const EXAMPLE_ORG: &str = r#"; A related domain
+$ORIGIN example.org.
+@       600 MX  10 mail-c
+mail-c      A   192.0.2.140"#;
 
 #[derive(Default)]
 struct TestResolver {
