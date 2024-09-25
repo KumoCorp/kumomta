@@ -1,6 +1,5 @@
 use crate::error::SpfError;
 use futures::future::BoxFuture;
-use hickory_resolver::error::ResolveErrorKind;
 use hickory_resolver::TokioAsyncResolver;
 
 /// A trait for entities that perform DNS resolution.
@@ -13,14 +12,7 @@ impl Lookup for TokioAsyncResolver {
         Box::pin(async move {
             self.txt_lookup(name)
                 .await
-                .map_err(|err| match err.kind() {
-                    ResolveErrorKind::NoRecordsFound { .. } => {
-                        SpfError::DnsRecordNotFound(name.to_string())
-                    }
-                    _ => {
-                        SpfError::DnsLookupFailed(format!("failed to query DNS for {name}: {err}"))
-                    }
-                })?
+                .map_err(|err| SpfError::from_resolve(name, err))?
                 .into_iter()
                 .map(|txt| {
                     Ok(txt
