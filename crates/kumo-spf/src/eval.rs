@@ -1,4 +1,5 @@
-use crate::record::{MacroElement, MacroName};
+use crate::record::{DomainSpec, MacroElement, MacroName};
+use crate::{SpfDisposition, SpfResult};
 use std::fmt::Write;
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -7,8 +8,8 @@ pub struct EvalContext<'a> {
     sender: &'a str,
     local_part: &'a str,
     sender_domain: &'a str,
-    domain: &'a str,
-    client_ip: IpAddr,
+    pub(crate) domain: &'a str,
+    pub(crate) client_ip: IpAddr,
     now: SystemTime,
 }
 
@@ -27,6 +28,17 @@ impl<'a> EvalContext<'a> {
             domain,
             client_ip,
             now: SystemTime::now(),
+        })
+    }
+
+    pub(crate) fn domain(&self, spec: &Option<DomainSpec>) -> Result<String, SpfResult> {
+        let Some(spec) = spec.as_ref() else {
+            return Ok(self.domain.to_owned());
+        };
+
+        self.evaluate(&spec.elements).map_err(|err| SpfResult {
+            disposition: SpfDisposition::TempError,
+            context: format!("error evaluating domain spec: {err}"),
         })
     }
 

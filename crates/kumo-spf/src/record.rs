@@ -2,7 +2,7 @@ use crate::dns::Lookup;
 use crate::eval::EvalContext;
 use crate::{SpfDisposition, SpfResult};
 use std::fmt;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug)]
 pub struct Record {
@@ -85,11 +85,27 @@ impl Directive {
 
     pub async fn evaluate(
         &self,
-        _cx: &EvalContext<'_>,
-        _resolver: &dyn Lookup,
+        cx: &EvalContext<'_>,
+        resolver: &dyn Lookup,
     ) -> Result<Option<SpfResult>, SpfResult> {
         let matched = match &self.mechanism {
             Mechanism::All => true,
+            Mechanism::A { domain, cidr_len } => {
+                let domain = cx.domain(domain)?;
+                let resolved = match resolver.lookup_ip(&domain).await {
+                    Ok(ips) => ips,
+                    Err(err) => {
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::TempError,
+                            context: format!("error looking up IP for {domain}: {err}"),
+                        })
+                    }
+                };
+
+                resolved
+                    .iter()
+                    .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
+            }
             _ => todo!("evaluate directive {self:?}"),
         };
 
@@ -150,6 +166,28 @@ impl Qualifier {
 pub struct DualCidrLength {
     pub v4: u8,
     pub v6: u8,
+}
+
+impl DualCidrLength {
+    /// Whether the `observed` IP address (from the client's IP) matches the `specified` address
+    /// (from/via the SPF record), given the specified CIDR mask lengths.
+    fn matches(&self, observed: IpAddr, specified: IpAddr) -> bool {
+        match (observed, specified, self) {
+            (IpAddr::V4(observed), IpAddr::V4(specified), DualCidrLength { v4, .. }) => {
+                let mask = u32::MAX << (32 - v4);
+                let specified_masked = Ipv4Addr::from_bits(specified.to_bits() & mask);
+                let observed_masked = Ipv4Addr::from(observed.to_bits() & mask);
+                specified_masked == observed_masked
+            }
+            (IpAddr::V6(observed), IpAddr::V6(specified), DualCidrLength { v6, .. }) => {
+                let mask = u128::MAX << (32 - v6);
+                let specified_masked = Ipv6Addr::from_bits(specified.to_bits() & mask);
+                let observed_masked = Ipv6Addr::from(observed.to_bits() & mask);
+                specified_masked == observed_masked
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Default for DualCidrLength {
