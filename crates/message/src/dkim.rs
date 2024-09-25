@@ -1,5 +1,5 @@
 use anyhow::Context;
-use config::{from_lua_value, get_or_create_sub_module};
+use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use kumo_dkim::DkimPrivateKey;
 use lruttl::LruCacheWithTtl;
@@ -7,8 +7,9 @@ use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
 use prometheus::{Counter, Histogram};
 use serde::Deserialize;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
+use tokio::runtime::Runtime;
 
 static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
     LazyLock::new(|| LruCacheWithTtl::new(1024));
@@ -158,6 +159,8 @@ impl SignerConfig {
     }
 }
 
+pub static SIGN_POOL: OnceLock<Runtime> = OnceLock::new();
+
 #[derive(Clone)]
 #[cfg_attr(feature = "impl", derive(mlua::FromLua))]
 pub struct Signer(Arc<CFSigner>);
@@ -172,6 +175,21 @@ impl LuaUserData for Signer {}
 
 pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     let dkim_mod = get_or_create_sub_module(lua, "dkim")?;
+    dkim_mod.set(
+        "set_signing_threads",
+        lua.create_function(move |_lua, n: usize| {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .thread_name("dkimsign")
+                .max_blocking_threads(n)
+                .build()
+                .map_err(any_err)?;
+            SIGN_POOL
+                .set(runtime)
+                .map_err(|_| mlua::Error::external("dkimsign pool is already configured"))?;
+            println!("started dkimsign pool with {n} threads");
+            Ok(())
+        })?,
+    )?;
     dkim_mod.set(
         "rsa_sha256_signer",
         lua.create_async_function(|lua, params: Value| async move {

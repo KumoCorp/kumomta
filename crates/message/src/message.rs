@@ -1,6 +1,8 @@
 use crate::address::HeaderAddressList;
 #[cfg(feature = "impl")]
 use crate::dkim::Signer;
+#[cfg(feature = "impl")]
+use crate::dkim::SIGN_POOL;
 pub use crate::queue_name::QueueNameComponents;
 use crate::scheduling::Scheduling;
 use crate::EnvelopeAddress;
@@ -852,10 +854,22 @@ impl Message {
     }
 
     #[cfg(feature = "impl")]
-    pub fn dkim_sign(&self, signer: &Signer) -> anyhow::Result<()> {
-        let data = self.get_data();
-        let header = signer.sign(&data)?;
-        self.prepend_header(None, &header);
+    pub async fn dkim_sign(&self, signer: Signer) -> anyhow::Result<()> {
+        if let Some(runtime) = SIGN_POOL.get() {
+            let msg = self.clone();
+            runtime
+                .spawn_blocking(move || {
+                    let data = msg.get_data();
+                    let header = signer.sign(&data)?;
+                    msg.prepend_header(None, &header);
+                    Ok::<(), anyhow::Error>(())
+                })
+                .await??;
+        } else {
+            let data = self.get_data();
+            let header = signer.sign(&data)?;
+            self.prepend_header(None, &header);
+        }
         Ok(())
     }
 
@@ -1109,8 +1123,8 @@ impl UserData for Message {
         });
 
         #[cfg(feature = "impl")]
-        methods.add_method("dkim_sign", move |_, this, signer: Signer| {
-            Ok(this.dkim_sign(&signer).map_err(any_err)?)
+        methods.add_async_method("dkim_sign", |_, this, signer: Signer| async move {
+            Ok(this.dkim_sign(signer).await.map_err(any_err)?)
         });
 
         methods.add_method(
