@@ -27,3 +27,276 @@
 # kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 #### BEGIN COMMUNITY CONTRIBUTED SHAPING RULES
+# There are some policies in the standard shaping.toml, depending on your install 
+# you might not have all of them which are in the lastest versions
+
+# Fallback to plain text delivery if TLS is not supported
+[["default".automation]]
+regex = "KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. "
+action = {SetConfig={name="enable_tls", value="Disabled"}}
+duration = "30 days"
+
+#===== GMAIL
+[["gmail.com".automation]]
+regex = "Our system has detected an unusual rate"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="max_message_rate", value="1/minute"}}
+duration = "30m"
+
+[["gmail.com".automation]]
+regex = "Our system has detected that this message"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["gmail.com".automation]]
+regex = "Our system has detected an unusual rate"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="max_message_rate", value="10/minute"}}
+duration = "30m"
+
+#===== YAHOO
+# 421 4.7.0 [TS01] Messages from x.x.x.x temporarily deferred due to user complaints
+[["yahoo.com".automation]]
+regex = "\\[TS01\\]"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="max_message_rate", value="1/minute"}}
+duration = "30m"
+
+# We're seeing unusual traffic patterns from your server.
+# Submit your sending IPs for review.
+[["yahoo.com".automation]]
+regex = "\\[TS02\\]"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="max_message_rate", value="1/minute"}}
+duration = "30m"
+
+# We're seeing unusual traffic patterns from your server
+[["yahoo.com".automation]]
+regex = "\\[TS03\\]"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="max_message_rate", value="10/minute"}}
+duration = "30m"
+
+# 421 4.7.0 [TSS04] Messages from a.b.c.d temporarily deferred due to user complaints
+[["yahoo.com".automation]]
+regex = "421 4\\.7\\.0 \\[TSS04\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "2 hours"
+
+# The sending IP is listed on a Spamhaus blacklist
+[["yahoo.com".automation]]
+regex = "553 5\\.7\\.1 \\[BL"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "2 hours"
+
+# 421 Max message per connection reached, closing transmission channel
+[["yahoo.com".automation]]
+regex = "Max message per connection reached, closing transmission channel"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="max_message_rate", value="10/minute"}}
+duration = "1 hour"
+
+#===== web.de
+["web.de"]
+max_deliveries_per_connection = 100
+connection_limit = 4
+enable_tls = "Required"
+consecutive_connection_failures_before_delay = 5
+
+[["web.de".automation]]
+regex = "Too many connections"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "2 hours"
+
+[["web.de".automation]]
+regex = "Reject due to policy restrictions."
+trigger = {Threshold="5/hr"}
+action = {SetConfig={name="max_message_rate", value="1/minute"}}
+duration = "1 hour"
+
+[["web.de".automation]]
+regex = "Reject due to policy violations."
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["web.de".automation]]
+regex = "554.*Reject due to policy restrictions."
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "2 hours"
+
+#===== outlook.com
+["outlook.com"]
+max_deliveries_per_connection = 50
+connection_limit = 5
+enable_tls = "Required"
+
+[["outlook.com".automation]]
+regex = "Unfortunately.*part of their network is on our block list"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "2 hours"
+
+[["outlook.com".automation]]
+regex = "Access denied, please try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["outlook.com".automation]]
+regex = "Server busy. Please try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "30m"
+
+[["outlook.com".automation]]
+regex = "The mail server.*has been temporarily rate limited"
+trigger = {Threshold="3/hr"}
+action = "Suspend"
+duration = "30m"
+
+[["outlook.com".automation]]
+regex = "Server busy. Please try again later"
+trigger = {Threshold="3/hr"}
+action = {SetConfig={name="max_message_rate", value="1/minute"}}
+duration = "15m"
+
+[["outlook.com".automation]]
+regex = "The mail server.*has exceeded the maximum number of connections"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[["outlook.com".automation]]
+regex = "The mail server.*has exceeded maximum number of messages per connection"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="max_deliveries_per_connection", value=2}}
+duration = "1 hour"
+
+[["outlook.com".automation]]
+regex = "Connection refused from.*due to exceed max concurrent connections. IB007"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[["outlook.com".automation]]
+regex = "Temporary server error. Please try again later"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+#===== orange.fr
+["orange.fr"]
+max_deliveries_per_connection = 75
+connection_limit = 1
+enable_tls = "Required"
+
+[["orange.fr".automation]]
+regex = "Trop de connexions"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[["orange.fr".automation]]
+regex = "Service refuse"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["orange.fr".automation]]
+regex = "Client host blocked for spamming issues.*http://csi.cloudmark.com/reset-request/"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "2 hour"
+
+[["orange.fr".automation]]
+regex = "Client host blocked for spamming issues.*spamhaus"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "2 hour"
+
+#===== qq.com
+["qq.com"]
+max_deliveries_per_connection = 8
+connection_limit = 4
+enable_tls = "Required"
+
+[["qq.com".automation]]
+regex = "550 Sender frequency limited.*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["qq.com".automation]]
+regex = "550 Ip frequency limited.*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["qq.com".automation]]
+regex = "550 Connection frequency limited.*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["qq.com".automation]]
+regex = "550 Domain frequency limited.*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+[["qq.com".automation]]
+regex = "550 Mail content denied.*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+#===== 163.com
+["163.com"]
+max_deliveries_per_connection = 7
+connection_limit = 4
+enable_tls = "RequiredInsecure"
+
+[["163.com".automation]]
+regex = "451 DT:SPM*"
+trigger = {Threshold="5/hr"}
+action = "Suspend"
+duration = "15m"
+
+[["163.com".automation]]
+regex = "421 Too many connections"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+[["163.com".automation]]
+regex = "554 DT:SPM"
+trigger = {Threshold="2/hr"}
+action = {SetConfig={name="connection_limit", value=1}}
+duration = "1 hour"
+
+# At daily limit
+[["163.com".automation]]
+regex = "550 RP:ORQ"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+# At daily limit
+[["163.com".automation]]
+regex = "554 HL:ITC"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "1 hour"
+
+
+
+
+
+
+
