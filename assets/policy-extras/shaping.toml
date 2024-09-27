@@ -191,6 +191,7 @@ connection_limit = 10
 max_deliveries_per_connection = 100
 
 # https://www.postmastery.com/orange-postmaster-smtp-error-codes-ofr/
+# https://messagerie.orange.fr/postmaster.html
 ["orange.fr"]
 connection_limit = 3
 
