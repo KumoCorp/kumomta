@@ -98,7 +98,6 @@ steps:
         from_secret: package_build_token
     commands:
       - "bash ./assets/ci/retry.sh gh release upload --clobber dev *.deb"
-      - ./assets/ci/notify-package-server.sh
 
   publish-gh-tag:
     depends_on: [verify-installable]
@@ -112,7 +111,6 @@ steps:
         from_secret: package_build_token
     commands:
       - "bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.deb"
-      - ./assets/ci/notify-package-server.sh
 
   # Docker image build test on PRs
 
