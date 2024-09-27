@@ -27,14 +27,6 @@
 # kumo.on('get_egress_path_config', shaper.get_egress_path_config)
 
 #### BEGIN COMMUNITY CONTRIBUTED SHAPING RULES
-# There are some policies in the standard shaping.toml, depending on your install 
-# you might not have all of them which are in the lastest versions
-
-# Fallback to plain text delivery if TLS is not supported
-[["default".automation]]
-regex = "KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. "
-action = {SetConfig={name="enable_tls", value="Disabled"}}
-duration = "30 days"
 
 #===== GMAIL
 [["gmail.com".automation]]
