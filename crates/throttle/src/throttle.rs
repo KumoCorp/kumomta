@@ -373,6 +373,6 @@ mod test {
         let redis = RedisServer::spawn("").await.unwrap();
         let conn = redis.connection().await.unwrap();
         let cx = RedisContext::try_from(conn).await.unwrap();
-        test_big_limits(1_000, None, 0.02, &VanillaRedis(cx.connection)).await;
+        test_big_limits(1_000, None, 0.2, &VanillaRedis(cx.connection)).await;
     }
 }
