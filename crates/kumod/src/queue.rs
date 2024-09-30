@@ -1522,6 +1522,48 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
+        // Don't promote to ready queue while suspended
+        if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
+            let remaining = suspend.get_duration();
+            tracing::trace!("{} is suspended, delay={remaining:?}", self.name);
+
+            log_disposition(LogDisposition {
+                kind: RecordType::TransientFailure,
+                msg: msg.clone(),
+                site: &self.name,
+                peer_address: None,
+                response: rfc5321::Response {
+                    code: 451,
+                    enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                        class: 4,
+                        subject: 4,
+                        detail: 4,
+                    }),
+                    content: format!(
+                        "KumoMTA internal: scheduled queue is suspended: {}",
+                        suspend.reason
+                    ),
+                    command: None,
+                },
+                egress_source: None,
+                egress_pool: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                provider: None,
+                tls_info: None,
+                source_address: None,
+            })
+            .await;
+
+            match self.increment_attempts_and_update_delay(msg).await? {
+                Some(msg) => {
+                    self.force_into_delayed(msg).await?;
+                }
+                None => {}
+            }
+            return Ok(());
+        }
+
         if let Some(result) = self.check_message_rate_throttle().await? {
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
@@ -1591,7 +1633,7 @@ impl Queue {
                         name,
                         ready_queue_name,
                     } => (name, ready_queue_name),
-                    RoundRobinResult::Delay(duration) => {
+                    RoundRobinResult::Delay(_duration) => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -1619,8 +1661,7 @@ impl Queue {
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                         })
                         .await;
-                        msg.delay_by_and_jitter(duration).await?;
-                        return self.force_into_delayed(msg).await;
+                        anyhow::bail!("all possible sources for {} are suspended", self.name);
                     }
                     RoundRobinResult::NoSources => {
                         log_disposition(LogDisposition {
@@ -1810,15 +1851,6 @@ impl Queue {
             match self.insert_delayed(msg.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 InsertResult::Ready(msg) => {
-                    // Don't promote to ready queue while suspended
-                    if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
-                        let remaining = suspend.get_duration();
-                        msg.delay_by_and_jitter(remaining).await?;
-                        // Continue and attempt to insert_delayed with
-                        // the adjusted time
-                        continue;
-                    }
-
                     self.insert_ready(msg.clone()).await?;
                     return Ok(());
                 }

@@ -72,6 +72,7 @@ DeliverySummary {
     source_counts: {
         Reception: 2,
         Delivery: 1,
+        TransientFailure: 1,
     },
     sink_counts: {
         Reception: 1,

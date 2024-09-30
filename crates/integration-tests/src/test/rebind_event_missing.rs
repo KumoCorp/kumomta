@@ -59,6 +59,7 @@ async fn rebind_event_missing() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 1,
+        TransientFailure: 1,
     },
     sink_counts: {},
 }

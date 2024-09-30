@@ -57,6 +57,7 @@ end)
 kumo.on('smtp_server_message_received', function(msg)
   local tenant = msg:get_first_named_header_value 'X-Tenant'
   local campaign = msg:get_first_named_header_value 'X-campaign'
+  msg:import_scheduling_header 'X-Schedule'
   print('****** tenant', tenant, 'camp', campaign)
   msg:set_meta('tenant', tenant)
   msg:set_meta('campaign', campaign)

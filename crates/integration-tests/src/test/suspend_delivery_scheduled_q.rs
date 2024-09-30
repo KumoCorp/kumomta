@@ -46,6 +46,7 @@ async fn suspend_delivery_scheduled_q() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 1,
+        TransientFailure: 1,
     },
     sink_counts: {},
 }

@@ -4,6 +4,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_suspend_ready_q_v1::{
     AdminSuspendReadyQEntry, AdminSuspendReadyQEntryRef,
 };
+use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::http_server::inject_v1::HttpInjectionGeneratorDispatcher;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
@@ -1494,8 +1495,43 @@ impl Dispatcher {
             if let Some(msg) = self.ready.pop() {
                 if let Ok(queue_name) = msg.get_queue_name() {
                     if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
-                        entry.log(msg.clone(), None).await;
+                        entry.log(msg.clone(), Some(&queue_name)).await;
                         SpoolManager::remove_from_spool(*msg.id()).await.ok();
+                        continue;
+                    }
+                    if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&queue_name) {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: &self.name,
+                            peer_address: None,
+                            response: rfc5321::Response {
+                                code: 451,
+                                enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!(
+                                    "KumoMTA internal: scheduled queue is suspended: {}",
+                                    suspend.reason
+                                ),
+                                command: None,
+                            },
+                            egress_source: None,
+                            egress_pool: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                            provider: None,
+                            tls_info: None,
+                            source_address: None,
+                        })
+                        .await;
+
+                        let increment_attempts = true;
+                        Self::requeue_message(msg, increment_attempts, None)
+                            .await
+                            .ok();
                         continue;
                     }
                 }

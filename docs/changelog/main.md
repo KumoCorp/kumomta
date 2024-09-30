@@ -87,3 +87,11 @@
 
 * TSA SuspendTenant rules didn't respect the duration specified in the rule,
   instead defaulting to 5 minutes.
+
+* Suspensions didn't apply to every case where a message could enter the ready
+  queue.  We now check both as part of entering the ready queue and as a last
+  moment check when a message is popped off the ready queue. We will now log a
+  `TransientFailure` log record whenever a message matches a scheduled queue
+  suspension. In addition, suspensions will now always respect the normal
+  exponential backoff retry schedule instead of clumping together when the
+  suspension expires. #290 #293

@@ -66,6 +66,7 @@ DeliverySummary {
     source_counts: {
         Reception: 1,
         Delivery: 1,
+        TransientFailure: 1,
         AdminRebind: 1,
     },
     sink_counts: {
