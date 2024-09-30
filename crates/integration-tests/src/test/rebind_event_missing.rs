@@ -44,15 +44,20 @@ async fn rebind_event_missing() -> anyhow::Result<()> {
 
     daemon
         .wait_for_source_summary(
-            |summary| {
-                    summary.get(&TransientFailure).copied().unwrap_or(0) > 0
-            },
+            |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 0,
             Duration::from_secs(10),
         )
         .await;
 
     daemon.stop_both().await?;
     let delivery_summary = daemon.dump_logs()?;
-    assert!(delivery_summary.source_counts.get(&TransientFailure).copied().unwrap_or(0) > 0);
+    assert!(
+        delivery_summary
+            .source_counts
+            .get(&TransientFailure)
+            .copied()
+            .unwrap_or(0)
+            > 0
+    );
     Ok(())
 }
