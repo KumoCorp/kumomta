@@ -10,3 +10,8 @@ duration = "1 hour"
 regex = "you said 450-suspend-campaign"
 action = "SuspendCampaign"
 duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 450-suspend-tenant"
+action = "SuspendTenant"
+duration = "1 hour"

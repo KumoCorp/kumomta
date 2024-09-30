@@ -19,4 +19,5 @@ mod suspend_delivery_scheduled_q_and_deliver;
 mod temp_fail;
 mod tls_opportunistic_fail;
 mod tsa_basic_automation;
+mod tsa_campaign_suspension;
 mod tsa_tenant_suspension;

@@ -4,15 +4,15 @@ use kumo_log_types::RecordType::{Delivery, TransientFailure};
 use std::time::Duration;
 
 #[tokio::test]
-async fn tsa_tenant_suspension() -> anyhow::Result<()> {
+async fn tsa_campaign_suspension() -> anyhow::Result<()> {
     let mut daemon = DaemonWithTsa::start().await?;
 
     let mut client = daemon.smtp_client().await?;
 
-    let body = "X-Tenant: mytenant\r\n\r\nFoo";
+    let body = "X-Tenant: mytenant\r\nX-Campaign: mycamp\r\n\r\nFoo";
     let response = MailGenParams {
         full_content: Some(body),
-        recip: Some("450-suspend-tenant@foo.mx-sink.wezfurlong.org"),
+        recip: Some("450-suspend-campaign@foo.mx-sink.wezfurlong.org"),
         ..Default::default()
     }
     .send(&mut client)
@@ -68,7 +68,7 @@ DeliverySummary {
     let item = &status[0];
     let reason = &item.reason;
     assert!(reason.contains("you said"), "{reason}");
-    assert_eq!(item.campaign.as_deref(), None);
+    assert_eq!(item.campaign.as_deref(), Some("mycamp"));
     assert_eq!(item.tenant.as_deref(), Some("mytenant"));
     assert!(
         item.duration.as_secs() > 50 * 60,
