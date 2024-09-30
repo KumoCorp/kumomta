@@ -270,7 +270,7 @@ impl LogThreadState {
         if !self.file_map.contains_key(&file_key) {
             let now = Utc::now();
 
-            let mut base_name = now.format("%Y%m%d-%H%M%S").to_string();
+            let mut base_name = now.format("%Y%m%d-%H%M%S%.f").to_string();
             if let Some(suffix) = &file_key.suffix {
                 base_name.push_str(suffix);
             }
@@ -332,7 +332,11 @@ impl LogThreadState {
                 .with_context(|| format!("writing record to {}", file.name.display()))?;
             file.written += record_text.len() as u64;
 
-            need_rotate = file.written >= self.params.max_file_size;
+            need_rotate = file.written >= self.params.max_file_size
+                || file
+                    .expires
+                    .map(|exp| exp >= Instant::now())
+                    .unwrap_or(false);
         }
 
         if need_rotate {

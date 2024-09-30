@@ -3,6 +3,9 @@
 ## Breaking Changes
 * `kcli bounce-list` no longer returns json output by default. Use `--json`
   to explicitly request json output.
+* The filename format for log file segments now includes fractional seconds
+  so that there is no chance of file naming collision when using aggressively
+  small values for `max_file_size` or `max_segment_duration`.
 
 ## Other Changes and Enhancements
 * Queue and Egress configs can now be set to work in a mode where they refresh
