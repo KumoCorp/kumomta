@@ -42,9 +42,13 @@ function mod:setup(extra_files)
   }).get_egress_path_config
 end
 
-local function load_shaping_data(file_names)
+local function load_shaping_data(file_names, validation_options)
   -- print('Loading shaping data from ', kumo.json_encode(file_names))
-  local result = kumo.shaping.load(file_names)
+  local result = kumo.shaping.load(file_names, validation_options)
+  local errors = result:get_errors()
+  for _, err in ipairs(errors) do
+    print(err)
+  end
   local warnings = result:get_warnings()
   for _, warn in ipairs(warnings) do
     print(warn)
@@ -261,6 +265,31 @@ local shaper = shaping:setup_with_automation {
     retry_interval = '1m',
     max_retry_interval = '20m',
   },
+
+  -- optional; specify the validation options to use when loading
+  -- the shaping data in the live service
+  load_validation_options = {
+        aliased_site = 'Ignore',
+        dns_fail = 'Ignore',
+        local_load = 'Error',
+        null_mx = 'Ignore',
+        provider_overlap = 'Ignore',
+        remote_load = 'Ignore',
+        skip_remote = false,
+  },
+
+  -- optional; specify the validation options to use in --validate
+  -- mode. You might consider making these more strict than the
+  -- regular load_validation_options.
+  validation_options = {
+        aliased_site = 'Warn',
+        dns_fail = 'Warn',
+        local_load = 'Error',
+        null_mx = 'Warn',
+        provider_overlap = 'Warn',
+        remote_load = 'Ignore',
+        skip_remote = true,
+  },
 }
 
 kumo.on('init', function()
@@ -359,7 +388,7 @@ function mod:setup_with_automation(options)
   end
 
   local function cached_load_shaping_data()
-    return cached_load_data(file_names, options.subscribe)
+    return cached_load_data(file_names, options.load_validation_options)
   end
 
   local function get_egress_path_config(
@@ -446,26 +475,46 @@ kumo.on('validate_config', function()
     return
   end
 
-  local result = kumo.shaping.load(mod.CONFIGURED._file_names)
+  local result = kumo.shaping.load(
+    mod.CONFIGURED._file_names,
+    mod.CONFIGURED._options.validation_options
+      or {
+        aliased_site = 'Warn',
+        dns_fail = 'Warn',
+        local_load = 'Error',
+        null_mx = 'Warn',
+        provider_overlap = 'Warn',
+        remote_load = 'Ignore',
+        skip_remote = true,
+      }
+  )
   local warnings = result:get_warnings()
-  local failed = false
+  local errors = result:get_errors()
+  local did_header = false
 
   function show_context()
-    if failed then
+    if did_header then
       return
     end
-    failed = true
-    kumo.validation_failed()
+    did_header = true
     print 'Issues found in the combined set of shaping files:'
     for _, file_name in ipairs(mod.CONFIGURED._file_names) do
       print(string.format(' - %s', file_name))
     end
   end
 
+  if #errors > 0 then
+    show_context()
+    kumo.validation_failed()
+    for _, err in ipairs(errors) do
+      print('ERROR: ' .. err)
+    end
+  end
+
   if #warnings > 0 then
     show_context()
     for _, warn in ipairs(warnings) do
-      print(warn)
+      print('WARNING: ' .. warn)
     end
   end
 
@@ -478,6 +527,7 @@ kumo.on('validate_config', function()
       else
         if not source_data.sources[source] then
           show_context()
+          kumo.validation_failed()
           print(
             string.format(
               "Source '%s' is not present in your sources helper data. Referenced by %s",

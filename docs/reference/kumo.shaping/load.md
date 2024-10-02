@@ -1,4 +1,4 @@
-# `kumo.shaping.load({PATHS})`
+# `kumo.shaping.load({PATHS}, {OPTIONS})`
 
 {{since('2023.08.22-4d895015')}}
 
@@ -20,6 +20,47 @@ kumo.on('tsa_load_shaping_data', function()
   return shaping
 end)
 ```
+
+## Options Parameter
+
+{{since('dev')}}
+
+The options parameter allows for the following fields:
+
+* `aliased_site` - specifies the severity of aliases between domain blocks.
+  Domains that resolve to the same site name are likely undesirable as they
+  can lead to logical conflicts in the resulting configuration.
+  The default value for this is `"Ignore"`, but you can specify `"Warn"` or
+  `"Error"`.
+
+* `dns_fail` - specifies the severity of DNS resolution failures for a domain
+  block.
+  The default value for this is `"Ignore"`, but you can specify `"Warn"` or
+  `"Error"`.
+
+* `local_load` - specifies the severity of a failure to load a local shaping
+  file.
+  The default value for this is `"Error"`, but you can specify `"Warn"` or
+  `"Ignore"`.
+
+* `null_mx` - how to treat a domain block when the DNS indicates that it
+  is a NULL MX that doesn't receive mail.
+  The default value for this is `"Ignore"`, but you can specify `"Warn"` or
+  `"Error"`.
+
+* `provider_overlap` - how to treat overlap between domain blocks and provider
+  blocks. These are likely undesirable as they can lead to logical conflicts
+  in the resulting configuration.
+  The default value for this is `"Ignore"`, but you can specify `"Warn"` or
+  `"Error"`.
+
+* `remote_load` - specifies the severity of a failure to load a remote
+  shaping file.
+  The default value for this is `"Ignore"`, but you can specify `"Warn"` or
+  `"Error"`.
+
+* `skip_remote` - a boolean to indicate whether to skip loading remote shaping
+  files.  The default is `false`, and the shaper will load remote shaping files.
 
 ## Shaping Data Format
 

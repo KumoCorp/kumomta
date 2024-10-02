@@ -69,6 +69,13 @@
   typically indicate a severe issue with the local infrastructure, either in
   terms of a configuration error or production service availability.
 
+* The `validate-shaping` utility and underlying
+  [kumo.shaping.load](../reference/kumo.shaping/load.md) function now support
+  options to control whether individual checks should be warnings, errors or be
+  ignored.  The shaping helper allows specifying these options as
+  `load_validation_options` (for regular load-time checks) and
+  `validation_options` (for `--validate` mode).
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

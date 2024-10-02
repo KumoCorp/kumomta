@@ -249,6 +249,7 @@ struct ShapingInner {
     by_domain: OrderMap<String, PartialEntry>,
     by_provider: OrderMap<String, ProviderEntry>,
     warnings: Vec<String>,
+    errors: Vec<String>,
     hash: String,
 }
 
@@ -436,34 +437,141 @@ fn from_toml<'a, T: Deserialize<'a>>(toml: &'a str) -> anyhow::Result<T> {
 }
 
 #[cfg(feature = "lua")]
+#[derive(Default, Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+pub enum CheckLevel {
+    #[default]
+    Ignore,
+    Warn,
+    Error,
+}
+#[cfg(feature = "lua")]
+impl std::str::FromStr for CheckLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        if s.eq_ignore_ascii_case("ignore") {
+            Ok(Self::Ignore)
+        } else if s.eq_ignore_ascii_case("warn") {
+            Ok(Self::Warn)
+        } else if s.eq_ignore_ascii_case("error") {
+            Ok(Self::Error)
+        } else {
+            Err(format!(
+                "Expected one of `Ignore`, `Warn` or `Error`, got `{s}`"
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
+#[derive(Default)]
+struct Collector {
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[cfg(feature = "lua")]
+impl Collector {
+    fn push<S: Into<String>>(&mut self, level: CheckLevel, msg: S) {
+        match level {
+            CheckLevel::Ignore => {}
+            CheckLevel::Warn => self.warnings.push(msg.into()),
+            CheckLevel::Error => self.errors.push(msg.into()),
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShapingMergeOptions {
+    #[serde(default)]
+    pub provider_overlap: CheckLevel,
+    #[serde(default)]
+    pub dns_fail: CheckLevel,
+    #[serde(default)]
+    pub null_mx: CheckLevel,
+    #[serde(default)]
+    pub aliased_site: CheckLevel,
+    #[serde(default)]
+    pub skip_remote: bool,
+    #[serde(default)]
+    pub remote_load: CheckLevel,
+    #[serde(default)]
+    pub local_load: CheckLevel,
+}
+
+#[cfg(feature = "lua")]
+impl Default for ShapingMergeOptions {
+    fn default() -> Self {
+        Self {
+            provider_overlap: CheckLevel::Ignore,
+            dns_fail: CheckLevel::Ignore,
+            null_mx: CheckLevel::Ignore,
+            aliased_site: CheckLevel::Ignore,
+            skip_remote: false,
+            remote_load: CheckLevel::Ignore,
+            local_load: CheckLevel::Error,
+        }
+    }
+}
+
+#[cfg(feature = "lua")]
 impl Shaping {
-    async fn load_from_file(path: &str) -> anyhow::Result<ShapingFile> {
-        let data: String = if path.starts_with("http://") || path.starts_with("https://") {
-            // To facilitate startup ordering races, and listing multiple subscription
-            // host replicas and allowing one or more of them to be temporarily down,
-            // we allow the http request to fail.
-            // We'll log the error message but consider it to be an empty map
-
-            async fn http_get(url: &str) -> anyhow::Result<String> {
-                reqwest::get(url)
-                    .await
-                    .with_context(|| format!("making HTTP request to {url}"))?
-                    .text()
-                    .await
-                    .with_context(|| format!("reading text from {url}"))
-            }
-
-            match http_get(path).await {
-                Ok(s) => s,
-                Err(err) => {
-                    tracing::error!("{err:#}. Ignoring this shaping source for now");
+    async fn load_from_file(
+        path: &str,
+        options: &ShapingMergeOptions,
+        collector: &mut Collector,
+    ) -> anyhow::Result<ShapingFile> {
+        let (data, level): (String, CheckLevel) =
+            if path.starts_with("http://") || path.starts_with("https://") {
+                if options.skip_remote {
+                    collector.push(
+                        CheckLevel::Warn,
+                        format!("Ignoring {path} because skip_remote is set to true"),
+                    );
                     return Ok(ShapingFile::default());
                 }
-            }
-        } else {
-            std::fs::read_to_string(path)
-                .with_context(|| format!("loading data from file {path}"))?
-        };
+
+                // To facilitate startup ordering races, and listing multiple subscription
+                // host replicas and allowing one or more of them to be temporarily down,
+                // we allow the http request to fail.
+                // We'll log the error message but consider it to be an empty map
+
+                async fn http_get(url: &str) -> anyhow::Result<String> {
+                    reqwest::get(url)
+                        .await
+                        .with_context(|| format!("making HTTP request to {url}"))?
+                        .text()
+                        .await
+                        .with_context(|| format!("reading text from {url}"))
+                }
+
+                match http_get(path).await {
+                    Ok(s) => (s, options.remote_load),
+                    Err(err) => {
+                        tracing::error!("{err:#}. Ignoring this shaping source for now");
+                        collector.push(
+                            options.remote_load,
+                            format!("remote shaping source {path} error: {err:#}"),
+                        );
+                        return Ok(ShapingFile::default());
+                    }
+                }
+            } else {
+                match std::fs::read_to_string(path)
+                    .with_context(|| format!("loading data from file {path}"))
+                {
+                    Err(err) => {
+                        collector.push(
+                            options.local_load,
+                            format!("local shaping source {path} error: {err:#}"),
+                        );
+                        return Ok(ShapingFile::default());
+                    }
+                    Ok(s) => (s, options.local_load),
+                }
+            };
 
         if path.ends_with(".toml") {
             from_toml(&data).with_context(|| format!("parsing toml from file {path}"))
@@ -481,23 +589,28 @@ impl Shaping {
                 Err(err) => errors.push(format!("as json: {err:#}")),
             }
 
-            anyhow::bail!("parsing {path}: {}", errors.join(", "));
+            collector.push(level, format!("parsing {path}: {}", errors.join(", ")));
+            Ok(ShapingFile::default())
         }
     }
 
-    pub async fn merge_files(files: &[String]) -> anyhow::Result<Self> {
+    pub async fn merge_files(
+        files: &[String],
+        options: &ShapingMergeOptions,
+    ) -> anyhow::Result<Self> {
         use futures_util::stream::FuturesUnordered;
         use futures_util::StreamExt;
 
+        let mut collector = Collector::default();
         let mut loaded = vec![];
         for p in files {
-            loaded.push(Self::load_from_file(p).await?);
+            loaded.push(Self::load_from_file(p, options, &mut collector).await?);
         }
 
         let mut by_site: OrderMap<String, PartialEntry> = OrderMap::new();
         let mut by_domain: OrderMap<String, PartialEntry> = OrderMap::new();
         let mut by_provider: OrderMap<String, ProviderEntry> = OrderMap::new();
-        let mut warnings = vec![];
+        let mut site_aliases: OrderMap<String, Vec<String>> = OrderMap::new();
 
         // Pre-resolve domains. We don't interleave the resolution with
         // the work below, because we want to ensure that the ordering
@@ -547,13 +660,16 @@ impl Shaping {
 
                 if let Ok(name) = fully_qualify(&domain) {
                     if name.num_labels() == 1 {
-                        warnings.push(format!(
-                            "Entry for domain '{domain}' consists of a \
+                        collector.push(
+                            CheckLevel::Warn,
+                            format!(
+                                "Entry for domain '{domain}' consists of a \
                                  single DNS label. Domain names in TOML sections \
                                  need to be quoted like '[\"{domain}.com\"]` otherwise \
                                  the '.' will create a nested table rather than being \
                                  added to the domain name."
-                        ));
+                            ),
+                        );
                     }
                 }
 
@@ -573,27 +689,41 @@ impl Shaping {
                     let mx = match mx.get(&domain) {
                         Some(Ok(mx)) => mx,
                         Some(Err(err)) => {
-                            warnings.push(format!(
-                                "error resolving MX for {domain}: {err:#}. \
+                            collector.push(
+                                options.dns_fail,
+                                format!(
+                                    "error resolving MX for {domain}: {err:#}. \
                                  Ignoring the shaping config for that domain."
-                            ));
+                                ),
+                            );
                             continue;
                         }
                         None => {
-                            warnings.push(format!(
+                            collector.push(
+                                options.dns_fail,
+                                format!(
                                 "We didn't try to resolve the MX for {domain} for some reason!?. \
                                  Ignoring the shaping config for that domain."
-                            ));
+                            ),
+                            );
                             continue;
                         }
                     };
 
                     if mx.site_name.is_empty() {
-                        warnings.push(format!(
+                        collector.push(
+                            options.null_mx,
+                            format!(
                             "domain {domain} has a NULL MX and cannot be used with mx_rollup=true. \
-                             Ignoring the shaping config for that domain."));
+                             Ignoring the shaping config for that domain."),
+                        );
                         continue;
                     }
+
+                    site_aliases
+                        .entry(mx.site_name.to_string())
+                        .or_default()
+                        .push(domain.to_string());
 
                     match by_site.get_mut(&mx.site_name) {
                         Some(existing) => {
@@ -647,6 +777,40 @@ impl Shaping {
                 .with_context(|| format!("provider: {provider}"))?;
         }
 
+        if options.aliased_site != CheckLevel::Ignore {
+            for (site, aliases) in site_aliases {
+                if aliases.len() > 1 {
+                    collector.push(
+                        options.aliased_site,
+                        format!(
+                            "multiple domain blocks alias to the same site: {site}: {}",
+                            aliases.join(", ")
+                        ),
+                    );
+                }
+            }
+        }
+
+        if options.provider_overlap != CheckLevel::Ignore {
+            for domain in mx.keys() {
+                let mut matching_providers = vec![];
+                for (prov_name, prov) in &by_provider {
+                    if prov.domain_matches(domain).await {
+                        matching_providers.push(prov_name.to_string());
+                    }
+                }
+                if !matching_providers.is_empty() {
+                    collector.push(
+                        options.provider_overlap,
+                        format!(
+                            "domain {domain} is also matched by provider(s): {}",
+                            matching_providers.join(", ")
+                        ),
+                    );
+                }
+            }
+        }
+
         let mut ctx = Sha256::new();
         ctx.update("by_site");
         for (site, entry) in &by_site {
@@ -664,8 +828,12 @@ impl Shaping {
             prov.hash_into(&mut ctx);
         }
         ctx.update("warnings");
-        for warn in &warnings {
+        for warn in &collector.warnings {
             ctx.update(warn);
+        }
+        ctx.update("errors");
+        for err in &collector.errors {
+            ctx.update(err);
         }
         let hash = ctx.finalize();
         let hash = data_encoding::HEXLOWER.encode(&hash);
@@ -675,7 +843,8 @@ impl Shaping {
                 by_site,
                 by_domain,
                 by_provider,
-                warnings,
+                warnings: collector.warnings,
+                errors: collector.errors,
                 hash,
             }),
         })
@@ -690,6 +859,10 @@ impl Shaping {
         self.inner
             .get_egress_path_config(domain, egress_source, site_name)
             .await
+    }
+
+    pub fn get_errors(&self) -> &[String] {
+        &self.inner.errors
     }
 
     pub fn get_warnings(&self) -> &[String] {
@@ -741,6 +914,12 @@ impl LuaUserData for Shaping {
                 lua.to_value_with(&params.params, serialize_options())
             },
         );
+
+        methods.add_method("get_errors", move |_lua, this, ()| {
+            let errors: Vec<String> = this.get_errors().iter().map(|s| s.to_string()).collect();
+            Ok(errors)
+        });
+
         methods.add_method("get_warnings", move |_lua, this, ()| {
             let warnings: Vec<String> = this.get_warnings().iter().map(|s| s.to_string()).collect();
             Ok(warnings)
@@ -1213,10 +1392,18 @@ pub fn register(lua: &mlua::Lua) -> anyhow::Result<()> {
 
     shaping_mod.set(
         "load",
-        lua.create_async_function(move |_lua, paths: Vec<String>| async move {
-            let shaping = Shaping::merge_files(&paths).await.map_err(any_err)?;
-            Ok(shaping)
-        })?,
+        lua.create_async_function(
+            move |lua, (paths, options): (Vec<String>, Option<mlua::Value>)| async move {
+                let options = match options {
+                    Some(v) => lua.from_value(v)?,
+                    None => Default::default(),
+                };
+                let shaping = Shaping::merge_files(&paths, &options)
+                    .await
+                    .map_err(any_err)?;
+                Ok(shaping)
+            },
+        )?,
     )?;
 
     Ok(())
@@ -1242,7 +1429,9 @@ mod test {
             files.push(shaping_file);
         }
 
-        Shaping::merge_files(&file_names).await.unwrap()
+        Shaping::merge_files(&file_names, &ShapingMergeOptions::default())
+            .await
+            .unwrap()
     }
 
     #[tokio::test]
@@ -2103,8 +2292,11 @@ MergedEntry {
 
     #[tokio::test]
     async fn test_load_default_shaping_toml() {
-        Shaping::merge_files(&["../../assets/policy-extras/shaping.toml".into()])
-            .await
-            .unwrap();
+        Shaping::merge_files(
+            &["../../assets/policy-extras/shaping.toml".into()],
+            &ShapingMergeOptions::default(),
+        )
+        .await
+        .unwrap();
     }
 }
