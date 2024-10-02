@@ -419,6 +419,11 @@ impl Message {
         &self.msg_and_id.id
     }
 
+    pub async fn save_and_shrink(&self) -> anyhow::Result<bool> {
+        self.save().await?;
+        self.shrink()
+    }
+
     pub fn shrink(&self) -> anyhow::Result<bool> {
         let mut inner = self.msg_and_id.inner.lock().unwrap();
         let mut did_shrink = false;

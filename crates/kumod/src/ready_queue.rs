@@ -453,7 +453,11 @@ impl ReadyQueueManager {
                     // otherwise notified in a short time span
                     age_out_time = Instant::now() + ONE_MINUTE;
                 },
-                _ = memory.changed() => {},
+                _ = memory.changed() => {
+                    if get_headroom() == 0 {
+                        queue.shrink_ready_queue_due_to_low_mem().await;
+                    }
+                },
                 _ = notify_maintainer.notified() => {
                     last_notify = Instant::now();
                     age_out_time = last_notify + AGE_OUT_INTERVAL;
@@ -486,8 +490,6 @@ impl ReadyQueueManager {
                     "{name}: {n} connections are outstanding, aborting them before reaping"
                 );
                 done_abort = true;
-            } else if get_headroom() == 0 {
-                queue.shrink_ready_queue_due_to_low_mem().await;
             } else if queue.activity.is_shutting_down() {
                 let n = queue.connections.lock().len();
                 tracing::debug!("{name}: waiting for {n} connections to close before reaping");
@@ -523,9 +525,9 @@ impl ReadyQueue {
         &self.name
     }
 
-    pub fn insert(&self, msg: Message) -> Result<(), Message> {
+    pub async fn insert(&self, msg: Message) -> Result<(), Message> {
         if low_memory() {
-            msg.shrink().ok();
+            msg.save_and_shrink().await.ok();
         }
         match self.ready.push(msg) {
             Ok(()) => {
@@ -574,7 +576,7 @@ impl ReadyQueue {
 
         for msg in self.ready.drain() {
             seen += 1;
-            if let Ok(true) = msg.shrink() {
+            if let Ok(true) = msg.save_and_shrink().await {
                 count += 1;
             }
             if let Err(msg) = self.ready.push(msg) {

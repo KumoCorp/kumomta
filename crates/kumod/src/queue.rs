@@ -1699,7 +1699,7 @@ impl Queue {
                 if let Some(ready_name) = &ready_name {
                     if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
                     {
-                        return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
                     }
                 }
 
@@ -1714,7 +1714,7 @@ impl Queue {
                 .await
                 {
                     Ok(site) => {
-                        return site.insert(msg).map_err(|_| ReadyQueueFull.into());
+                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
                     }
                     Err(err) => {
                         log_disposition(LogDisposition {

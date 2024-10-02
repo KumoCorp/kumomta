@@ -102,3 +102,11 @@
   suspension. In addition, suspensions will now always respect the normal
   exponential backoff retry schedule instead of clumping together when the
   suspension expires. #290 #293
+
+* During a low memory condition, we'd only release the body and metadata memory
+  if they had previously been saved, when the intent was that we should
+  explicitly save it and then drop it.  This meant that running with
+  deferred-spooling or otherwise modifying the message or its metadata after
+  reception could result in messages that wouldn't be eligible to shrink
+  until after their next attempt. In addition, we could repeatedly try this
+  each time the readyq maintainer would trigger during a memory shortage.
