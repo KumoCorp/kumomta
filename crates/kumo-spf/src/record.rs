@@ -106,6 +106,41 @@ impl Directive {
                     .iter()
                     .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
             }
+            Mechanism::Mx { domain, cidr_len } => {
+                let domain = cx.domain(domain)?;
+                let exchanges = match resolver.lookup_mx(&domain).await {
+                    Ok(exchanges) => exchanges,
+                    Err(err) => {
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::TempError,
+                            context: format!("error looking up IP for {domain}: {err}"),
+                        })
+                    }
+                };
+
+                let mut matched = false;
+                for exchange in exchanges {
+                    let resolved = match resolver.lookup_ip(&exchange.to_string()).await {
+                        Ok(ips) => ips,
+                        Err(err) => {
+                            return Err(SpfResult {
+                                disposition: SpfDisposition::TempError,
+                                context: format!("error looking up IP for {exchange}: {err}"),
+                            })
+                        }
+                    };
+
+                    if resolved
+                        .iter()
+                        .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+
+                matched
+            }
             _ => todo!("evaluate directive {self:?}"),
         };
 

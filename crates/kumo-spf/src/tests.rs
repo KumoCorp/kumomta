@@ -2,7 +2,7 @@ use crate::dns::Lookup;
 use crate::error::SpfError;
 use crate::{CheckHostParams, SpfDisposition, SpfResult};
 use futures::future::BoxFuture;
-use hickory_proto::rr::rdata::{A, AAAA, TXT};
+use hickory_proto::rr::rdata::{A, AAAA, MX, TXT};
 use hickory_proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};
 use hickory_proto::serialize::txt::Parser;
 use hickory_resolver::Name;
@@ -94,6 +94,95 @@ async fn ip() {
         &SpfResult {
             disposition: SpfDisposition::Fail,
             context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
+/// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
+#[tokio::test]
+async fn mx() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_spf("example.com", "v=spf1 mx -all".to_string());
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 129])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'mx' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_zone(EXAMPLE_ORG)
+        .with_spf("example.com", "v=spf1 mx:example.org -all".to_string());
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 140])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'mx:example.org' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_zone(EXAMPLE_ORG)
+        .with_spf(
+            "example.com",
+            "v=spf1 mx/30 mx:example.org/30 -all".to_string(),
+        );
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 131])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'mx/30' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 141])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'mx:example.org/30' directive".to_owned(),
         },
         "{result:?}"
     );
@@ -200,6 +289,26 @@ impl Lookup for TestResolver {
                     let a = AAAA::try_borrow(record.data().unwrap()).unwrap();
                     values.push(IpAddr::V6(a.0));
                 }
+            }
+
+            Ok(values)
+        })
+    }
+
+    fn lookup_mx<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<Name>, SpfError>> {
+        Box::pin(async move {
+            let records = match self.get(full, RecordType::MX)? {
+                Some(records) => records,
+                None => {
+                    println!("key not found: {full}");
+                    return Err(SpfError::DnsRecordNotFound(full.to_string()));
+                }
+            };
+
+            let mut values = vec![];
+            for record in records.records_without_rrsigs() {
+                let mx = MX::try_borrow(record.data().unwrap()).unwrap();
+                values.push(mx.exchange().clone());
             }
 
             Ok(values)
