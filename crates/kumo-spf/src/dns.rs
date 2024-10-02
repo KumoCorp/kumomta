@@ -1,11 +1,12 @@
 use crate::error::SpfError;
 use futures::future::BoxFuture;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::{Name, TokioAsyncResolver};
 use std::net::IpAddr;
 
 /// A trait for entities that perform DNS resolution.
 pub trait Lookup: Sync + Send {
     fn lookup_ip<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<IpAddr>, SpfError>>;
+    fn lookup_mx<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<Name>, SpfError>>;
     fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<String>, SpfError>>;
 }
 
@@ -17,6 +18,17 @@ impl Lookup for TokioAsyncResolver {
                 .map_err(|err| SpfError::from_resolve(name, err))?
                 .into_iter()
                 .map(|ip| Ok(ip))
+                .collect()
+        })
+    }
+
+    fn lookup_mx<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<Name>, SpfError>> {
+        Box::pin(async move {
+            self.mx_lookup(name)
+                .await
+                .map_err(|err| SpfError::from_resolve(name, err))?
+                .into_iter()
+                .map(|mx| Ok(mx.exchange().clone()))
                 .collect()
         })
     }
