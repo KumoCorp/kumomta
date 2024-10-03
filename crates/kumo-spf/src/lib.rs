@@ -2,7 +2,7 @@ use std::net::IpAddr;
 
 pub mod dns;
 pub mod error;
-use error::SpfError;
+use error::DnsError;
 pub mod eval;
 use eval::EvalContext;
 pub mod record;
@@ -81,7 +81,7 @@ impl CheckHostParams {
     pub async fn run(&self, resolver: &dyn dns::Lookup) -> SpfResult {
         let initial_txt = match resolver.lookup_txt(&self.domain).await {
             Ok(parts) => parts.join(""),
-            Err(err @ SpfError::DnsRecordNotFound(_)) => {
+            Err(err @ DnsError::NotFound(_)) => {
                 return SpfResult {
                     disposition: SpfDisposition::None,
                     context: format!("{err}"),
