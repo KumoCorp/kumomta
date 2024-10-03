@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 cidr = "0.2"
+futures = {workspace=true}
+hickory-resolver = {workspace=true}
+thiserror = "1.0"
 
 [dev-dependencies]
 k9 = "0.11"
