@@ -1,5 +1,5 @@
 use crate::dns::Lookup;
-use crate::error::SpfError;
+use crate::error::DnsError;
 use crate::{CheckHostParams, SpfDisposition, SpfResult};
 use futures::future::BoxFuture;
 use hickory_proto::rr::rdata::{A, AAAA, MX, TXT};
@@ -242,7 +242,7 @@ impl TestResolver {
         &'a self,
         full: &str,
         record_type: RecordType,
-    ) -> Result<Option<&'a RecordSet>, SpfError> {
+    ) -> Result<Option<&'a RecordSet>, DnsError> {
         let mut authority = full;
         loop {
             let authority_name = Name::from_str(authority).unwrap();
@@ -254,7 +254,7 @@ impl TestResolver {
                     }
                     None => {
                         println!("authority not found: {full}");
-                        return Err(SpfError::DnsRecordNotFound(full.to_string()));
+                        return Err(DnsError::NotFound(full.to_string()));
                     }
                 }
             };
@@ -273,7 +273,7 @@ impl TestResolver {
 }
 
 impl Lookup for TestResolver {
-    fn lookup_ip<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<IpAddr>, SpfError>> {
+    fn lookup_ip<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<IpAddr>, DnsError>> {
         Box::pin(async move {
             let mut values = vec![];
 
@@ -295,13 +295,13 @@ impl Lookup for TestResolver {
         })
     }
 
-    fn lookup_mx<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<Name>, SpfError>> {
+    fn lookup_mx<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<Name>, DnsError>> {
         Box::pin(async move {
             let records = match self.get(full, RecordType::MX)? {
                 Some(records) => records,
                 None => {
                     println!("key not found: {full}");
-                    return Err(SpfError::DnsRecordNotFound(full.to_string()));
+                    return Err(DnsError::NotFound(full.to_string()));
                 }
             };
 
@@ -315,13 +315,13 @@ impl Lookup for TestResolver {
         })
     }
 
-    fn lookup_txt<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<String>, SpfError>> {
+    fn lookup_txt<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<String>, DnsError>> {
         Box::pin(async move {
             let records = match self.get(full, RecordType::TXT)? {
                 Some(records) => records,
                 None => {
                     println!("key not found: {full}");
-                    return Err(SpfError::DnsRecordNotFound(full.to_string()));
+                    return Err(DnsError::NotFound(full.to_string()));
                 }
             };
 
