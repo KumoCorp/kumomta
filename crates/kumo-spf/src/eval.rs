@@ -105,7 +105,34 @@ impl EvalContext {
                         }
                     }
 
-                    result.push_str(&tokens.join("."));
+                    let output = tokens.join(".");
+
+                    if m.url_escape {
+                        // https://datatracker.ietf.org/doc/html/rfc7208#section-7.3:
+                        //   Uppercase macros expand exactly as their lowercase
+                        //   equivalents, and are then URL escaped.  URL escaping
+                        //   MUST be performed for characters not in the
+                        //   "unreserved" set.
+                        // https://datatracker.ietf.org/doc/html/rfc3986#section-2.3:
+                        //    unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+                        for c in output.chars() {
+                            if c.is_ascii_alphanumeric()
+                                || c == '-'
+                                || c == '.'
+                                || c == '_'
+                                || c == '~'
+                            {
+                                result.push(c);
+                            } else {
+                                let mut bytes = [0u8; 4];
+                                for b in c.encode_utf8(&mut bytes).bytes() {
+                                    result.push_str(&format!("%{b:02x}"));
+                                }
+                            }
+                        }
+                    } else {
+                        result.push_str(&output);
+                    }
                 }
             }
         }
@@ -183,7 +210,7 @@ mod test {
                  .0.0.0.0.8.b.d.0.1.0.0.2.ip6._spf.example.com",
             ),
             ("%{c}", "2001:db8::cb01"),
-            ("%{C}", "2001:db8::cb01"),
+            ("%{C}", "2001%3adb8%3a%3acb01"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
             let output = ctx.evaluate(&spec.elements).unwrap();

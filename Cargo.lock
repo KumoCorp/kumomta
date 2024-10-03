@@ -3116,7 +3116,10 @@ name = "kumo-spf"
 version = "0.1.0"
 dependencies = [
  "cidr",
+ "futures",
+ "hickory-resolver",
  "k9 0.11.6",
+ "thiserror",
 ]
 
 [[package]]
