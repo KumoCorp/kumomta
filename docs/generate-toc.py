@@ -321,6 +321,10 @@ TOC = [
                         "Clustered Traffic Shaping Automation",
                         "userguide/clustering/trafficshapingautomation.md",
                     ),
+                    Page(
+                        "Scaling Clusters Up and Down",
+                        "userguide/clustering/scaling.md",
+                    ),
                 ],
             ),
             Page(
