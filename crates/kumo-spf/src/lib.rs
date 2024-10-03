@@ -153,7 +153,7 @@ mod tests {
             &result,
             &SpfResult {
                 disposition: SpfDisposition::Pass,
-                context: "matched directive".to_owned(),
+                context: "matched 'all' directive".to_owned(),
             },
             "{result:?}"
         );
