@@ -6,7 +6,7 @@ use error::SpfError;
 pub mod eval;
 use eval::EvalContext;
 pub mod record;
-use record::{MacroName, Qualifier, Record};
+use record::{Qualifier, Record};
 #[cfg(test)]
 mod tests;
 
@@ -105,19 +105,15 @@ impl CheckHostParams {
             }
         };
 
-        let mut cx = EvalContext::new();
-        cx.set_ip(self.client_ip);
-        if let Err(err) = cx.set_sender(&self.sender) {
-            return SpfResult {
-                disposition: SpfDisposition::TempError,
+        match EvalContext::new(&self.sender, &self.domain, self.client_ip) {
+            Ok(cx) => record.evaluate(&cx, resolver).await,
+            Err(err) => SpfResult {
+                disposition: SpfDisposition::PermError,
                 context: format!(
                     "input sender parameter '{}' is malformed: {err}",
                     self.sender
                 ),
-            };
+            },
         }
-        cx.set_var(MacroName::Domain, &self.domain);
-
-        record.evaluate(&cx, resolver).await
     }
 }

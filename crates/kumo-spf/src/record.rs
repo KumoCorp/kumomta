@@ -33,7 +33,7 @@ impl Record {
         Ok(Self { terms })
     }
 
-    pub async fn evaluate(&self, cx: &EvalContext, resolver: &dyn Lookup) -> SpfResult {
+    pub async fn evaluate(&self, cx: &EvalContext<'_>, resolver: &dyn Lookup) -> SpfResult {
         for term in &self.terms {
             match term {
                 Term::Directive(d) => match d.evaluate(cx, resolver).await {
@@ -85,7 +85,7 @@ impl Directive {
 
     pub async fn evaluate(
         &self,
-        _cx: &EvalContext,
+        _cx: &EvalContext<'_>,
         _resolver: &dyn Lookup,
     ) -> Result<Option<SpfResult>, SpfResult> {
         let matched = match &self.mechanism {
