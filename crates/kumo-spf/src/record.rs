@@ -1,6 +1,7 @@
 use crate::dns::Lookup;
 use crate::eval::EvalContext;
 use crate::{SpfDisposition, SpfResult};
+use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug)]
@@ -95,10 +96,19 @@ impl Directive {
         Ok(match matched {
             true => Some(SpfResult {
                 disposition: SpfDisposition::from(self.qualifier),
-                context: "matched directive".to_owned(),
+                context: format!("matched '{self}' directive"),
             }),
             false => None,
         })
+    }
+}
+
+impl fmt::Display for Directive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.qualifier != Qualifier::Pass {
+            write!(f, "{}", self.qualifier.as_str())?;
+        }
+        write!(f, "{}", self.mechanism)
     }
 }
 
@@ -124,6 +134,15 @@ impl Qualifier {
             "?" => Self::Neutral,
             _ => return None,
         })
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pass => "+",
+            Self::Fail => "-",
+            Self::SoftFail => "~",
+            Self::Neutral => "?",
+        }
     }
 }
 
@@ -177,6 +196,21 @@ impl DualCidrLength {
     }
 }
 
+impl fmt::Display for DualCidrLength {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.v4 == 32 && self.v6 == 128 {
+            return Ok(());
+        }
+
+        write!(f, "/{}", self.v4)?;
+        if self.v6 != 128 {
+            write!(f, "/{}", self.v6)?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum Mechanism {
     All,
@@ -205,6 +239,45 @@ pub enum Mechanism {
     Exists {
         domain: DomainSpec,
     },
+}
+
+impl fmt::Display for Mechanism {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::All => write!(f, "all"),
+            Self::Include { domain } => write!(f, "include:{}", domain),
+            Self::A { domain, cidr_len } => {
+                write!(f, "a")?;
+                if let Some(domain) = domain {
+                    write!(f, ":{}", domain)?;
+                }
+                write!(f, "{}", cidr_len)
+            }
+            Self::Mx { domain, cidr_len } => {
+                write!(f, "mx")?;
+                if let Some(domain) = domain {
+                    write!(f, ":{}", domain)?;
+                }
+                write!(f, "{}", cidr_len)
+            }
+            Self::Ptr { domain } => {
+                write!(f, "ptr")?;
+                if let Some(domain) = domain {
+                    write!(f, ":{}", domain)?;
+                }
+                Ok(())
+            }
+            Self::Ip4 {
+                ip4_network,
+                cidr_len,
+            } => write!(f, "ip4:{}/{}", ip4_network, cidr_len),
+            Self::Ip6 {
+                ip6_network,
+                cidr_len,
+            } => write!(f, "ip6:{}/{}", ip6_network, cidr_len),
+            Self::Exists { domain } => write!(f, "exists:{}", domain),
+        }
+    }
 }
 
 fn starts_with_number(input: &str) -> Result<(Option<u32>, &str), String> {
@@ -459,6 +532,25 @@ impl DomainSpec {
     }
 }
 
+impl fmt::Display for DomainSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for element in &self.elements {
+            if first {
+                first = false;
+            } else {
+                f.write_str(" ")?;
+            }
+
+            match element {
+                MacroElement::Literal(lit) => write!(f, "{lit}")?,
+                MacroElement::Macro(term) => write!(f, "{term}")?,
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum MacroElement {
     Literal(String),
@@ -476,6 +568,22 @@ pub struct MacroTerm {
     pub reverse: bool,
     /// The list of delimiters, if any, otherwise an empty string
     pub delimiters: String,
+}
+
+impl fmt::Display for MacroTerm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}{}", self.name.as_char(), self.delimiters)?;
+        if let Some(digits) = self.transformer_digits {
+            write!(f, "{}", digits)?;
+        }
+        if self.reverse {
+            f.write_str("r")?;
+        }
+        if self.url_escape {
+            f.write_str("/")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
@@ -524,6 +632,22 @@ impl MacroName {
             },
             escape,
         ))
+    }
+
+    pub fn as_char(&self) -> char {
+        match self {
+            Self::Sender => 's',
+            Self::LocalPart => 'l',
+            Self::SenderDomain => 'o',
+            Self::Domain => 'd',
+            Self::Ip => 'i',
+            Self::ValidatedDomainName => 'p',
+            Self::ReverseDns => 'v',
+            Self::HeloDomain => 'h',
+            Self::ClientIp => 'c',
+            Self::RelayingHostName => 'r',
+            Self::CurrentUnixTimeStamp => 't',
+        }
     }
 }
 
