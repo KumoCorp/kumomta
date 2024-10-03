@@ -1,3 +1,6 @@
+use crate::dns::Lookup;
+use crate::eval::EvalContext;
+use crate::{SpfDisposition, SpfResult};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug)]
@@ -27,6 +30,24 @@ impl Record {
         }
 
         Ok(Self { terms })
+    }
+
+    pub async fn evaluate(&self, cx: &EvalContext, resolver: &dyn Lookup) -> SpfResult {
+        for term in &self.terms {
+            match term {
+                Term::Directive(d) => match d.evaluate(cx, resolver).await {
+                    Ok(Some(result)) => return result,
+                    Ok(None) => continue,
+                    Err(err) => return err,
+                },
+                Term::Modifier(_) => todo!(),
+            }
+        }
+
+        SpfResult {
+            disposition: SpfDisposition::Neutral,
+            context: "default result".to_owned(),
+        }
     }
 }
 
@@ -58,6 +79,25 @@ impl Directive {
         Ok(Self {
             qualifier,
             mechanism,
+        })
+    }
+
+    pub async fn evaluate(
+        &self,
+        _cx: &EvalContext,
+        _resolver: &dyn Lookup,
+    ) -> Result<Option<SpfResult>, SpfResult> {
+        let matched = match &self.mechanism {
+            Mechanism::All => true,
+            _ => todo!("evaluate directive {self:?}"),
+        };
+
+        Ok(match matched {
+            true => Some(SpfResult {
+                disposition: SpfDisposition::from(self.qualifier),
+                context: "matched directive".to_owned(),
+            }),
+            false => None,
         })
     }
 }
