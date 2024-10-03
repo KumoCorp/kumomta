@@ -141,6 +141,22 @@ impl Directive {
 
                 matched
             }
+            Mechanism::Ip4 {
+                ip4_network,
+                cidr_len,
+            } => DualCidrLength {
+                v4: *cidr_len,
+                ..Default::default()
+            }
+            .matches(cx.client_ip, IpAddr::V4(*ip4_network)),
+            Mechanism::Ip6 {
+                ip6_network,
+                cidr_len,
+            } => DualCidrLength {
+                v6: *cidr_len,
+                ..Default::default()
+            }
+            .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             _ => todo!("evaluate directive {self:?}"),
         };
 
