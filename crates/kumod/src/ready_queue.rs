@@ -943,7 +943,7 @@ impl Drop for Dispatcher {
                             Queue::save_if_needed_and_log(&msg).await;
                         } else {
                             if let Err(err) = Dispatcher::requeue_message(msg, false, None).await {
-                                tracing::error!("error requeuing message: {err:#}");
+                                tracing::error!("error requeuing message on Drop: {err:#}");
                             }
                         }
                     }
@@ -1394,7 +1394,7 @@ impl Dispatcher {
                     Ok(async move {
                         for msg in msgs {
                             if let Err(err) = Self::requeue_message(msg, false, Some(delay)).await {
-                                tracing::error!("error requeuing message: {err:#}");
+                                tracing::error!("error requeuing for throttle: {err:#}");
                             }
                         }
                         drop(activity);
@@ -1409,60 +1409,44 @@ impl Dispatcher {
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
         let mut msgs = self.ready.drain();
         msgs.append(&mut self.msgs);
-        if !msgs.is_empty() {
-            let activity = self.activity.clone();
-            let name = self.name.clone();
-            let egress_pool = self.egress_pool.clone();
-            let egress_source = self.egress_source.name.clone();
-            let provider = self.path_config.borrow().provider_name.clone();
-            if response.is_transient() {
-                self.metrics.inc_transfail_by(msgs.len());
-            } else {
-                self.metrics.inc_fail_by(msgs.len());
-            }
-            READYQ_RUNTIME
-                .spawn(
-                    format!("bulk queue op for {} msgs {name} {response:?}", msgs.len()),
-                    move || {
-                        Ok(async move {
-                            let increment_attempts = true;
-                            for msg in msgs {
-                                log_disposition(LogDisposition {
-                                    kind: if response.is_transient() {
-                                        RecordType::TransientFailure
-                                    } else {
-                                        RecordType::Bounce
-                                    },
-                                    msg: msg.clone(),
-                                    site: &name,
-                                    peer_address: None,
-                                    response: response.clone(),
-                                    egress_pool: Some(&egress_pool),
-                                    egress_source: Some(&egress_source),
-                                    relay_disposition: None,
-                                    delivery_protocol: None,
-                                    tls_info: None,
-                                    source_address: None,
-                                    provider: provider.as_deref(),
-                                })
-                                .await;
+        if msgs.is_empty() {
+            return;
+        }
+        if response.is_transient() {
+            self.metrics.inc_transfail_by(msgs.len());
+        } else {
+            self.metrics.inc_fail_by(msgs.len());
+        }
+        let path_config = self.path_config.borrow();
+        let increment_attempts = true;
+        for msg in msgs {
+            log_disposition(LogDisposition {
+                kind: if response.is_transient() {
+                    RecordType::TransientFailure
+                } else {
+                    RecordType::Bounce
+                },
+                msg: msg.clone(),
+                site: &self.name,
+                peer_address: None,
+                response: response.clone(),
+                egress_pool: Some(&self.egress_pool),
+                egress_source: Some(&self.egress_source.name),
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+                source_address: None,
+                provider: path_config.provider_name.as_deref(),
+            })
+            .await;
 
-                                if response.is_transient() {
-                                    if let Err(err) =
-                                        Self::requeue_message(msg, increment_attempts, None).await
-                                    {
-                                        tracing::error!("error requeuing message: {err:#}");
-                                    }
-                                } else if response.is_permanent() {
-                                    SpoolManager::remove_from_spool(*msg.id()).await.ok();
-                                }
-                            }
-                            drop(activity);
-                        })
-                    },
-                )
-                .await
-                .expect("bulk queue spawned");
+            if response.is_transient() {
+                if let Err(err) = Self::requeue_message(msg, increment_attempts, None).await {
+                    tracing::error!("error requeuing for bulk {} operation: {err:#}", self.name);
+                }
+            } else if response.is_permanent() {
+                SpoolManager::remove_from_spool(*msg.id()).await.ok();
+            }
         }
     }
 
