@@ -12,4 +12,6 @@ hickory-resolver = {workspace=true}
 thiserror = "1.0"
 
 [dev-dependencies]
+hickory-proto = {workspace=true, features = ["text-parsing"]}
 k9 = "0.11"
+tokio = {workspace = true, features = ["full", "tracing"]}
