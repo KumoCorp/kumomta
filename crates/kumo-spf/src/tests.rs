@@ -187,6 +187,48 @@ async fn mx() {
     );
 }
 
+/// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
+#[tokio::test]
+async fn ip4() {
+    let resolver = TestResolver::default()
+        .with_zone(EXAMPLE_COM)
+        .with_spf("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 65])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Fail,
+            context: "matched '-all' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+
+    let result = CheckHostParams {
+        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 129])),
+        domain: "example.com".to_string(),
+        sender: "sender@example.com".to_string(),
+    }
+    .run(&resolver)
+    .await;
+
+    k9::assert_equal!(
+        &result,
+        &SpfResult {
+            disposition: SpfDisposition::Pass,
+            context: "matched 'ip4:192.0.2.128/28' directive".to_owned(),
+        },
+        "{result:?}"
+    );
+}
+
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A
 const EXAMPLE_COM: &str = r#"; A domain with two mail servers, two hosts, and two servers
 ; at the domain name
