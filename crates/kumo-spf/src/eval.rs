@@ -1,3 +1,4 @@
+use crate::dns::IpDisplay;
 use crate::record::{DomainSpec, MacroElement, MacroName};
 use crate::{SpfDisposition, SpfResult};
 use std::fmt::Write;
@@ -66,23 +67,15 @@ impl<'a> EvalContext<'a> {
                 MacroName::ClientIp => {
                     buf.write_fmt(format_args!("{}", self.client_ip)).unwrap();
                 }
-                MacroName::Ip => match self.client_ip {
-                    IpAddr::V4(v4) => {
-                        buf.write_fmt(format_args!("{}", v4)).unwrap();
-                    }
-                    IpAddr::V6(v6) => {
-                        // For IPv6 addresses, the "i" macro expands to a dot-format address;
-                        // it is intended for use in %{ir}.
-                        for segment in v6.segments() {
-                            for b in format!("{segment:04x}").chars() {
-                                if !buf.is_empty() {
-                                    buf.push('.');
-                                }
-                                buf.push(b);
-                            }
+                MacroName::Ip => buf
+                    .write_fmt(format_args!(
+                        "{}",
+                        IpDisplay {
+                            ip: self.client_ip,
+                            reverse: false
                         }
-                    }
-                },
+                    ))
+                    .unwrap(),
                 MacroName::CurrentUnixTimeStamp => buf
                     .write_fmt(format_args!(
                         "{}",

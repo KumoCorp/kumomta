@@ -1,8 +1,10 @@
 use crate::dns::Lookup;
 use crate::eval::EvalContext;
 use crate::{SpfDisposition, SpfResult};
+use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub struct Record {
@@ -157,6 +159,47 @@ impl Directive {
                 ..Default::default()
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
+            Mechanism::Ptr { domain } => {
+                let domain = match Name::from_str(&cx.domain(domain)?) {
+                    Ok(domain) => domain,
+                    Err(err) => {
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::PermError,
+                            context: format!("error parsing domain name: {err}"),
+                        })
+                    }
+                };
+
+                let ptrs = match resolver.lookup_ptr(cx.client_ip).await {
+                    Ok(ptrs) => ptrs,
+                    Err(err) => {
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::TempError,
+                            context: format!("error looking up PTR for {}: {err}", cx.client_ip),
+                        })
+                    }
+                };
+
+                let mut matched = false;
+                for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
+                    match resolver.lookup_ip(&ptr.to_string()).await {
+                        Ok(ips) => {
+                            if ips.iter().any(|&ip| ip == cx.client_ip) {
+                                matched = true;
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            return Err(SpfResult {
+                                disposition: SpfDisposition::TempError,
+                                context: format!("error looking up IP for {ptr}: {err}"),
+                            })
+                        }
+                    }
+                }
+
+                matched
+            }
             _ => todo!("evaluate directive {self:?}"),
         };
 
