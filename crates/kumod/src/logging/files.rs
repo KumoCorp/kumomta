@@ -335,7 +335,7 @@ impl LogThreadState {
             need_rotate = file.written >= self.params.max_file_size
                 || file
                     .expires
-                    .map(|exp| exp >= Instant::now())
+                    .map(|exp| exp <= Instant::now())
                     .unwrap_or(false);
         }
 
