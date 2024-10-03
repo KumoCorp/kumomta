@@ -16,14 +16,7 @@ async fn all() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 +all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::LOCALHOST).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -41,14 +34,7 @@ async fn ip() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 a -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::LOCALHOST).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -58,14 +44,7 @@ async fn ip() {
         "{result:?}"
     );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 10])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 10])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -80,14 +59,7 @@ async fn ip() {
         .with_zone(EXAMPLE_ORG)
         .with_spf("example.com", "v=spf1 a:example.org -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 10])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 10])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -105,14 +77,7 @@ async fn mx() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 mx -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 129])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 129])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -127,14 +92,7 @@ async fn mx() {
         .with_zone(EXAMPLE_ORG)
         .with_spf("example.com", "v=spf1 mx:example.org -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 140])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 140])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -152,14 +110,7 @@ async fn mx() {
             "v=spf1 mx/30 mx:example.org/30 -all".to_string(),
         );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 131])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 131])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -169,14 +120,7 @@ async fn mx() {
         "{result:?}"
     );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 141])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 141])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -194,14 +138,7 @@ async fn ip4() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 65])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 65])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -211,14 +148,7 @@ async fn ip4() {
         "{result:?}"
     );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 129])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 129])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -238,14 +168,7 @@ async fn ptr() {
         .with_zone(ADDR_10)
         .with_spf("example.com", "v=spf1 ptr -all".to_string());
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 65])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 65])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -255,14 +178,7 @@ async fn ptr() {
         "{result:?}"
     );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([192, 0, 2, 140])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 140])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -272,14 +188,7 @@ async fn ptr() {
         "{result:?}"
     );
 
-    let result = CheckHostParams {
-        client_ip: IpAddr::V4(Ipv4Addr::from([10, 0, 0, 4])),
-        domain: "example.com".to_string(),
-        sender: "sender@example.com".to_string(),
-    }
-    .run(&resolver)
-    .await;
-
+    let result = resolver.evaluate_ip(Ipv4Addr::from([10, 0, 0, 4])).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -331,6 +240,16 @@ struct TestResolver {
 }
 
 impl TestResolver {
+    async fn evaluate_ip(&self, client_ip: impl Into<IpAddr>) -> SpfResult {
+        CheckHostParams {
+            client_ip: client_ip.into(),
+            domain: "example.com".to_string(),
+            sender: "sender@example.com".to_string(),
+        }
+        .run(self)
+        .await
+    }
+
     fn with_zone(mut self, zone: &str) -> Self {
         let (name, records) = Parser::new(zone, None, None).parse().unwrap();
         self.records.insert(name, records);
