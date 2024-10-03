@@ -1,8 +1,7 @@
 use std::net::IpAddr;
 
 pub mod dns;
-pub mod error;
-use error::DnsError;
+use dns::DnsError;
 pub mod eval;
 use eval::EvalContext;
 pub mod record;
