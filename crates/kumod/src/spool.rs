@@ -5,7 +5,7 @@ use chrono::Utc;
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
-use kumo_server_runtime::{spawn, Runtime};
+use kumo_server_runtime::{spawn, spawn_simple_worker_pool};
 use message::Message;
 use mlua::{Lua, Value};
 use rfc5321::{EnhancedStatusCode, Response};
@@ -472,28 +472,24 @@ impl SpoolManager {
 
         let (complete_tx, complete_rx) = flume::bounded(1);
 
-        let mut num_tasks = 0;
-        let spool_in = Runtime::new("spoolin", |cpus| cpus / 2, &SPOOLIN_THREADS)?;
-        let n_threads = spool_in.get_num_threads();
+        let spooled_in_clone = Arc::clone(&spooled_in);
+        let n_threads = spawn_simple_worker_pool(
+            "spoolin",
+            |cpus| cpus / 2,
+            &SPOOLIN_THREADS,
+            move || {
+                let spooled_in = Arc::clone(&spooled_in_clone);
+                let rx = rx.clone();
+                let complete_tx = complete_tx.clone();
+                async move {
+                    let mgr = Self::get();
+                    let result = mgr.spool_in_thread(rx, spooled_in).await;
+                    complete_tx.send_async(result).await
+                }
+            },
+        )?;
+        let mut num_tasks = n_threads;
         tracing::info!("Using concurrency {n_threads} for spooling in");
-
-        for n in 0..n_threads {
-            let spooled_in = Arc::clone(&spooled_in);
-            let rx = rx.clone();
-            let complete_tx = complete_tx.clone();
-            spool_in
-                .spawn(format!("spool_in-{n}"), move || {
-                    Ok(async move {
-                        let mgr = Self::get();
-                        let result = mgr.spool_in_thread(rx, spooled_in).await;
-                        complete_tx.send_async(result).await
-                    })
-                })
-                .await?;
-            num_tasks += 1;
-        }
-
-        drop(complete_tx);
 
         while num_tasks > 0 {
             tokio::select! {
