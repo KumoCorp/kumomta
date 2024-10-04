@@ -17,11 +17,11 @@ fn starts_with_number(input: &str) -> Result<(Option<u32>, &str), String> {
 }
 
 #[derive(Debug)]
-pub struct DomainSpec {
+pub struct MacroSpec {
     pub(crate) elements: Vec<MacroElement>,
 }
 
-impl DomainSpec {
+impl MacroSpec {
     pub(crate) fn parse(s: &str) -> Result<Self, String> {
         let mut elements = vec![];
 
@@ -209,7 +209,7 @@ impl DomainSpec {
     }
 }
 
-impl fmt::Display for DomainSpec {
+impl fmt::Display for MacroSpec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;
         for element in &self.elements {

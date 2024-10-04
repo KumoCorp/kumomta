@@ -1,6 +1,6 @@
 use crate::dns::{DnsError, Lookup};
 use crate::record::Record;
-use crate::spec::DomainSpec;
+use crate::spec::MacroSpec;
 use crate::{SpfDisposition, SpfResult};
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -69,7 +69,7 @@ impl<'a> SpfContext<'a> {
         }
     }
 
-    pub(crate) fn domain(&self, spec: Option<&DomainSpec>) -> Result<String, SpfResult> {
+    pub(crate) fn domain(&self, spec: Option<&MacroSpec>) -> Result<String, SpfResult> {
         let Some(spec) = spec else {
             return Ok(self.domain.to_owned());
         };
@@ -84,7 +84,7 @@ impl<'a> SpfContext<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::spec::DomainSpec;
+    use crate::spec::MacroSpec;
 
     #[test]
     fn test_eval() {
@@ -113,7 +113,7 @@ mod test {
             ("%{lr-}", "bad.strong"),
             ("%{l1r-}", "strong"),
         ] {
-            let spec = DomainSpec::parse(input).unwrap();
+            let spec = MacroSpec::parse(input).unwrap();
             let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
@@ -138,7 +138,7 @@ mod test {
             ),
             ("%{c}", "192.0.2.3"),
         ] {
-            let spec = DomainSpec::parse(input).unwrap();
+            let spec = MacroSpec::parse(input).unwrap();
             let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
@@ -153,7 +153,7 @@ mod test {
             ("%{c}", "2001:db8::cb01"),
             ("%{C}", "2001%3adb8%3a%3acb01"),
         ] {
-            let spec = DomainSpec::parse(input).unwrap();
+            let spec = MacroSpec::parse(input).unwrap();
             let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
