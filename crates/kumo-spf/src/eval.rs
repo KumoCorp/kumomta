@@ -1,5 +1,5 @@
-use crate::dns::IpDisplay;
-use crate::record::{DomainSpec, MacroElement, MacroName};
+use crate::dns::{DnsError, IpDisplay, Lookup};
+use crate::record::{DomainSpec, MacroElement, MacroName, Record};
 use crate::{SpfDisposition, SpfResult};
 use std::fmt::Write;
 use std::net::IpAddr;
@@ -32,6 +32,31 @@ impl<'a> EvalContext<'a> {
             client_ip,
             now: SystemTime::now(),
         })
+    }
+
+    pub async fn check(&self, resolver: &dyn Lookup) -> SpfResult {
+        let initial_txt = match resolver.lookup_txt(self.domain).await {
+            Ok(parts) => parts.join(""),
+            Err(err) => {
+                return SpfResult {
+                    disposition: match err {
+                        DnsError::NotFound(_) => SpfDisposition::None,
+                        DnsError::LookupFailed(_) => SpfDisposition::TempError,
+                    },
+                    context: format!("{err}"),
+                };
+            }
+        };
+
+        match Record::parse(&initial_txt) {
+            Ok(record) => record.evaluate(self, resolver).await,
+            Err(err) => {
+                return SpfResult {
+                    disposition: SpfDisposition::PermError,
+                    context: format!("failed to parse spf record: {err}"),
+                }
+            }
+        }
     }
 
     pub(crate) fn domain(&self, spec: &Option<DomainSpec>) -> Result<String, SpfResult> {

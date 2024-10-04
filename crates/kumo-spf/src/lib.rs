@@ -1,11 +1,10 @@
 use std::net::IpAddr;
 
 pub mod dns;
-use dns::DnsError;
 pub mod eval;
 use eval::EvalContext;
 pub mod record;
-use record::{Qualifier, Record};
+use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
@@ -78,34 +77,8 @@ pub struct CheckHostParams {
 
 impl CheckHostParams {
     pub async fn run(&self, resolver: &dyn dns::Lookup) -> SpfResult {
-        let initial_txt = match resolver.lookup_txt(&self.domain).await {
-            Ok(parts) => parts.join(""),
-            Err(err @ DnsError::NotFound(_)) => {
-                return SpfResult {
-                    disposition: SpfDisposition::None,
-                    context: format!("{err}"),
-                };
-            }
-            Err(err) => {
-                return SpfResult {
-                    disposition: SpfDisposition::TempError,
-                    context: format!("{err}"),
-                };
-            }
-        };
-
-        let record = match Record::parse(&initial_txt) {
-            Ok(r) => r,
-            Err(context) => {
-                return SpfResult {
-                    disposition: SpfDisposition::PermError,
-                    context: format!("failed to parse spf record: {context}"),
-                };
-            }
-        };
-
         match EvalContext::new(&self.sender, &self.domain, self.client_ip) {
-            Ok(cx) => record.evaluate(&cx, resolver).await,
+            Ok(cx) => cx.check(resolver).await,
             Err(err) => err,
         }
     }
