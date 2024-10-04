@@ -1,3 +1,5 @@
+use std::fmt;
+
 pub mod context;
 pub use context::SpfContext;
 pub mod dns;
@@ -49,6 +51,20 @@ impl From<Qualifier> for SpfDisposition {
             Qualifier::Fail => Self::Fail,
             Qualifier::SoftFail => Self::SoftFail,
             Qualifier::Neutral => Self::Neutral,
+        }
+    }
+}
+
+impl fmt::Display for SpfDisposition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Neutral => write!(f, "neutral"),
+            Self::Pass => write!(f, "pass"),
+            Self::Fail => write!(f, "fail"),
+            Self::SoftFail => write!(f, "softfail"),
+            Self::TempError => write!(f, "temperror"),
+            Self::PermError => write!(f, "permerror"),
         }
     }
 }
