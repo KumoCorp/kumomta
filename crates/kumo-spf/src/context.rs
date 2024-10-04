@@ -5,7 +5,7 @@ use std::fmt::Write;
 use std::net::IpAddr;
 use std::time::SystemTime;
 
-pub struct EvalContext<'a> {
+pub struct SpfContext<'a> {
     sender: &'a str,
     local_part: &'a str,
     sender_domain: &'a str,
@@ -14,7 +14,7 @@ pub struct EvalContext<'a> {
     now: SystemTime,
 }
 
-impl<'a> EvalContext<'a> {
+impl<'a> SpfContext<'a> {
     /// Create a new evaluation context.
     ///
     /// - `sender` is the "MAIL FROM" or "HELO" identity
@@ -182,7 +182,7 @@ mod test {
     fn test_eval() {
         // <https://datatracker.ietf.org/doc/html/rfc7208#section-7.4>
 
-        let mut ctx = EvalContext::new(
+        let mut ctx = SpfContext::new(
             "strong-bad@email.example.com",
             "email.example.com",
             IpAddr::from([192, 0, 2, 3]),

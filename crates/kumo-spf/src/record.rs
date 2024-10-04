@@ -1,5 +1,5 @@
+use crate::context::SpfContext;
 use crate::dns::Lookup;
-use crate::eval::EvalContext;
 use crate::{SpfDisposition, SpfResult};
 use hickory_resolver::Name;
 use std::fmt;
@@ -35,7 +35,7 @@ impl Record {
         Ok(Self { terms })
     }
 
-    pub async fn evaluate(&self, cx: &EvalContext<'_>, resolver: &dyn Lookup) -> SpfResult {
+    pub async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
         for term in &self.terms {
             match term {
                 Term::Directive(d) => match d.evaluate(cx, resolver).await {
@@ -87,7 +87,7 @@ impl Directive {
 
     pub async fn evaluate(
         &self,
-        cx: &EvalContext<'_>,
+        cx: &SpfContext<'_>,
         resolver: &dyn Lookup,
     ) -> Result<Option<SpfResult>, SpfResult> {
         let matched = match &self.mechanism {
