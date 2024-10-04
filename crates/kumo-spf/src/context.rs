@@ -65,8 +65,8 @@ impl<'a> SpfContext<'a> {
         }
     }
 
-    pub(crate) fn domain(&self, spec: &Option<DomainSpec>) -> Result<String, SpfResult> {
-        let Some(spec) = spec.as_ref() else {
+    pub(crate) fn domain(&self, spec: Option<&DomainSpec>) -> Result<String, SpfResult> {
+        let Some(spec) = spec else {
             return Ok(self.domain.to_owned());
         };
 
