@@ -144,6 +144,47 @@ impl SpoolManager {
         &MANAGER
     }
 
+    async fn take() -> HashMap<String, SpoolHandle> {
+        Self::get().named.lock().await.drain().collect()
+    }
+
+    pub async fn shutdown() -> anyhow::Result<()> {
+        let named = Self::take().await;
+        use tokio::task::JoinSet;
+        let mut set: JoinSet<anyhow::Result<(String, Duration)>> = JoinSet::new();
+
+        tracing::info!("Shutting down spool");
+        for (name, handle) in named {
+            set.spawn(async move {
+                let start = Instant::now();
+                handle
+                    .shutdown()
+                    .await
+                    .with_context(|| format!("{name}: shutdown failed"))?;
+                tokio::task::spawn_blocking(|| drop(handle))
+                    .await
+                    .with_context(|| format!("{name}: spawning drop failed"))?;
+                Ok((name, start.elapsed()))
+            });
+        }
+
+        while let Some(res) = set.join_next().await {
+            match res {
+                Ok(Ok((name, elapsed))) => {
+                    tracing::info!("{name} shutdown completed in {elapsed:?}");
+                }
+                Ok(Err(err)) => {
+                    tracing::error!("{err:#}");
+                }
+                Err(err) => {
+                    tracing::error!("{err:#}");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn new_local_disk(&self, params: DefineSpoolParams) -> anyhow::Result<()> {
         tracing::debug!(
             "Defining local disk spool '{}' on {}",

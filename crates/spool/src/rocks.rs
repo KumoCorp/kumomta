@@ -275,6 +275,12 @@ impl Spool for RocksSpool {
         Ok(())
     }
 
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || db.cancel_all_background_work(true)).await?;
+        Ok(())
+    }
+
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
         let db = Arc::clone(&self.db);
         tokio::task::Builder::new()

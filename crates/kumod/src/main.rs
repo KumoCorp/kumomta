@@ -181,7 +181,9 @@ fn main() -> anyhow::Result<()> {
         )
         .build()
         .unwrap()
-        .block_on(async move { run(opts).await })
+        .block_on(async move { run(opts).await })?;
+    tracing::info!("application logic complete, returning from main");
+    Ok(())
 }
 
 fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
@@ -291,6 +293,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
 
     if let Err(err) = crate::accounting::ACCT.flush() {
         tracing::error!("error flushing ACCT: {err:#}");
+    }
+
+    if let Err(err) = crate::spool::SpoolManager::shutdown().await {
+        tracing::error!("error shutting down spool: {err:#}");
     }
 
     res

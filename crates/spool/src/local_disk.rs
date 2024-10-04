@@ -188,6 +188,10 @@ impl Spool for LocalDiskSpool {
             )?
             .await?)
     }
+
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Set the sticky bit on path.

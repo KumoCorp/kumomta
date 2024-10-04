@@ -42,6 +42,9 @@ pub trait Spool: Send + Sync {
 
     /// Perform some periodic cleanup/maintenance
     async fn cleanup(&self) -> anyhow::Result<()>;
+
+    /// Shutdown the store
+    async fn shutdown(&self) -> anyhow::Result<()>;
 }
 
 static DATA: OnceLock<Arc<dyn Spool + Send + Sync>> = OnceLock::new();
