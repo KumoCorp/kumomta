@@ -1,5 +1,6 @@
 use crate::dns::{DnsError, IpDisplay, Lookup};
-use crate::record::{DomainSpec, MacroElement, MacroName, Record};
+use crate::record::Record;
+use crate::spec::{DomainSpec, MacroElement, MacroName};
 use crate::{SpfDisposition, SpfResult};
 use std::fmt::Write;
 use std::net::IpAddr;
@@ -180,7 +181,7 @@ impl<'a> SpfContext<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::record::DomainSpec;
+    use crate::spec::DomainSpec;
 
     #[test]
     fn test_eval() {

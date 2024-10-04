@@ -4,6 +4,7 @@ pub mod context;
 pub use context::SpfContext;
 pub mod dns;
 pub mod record;
+mod spec;
 use record::Qualifier;
 #[cfg(test)]
 mod tests;
