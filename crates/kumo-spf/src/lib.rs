@@ -106,13 +106,7 @@ impl CheckHostParams {
 
         match EvalContext::new(&self.sender, &self.domain, self.client_ip) {
             Ok(cx) => record.evaluate(&cx, resolver).await,
-            Err(err) => SpfResult {
-                disposition: SpfDisposition::PermError,
-                context: format!(
-                    "input sender parameter '{}' is malformed: {err}",
-                    self.sender
-                ),
-            },
+            Err(err) => err,
         }
     }
 }
