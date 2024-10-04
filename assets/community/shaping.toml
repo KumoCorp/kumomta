@@ -123,11 +123,6 @@ action = "Suspend"
 duration = "2 hours"
 
 #===== outlook.com
-["outlook.com"]
-max_deliveries_per_connection = 50
-connection_limit = 5
-enable_tls = "Required"
-
 [["outlook.com".automation]]
 regex = "Unfortunately.*part of their network is on our block list"
 trigger = {Threshold="5/hr"}
