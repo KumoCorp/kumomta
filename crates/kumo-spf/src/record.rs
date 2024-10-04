@@ -7,14 +7,14 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 #[derive(Debug, Default)]
-pub struct Record {
+pub(crate) struct Record {
     directives: Vec<Directive>,
     redirect: Option<MacroSpec>,
     explanation: Option<MacroSpec>,
 }
 
 impl Record {
-    pub fn parse(s: &str) -> Result<Self, String> {
+    pub(crate) fn parse(s: &str) -> Result<Self, String> {
         let mut tokens = s.split(' ');
         let version = tokens
             .next()
@@ -55,7 +55,7 @@ impl Record {
         Ok(new)
     }
 
-    pub async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
+    pub(crate) async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
         let mut failed = None;
         for directive in &self.directives {
             match directive.evaluate(cx, resolver).await {
@@ -128,7 +128,7 @@ impl Record {
 }
 
 #[derive(Debug)]
-pub struct Directive {
+struct Directive {
     pub qualifier: Qualifier,
     pub mechanism: Mechanism,
 }
@@ -150,7 +150,7 @@ impl Directive {
         })
     }
 
-    pub async fn evaluate(
+    async fn evaluate(
         &self,
         cx: &SpfContext<'_>,
         resolver: &dyn Lookup,
@@ -333,7 +333,7 @@ impl fmt::Display for Directive {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Qualifier {
+pub(crate) enum Qualifier {
     /// `+`
     #[default]
     Pass,
@@ -367,7 +367,7 @@ impl Qualifier {
 }
 
 #[derive(Debug)]
-pub struct DualCidrLength {
+struct DualCidrLength {
     pub v4: u8,
     pub v6: u8,
 }
@@ -454,7 +454,7 @@ impl fmt::Display for DualCidrLength {
 }
 
 #[derive(Debug)]
-pub enum Mechanism {
+enum Mechanism {
     All,
     Include {
         domain: MacroSpec,
@@ -626,13 +626,10 @@ impl Mechanism {
 }
 
 #[derive(Debug)]
-pub enum Modifier {
+enum Modifier {
     Redirect(MacroSpec),
     Explanation(MacroSpec),
-    Unknown {
-        name: String,
-        macro_string: MacroSpec,
-    },
+    Unknown,
 }
 
 impl Modifier {
@@ -644,7 +641,7 @@ impl Modifier {
             return Ok(Self::Explanation(MacroSpec::parse(spec)?));
         }
 
-        let (name, value) = s
+        let (name, _) = s
             .split_once('=')
             .ok_or_else(|| format!("invalid modifier {s}"))?;
 
@@ -657,10 +654,7 @@ impl Modifier {
             return Err(format!("modifier name '{name}' is invalid"));
         }
 
-        Ok(Self::Unknown {
-            name: name.to_string(),
-            macro_string: MacroSpec::parse(value)?,
-        })
+        Ok(Self::Unknown)
     }
 }
 
