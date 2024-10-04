@@ -200,6 +200,40 @@ impl Directive {
 
                 matched
             }
+            Mechanism::Include { domain } => {
+                let domain = cx.domain(Some(domain))?;
+                let nested = cx.with_domain(&domain);
+                use SpfDisposition::*;
+                match Box::pin(nested.check(resolver)).await {
+                    SpfResult {
+                        disposition: Pass, ..
+                    } => true,
+                    SpfResult {
+                        disposition: Fail | SoftFail | Neutral,
+                        ..
+                    } => false,
+                    SpfResult {
+                        disposition: TempError,
+                        context,
+                    } => {
+                        return Err(SpfResult {
+                            disposition: TempError,
+                            context: format!(
+                                "temperror while evaluating include:{domain}: {context}"
+                            ),
+                        })
+                    }
+                    SpfResult {
+                        disposition: disp @ PermError | disp @ None,
+                        context,
+                    } => {
+                        return Err(SpfResult {
+                            disposition: PermError,
+                            context: format!("{disp} while evaluating include:{domain}: {context}"),
+                        })
+                    }
+                }
+            }
             _ => todo!("evaluate directive {self:?}"),
         };
 

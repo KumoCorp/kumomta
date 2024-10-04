@@ -40,6 +40,10 @@ impl<'a> SpfContext<'a> {
         })
     }
 
+    pub(crate) fn with_domain(&self, domain: &'a str) -> Self {
+        Self { domain, ..*self }
+    }
+
     pub async fn check(&self, resolver: &dyn Lookup) -> SpfResult {
         let initial_txt = match resolver.lookup_txt(self.domain).await {
             Ok(parts) => parts.join(""),
