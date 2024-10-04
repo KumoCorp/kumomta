@@ -234,7 +234,18 @@ impl Directive {
                     }
                 }
             }
-            _ => todo!("evaluate directive {self:?}"),
+            Mechanism::Exists { domain } => {
+                let domain = cx.domain(Some(domain))?;
+                match resolver.lookup_ip(&domain).await {
+                    Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),
+                    Err(err) => {
+                        return Err(SpfResult {
+                            disposition: SpfDisposition::TempError,
+                            context: format!("error looking up IP for {domain}: {err}"),
+                        })
+                    }
+                }
+            }
         };
 
         Ok(match matched {
