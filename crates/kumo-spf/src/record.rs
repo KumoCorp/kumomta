@@ -6,17 +6,16 @@ use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Record {
-    terms: Vec<Term>,
+    directives: Vec<Directive>,
+    redirect: Option<DomainSpec>,
+    explanation: Option<DomainSpec>,
 }
 
 impl Record {
     pub fn parse(s: &str) -> Result<Self, String> {
-        let mut terms = vec![];
-
         let mut tokens = s.split(' ');
-
         let version = tokens
             .next()
             .ok_or_else(|| format!("expected version in {s}"))?;
@@ -24,27 +23,51 @@ impl Record {
             return Err(format!("expected SPF version 1 in {s}"));
         }
 
+        let mut new = Self::default();
         while let Some(t) = tokens.next() {
-            match (Directive::parse(t), Modifier::parse(t)) {
-                (Ok(q), _) => terms.push(Term::Directive(q)),
-                (_, Ok(m)) => terms.push(Term::Modifier(m)),
-                wtf => return Err(format!("unexpected result: {wtf:?} while parsing {t}")),
+            if let Ok(directive) = Directive::parse(t) {
+                if new.redirect.is_some() || new.explanation.is_some() {
+                    return Err("directive after modifier".to_owned());
+                }
+
+                new.directives.push(directive);
+                continue;
             }
+
+            if let Ok(modifier) = Modifier::parse(t) {
+                match modifier {
+                    Modifier::Redirect(domain) => match new.redirect {
+                        Some(_) => return Err("duplicate redirect modifier".to_owned()),
+                        None => new.redirect = Some(domain),
+                    },
+                    Modifier::Explanation(domain) => match new.explanation {
+                        Some(_) => return Err("duplicate explanation modifier".to_owned()),
+                        None => new.explanation = Some(domain),
+                    },
+                    _ => {} // "Unrecognized modifiers MUST be ignored"
+                }
+                continue;
+            }
+
+            return Err(format!("invalid token '{t}'"));
         }
 
-        Ok(Self { terms })
+        Ok(new)
     }
 
     pub async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
-        for term in &self.terms {
-            match term {
-                Term::Directive(d) => match d.evaluate(cx, resolver).await {
-                    Ok(Some(result)) => return result,
-                    Ok(None) => continue,
-                    Err(err) => return err,
-                },
-                Term::Modifier(_) => todo!(),
+        for directive in &self.directives {
+            match directive.evaluate(cx, resolver).await {
+                Ok(Some(result)) => return result,
+                Ok(None) => continue,
+                Err(err) => return err,
             }
+        }
+
+        if let Some(domain) = &self.redirect {
+            todo!("redirect modifier not supported yet: {domain}");
+        } else if let Some(domain) = &self.explanation {
+            todo!("explanation modifier not supported yet: {domain}");
         }
 
         SpfResult {
@@ -52,12 +75,6 @@ impl Record {
             context: "default result".to_owned(),
         }
     }
-}
-
-#[derive(Debug)]
-pub enum Term {
-    Directive(Directive),
-    Modifier(Modifier),
 }
 
 #[derive(Debug)]
@@ -77,11 +94,9 @@ impl Directive {
             None => s,
         };
 
-        let mechanism = Mechanism::parse(s)?;
-
         Ok(Self {
             qualifier,
-            mechanism,
+            mechanism: Mechanism::parse(s)?,
         })
     }
 
@@ -844,61 +859,56 @@ mod test {
     fn test_parse() {
         k9::snapshot!(
             Record::parse("v=spf1 -exists:%(ir).sbl.example.org").unwrap_err(),
-            r#"unexpected result: (Err("invalid macro char in %(ir).sbl.example.org"), Err("invalid modifier -exists:%(ir).sbl.example.org")) while parsing -exists:%(ir).sbl.example.org"#
+            r#"invalid token '-exists:%(ir).sbl.example.org'"#
         );
         k9::snapshot!(
             Record::parse("v=spf1 -exists:%{ir.sbl.example.org").unwrap_err(),
-            r#"unexpected result: (Err("expected '}' to close macro in %{ir.sbl.example.org"), Err("invalid modifier -exists:%{ir.sbl.example.org")) while parsing -exists:%{ir.sbl.example.org"#
+            r#"invalid token '-exists:%{ir.sbl.example.org'"#
         );
         k9::snapshot!(
             Record::parse("v=spf1 -exists:%{ir").unwrap_err(),
-            r#"unexpected result: (Err("expected '}' to close macro in %{ir"), Err("invalid modifier -exists:%{ir")) while parsing -exists:%{ir"#
+            r#"invalid token '-exists:%{ir'"#
         );
 
         k9::snapshot!(
             parse("v=spf1 mx -all exp=explain._spf.%{d}"),
             r#"
 Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
                 },
             },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-        Modifier(
-            Explanation(
-                DomainSpec {
-                    elements: [
-                        Literal(
-                            "explain._spf.",
-                        ),
-                        Macro(
-                            MacroTerm {
-                                name: Domain,
-                                transformer_digits: None,
-                                url_escape: false,
-                                reverse: false,
-                                delimiters: "",
-                            },
-                        ),
-                    ],
-                },
-            ),
-        ),
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
     ],
+    redirect: None,
+    explanation: Some(
+        DomainSpec {
+            elements: [
+                Literal(
+                    "explain._spf.",
+                ),
+                Macro(
+                    MacroTerm {
+                        name: Domain,
+                        transformer_digits: None,
+                        url_escape: false,
+                        reverse: false,
+                        delimiters: "",
+                    },
+                ),
+            ],
+        },
+    ),
 }
 "#
         );
@@ -907,31 +917,31 @@ Record {
             parse("v=spf1 -exists:%{ir}.sbl.example.org"),
             r#"
 Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: Exists {
-                    domain: DomainSpec {
-                        elements: [
-                            Macro(
-                                MacroTerm {
-                                    name: Ip,
-                                    transformer_digits: None,
-                                    url_escape: false,
-                                    reverse: true,
-                                    delimiters: "",
-                                },
-                            ),
-                            Literal(
-                                ".sbl.example.org",
-                            ),
-                        ],
-                    },
+    directives: [
+        Directive {
+            qualifier: Fail,
+            mechanism: Exists {
+                domain: DomainSpec {
+                    elements: [
+                        Macro(
+                            MacroTerm {
+                                name: Ip,
+                                transformer_digits: None,
+                                url_escape: false,
+                                reverse: true,
+                                delimiters: "",
+                            },
+                        ),
+                        Literal(
+                            ".sbl.example.org",
+                        ),
+                    ],
                 },
             },
-        ),
+        },
     ],
+    redirect: None,
+    explanation: None,
 }
 "#
         );
@@ -940,14 +950,14 @@ Record {
             parse("v=spf1 +all"),
             "
 Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: All,
-            },
-        ),
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: All,
+        },
     ],
+    redirect: None,
+    explanation: None,
 }
 "
         );
@@ -955,26 +965,24 @@ Record {
             parse("v=spf1 a -all"),
             "
 Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: A {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: A {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
                 },
             },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
     ],
+    redirect: None,
+    explanation: None,
 }
 "
         );
@@ -982,320 +990,11 @@ Record {
             parse("v=spf1 a:example.org -all"),
             r#"
 Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: A {
-                    domain: Some(
-                        DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.org",
-                                ),
-                            ],
-                        },
-                    ),
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"#
-        );
-        k9::snapshot!(
-            parse("v=spf1 mx -all"),
-            "
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"
-        );
-        k9::snapshot!(
-            parse("v=spf1 mx:example.org -all"),
-            r#"
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: Some(
-                        DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.org",
-                                ),
-                            ],
-                        },
-                    ),
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"#
-        );
-        k9::snapshot!(
-            parse("v=spf1 mx mx:example.org -all"),
-            r#"
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: Some(
-                        DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.org",
-                                ),
-                            ],
-                        },
-                    ),
-                    cidr_len: DualCidrLength {
-                        v4: 32,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"#
-        );
-        k9::snapshot!(
-            parse("v=spf1 mx/30 -all"),
-            "
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 30,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"
-        );
-        k9::snapshot!(
-            parse("v=spf1 mx/30 mx:example.org/30 -all"),
-            r#"
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: None,
-                    cidr_len: DualCidrLength {
-                        v4: 30,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Mx {
-                    domain: Some(
-                        DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.org",
-                                ),
-                            ],
-                        },
-                    ),
-                    cidr_len: DualCidrLength {
-                        v4: 30,
-                        v6: 128,
-                    },
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"#
-        );
-        k9::snapshot!(
-            parse("v=spf1 ptr -all"),
-            "
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Ptr {
-                    domain: None,
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"
-        );
-        k9::snapshot!(
-            parse("v=spf1 ip4:192.0.2.128/28 -all"),
-            "
-Record {
-    terms: [
-        Directive(
-            Directive {
-                qualifier: Pass,
-                mechanism: Ip4 {
-                    ip4_network: 192.0.2.128,
-                    cidr_len: 28,
-                },
-            },
-        ),
-        Directive(
-            Directive {
-                qualifier: Fail,
-                mechanism: All,
-            },
-        ),
-    ],
-}
-"
-        );
-        k9::snapshot!(
-            Record::parse("v=spf1 include:example.com include:example.net -all"),
-            r#"
-Ok(
-    Record {
-        terms: [
-            Directive(
-                Directive {
-                    qualifier: Pass,
-                    mechanism: Include {
-                        domain: DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.com",
-                                ),
-                            ],
-                        },
-                    },
-                },
-            ),
-            Directive(
-                Directive {
-                    qualifier: Pass,
-                    mechanism: Include {
-                        domain: DomainSpec {
-                            elements: [
-                                Literal(
-                                    "example.net",
-                                ),
-                            ],
-                        },
-                    },
-                },
-            ),
-            Directive(
-                Directive {
-                    qualifier: Fail,
-                    mechanism: All,
-                },
-            ),
-        ],
-    },
-)
-"#
-        );
-        k9::snapshot!(
-            Record::parse("v=spf1 redirect=example.org"),
-            r#"
-Ok(
-    Record {
-        terms: [
-            Modifier(
-                Redirect(
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: A {
+                domain: Some(
                     DomainSpec {
                         elements: [
                             Literal(
@@ -1304,10 +1003,289 @@ Ok(
                         ],
                     },
                 ),
-            ),
-        ],
-    },
-)
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"#
+        );
+        k9::snapshot!(
+            parse("v=spf1 mx -all"),
+            "
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
+        k9::snapshot!(
+            parse("v=spf1 mx:example.org -all"),
+            r#"
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: Some(
+                    DomainSpec {
+                        elements: [
+                            Literal(
+                                "example.org",
+                            ),
+                        ],
+                    },
+                ),
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"#
+        );
+        k9::snapshot!(
+            parse("v=spf1 mx mx:example.org -all"),
+            r#"
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: Some(
+                    DomainSpec {
+                        elements: [
+                            Literal(
+                                "example.org",
+                            ),
+                        ],
+                    },
+                ),
+                cidr_len: DualCidrLength {
+                    v4: 32,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"#
+        );
+        k9::snapshot!(
+            parse("v=spf1 mx/30 -all"),
+            "
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 30,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
+        k9::snapshot!(
+            parse("v=spf1 mx/30 mx:example.org/30 -all"),
+            r#"
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: None,
+                cidr_len: DualCidrLength {
+                    v4: 30,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Pass,
+            mechanism: Mx {
+                domain: Some(
+                    DomainSpec {
+                        elements: [
+                            Literal(
+                                "example.org",
+                            ),
+                        ],
+                    },
+                ),
+                cidr_len: DualCidrLength {
+                    v4: 30,
+                    v6: 128,
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"#
+        );
+        k9::snapshot!(
+            parse("v=spf1 ptr -all"),
+            "
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Ptr {
+                domain: None,
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
+        k9::snapshot!(
+            parse("v=spf1 ip4:192.0.2.128/28 -all"),
+            "
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Ip4 {
+                ip4_network: 192.0.2.128,
+                cidr_len: 28,
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"
+        );
+        k9::snapshot!(
+            parse("v=spf1 include:example.com include:example.net -all"),
+            r#"
+Record {
+    directives: [
+        Directive {
+            qualifier: Pass,
+            mechanism: Include {
+                domain: DomainSpec {
+                    elements: [
+                        Literal(
+                            "example.com",
+                        ),
+                    ],
+                },
+            },
+        },
+        Directive {
+            qualifier: Pass,
+            mechanism: Include {
+                domain: DomainSpec {
+                    elements: [
+                        Literal(
+                            "example.net",
+                        ),
+                    ],
+                },
+            },
+        },
+        Directive {
+            qualifier: Fail,
+            mechanism: All,
+        },
+    ],
+    redirect: None,
+    explanation: None,
+}
+"#
+        );
+        k9::snapshot!(
+            parse("v=spf1 redirect=example.org"),
+            r#"
+Record {
+    directives: [],
+    redirect: Some(
+        DomainSpec {
+            elements: [
+                Literal(
+                    "example.org",
+                ),
+            ],
+        },
+    ),
+    explanation: None,
+}
 "#
         );
     }
