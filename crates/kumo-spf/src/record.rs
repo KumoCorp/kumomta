@@ -93,7 +93,7 @@ impl Directive {
         let matched = match &self.mechanism {
             Mechanism::All => true,
             Mechanism::A { domain, cidr_len } => {
-                let domain = cx.domain(domain)?;
+                let domain = cx.domain(domain.as_ref())?;
                 let resolved = match resolver.lookup_ip(&domain).await {
                     Ok(ips) => ips,
                     Err(err) => {
@@ -109,7 +109,7 @@ impl Directive {
                     .any(|&resolved_ip| cidr_len.matches(cx.client_ip, resolved_ip))
             }
             Mechanism::Mx { domain, cidr_len } => {
-                let domain = cx.domain(domain)?;
+                let domain = cx.domain(domain.as_ref())?;
                 let exchanges = match resolver.lookup_mx(&domain).await {
                     Ok(exchanges) => exchanges,
                     Err(err) => {
@@ -160,7 +160,7 @@ impl Directive {
             }
             .matches(cx.client_ip, IpAddr::V6(*ip6_network)),
             Mechanism::Ptr { domain } => {
-                let domain = match Name::from_str(&cx.domain(domain)?) {
+                let domain = match Name::from_str(&cx.domain(domain.as_ref())?) {
                     Ok(domain) => domain,
                     Err(err) => {
                         return Err(SpfResult {
