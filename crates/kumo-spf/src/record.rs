@@ -1,6 +1,6 @@
 use crate::context::SpfContext;
 use crate::dns::Lookup;
-use crate::spec::DomainSpec;
+use crate::spec::MacroSpec;
 use crate::{SpfDisposition, SpfResult};
 use hickory_resolver::Name;
 use std::fmt;
@@ -10,8 +10,8 @@ use std::str::FromStr;
 #[derive(Debug, Default)]
 pub struct Record {
     directives: Vec<Directive>,
-    redirect: Option<DomainSpec>,
-    explanation: Option<DomainSpec>,
+    redirect: Option<MacroSpec>,
+    explanation: Option<MacroSpec>,
 }
 
 impl Record {
@@ -116,7 +116,7 @@ impl Record {
             Ok(_) | Err(_) => return SpfResult::fail(failed),
         };
 
-        let spec = match DomainSpec::parse(&explanation) {
+        let spec = match MacroSpec::parse(&explanation) {
             Ok(spec) => spec,
             Err(_) => return SpfResult::fail(failed),
         };
@@ -458,18 +458,18 @@ impl fmt::Display for DualCidrLength {
 pub enum Mechanism {
     All,
     Include {
-        domain: DomainSpec,
+        domain: MacroSpec,
     },
     A {
-        domain: Option<DomainSpec>,
+        domain: Option<MacroSpec>,
         cidr_len: DualCidrLength,
     },
     Mx {
-        domain: Option<DomainSpec>,
+        domain: Option<MacroSpec>,
         cidr_len: DualCidrLength,
     },
     Ptr {
-        domain: Option<DomainSpec>,
+        domain: Option<MacroSpec>,
     },
     Ip4 {
         ip4_network: Ipv4Addr,
@@ -480,7 +480,7 @@ pub enum Mechanism {
         cidr_len: u8,
     },
     Exists {
-        domain: DomainSpec,
+        domain: MacroSpec,
     },
 }
 
@@ -543,7 +543,7 @@ impl Mechanism {
 
         if let Some(spec) = starts_with_ident(s, "include:") {
             return Ok(Self::Include {
-                domain: DomainSpec::parse(spec)?,
+                domain: MacroSpec::parse(spec)?,
             });
         }
 
@@ -551,7 +551,7 @@ impl Mechanism {
             let (remain, cidr_len) = DualCidrLength::parse_from_end(remain)?;
 
             let domain = if let Some(spec) = remain.strip_prefix(":") {
-                Some(DomainSpec::parse(spec)?)
+                Some(MacroSpec::parse(spec)?)
             } else if remain.is_empty() {
                 None
             } else {
@@ -564,7 +564,7 @@ impl Mechanism {
             let (remain, cidr_len) = DualCidrLength::parse_from_end(remain)?;
 
             let domain = if let Some(spec) = remain.strip_prefix(":") {
-                Some(DomainSpec::parse(spec)?)
+                Some(MacroSpec::parse(spec)?)
             } else if remain.is_empty() {
                 None
             } else {
@@ -575,7 +575,7 @@ impl Mechanism {
         }
         if let Some(remain) = starts_with_ident(s, "ptr") {
             let domain = if let Some(spec) = remain.strip_prefix(":") {
-                Some(DomainSpec::parse(spec)?)
+                Some(MacroSpec::parse(spec)?)
             } else if remain.is_empty() {
                 None
             } else {
@@ -618,7 +618,7 @@ impl Mechanism {
         }
         if let Some(spec) = starts_with_ident(s, "exists:") {
             return Ok(Self::Exists {
-                domain: DomainSpec::parse(spec)?,
+                domain: MacroSpec::parse(spec)?,
             });
         }
 
@@ -628,21 +628,21 @@ impl Mechanism {
 
 #[derive(Debug)]
 pub enum Modifier {
-    Redirect(DomainSpec),
-    Explanation(DomainSpec),
+    Redirect(MacroSpec),
+    Explanation(MacroSpec),
     Unknown {
         name: String,
-        macro_string: DomainSpec,
+        macro_string: MacroSpec,
     },
 }
 
 impl Modifier {
     fn parse(s: &str) -> Result<Self, String> {
         if let Some(spec) = starts_with_ident(s, "redirect=") {
-            return Ok(Self::Redirect(DomainSpec::parse(spec)?));
+            return Ok(Self::Redirect(MacroSpec::parse(spec)?));
         }
         if let Some(spec) = starts_with_ident(s, "exp=") {
-            return Ok(Self::Explanation(DomainSpec::parse(spec)?));
+            return Ok(Self::Explanation(MacroSpec::parse(spec)?));
         }
 
         let (name, value) = s
@@ -660,7 +660,7 @@ impl Modifier {
 
         Ok(Self::Unknown {
             name: name.to_string(),
-            macro_string: DomainSpec::parse(value)?,
+            macro_string: MacroSpec::parse(value)?,
         })
     }
 }
@@ -714,7 +714,7 @@ Record {
     ],
     redirect: None,
     explanation: Some(
-        DomainSpec {
+        MacroSpec {
             elements: [
                 Literal(
                     "explain._spf.",
@@ -743,7 +743,7 @@ Record {
         Directive {
             qualifier: Fail,
             mechanism: Exists {
-                domain: DomainSpec {
+                domain: MacroSpec {
                     elements: [
                         Macro(
                             MacroTerm {
@@ -817,7 +817,7 @@ Record {
             qualifier: Pass,
             mechanism: A {
                 domain: Some(
-                    DomainSpec {
+                    MacroSpec {
                         elements: [
                             Literal(
                                 "example.org",
@@ -875,7 +875,7 @@ Record {
             qualifier: Pass,
             mechanism: Mx {
                 domain: Some(
-                    DomainSpec {
+                    MacroSpec {
                         elements: [
                             Literal(
                                 "example.org",
@@ -918,7 +918,7 @@ Record {
             qualifier: Pass,
             mechanism: Mx {
                 domain: Some(
-                    DomainSpec {
+                    MacroSpec {
                         elements: [
                             Literal(
                                 "example.org",
@@ -986,7 +986,7 @@ Record {
             qualifier: Pass,
             mechanism: Mx {
                 domain: Some(
-                    DomainSpec {
+                    MacroSpec {
                         elements: [
                             Literal(
                                 "example.org",
@@ -1061,7 +1061,7 @@ Record {
         Directive {
             qualifier: Pass,
             mechanism: Include {
-                domain: DomainSpec {
+                domain: MacroSpec {
                     elements: [
                         Literal(
                             "example.com",
@@ -1073,7 +1073,7 @@ Record {
         Directive {
             qualifier: Pass,
             mechanism: Include {
-                domain: DomainSpec {
+                domain: MacroSpec {
                     elements: [
                         Literal(
                             "example.net",
@@ -1098,7 +1098,7 @@ Record {
 Record {
     directives: [],
     redirect: Some(
-        DomainSpec {
+        MacroSpec {
             elements: [
                 Literal(
                     "example.org",
