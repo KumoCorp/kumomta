@@ -15,6 +15,12 @@ pub struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
+    /// Create a new evaluation context.
+    ///
+    /// - `sender` is the "MAIL FROM" or "HELO" identity
+    /// - `domain` is the domain that provides the sought-after authorization information;
+    ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
+    /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
     pub fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
         let Some((local_part, sender_domain)) = sender.split_once('@') else {
             return Err(SpfResult {
