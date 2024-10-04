@@ -15,11 +15,13 @@ pub struct EvalContext<'a> {
 }
 
 impl<'a> EvalContext<'a> {
-    pub fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, String> {
+    pub fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
         let Some((local_part, sender_domain)) = sender.split_once('@') else {
-            return Err(format!(
-                "invalid sender {sender} is missing @ sign to delimit local part and domain"
-            ));
+            return Err(SpfResult {
+                disposition: SpfDisposition::PermError,
+                context:
+                    "input sender parameter '{sender}' is missing @ sign to delimit local part and domain".to_owned(),
+            });
         };
 
         Ok(Self {
