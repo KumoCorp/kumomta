@@ -1,11 +1,11 @@
 use crate::context::SpfContext;
 use crate::dns::Lookup;
+use crate::spec::DomainSpec;
 use crate::{SpfDisposition, SpfResult};
 use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
-use crate::spec::DomainSpec;
 
 #[derive(Debug, Default)]
 pub struct Record {
@@ -121,7 +121,7 @@ impl Record {
             Err(_) => return SpfResult::fail(failed),
         };
 
-        match cx.expand(&spec.elements) {
+        match spec.expand(cx) {
             Ok(explanation) => SpfResult::fail(explanation),
             Err(_) => SpfResult::fail(failed),
         }
