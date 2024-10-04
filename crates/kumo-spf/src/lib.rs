@@ -1,6 +1,6 @@
+pub mod context;
+pub use context::SpfContext;
 pub mod dns;
-pub mod eval;
-pub use eval::EvalContext;
 pub mod record;
 use record::Qualifier;
 #[cfg(test)]
