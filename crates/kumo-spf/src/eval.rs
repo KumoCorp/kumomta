@@ -37,13 +37,13 @@ impl<'a> EvalContext<'a> {
             return Ok(self.domain.to_owned());
         };
 
-        self.evaluate(&spec.elements).map_err(|err| SpfResult {
+        self.expand(&spec.elements).map_err(|err| SpfResult {
             disposition: SpfDisposition::TempError,
             context: format!("error evaluating domain spec: {err}"),
         })
     }
 
-    pub fn evaluate(&self, elements: &[MacroElement]) -> Result<String, String> {
+    pub fn expand(&self, elements: &[MacroElement]) -> Result<String, String> {
         let (mut result, mut buf) = (String::new(), String::new());
         for element in elements {
             let m = match element {
@@ -173,7 +173,7 @@ mod test {
             ("%{l1r-}", "strong"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.evaluate(&spec.elements).unwrap();
+            let output = ctx.expand(&spec.elements).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -198,7 +198,7 @@ mod test {
             ("%{c}", "192.0.2.3"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.evaluate(&spec.elements).unwrap();
+            let output = ctx.expand(&spec.elements).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -213,7 +213,7 @@ mod test {
             ("%{C}", "2001%3adb8%3a%3acb01"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.evaluate(&spec.elements).unwrap();
+            let output = ctx.expand(&spec.elements).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
     }
