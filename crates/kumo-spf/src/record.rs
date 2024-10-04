@@ -1,7 +1,6 @@
-use crate::context::SpfContext;
 use crate::dns::Lookup;
 use crate::spec::MacroSpec;
-use crate::{SpfDisposition, SpfResult};
+use crate::{SpfContext, SpfDisposition, SpfResult};
 use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
