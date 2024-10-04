@@ -65,7 +65,13 @@ impl Record {
         }
 
         if let Some(domain) = &self.redirect {
-            todo!("redirect modifier not supported yet: {domain}");
+            let domain = match cx.domain(Some(domain)) {
+                Ok(domain) => domain,
+                Err(err) => return err,
+            };
+
+            let nested = cx.with_domain(&domain);
+            return Box::pin(nested.check(resolver)).await;
         } else if let Some(domain) = &self.explanation {
             todo!("explanation modifier not supported yet: {domain}");
         }
