@@ -1,8 +1,6 @@
-use std::net::IpAddr;
-
 pub mod dns;
 pub mod eval;
-use eval::EvalContext;
+pub use eval::EvalContext;
 pub mod record;
 use record::Qualifier;
 #[cfg(test)]
@@ -59,27 +57,4 @@ impl From<Qualifier> for SpfDisposition {
 pub struct SpfResult {
     pub disposition: SpfDisposition,
     pub context: String,
-}
-
-pub struct CheckHostParams {
-    /// the IP address of the SMTP client that is emitting the mail,
-    /// either IPv4 or IPv6.
-    pub client_ip: IpAddr,
-
-    /// the domain that provides the sought-after authorization
-    /// information; initially, the domain portion of the
-    /// "MAIL FROM" or "HELO" identity.
-    pub domain: String,
-
-    /// the "MAIL FROM" or "HELO" identity.
-    pub sender: String,
-}
-
-impl CheckHostParams {
-    pub async fn run(&self, resolver: &dyn dns::Lookup) -> SpfResult {
-        match EvalContext::new(&self.sender, &self.domain, self.client_ip) {
-            Ok(cx) => cx.check(resolver).await,
-            Err(err) => err,
-        }
-    }
 }

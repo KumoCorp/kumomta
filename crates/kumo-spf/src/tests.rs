@@ -1,5 +1,5 @@
 use crate::dns::{ptr_host, DnsError, Lookup};
-use crate::{CheckHostParams, SpfDisposition, SpfResult};
+use crate::{EvalContext, SpfDisposition, SpfResult};
 use futures::future::BoxFuture;
 use hickory_proto::rr::rdata::{A, AAAA, MX, PTR, TXT};
 use hickory_proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};
@@ -241,13 +241,10 @@ struct TestResolver {
 
 impl TestResolver {
     async fn evaluate_ip(&self, client_ip: impl Into<IpAddr>) -> SpfResult {
-        CheckHostParams {
-            client_ip: client_ip.into(),
-            domain: "example.com".to_string(),
-            sender: "sender@example.com".to_string(),
+        match EvalContext::new("sender@example.com", "example.com", client_ip.into()) {
+            Ok(cx) => cx.check(self).await,
+            Err(result) => result,
         }
-        .run(self)
-        .await
     }
 
     fn with_zone(mut self, zone: &str) -> Self {
