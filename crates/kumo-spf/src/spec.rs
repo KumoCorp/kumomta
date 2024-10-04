@@ -1,4 +1,7 @@
-use std::fmt;
+use crate::dns::IpDisplay;
+use crate::SpfContext;
+use std::fmt::{self, Write};
+use std::time::SystemTime;
 
 fn starts_with_number(input: &str) -> Result<(Option<u32>, &str), String> {
     let i = input
@@ -107,6 +110,102 @@ impl DomainSpec {
         }
 
         Ok(Self { elements })
+    }
+
+    pub fn expand(&self, cx: &SpfContext<'_>) -> Result<String, String> {
+        let (mut result, mut buf) = (String::new(), String::new());
+        for element in &self.elements {
+            let m = match element {
+                MacroElement::Literal(t) => {
+                    result.push_str(&t);
+                    continue;
+                }
+                MacroElement::Macro(m) => m,
+            };
+
+            buf.clear();
+            match m.name {
+                MacroName::Sender => buf.push_str(cx.sender),
+                MacroName::LocalPart => buf.push_str(&cx.local_part),
+                MacroName::SenderDomain => buf.push_str(&cx.sender_domain),
+                MacroName::Domain => buf.push_str(&cx.domain),
+                MacroName::ReverseDns => buf.push_str(match cx.client_ip.is_ipv4() {
+                    true => "in-addr",
+                    false => "ip6",
+                }),
+                MacroName::ClientIp => {
+                    buf.write_fmt(format_args!("{}", cx.client_ip)).unwrap();
+                }
+                MacroName::Ip => buf
+                    .write_fmt(format_args!(
+                        "{}",
+                        IpDisplay {
+                            ip: cx.client_ip,
+                            reverse: false
+                        }
+                    ))
+                    .unwrap(),
+                MacroName::CurrentUnixTimeStamp => buf
+                    .write_fmt(format_args!(
+                        "{}",
+                        cx.now
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                    ))
+                    .unwrap(),
+                MacroName::RelayingHostName
+                | MacroName::HeloDomain
+                | MacroName::ValidatedDomainName => {
+                    return Err(format!("{:?} has not been implemented", m.name))
+                }
+            };
+
+            let delimiters = if m.delimiters.is_empty() {
+                "."
+            } else {
+                &m.delimiters
+            };
+
+            let mut tokens: Vec<&str> = buf.split(|c| delimiters.contains(c)).collect();
+
+            if m.reverse {
+                tokens.reverse();
+            }
+
+            if let Some(n) = m.transformer_digits {
+                let n = n as usize;
+                while tokens.len() > n {
+                    tokens.remove(0);
+                }
+            }
+
+            let output = tokens.join(".");
+
+            if m.url_escape {
+                // https://datatracker.ietf.org/doc/html/rfc7208#section-7.3:
+                //   Uppercase macros expand exactly as their lowercase
+                //   equivalents, and are then URL escaped.  URL escaping
+                //   MUST be performed for characters not in the
+                //   "unreserved" set.
+                // https://datatracker.ietf.org/doc/html/rfc3986#section-2.3:
+                //    unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+                for c in output.chars() {
+                    if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '~' {
+                        result.push(c);
+                    } else {
+                        let mut bytes = [0u8; 4];
+                        for b in c.encode_utf8(&mut bytes).bytes() {
+                            result.push_str(&format!("%{b:02x}"));
+                        }
+                    }
+                }
+            } else {
+                result.push_str(&output);
+            }
+        }
+
+        Ok(result)
     }
 }
 

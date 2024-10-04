@@ -1,18 +1,17 @@
-use crate::dns::{DnsError, IpDisplay, Lookup};
+use crate::dns::{DnsError, Lookup};
 use crate::record::Record;
-use crate::spec::{DomainSpec, MacroElement, MacroName};
+use crate::spec::DomainSpec;
 use crate::{SpfDisposition, SpfResult};
-use std::fmt::Write;
 use std::net::IpAddr;
 use std::time::SystemTime;
 
 pub struct SpfContext<'a> {
-    sender: &'a str,
-    local_part: &'a str,
-    sender_domain: &'a str,
+    pub(crate) sender: &'a str,
+    pub(crate) local_part: &'a str,
+    pub(crate) sender_domain: &'a str,
     pub(crate) domain: &'a str,
     pub(crate) client_ip: IpAddr,
-    now: SystemTime,
+    pub(crate) now: SystemTime,
 }
 
 impl<'a> SpfContext<'a> {
@@ -75,106 +74,10 @@ impl<'a> SpfContext<'a> {
             return Ok(self.domain.to_owned());
         };
 
-        self.expand(&spec.elements).map_err(|err| SpfResult {
+        spec.expand(self).map_err(|err| SpfResult {
             disposition: SpfDisposition::TempError,
             context: format!("error evaluating domain spec: {err}"),
         })
-    }
-
-    pub fn expand(&self, elements: &[MacroElement]) -> Result<String, String> {
-        let (mut result, mut buf) = (String::new(), String::new());
-        for element in elements {
-            let m = match element {
-                MacroElement::Literal(t) => {
-                    result.push_str(&t);
-                    continue;
-                }
-                MacroElement::Macro(m) => m,
-            };
-
-            buf.clear();
-            match m.name {
-                MacroName::Sender => buf.push_str(self.sender),
-                MacroName::LocalPart => buf.push_str(&self.local_part),
-                MacroName::SenderDomain => buf.push_str(&self.sender_domain),
-                MacroName::Domain => buf.push_str(&self.domain),
-                MacroName::ReverseDns => buf.push_str(match self.client_ip.is_ipv4() {
-                    true => "in-addr",
-                    false => "ip6",
-                }),
-                MacroName::ClientIp => {
-                    buf.write_fmt(format_args!("{}", self.client_ip)).unwrap();
-                }
-                MacroName::Ip => buf
-                    .write_fmt(format_args!(
-                        "{}",
-                        IpDisplay {
-                            ip: self.client_ip,
-                            reverse: false
-                        }
-                    ))
-                    .unwrap(),
-                MacroName::CurrentUnixTimeStamp => buf
-                    .write_fmt(format_args!(
-                        "{}",
-                        self.now
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0)
-                    ))
-                    .unwrap(),
-                MacroName::RelayingHostName
-                | MacroName::HeloDomain
-                | MacroName::ValidatedDomainName => {
-                    return Err(format!("{:?} has not been implemented", m.name))
-                }
-            };
-
-            let delimiters = if m.delimiters.is_empty() {
-                "."
-            } else {
-                &m.delimiters
-            };
-
-            let mut tokens: Vec<&str> = buf.split(|c| delimiters.contains(c)).collect();
-
-            if m.reverse {
-                tokens.reverse();
-            }
-
-            if let Some(n) = m.transformer_digits {
-                let n = n as usize;
-                while tokens.len() > n {
-                    tokens.remove(0);
-                }
-            }
-
-            let output = tokens.join(".");
-
-            if m.url_escape {
-                // https://datatracker.ietf.org/doc/html/rfc7208#section-7.3:
-                //   Uppercase macros expand exactly as their lowercase
-                //   equivalents, and are then URL escaped.  URL escaping
-                //   MUST be performed for characters not in the
-                //   "unreserved" set.
-                // https://datatracker.ietf.org/doc/html/rfc3986#section-2.3:
-                //    unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
-                for c in output.chars() {
-                    if c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '~' {
-                        result.push(c);
-                    } else {
-                        let mut bytes = [0u8; 4];
-                        for b in c.encode_utf8(&mut bytes).bytes() {
-                            result.push_str(&format!("%{b:02x}"));
-                        }
-                    }
-                }
-            } else {
-                result.push_str(&output);
-            }
-        }
-
-        Ok(result)
     }
 }
 
@@ -211,7 +114,7 @@ mod test {
             ("%{l1r-}", "strong"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.expand(&spec.elements).unwrap();
+            let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -236,7 +139,7 @@ mod test {
             ("%{c}", "192.0.2.3"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.expand(&spec.elements).unwrap();
+            let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
 
@@ -251,7 +154,7 @@ mod test {
             ("%{C}", "2001%3adb8%3a%3acb01"),
         ] {
             let spec = DomainSpec::parse(input).unwrap();
-            let output = ctx.expand(&spec.elements).unwrap();
+            let output = spec.expand(&ctx).unwrap();
             k9::assert_equal!(&output, expect, "{input}");
         }
     }
