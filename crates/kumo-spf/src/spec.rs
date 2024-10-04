@@ -17,8 +17,8 @@ fn starts_with_number(input: &str) -> Result<(Option<u32>, &str), String> {
 }
 
 #[derive(Debug)]
-pub struct MacroSpec {
-    pub(crate) elements: Vec<MacroElement>,
+pub(crate) struct MacroSpec {
+    elements: Vec<MacroElement>,
 }
 
 impl MacroSpec {
@@ -112,7 +112,7 @@ impl MacroSpec {
         Ok(Self { elements })
     }
 
-    pub fn expand(&self, cx: &SpfContext<'_>) -> Result<String, String> {
+    pub(crate) fn expand(&self, cx: &SpfContext<'_>) -> Result<String, String> {
         let (mut result, mut buf) = (String::new(), String::new());
         for element in &self.elements {
             let m = match element {
@@ -229,13 +229,13 @@ impl fmt::Display for MacroSpec {
 }
 
 #[derive(Debug)]
-pub enum MacroElement {
+enum MacroElement {
     Literal(String),
     Macro(MacroTerm),
 }
 
 #[derive(Debug)]
-pub struct MacroTerm {
+struct MacroTerm {
     pub name: MacroName,
     /// digits were present in the transformer section
     pub transformer_digits: Option<u32>,
@@ -264,7 +264,7 @@ impl fmt::Display for MacroTerm {
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Copy, Clone)]
-pub enum MacroName {
+enum MacroName {
     /// `s` - <sender>
     Sender,
     /// `l` - local-part of <sender>
@@ -311,7 +311,7 @@ impl MacroName {
         ))
     }
 
-    pub fn as_char(&self) -> char {
+    fn as_char(&self) -> char {
         match self {
             Self::Sender => 's',
             Self::LocalPart => 'l',
