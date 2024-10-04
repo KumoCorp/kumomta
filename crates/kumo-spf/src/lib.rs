@@ -74,3 +74,12 @@ pub struct SpfResult {
     pub disposition: SpfDisposition,
     pub context: String,
 }
+
+impl SpfResult {
+    fn fail(context: String) -> Self {
+        Self {
+            disposition: SpfDisposition::Fail,
+            context,
+        }
+    }
+}

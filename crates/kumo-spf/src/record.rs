@@ -56,8 +56,16 @@ impl Record {
     }
 
     pub async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
+        let mut failed = None;
         for directive in &self.directives {
             match directive.evaluate(cx, resolver).await {
+                Ok(Some(SpfResult {
+                    disposition: SpfDisposition::Fail,
+                    context,
+                })) => {
+                    failed = Some(context);
+                    break;
+                }
                 Ok(Some(result)) => return result,
                 Ok(None) => continue,
                 Err(err) => return err,
@@ -71,14 +79,50 @@ impl Record {
             };
 
             let nested = cx.with_domain(&domain);
-            return Box::pin(nested.check(resolver)).await;
-        } else if let Some(domain) = &self.explanation {
-            todo!("explanation modifier not supported yet: {domain}");
+            match Box::pin(nested.check(resolver)).await {
+                SpfResult {
+                    disposition: SpfDisposition::Fail,
+                    context,
+                } => failed = Some(context),
+                result => return result,
+            }
         }
 
-        SpfResult {
-            disposition: SpfDisposition::Neutral,
-            context: "default result".to_owned(),
+        let failed = match failed {
+            Some(failed) => failed,
+            None => {
+                return SpfResult {
+                    disposition: SpfDisposition::Neutral,
+                    context: "default result".to_owned(),
+                }
+            }
+        };
+
+        let domain = match &self.explanation {
+            Some(domain) => match cx.domain(Some(domain)) {
+                Ok(domain) => domain,
+                Err(err) => return err,
+            },
+            None => return SpfResult::fail(failed),
+        };
+
+        // "If there are any DNS processing errors (any RCODE other than 0), or
+        // if no records are returned, or if more than one record is returned,
+        // or if there are syntax errors in the explanation string, then proceed
+        // as if no "exp" modifier was given."
+        let explanation = match resolver.lookup_txt(&domain).await {
+            Ok(mut records) if records.len() == 1 => records.pop().unwrap(),
+            Ok(_) | Err(_) => return SpfResult::fail(failed),
+        };
+
+        let spec = match DomainSpec::parse(&explanation) {
+            Ok(spec) => spec,
+            Err(_) => return SpfResult::fail(failed),
+        };
+
+        match cx.expand(&spec.elements) {
+            Ok(explanation) => SpfResult::fail(explanation),
+            Err(_) => SpfResult::fail(failed),
         }
     }
 }
