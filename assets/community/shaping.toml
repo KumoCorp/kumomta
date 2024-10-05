@@ -180,7 +180,7 @@ duration = "1 hour"
 #===== orange.fr
 ["orange.fr"]
 max_deliveries_per_connection = 75
-connection_limit = 1
+connection_limit = 2
 enable_tls = "Required"
 
 [["orange.fr".automation]]
