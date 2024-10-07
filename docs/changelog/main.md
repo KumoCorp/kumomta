@@ -117,3 +117,6 @@
 * The [requeue_message](../reference/events/requeue_message.md) event was
   internally named `message_requeued`, contrary to the documentation. This has
   now been corrected. #236
+
+* The [throttle_insert_ready_queue](../reference/events/throttle_insert_ready_queue.md) event
+  was not correctly registered and would never trigger.

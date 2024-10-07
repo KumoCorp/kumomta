@@ -260,34 +260,26 @@ impl LuaConfig {
         self.set_current_event(name)?;
         let lua = self.inner.as_mut().unwrap();
 
-        if sig.allow_multiple() {
-            return match lua
-                .lua
-                .named_registry_value::<mlua::Value>(&decorated_name)?
-            {
-                Value::Table(tbl) => {
-                    for func in tbl.sequence_values::<mlua::Function>() {
-                        let func = func?;
-                        let _timer = latency_timer(name);
-                        let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                        if result.is_empty() {
-                            // Continue with other handlers
-                            continue;
-                        }
-                        let result = R::from_lua_multi(result, &lua.lua)?;
-                        return Ok(Some(result));
+        match lua
+            .lua
+            .named_registry_value::<mlua::Value>(&decorated_name)?
+        {
+            Value::Table(tbl) => {
+                for func in tbl.sequence_values::<mlua::Function>() {
+                    let func = func?;
+                    let _timer = latency_timer(name);
+                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                    if result.is_empty() {
+                        // Continue with other handlers
+                        continue;
                     }
-                    Ok(None)
+                    let result = R::from_lua_multi(result, &lua.lua)?;
+                    return Ok(Some(result));
                 }
-                _ => Ok(None),
-            };
-        }
-
-        let opt_func: mlua::Value = lua.lua.named_registry_value(&decorated_name)?;
-
-        match opt_func {
-            Value::Nil => Ok(None),
+                Ok(None)
+            }
             Value::Function(func) => {
+                sig.raise_error_if_allow_multiple()?;
                 let _timer = latency_timer(name);
                 let value: Value = func.call_async(args.clone()).await?;
 
@@ -299,7 +291,7 @@ impl LuaConfig {
                     }
                 }
             }
-            _ => anyhow::bail!("invalid return type for {name} event"),
+            _ => Ok(None),
         }
     }
 
@@ -372,28 +364,23 @@ pub async fn async_call_callback<
     let name = sig.name();
     let decorated_name = sig.decorated_name();
 
-    if sig.allow_multiple() {
-        return match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
-            Value::Table(tbl) => {
-                for func in tbl.sequence_values::<mlua::Function>() {
-                    let func = func?;
-                    let _timer = latency_timer(name);
-                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                    if result.is_empty() {
-                        // Continue with other handlers
-                        continue;
-                    }
-                    let result = R::from_lua_multi(result, lua)?;
-                    return Ok(result);
+    match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
+        Value::Table(tbl) => {
+            for func in tbl.sequence_values::<mlua::Function>() {
+                let func = func?;
+                let _timer = latency_timer(name);
+                let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                if result.is_empty() {
+                    // Continue with other handlers
+                    continue;
                 }
-                Ok(R::default())
+                let result = R::from_lua_multi(result, lua)?;
+                return Ok(result);
             }
-            _ => Ok(R::default()),
-        };
-    }
-
-    match lua.named_registry_value::<mlua::Function>(&decorated_name) {
-        Ok(func) => {
+            Ok(R::default())
+        }
+        Value::Function(func) => {
+            sig.raise_error_if_allow_multiple()?;
             let _timer = latency_timer(name);
             Ok(func.call_async(args.clone()).await?)
         }
@@ -413,28 +400,23 @@ pub async fn async_call_callback_non_default<
     let name = sig.name();
     let decorated_name = sig.decorated_name();
 
-    if sig.allow_multiple() {
-        match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
-            Value::Table(tbl) => {
-                for func in tbl.sequence_values::<mlua::Function>() {
-                    let func = func?;
-                    let _timer = latency_timer(name);
-                    let result: mlua::MultiValue = func.call_async(args.clone()).await?;
-                    if result.is_empty() {
-                        // Continue with other handlers
-                        continue;
-                    }
-                    let result = R::from_lua_multi(result, lua)?;
-                    return Ok(result);
+    match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
+        Value::Table(tbl) => {
+            for func in tbl.sequence_values::<mlua::Function>() {
+                let func = func?;
+                let _timer = latency_timer(name);
+                let result: mlua::MultiValue = func.call_async(args.clone()).await?;
+                if result.is_empty() {
+                    // Continue with other handlers
+                    continue;
                 }
+                let result = R::from_lua_multi(result, lua)?;
+                return Ok(result);
             }
-            _ => {}
-        };
-        anyhow::bail!("invalid return type for {name} event");
-    }
-
-    match lua.named_registry_value::<mlua::Function>(&decorated_name) {
-        Ok(func) => {
+            anyhow::bail!("invalid return type for {name} event");
+        }
+        Value::Function(func) => {
+            sig.raise_error_if_allow_multiple()?;
             let _timer = latency_timer(name);
             Ok(func.call_async(args.clone()).await?)
         }
@@ -580,6 +562,18 @@ where
                 .lock()
                 .insert(self.name.to_string());
         }
+    }
+
+    pub fn raise_error_if_allow_multiple(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.allow_multiple(),
+            "handler {} is set to allow multiple handlers \
+                    but is registered with a single instance. This indicates that \
+                    register() was not called on the signature when initializing \
+                    the lua context. Please report this issue to the KumoMTA team!",
+            self.name
+        );
+        Ok(())
     }
 
     /// Return true if this signature allows multiple instances to be registered

@@ -4,8 +4,9 @@
 
 !!! note
     This event was actually added in `2024.06.10-84e84b89` but under
-    the erroneous name `message_requeued`. That was corrected
-    in dev builds when the `smtp_response` parameter was added.
+    the erroneous name `message_requeued`, and with a broken event
+    registration that prevented it from working. That was corrected
+    in the version shown above when the `smtp_response` parameter was added.
 
 This event is triggered when a message encountered a transient failure.
 Its purpose is to allow you to re-bind the message to an alternative
