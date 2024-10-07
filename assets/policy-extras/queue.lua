@@ -311,9 +311,11 @@ local function resolve_overall_throttle_specs(
       results.tenant = rate
     end
 
-    local campaign = tenant.campaigns[campaign_name]
-    if campaign then
-      results.campaign = campaign.overall_max_message_rate
+    if tenant.campaigns then
+      local campaign = tenant.campaigns[campaign_name]
+      if campaign then
+        results.campaign = campaign.overall_max_message_rate
+      end
     end
   end
 
