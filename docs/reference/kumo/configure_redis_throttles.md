@@ -3,8 +3,11 @@
 Configure the throttle layer to use a [Redis](https://redis.io/) data store to
 manage throttling across multiple MTA nodes.
 
-The redis server must have [redis-cell](https://github.com/brandur/redis-cell)
-installed for throttles to work in this way.
+When running version 2024.09.02-c5476b89 or earlier, the redis server must have
+[redis-cell](https://github.com/brandur/redis-cell) installed for throttles to
+be shared. Later versions will automatically detect whether `redis-cell` is
+available and fall back to an alternative throttling implementation that
+doesn't have any other additional dependency requirements for the redis server.
 
 *PARAMS* behaves exactly as described in [redis.open](../redis/open.md).
 
