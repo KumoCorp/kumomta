@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use bounce_classify::{
     BounceClass, BounceClassifier, BounceClassifierBuilder, PreDefinedBounceClass,
 };
+use config::epoch::{get_current_epoch, ConfigEpoch};
 use kumo_log_types::{JsonLogRecord, RecordType};
 use lru_cache::LruCache;
 use parking_lot::Mutex;
@@ -53,7 +54,7 @@ impl ClassifierParams {
         1024
     }
 
-    pub fn register(&self) -> anyhow::Result<()> {
+    fn load(&self) -> anyhow::Result<BounceClassifier> {
         let mut builder = BounceClassifierBuilder::new();
         for file_name in &self.files {
             if file_name.ends_with(".json") {
@@ -69,7 +70,11 @@ impl ClassifierParams {
             }
         }
 
-        let classifier = builder.build().map_err(|err| anyhow!("{err}"))?;
+        builder.build().map_err(|err| anyhow!("{err}"))
+    }
+
+    pub fn register(&self) -> anyhow::Result<()> {
+        let classifier = self.load()?;
 
         CLASSIFY
             .set(ClassifierWrapper::new(classifier, self)?)
@@ -82,6 +87,7 @@ impl ClassifierParams {
 struct ClassifyRequest {
     response: Response,
     tx: oneshot::Sender<BounceClass>,
+    epoch: ConfigEpoch,
 }
 
 /// We maintain two caches; one for uncategorized results and the
@@ -92,6 +98,8 @@ struct ClassifyRequest {
 struct State {
     cache: LruCache<Response, BounceClass>,
     uncat_cache: LruCache<Response, BounceClass>,
+    classifier: Arc<BounceClassifier>,
+    classifier_epoch: ConfigEpoch,
 }
 
 impl State {
@@ -102,6 +110,37 @@ impl State {
         };
 
         cache.insert(response.clone(), result.clone());
+    }
+
+    /// clear the caches and return a copy of the classifier.
+    /// Intended to be called when one of the classifier threads detects
+    /// that its locally cached classifier and epoch are outdated.
+    /// The cache will be cleared by each thread, which guarantees that
+    /// the last one to wake up and detect the change will ensure that
+    /// no cached results from prior to the change are retained even
+    /// in the face of uneven and splayed wakeups in the various
+    /// classifier threads.
+    ///
+    /// The above only happens when the incoming epoch matches the epoch
+    /// stored here in the state. This is because the incoming classification
+    /// request comes from get_current_epoch which may be a later epoch
+    /// than the one in the state: we may be racing with the subscriber
+    /// to load and parse the updated config while traffic is incoming.
+    ///
+    /// Note that even with the cache clearing happening here, the
+    /// reload process must also itself clear the cache in order
+    /// for the workers to get woken up to call this method.
+    fn get_updated_classifier(
+        &mut self,
+        current_epoch: ConfigEpoch,
+    ) -> Option<Arc<BounceClassifier>> {
+        if self.classifier_epoch == current_epoch {
+            self.cache.clear();
+            self.uncat_cache.clear();
+            Some(self.classifier.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -115,9 +154,12 @@ impl ClassifierWrapper {
         let classifier = Arc::new(classifier);
         let (tx, rx) = flume::bounded(params.back_pressure);
 
+        let epoch = get_current_epoch();
         let state = Arc::new(Mutex::new(State {
             cache: LruCache::new(params.cache_size),
             uncat_cache: LruCache::new(params.uncategorized_cache_size),
+            classifier: classifier.clone(),
+            classifier_epoch: epoch,
         }));
 
         tracing::info!(
@@ -131,14 +173,67 @@ impl ClassifierWrapper {
             std::thread::Builder::new()
                 .name("bounce-classify".to_string())
                 .spawn(move || {
-                    while let Ok(ClassifyRequest { response, tx }) = rx.recv() {
+                    let mut my_epoch = epoch;
+                    let mut classifier = classifier;
+                    while let Ok(ClassifyRequest {
+                        response,
+                        tx,
+                        epoch,
+                    }) = rx.recv()
+                    {
+                        tracing::trace!("classify request with {epoch:?}");
+                        if epoch != my_epoch {
+                            if let Some(c) = state.lock().get_updated_classifier(epoch) {
+                                tracing::debug!("classifier applying new epoch {epoch:?}");
+                                classifier = c;
+                                my_epoch = epoch;
+                            }
+                        }
+
                         let result = classifier.classify_response(&response);
-                        state.lock().insert(response.clone(), result.clone());
+                        if epoch == my_epoch {
+                            // Only cache if the epochs match up, as a cheap defensive
+                            // measure to avoid poisoning the cache with a stale result
+                            state.lock().insert(response.clone(), result.clone());
+                        }
                         if tx.send(result).is_err() {
                             break;
                         }
                     }
                 })?;
+        }
+
+        {
+            let state = state.clone();
+            let params = params.clone();
+            tokio::spawn(async move {
+                let mut subscriber = config::epoch::subscribe();
+                let mut had_error = false;
+                while let Ok(()) = subscriber.changed().await {
+                    let epoch = *subscriber.borrow_and_update();
+
+                    tracing::debug!("Reloading the bounce classifier for epoch {epoch:?}");
+                    match params.load() {
+                        Ok(classifier) => {
+                            if had_error {
+                                tracing::info!("Successfully loaded updated bounce classifier after previous error");
+                                had_error = false;
+                            }
+                            let mut state = state.lock();
+                            state.classifier = Arc::new(classifier);
+                            state.classifier_epoch = epoch;
+                            // and invalidate caches in order to allow the classifier
+                            // threads to wakeup and notice the change in classifier.
+                            state.cache.clear();
+                            state.uncat_cache.clear();
+                        }
+                        Err(err) => {
+                            had_error = true;
+                            tracing::error!("Error reloading bounce classifier: {err:#}");
+                        }
+                    }
+                }
+            });
         }
 
         Ok(Self { tx, state })
@@ -158,7 +253,13 @@ impl ClassifierWrapper {
 
     async fn classify(&self, response: Response) -> anyhow::Result<BounceClass> {
         let (tx, rx) = oneshot::channel();
-        self.tx.send_async(ClassifyRequest { response, tx }).await?;
+        self.tx
+            .send_async(ClassifyRequest {
+                response,
+                tx,
+                epoch: get_current_epoch(),
+            })
+            .await?;
         Ok(rx.await?)
     }
 }

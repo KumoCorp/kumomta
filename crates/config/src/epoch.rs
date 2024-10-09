@@ -14,7 +14,7 @@ static CONFIG: LazyLock<Mutex<ConfigurationParams>> =
 
 static EPOCH: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConfigEpoch(usize);
 
 pub struct ConfigurationParams {

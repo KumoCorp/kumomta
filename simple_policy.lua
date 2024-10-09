@@ -103,6 +103,12 @@ kumo.on('init', function()
 
   kumo.set_lua_gc_on_put(1)
   kumo.configure_accounting_db_path(os.tmpname())
+  kumo.configure_bounce_classifier {
+    files = {
+      '/home/wez/kumocorp/kumomta/assets/community/bounces.toml',
+      '/home/wez/kumocorp/kumomta/assets/bounce_classifier/iana.toml',
+    },
+  }
 
   -- Define a listener.
   -- Can be used multiple times with different parameters to
