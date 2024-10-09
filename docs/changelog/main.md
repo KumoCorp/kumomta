@@ -82,6 +82,9 @@
 * The bounce classifier will now automatically reload when the configuration
   epoch is updated. #298
 
+* Spool enumeration no longer prevents the reception of new messages and is
+  no longer considered as part of the liveness check.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

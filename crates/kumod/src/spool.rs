@@ -15,7 +15,7 @@ use spool::rocks::{RocksSpool, RocksSpoolParams};
 use spool::{get_data_spool, get_meta_spool, Spool as SpoolTrait, SpoolEntry, SpoolId};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -129,14 +129,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
 pub struct SpoolManager {
     named: Mutex<HashMap<String, SpoolHandle>>,
-    spooled_in: AtomicBool,
 }
 
 impl SpoolManager {
     pub fn new() -> Self {
         Self {
             named: Mutex::new(HashMap::new()),
-            spooled_in: AtomicBool::new(false),
         }
     }
 
@@ -238,10 +236,6 @@ impl SpoolManager {
         &'static Arc<dyn spool::Spool + Send + Sync>,
     ) {
         (get_meta_spool(), get_data_spool())
-    }
-
-    pub fn spool_started(&self) -> bool {
-        self.spooled_in.load(Ordering::SeqCst)
     }
 
     pub async fn remove_from_spool(id: SpoolId) -> anyhow::Result<()> {
@@ -508,7 +502,6 @@ impl SpoolManager {
             };
         }
 
-        self.spooled_in.store(true, Ordering::SeqCst);
         let label = if activity.is_shutting_down() {
             "aborted"
         } else {

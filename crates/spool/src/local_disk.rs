@@ -1,6 +1,7 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use anyhow::Context;
 use async_trait::async_trait;
+use chrono::Utc;
 use flume::Sender;
 use std::fs::File;
 use std::io::Write;
@@ -134,6 +135,7 @@ impl Spool for LocalDiskSpool {
 
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
         let path = self.path.clone();
+        let start_time = Utc::now();
         tokio::task::Builder::new()
             .name("LocalDiskSpool enumerate")
             .spawn_blocking_on(
@@ -147,6 +149,12 @@ impl Spool for LocalDiskSpool {
                             }
                             let path = entry.path();
                             if let Some(id) = SpoolId::from_path(&path) {
+                                if id.created() >= start_time {
+                                    // Entries created since we started must have
+                                    // landed there after we started and are thus
+                                    // not eligible for discovery via enumeration
+                                    continue;
+                                }
                                 match std::fs::read(&path) {
                                     Ok(data) => sender
                                         .send(SpoolEntry::Item { id, data })

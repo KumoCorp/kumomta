@@ -11,7 +11,7 @@ rocksdb = ["dep:rocksdb"]
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-chrono = {version="0.4", default-features=false}
+chrono = {version="0.4", default-features=false, features=["now"]}
 duration-serde = {path="../duration-serde"}
 flume.workspace = true
 getrandom = "0.2"

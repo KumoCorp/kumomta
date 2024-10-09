@@ -1,5 +1,6 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
+use chrono::Utc;
 use flume::Sender;
 use rocksdb::{
     DBCompressionType, ErrorKind, IteratorMode, LogLevel, Options, WriteBatch, WriteOptions, DB,
@@ -283,6 +284,7 @@ impl Spool for RocksSpool {
 
     fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
         let db = Arc::clone(&self.db);
+        let start_time = Utc::now();
         tokio::task::Builder::new()
             .name("rocksdb enumerate")
             .spawn_blocking_on(
@@ -292,6 +294,14 @@ impl Spool for RocksSpool {
                         let (key, value) = entry?;
                         let id = SpoolId::from_slice(&key)
                             .ok_or_else(|| anyhow::anyhow!("invalid spool id {key:?}"))?;
+
+                        if id.created() >= start_time {
+                            // Entries created since we started must have
+                            // landed there after we started and are thus
+                            // not eligible for discovery via enumeration
+                            continue;
+                        }
+
                         sender
                             .send(SpoolEntry::Item {
                                 id,
