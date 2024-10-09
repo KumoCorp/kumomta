@@ -79,6 +79,9 @@
 * The [requeue_message](../reference/events/requeue_message.md) event now also
   receives the SMTP response that led to the requeue event being triggered.
 
+* The bounce classifier will now automatically reload when the configuration
+  epoch is updated. #298
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report
