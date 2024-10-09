@@ -1,4 +1,5 @@
 use anyhow::Context;
+use chrono::Utc;
 use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
@@ -190,6 +191,7 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
     Box::pin(async move {
         let nodeid = kumo_server_common::nodeid::NodeId::get();
         tracing::info!("NodeId is {nodeid}");
+        let start_time = Utc::now();
 
         let mut config = config::load_config().await.context("load_config")?;
 
@@ -247,7 +249,7 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
             LifeCycle::request_shutdown().await;
         } else {
             crate::spool::SpoolManager::get()
-                .start_spool()
+                .start_spool(start_time)
                 .await
                 .context("start_spool")?;
 

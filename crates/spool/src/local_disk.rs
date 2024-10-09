@@ -1,7 +1,7 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use anyhow::Context;
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use flume::Sender;
 use std::fs::File;
 use std::io::Write;
@@ -133,9 +133,12 @@ impl Spool for LocalDiskSpool {
             .await?
     }
 
-    fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
+    fn enumerate(
+        &self,
+        sender: Sender<SpoolEntry>,
+        start_time: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
         let path = self.path.clone();
-        let start_time = Utc::now();
         tokio::task::Builder::new()
             .name("LocalDiskSpool enumerate")
             .spawn_blocking_on(
@@ -308,7 +311,7 @@ mod test {
         {
             // Verify that we can enumerate them
             let (tx, rx) = flume::bounded(32);
-            spool.enumerate(tx)?;
+            spool.enumerate(tx, Utc::now())?;
             let mut count = 0;
 
             while let Ok(item) = rx.recv_async().await {
@@ -351,7 +354,7 @@ mod test {
         for _ in 0..2 {
             // Verify that we can enumerate them
             let (tx, rx) = flume::bounded(32);
-            spool.enumerate(tx)?;
+            spool.enumerate(tx, Utc::now())?;
             let mut unexpected = vec![];
 
             while let Ok(item) = rx.recv_async().await {

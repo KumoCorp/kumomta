@@ -1,6 +1,6 @@
 use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use flume::Sender;
 use rocksdb::{
     DBCompressionType, ErrorKind, IteratorMode, LogLevel, Options, WriteBatch, WriteOptions, DB,
@@ -282,9 +282,12 @@ impl Spool for RocksSpool {
         Ok(())
     }
 
-    fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()> {
+    fn enumerate(
+        &self,
+        sender: Sender<SpoolEntry>,
+        start_time: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
         let db = Arc::clone(&self.db);
-        let start_time = Utc::now();
         tokio::task::Builder::new()
             .name("rocksdb enumerate")
             .spawn_blocking_on(
@@ -362,7 +365,7 @@ mod test {
         {
             // Verify that we can enumerate them
             let (tx, rx) = flume::bounded(32);
-            spool.enumerate(tx)?;
+            spool.enumerate(tx, Utc::now())?;
             let mut count = 0;
 
             while let Ok(item) = rx.recv_async().await {
@@ -401,7 +404,7 @@ mod test {
         for _ in 0..2 {
             // Verify that we can enumerate them
             let (tx, rx) = flume::bounded(32);
-            spool.enumerate(tx)?;
+            spool.enumerate(tx, Utc::now())?;
             let mut unexpected = vec![];
 
             while let Ok(item) = rx.recv_async().await {

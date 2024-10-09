@@ -1,3 +1,4 @@
+use chrono::Utc;
 use clap::Parser;
 use human_bytes::human_bytes;
 use spool::rocks::RocksSpool;
@@ -30,7 +31,7 @@ enum SubCommand {
 async fn show_size_stats(label: &str, spool: &dyn Spool) -> anyhow::Result<()> {
     let start = std::time::Instant::now();
     let (tx, rx) = flume::bounded(1024);
-    spool.enumerate(tx)?;
+    spool.enumerate(tx, Utc::now())?;
     let mut stats = incr_stats::incr::Stats::new();
     let mut hist = hdrhistogram::Histogram::<u64>::new(3)?;
     eprintln!("enumerating...");

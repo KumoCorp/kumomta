@@ -1,7 +1,7 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
@@ -405,7 +405,7 @@ impl SpoolManager {
         }
     }
 
-    pub async fn start_spool(&self) -> anyhow::Result<()> {
+    pub async fn start_spool(&self, start_time: DateTime<Utc>) -> anyhow::Result<()> {
         let (tx, rx) = flume::bounded(1024);
         {
             let mut named = self.named.lock().await;
@@ -431,7 +431,7 @@ impl SpoolManager {
                         async move {
                             // start enumeration
                             if let Some(tx) = tx {
-                                if let Err(err) = spool.enumerate(tx) {
+                                if let Err(err) = spool.enumerate(tx, start_time) {
                                     tracing::error!(
                                         "error during spool enumeration for {name}: {err:#}"
                                     );

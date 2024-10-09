@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use flume::Sender;
 use std::sync::{Arc, OnceLock};
 
@@ -38,7 +39,11 @@ pub trait Spool: Send + Sync {
     ///
     /// The results are undefined if you enumerate concurrently with
     /// load/remove/store operations.
-    fn enumerate(&self, sender: Sender<SpoolEntry>) -> anyhow::Result<()>;
+    fn enumerate(
+        &self,
+        sender: Sender<SpoolEntry>,
+        start_time: DateTime<Utc>,
+    ) -> anyhow::Result<()>;
 
     /// Perform some periodic cleanup/maintenance
     async fn cleanup(&self) -> anyhow::Result<()>;

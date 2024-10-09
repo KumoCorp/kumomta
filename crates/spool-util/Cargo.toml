@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+chrono = {version="0.4", default-features=false, features=["now"]}
 clap = {version="4.5", features=["derive"]}
 flume.workspace = true
 hdrhistogram = "7.5"
