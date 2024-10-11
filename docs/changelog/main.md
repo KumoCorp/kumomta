@@ -85,6 +85,9 @@
 * Spool enumeration no longer prevents the reception of new messages and is
   no longer considered as part of the liveness check.
 
+* The dkim helper now supports passing the `expiration` value through to
+  the underlying signer.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

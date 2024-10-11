@@ -3,10 +3,11 @@ local kumo = require 'kumo'
 local utils = require 'policy-extras.policy_utils'
 
 local typing = require 'policy-extras.typing'
-local Bool, List, Map, Option, Record, String =
+local Bool, List, Map, Number, Option, Record, String =
   typing.boolean,
   typing.list,
   typing.map,
+  typing.number,
   typing.option,
   typing.record,
   typing.string
@@ -25,6 +26,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
     additional_signatures = Option(List(String)),
     policy = Option(DomainSigningPolicy),
     selector = Option(String),
+    expiration = Option(Number),
     headers = Option(List(String)),
     header_canonicalization = Option(String),
     body_canonicalization = Option(String),
@@ -38,6 +40,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       headers = Option(List(String)),
       policy = Option(DomainSigningPolicy),
       algo = Option(SigningAlgo),
+      expiration = Option(Number),
       filename = Option(String),
       header_canonicalization = Option(String),
       body_canonicalization = Option(String),
@@ -53,6 +56,7 @@ local DkimSignConfig = Record('DkimSignConfig', {
       headers = Option(List(String)),
       policy = Option(SignatureSigningPolicy),
       algo = Option(SigningAlgo),
+      expiration = Option(Number),
       filename = Option(String),
       header_canonicalization = Option(String),
       body_canonicalization = Option(String),
@@ -247,6 +251,7 @@ local function do_dkim_sign(msg, data)
     local params = {
       domain = sender_domain,
       selector = domain_config.selector or data.base.selector,
+      expiration = domain_config.expiration or data.base.expiration,
       headers = domain_config.headers or base.headers,
       header_canonicalization = domain_config.header_canonicalization
         or base.header_canonicalization,
@@ -298,6 +303,7 @@ local function do_dkim_sign(msg, data)
         local params = {
           domain = sig_config.domain,
           selector = sig_config.selector or data.base.selector,
+          expiration = sig_config.expiration or data.base.expiration,
           headers = sig_config.headers or base.headers,
           header_canonicalization = sig_config.header_canonicalization
             or base.header_canonicalization,
