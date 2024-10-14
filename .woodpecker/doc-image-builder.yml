@@ -24,6 +24,11 @@ variables:
         from_secret: gh_package_publish_token
 
 steps:
+  whoami:
+    image: alpine:latest
+    commands:
+      - "echo agent=$(printenv CI_MACHINE)"
+      - env | sort
   build-builder-no-publish:
     image: plugins/docker
     when:
