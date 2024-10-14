@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.09.17-b6a73f08"
+    "version": "2024.10.14-717b6b4e"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -738,6 +738,9 @@
             "example": {
               "campaign_title": "Fall Campaign"
             }
+          },
+          "trace_headers": {
+            "$ref": "#/components/schemas/HttpTraceHeaders"
           }
         }
       },
@@ -1092,6 +1095,31 @@
             "description": "The id of the suspension. This can be used later to cancel\nthe suspension."
           }
         }
+      },
+      "TraceHeaders": {
+        "type": "object",
+        "properties": {
+          "header_name": {
+            "type": "string",
+            "description": "The name of the supplemental trace header"
+          },
+          "include_meta_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of meta keys that should be included in the\nsupplemental header"
+          },
+          "received_header": {
+            "type": "boolean",
+            "description": "Whether to add a Received: header"
+          },
+          "supplemental_header": {
+            "type": "boolean",
+            "description": "Whether to add a supplemental trace header to encode\nadditional metadata"
+          }
+        },
+        "additionalProperties": false
       }
     },
     "responses": {

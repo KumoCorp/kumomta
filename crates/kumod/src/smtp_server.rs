@@ -37,6 +37,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
+use utoipa::ToSchema;
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
 static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
@@ -101,7 +102,7 @@ fn default_ttl() -> Duration {
     Duration::from_secs(60)
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TraceHeaders {
     /// Whether to add a Received: header
@@ -141,6 +142,31 @@ impl TraceHeaders {
 
     fn default_meta() -> Vec<String> {
         vec![]
+    }
+
+    pub fn apply_supplemental(&self, message: &Message) -> anyhow::Result<()> {
+        if !self.supplemental_header {
+            return Ok(());
+        }
+        let mut object = json!({
+            // Marker to identify encoded supplemental header
+            "_@_": "\\_/",
+            "recipient": message.recipient()?,
+        });
+
+        for name in &self.include_meta_names {
+            if let Ok(value) = message.get_meta(name) {
+                object
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(name.to_string(), value);
+            }
+        }
+
+        let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
+        message.prepend_header(Some(&self.header_name), &value);
+
+        Ok(())
     }
 }
 
@@ -240,7 +266,7 @@ impl EsmtpListenerParams {
         "127.0.0.1:2025".to_string()
     }
 
-    fn default_hostname() -> String {
+    pub fn default_hostname() -> String {
         gethostname::gethostname()
             .to_str()
             .unwrap_or("localhost")
@@ -1633,25 +1659,7 @@ impl SmtpServer {
         let mut black_holed = false;
 
         for message in accepted_messages {
-            if self.params.trace_headers.supplemental_header {
-                let mut object = json!({
-                    // Marker to identify encoded supplemental header
-                    "_@_": "\\_/",
-                    "recipient": message.recipient()?,
-                });
-
-                for name in &self.params.trace_headers.include_meta_names {
-                    if let Ok(value) = message.get_meta(name) {
-                        object
-                            .as_object_mut()
-                            .unwrap()
-                            .insert(name.to_string(), value);
-                    }
-                }
-
-                let value = BASE64.encode(serde_json::to_string(&object)?.as_bytes());
-                message.prepend_header(Some(&self.params.trace_headers.header_name), &value);
-            }
+            self.params.trace_headers.apply_supplemental(&message)?;
 
             ids.push(message.id().to_string());
 

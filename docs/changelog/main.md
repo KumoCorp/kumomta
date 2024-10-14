@@ -95,6 +95,12 @@
 * The dkim helper now supports passing the `expiration` value through to
   the underlying signer.
 
+* HTTP injection now includes control over the
+  [trace_headers](../reference/http/api_inject_v1.md#trace_headers), which now
+  default to including the supplemental trace header for
+  FBL/ARF processing, but not including the Received header.
+  These parameters are set per-request.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

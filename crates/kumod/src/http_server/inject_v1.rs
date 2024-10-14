@@ -2,6 +2,7 @@ use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::smtp_server::{EsmtpListenerParams, TraceHeaders};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -9,6 +10,7 @@ use async_trait::async_trait;
 use axum::extract::Json;
 use axum_client_ip::InsecureClientIp;
 use config::{any_err, get_or_create_sub_module, load_config, CallbackSignature, LuaConfig};
+use kumo_chrono_helper::Utc;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_common::http_server::auth::AuthKind;
@@ -50,6 +52,29 @@ pub fn set_httpinject_recipient_rate_limit(spec: Option<ThrottleSpec>) {
 
 pub fn set_httpinject_threads(n: usize) {
     HTTPINJECT_THREADS.store(n, Ordering::SeqCst);
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HttpTraceHeaders(TraceHeaders);
+
+impl std::ops::Deref for HttpTraceHeaders {
+    type Target = TraceHeaders;
+    fn deref(&self) -> &TraceHeaders {
+        &self.0
+    }
+}
+
+impl Default for HttpTraceHeaders {
+    fn default() -> Self {
+        Self(TraceHeaders {
+            // We don't include the Received header by default
+            // because most users will want to mask their injector
+            // IP addresses
+            received_header: false,
+            ..TraceHeaders::default()
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
@@ -125,6 +150,10 @@ pub struct InjectV1Request {
     /// asynchronously with respect to the injection request.
     #[serde(default)]
     pub deferred_generation: bool,
+
+    /// Controls which trace headers will be added to the message.
+    #[serde(default)]
+    pub trace_headers: HttpTraceHeaders,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
@@ -490,12 +519,32 @@ async fn process_recipient<'a>(
 
     let generated = compiled.expand_for_recip(recip, &request.substitutions, &request.content)?;
 
+    // build into a Message
+    let id = SpoolId::new();
+
+    let generated = if request.trace_headers.received_header {
+        let datestamp = Utc::now().to_rfc2822();
+        let from_domain = sender.domain();
+        let recip = &recip.email;
+        // I can see someone wanting more control over the hostname that
+        // we use here. Right now the solution for them is to disable
+        // the automatic received header and for them to prepend their
+        // own in http_message_generated.
+        let hostname = EsmtpListenerParams::default_hostname();
+        format!(
+            "Received: from {from_domain} ({peer_address})\r\n  \
+            by {hostname} (KumoMTA)\r\n  \
+            with HTTP id {id} for <{recip}>;\r\n  \
+            {datestamp}\r\n{generated}"
+        )
+    } else {
+        generated
+    };
+
     // Ensure that there are no bare LF in the message, as that will
     // confuse SMTP delivery!
     let normalized = mailparsing::normalize_crlf(generated.as_bytes());
 
-    // build into a Message
-    let id = SpoolId::new();
     let message = Message::new_dirty(
         id,
         sender.clone(),
@@ -516,6 +565,8 @@ async fn process_recipient<'a>(
     let queue_name = message.get_queue_name()?;
 
     if queue_name != "null" {
+        request.trace_headers.apply_supplemental(&message)?;
+
         if !request.deferred_spool {
             message.save().await?;
         }
@@ -890,6 +941,7 @@ This is a test message to {{ name }}, with some 👻🍉💩 emoji!
             content: Content::Rfc822(input.to_string()),
             deferred_spool: true,
             deferred_generation: false,
+            trace_headers: Default::default(),
         };
 
         let compiled = request.compile().unwrap();
@@ -948,6 +1000,7 @@ This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
             },
             deferred_spool: true,
             deferred_generation: false,
+            trace_headers: Default::default(),
         };
 
         request.normalize().unwrap();
@@ -1027,6 +1080,7 @@ Some(
             },
             deferred_spool: true,
             deferred_generation: false,
+            trace_headers: Default::default(),
         };
 
         request.normalize().unwrap();

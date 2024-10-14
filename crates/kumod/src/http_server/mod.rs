@@ -1,3 +1,4 @@
+use crate::smtp_server::TraceHeaders;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use inject_v1::*;
@@ -59,6 +60,7 @@ pub mod inject_v1;
             SuspendV1CancelRequest,
             SuspendV1ListEntry,
             SuspendV1Request,
+            TraceHeaders,
         ),
         responses(InjectV1Response, BounceV1Response, InspectMessageV1Response),
     )
