@@ -179,6 +179,15 @@ The following fields are possible in an automation rule:
     * `"Immediate"` - this is the default. The action is taken each time a `regex` matches.
     * `{Threshold="10/hr"}` - defines a threshold; the action won't trigger in this case until 10 events have occurred in the preceding hour.
  * `duration` - required string specifying the duration of the effects of the action.
+ * `match_internal` - optional boolean indicating whether internally generated
+   response, that is, those that begin with the text `KumoMTA internal: `,
+   should be allowed to match the rule. The default is `false`. Prior to the
+   introduction of this option the behavior was equivalent to it being set to
+   `true`. Unintentionally matching internal responses with a suspension rule
+   could trigger surprising cyclical behavior where a suspension is triggered
+   from a remote response and then subsequently the transient failures logged
+   when messages hit that suspension would also match the rule and continue
+   to apply and extend the lifetime of the suspension. {{since('dev', inline=True)}}
 
 {{since('2024.06.10-84e84b89')}}
 

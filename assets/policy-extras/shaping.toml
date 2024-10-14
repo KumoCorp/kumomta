@@ -93,6 +93,7 @@ duration = "90m"
 regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
 action = {SetConfig={name="enable_tls", value="Disabled"}}
 duration = "30 days"
+match_internal = true
 
 # https://support.google.com/mail/answer/81126
 # NOTE: While it's commonly understood that Gmail and Google Workspace use different filtering

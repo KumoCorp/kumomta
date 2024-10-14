@@ -226,10 +226,19 @@ pub struct Rule {
 
     #[serde(skip)]
     pub was_rollup: bool,
+
+    /// if true, this rule can match kumomta internally generated
+    /// Response messages, otherwise, the rule will skip testing
+    /// against those.
+    #[serde(default)]
+    pub match_internal: bool,
 }
 
 impl Rule {
-    pub fn matches(&self, response: &str) -> bool {
+    pub fn matches(&self, is_internal: bool, response: &str) -> bool {
+        if is_internal && !self.match_internal {
+            return false;
+        }
         self.regex
             .iter()
             .any(|r| r.is_match(response).unwrap_or(false))
@@ -365,10 +374,12 @@ impl ShapingInner {
         let response = record.response.to_single_line();
         tracing::trace!("Consider rules for {response}");
 
+        let is_internal = record.response.content.starts_with("KumoMTA internal: ");
+
         if let Some(default) = self.by_domain.get("default") {
             for rule in &default.automation {
                 tracing::trace!("Consider \"default\" rule {rule:?} for {response}");
-                if rule.matches(&response) {
+                if rule.matches(is_internal, &response) {
                     // For automation under `default`, we always
                     // assume that mx_rollup should be true.
                     // If you somehow have a domain where that isn't
@@ -387,7 +398,7 @@ impl ShapingInner {
                         "Consider provider \"{}\" rule {rule:?} for {response}",
                         prov.provider_name
                     );
-                    if rule.matches(&response) {
+                    if rule.matches(is_internal, &response) {
                         result.push(rule.clone());
                     }
                 }
@@ -398,7 +409,7 @@ impl ShapingInner {
         if let Some(by_site) = self.by_site.get(site_name) {
             for rule in &by_site.automation {
                 tracing::trace!("Consider \"{site_name}\" rule {rule:?} for {response}");
-                if rule.matches(&response) {
+                if rule.matches(is_internal, &response) {
                     result.push(rule.clone_and_set_rollup());
                 }
             }
@@ -408,7 +419,7 @@ impl ShapingInner {
         if let Some(by_domain) = self.by_domain.get(domain) {
             for rule in &by_domain.automation {
                 tracing::trace!("Consider \"{domain}\" rule {rule:?} for {response}");
-                if rule.matches(&response) {
+                if rule.matches(is_internal, &response) {
                     result.push(rule.clone());
                 }
             }
@@ -1548,6 +1559,7 @@ match=[{DomainSuffix=".provider"}]
 regex="provider"
 action = {SetConfig={name="connection_limit", value=3}}
 duration = "1hr"
+match_internal = true
 
 "#])
         .await;
@@ -1602,6 +1614,16 @@ duration = "1hr"
 
         let matches = shaping
             .match_rules(&make_record(
+                "KumoMTA internal: default",
+                "user@example.com",
+                "dummy_site",
+            ))
+            .await
+            .unwrap();
+        assert!(matches.is_empty(), "internal bounce should not match");
+
+        let matches = shaping
+            .match_rules(&make_record(
                 "woot_domain",
                 "user@woot.provider",
                 "dummy_site",
@@ -1632,6 +1654,20 @@ duration = "1hr"
             matches[0].regex[0].to_string(),
             "provider",
             "matches against provider rule"
+        );
+
+        let matches = shaping
+            .match_rules(&make_record(
+                "KumoMTA internal: provider",
+                "user@woot.provider",
+                "dummy_site",
+            ))
+            .await
+            .unwrap();
+        k9::assert_equal!(
+            matches[0].regex[0].to_string(),
+            "provider",
+            "internal response matches against provider rule"
         );
     }
 
@@ -1844,6 +1880,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            match_internal: false,
         },
         Rule {
             regex: [
@@ -1866,6 +1903,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 2592000s,
             was_rollup: false,
+            match_internal: false,
         },
     ],
 }
@@ -2081,6 +2119,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            match_internal: false,
         },
         Rule {
             regex: [
@@ -2103,6 +2142,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 2592000s,
             was_rollup: false,
+            match_internal: false,
         },
     ],
 }
@@ -2248,6 +2288,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 5400s,
             was_rollup: false,
+            match_internal: false,
         },
         Rule {
             regex: [
@@ -2270,6 +2311,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 2592000s,
             was_rollup: false,
+            match_internal: false,
         },
         Rule {
             regex: [
@@ -2283,6 +2325,7 @@ MergedEntry {
             trigger: Immediate,
             duration: 7200s,
             was_rollup: false,
+            match_internal: false,
         },
     ],
 }

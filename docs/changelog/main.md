@@ -6,6 +6,13 @@
 * The filename format for log file segments now includes fractional seconds
   so that there is no chance of file naming collision when using aggressively
   small values for `max_file_size` or `max_segment_duration`.
+* TSA rules will no longer by default match internally generated failure
+  responses, that is, those that begin with the text `KumoMTA internal: `.
+  This prevents accidentally triggering cyclical behavior in the case where
+  you have a very lenient regex for a rule that triggers a suspension.
+  If you have rules that you wish to intentionally match these internal
+  messages, you can mark the automation entry with `match_internal = true`
+  to allow the match to be considered.
 
 ## Other Changes and Enhancements
 * Queue and Egress configs can now be set to work in a mode where they refresh

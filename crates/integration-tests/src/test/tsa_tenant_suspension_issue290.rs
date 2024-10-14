@@ -70,7 +70,7 @@ async fn tsa_tenant_suspension_issue290() -> anyhow::Result<()> {
         .wait_for_source_summary(
             |summary| {
                 summary.get(&TransientFailure).copied().unwrap_or(0) > 1
-                    && summary.get(&Delivery).copied().unwrap_or(0) > 1
+                    && summary.get(&Delivery).copied().unwrap_or(0) > 0
             },
             Duration::from_secs(10),
         )
@@ -90,7 +90,7 @@ async fn tsa_tenant_suspension_issue290() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 2,
-        Delivery: 2,
+        Delivery: 1,
         TransientFailure: 2,
     },
     sink_counts: {
