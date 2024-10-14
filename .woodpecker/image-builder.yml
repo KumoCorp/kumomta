@@ -60,6 +60,11 @@ variables:
         from_secret: gh_package_publish_token
 
 steps:
+  whoami:
+    image: alpine:latest
+    commands:
+      - "echo agent=$(printenv CI_MACHINE)"
+      - env | sort
   compute-dockerfile:
     image: python:3-bookworm
     commands: |
