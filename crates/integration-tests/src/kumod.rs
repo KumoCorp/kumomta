@@ -484,8 +484,6 @@ impl KumoDaemon {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 let text = read_zstd_file_with_retry(&entry.path())?;
-                eprintln!("{text}");
-
                 for line in text.lines() {
                     let record: JsonLogRecord = serde_json::from_str(&line)?;
                     records.push(record);
@@ -493,7 +491,22 @@ impl KumoDaemon {
             }
         }
 
-        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        records.sort_by(|a, b| {
+            use std::cmp::Ordering;
+            match a.timestamp.cmp(&b.timestamp) {
+                Ordering::Equal => match a.id.cmp(&b.id) {
+                    Ordering::Equal => a.kind.cmp(&b.kind),
+                    r => r,
+                },
+                r => r,
+            }
+        });
+
+        // and print it in the sorted order for easier understanding
+        for r in &records {
+            eprintln!("{}", serde_json::to_string(r).unwrap());
+        }
+
         Ok(records)
     }
 
