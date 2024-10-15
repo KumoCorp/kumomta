@@ -40,7 +40,12 @@ fi
 # every distro, so if you ever feel like removing those flags
 # you must be sure to test on every supported distro first to
 # make sure that you're not going to break anything!
-CFLAGS="-fPIE -m64 -mtune=generic"
+CFLAGS="-fPIE"
+case "$(uname -m)" in
+  x86_64)
+    CFLAGS="${CFLAGS} -m64 -mtune=generic"
+    ;;
+esac
 
 tar xzf snappy-${SNAPPY_VERSION}.tar.gz
 cd snappy-${SNAPPY_VERSION}
