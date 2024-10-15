@@ -26,17 +26,30 @@ if len(sys.argv) > 1:
     IMAGES = [IMAGE_NAME]
 
 for container in IMAGES:
-    dockerfile = subprocess.check_output(["assets/ci/emit-builder-dockerfile.py", container]).decode()
+    dockerfile = subprocess.check_output(
+        ["assets/ci/emit-builder-dockerfile.py", container]
+    ).decode()
     print(dockerfile)
 
     tag = f"ghcr.io/kumocorp/builder-for-{container}"
 
     subprocess.run(
-        ["docker", "build", "--progress", "plain", "--no-cache", "--file", "-", "-t", tag, "."],
+        [
+            "docker",
+            "build",
+            "--progress",
+            "plain",
+            "--no-cache",
+            "--file",
+            "-",
+            "-t",
+            tag,
+            ".",
+        ],
         input=dockerfile,
         encoding="utf-8",
     )
 
     print(f"Created {tag}")
 
-    #subprocess.run(["docker", "push", tag])
+    # subprocess.run(["docker", "push", tag])
