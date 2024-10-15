@@ -3,7 +3,7 @@ use hickory_resolver::proto::op::response_code::ResponseCode;
 #[cfg(feature = "unbound")]
 use hickory_resolver::proto::rr::DNSClass;
 use hickory_resolver::proto::rr::{RData, RecordType};
-use hickory_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
+use hickory_resolver::{IntoName, Name, TokioAsyncResolver};
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
 use std::net::IpAddr;
@@ -98,14 +98,11 @@ pub enum Resolver {
 
 impl Resolver {
     pub async fn resolve_txt(&self, name: &str) -> anyhow::Result<Answer> {
+        let name = Name::from_utf8(name)?;
         self.resolve(name, RecordType::TXT).await
     }
 
-    pub async fn resolve<N: IntoName + TryParseIp>(
-        &self,
-        name: N,
-        rrtype: RecordType,
-    ) -> anyhow::Result<Answer> {
+    pub async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
         match self {
             Self::Tokio(t) => match t.inner.lookup(name, rrtype).await {
                 Ok(result) => {
