@@ -34,20 +34,22 @@ if [ ! -f snappy-${SNAPPY_VERSION}.tar.gz ] ; then
   curl -L https://github.com/google/snappy/archive/${SNAPPY_VERSION}.tar.gz > snappy-${SNAPPY_VERSION}.tar.gz
 fi
 
-tar xzf snappy-${SNAPPY_VERSION}.tar.gz
-cd snappy-${SNAPPY_VERSION}
-mkdir build
-cd build
 # We force in -fPIE because otherwise the static libraries
 # produced by cmake on some distros are not able to be linked
 # into the resulting rust executable. This is not needed on
 # every distro, so if you ever feel like removing those flags
 # you must be sure to test on every supported distro first to
 # make sure that you're not going to break anything!
+CFLAGS="-fPIE -m64 -mtune=generic"
+
+tar xzf snappy-${SNAPPY_VERSION}.tar.gz
+cd snappy-${SNAPPY_VERSION}
+mkdir build
+cd build
 ../../cmake-${CMAKE_VERSION}-linux-$(uname -m)/bin/cmake .. \
   -D CMAKE_BUILD_TYPE=Release \
-  -D CMAKE_CXX_FLAGS="-fPIE" \
-  -D CMAKE_C_FLAGS="-fPIE" \
+  -D CMAKE_CXX_FLAGS="${CFLAGS}" \
+  -D CMAKE_C_FLAGS="${CFLAGS}" \
   -D CMAKE_INSTALL_PREFIX="${PREFIX}" \
   -D BUILD_SHARED_LIBS=OFF \
   -D BUILD_STATIC_LIBS=ON \
@@ -64,8 +66,8 @@ cd build
 ../../cmake-${CMAKE_VERSION}-linux-$(uname -m)/bin/cmake .. \
   -D CMAKE_BUILD_TYPE=Release \
   -D CMAKE_INSTALL_PREFIX="${PREFIX}" \
-  -D CMAKE_CXX_FLAGS="-fPIE" \
-  -D CMAKE_C_FLAGS="-fPIE" \
+  -D CMAKE_CXX_FLAGS="${CFLAGS}" \
+  -D CMAKE_C_FLAGS="${CFLAGS}" \
   -D WITH_SNAPPY=ON \
   -D WITH_LZ4=OFF \
   -D WITH_TESTS=OFF \
