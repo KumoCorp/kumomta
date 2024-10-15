@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.10.14-717b6b4e"
+    "version": "2024.10.15-3e4b6c13"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -443,7 +443,8 @@
             "description": "The the preferred filename for the attachment",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "BounceV1CancelRequest": {
         "type": "object",
@@ -681,7 +682,8 @@
             "example": "Sales",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "Header": {
         "oneOf": [
@@ -742,7 +744,8 @@
           "trace_headers": {
             "$ref": "#/components/schemas/HttpTraceHeaders"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "InjectV1Response": {
         "type": "object",
@@ -906,7 +909,8 @@
               "gender": "male"
             }
           }
-        }
+        },
+        "additionalProperties": false
       },
       "SetDiagnosticFilterRequest": {
         "type": "object",

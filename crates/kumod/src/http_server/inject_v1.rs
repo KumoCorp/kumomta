@@ -78,6 +78,7 @@ impl Default for HttpTraceHeaders {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FromHeader {
     /// The email address of the sender
     #[schema(example = "sales@sender-example.com")]
@@ -89,6 +90,7 @@ pub struct FromHeader {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Recipient {
     /// The email address of the recipient
     #[schema(example = "john.smith@mailbox-example.com")]
@@ -113,6 +115,7 @@ pub struct Recipient {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct InjectV1Request {
     /// Specify the envelope sender that will be sent in the
     /// MAIL FROM portion of SMTP.
@@ -174,6 +177,7 @@ pub struct InjectV1Response {
 /// Can either be a fully formed MIME message, or a json
 /// object describing the MIME structure that should be created.
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum Content {
     /// A complete MIME message string
@@ -223,6 +227,7 @@ pub enum Header {
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct Attachment {
     /// The content of the payload.
     /// This is interpreted as UTF-8 text unless the
