@@ -1,7 +1,8 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
-use dns_resolver::{Resolver, UnboundResolver};
-use dns_resolver::{get_resolver, resolve_a_or_aaaa, MailExchanger};
+use dns_resolver::{
+    get_resolver, resolve_a_or_aaaa, HickoryResolver, MailExchanger, UnboundResolver,
+};
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use hickory_resolver::{Name, TokioAsyncResolver};
 use mlua::{Lua, LuaSerdeExt};
@@ -127,8 +128,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             }
 
             let resolver = TokioAsyncResolver::tokio(r_config, config.options);
-
-            dns_resolver::reconfigure_resolver(Resolver::Tokio(resolver.into()));
+            dns_resolver::reconfigure_resolver(HickoryResolver::from(resolver));
 
             Ok(())
         })?,
@@ -185,7 +185,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .context("make async resolver context")
                 .map_err(any_err)?;
 
-            dns_resolver::reconfigure_resolver(Resolver::Unbound(UnboundResolver::from(context)));
+            dns_resolver::reconfigure_resolver(UnboundResolver::from(context));
 
             Ok(())
         })?,

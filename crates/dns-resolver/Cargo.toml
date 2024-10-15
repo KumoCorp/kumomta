@@ -18,6 +18,7 @@ unbound = ["dep:libunbound"]
 [dependencies]
 anyhow = "1.0"
 arc-swap = "1.6"
+async-trait = "0.1"
 kumo-log-types = {path="../kumo-log-types"}
 libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
