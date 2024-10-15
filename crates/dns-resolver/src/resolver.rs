@@ -54,14 +54,14 @@ pub struct UnboundResolver {
 
 #[cfg(feature = "unbound")]
 impl UnboundResolver {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, libunbound::Error> {
         // This resolves directly against the root
-        let context = Context::new().unwrap();
+        let context = Context::new()?;
         // and enables DNSSEC
-        context.add_builtin_trust_anchors().unwrap();
-        Self {
-            cx: context.into_async().unwrap(),
-        }
+        context.add_builtin_trust_anchors()?;
+        Ok(Self {
+            cx: context.into_async()?,
+        })
     }
 }
 
