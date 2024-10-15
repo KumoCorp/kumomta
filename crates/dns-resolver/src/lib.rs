@@ -30,7 +30,7 @@ static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
 
 #[cfg(feature = "default-unbound")]
 fn default_resolver() -> Resolver {
-    Resolver::Unbound(UnboundResolver::new())
+    Resolver::Unbound(UnboundResolver::new().unwrap())
 }
 
 #[cfg(not(feature = "default-unbound"))]
