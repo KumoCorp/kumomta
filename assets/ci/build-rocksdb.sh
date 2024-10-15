@@ -53,7 +53,7 @@ cd build
   -D BUILD_STATIC_LIBS=ON \
   -D SNAPPY_BUILD_BENCHMARKS=OFF \
   -D SNAPPY_BUILD_TESTS=OFF
-make -j install || exit 1
+make -j8 install || exit 1
 cd ../..
 
 tar xzf rocksdb-${ROCKS_VERSION}.tar.gz
@@ -75,4 +75,4 @@ cd build
   -D BUILD_SHARED_LIBS=OFF \
   -D BUILD_STATIC_LIBS=ON \
   -D ROCKSDB_BUILD_SHARED=OFF || exit 1
-make -j install || exit 1
+make -j8 install || exit 1
