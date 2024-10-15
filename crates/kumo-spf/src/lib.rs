@@ -1,6 +1,7 @@
 use crate::dns::{DnsError, Lookup};
 use crate::record::Record;
 use crate::spec::MacroSpec;
+use serde::Deserialize;
 use std::fmt;
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -88,7 +89,41 @@ impl SpfResult {
     }
 }
 
-pub struct SpfContext<'a> {
+#[derive(Debug, Deserialize)]
+pub struct CheckHostParams {
+    /// Domain that provides the sought-after authorization information.
+    ///
+    /// Initially, the domain portion of the "MAIL FROM" or "HELO" identity.
+    pub domain: String,
+
+    /// The "MAIL FROM" email address if available.
+    pub sender: Option<String>,
+
+    /// IP address of the SMTP client that is emitting the mail (v4 or v6).
+    pub client_ip: IpAddr,
+}
+
+impl CheckHostParams {
+    pub async fn check(self, resolver: &dyn Lookup) -> SpfResult {
+        let Self {
+            domain,
+            sender,
+            client_ip,
+        } = self;
+
+        let sender = match sender {
+            Some(sender) => sender,
+            None => format!("postmaster@{domain}"),
+        };
+
+        match SpfContext::new(&sender, &domain, client_ip) {
+            Ok(cx) => cx.check(resolver).await,
+            Err(result) => result,
+        }
+    }
+}
+
+struct SpfContext<'a> {
     pub(crate) sender: &'a str,
     pub(crate) local_part: &'a str,
     pub(crate) sender_domain: &'a str,
@@ -104,7 +139,7 @@ impl<'a> SpfContext<'a> {
     /// - `domain` is the domain that provides the sought-after authorization information;
     ///   initially, the domain portion of the "MAIL FROM" or "HELO" identity
     /// - `client_ip` is the IP address of the SMTP client that is emitting the mail
-    pub fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
+    fn new(sender: &'a str, domain: &'a str, client_ip: IpAddr) -> Result<Self, SpfResult> {
         let Some((local_part, sender_domain)) = sender.split_once('@') else {
             return Err(SpfResult {
                 disposition: SpfDisposition::PermError,
