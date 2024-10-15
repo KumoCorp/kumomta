@@ -1,6 +1,6 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
-use dns_resolver::resolver::Resolver;
+use dns_resolver::Resolver;
 use dns_resolver::{get_resolver, resolve_a_or_aaaa, MailExchanger};
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use hickory_resolver::{Name, TokioAsyncResolver};

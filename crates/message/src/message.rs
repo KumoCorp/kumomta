@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
 #[cfg(feature = "impl")]
-use dns_resolver::resolver::Resolver;
+use dns_resolver::Resolver;
 #[cfg(feature = "impl")]
 use futures::future::BoxFuture;
 use futures::FutureExt;

@@ -1,4 +1,4 @@
-use dns_resolver::resolver::Resolver;
+use dns_resolver::Resolver;
 use futures::future::BoxFuture;
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::TokioAsyncResolver;
