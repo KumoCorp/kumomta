@@ -3119,6 +3119,7 @@ dependencies = [
  "hickory-proto",
  "hickory-resolver",
  "k9 0.11.6",
+ "serde",
  "thiserror",
  "tokio",
 ]
