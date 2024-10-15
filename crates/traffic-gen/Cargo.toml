@@ -20,7 +20,7 @@ num-format = "0.4"
 rand = "0.8"
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}
 rfc5321 = {path="../rfc5321"}
-serde = "1.0"
+serde = {workspace=true}
 textwrap = "0.16"
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full"]}

@@ -11,4 +11,4 @@ config = {path="../config"}
 duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rdkafka = "0.36"
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}

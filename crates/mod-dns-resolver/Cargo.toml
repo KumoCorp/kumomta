@@ -11,5 +11,5 @@ config = {path="../config"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 libunbound = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 hickory-resolver = {workspace=true, features=["serde-config"]}
