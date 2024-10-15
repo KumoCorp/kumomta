@@ -1,4 +1,3 @@
-use crate::resolver::Resolver;
 use arc_swap::ArcSwap;
 use hickory_resolver::error::ResolveResult;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
@@ -13,7 +12,8 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::Instant;
 
-pub mod resolver;
+mod resolver;
+pub use resolver::Resolver;
 
 static RESOLVER: LazyLock<ArcSwap<Resolver>> =
     LazyLock::new(|| ArcSwap::from_pointee(default_resolver()));
