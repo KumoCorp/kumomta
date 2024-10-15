@@ -40,5 +40,9 @@ jobs:
       env:
         KUMOD_TESTCONTAINERS: 0
         REF_TYPE: ${{ github.ref_type }}
+        ROCKSDB_LIB_DIR: /opt/kumomta/lib
+        ROCKSDB_STATIC: static
+        SNAPPY_LIB_DIR: /opt/kumomta/lib
+        SNAPPY_STATIC: static
       with:
         args: /bin/bash -c "HOME=/root PATH=$PATH:/root/.cargo/bin make test"
