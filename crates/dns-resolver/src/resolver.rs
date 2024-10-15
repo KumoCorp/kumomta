@@ -5,7 +5,7 @@ use hickory_resolver::proto::rr::DNSClass;
 use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
 #[cfg(feature = "unbound")]
-use libunbound::{Context, AsyncContext};
+use libunbound::{AsyncContext, Context};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
@@ -72,8 +72,26 @@ impl From<AsyncContext> for UnboundResolver {
     }
 }
 
+pub struct HickoryResolver {
+    inner: TokioAsyncResolver,
+}
+
+impl HickoryResolver {
+    pub fn new() -> Result<Self, hickory_resolver::error::ResolveError> {
+        Ok(Self {
+            inner: TokioAsyncResolver::tokio_from_system_conf()?,
+        })
+    }
+}
+
+impl From<TokioAsyncResolver> for HickoryResolver {
+    fn from(inner: TokioAsyncResolver) -> Self {
+        Self { inner }
+    }
+}
+
 pub enum Resolver {
-    Tokio(TokioAsyncResolver),
+    Tokio(HickoryResolver),
     #[cfg(feature = "unbound")]
     Unbound(UnboundResolver),
 }
@@ -89,7 +107,7 @@ impl Resolver {
         rrtype: RecordType,
     ) -> anyhow::Result<Answer> {
         match self {
-            Self::Tokio(t) => match t.lookup(name, rrtype).await {
+            Self::Tokio(t) => match t.inner.lookup(name, rrtype).await {
                 Ok(result) => {
                     let expires = result.valid_until();
                     let records = result.iter().cloned().collect();
