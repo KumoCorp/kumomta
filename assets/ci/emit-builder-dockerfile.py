@@ -20,6 +20,7 @@ dockerfile = f"""
 FROM {container}\n
 WORKDIR /tmp
 COPY ./get-deps.sh .
+COPY ./assets/ci/build-rocksdb.sh .
 LABEL org.opencontainers.image.source=https://github.com/KumoCorp/kumomta
 LABEL org.opencontainers.image.description="Build environment for CI"
 LABEL org.opencontainers.image.licenses="Apache"
@@ -33,6 +34,7 @@ commands = [
     "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
     ". $HOME/.cargo/env",
     "/tmp/get-deps.sh",
+    "PREFIX=/opt/kumomta /tmp/build-rocksdb.sh",
     f"curl -LsSf {NEXTEST} | tar zxf - -C /usr/local/bin",
     "cargo install --locked sccache --no-default-features",
     "cargo install --locked xcp",
