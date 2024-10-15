@@ -128,7 +128,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let resolver = TokioAsyncResolver::tokio(r_config, config.options);
 
-            dns_resolver::reconfigure_resolver(Resolver::Tokio(resolver));
+            dns_resolver::reconfigure_resolver(Resolver::Tokio(resolver.into()));
 
             Ok(())
         })?,
