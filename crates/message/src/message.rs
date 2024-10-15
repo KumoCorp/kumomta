@@ -681,7 +681,7 @@ impl Message {
         let from_domain = &from[0].address.domain;
 
         struct ResolverAdapater {
-            resolver: Arc<Resolver>,
+            resolver: Arc<Box<dyn Resolver>>,
         }
 
         impl kumo_dkim::dns::Lookup for ResolverAdapater {

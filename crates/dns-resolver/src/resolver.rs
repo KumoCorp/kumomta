@@ -1,9 +1,10 @@
+use async_trait::async_trait;
 use hickory_resolver::error::ResolveErrorKind;
 use hickory_resolver::proto::op::response_code::ResponseCode;
 #[cfg(feature = "unbound")]
 use hickory_resolver::proto::rr::DNSClass;
 use hickory_resolver::proto::rr::{RData, RecordType};
-use hickory_resolver::{IntoName, Name, TokioAsyncResolver};
+use hickory_resolver::{Name, TokioAsyncResolver};
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
 use std::net::IpAddr;
@@ -47,6 +48,16 @@ impl Answer {
     }
 }
 
+#[async_trait]
+pub trait Resolver: Send + Sync + 'static {
+    async fn resolve_txt(&self, name: &str) -> anyhow::Result<Answer> {
+        let name = Name::from_utf8(name)?;
+        self.resolve(name, RecordType::TXT).await
+    }
+
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer>;
+}
+
 #[cfg(feature = "unbound")]
 pub struct UnboundResolver {
     cx: AsyncContext,
@@ -61,6 +72,31 @@ impl UnboundResolver {
         context.add_builtin_trust_anchors()?;
         Ok(Self {
             cx: context.into_async()?,
+        })
+    }
+}
+
+#[cfg(feature = "unbound")]
+#[async_trait]
+impl Resolver for UnboundResolver {
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
+        let name = name.to_ascii();
+        let answer = self.cx.resolve(&name, rrtype, DNSClass::IN).await?;
+        let mut records = vec![];
+        for r in answer.rdata() {
+            if let Ok(r) = r {
+                records.push(r);
+            }
+        }
+        Ok(Answer {
+            canon_name: answer.canon_name().map(|s| s.to_string()),
+            records,
+            nxdomain: answer.nxdomain(),
+            secure: answer.secure(),
+            bogus: answer.bogus(),
+            why_bogus: answer.why_bogus().map(|s| s.to_string()),
+            response_code: answer.rcode(),
+            expires: Instant::now() + Duration::from_secs(answer.ttl() as u64),
         })
     }
 }
@@ -84,82 +120,48 @@ impl HickoryResolver {
     }
 }
 
+#[async_trait]
+impl Resolver for HickoryResolver {
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
+        match self.inner.lookup(name, rrtype).await {
+            Ok(result) => {
+                let expires = result.valid_until();
+                let records = result.iter().cloned().collect();
+                Ok(Answer {
+                    canon_name: None,
+                    records,
+                    nxdomain: false,
+                    secure: false,
+                    bogus: false,
+                    why_bogus: None,
+                    expires,
+                    response_code: ResponseCode::NoError,
+                })
+            }
+            Err(err) => match err.kind() {
+                ResolveErrorKind::NoRecordsFound {
+                    negative_ttl,
+                    response_code,
+                    ..
+                } => Ok(Answer {
+                    canon_name: None,
+                    records: vec![],
+                    nxdomain: *response_code == ResponseCode::NXDomain,
+                    secure: false,
+                    bogus: false,
+                    why_bogus: None,
+                    response_code: *response_code,
+                    expires: Instant::now()
+                        + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
+                }),
+                _ => Err(err.into()),
+            },
+        }
+    }
+}
+
 impl From<TokioAsyncResolver> for HickoryResolver {
     fn from(inner: TokioAsyncResolver) -> Self {
         Self { inner }
-    }
-}
-
-pub enum Resolver {
-    Tokio(HickoryResolver),
-    #[cfg(feature = "unbound")]
-    Unbound(UnboundResolver),
-}
-
-impl Resolver {
-    pub async fn resolve_txt(&self, name: &str) -> anyhow::Result<Answer> {
-        let name = Name::from_utf8(name)?;
-        self.resolve(name, RecordType::TXT).await
-    }
-
-    pub async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
-        match self {
-            Self::Tokio(t) => match t.inner.lookup(name, rrtype).await {
-                Ok(result) => {
-                    let expires = result.valid_until();
-                    let records = result.iter().cloned().collect();
-                    Ok(Answer {
-                        canon_name: None,
-                        records,
-                        nxdomain: false,
-                        secure: false,
-                        bogus: false,
-                        why_bogus: None,
-                        expires,
-                        response_code: ResponseCode::NoError,
-                    })
-                }
-                Err(err) => match err.kind() {
-                    ResolveErrorKind::NoRecordsFound {
-                        negative_ttl,
-                        response_code,
-                        ..
-                    } => Ok(Answer {
-                        canon_name: None,
-                        records: vec![],
-                        nxdomain: *response_code == ResponseCode::NXDomain,
-                        secure: false,
-                        bogus: false,
-                        why_bogus: None,
-                        response_code: *response_code,
-                        expires: Instant::now()
-                            + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
-                    }),
-                    _ => Err(err.into()),
-                },
-            },
-            #[cfg(feature = "unbound")]
-            Self::Unbound(resolver) => {
-                let name = name.into_name()?;
-                let name = name.to_ascii();
-                let answer = resolver.cx.resolve(&name, rrtype, DNSClass::IN).await?;
-                let mut records = vec![];
-                for r in answer.rdata() {
-                    if let Ok(r) = r {
-                        records.push(r);
-                    }
-                }
-                Ok(Answer {
-                    canon_name: answer.canon_name().map(|s| s.to_string()),
-                    records,
-                    nxdomain: answer.nxdomain(),
-                    secure: answer.secure(),
-                    bogus: answer.bogus(),
-                    why_bogus: answer.why_bogus().map(|s| s.to_string()),
-                    response_code: answer.rcode(),
-                    expires: Instant::now() + Duration::from_secs(answer.ttl() as u64),
-                })
-            }
-        }
     }
 }

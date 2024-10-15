@@ -13,12 +13,17 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex};
 use std::time::Instant;
 
 mod resolver;
-#[cfg(feature = "default-unbound")]
+#[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
 pub use resolver::{HickoryResolver, Resolver};
 
-static RESOLVER: LazyLock<ArcSwap<Resolver>> =
-    LazyLock::new(|| ArcSwap::from_pointee(default_resolver()));
+// An `ArcSwap` can only hold `Sized` types, so we cannot stuff a `dyn Resolver` directly into it.
+// Instead, the documentation recommends adding a level of indirection, so we wrap the `Resolver`
+// trait object in a `Box`. In the context of DNS requests, the additional pointer chasing should
+// not be a significant performance concern.
+static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
+    LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
+
 static MX_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>>> =
     LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(64 * 1024)));
 static IPV4_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
@@ -28,14 +33,11 @@ static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
 static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
     LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
 
-#[cfg(feature = "default-unbound")]
-fn default_resolver() -> Resolver {
-    Resolver::Unbound(UnboundResolver::new().unwrap())
-}
-
-#[cfg(not(feature = "default-unbound"))]
-fn default_resolver() -> Resolver {
-    Resolver::Tokio(HickoryResolver::new().expect("Parsing /etc/resolv.conf failed"))
+fn default_resolver() -> impl Resolver {
+    #[cfg(feature = "default-unbound")]
+    return UnboundResolver::new().unwrap();
+    #[cfg(not(feature = "default-unbound"))]
+    return HickoryResolver::new().expect("Parsing /etc/resolv.conf failed");
 }
 
 fn mx_cache_get(name: &Name) -> Option<Arc<MailExchanger>> {
@@ -77,11 +79,11 @@ pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
     Ok(name)
 }
 
-pub fn reconfigure_resolver(resolver: Resolver) {
-    RESOLVER.store(Arc::new(resolver));
+pub fn reconfigure_resolver(resolver: impl Resolver) {
+    RESOLVER.store(Arc::new(Box::new(resolver)));
 }
 
-pub fn get_resolver() -> Arc<Resolver> {
+pub fn get_resolver() -> Arc<Box<dyn Resolver>> {
     RESOLVER.load_full()
 }
 

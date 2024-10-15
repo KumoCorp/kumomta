@@ -34,7 +34,7 @@ impl Lookup for TokioAsyncResolver {
     }
 }
 
-impl Lookup for Resolver {
+impl Lookup for Box<dyn Resolver> {
     fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>> {
         Box::pin(async move {
             let name = Name::from_utf8(name)?;
