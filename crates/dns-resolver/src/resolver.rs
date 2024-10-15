@@ -5,7 +5,7 @@ use hickory_resolver::proto::rr::DNSClass;
 use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::{IntoName, TokioAsyncResolver, TryParseIp};
 #[cfg(feature = "unbound")]
-use libunbound::AsyncContext;
+use libunbound::{Context, AsyncContext};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
@@ -47,10 +47,35 @@ impl Answer {
     }
 }
 
+#[cfg(feature = "unbound")]
+pub struct UnboundResolver {
+    cx: AsyncContext,
+}
+
+#[cfg(feature = "unbound")]
+impl UnboundResolver {
+    pub fn new() -> Self {
+        // This resolves directly against the root
+        let context = Context::new().unwrap();
+        // and enables DNSSEC
+        context.add_builtin_trust_anchors().unwrap();
+        Self {
+            cx: context.into_async().unwrap(),
+        }
+    }
+}
+
+#[cfg(feature = "unbound")]
+impl From<AsyncContext> for UnboundResolver {
+    fn from(cx: AsyncContext) -> Self {
+        Self { cx }
+    }
+}
+
 pub enum Resolver {
     Tokio(TokioAsyncResolver),
     #[cfg(feature = "unbound")]
-    Unbound(AsyncContext),
+    Unbound(UnboundResolver),
 }
 
 impl Resolver {
@@ -99,10 +124,10 @@ impl Resolver {
                 },
             },
             #[cfg(feature = "unbound")]
-            Self::Unbound(ctx) => {
+            Self::Unbound(resolver) => {
                 let name = name.into_name()?;
                 let name = name.to_ascii();
-                let answer = ctx.resolve(&name, rrtype, DNSClass::IN).await?;
+                let answer = resolver.cx.resolve(&name, rrtype, DNSClass::IN).await?;
                 let mut records = vec![];
                 for r in answer.rdata() {
                     if let Ok(r) = r {

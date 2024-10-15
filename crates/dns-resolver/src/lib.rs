@@ -14,6 +14,8 @@ use std::time::Instant;
 
 mod resolver;
 pub use resolver::Resolver;
+#[cfg(feature = "default-unbound")]
+pub use resolver::UnboundResolver;
 
 static RESOLVER: LazyLock<ArcSwap<Resolver>> =
     LazyLock::new(|| ArcSwap::from_pointee(default_resolver()));
@@ -28,11 +30,7 @@ static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
 
 #[cfg(feature = "default-unbound")]
 fn default_resolver() -> Resolver {
-    // This resolves directly against the root
-    let context = libunbound::Context::new().unwrap();
-    // and enables DNSSEC
-    context.add_builtin_trust_anchors().unwrap();
-    Resolver::Unbound(context.into_async().unwrap())
+    Resolver::Unbound(UnboundResolver::new())
 }
 
 #[cfg(not(feature = "default-unbound"))]
