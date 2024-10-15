@@ -27,11 +27,16 @@ steps:
   whoami:
     image: alpine:latest
     commands:
-      - "echo agent=$(printenv CI_MACHINE)"
-      - env | sort
-  setup-cache:
+      - printenv CI_MACHINE
+
+  pull-builder-image:
     image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     pull: true
+    commands:
+      - "true"
+
+  setup-cache:
+    image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
     environment:
       GROUP: "docs"
     commands:
