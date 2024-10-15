@@ -11,5 +11,5 @@ config = {path="../config"}
 mod-memoize = {path="../mod-memoize"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 regex = "1.7"
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 serde_json = "1.0"

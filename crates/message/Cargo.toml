@@ -27,7 +27,7 @@ mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send"
 prometheus = "0.13"
 rand = "0.8"
 rfc5321 = {path="../rfc5321", default-features=false}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 serde_json = "1.0"
 slog = "2.7"
 spool = {path="../spool"}

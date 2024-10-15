@@ -22,7 +22,7 @@ ordermap = {version="0.5", features=["serde"]}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
 kumo-prometheus = {path="../kumo-prometheus"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls", "stream"]}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 serde_json = "1.0"
 tabout = "0.3"
 tokio = {workspace=true, features=["full", "tracing"]}

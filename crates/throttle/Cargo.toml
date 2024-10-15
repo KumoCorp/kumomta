@@ -13,7 +13,7 @@ redis = ["dep:redis-cell-impl", "dep:mod-redis"]
 anyhow = "1.0"
 mod-redis = {path="../mod-redis", optional=true}
 redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="97d409c3a62f2a0f5518c31fc9b4b65afbce2053" , optional=true}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 thiserror = "1.0"
 tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "fast-rng"]}

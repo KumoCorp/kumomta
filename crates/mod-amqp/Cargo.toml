@@ -14,7 +14,7 @@ duration-serde = {path="../duration-serde"}
 lapin.workspace = true
 deadpool = {version="0.12", features=["rt_tokio_1"]}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 tokio.workspace = true
 tokio-executor-trait = "2.1.0"
 tokio-reactor-trait = "1.1.0"

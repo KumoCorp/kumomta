@@ -53,6 +53,7 @@ openssl = { version="=0.10.65" } # pinned; see patch below
 openssl-sys = { version="0.9" }
 reqwest = {version="0.12", default-features=false, features=["rustls-tls"]}
 rustls = "0.23"
+serde = {version="1.0", features=["derive"]}
 sqlite = "0.32"
 tempfile = "3.10"
 tokio = "1.32"

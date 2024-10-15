@@ -17,7 +17,7 @@ memchr = "2.5"
 openssl = {workspace=true, optional=true}
 pest = "2.7"
 pest_derive = "2.7"
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 thiserror = "1.0"
 tokio = {workspace=true, features=["full"], optional=true}
 tokio-rustls = {workspace=true, optional=true}

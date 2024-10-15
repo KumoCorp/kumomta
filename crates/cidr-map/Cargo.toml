@@ -16,7 +16,7 @@ cidr = {version="0.2.3", features=["serde", "bitstring"]}
 config = {path="../config", optional=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
 mod-memoize = {path="../mod-memoize", optional=true}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 
 [dev-dependencies]
 k9 = "0.12"

@@ -22,7 +22,7 @@ kumo-server-runtime = {path="../kumo-server-runtime"}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rfc5321= {path="../rfc5321"}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 serde_json = "1.0"
 sha2 = "0.10"
 sqlite = {workspace=true}

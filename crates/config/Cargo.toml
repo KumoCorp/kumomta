@@ -14,7 +14,7 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 parking_lot = "0.12"
 prometheus = "0.13"
 rand = "0.8"
-serde = "1.0"
+serde = {workspace=true}
 serde_json = "1.0"
 sha2 = "0.10"
 tokio = {workspace=true, features=["fs"]}

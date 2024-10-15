@@ -11,7 +11,7 @@ config = {path="../config"}
 deadpool = {version="0.12", features=["rt_tokio_1"]}
 duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-serde = {version="1.0", features=["derive"]}
+serde = {workspace=true}
 serde_json = "1.0"
 redis = {version="0.26", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 tokio = {workspace=true, features=["rt", "tracing", "process", "io-util", "io-std", "macros", "time"]}
