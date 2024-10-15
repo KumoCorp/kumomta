@@ -56,11 +56,17 @@ steps:
   whoami:
     image: alpine:latest
     commands:
-      - "echo agent=$(printenv CI_MACHINE)"
-      - env | sort
-  setup-cache:
+      - printenv CI_MACHINE
+
+  pull-builder-image:
     image: ${BUILDER_IMAGE}
     pull: true
+    commands:
+      - "true"
+
+  setup-cache:
+    depends_on: [pull-builder-image]
+    image: ${BUILDER_IMAGE}
     environment:
       GROUP: "amazonlinux-${AMAZON_VERSION}"
     commands:

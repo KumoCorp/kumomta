@@ -27,8 +27,8 @@ steps:
   whoami:
     image: alpine:latest
     commands:
-      - "echo agent=$(printenv CI_MACHINE)"
-      - env | sort
+      - printenv CI_MACHINE
+
   build-builder-no-publish:
     image: plugins/docker
     when:
