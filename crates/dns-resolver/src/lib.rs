@@ -1045,10 +1045,8 @@ MailExchanger {
     #[cfg(feature = "live-dns-tests")]
     #[tokio::test]
     async fn txt_lookup_gmail() {
-        let answer = get_resolver()
-            .resolve("_mta-sts.gmail.com", RecordType::TXT)
-            .await
-            .unwrap();
+        let name = Name::from_utf8("_mta-sts.gmail.com").unwrap();
+        let answer = get_resolver().resolve(name, RecordType::TXT).await.unwrap();
         k9::snapshot!(
             answer.as_txt(),
             r#"

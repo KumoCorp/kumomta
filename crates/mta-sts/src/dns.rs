@@ -1,7 +1,7 @@
 use dns_resolver::Resolver;
 use futures::future::BoxFuture;
 use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::{Name, TokioAsyncResolver};
 use std::collections::BTreeMap;
 
 // <https://datatracker.ietf.org/doc/html/rfc8461>
@@ -37,6 +37,7 @@ impl Lookup for TokioAsyncResolver {
 impl Lookup for Resolver {
     fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>> {
         Box::pin(async move {
+            let name = Name::from_utf8(name)?;
             let answer = self.resolve(name, RecordType::TXT).await?;
             Ok(answer.as_txt())
         })
