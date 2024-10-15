@@ -22,7 +22,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "lookup_txt",
         lua.create_async_function(|_lua, domain: String| async move {
             let resolver = get_resolver();
-            let answer = resolver.resolve_txt(domain).await.map_err(any_err)?;
+            let answer = resolver.resolve_txt(&domain).await.map_err(any_err)?;
             Ok(answer.as_txt())
         })?,
     )?;
