@@ -148,3 +148,9 @@
   words to be effectively discarded when the subject is decoded.  The header
   re-encoding will now prefer to re-assemble unstructured fields as a single
   encoded-word to avoid this.
+
+* Using `msg:append_text_html()` or `msg:append_text_plain()` on a mime part
+  that had a pre-existing `Content-Transfer-Encoding` header wouldn't remove
+  the header. If the original encoding was `base64` and the new form of the
+  part was written out in `quoted-printable` then the resulting mime part would
+  be ambiguous to decode.

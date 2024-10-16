@@ -444,7 +444,12 @@ impl<'a> MimePart<'a> {
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
         self.body_len = new_part.body_len;
+        // Remove any rfc2047 headers that might reflect how the content
+        // is encoded. Note that we preserve Content-Disposition as that
+        // isn't related purely to the how the content is encoded
         self.headers.remove_all_named("Content-Type");
+        self.headers.remove_all_named("Content-Transfer-Encoding");
+        // And add any from the new part
         self.headers.append(&mut new_part.headers.headers);
     }
 
@@ -1082,6 +1087,37 @@ PGh0bWw+PGJvZHk+VGhpcyBpcyB0aGUgPGI+SFRNTDwvYj4gdmVyc2lvbiwgaW4g \r
 dXMtYXNjaWkuIFByb29mIGJ5IEV1cm86ICZldXJvOzwvYm9keT48L2h0bWw+Cg== \r
 --foobar--\r
 After the final boundary stuff gets ignored.\r
+
+"#
+        );
+    }
+
+    #[test]
+    fn replace_text_body() {
+        let mut part = MimePart::new_text_plain("Hello 👻\r\n");
+        let encoded = part.to_message_string();
+        k9::snapshot!(
+            &encoded,
+            r#"
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: base64\r
+\r
+SGVsbG8g8J+Ruw0K\r
+
+"#
+        );
+
+        part.replace_text_body("text/plain", "Hello 🚀\r\n");
+        let encoded = part.to_message_string();
+        k9::snapshot!(
+            &encoded,
+            r#"
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: base64\r
+\r
+SGVsbG8g8J+agA0K\r
 
 "#
         );
