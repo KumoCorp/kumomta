@@ -17,7 +17,7 @@ use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::time::timeout;
 use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore, SupportedCipherSuite};
+use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};
 use tokio_rustls::TlsConnector;
 use tracing::Level;
 
@@ -895,16 +895,13 @@ mod danger {
 }
 
 pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
-    let mut root_store = RootCertStore::empty();
-    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-
     let cipher_suites = if options.rustls_cipher_suites.is_empty() {
         provider::DEFAULT_CIPHER_SUITES
     } else {
         &options.rustls_cipher_suites
     };
 
-    let mut config = ClientConfig::builder_with_provider(
+    let config = ClientConfig::builder_with_provider(
         CryptoProvider {
             cipher_suites: cipher_suites.to_vec(),
             ..provider::default_provider()
@@ -912,15 +909,20 @@ pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
         .into(),
     )
     .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
-    .expect("inconsistent cipher-suite/versions selected")
-    .with_root_certificates(root_store)
-    .with_no_client_auth();
+    .expect("inconsistent cipher-suite/versions selected");
 
-    if options.insecure {
-        config.dangerous().set_certificate_verifier(Arc::new(
-            danger::NoCertificateVerification::new(provider::default_provider()),
-        ));
-    }
+    let config = if options.insecure {
+        config
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
+                provider::default_provider(),
+            )))
+    } else {
+        config
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(rustls_platform_verifier::Verifier::new()))
+    };
+    let config = config.with_no_client_auth();
 
     TlsConnector::from(Arc::new(config))
 }
