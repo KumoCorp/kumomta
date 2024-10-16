@@ -1,7 +1,4 @@
 use dns_resolver::Resolver;
-use futures::future::BoxFuture;
-use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::{Name, TokioAsyncResolver};
 use std::collections::BTreeMap;
 
 // <https://datatracker.ietf.org/doc/html/rfc8461>
@@ -12,44 +9,12 @@ pub struct MtaStsDnsRecord {
     pub fields: BTreeMap<String, String>,
 }
 
-/// A trait for entities that perform DNS resolution.
-pub trait Lookup: Sync + Send {
-    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>>;
-}
-
-impl Lookup for TokioAsyncResolver {
-    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>> {
-        Box::pin(async move {
-            self.txt_lookup(name)
-                .await?
-                .into_iter()
-                .map(|txt| {
-                    Ok(txt
-                        .iter()
-                        .map(|data| String::from_utf8_lossy(data))
-                        .collect())
-                })
-                .collect()
-        })
-    }
-}
-
-impl Lookup for Box<dyn Resolver> {
-    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>> {
-        Box::pin(async move {
-            let name = Name::from_utf8(name)?;
-            let answer = self.resolve(name, RecordType::TXT).await?;
-            Ok(answer.as_txt())
-        })
-    }
-}
-
 pub async fn resolve_dns_record(
     policy_domain: &str,
-    resolver: &dyn Lookup,
+    resolver: &dyn Resolver,
 ) -> anyhow::Result<MtaStsDnsRecord> {
     let dns_name = format!("_mta-sts.{policy_domain}");
-    let res = resolver.lookup_txt(&dns_name).await?;
+    let res = resolver.resolve_txt(&dns_name).await?.as_txt();
     let txt = res.join("");
 
     let mut fields = BTreeMap::new();
@@ -83,33 +48,14 @@ pub async fn resolve_dns_record(
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-
-    pub struct TestResolver {
-        dns: BTreeMap<&'static str, &'static str>,
-    }
-
-    impl TestResolver {
-        pub fn new<I: IntoIterator<Item = (&'static str, &'static str)>>(iter: I) -> Self {
-            Self {
-                dns: BTreeMap::from_iter(iter),
-            }
-        }
-    }
-
-    impl Lookup for TestResolver {
-        fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, anyhow::Result<Vec<String>>> {
-            Box::pin(async move {
-                match self.dns.get(name) {
-                    Some(result) => Ok(vec![result.to_string()]),
-                    None => anyhow::bail!("NXDOMAIN {name}"),
-                }
-            })
-        }
-    }
+    use dns_resolver::TestResolver;
 
     #[tokio::test]
     async fn test_parse_dns_record() {
-        let resolver = TestResolver::new([("_mta-sts.gmail.com", "v=STSv1; id=20190429T010101;")]);
+        let resolver = TestResolver::default().with_txt(
+            "_mta-sts.gmail.com",
+            "v=STSv1; id=20190429T010101;".to_owned(),
+        );
 
         let result = resolve_dns_record("gmail.com", &resolver).await.unwrap();
 

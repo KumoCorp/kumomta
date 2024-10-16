@@ -1,3 +1,4 @@
+use dns_resolver::Resolver;
 use futures::future::BoxFuture;
 use hickory_resolver::Name;
 use lruttl::LruCacheWithTtl;
@@ -72,7 +73,7 @@ impl policy::Get for Getter {
 
 pub async fn get_policy_for_domain(policy_domain: &str) -> anyhow::Result<Arc<MtaStsPolicy>> {
     let resolver = dns_resolver::get_resolver();
-    get_policy_for_domain_impl(policy_domain, &*resolver, &Getter {}).await
+    get_policy_for_domain_impl(policy_domain, &**resolver, &Getter {}).await
 }
 
 fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
@@ -81,7 +82,7 @@ fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
 
 async fn get_policy_for_domain_impl(
     policy_domain: &str,
-    resolver: &dyn dns::Lookup,
+    resolver: &dyn Resolver,
     getter: &dyn policy::Get,
 ) -> anyhow::Result<Arc<MtaStsPolicy>> {
     let name = Name::from_str_relaxed(policy_domain)?.to_lowercase();
