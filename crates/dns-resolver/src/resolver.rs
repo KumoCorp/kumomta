@@ -110,7 +110,7 @@ impl Answer {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Clone, Debug, Error, PartialEq)]
 pub enum DnsError {
     #[error("invalid DNS name: {0}")]
     InvalidName(String),

@@ -2,9 +2,9 @@
 
 use crate::errors::Status;
 use crate::hash::HeaderList;
+use dns_resolver::{HickoryResolver, Resolver};
 use ed25519_dalek::pkcs8::DecodePrivateKey;
 use ed25519_dalek::SigningKey;
-use hickory_resolver::TokioAsyncResolver;
 use mailparsing::AuthenticationResult;
 use openssl::md::Md;
 use openssl::pkey::PKey;
@@ -13,7 +13,6 @@ use openssl::rsa::{Padding, Rsa};
 use std::collections::BTreeMap;
 
 pub mod canonicalization;
-pub mod dns;
 mod errors;
 mod hash;
 mod header;
@@ -149,7 +148,7 @@ fn verify_signature(
 }
 
 async fn verify_email_header<'a>(
-    resolver: &dyn dns::Lookup,
+    resolver: &dyn Resolver,
     dkim_header: &'a DKIMHeader,
     email: &'a ParsedEmail<'a>,
 ) -> Result<(), DKIMError> {
@@ -206,7 +205,7 @@ async fn verify_email_header<'a>(
 pub async fn verify_email_with_resolver<'a>(
     from_domain: &str,
     email: &'a ParsedEmail<'a>,
-    resolver: &dyn dns::Lookup,
+    resolver: &dyn Resolver,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
     let mut results = vec![];
 
@@ -317,7 +316,7 @@ pub async fn verify_email<'a>(
     from_domain: &str,
     email: &'a ParsedEmail<'a>,
 ) -> Result<Vec<AuthenticationResult>, DKIMError> {
-    let resolver = TokioAsyncResolver::tokio_from_system_conf().map_err(|err| {
+    let resolver = HickoryResolver::new().map_err(|err| {
         DKIMError::UnknownInternalError(format!("failed to create DNS resolver: {}", err))
     })?;
 
@@ -326,40 +325,18 @@ pub async fn verify_email<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::dns::Lookup;
-
     use super::*;
+    use dns_resolver::TestResolver;
 
-    struct MockResolver {}
+    const DKIM_BRISBANE: (&str, &str) = (
+        "brisbane._domainkey.football.example.com",
+        "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+    );
 
-    impl Lookup for MockResolver {
-        fn lookup_txt<'a>(
-            &'a self,
-            name: &'a str,
-        ) -> futures::future::BoxFuture<'a, Result<Vec<String>, DKIMError>> {
-            match name {
-                "brisbane._domainkey.football.example.com" => {
-                    Box::pin(futures::future::ready(Ok(vec![
-                        "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
-                            .to_string(),
-                    ])))
-                }
-                "newengland._domainkey.example.com" => Box::pin(futures::future::ready(Ok(vec![
-                    "v=DKIM1; p=MIGJAoGBALVI635dLK4cJJAH3Lx6upo3X/Lm1tQz3mezcWTA3BUBnyIsdnRf57aD5BtNmhPrYYDlWlzw3UgnKisIxktkk5+iMQMlFtAS10JB8L3YadXNJY+JBcbeSi5TgJe4WFzNgW95FWDAuSTRXSWZfA/8xjflbTLDx0euFZOM7C4T0GwLAgMBAAE=".to_string(),
-                ]))),
-                _ => {
-                    println!("asked to resolve: {}", name);
-                    todo!()
-                }
-            }
-        }
-    }
-
-    impl MockResolver {
-        fn new() -> Self {
-            MockResolver {}
-        }
-    }
+    const NEW_ENGLAND_DKIM: (&str, &str) = (
+        "newengland._domainkey.example.com",
+        "v=DKIM1; p=MIGJAoGBALVI635dLK4cJJAH3Lx6upo3X/Lm1tQz3mezcWTA3BUBnyIsdnRf57aD5BtNmhPrYYDlWlzw3UgnKisIxktkk5+iMQMlFtAS10JB8L3YadXNJY+JBcbeSi5TgJe4WFzNgW95FWDAuSTRXSWZfA/8xjflbTLDx0euFZOM7C4T0GwLAgMBAAE=",
+    );
 
     #[test]
     fn test_validate_header() {
@@ -476,7 +453,8 @@ Joe."#
             .unwrap()
             .get_raw_value();
 
-        let resolver = MockResolver::new();
+        let resolver =
+            TestResolver::default().with_txt(DKIM_BRISBANE.0, DKIM_BRISBANE.1.to_owned());
 
         verify_email_header(
             &resolver,
@@ -524,7 +502,8 @@ Joe.
             .unwrap()
             .get_raw_value();
 
-        let resolver = MockResolver::new();
+        let resolver =
+            TestResolver::default().with_txt(NEW_ENGLAND_DKIM.0, NEW_ENGLAND_DKIM.1.to_owned());
 
         verify_email_header(
             &resolver,
