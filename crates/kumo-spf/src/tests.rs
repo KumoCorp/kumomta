@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr};
 async fn all() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
-        .with_spf("example.com", "v=spf1 +all".to_string());
+        .with_txt("example.com", "v=spf1 +all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
     k9::assert_equal!(
@@ -25,7 +25,7 @@ async fn all() {
 async fn ip() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
-        .with_spf("example.com", "v=spf1 a -all".to_string());
+        .with_txt("example.com", "v=spf1 a -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
     k9::assert_equal!(
@@ -50,7 +50,7 @@ async fn ip() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
         .with_zone(EXAMPLE_ORG)
-        .with_spf("example.com", "v=spf1 a:example.org -all".to_string());
+        .with_txt("example.com", "v=spf1 a:example.org -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 10]), &resolver).await;
     k9::assert_equal!(
@@ -68,7 +68,7 @@ async fn ip() {
 async fn mx() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
-        .with_spf("example.com", "v=spf1 mx -all".to_string());
+        .with_txt("example.com", "v=spf1 mx -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 129]), &resolver).await;
     k9::assert_equal!(
@@ -83,7 +83,7 @@ async fn mx() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
         .with_zone(EXAMPLE_ORG)
-        .with_spf("example.com", "v=spf1 mx:example.org -all".to_string());
+        .with_txt("example.com", "v=spf1 mx:example.org -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 140]), &resolver).await;
     k9::assert_equal!(
@@ -98,7 +98,7 @@ async fn mx() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
         .with_zone(EXAMPLE_ORG)
-        .with_spf(
+        .with_txt(
             "example.com",
             "v=spf1 mx/30 mx:example.org/30 -all".to_string(),
         );
@@ -129,7 +129,7 @@ async fn mx() {
 async fn ip4() {
     let resolver = TestResolver::default()
         .with_zone(EXAMPLE_COM)
-        .with_spf("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
+        .with_txt("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::assert_equal!(
@@ -159,7 +159,7 @@ async fn ptr() {
         .with_zone(EXAMPLE_COM)
         .with_zone(ADDR_192)
         .with_zone(ADDR_10)
-        .with_spf("example.com", "v=spf1 ptr -all".to_string());
+        .with_txt("example.com", "v=spf1 ptr -all".to_string());
 
     let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::assert_equal!(
