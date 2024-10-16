@@ -3,7 +3,7 @@
 There are several things that can go wrong, especially when first installing KumoMTA. This page is intended to help with troubleshooting common issues.
 
 !!!Note
-        There are multiple ways to get help with KumoMTA, see the [How To Get Help](../general/get_help.md) page for more information.
+    There are multiple ways to get help with KumoMTA, see the [How To Get Help](../general/get_help.md) page for more information.
 
 ## Using Swaks
 
