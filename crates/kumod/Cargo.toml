@@ -70,7 +70,6 @@ tracing = "0.1"
 utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
-webpki-roots = {workspace=true}
 zstd = "0.13"
 
 [target.'cfg(target_os = "linux")'.dependencies]
