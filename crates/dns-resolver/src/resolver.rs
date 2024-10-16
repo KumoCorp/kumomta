@@ -153,7 +153,7 @@ impl TestResolver {
         self
     }
 
-    pub fn with_spf(mut self, domain: &str, policy: String) -> Self {
+    pub fn with_txt(mut self, domain: &str, value: String) -> Self {
         let fqdn = format!("{}.", domain);
         let authority = Name::from_str(&fqdn).unwrap();
         let key = RrKey {
@@ -162,7 +162,7 @@ impl TestResolver {
         };
 
         let mut records = RecordSet::new(&authority, RecordType::TXT, 0);
-        records.add_rdata(RData::TXT(TXT::new(vec![policy])));
+        records.add_rdata(RData::TXT(TXT::new(vec![value])));
         self.records
             .entry(authority)
             .or_insert_with(BTreeMap::new)
