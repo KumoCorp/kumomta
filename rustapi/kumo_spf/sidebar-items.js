@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SpfDisposition"],"mod":["dns","record"],"struct":["CheckHostParams","SpfResult"]};
