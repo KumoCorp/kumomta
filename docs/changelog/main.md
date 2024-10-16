@@ -13,6 +13,13 @@
   If you have rules that you wish to intentionally match these internal
   messages, you can mark the automation entry with `match_internal = true`
   to allow the match to be considered.
+* The SMTP client will now look for the system CA-certificate bundle
+  when making connections. **If no CA-certificate bundle is present**, it will
+  have no available trust store and will **not be able to successfully establish
+  TLS sessions**. Previously, we used a bundled hard-coded, non-extensible,
+  copy of the Mozilla CA certificate store. You must therefore ensure that
+  you install the `ca-certificates` package for your system, or otherwise
+  contrive to populate the system certificate store.
 
 ## Other Changes and Enhancements
 * Queue and Egress configs can now be set to work in a mode where they refresh
