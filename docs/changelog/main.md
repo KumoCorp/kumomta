@@ -142,3 +142,9 @@
 
 * The [throttle_insert_ready_queue](../reference/events/throttle_insert_ready_queue.md) event
   was not correctly registered and would never trigger.
+
+* A MIME message rebuild could improperly re-encode unicode Subject lines into
+  a series of quoted-printable encoded-words, causing spaces between those
+  words to be effectively discarded when the subject is decoded.  The header
+  re-encoding will now prefer to re-assemble unstructured fields as a single
+  encoded-word to avoid this.

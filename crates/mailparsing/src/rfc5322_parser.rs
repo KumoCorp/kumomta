@@ -724,13 +724,22 @@ fn encoded_word(input: Span) -> IResult<Span, String> {
                 )
             })?,
         "Q" | "q" => {
-            quoted_printable::decode(text.replace("_", " "), quoted_printable::ParseMode::Robust)
+            // for rfc2047 header encoding, _ can be used to represent a space
+            let munged = text.replace("_", " ");
+            // The quoted_printable crate will unhelpfully strip trailing space
+            // from the decoded input string, and we must track and restore it
+            let had_trailing_space = munged.ends_with(' ');
+            let mut decoded = quoted_printable::decode(munged, quoted_printable::ParseMode::Robust)
                 .map_err(|err| {
                     make_context_error(
                         input,
                         format!("encoded_word: quoted printable decode failed: {err:#}"),
                     )
-                })?
+                })?;
+            if had_trailing_space && !decoded.ends_with(b" ") {
+                decoded.push(b' ');
+            }
+            decoded
         }
         encoding => {
             return Err(make_context_error(

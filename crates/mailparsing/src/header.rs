@@ -121,30 +121,7 @@ impl<'a> Header<'a> {
                     .subsequent_indent("\t"),
             )
         } else {
-            let mut encoded = String::with_capacity(value.len());
-            let mut line_length = 0;
-            let max_length = 75;
-            for word in value.split_ascii_whitespace() {
-                let quoted_word;
-                let word = if word.is_ascii() {
-                    word
-                } else {
-                    quoted_word = crate::rfc5322_parser::qp_encode(word);
-                    &quoted_word
-                };
-
-                if line_length > 0 {
-                    if word.len() < max_length - line_length {
-                        encoded.push(' ');
-                    } else {
-                        encoded.push_str("\r\n\t");
-                        line_length = 0;
-                    }
-                }
-                encoded.push_str(word);
-                line_length += word.len();
-            }
-            encoded
+            crate::rfc5322_parser::qp_encode(&value)
         }
         .into();
 
@@ -645,6 +622,32 @@ Ok(
     }
 
     #[test]
+    fn test_spacing_roundtrip() {
+        let (header, _size) = Header::parse(
+            "Subject: =?UTF-8?q?=D8=AA=D8=B3=D8=AA_=DB=8C=DA=A9_=D8=AF=D9=88_=D8=B3=D9=87?=",
+        )
+        .unwrap();
+        k9::snapshot!(
+            header.as_unstructured(),
+            r#"
+Ok(
+    "تست یک دو سه",
+)
+"#
+        );
+
+        let rebuilt = header.rebuild().unwrap();
+        k9::snapshot!(
+            rebuilt.as_unstructured(),
+            r#"
+Ok(
+    "تست یک دو سه",
+)
+"#
+        );
+    }
+
+    #[test]
     fn test_unstructured_encode() {
         let header = Header::new_unstructured("Subject", "hello there");
         k9::snapshot!(header.value, "hello there");
@@ -653,7 +656,7 @@ Ok(
         k9::snapshot!(header.value, "hello \"there\"");
 
         let header = Header::new_unstructured("Subject", "hello André Pirard");
-        k9::snapshot!(header.value, "hello =?UTF-8?q?Andr=C3=A9?= Pirard");
+        k9::snapshot!(header.value, "=?UTF-8?q?hello_Andr=C3=A9_Pirard?=");
 
         let header = Header::new_unstructured(
             "Subject",
@@ -678,9 +681,9 @@ Subject: hello there, this is a longer header than the standard width and so it\
         k9::snapshot!(
             header.to_header_string(),
             r#"
-Subject: hello there =?UTF-8?q?Andr=C3=A9,?= this is a longer header than the standard width\r
-\tand so it should get wrapped in the produced value. Do you hear me\r
-\t=?UTF-8?q?Andr=C3=A9=3F?= this should get really long!\r
+Subject: =?UTF-8?q?hello_there_Andr=C3=A9,_this_is_a_longer_header_than_the_stand?=\r
+\t=?UTF-8?q?ard_width_and_so_it_should_get_wrapped_in_the_produced_value._?=\r
+\t=?UTF-8?q?Do_you_hear_me_Andr=C3=A9=3F_this_should_get_really_long!?=\r
 
 "#
         );

@@ -964,7 +964,55 @@ Content-Type: text/plain;\r
 \tcharset="utf-8"\r
 Content-Transfer-Encoding: quoted-printable\r
 From: Me <me@example.com>\r
-Subject: A test =?UTF-8?q?=F0=9F=9B=B3=EF=B8=8F?=\r
+Subject: =?UTF-8?q?A_test_=F0=9F=9B=B3=EF=B8=8F?=\r
+To: James Smythe <user@example.com>\r
+Mime-Version: 1.0\r
+\r
+This is a test message to James Smythe, with some =F0=9F=91=BB=F0=9F=8D=89=\r
+=F0=9F=92=A9 emoji!\r
+
+"#
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_basic_alt() {
+        let input = r#"From: Me <me@example.com>
+Subject: =?UTF-8?q?=D8=AA=D8=B3=D8=AA_=DB=8C=DA=A9_=D8=AF=D9=88_=D8=B3=D9=87?=
+To: "{{ name }}" <{{ email }}>
+
+This is a test message to {{ name }}, with some 👻🍉💩 emoji!
+"#;
+        let request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Rfc822(input.to_string()),
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+        };
+
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+        k9::snapshot!(
+            generated,
+            r#"
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+From: Me <me@example.com>\r
+Subject: =?UTF-8?q?=D8=AA=D8=B3=D8=AA_=DB=8C=DA=A9_=D8=AF=D9=88_=D8=B3=D9=87?=\r
 To: James Smythe <user@example.com>\r
 Mime-Version: 1.0\r
 \r
