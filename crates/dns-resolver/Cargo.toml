@@ -27,6 +27,7 @@ serde = {workspace=true}
 thiserror = {workspace=true}
 tokio = {workspace=true, features=["macros"]}
 tracing = "0.1"
+hickory-proto = {workspace=true, features = ["text-parsing"]} # need to enable the feature
 hickory-resolver = {workspace=true}
 
 [dev-dependencies]

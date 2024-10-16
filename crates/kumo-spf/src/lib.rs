@@ -1,12 +1,11 @@
-use crate::dns::{DnsError, Lookup};
 use crate::record::Record;
 use crate::spec::MacroSpec;
+use dns_resolver::{DnsError, Resolver};
 use serde::Deserialize;
 use std::fmt;
 use std::net::IpAddr;
 use std::time::SystemTime;
 
-pub mod dns;
 pub mod record;
 mod spec;
 use record::Qualifier;
@@ -104,7 +103,7 @@ pub struct CheckHostParams {
 }
 
 impl CheckHostParams {
-    pub async fn check(self, resolver: &dyn Lookup) -> SpfResult {
+    pub async fn check(self, resolver: &dyn Resolver) -> SpfResult {
         let Self {
             domain,
             sender,
@@ -162,14 +161,22 @@ impl<'a> SpfContext<'a> {
         Self { domain, ..*self }
     }
 
-    pub async fn check(&self, resolver: &dyn Lookup) -> SpfResult {
-        let initial_txt = match resolver.lookup_txt(self.domain).await {
-            Ok(parts) => parts.join(""),
+    pub async fn check(&self, resolver: &dyn Resolver) -> SpfResult {
+        let initial_txt = match resolver.resolve_txt(self.domain).await {
+            Ok(parts) => match parts.records.is_empty() {
+                true => {
+                    return SpfResult {
+                        disposition: SpfDisposition::None,
+                        context: "no spf records found".to_owned(),
+                    }
+                }
+                false => parts.as_txt().join(""),
+            },
             Err(err) => {
                 return SpfResult {
                     disposition: match err {
-                        DnsError::NotFound(_) => SpfDisposition::None,
-                        DnsError::LookupFailed(_) => SpfDisposition::TempError,
+                        DnsError::InvalidName(_) => SpfDisposition::PermError,
+                        DnsError::ResolveFailed(_) => SpfDisposition::TempError,
                     },
                     context: format!("{err}"),
                 };
