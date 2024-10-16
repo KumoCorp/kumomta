@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use hickory_resolver::error::ResolveErrorKind;
+use hickory_resolver::error::{ResolveError, ResolveErrorKind};
 use hickory_resolver::proto::op::response_code::ResponseCode;
 #[cfg(feature = "unbound")]
 use hickory_resolver::proto::rr::DNSClass;
@@ -7,8 +7,10 @@ use hickory_resolver::proto::rr::{RData, RecordType};
 use hickory_resolver::{Name, TokioAsyncResolver};
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
+use std::fmt;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 #[derive(Debug)]
 pub struct Answer {
@@ -48,14 +50,29 @@ impl Answer {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum DnsError {
+    #[error("invalid DNS name: {0}")]
+    InvalidName(String),
+    #[error("DNS: {0}")]
+    ResolveFailed(String),
+}
+
+impl DnsError {
+    pub(crate) fn from_resolve(name: &impl fmt::Display, err: ResolveError) -> Self {
+        DnsError::ResolveFailed(format!("failed to query DNS for {name}: {err}"))
+    }
+}
+
 #[async_trait]
 pub trait Resolver: Send + Sync + 'static {
-    async fn resolve_txt(&self, name: &str) -> anyhow::Result<Answer> {
-        let name = Name::from_utf8(name)?;
+    async fn resolve_txt(&self, name: &str) -> Result<Answer, DnsError> {
+        let name = Name::from_utf8(name)
+            .map_err(|err| DnsError::InvalidName(format!("invalid name {name}: {err}")))?;
         self.resolve(name, RecordType::TXT).await
     }
 
-    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer>;
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError>;
 }
 
 #[cfg(feature = "unbound")]
@@ -79,15 +96,23 @@ impl UnboundResolver {
 #[cfg(feature = "unbound")]
 #[async_trait]
 impl Resolver for UnboundResolver {
-    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
         let name = name.to_ascii();
-        let answer = self.cx.resolve(&name, rrtype, DNSClass::IN).await?;
+        let answer = self
+            .cx
+            .resolve(&name, rrtype, DNSClass::IN)
+            .await
+            .map_err(|err| {
+                DnsError::ResolveFailed(format!("failed to query DNS for {name}: {err}"))
+            })?;
+
         let mut records = vec![];
         for r in answer.rdata() {
             if let Ok(r) = r {
                 records.push(r);
             }
         }
+
         Ok(Answer {
             canon_name: answer.canon_name().map(|s| s.to_string()),
             records,
@@ -122,8 +147,8 @@ impl HickoryResolver {
 
 #[async_trait]
 impl Resolver for HickoryResolver {
-    async fn resolve(&self, name: Name, rrtype: RecordType) -> anyhow::Result<Answer> {
-        match self.inner.lookup(name, rrtype).await {
+    async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
+        match self.inner.lookup(name.clone(), rrtype).await {
             Ok(result) => {
                 let expires = result.valid_until();
                 let records = result.iter().cloned().collect();
@@ -154,7 +179,7 @@ impl Resolver for HickoryResolver {
                     expires: Instant::now()
                         + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
                 }),
-                _ => Err(err.into()),
+                _ => Err(DnsError::from_resolve(&name, err)),
             },
         }
     }

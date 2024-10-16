@@ -24,6 +24,7 @@ libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
 rand = "0.8"
 serde = {workspace=true}
+thiserror = {workspace=true}
 tokio = {workspace=true, features=["macros"]}
 tracing = "0.1"
 hickory-resolver = {workspace=true}

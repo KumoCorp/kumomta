@@ -1614,6 +1614,7 @@ dependencies = [
  "lruttl",
  "rand",
  "serde",
+ "thiserror",
  "tokio",
  "tracing",
 ]
