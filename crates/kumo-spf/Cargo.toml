@@ -7,12 +7,10 @@ edition = "2021"
 
 [dependencies]
 dns-resolver = {path="../dns-resolver"}
-futures = {workspace=true}
 hickory-resolver = {workspace=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
 
 [dev-dependencies]
-hickory-proto = {workspace=true, features = ["text-parsing"]}
 k9 = "0.11"
 tokio = {workspace = true, features = ["full", "tracing"]}

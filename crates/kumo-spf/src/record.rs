@@ -1,6 +1,6 @@
-use crate::dns::Lookup;
 use crate::spec::MacroSpec;
 use crate::{SpfContext, SpfDisposition, SpfResult};
+use dns_resolver::Resolver;
 use hickory_resolver::Name;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -55,7 +55,7 @@ impl Record {
         Ok(new)
     }
 
-    pub(crate) async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Lookup) -> SpfResult {
+    pub(crate) async fn evaluate(&self, cx: &SpfContext<'_>, resolver: &dyn Resolver) -> SpfResult {
         let mut failed = None;
         for directive in &self.directives {
             match directive.evaluate(cx, resolver).await {
@@ -110,8 +110,8 @@ impl Record {
         // if no records are returned, or if more than one record is returned,
         // or if there are syntax errors in the explanation string, then proceed
         // as if no "exp" modifier was given."
-        let explanation = match resolver.lookup_txt(&domain).await {
-            Ok(mut records) if records.len() == 1 => records.pop().unwrap(),
+        let explanation = match resolver.resolve_txt(&domain).await {
+            Ok(answers) if answers.records.len() == 1 => answers.as_txt().pop().unwrap(),
             Ok(_) | Err(_) => return SpfResult::fail(failed),
         };
 
@@ -153,13 +153,13 @@ impl Directive {
     async fn evaluate(
         &self,
         cx: &SpfContext<'_>,
-        resolver: &dyn Lookup,
+        resolver: &dyn Resolver,
     ) -> Result<Option<SpfResult>, SpfResult> {
         let matched = match &self.mechanism {
             Mechanism::All => true,
             Mechanism::A { domain, cidr_len } => {
                 let domain = cx.domain(domain.as_ref())?;
-                let resolved = match resolver.lookup_ip(&domain).await {
+                let resolved = match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips,
                     Err(err) => {
                         return Err(SpfResult {
@@ -175,7 +175,7 @@ impl Directive {
             }
             Mechanism::Mx { domain, cidr_len } => {
                 let domain = cx.domain(domain.as_ref())?;
-                let exchanges = match resolver.lookup_mx(&domain).await {
+                let exchanges = match resolver.resolve_mx(&domain).await {
                     Ok(exchanges) => exchanges,
                     Err(err) => {
                         return Err(SpfResult {
@@ -187,7 +187,7 @@ impl Directive {
 
                 let mut matched = false;
                 for exchange in exchanges {
-                    let resolved = match resolver.lookup_ip(&exchange.to_string()).await {
+                    let resolved = match resolver.resolve_ip(&exchange.to_string()).await {
                         Ok(ips) => ips,
                         Err(err) => {
                             return Err(SpfResult {
@@ -235,7 +235,7 @@ impl Directive {
                     }
                 };
 
-                let ptrs = match resolver.lookup_ptr(cx.client_ip).await {
+                let ptrs = match resolver.resolve_ptr(cx.client_ip).await {
                     Ok(ptrs) => ptrs,
                     Err(err) => {
                         return Err(SpfResult {
@@ -247,7 +247,7 @@ impl Directive {
 
                 let mut matched = false;
                 for ptr in ptrs.iter().filter(|ptr| domain.zone_of(ptr)) {
-                    match resolver.lookup_ip(&ptr.to_string()).await {
+                    match resolver.resolve_ip(&ptr.to_string()).await {
                         Ok(ips) => {
                             if ips.iter().any(|&ip| ip == cx.client_ip) {
                                 matched = true;
@@ -301,7 +301,7 @@ impl Directive {
             }
             Mechanism::Exists { domain } => {
                 let domain = cx.domain(Some(domain))?;
-                match resolver.lookup_ip(&domain).await {
+                match resolver.resolve_ip(&domain).await {
                     Ok(ips) => ips.iter().any(|ip| ip.is_ipv4()),
                     Err(err) => {
                         return Err(SpfResult {

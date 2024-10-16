@@ -1607,6 +1607,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
+ "hickory-proto",
  "hickory-resolver",
  "k9 0.12.0",
  "kumo-log-types",
@@ -3118,8 +3119,6 @@ name = "kumo-spf"
 version = "0.1.0"
 dependencies = [
  "dns-resolver",
- "futures",
- "hickory-proto",
  "hickory-resolver",
  "k9 0.11.6",
  "serde",

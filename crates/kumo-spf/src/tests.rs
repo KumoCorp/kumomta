@@ -1,14 +1,6 @@
-use crate::dns::{DnsError, Lookup};
 use crate::{SpfContext, SpfDisposition, SpfResult};
-use dns_resolver::ptr_host;
-use futures::future::BoxFuture;
-use hickory_proto::rr::rdata::{A, AAAA, MX, PTR, TXT};
-use hickory_proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};
-use hickory_proto::serialize::txt::Parser;
-use hickory_resolver::Name;
-use std::collections::BTreeMap;
+use dns_resolver::{Resolver, TestResolver};
 use std::net::{IpAddr, Ipv4Addr};
-use std::str::FromStr;
 
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
 #[tokio::test]
@@ -17,7 +9,7 @@ async fn all() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 +all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::LOCALHOST).await;
+    let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -35,7 +27,7 @@ async fn ip() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 a -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::LOCALHOST).await;
+    let result = evaluate_ip(Ipv4Addr::LOCALHOST, &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -45,7 +37,7 @@ async fn ip() {
         "{result:?}"
     );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 10])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 10]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -60,7 +52,7 @@ async fn ip() {
         .with_zone(EXAMPLE_ORG)
         .with_spf("example.com", "v=spf1 a:example.org -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 10])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 10]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -78,7 +70,7 @@ async fn mx() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 mx -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 129])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 129]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -93,7 +85,7 @@ async fn mx() {
         .with_zone(EXAMPLE_ORG)
         .with_spf("example.com", "v=spf1 mx:example.org -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 140])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 140]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -111,7 +103,7 @@ async fn mx() {
             "v=spf1 mx/30 mx:example.org/30 -all".to_string(),
         );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 131])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 131]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -121,7 +113,7 @@ async fn mx() {
         "{result:?}"
     );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 141])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 141]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -139,7 +131,7 @@ async fn ip4() {
         .with_zone(EXAMPLE_COM)
         .with_spf("example.com", "v=spf1 ip4:192.0.2.128/28 -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 65])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -149,7 +141,7 @@ async fn ip4() {
         "{result:?}"
     );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 129])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 129]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -169,7 +161,7 @@ async fn ptr() {
         .with_zone(ADDR_10)
         .with_spf("example.com", "v=spf1 ptr -all".to_string());
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 65])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -179,7 +171,7 @@ async fn ptr() {
         "{result:?}"
     );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([192, 0, 2, 140])).await;
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 140]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -189,7 +181,7 @@ async fn ptr() {
         "{result:?}"
     );
 
-    let result = resolver.evaluate_ip(Ipv4Addr::from([10, 0, 0, 4])).await;
+    let result = evaluate_ip(Ipv4Addr::from([10, 0, 0, 4]), &resolver).await;
     k9::assert_equal!(
         &result,
         &SpfResult {
@@ -235,167 +227,9 @@ const ADDR_10: &str = r#"; A rogue reverse IP domain that claims to be
 $ORIGIN 0.0.10.in-addr.arpa.
 4       600 PTR bob.example.com."#;
 
-#[derive(Default)]
-struct TestResolver {
-    records: BTreeMap<Name, BTreeMap<RrKey, RecordSet>>,
-}
-
-impl TestResolver {
-    async fn evaluate_ip(&self, client_ip: impl Into<IpAddr>) -> SpfResult {
-        match SpfContext::new("sender@example.com", "example.com", client_ip.into()) {
-            Ok(cx) => cx.check(self).await,
-            Err(result) => result,
-        }
-    }
-
-    fn with_zone(mut self, zone: &str) -> Self {
-        let (name, records) = Parser::new(zone, None, None).parse().unwrap();
-        self.records.insert(name, records);
-        self
-    }
-
-    fn with_spf(mut self, domain: &str, policy: String) -> Self {
-        let fqdn = format!("{}.", domain);
-        let authority = Name::from_str(&fqdn).unwrap();
-        let key = RrKey {
-            name: LowerName::from_str(&fqdn).unwrap(),
-            record_type: RecordType::TXT,
-        };
-
-        let mut records = RecordSet::new(&authority, RecordType::TXT, 0);
-        records.add_rdata(RData::TXT(TXT::new(vec![policy])));
-        self.records
-            .entry(authority)
-            .or_insert_with(BTreeMap::new)
-            .insert(key, records);
-
-        self
-    }
-
-    fn get<'a>(
-        &'a self,
-        full: &str,
-        record_type: RecordType,
-    ) -> Result<Option<&'a RecordSet>, DnsError> {
-        let mut authority = full;
-        loop {
-            let authority_name = Name::from_str(authority).unwrap();
-            let Some(records) = self.records.get(&authority_name) else {
-                match authority.split_once('.') {
-                    Some(new) => {
-                        authority = new.1;
-                        continue;
-                    }
-                    None => {
-                        println!("authority not found: {full}");
-                        return Err(DnsError::NotFound(full.to_string()));
-                    }
-                }
-            };
-
-            let fqdn = match full.ends_with('.') {
-                true => full,
-                false => &format!("{}.", full),
-            };
-
-            return Ok(records.get(&RrKey {
-                name: LowerName::from_str(&fqdn).unwrap(),
-                record_type,
-            }));
-        }
-    }
-}
-
-impl Lookup for TestResolver {
-    fn lookup_ip<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<IpAddr>, DnsError>> {
-        Box::pin(async move {
-            let mut values = vec![];
-
-            if let Some(records) = self.get(full, RecordType::A)? {
-                for record in records.records_without_rrsigs() {
-                    let a = A::try_borrow(record.data().unwrap()).unwrap();
-                    values.push(IpAddr::V4(a.0));
-                }
-            };
-
-            if let Some(records) = self.get(full, RecordType::AAAA)? {
-                for record in records.records_without_rrsigs() {
-                    let a = AAAA::try_borrow(record.data().unwrap()).unwrap();
-                    values.push(IpAddr::V6(a.0));
-                }
-            }
-
-            Ok(values)
-        })
-    }
-
-    fn lookup_mx<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<Name>, DnsError>> {
-        Box::pin(async move {
-            let records = match self.get(full, RecordType::MX)? {
-                Some(records) => records,
-                None => {
-                    println!("key not found: {full}");
-                    return Err(DnsError::NotFound(full.to_string()));
-                }
-            };
-
-            let mut values = vec![];
-            for record in records.records_without_rrsigs() {
-                let mx = MX::try_borrow(record.data().unwrap()).unwrap();
-                values.push(mx.exchange().clone());
-            }
-
-            Ok(values)
-        })
-    }
-
-    fn lookup_txt<'a>(&'a self, full: &'a str) -> BoxFuture<'a, Result<Vec<String>, DnsError>> {
-        Box::pin(async move {
-            let records = match self.get(full, RecordType::TXT)? {
-                Some(records) => records,
-                None => {
-                    println!("key not found: {full}");
-                    return Err(DnsError::NotFound(full.to_string()));
-                }
-            };
-
-            let mut values = vec![];
-            for record in records.records_without_rrsigs() {
-                let txt = TXT::try_borrow(record.data().unwrap()).unwrap();
-                for slice in txt.iter() {
-                    values.push(String::from_utf8(slice.to_vec()).unwrap());
-                }
-            }
-
-            Ok(values)
-        })
-    }
-
-    fn lookup_ptr<'a>(&'a self, ip: IpAddr) -> BoxFuture<'a, Result<Vec<Name>, DnsError>> {
-        let name = ptr_host(ip);
-        Box::pin(async move {
-            let records = match self.get(&name, RecordType::PTR)? {
-                Some(records) => records,
-                None => {
-                    println!("key not found: {name}");
-                    return Err(DnsError::NotFound(name.to_string()));
-                }
-            };
-
-            let mut values = vec![];
-            for record in records.records_without_rrsigs() {
-                match PTR::try_borrow(record.data().unwrap()) {
-                    Some(ptr) => values.push(ptr.0.clone()),
-                    None => {
-                        println!("invalid record found for PTR record for {ip}");
-                        return Err(DnsError::LookupFailed(format!(
-                            "invalid record found for PTR record for {ip}"
-                        )));
-                    }
-                };
-            }
-
-            Ok(values)
-        })
+async fn evaluate_ip(client_ip: impl Into<IpAddr>, resolver: &dyn Resolver) -> SpfResult {
+    match SpfContext::new("sender@example.com", "example.com", client_ip.into()) {
+        Ok(cx) => cx.check(resolver).await,
+        Err(result) => result,
     }
 }
