@@ -56,6 +56,7 @@ rustls = "0.23"
 serde = {version="1.0", features=["derive"]}
 sqlite = "0.32"
 tempfile = "3.10"
+thiserror = "1"
 tokio = "1.32"
 tokio-rustls = "0.26"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md

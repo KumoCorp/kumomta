@@ -61,7 +61,7 @@ serde_json = "1.0"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
 spool = {path="../spool", features=["rocksdb"]}
 sqlite = {workspace=true}
-thiserror = "1.0"
+thiserror = {workspace=true}
 throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["full", "tracing"]}

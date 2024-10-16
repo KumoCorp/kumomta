@@ -9,7 +9,7 @@ edition = "2021"
 futures = {workspace=true}
 hickory-resolver = {workspace=true}
 serde = {workspace=true}
-thiserror = "1.0"
+thiserror = {workspace=true}
 
 [dev-dependencies]
 hickory-proto = {workspace=true, features = ["text-parsing"]}

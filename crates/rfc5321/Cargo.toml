@@ -18,7 +18,7 @@ openssl = {workspace=true, optional=true}
 pest = "2.7"
 pest_derive = "2.7"
 serde = {workspace=true}
-thiserror = "1.0"
+thiserror = {workspace=true}
 tokio = {workspace=true, features=["full"], optional=true}
 tokio-rustls = {workspace=true, optional=true}
 tokio-openssl = {version="0.6.4", optional=true}
