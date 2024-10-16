@@ -830,6 +830,7 @@ pub fn build_openssl_connector(
 }
 
 mod danger {
+    use std::sync::Arc;
     use tokio_rustls::rustls::client::danger::{
         HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
     };
@@ -840,10 +841,10 @@ mod danger {
     use tokio_rustls::rustls::DigitallySignedStruct;
 
     #[derive(Debug)]
-    pub struct NoCertificateVerification(CryptoProvider);
+    pub struct NoCertificateVerification(Arc<CryptoProvider>);
 
     impl NoCertificateVerification {
-        pub fn new(provider: CryptoProvider) -> Self {
+        pub fn new(provider: Arc<CryptoProvider>) -> Self {
             Self(provider)
         }
     }
@@ -901,26 +902,27 @@ pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
         &options.rustls_cipher_suites
     };
 
-    let config = ClientConfig::builder_with_provider(
-        CryptoProvider {
-            cipher_suites: cipher_suites.to_vec(),
-            ..provider::default_provider()
-        }
-        .into(),
-    )
-    .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
-    .expect("inconsistent cipher-suite/versions selected");
+    let provider = Arc::new(CryptoProvider {
+        cipher_suites: cipher_suites.to_vec(),
+        ..provider::default_provider()
+    });
+
+    let config = ClientConfig::builder_with_provider(provider.clone())
+        .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
+        .expect("inconsistent cipher-suite/versions selected");
 
     let config = if options.insecure {
         config
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
-                provider::default_provider(),
+                provider.clone(),
             )))
     } else {
         config
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(rustls_platform_verifier::Verifier::new()))
+            .with_custom_certificate_verifier(Arc::new(
+                rustls_platform_verifier::Verifier::new().with_provider(provider),
+            ))
     };
     let config = config.with_no_client_auth();
 
