@@ -89,8 +89,10 @@
 * The bounce classifier will now automatically reload when the configuration
   epoch is updated. #298
 
-* Spool enumeration no longer prevents the reception of new messages and is
-  no longer considered as part of the liveness check.
+* Spool enumeration completion no longer prevents the reception of new messages.
+  The spool does need to have started before messages will be received, which
+  means that there is still a very small window during startup where the liveness
+  check and SMTP sessions can turn away incoming connections.
 
 * The dkim helper now supports passing the `expiration` value through to
   the underlying signer.

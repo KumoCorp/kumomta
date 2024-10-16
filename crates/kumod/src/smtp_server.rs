@@ -4,6 +4,7 @@ use crate::http_server::admin_trace_smtp_server_v1::{
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
 use crate::queue::QueueManager;
+use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use chrono::Utc;
 use cidr_map::CidrSet;
@@ -1035,6 +1036,25 @@ impl SmtpServer {
             self.write_response(
                 421,
                 format!("4.3.2 {} disk is too full. Try later", self.params.hostname),
+                None,
+            )
+            .await?;
+            return Ok(());
+        }
+
+        if !SpoolManager::get().spool_started() {
+            // We don't bump the connection_denied_counter here, because
+            // startup is a normal condition and doesn't require an operator
+            // to respond.
+
+            // Can't accept any messages until the spool has started
+            // because we won't know where to put them.
+            self.write_response(
+                421,
+                format!(
+                    "4.3.2 {} waiting for spool startup. Try again soon!",
+                    self.params.hostname
+                ),
                 None,
             )
             .await?;

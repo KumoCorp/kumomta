@@ -1,3 +1,4 @@
+use crate::spool::SpoolManager;
 use axum::response::Response;
 use kumo_server_lifecycle::Activity;
 
@@ -18,6 +19,8 @@ pub async fn check_liveness_v1() -> Response {
         Some(_activity) => {
             if kumo_server_memory::get_headroom() == 0 {
                 (503, "load shedding")
+            } else if !SpoolManager::get().spool_started() {
+                (503, "waiting for spool startup")
             } else if kumo_server_common::disk_space::is_over_limit() {
                 (503, "storage is too full")
             } else {
