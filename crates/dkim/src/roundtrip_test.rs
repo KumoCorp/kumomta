@@ -1,12 +1,10 @@
 #![cfg(test)]
-use crate::{
-    dns, verify_email_with_resolver, DKIMError, DkimPrivateKey, ParsedEmail, SignerBuilder,
-};
+
+use crate::{verify_email_with_resolver, DkimPrivateKey, ParsedEmail, SignerBuilder};
 use chrono::TimeZone;
-use futures::future::BoxFuture;
+use dns_resolver::{Resolver, TestResolver};
 use mailparsing::AuthenticationResult;
 use regex::Regex;
-use std::collections::HashMap;
 
 fn dkim_record() -> String {
     let data = std::fs::read_to_string("./test/keys/2022.txt").unwrap();
@@ -64,7 +62,7 @@ fn sign(domain: &str, raw_email: &str) -> String {
 }
 
 async fn verify(
-    resolver: &dyn dns::Lookup,
+    resolver: &dyn Resolver,
     from_domain: &str,
     raw_email: &str,
 ) -> Vec<AuthenticationResult> {
@@ -75,36 +73,11 @@ async fn verify(
         .unwrap()
 }
 
-struct TestResolver {
-    db: HashMap<&'static str, String>,
-}
-impl dns::Lookup for TestResolver {
-    fn lookup_txt<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Vec<String>, DKIMError>> {
-        let res = if let Some(value) = self.db.get(name) {
-            Ok(vec![value.to_string()])
-        } else {
-            Err(DKIMError::KeyUnavailable(format!(
-                "failed to resolve {name}"
-            )))
-        };
-        Box::pin(async move { res })
-    }
-}
-
-impl TestResolver {
-    fn new<I: IntoIterator<Item = (&'static str, String)>>(iter: I) -> Self {
-        Self {
-            db: HashMap::from_iter(iter),
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_roundtrip() {
-    let resolver = TestResolver::new([
-        ("2022._domainkey.cloudflare.com", dkim_record()),
-        ("2022._domainkey.not.cloudflare.com", dkim_record()),
-    ]);
+    let resolver = TestResolver::default()
+        .with_txt("2022._domainkey.cloudflare.com", dkim_record())
+        .with_txt("2022._domainkey.not.cloudflare.com", dkim_record());
     let from_domain = "cloudflare.com";
 
     {
@@ -157,7 +130,7 @@ Hello Alice
         method_version: None,
         result: "temperror",
         reason: Some(
-            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",
@@ -222,7 +195,7 @@ From: Sven Sauleau <sven@cloudflare.com>
         method_version: None,
         result: "temperror",
         reason: Some(
-            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",
@@ -326,7 +299,7 @@ sentation" style=3D"width:100%;">
         method_version: None,
         result: "temperror",
         reason: Some(
-            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
+            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",

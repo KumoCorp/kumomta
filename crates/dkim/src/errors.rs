@@ -1,3 +1,4 @@
+use dns_resolver::DnsError;
 use thiserror::Error;
 
 /// DKIM error status
@@ -60,6 +61,8 @@ pub enum DKIMError {
     MailParsingError(#[from] mailparsing::MailParsingError),
     #[error("Canonical CRLF line endings are required for correct signing and verification")]
     CanonicalLineEndingsRequired,
+    #[error(transparent)]
+    Dns(#[from] DnsError),
 }
 
 impl DKIMError {
@@ -91,6 +94,10 @@ impl DKIMError {
             | FailedToSign(_)
             | PrivateKeyLoadError(_)
             | HeaderSerializeError(_) => Status::Tempfail,
+            Dns(dns) => match dns {
+                DnsError::InvalidName(_) => Status::Permfail,
+                DnsError::ResolveFailed(_) => Status::Tempfail,
+            },
         }
     }
 }

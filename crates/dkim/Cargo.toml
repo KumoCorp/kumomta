@@ -15,8 +15,8 @@ license = "MIT"
 [dependencies]
 chrono = { version = "0.4.26", default-features = false, features = ["clock", "std"] }
 data-encoding = {workspace=true}
+dns-resolver = {path="../dns-resolver"}
 ed25519-dalek = {workspace=true, features=["pkcs8", "pem"]}
-futures = {workspace=true}
 indexmap = "2.2"
 mailparsing = { path="../mailparsing" }
 memchr = "2.5"
@@ -29,7 +29,6 @@ sha2 = { version = "0.10", features = ["oid"] }
 textwrap = "0.16"
 thiserror = {workspace=true}
 tracing = "0.1"
-hickory-resolver = {workspace=true}
 
 [dev-dependencies]
 criterion = "0.5"

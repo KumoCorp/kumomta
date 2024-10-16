@@ -10,10 +10,6 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
-#[cfg(feature = "impl")]
-use dns_resolver::Resolver;
-#[cfg(feature = "impl")]
-use futures::future::BoxFuture;
 use futures::FutureExt;
 use kumo_chrono_helper::*;
 use kumo_log_types::rfc3464::Report;
@@ -680,30 +676,8 @@ impl Message {
         }
         let from_domain = &from[0].address.domain;
 
-        struct ResolverAdapater {
-            resolver: Arc<Box<dyn Resolver>>,
-        }
-
-        impl kumo_dkim::dns::Lookup for ResolverAdapater {
-            fn lookup_txt<'a>(
-                &'a self,
-                name: &'a str,
-            ) -> BoxFuture<'a, Result<Vec<String>, kumo_dkim::DKIMError>> {
-                Box::pin(async move {
-                    match self.resolver.resolve_txt(name).await {
-                        Ok(answer) => Ok(answer.as_txt()),
-                        Err(err) => Err(kumo_dkim::DKIMError::KeyUnavailable(format!("{err}"))),
-                    }
-                })
-            }
-        }
-
-        let results = kumo_dkim::verify_email_with_resolver(
-            from_domain,
-            &message,
-            &ResolverAdapater { resolver },
-        )
-        .await?;
+        let results =
+            kumo_dkim::verify_email_with_resolver(from_domain, &message, &**resolver).await?;
         Ok(results)
     }
 
