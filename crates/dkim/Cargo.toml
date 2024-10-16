@@ -27,7 +27,7 @@ openssl-sys = { workspace=true }
 sha-1 = { version = "0.10", features = ["oid"] }
 sha2 = { version = "0.10", features = ["oid"] }
 textwrap = "0.16"
-thiserror = "1.0"
+thiserror = {workspace=true}
 tracing = "0.1"
 hickory-resolver = {workspace=true}
 
