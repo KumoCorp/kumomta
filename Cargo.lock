@@ -3117,6 +3117,7 @@ dependencies = [
 name = "kumo-spf"
 version = "0.1.0"
 dependencies = [
+ "dns-resolver",
  "futures",
  "hickory-proto",
  "hickory-resolver",

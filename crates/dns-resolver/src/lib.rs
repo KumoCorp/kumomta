@@ -15,7 +15,7 @@ use std::time::Instant;
 mod resolver;
 #[cfg(feature = "unbound")]
 pub use resolver::UnboundResolver;
-pub use resolver::{HickoryResolver, Resolver};
+pub use resolver::{ptr_host, HickoryResolver, IpDisplay, Resolver};
 
 // An `ArcSwap` can only hold `Sized` types, so we cannot stuff a `dyn Resolver` directly into it.
 // Instead, the documentation recommends adding a level of indirection, so we wrap the `Resolver`

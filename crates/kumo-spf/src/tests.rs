@@ -1,5 +1,6 @@
-use crate::dns::{ptr_host, DnsError, Lookup};
+use crate::dns::{DnsError, Lookup};
 use crate::{SpfContext, SpfDisposition, SpfResult};
+use dns_resolver::ptr_host;
 use futures::future::BoxFuture;
 use hickory_proto::rr::rdata::{A, AAAA, MX, PTR, TXT};
 use hickory_proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};

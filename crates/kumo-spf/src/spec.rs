@@ -1,5 +1,5 @@
-use crate::dns::IpDisplay;
 use crate::SpfContext;
+use dns_resolver::IpDisplay;
 use std::fmt::{self, Write};
 use std::time::SystemTime;
 
