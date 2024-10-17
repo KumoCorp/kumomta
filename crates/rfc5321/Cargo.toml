@@ -7,16 +7,27 @@ edition = "2021"
 
 [features]
 default = ["client"]
-client = ["dep:openssl", "dep:tokio-rustls", "dep:tokio-openssl", "dep:tracing", "dep:tokio", "dep:hickory-proto", "dep:webpki-roots"]
+client = [
+  "dep:hickory-proto",
+  "dep:lruttl",
+  "dep:openssl",
+  "dep:rustls-platform-verifier",
+  "dep:tokio",
+  "dep:tokio-openssl",
+  "dep:tokio-rustls",
+  "dep:tracing"
+]
 
 [dependencies]
 data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 libc = "0.2"
+lruttl = {path="../lruttl", optional=true}
 memchr = "2.5"
 openssl = {workspace=true, optional=true}
 pest = "2.7"
 pest_derive = "2.7"
+rustls-platform-verifier = {version="0.3", optional=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
 tokio = {workspace=true, features=["full"], optional=true}
@@ -24,4 +35,3 @@ tokio-rustls = {workspace=true, optional=true}
 tokio-openssl = {version="0.6.4", optional=true}
 tracing = {version="0.1", optional=true}
 hickory-proto = {workspace=true, optional=true}
-webpki-roots = {workspace=true, optional=true}
