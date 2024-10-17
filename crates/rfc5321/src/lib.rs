@@ -2,6 +2,7 @@
 pub mod client;
 pub mod client_types;
 pub mod parser;
+pub mod tls;
 #[cfg(feature = "client")]
 pub mod traits;
 
