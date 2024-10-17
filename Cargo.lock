@@ -5320,6 +5320,7 @@ dependencies = [
  "duration-serde",
  "hickory-proto",
  "libc",
+ "lruttl",
  "memchr",
  "openssl",
  "pest",
