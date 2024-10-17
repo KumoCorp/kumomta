@@ -15,12 +15,10 @@ use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tokio::time::timeout;
-use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::pki_types::ServerName;
-use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};
-use tokio_rustls::TlsConnector;
 use tracing::Level;
 
+pub use crate::tls::TlsOptions;
 pub use {openssl, tokio_rustls};
 
 const MAX_LINE_LEN: usize = 4096;
@@ -59,18 +57,6 @@ pub enum ClientError {
     SslError(#[from] openssl::ssl::Error),
     #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
     NoUsableDaneTlsa { hostname: String, tlsa: Vec<TLSA> },
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TlsOptions {
-    pub insecure: bool,
-    pub alt_name: Option<String>,
-    pub dane_tlsa: Vec<TLSA>,
-    pub prefer_openssl: bool,
-    pub openssl_cipher_list: Option<String>,
-    pub openssl_cipher_suites: Option<String>,
-    pub openssl_options: Option<SslOptions>,
-    pub rustls_cipher_suites: Vec<SupportedCipherSuite>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -481,7 +467,7 @@ impl SmtpClient {
 
         let stream: BoxedAsyncReadAndWrite =
             if options.prefer_openssl || !options.dane_tlsa.is_empty() {
-                let connector = build_openssl_connector(&options, &self.hostname)?;
+                let connector = options.build_openssl_connector(&self.hostname)?;
                 let ssl = connector.into_ssl(self.hostname.as_str())?;
 
                 let (stream, dup_stream) = match self.socket.take() {
@@ -527,7 +513,7 @@ impl SmtpClient {
                 }
             } else {
                 tls_info.provider_name = "rustls".to_string();
-                let connector = build_tls_connector(&options);
+                let connector = options.build_tls_connector();
                 let server_name = match IpAddr::from_str(self.hostname.as_str()) {
                     Ok(ip) => ServerName::IpAddress(ip.into()),
                     Err(_) => ServerName::try_from(self.hostname.clone())
@@ -750,183 +736,86 @@ fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
     }
 }
 
-pub fn build_openssl_connector(
-    options: &TlsOptions,
-    hostname: &str,
-) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
-    tracing::trace!("build_openssl_connector for {hostname}");
-    let mut builder = openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
+impl TlsOptions {
+    pub fn build_openssl_connector(
+        &self,
+        hostname: &str,
+    ) -> Result<openssl::ssl::ConnectConfiguration, ClientError> {
+        tracing::trace!("build_openssl_connector for {hostname}");
+        let mut builder =
+            openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
-    if let Some(list) = &options.openssl_cipher_list {
-        builder.set_cipher_list(&list)?;
-    }
+        if let Some(list) = &self.openssl_cipher_list {
+            builder.set_cipher_list(&list)?;
+        }
 
-    if let Some(suites) = &options.openssl_cipher_suites {
-        builder.set_ciphersuites(&suites)?;
-    }
+        if let Some(suites) = &self.openssl_cipher_suites {
+            builder.set_ciphersuites(&suites)?;
+        }
 
-    if let Some(options) = &options.openssl_options {
-        builder.clear_options(SslOptions::all());
-        builder.set_options(*options);
-    }
+        if let Some(options) = &self.openssl_options {
+            builder.clear_options(SslOptions::all());
+            builder.set_options(*options);
+        }
 
-    if options.insecure {
-        builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
-    }
+        if self.insecure {
+            builder.set_verify(openssl::ssl::SslVerifyMode::NONE);
+        }
 
-    if !options.dane_tlsa.is_empty() {
-        builder.dane_enable()?;
-        builder.set_no_dane_ee_namechecks();
-    }
+        if !self.dane_tlsa.is_empty() {
+            builder.dane_enable()?;
+            builder.set_no_dane_ee_namechecks();
+        }
 
-    let connector = builder.build();
+        let connector = builder.build();
 
-    let mut config = connector.configure()?;
+        let mut config = connector.configure()?;
 
-    if !options.dane_tlsa.is_empty() {
-        config.dane_enable(hostname)?;
-        let mut any_usable = false;
-        for tlsa in &options.dane_tlsa {
-            let usable = config.dane_tlsa_add(
-                match tlsa.cert_usage() {
-                    CertUsage::CA => DaneUsage::PKIX_TA,
-                    CertUsage::Service => DaneUsage::PKIX_EE,
-                    CertUsage::TrustAnchor => DaneUsage::DANE_TA,
-                    CertUsage::DomainIssued => DaneUsage::DANE_EE,
-                    CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
-                    CertUsage::Private => DaneUsage::PRIV_CERT,
-                },
-                match tlsa.selector() {
-                    Selector::Full => DaneSelector::CERT,
-                    Selector::Spki => DaneSelector::SPKI,
-                    Selector::Unassigned(n) => DaneSelector::from_raw(n),
-                    Selector::Private => DaneSelector::PRIV_SEL,
-                },
-                match tlsa.matching() {
-                    Matching::Raw => DaneMatchType::FULL,
-                    Matching::Sha256 => DaneMatchType::SHA2_256,
-                    Matching::Sha512 => DaneMatchType::SHA2_512,
-                    Matching::Unassigned(n) => DaneMatchType::from_raw(n),
-                    Matching::Private => DaneMatchType::PRIV_MATCH,
-                },
-                tlsa.cert_data(),
-            )?;
+        if !self.dane_tlsa.is_empty() {
+            config.dane_enable(hostname)?;
+            let mut any_usable = false;
+            for tlsa in &self.dane_tlsa {
+                let usable = config.dane_tlsa_add(
+                    match tlsa.cert_usage() {
+                        CertUsage::CA => DaneUsage::PKIX_TA,
+                        CertUsage::Service => DaneUsage::PKIX_EE,
+                        CertUsage::TrustAnchor => DaneUsage::DANE_TA,
+                        CertUsage::DomainIssued => DaneUsage::DANE_EE,
+                        CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
+                        CertUsage::Private => DaneUsage::PRIV_CERT,
+                    },
+                    match tlsa.selector() {
+                        Selector::Full => DaneSelector::CERT,
+                        Selector::Spki => DaneSelector::SPKI,
+                        Selector::Unassigned(n) => DaneSelector::from_raw(n),
+                        Selector::Private => DaneSelector::PRIV_SEL,
+                    },
+                    match tlsa.matching() {
+                        Matching::Raw => DaneMatchType::FULL,
+                        Matching::Sha256 => DaneMatchType::SHA2_256,
+                        Matching::Sha512 => DaneMatchType::SHA2_512,
+                        Matching::Unassigned(n) => DaneMatchType::from_raw(n),
+                        Matching::Private => DaneMatchType::PRIV_MATCH,
+                    },
+                    tlsa.cert_data(),
+                )?;
 
-            tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
-            if usable {
-                any_usable = true;
+                tracing::trace!("build_dane_connector usable={usable} {tlsa:?}");
+                if usable {
+                    any_usable = true;
+                }
+            }
+
+            if !any_usable {
+                return Err(ClientError::NoUsableDaneTlsa {
+                    hostname: hostname.to_string(),
+                    tlsa: self.dane_tlsa.clone(),
+                });
             }
         }
 
-        if !any_usable {
-            return Err(ClientError::NoUsableDaneTlsa {
-                hostname: hostname.to_string(),
-                tlsa: options.dane_tlsa.clone(),
-            });
-        }
+        Ok(config)
     }
-
-    Ok(config)
-}
-
-mod danger {
-    use std::sync::Arc;
-    use tokio_rustls::rustls::client::danger::{
-        HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
-    };
-    use tokio_rustls::rustls::crypto::{
-        verify_tls12_signature, verify_tls13_signature, CryptoProvider,
-    };
-    use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-    use tokio_rustls::rustls::DigitallySignedStruct;
-
-    #[derive(Debug)]
-    pub struct NoCertificateVerification(Arc<CryptoProvider>);
-
-    impl NoCertificateVerification {
-        pub fn new(provider: Arc<CryptoProvider>) -> Self {
-            Self(provider)
-        }
-    }
-
-    impl ServerCertVerifier for NoCertificateVerification {
-        fn verify_server_cert(
-            &self,
-            _end_entity: &CertificateDer<'_>,
-            _intermediates: &[CertificateDer<'_>],
-            _server_name: &ServerName<'_>,
-            _ocsp: &[u8],
-            _now: UnixTime,
-        ) -> Result<ServerCertVerified, tokio_rustls::rustls::Error> {
-            Ok(ServerCertVerified::assertion())
-        }
-
-        fn verify_tls12_signature(
-            &self,
-            message: &[u8],
-            cert: &CertificateDer<'_>,
-            dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-            verify_tls12_signature(
-                message,
-                cert,
-                dss,
-                &self.0.signature_verification_algorithms,
-            )
-        }
-
-        fn verify_tls13_signature(
-            &self,
-            message: &[u8],
-            cert: &CertificateDer<'_>,
-            dss: &DigitallySignedStruct,
-        ) -> Result<HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-            verify_tls13_signature(
-                message,
-                cert,
-                dss,
-                &self.0.signature_verification_algorithms,
-            )
-        }
-
-        fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
-            self.0.signature_verification_algorithms.supported_schemes()
-        }
-    }
-}
-
-pub fn build_tls_connector(options: &TlsOptions) -> TlsConnector {
-    let cipher_suites = if options.rustls_cipher_suites.is_empty() {
-        provider::DEFAULT_CIPHER_SUITES
-    } else {
-        &options.rustls_cipher_suites
-    };
-
-    let provider = Arc::new(CryptoProvider {
-        cipher_suites: cipher_suites.to_vec(),
-        ..provider::default_provider()
-    });
-
-    let config = ClientConfig::builder_with_provider(provider.clone())
-        .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
-        .expect("inconsistent cipher-suite/versions selected");
-
-    let config = if options.insecure {
-        config
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
-                provider.clone(),
-            )))
-    } else {
-        config
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(
-                rustls_platform_verifier::Verifier::new().with_provider(provider),
-            ))
-    };
-    let config = config.with_no_client_auth();
-
-    TlsConnector::from(Arc::new(config))
 }
 
 fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
