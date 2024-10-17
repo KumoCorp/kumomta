@@ -1,10 +1,74 @@
 #![cfg(feature = "client")]
 use hickory_proto::rr::rdata::TLSA;
+use lruttl::LruCacheWithTtl;
 use openssl::ssl::SslOptions;
-use std::sync::Arc;
+use parking_lot::Mutex;
+use std::time::{Duration, Instant};
+use std::sync::{Arc, LazyLock};
+use tokio_rustls::rustls::client::danger::ServerCertVerifier;
 use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};
 use tokio_rustls::TlsConnector;
+
+struct RustlsCacheKey {
+    insecure: bool,
+    rustls_cipher_suites: Vec<SupportedCipherSuite>,
+}
+
+// SupportedCipherSuite has a PartialEq impl but not an Eq impl.
+// Since we need RustlsCacheKey to be Hash we cannot simply derive
+// PartialEq and then add an explicit impl for Eq on RustlsCacheKey
+// because we don't know the implementation details of the underlying
+// PartialEq impl. So we define our own here where we explicitly compare
+// the suite names. This may not be strictly necessary, but it seems
+// wise to be robust to possible future weirdness in that type, and
+// to be certain that our Hash impl is consistent with the Eq impl.
+impl std::cmp::PartialEq for RustlsCacheKey {
+    fn eq(&self, other: &RustlsCacheKey) -> bool {
+        if self.insecure != other.insecure {
+            return false;
+        }
+        self.rustls_cipher_suites
+            .iter()
+            .map(|s| s.suite())
+            .eq(other.rustls_cipher_suites.iter().map(|s| s.suite()))
+    }
+}
+
+impl std::cmp::Eq for RustlsCacheKey {}
+
+impl std::hash::Hash for RustlsCacheKey {
+    fn hash<H>(&self, hasher: &mut H)
+    where
+        H: std::hash::Hasher,
+    {
+        self.insecure.hash(hasher);
+        for suite in &self.rustls_cipher_suites {
+            suite.suite().as_str().hash(hasher);
+        }
+    }
+}
+
+static RUSTLS_CACHE: LazyLock<Mutex<LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>>> =
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(32)));
+
+impl RustlsCacheKey {
+    fn get(&self) -> Option<Arc<ClientConfig>> {
+        RUSTLS_CACHE.lock().get(self)
+    }
+
+    fn set(self, value: Arc<ClientConfig>) {
+        RUSTLS_CACHE.lock().insert(
+            self,
+            value,
+            // We allow the state to be cached for up to 15 minutes at
+            // a time so that we have an opportunity to reload the
+            // system certificates within a reasonable time frame
+            // as/when they are updated by the system.
+            Instant::now() + Duration::from_secs(15 * 60),
+        );
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct TlsOptions {
@@ -19,7 +83,21 @@ pub struct TlsOptions {
 }
 
 impl TlsOptions {
+    /// Produce a TlsConnector for this set of TlsOptions.
+    /// We need to employ a cache around the verifier as loading
+    /// the system certificate store can be a non-trivial operation
+    /// and not be something we want to do repeatedly in a hot code
+    /// path.  The cache does unfortunately complicate some of the
+    /// internals here.
     pub fn build_tls_connector(&self) -> TlsConnector {
+        let key = RustlsCacheKey {
+            insecure: self.insecure,
+            rustls_cipher_suites: self.rustls_cipher_suites.clone(),
+        };
+
+        if let Some(config) = key.get() {
+            return TlsConnector::from(config);
+        }
         let cipher_suites = if self.rustls_cipher_suites.is_empty() {
             provider::DEFAULT_CIPHER_SUITES
         } else {
@@ -31,26 +109,23 @@ impl TlsOptions {
             ..provider::default_provider()
         });
 
-        let config = ClientConfig::builder_with_provider(provider.clone())
-            .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
-            .expect("inconsistent cipher-suite/versions selected");
-
-        let config = if self.insecure {
-            config
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(danger::NoCertificateVerification::new(
-                    provider.clone(),
-                )))
+        let verifier: Arc<dyn ServerCertVerifier> = if self.insecure {
+            Arc::new(danger::NoCertificateVerification::new(provider.clone()))
         } else {
-            config
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(
-                    rustls_platform_verifier::Verifier::new().with_provider(provider),
-                ))
+            Arc::new(rustls_platform_verifier::Verifier::new().with_provider(provider.clone()))
         };
-        let config = config.with_no_client_auth();
 
-        TlsConnector::from(Arc::new(config))
+        let config = Arc::new(
+            ClientConfig::builder_with_provider(provider)
+                .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
+                .expect("inconsistent cipher-suite/versions selected")
+                .dangerous()
+                .with_custom_certificate_verifier(verifier)
+                .with_no_client_auth(),
+        );
+        key.set(config.clone());
+
+        TlsConnector::from(config)
     }
 }
 
