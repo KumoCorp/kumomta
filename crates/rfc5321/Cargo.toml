@@ -7,14 +7,25 @@ edition = "2021"
 
 [features]
 default = ["client"]
-client = ["dep:openssl", "dep:tokio-rustls", "dep:tokio-openssl", "dep:tracing", "dep:tokio", "dep:hickory-proto", "dep:rustls-platform-verifier"]
+client = [
+  "dep:hickory-proto",
+  "dep:lruttl",
+  "dep:openssl",
+  "dep:rustls-platform-verifier",
+  "dep:tokio",
+  "dep:tokio-openssl",
+  "dep:tokio-rustls",
+  "dep:tracing"
+]
 
 [dependencies]
 data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 libc = "0.2"
+lruttl = {path="../lruttl", optional=true}
 memchr = "2.5"
 openssl = {workspace=true, optional=true}
+parking_lot = "0.12"
 pest = "2.7"
 pest_derive = "2.7"
 rustls-platform-verifier = {version="0.3", optional=true}
