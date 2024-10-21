@@ -278,6 +278,14 @@ impl KumoDaemon {
         .await
     }
 
+    pub async fn spawn_with_policy(policy_file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        KumoDaemon::spawn(KumoArgs {
+            policy_file: policy_file.as_ref().to_string_lossy().to_string(),
+            env: vec![],
+        })
+        .await
+    }
+
     #[allow(dead_code)]
     pub async fn spawn_sink() -> anyhow::Result<Self> {
         KumoDaemon::spawn(KumoArgs {
