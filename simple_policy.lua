@@ -150,7 +150,7 @@ kumo.on('init', function()
   kumo.start_http_listener {
     listen = '0.0.0.0:8000',
     -- allowed to access any http endpoint without additional auth
-    trusted_hosts = { '127.0.0.1', '::1', '192.168.1.0/24' },
+    trusted_hosts = { '127.0.0.1', '::1', '192.168.1.0/24', '10.0.0.0/8' },
   }
   kumo.start_http_listener {
     use_tls = true,
