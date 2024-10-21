@@ -415,6 +415,10 @@ TOC = [
                 "reference/kumo.shaping",
             ),
             Gen(
+                "module: kumo.spf",
+                "reference/kumo.spf",
+            ),
+            Gen(
                 "module: kumo.uuid",
                 "reference/kumo.uuid",
             ),

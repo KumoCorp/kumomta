@@ -3188,6 +3188,7 @@ dependencies = [
  "kumo-server-lifecycle",
  "kumo-server-memory",
  "kumo-server-runtime",
+ "kumo-spf",
  "lru-cache",
  "lruttl",
  "maildir",
