@@ -159,7 +159,7 @@ impl DaemonWithMaildir {
     }
 
     pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
-        self.source.smtp_client().await
+        self.source.smtp_client("localhost").await
     }
 
     pub async fn kcli(
@@ -408,14 +408,14 @@ impl KumoDaemon {
         }
     }
 
-    pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
+    pub async fn smtp_client(&self, host: &str) -> anyhow::Result<SmtpClient> {
         let mut client =
             SmtpClient::new(self.listener("smtp"), SmtpClientTimeouts::short_timeouts()).await?;
 
         let connect_timeout = client.timeouts().connect_timeout;
         let banner = client.read_response(None, connect_timeout).await?;
         anyhow::ensure!(banner.code == 220, "unexpected banner: {banner:#?}");
-        client.ehlo("localhost").await?;
+        client.ehlo(host).await?;
         Ok(client)
     }
 
@@ -644,7 +644,7 @@ impl DaemonWithTsa {
     }
 
     pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
-        self.with_maildir.source.smtp_client().await
+        self.with_maildir.source.smtp_client("localhost").await
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
