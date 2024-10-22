@@ -1,7 +1,7 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -48,6 +48,26 @@ pub enum SpfDisposition {
     PermError,
 }
 
+impl SpfDisposition {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Neutral => "neutral",
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+            Self::SoftFail => "softfail",
+            Self::TempError => "temperror",
+            Self::PermError => "permerror",
+        }
+    }
+}
+
+impl Serialize for SpfDisposition {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl From<Qualifier> for SpfDisposition {
     fn from(qualifier: Qualifier) -> Self {
         match qualifier {
@@ -61,15 +81,7 @@ impl From<Qualifier> for SpfDisposition {
 
 impl fmt::Display for SpfDisposition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => write!(f, "none"),
-            Self::Neutral => write!(f, "neutral"),
-            Self::Pass => write!(f, "pass"),
-            Self::Fail => write!(f, "fail"),
-            Self::SoftFail => write!(f, "softfail"),
-            Self::TempError => write!(f, "temperror"),
-            Self::PermError => write!(f, "permerror"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 

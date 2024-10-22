@@ -1774,7 +1774,7 @@ impl SmtpServer {
 }
 
 #[derive(Clone)]
-struct ConnectionMetaData {
+pub(crate) struct ConnectionMetaData {
     map: Arc<Mutex<serde_json::Value>>,
 }
 

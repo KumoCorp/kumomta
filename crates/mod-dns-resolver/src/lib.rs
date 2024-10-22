@@ -1,7 +1,7 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
 use dns_resolver::{
-    get_resolver, resolve_a_or_aaaa, HickoryResolver, MailExchanger, UnboundResolver,
+    get_resolver, resolve_a_or_aaaa, HickoryResolver, MailExchanger, TestResolver, UnboundResolver,
 };
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use hickory_resolver::{Name, TokioAsyncResolver};
@@ -187,6 +187,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             dns_resolver::reconfigure_resolver(UnboundResolver::from(context));
 
+            Ok(())
+        })?,
+    )?;
+
+    dns_mod.set(
+        "configure_test_resolver",
+        lua.create_function(move |lua, zones: mlua::Value| {
+            let mut resolver = TestResolver::default();
+            for zone in lua.from_value::<Vec<String>>(zones)? {
+                resolver = resolver.with_zone(&zone);
+            }
+
+            dns_resolver::reconfigure_resolver(resolver);
             Ok(())
         })?,
     )?;
