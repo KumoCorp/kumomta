@@ -132,6 +132,7 @@ install -Dm644 ./assets/kumo-tsa-daemon.service -t %{buildroot}/usr/lib/systemd/
 /opt/kumomta/share/minimal-tsa_init.lua
 /opt/kumomta/share/policy-extras/*.lua
 /opt/kumomta/share/policy-extras/*.toml
+/opt/kumomta/share/community/*.toml
 /usr/lib/systemd/system/kumomta.service
 /usr/lib/systemd/system/kumo-tsa-daemon.service
 EOF

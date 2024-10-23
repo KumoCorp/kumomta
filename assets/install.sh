@@ -11,7 +11,7 @@ CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
 STRIP=
 [[ "${KEEP_DEBUG}" == "yes" ]] || STRIP="-s"
 
-mkdir -p ${PREFIX}/sbin ${PREFIX}/share/bounce_classifier ${PREFIX}/share/policy-extras
+mkdir -p ${PREFIX}/sbin ${PREFIX}/share/bounce_classifier ${PREFIX}/share/policy-extras ${PREFIX}/share/community
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/validate-shaping -t ${PREFIX}/sbin
 install -Dm755  ${STRIP} ${CARGO_TARGET_DIR}/${TRIPLE}release/tsa-daemon -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/proxy-server -t ${PREFIX}/sbin
@@ -28,6 +28,7 @@ install -Dm644 assets/init.lua -T ${PREFIX}/share/minimal-init.lua
 install -Dm644 assets/tsa_init.lua -T ${PREFIX}/share/minimal-tsa_init.lua
 install -Dm644 assets/policy-extras/*.lua -t ${PREFIX}/share/policy-extras
 install -Dm644 assets/policy-extras/*.toml -t ${PREFIX}/share/policy-extras
+install -Dm644 assets/community/*.toml -t ${PREFIX}/share/community
 
 if test "$EUID" -eq 0 && getent passwd kumod >/dev/null && getent group kumod >/dev/null ; then
   for dir in /opt/kumomta/etc /opt/kumomta/etc/policy ; do
