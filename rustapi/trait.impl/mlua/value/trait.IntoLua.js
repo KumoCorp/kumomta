@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["mod_memoize",[["impl&lt;'lua&gt; IntoLua&lt;'lua&gt; for <a class=\"enum\" href=\"mod_memoize/enum.CacheValue.html\" title=\"enum mod_memoize::CacheValue\">CacheValue</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[176]}
