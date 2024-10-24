@@ -171,7 +171,7 @@ end)
 
 The preceding policy example sets up the `dkim_sign` helper and adds calls for
 signing to the events that fire for message arrival. The call to the
-`dkim_signer` function much be placed last in the events to ensure that no
+`dkim_signer` function must be placed last in the events to ensure that no
 further manipulation of the messages occur after signing.
 
 In addition create and populate the configured `dkim_data.toml` file, located
@@ -237,7 +237,7 @@ domain = "myesp.com"
 
 Configure KumoMTA to sign emails passing through the MTA with DKIM signatures.
 This is done with Lua in policy.  The sample `init.lua` policy provided with
-KumoMTA declairs a basic working DKIM signer that you can copy and modify as
+KumoMTA declares a basic working DKIM signer that you can copy and modify as
 needed.  This signs a message with `RSA256` using a selector named `default` on
 headers `From`, `To`, and `Subject` using the DKIM key located at
 example-private-dkim-key.pem. ([More
@@ -248,7 +248,7 @@ local signer = kumo.dkim.rsa_sha256_signer {
   domain = msg:from_header().domain,
   selector = 'default',
   headers = { 'From', 'To', 'Subject' },
-  file_name = 'example-private-dkim-key.pem',
+  key = 'example-private-dkim-key.pem',
 }
 ```
 
