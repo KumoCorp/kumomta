@@ -103,8 +103,8 @@ log_hooks:new {
       -- the webhook call again, but you could be more sophisticated
       -- and analyze the disposition to determine if retrying it
       -- would be useful and generate a 400 status instead.
-      -- In that case, the message we be retryed later, until
-      -- it reached it expiration.
+      -- In that case, the message will be retried later, until
+      -- it reached its expiration.
       kumo.reject(500, disposition)
     end
 

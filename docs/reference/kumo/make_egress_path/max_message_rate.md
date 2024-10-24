@@ -5,7 +5,7 @@ Optional string.
 Specifies the maximum permitted rate at which messages can be delivered
 from this source to the corresponding destination site.
 
-The throttle is specified the same was as for `max_connection_rate` above.
+The throttle is specified the same way as for `max_connection_rate` above.
 
 If the throttle is exceeded and the delay before the current message can be
 sent is longer than the `idle_timeout`, then the messages in the ready queue
