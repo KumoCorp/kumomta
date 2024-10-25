@@ -176,6 +176,9 @@ TOC = [
                         "Operating System", "userguide/installation/operatingsystem.md"
                     ),
                     Page("System Preparation", "userguide/installation/system_prep.md"),
+                    Page(
+                        "Security Considerations", "userguide/installation/security.md"
+                    ),
                     Page("Installing on Linux", "userguide/installation/linux.md"),
                     Page("Upgrading", "userguide/installation/upgrading.md"),
                     Page("Installing on Docker", "userguide/installation/docker.md"),
