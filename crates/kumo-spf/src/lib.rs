@@ -1,6 +1,8 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
+use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::Name;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
@@ -128,7 +130,7 @@ impl CheckHostParams {
         };
 
         match SpfContext::new(&sender, &domain, client_ip) {
-            Ok(cx) => cx.check(resolver).await,
+            Ok(cx) => cx.check(resolver, true).await,
             Err(result) => result,
         }
     }
@@ -173,16 +175,38 @@ impl<'a> SpfContext<'a> {
         Self { domain, ..*self }
     }
 
-    pub async fn check(&self, resolver: &dyn Resolver) -> SpfResult {
-        let initial_txt = match resolver.resolve_txt(self.domain).await {
-            Ok(parts) => match parts.records.is_empty() {
+    pub async fn check(&self, resolver: &dyn Resolver, initial: bool) -> SpfResult {
+        let name = match Name::from_utf8(&self.domain) {
+            Ok(name) => name,
+            Err(_) => {
+                // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid
+                // domain names yield a "none" result during initial processing.
+                let context = format!("invalid domain name: {}", self.domain);
+                return match initial {
+                    true => SpfResult {
+                        disposition: SpfDisposition::None,
+                        context,
+                    },
+                    false => SpfResult {
+                        disposition: SpfDisposition::TempError,
+                        context,
+                    },
+                };
+            }
+        };
+
+        let initial_txt = match resolver.resolve(name, RecordType::TXT).await {
+            Ok(answer) => match answer.records.is_empty() || answer.nxdomain {
                 true => {
                     return SpfResult {
                         disposition: SpfDisposition::None,
-                        context: "no spf records found".to_owned(),
+                        context: match answer.records.is_empty() {
+                            true => format!("no SPF records found for {}", &self.domain),
+                            false => format!("domain {} not found", &self.domain),
+                        },
                     }
                 }
-                false => parts.as_txt().join(""),
+                false => answer.as_txt().join(""),
             },
             Err(err) => {
                 return SpfResult {
