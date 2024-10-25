@@ -14,14 +14,21 @@ pub(crate) async fn retrieve_public_key(
     subdomain: &str,
 ) -> Result<DkimPublicKey, DKIMError> {
     let dns_name = format!("{}.{}.{}", subdomain, DNS_NAMESPACE, domain);
-    let res = resolver.resolve_txt(&dns_name).await?.as_txt();
+    let answer = resolver.resolve_txt(&dns_name).await?;
+    if answer.records.is_empty() {
+        return Err(DKIMError::KeyUnavailable(format!(
+            "failed to resolve {dns_name}"
+        )));
+    }
+
     // TODO: Return multiple keys for when verifiying the signatures. During key
     // rotation they are often multiple keys to consider.
-    let txt = res.first().ok_or(DKIMError::NoKeyForSignature)?;
-    tracing::debug!("DKIM TXT: {:?}", txt);
+    let txt = answer.as_txt();
+    let first = txt.first().ok_or(DKIMError::NoKeyForSignature)?;
+    tracing::debug!("DKIM TXT: {:?}", first);
 
     // Parse the tags inside the DKIM TXT DNS record
-    let (_, tags) = parser::tag_list(txt).map_err(|err| {
+    let (_, tags) = parser::tag_list(first).map_err(|err| {
         tracing::warn!("key syntax error: {}", err);
         DKIMError::KeySyntaxError
     })?;

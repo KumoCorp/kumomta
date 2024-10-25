@@ -141,7 +141,7 @@ pub trait Resolver: Send + Sync + 'static {
     async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError>;
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TestResolver {
     records: BTreeMap<Name, BTreeMap<RrKey, RecordSet>>,
 }
@@ -171,76 +171,102 @@ impl TestResolver {
         self
     }
 
-    fn get<'a>(
-        &'a self,
-        full: &str,
-        record_type: RecordType,
-    ) -> Result<Option<&'a RecordSet>, DnsError> {
-        let mut authority = full;
-        loop {
-            let authority_name = Name::from_utf8(authority).unwrap();
-            let Some(records) = self.records.get(&authority_name) else {
-                match authority.split_once('.') {
-                    Some(new) => {
-                        authority = new.1;
-                        continue;
-                    }
-                    None => {
-                        println!("authority not found: {full}");
-                        return Err(DnsError::ResolveFailed(format!(
-                            "authority not found: {full}"
-                        )));
-                    }
-                }
+    fn get<'a>(&'a self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
+        let mut authority = match full.is_fqdn() {
+            true => full.clone(),
+            false => {
+                let mut fqdn = full.clone();
+                fqdn.set_fqdn(true);
+                fqdn
+            }
+        };
+
+        let records = loop {
+            if let Some(records) = self.records.get(&authority) {
+                break records;
             };
 
-            let fqdn = match full.ends_with('.') {
-                true => full,
-                false => &format!("{}.", full),
-            };
+            if authority.num_labels() > 1 {
+                authority = authority.base_name();
+                continue;
+            }
 
-            return Ok(records.get(&RrKey {
-                name: LowerName::from_str(&fqdn).unwrap(),
-                record_type,
-            }));
-        }
+            return Ok(Answer {
+                canon_name: None,
+                records: vec![],
+                nxdomain: true,
+                secure: false,
+                bogus: false,
+                why_bogus: None,
+                expires: Instant::now() + Duration::from_secs(60),
+                response_code: ResponseCode::NXDomain,
+            });
+        };
+
+        let records = records.get(&RrKey {
+            name: LowerName::from(full),
+            record_type,
+        });
+
+        let Some(records) = records else {
+            return Ok(Answer {
+                canon_name: None,
+                records: vec![],
+                nxdomain: false,
+                secure: false,
+                bogus: false,
+                why_bogus: None,
+                expires: Instant::now() + Duration::from_secs(60),
+                response_code: ResponseCode::NoError,
+            });
+        };
+
+        return Ok(Answer {
+            canon_name: None,
+            records: records
+                .records_without_rrsigs()
+                .filter_map(|r| r.data().cloned())
+                .collect(),
+            nxdomain: false,
+            secure: false,
+            bogus: false,
+            why_bogus: None,
+            expires: Instant::now() + Duration::from_secs(60),
+            response_code: ResponseCode::NoError,
+        });
     }
 }
 
 #[async_trait]
 impl Resolver for TestResolver {
     async fn resolve_ip(&self, full: &str) -> Result<Vec<IpAddr>, DnsError> {
+        let name = Name::from_utf8(full)
+            .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
+
         let mut values = vec![];
+        let answer = self.get(&name, RecordType::A)?;
+        for record in answer.records {
+            let a = A::try_borrow(&record).unwrap();
+            values.push(IpAddr::V4(a.0));
+        }
 
-        if let Some(records) = self.get(full, RecordType::A)? {
-            for record in records.records_without_rrsigs() {
-                let a = A::try_borrow(record.data().unwrap()).unwrap();
-                values.push(IpAddr::V4(a.0));
-            }
-        };
-
-        if let Some(records) = self.get(full, RecordType::AAAA)? {
-            for record in records.records_without_rrsigs() {
-                let a = AAAA::try_borrow(record.data().unwrap()).unwrap();
-                values.push(IpAddr::V6(a.0));
-            }
+        let answer = self.get(&name, RecordType::AAAA)?;
+        for record in answer.records {
+            let a = AAAA::try_borrow(&record).unwrap();
+            values.push(IpAddr::V6(a.0));
         }
 
         Ok(values)
     }
 
     async fn resolve_mx(&self, full: &str) -> Result<Vec<Name>, DnsError> {
-        let records = match self.get(full, RecordType::MX)? {
-            Some(records) => records,
-            None => {
-                println!("key not found: {full}");
-                return Ok(vec![]);
-            }
-        };
+        let name = Name::from_utf8(full)
+            .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
 
         let mut values = vec![];
-        for record in records.records_without_rrsigs() {
-            let mx = MX::try_borrow(record.data().unwrap()).unwrap();
+        let answer = self.get(&name, RecordType::MX)?;
+        for record in answer.records {
+            let mx = MX::try_borrow(&record).unwrap();
             values.push(mx.exchange().clone());
         }
 
@@ -248,54 +274,20 @@ impl Resolver for TestResolver {
     }
 
     async fn resolve_txt(&self, full: &str) -> Result<Answer, DnsError> {
-        let set = match self.get(full, RecordType::TXT)? {
-            Some(records) => records,
-            None => {
-                println!("key not found: {full}");
-                return Ok(Answer {
-                    canon_name: None,
-                    records: vec![],
-                    nxdomain: true,
-                    secure: false,
-                    bogus: false,
-                    why_bogus: None,
-                    expires: Instant::now() + Duration::from_secs(60),
-                    response_code: ResponseCode::NXDomain,
-                });
-            }
-        };
-
-        let mut records = vec![];
-        for record in set.records_without_rrsigs() {
-            records.push(record.data().unwrap().clone());
-        }
-
-        Ok(Answer {
-            canon_name: None,
-            records,
-            nxdomain: false,
-            secure: false,
-            bogus: false,
-            why_bogus: None,
-            expires: Instant::now() + Duration::from_secs(60),
-            response_code: ResponseCode::NoError,
-        })
+        let name = Name::from_utf8(full)
+            .map_err(|err| DnsError::InvalidName(format!("invalid name {full}: {err}")))?;
+        self.get(&name, RecordType::TXT)
     }
 
     async fn resolve_ptr(&self, ip: IpAddr) -> Result<Vec<Name>, DnsError> {
         let name = ptr_host(ip);
-
-        let records = match self.get(&name, RecordType::PTR)? {
-            Some(records) => records,
-            None => {
-                println!("key not found: {name}");
-                return Ok(vec![]);
-            }
-        };
+        let name = Name::from_utf8(ptr_host(ip))
+            .map_err(|err| DnsError::InvalidName(format!("invalid name {name}: {err}")))?;
 
         let mut values = vec![];
-        for record in records.records_without_rrsigs() {
-            match PTR::try_borrow(record.data().unwrap()) {
+        let answer = self.get(&name, RecordType::PTR)?;
+        for record in answer.records {
+            match PTR::try_borrow(&record) {
                 Some(ptr) => values.push(ptr.0.clone()),
                 None => {
                     println!("invalid record found for PTR record for {ip}");
@@ -310,42 +302,7 @@ impl Resolver for TestResolver {
     }
 
     async fn resolve(&self, name: Name, rrtype: RecordType) -> Result<Answer, DnsError> {
-        let records = match self.records.get(&name) {
-            Some(records) => records,
-            None => {
-                println!("key not found: {name}");
-                return Ok(Answer {
-                    canon_name: None,
-                    records: vec![],
-                    nxdomain: true,
-                    secure: false,
-                    bogus: false,
-                    why_bogus: None,
-                    expires: Instant::now() + Duration::from_secs(60),
-                    response_code: ResponseCode::NXDomain,
-                });
-            }
-        };
-
-        let mut values = vec![];
-        for record in records.values() {
-            if record.record_type() == rrtype {
-                for record in record.records_without_rrsigs() {
-                    values.push(record.data().unwrap().clone());
-                }
-            }
-        }
-
-        Ok(Answer {
-            canon_name: None,
-            records: values,
-            nxdomain: false,
-            secure: false,
-            bogus: false,
-            why_bogus: None,
-            expires: Instant::now() + Duration::from_secs(60),
-            response_code: ResponseCode::NoError,
-        })
+        self.get(&name, rrtype)
     }
 }
 
