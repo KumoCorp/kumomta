@@ -37,6 +37,7 @@ sudo apt-get -y upgrade
 * Install basic testing and support tools like firewalld tree telnet git bind (or bind9) bind-utils (or bind9-utils)
 
 Note that installing a caching name server is absolutely critical when you are using a high performance mail engine.  Please do yourself a favour and install bind (or some other caching name server) and test it now.
+
 ```bash
 sudo apt install bind9 -y
 sudo systemctl start named

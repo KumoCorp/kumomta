@@ -1,3 +1,5 @@
+# Security Considerations
+
 This page summarizies the key considerations for deploying a secure installation of KumoMTA.
 
 ## Operating System
@@ -39,8 +41,7 @@ group `kumod` and mode `755`.
 
 It is recommended that you avoid encoding secrets directly into files
 contained with the `/opt/kumomta/etc/policy` location and instead deploy
-using a secret manager such as HashiCorp vault, or alternatively, deploy
-those secrets in a similar way to the DKIM keys mentioned above.
+[using a secret manager such as HashiCorp vault](../policy/hashicorp_vault.md), or alternatively, deploy those secrets in a similar way to the DKIM keys mentioned above.
 
 ## Administrative Access
 
@@ -115,12 +116,10 @@ There are three main ways in which you can manage that risk:
   ensure that the TLS is set to required even if your default policy is
   opportunistic.
 * For well-known sites with working TLS, such as Google, override the
-  opportunistic TLS with required TLS in your shaping configuration.
-* Consider enabling
-  [DANE](../../reference/kumo/make_egress_path/enable_dane.md), which is
+  opportunistic TLS with required TLS in your [shaping configuration](../configuration/trafficshaping.md).
+* Consider enabling [DANE](../../reference/kumo/make_egress_path/enable_dane.md), which is
   similar in effect to MTA-STS, using signed DNS records instead of publishing
   its policy via HTTPS. It requires working and trusted DNSSEC
   capability in your infrastructure. Since we can't guarantee that it will work
   out of the box without the operator explicitly confirming that functionality,
   this is not enabled by default.
-
