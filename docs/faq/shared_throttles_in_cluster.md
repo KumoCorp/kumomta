@@ -11,9 +11,9 @@ connection_limit = 2
 max_deliveries_per_connection = 100
 ```
 
-But what if you have multiple nodes sharing the same external IP address? 
+But what if you have multiple nodes sharing the same external IP address?
 
-If you have two nodes an option is to set each node to use a single connection. 
+If you have two nodes an option is to set each node to use a single connection.
 
 If you have more than two nodes a common workaround is to have a designated node for orange.fr that other nodes route all their traffic to, with the designated node configured to a two connection limit. This approach is of course quite fragile in that it depends on the availability of the designated node.
 
