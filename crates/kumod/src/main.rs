@@ -54,11 +54,6 @@ struct Opt {
     #[arg(long)]
     script: bool,
 
-    /// List of arguments to pass to the `main` event when
-    /// running in --script mode
-    #[arg(long)]
-    script_args: Vec<String>,
-
     /// Directory where diagnostic log files will be placed.
     ///
     /// If omitted, diagnostics will be printed to stderr.
@@ -84,6 +79,24 @@ struct Opt {
     /// start as root and set `--user root` to make it explicit.
     #[arg(long)]
     user: Option<String>,
+
+    /// Deprecated: List of arguments to pass to the `main` event when
+    /// running in --script mode. Can be used multiple times.
+    ///
+    /// `kumod --script --script-args foo --script-args bar`
+    ///
+    /// is the deprecated equivalent to the preferred:
+    ///
+    /// `kumod --script -- foo bar`
+    ///
+    /// and is preserved for legacy compatibility.
+    #[arg(long = "script-args", requires("script"))]
+    legacy_script_args: Vec<String>,
+
+    /// List of arguments to pass to the `main` event when
+    /// running in --script mode.
+    #[arg(last(true), requires("script"))]
+    script_args: Vec<String>,
 }
 
 impl Opt {
@@ -217,8 +230,12 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
             }
 
             let main_sig = CallbackSignature::<ParamList, ()>::new("main");
+
+            let mut script_args = opts.legacy_script_args;
+            script_args.append(&mut opts.script_args.clone());
+
             config
-                .async_call_callback(&main_sig, ParamList(opts.script_args))
+                .async_call_callback(&main_sig, ParamList(script_args))
                 .await
                 .context("call main callback")?;
             LifeCycle::request_shutdown().await;
