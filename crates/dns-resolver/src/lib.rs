@@ -255,9 +255,13 @@ impl MailExchanger {
             return Ok(mx);
         }
 
+        let start = Instant::now();
         let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
             Ok((by_pref, expires)) => (by_pref, expires),
-            Err(err) => anyhow::bail!("MX lookup for {domain_name} failed: {err:#}"),
+            Err(err) => anyhow::bail!(
+                "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                elapsed = start.elapsed()
+            ),
         };
 
         let mut hosts = vec![];
