@@ -64,7 +64,6 @@ plugins:
         - "generate_toc.py"
         - "build.sh"
         - "SUMMARY.md"
-        - "book.toml"
 
 extra_css:
   - style.css
