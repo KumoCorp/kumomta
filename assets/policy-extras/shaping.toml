@@ -89,9 +89,14 @@ duration = "90m"
 # failure, but by the time they are ready to be retried they will no longer attempt
 # to use TLS with that particular destination. The rule will remain in effect for
 # 30 days at a time, before triggering again.
+#
+# There are tens of thousands of domains with broken TLS, which can result in a large
+# number of instances of this rule applying. We use SetDomainConfig for these so
+# that we can reduce the number of unconditional MX lookups necessary to resolve
+# the effective configuration.
 [["default".automation]]
 regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
-action = {SetConfig={name="enable_tls", value="Disabled"}}
+action = {SetDomainConfig={name="enable_tls", value="Disabled"}}
 duration = "30 days"
 match_internal = true
 

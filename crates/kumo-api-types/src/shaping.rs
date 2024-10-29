@@ -197,6 +197,7 @@ pub enum Action {
     SetConfig(EgressPathConfigValue),
     SuspendTenant,
     SuspendCampaign,
+    SetDomainConfig(EgressPathConfigValue),
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]

@@ -175,6 +175,10 @@ The following fields are possible in an automation rule:
  * `action` - required action to take.  Can be one of:
     * `"Suspend"` - Suspend delivery
     * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration override that sets `NAME=VALUE`.
+    * `{SetDomainConfig{name="NAME", value="VALUE"}}` - define a configuration
+      override that sets `NAME=VALUE`, but with `mx_rollup=false`, even if the
+      rule was defined inside a domain where `mx_rollup=true`. {{since('dev',
+      inline=True)}}
  * `trigger` - optional. Can be one of:
     * `"Immediate"` - this is the default. The action is taken each time a `regex` matches.
     * `{Threshold="10/hr"}` - defines a threshold; the action won't trigger in this case until 10 events have occurred in the preceding hour.

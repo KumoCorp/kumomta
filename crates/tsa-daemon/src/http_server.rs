@@ -104,6 +104,7 @@ fn create_config(
     config: &EgressPathConfigValue,
     domain: &str,
     source: &str,
+    prefer_rollup: bool,
 ) -> anyhow::Result<()> {
     let mut upsert = HISTORY.prepare(
         "INSERT INTO config
@@ -119,7 +120,14 @@ fn create_config(
     upsert.bind(("$hash", rule_hash))?;
     upsert.bind(("$site", record.site.as_str()))?;
     upsert.bind(("$domain", domain))?;
-    upsert.bind(("$mx_rollup", if rule.was_rollup { 1 } else { 0 }))?;
+    upsert.bind((
+        "$mx_rollup",
+        if prefer_rollup && rule.was_rollup {
+            1
+        } else {
+            0
+        },
+    ))?;
     upsert.bind(("$source", source))?;
     upsert.bind(("$name", config.name.as_str()))?;
     let value = serde_json::to_string(&config.value)?;
@@ -366,7 +374,10 @@ async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
                         create_tenant_suspension(&rule_hash, m, &record, true)?;
                     }
                     Action::SetConfig(config) => {
-                        create_config(&rule_hash, m, &record, config, &domain, &source)?;
+                        create_config(&rule_hash, m, &record, config, &domain, &source, true)?;
+                    }
+                    Action::SetDomainConfig(config) => {
+                        create_config(&rule_hash, m, &record, config, &domain, &source, false)?;
                     }
                 }
             }
