@@ -16,16 +16,16 @@ will need to configure the `libunbound` resolver to successfully use DANE:
 
 ```lua
 kumo.on('init', function()
-    kumo.dns.configure_unbound_resolver {
-        options = {
-            -- Enable DNSSEC
-            validate = true,
-        },
-        -- By default, if you omit `name_servers`, unbound will
-        -- resolve via the root resolvers.
-        -- We strongly recommend deploying local caching nameservers
-        -- and referencing them here:
-        -- name_servers = { '1.1.1.1:53' },
-    }
+  kumo.dns.configure_unbound_resolver {
+    options = {
+      -- Enable DNSSEC
+      validate = true,
+    },
+    -- By default, if you omit `name_servers`, unbound will
+    -- resolve via the root resolvers.
+    -- We strongly recommend deploying local caching nameservers
+    -- and referencing them here:
+    -- name_servers = { '1.1.1.1:53' },
+  }
 end)
 ```
