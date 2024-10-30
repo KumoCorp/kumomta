@@ -164,9 +164,6 @@ enable_tls = "Required"
 idle_timeout = "30s"
 consecutive_connection_failures_before_delay = 24
 
-# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-gateway
-# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-smtp-error-codes
-
 [["comcast.net".automation]]
 regex = "RL0000"
 # sets max_connection_rate="100/s"
@@ -177,10 +174,20 @@ trigger = {Threshold="2/hr"}
 # The config override will last for 2 hours
 duration = "2 hours"
 
+# Domain Throttled - https://postmaster.comcast.net/smtp-error-codes.php#RL000010
+[["comcast.net".automation]]
+regex = "^(?!.*KumoMTA internal).*RL000010"
+trigger = "Immediate"
+action = "SuspendTenant"
+duration = "5 minutes"
+
 # PROVIDED DIRECTLY BY MIMECAST
 
 # NOTE: Each sitename is a separate region with separate MTAs, so we do not use provider_connection_limit
 # For Mimecast because the connection limit should be enforced for each sitename separately.
+
+# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-gateway
+# https://community.mimecast.com/s/article/email-security-cloud-gateway-mimecast-smtp-error-codes
 
 [provider."mimecast"]
 match=[{MXSuffix=".mimecast.com"},{MXSuffix=".mimecast.co.za"},{MXSuffix=".mimecast-offshore.com"}]
