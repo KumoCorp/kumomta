@@ -2024,6 +2024,83 @@ impl QueueManager {
         entry.insert(msg).await
     }
 
+    /// Insert message into a queue named `name`, unwinding it in the case
+    /// of error. Unwinding here means that:
+    ///
+    ///  * The message is removed from the spool
+    ///  * An internal Bounce is generated in the disposition logs
+    ///
+    /// This is a wrapper around QueueManager::insert that will remove the
+    /// message from the spool and generate a Bounce entry.
+    ///
+    /// It is intended to be called at the point of ingress, during reception,
+    /// and not as a general purpose loader (eg: most definitely NOT during
+    /// spool enumeration, where it would have the consequence of deleting
+    /// the spool on startup if there was a config issue!).
+    #[instrument(skip(msg))]
+    pub async fn insert_or_unwind(
+        name: &str,
+        msg: Message,
+        spool_was_deferred: bool,
+    ) -> anyhow::Result<()> {
+        match Self::insert(name, msg.clone()).await {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                // Well, this sucks. The likely cause is an error in the
+                // lua behind either get_queue_config or get_egress_path_config.
+                // Since we spooled the message, we need to unwind that before
+                // we report the failure back to the user.
+                // We cannot just accept the message and continue because
+                // we failed to resolve the configuration for it: the message
+                // won't go anywhere and we thus cannot accept responsibility
+                // from the injector
+
+                // Note that we try to remove from the spool even if we know
+                // that spool_was_deferred, because we don't know if someone
+                // called msg:save() in some lua code, or if some other logic
+                // may be have decided to spool it anyway.
+                if let Err(err) = SpoolManager::remove_from_spool(*msg.id()).await {
+                    // Note that, at the time of writing this comment,
+                    // SpoolManager::remove_from_spool never returns an error.
+                    // But let's add some logic here to surface one if it
+                    // starts to do so in the future.
+                    if !spool_was_deferred {
+                        tracing::error!("remove_from_spool({}) failed: {err:#}", msg.id());
+                    }
+                }
+
+                // Since the caller just logged a Reception, we should now log
+                // a Bounce so that the logs reflect that we aren't going
+                // to send this message and we don't leave someone scratching
+                // their head about it.
+                log_disposition(LogDisposition {
+                    kind: RecordType::Bounce,
+                    msg: msg.clone(),
+                    site: "",
+                    peer_address: None,
+                    response: Response {
+                        code: 500,
+                        enhanced_code: None,
+                        command: None,
+                        content: format!(
+                        "KumoMTA internal: QueueManager::insert failed during reception: {err:#}"
+                    ),
+                    },
+                    egress_source: None,
+                    egress_pool: None,
+                    relay_disposition: None,
+                    delivery_protocol: None,
+                    tls_info: None,
+                    source_address: None,
+                    provider: None,
+                })
+                .await;
+
+                Err(err)
+            }
+        }
+    }
+
     fn resolve_lease(name: &str) -> SlotLease {
         let mut mgr = MANAGER.lock();
         match mgr.named.get(name) {

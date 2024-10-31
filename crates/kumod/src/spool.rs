@@ -276,6 +276,7 @@ impl SpoolManager {
         &self,
         rx: flume::Receiver<SpoolEntry>,
         spooled_in: Arc<AtomicUsize>,
+        failed_spool_in: Arc<AtomicUsize>,
     ) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
         let mut config = config::load_config().await?;
@@ -304,9 +305,14 @@ impl SpoolManager {
                         match msg.get_queue_name() {
                             Ok(queue_name) => match QueueManager::resolve(&queue_name).await {
                                 Err(err) => {
+                                    // We don't remove from the spool in this case, because
+                                    // it represents a general configuration error, not
+                                    // a problem with this specific message
                                     tracing::error!(
-                                        "failed to resolve queue {queue_name}: {err:#}"
+                                        "failed to resolve queue {queue_name}: {err:#}. \
+                                        Ignoring message until kumod is restarted."
                                     );
+                                    failed_spool_in.fetch_add(1, Ordering::SeqCst);
                                 }
                                 Ok(queue) => {
                                     let queue_config = queue.get_config();
@@ -356,18 +362,24 @@ impl SpoolManager {
                                         }
                                     }
 
-                                    if let Err(err) = queue.insert(msg).await {
+                                    if let Err(err) = queue.insert(msg.clone()).await {
                                         tracing::error!(
                                             "failed to insert Message {id} \
-                                             to queue {queue_name}: {err:#}"
+                                             to queue {queue_name}: {err:#}. \
+                                             Ignoring message until kumod is restarted"
                                         );
-                                        self.remove_from_spool_impl(id).await?;
+                                        failed_spool_in.fetch_add(1, Ordering::SeqCst);
                                     }
                                 }
                             },
                             Err(err) => {
+                                // We delete the message in this case because a failure
+                                // to create the queue name implies that the metadata
+                                // for the message is somehow totally fubar: most likely
+                                // due to some kind of corruption.
                                 tracing::error!(
-                                    "Message {id} failed to compute queue name!: {err:#}"
+                                    "Message {id} failed to compute queue name!: {err:#}. \
+                                    Removing message from the spool."
                                 );
                                 log_disposition(LogDisposition {
                                     kind: RecordType::Expiration,
@@ -403,7 +415,10 @@ impl SpoolManager {
                     }
                 },
                 SpoolEntry::Corrupt { id, error } => {
-                    tracing::error!("Failed to load {id}: {error}");
+                    tracing::error!(
+                        "Failed to load {id}: {error}. \
+                        Removing message from the spool."
+                    );
                     // TODO: log this better
                     self.remove_from_spool_impl(id).await?;
                 }
@@ -468,6 +483,7 @@ impl SpoolManager {
 
         let activity = Activity::get("spool enumeration".to_string())?;
         let spooled_in = Arc::new(AtomicUsize::new(0));
+        let failed_spool_in = Arc::new(AtomicUsize::new(0));
         tracing::debug!("start_spool: waiting for enumeration");
         let start = Instant::now();
         let interval = std::time::Duration::from_secs(30);
@@ -475,17 +491,19 @@ impl SpoolManager {
         let (complete_tx, complete_rx) = flume::bounded(1);
 
         let spooled_in_clone = Arc::clone(&spooled_in);
+        let failed_spool_in_clone = Arc::clone(&failed_spool_in);
         let n_threads = spawn_simple_worker_pool(
             "spoolin",
             |cpus| cpus / 2,
             &SPOOLIN_THREADS,
             move || {
                 let spooled_in = Arc::clone(&spooled_in_clone);
+                let failed_spool_in = Arc::clone(&failed_spool_in_clone);
                 let rx = rx.clone();
                 let complete_tx = complete_tx.clone();
                 async move {
                     let mgr = Self::get();
-                    let result = mgr.spool_in_thread(rx, spooled_in).await;
+                    let result = mgr.spool_in_thread(rx, spooled_in, failed_spool_in).await;
                     complete_tx.send_async(result).await
                 }
             },
@@ -519,10 +537,18 @@ impl SpoolManager {
 
         let elapsed = start.elapsed();
         let total = spooled_in.load(Ordering::SeqCst);
+        let failed = failed_spool_in.load(Ordering::SeqCst);
         let rate = (total as f64 / elapsed.as_secs_f64()).ceil() as u64;
         tracing::info!(
             "start_spool: enumeration {label}, spooled in {total} msgs over {elapsed:?} {rate}/s"
         );
+        if failed > 0 {
+            tracing::error!(
+                "start_spool: {failed}/{total} messages failed to spool in during enumeration. \
+                These messages are NOT being processed and will remain in the spool until the \
+                cause of the failure is addressed and kumod is restarted."
+            );
+        }
         Ok(())
     }
 }

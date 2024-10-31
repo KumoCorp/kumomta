@@ -598,7 +598,8 @@ async fn process_recipient<'a>(
             provider: None,
         })
         .await;
-        QueueManager::insert(&queue_name, message).await?;
+        QueueManager::insert_or_unwind(&queue_name, message.clone(), request.deferred_spool)
+            .await?;
     }
 
     Ok(())
@@ -652,7 +653,7 @@ async fn queue_deferred(
         provider: None,
     })
     .await;
-    QueueManager::insert(GENERATOR_QUEUE_NAME, message).await?;
+    QueueManager::insert_or_unwind(GENERATOR_QUEUE_NAME, message, request.deferred_spool).await?;
     Ok(InjectV1Response {
         success_count: 0,
         fail_count: 0,

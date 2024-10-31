@@ -1755,17 +1755,45 @@ impl SmtpServer {
         }
 
         let relayed_any = !messages.is_empty();
+        let mut failed = vec![];
 
         for (queue_name, msg) in messages {
-            QueueManager::insert(&queue_name, msg).await?;
+            let id = *msg.id();
+            if let Err(err) =
+                QueueManager::insert_or_unwind(&queue_name, msg.clone(), self.params.deferred_spool)
+                    .await
+            {
+                // Record the error message for later reporting
+                failed.push(format!("{id}: {err:#}"));
+
+                // And a diagnostic for the tracer, if any.
+                SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
+                    conn_meta: self.meta.clone_inner(),
+                    payload: SmtpServerTraceEventPayload::Diagnostic {
+                        level: Level::ERROR,
+                        message: format!("QueueManager::insert failed for {}: {err:#}", msg.id()),
+                    },
+                    when: Utc::now(),
+                });
+            }
         }
 
         if !black_holed && !relayed_any && !was_arf_or_oob {
             self.write_response(550, "5.7.1 relaying not permitted", Some("DATA".into()))
                 .await?;
+        } else if !failed.is_empty() && failed.len() == ids.len() {
+            // All potentials failed, report error.
+            // This will map to a 421 and get traced and logged appropriately
+            anyhow::bail!(
+                "QueueManager::insert failed for {} messages: {}",
+                failed.len(),
+                failed.join(", ")
+            );
         } else {
+            let disposition = if !failed.is_empty() { "PARTIAL" } else { "OK" };
+
             let ids = ids.join(" ");
-            self.write_response(250, format!("OK ids={ids}"), None)
+            self.write_response(250, format!("{disposition} ids={ids}"), None)
                 .await?;
         }
 

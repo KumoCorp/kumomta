@@ -163,3 +163,7 @@
   the header. If the original encoding was `base64` and the new form of the
   part was written out in `quoted-printable` then the resulting mime part would
   be ambiguous to decode.
+
+* An error raised in a custom `get_queue_config` event handler during reception
+  wouldn't remove the message from the spool, but would report a transient
+  failure back to the injector, which could lead to it sending a message again.
