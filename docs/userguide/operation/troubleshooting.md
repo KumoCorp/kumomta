@@ -5,6 +5,12 @@ There are several things that can go wrong, especially when first installing Kum
 !!!Note
     There are multiple ways to get help with KumoMTA, see the [How To Get Help](../general/get_help.md) page for more information.
 
+## Validate Your Configuration
+
+The first step in any troubleshooting session is to validate your current running configuration.
+
+For information on validating configuration see [Validating Your Configuration](../configuration/policy_helpers.md#validating-your-configuration).
+
 ## Using Swaks
 
 When troubleshooting, it helps to eliminate external factors, including the injecting email infrastructure. We recommend using Swaks to perform test injections as it is known to act in an RFC compliant way when injecting messages. See the [Swaks Documentation](http://www.jetmore.org/john/code/swaks/latest/doc/ref.txt) for more information.
@@ -36,9 +42,10 @@ When having issues with injecting messages, use the `kcli trace-smtp-server` com
 
 In some cases, the `kumod` process may hang without outputting relevant logs. When this occurs a stack trace should be obtained and provided as part of a help request:
 
-```console
-$ lldb -p $(pgrep kumod) -o 'bt all' -o 'quit' > /tmp/kumo-bt.txt
+```bash
+lldb -p $(pgrep kumod) -o 'bt all' -o 'quit' > /tmp/kumo-bt.txt
 ```
+
 Note that lldb needs to be installed to collect the stack trace.
 
 When providing a stack trace you should also provide the output of `kumod --version` to help with interpreting the output.
@@ -142,6 +149,7 @@ Oct 20 09:26:44 localhost.localdomain systemd[1]: kumomta.service: Failed with r
 Note the additional DEBUG level log entries compared to the previous example.
 
 The log levels available, in order from least to most verbose are:
+
 * Error
 * Warn
 * Info
