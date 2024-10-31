@@ -158,7 +158,3 @@ The log levels available, in order from least to most verbose are:
 
 !!!warning
     The lower, more verbose levels of log levels can be very verbose, especially the  **trace** level. These levels should not be enabled permanently as they can lead to a full disk in a short period of time.
-
-## Validating Your Shaping File
-
-If you are using the [traffic shaping helper](../configuration/trafficshaping.md), you will want to use the `validate-shaping` utility to ensure your shaping file is correct. See [this page](../configuration/trafficshaping.md#testing-your-shaping-files) for instructions on how to use the `validate-shaping` utility.
