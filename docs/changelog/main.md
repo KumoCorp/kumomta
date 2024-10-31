@@ -110,6 +110,10 @@
   FBL/ARF processing, but not including the Received header.
   These parameters are set per-request.
 
+* Added
+  [remember_broken_tls](../reference/kumo/make_egress_path/remember_broken_tls.md)
+  option to streamline dealing with sites with broken TLS.
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report

@@ -1835,6 +1835,7 @@ MergedEntry {
         refresh_interval: 60s,
         refresh_strategy: Ttl,
         provider_name: None,
+        remember_broken_tls: None,
     },
     sources: {},
     automation: [
@@ -1998,6 +1999,7 @@ MergedEntry {
         refresh_interval: 60s,
         refresh_strategy: Ttl,
         provider_name: None,
+        remember_broken_tls: None,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2074,6 +2076,7 @@ MergedEntry {
             refresh_interval: 60s,
             refresh_strategy: Ttl,
             provider_name: None,
+            remember_broken_tls: None,
         },
     },
     automation: [
@@ -2243,6 +2246,7 @@ MergedEntry {
         refresh_interval: 60s,
         refresh_strategy: Ttl,
         provider_name: None,
+        remember_broken_tls: None,
     },
     sources: {},
     automation: [

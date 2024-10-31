@@ -243,6 +243,13 @@ pub struct EgressPathConfig {
     /// rollups by provider. If omitted, then
     #[serde(default)]
     pub provider_name: Option<String>,
+
+    /// If set, a process-local cache will be used to remember if
+    /// a site has broken TLS for the duration specified.  Once
+    /// encountered, we will pretend that EHLO didn't advertise STARTTLS
+    /// on subsequent connection attempts.
+    #[serde(default)]
+    pub remember_broken_tls: Option<Duration>,
 }
 
 #[cfg(feature = "lua")]
@@ -281,6 +288,7 @@ impl Default for EgressPathConfig {
             additional_message_rate_throttles: OrderMap::default(),
             additional_connection_limits: OrderMap::default(),
             provider_name: None,
+            remember_broken_tls: None,
         }
     }
 }

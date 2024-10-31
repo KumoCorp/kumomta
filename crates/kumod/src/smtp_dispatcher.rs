@@ -9,10 +9,11 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
-use kumo_api_types::egress_path::Tls;
+use kumo_api_types::egress_path::{EgressPathConfig, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn_local;
+use lruttl::LruCacheWithTtl;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
@@ -22,9 +23,12 @@ use rfc5321::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tracing::Level;
 use uuid::Uuid;
+
+static BROKEN_TLS_BY_SITE: LazyLock<LruCacheWithTtl<String, ()>> =
+    LazyLock::new(|| LruCacheWithTtl::new(64 * 1024));
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {
@@ -343,6 +347,7 @@ impl SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
+        let broken_tls = self.has_broken_tls(&dispatcher.name, &path_config);
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
@@ -438,15 +443,46 @@ impl SmtpDispatcher {
 
         let prefer_openssl = path_config.tls_prefer_openssl;
 
-        let tls_enabled = match (enable_tls, has_tls) {
-            (Tls::Required | Tls::RequiredInsecure, false) => {
-                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}",);
+        // A couple of little helper types to make the match statement below
+        // a bit easier to grok at a glance
+        enum AdvTls {
+            Yes,
+            No,
+        }
+
+        enum BrokenTls {
+            Yes,
+            No,
+        }
+
+        let has_tls = if has_tls { AdvTls::Yes } else { AdvTls::No };
+
+        let broken_tls = if broken_tls {
+            BrokenTls::Yes
+        } else {
+            BrokenTls::No
+        };
+
+        let tls_enabled = match (enable_tls, has_tls, broken_tls) {
+            (Tls::Required | Tls::RequiredInsecure, AdvTls::No, _) => {
+                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}");
             }
-            (Tls::Disabled, _) | (Tls::Opportunistic | Tls::OpportunisticInsecure, false) => {
+            (Tls::Required | Tls::RequiredInsecure, AdvTls::Yes, BrokenTls::Yes) => {
+                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS was previously found to be broken and remember_broken_tls is set");
+            }
+            (Tls::Disabled, _, _) => {
                 // Do not use TLS
                 false
             }
-            (Tls::OpportunisticInsecure, true) => {
+            (Tls::Opportunistic | Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::Yes) => {
+                // TLS is broken, do not use it
+                false
+            }
+            (Tls::Opportunistic | Tls::OpportunisticInsecure, AdvTls::No, _) => {
+                // TLS is not advertised, don't try to use it
+                false
+            }
+            (Tls::OpportunisticInsecure, AdvTls::Yes, BrokenTls::No) => {
                 let (enabled, label) = match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
@@ -466,6 +502,9 @@ impl SmtpDispatcher {
                         {handshake_error}, but continuing in clear text because \
                         we are in OpportunisticInsecure mode"
                         );
+
+                        self.remember_broken_tls(&dispatcher.name, &path_config);
+
                         // We did not enable TLS
                         (false, format!("failed: {handshake_error}"))
                     }
@@ -481,6 +520,7 @@ impl SmtpDispatcher {
                 // and we want to consider those as connection errors rather than
                 // having them show up per-message in MAIL FROM
                 client.ehlo(&ehlo_name).await.map_err(|error| {
+                    self.remember_broken_tls(&dispatcher.name, &path_config);
                     OpportunisticInsecureTlsHandshakeError {
                         error,
                         address: format!("{address:?}:{port}"),
@@ -489,7 +529,11 @@ impl SmtpDispatcher {
                 })?;
                 enabled
             }
-            (Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure, true) => {
+            (
+                Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure,
+                AdvTls::Yes,
+                BrokenTls::No,
+            ) => {
                 match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
@@ -512,6 +556,8 @@ impl SmtpDispatcher {
                         )
                         .await
                         .ok();
+
+                        self.remember_broken_tls(&dispatcher.name, &path_config);
                         anyhow::bail!(
                             "TLS handshake with {address:?}:{port} failed: {handshake_error}"
                         );
@@ -523,10 +569,10 @@ impl SmtpDispatcher {
                         self.tls_info.replace(info);
                     }
                 }
-                client
-                    .ehlo(&ehlo_name)
-                    .await
-                    .with_context(|| format!("{address:?}:{port}: EHLO after STARTTLS"))?;
+                client.ehlo(&ehlo_name).await.with_context(|| {
+                    self.remember_broken_tls(&dispatcher.name, &path_config);
+                    format!("{address:?}:{port}: EHLO after STARTTLS")
+                })?;
                 true
             }
         };
@@ -566,6 +612,24 @@ impl SmtpDispatcher {
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
         Ok(())
+    }
+
+    fn remember_broken_tls(&self, site_name: &str, path_config: &EgressPathConfig) {
+        if let Some(duration) = path_config.remember_broken_tls {
+            BROKEN_TLS_BY_SITE.insert(
+                site_name.to_string(),
+                (),
+                std::time::Instant::now() + duration,
+            );
+        }
+    }
+
+    fn has_broken_tls(&self, site_name: &str, path_config: &EgressPathConfig) -> bool {
+        if path_config.remember_broken_tls.is_some() {
+            BROKEN_TLS_BY_SITE.get(site_name).is_some()
+        } else {
+            false
+        }
     }
 }
 
