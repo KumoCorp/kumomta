@@ -199,3 +199,33 @@ end)
 
 Note that the example above does not have any handling for an empty or
 incorrect **X-Tenant** header.
+
+## Throttling The Scheduled Queue
+
+By default KumoMTA moves messages from the Scheduled Queue to the Ready Queue as quickly there is room available in the Ready Queue, with the rate impacted only by how quickly the Ready queues have available space as limited by traffic shaping throttles or sending reputation.
+
+Under certain circumstances it can be beneficial to throttle the flow of messages from the Scheduled Queue to the Ready Queue. Some examples of such use cases include:
+
+* Throttling a campaign that is expected to result in increased call center load.
+* Throttling a tenant that is new and part of a shared IP pool to limit the impact of potential abuse.
+* Throttling a tenant based on per-domain feedback from a Mailbox Provider (MBP).
+
+By using the [max_message_rate](../../reference/kumo/make_queue_config/max_message_rate.md) option in the queues helper you can define the specific throttle to use for a given Scheduled Queue scope.
+
+{% call toml_data() %}
+[queue.'gmail.com'.'mytenant']
+max_age = '24 hours'
+max_message_rate = '100/s'
+{% endcall %}
+
+Note that the `max_message_rate` option applies on a per-queue basis even when configured for a less specific scope, where a queue is defined as campaign@tenant:domain. This means that if you set the `max_message_rate` option for a given tenant, it does **not** limit the tenant to a given rate, it limits *every created queue for that tenant* to the specified rate.
+
+To limit the *collective* set of queues for a given scope use the `overall_max_message_rate` option. This will enforce the limit across all Scheduled queues for the defined scope:
+
+{% call toml_data() %}
+[tenant.'mytenant']
+max_age = '24 hours'
+overall_max_message_rate = '100/s'
+{% endcall %}
+
+In this example the listed `mytenant` tenant will be throttled to 100 messages per second across all Scheduled queues, or in other words regardless of campaign or destination domain.
