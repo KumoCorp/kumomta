@@ -44,5 +44,3 @@ If you have configured `max_message_rate` both here and in an egress path,
 the effective maximum message rate will be the lesser of the two values; both
 constraints are applied independently from each other at different stages
 of processing.
-
-
