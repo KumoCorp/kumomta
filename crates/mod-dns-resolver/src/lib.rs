@@ -193,10 +193,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     dns_mod.set(
         "configure_test_resolver",
-        lua.create_function(move |lua, zones: mlua::Value| {
+        lua.create_function(move |_lua, zones: Vec<String>| {
             let mut resolver = TestResolver::default();
-            for zone in lua.from_value::<Vec<String>>(zones)? {
-                resolver = resolver.with_zone(&zone);
+            for zone in &zones {
+                resolver = resolver.with_zone(zone);
             }
 
             dns_resolver::reconfigure_resolver(resolver);
