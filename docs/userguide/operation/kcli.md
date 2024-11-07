@@ -179,10 +179,24 @@ See the [Set Diagnostic Log
 Filter](../../reference/kumo/set_diagnostic_log_filter.md) page of the
 Reference Manual for more information.
 
-## Monitoring inbound SMTP handshaking
+## Monitoring Inbound SMTP handshaking
 
 When debugging, it is often helpful to monitor the full SMTP handshaking process in real-time.  The kcli client enables that for inbound connections with the `trace-smtp-server` function:
 
 ```console
 $ kcli trace-smtp-server
 ```
+
+Additional information on monitoring inbound connections is available on the [trace-smtp-server](../../reference/kcli/trace-smtp-server.md) page of the reference manual.
+
+## Monitoring Outbound SMTP Connections
+
+It is common to encounter issues when attempting to deliver to a given destination, while most destinations are delivered to without issues.
+
+In those situations it helps to be able to monitor the oubound connections in question to identify any issues during the communications:
+
+```console
+$ kcli trace-smtp-client
+```
+
+Additional information on monitoring outbound connections is available on the [trace-smtp-client](../../reference/kcli/trace-smtp-client.md) page of the reference manual.
