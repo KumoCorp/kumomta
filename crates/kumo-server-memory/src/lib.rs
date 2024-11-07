@@ -41,7 +41,14 @@ static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mute
 
 static OVER_LIMIT: AtomicBool = AtomicBool::new(false);
 static LOW_MEM: AtomicBool = AtomicBool::new(false);
-static HEAD_ROOM: AtomicUsize = AtomicUsize::new(0);
+
+// Default this to a reasonable non-zero value, as it is possible
+// in the test harness on the CI system to inject concurrent with
+// early startup.
+// Having this return 0 and propagate back as a 421 makes it harder
+// to to write tests that care precisely about a response if they
+// have to deal with this small window on startup.
+static HEAD_ROOM: AtomicUsize = AtomicUsize::new(u32::MAX as usize);
 
 /// Represents the current memory usage of this process
 #[derive(Debug, Clone, Copy)]
