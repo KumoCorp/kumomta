@@ -67,7 +67,19 @@ impl TopCommand {
         );
         state.add_series(
             "ready_count",
-            TimeSeries::new(SummingAccumulator::new("ready_count")),
+            TimeSeries::new(SummingAccumulator::new("ready_count", |metric| {
+                // Only include metrics like `smtp_client:something`.
+                // Don't include `smtp_client` because that is already
+                // a sum.  Alternatively, we could only include the summed
+                // metrics. It doesn't matter here because we have both
+                // sets of data, we just need to pick one of them so
+                // that we don't double count.
+                metric
+                    .labels()
+                    .get("service")
+                    .map(|s| s.contains(':'))
+                    .unwrap_or(false)
+            })),
         );
         state.add_series(
             "total_messages_delivered_rate",
@@ -343,13 +355,15 @@ impl Accumulator for SumMultipleAccumulator {
 struct SummingAccumulator {
     name: String,
     value: Option<f64>,
+    filter: Box<dyn Fn(&Metric) -> bool>,
 }
 
 impl SummingAccumulator {
-    pub fn new<S: Into<String>>(name: S) -> Self {
+    pub fn new<S: Into<String>, F: Fn(&Metric) -> bool + 'static>(name: S, filter: F) -> Self {
         Self {
             name: name.into(),
             value: None,
+            filter: Box::new(filter),
         }
     }
 }
@@ -357,6 +371,9 @@ impl SummingAccumulator {
 impl Accumulator for SummingAccumulator {
     fn accumulate(&mut self, metric: &Metric) {
         if metric.name().as_str() == self.name.as_str() {
+            if !(self.filter)(metric) {
+                return;
+            }
             let value = self.value.take().unwrap_or(0.) + metric.value();
             self.value.replace(value);
         }
