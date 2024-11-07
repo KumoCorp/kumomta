@@ -2,12 +2,14 @@ use crate::{Spool, SpoolEntry, SpoolId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flume::Sender;
+use prometheus::IntGaugeVec;
+use rocksdb::perf::get_memory_usage_stats;
 use rocksdb::{
     DBCompressionType, ErrorKind, IteratorMode, LogLevel, Options, WriteBatch, WriteOptions, DB,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::Duration;
 use tokio::runtime::Handle;
 
@@ -191,6 +193,11 @@ impl RocksSpool {
 
         let db = Arc::new(DB::open(&opts, path)?);
 
+        {
+            let weak = Arc::downgrade(&db);
+            tokio::spawn(metrics_monitor(weak, format!("{}", path.display())));
+        }
+
         Ok(Self { db, runtime })
     }
 }
@@ -280,6 +287,42 @@ impl Spool for RocksSpool {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || db.cancel_all_background_work(true)).await?;
         Ok(())
+    }
+
+    async fn advise_low_memory(&self) -> anyhow::Result<isize> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let usage_before = match get_memory_usage_stats(Some(&[&db]), None) {
+                Ok(stats) => {
+                    let stats: Stats = stats.into();
+                    tracing::debug!("pre-flush: {stats:#?}");
+                    stats.total()
+                }
+                Err(err) => {
+                    tracing::error!("error getting stats: {err:#}");
+                    0
+                }
+            };
+
+            if let Err(err) = db.flush() {
+                tracing::error!("error flushing memory: {err:#}");
+            }
+
+            let usage_after = match get_memory_usage_stats(Some(&[&db]), None) {
+                Ok(stats) => {
+                    let stats: Stats = stats.into();
+                    tracing::debug!("post-flush: {stats:#?}");
+                    stats.total()
+                }
+                Err(err) => {
+                    tracing::error!("error getting stats: {err:#}");
+                    0
+                }
+            };
+
+            Ok(usage_before - usage_after)
+        })
+        .await?
     }
 
     fn enumerate(
@@ -419,5 +462,103 @@ mod test {
         }
 
         Ok(())
+    }
+}
+
+/// The rocksdb type doesn't impl Debug, so we get to do it
+#[allow(unused)]
+#[derive(Debug)]
+struct Stats {
+    pub mem_table_total: u64,
+    pub mem_table_unflushed: u64,
+    pub mem_table_readers_total: u64,
+    pub cache_total: u64,
+}
+
+impl Stats {
+    fn total(&self) -> isize {
+        (self.mem_table_total + self.mem_table_readers_total + self.cache_total) as isize
+    }
+}
+
+impl From<rocksdb::perf::MemoryUsageStats> for Stats {
+    fn from(s: rocksdb::perf::MemoryUsageStats) -> Self {
+        Self {
+            mem_table_total: s.mem_table_total,
+            mem_table_unflushed: s.mem_table_unflushed,
+            mem_table_readers_total: s.mem_table_readers_total,
+            cache_total: s.cache_total,
+        }
+    }
+}
+
+static MEM_TABLE_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "rocks_spool_mem_table_total",
+        "Approximate memory usage of all the mem-tables",
+        &["path"]
+    )
+    .unwrap()
+});
+static MEM_TABLE_UNFLUSHED: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "rocks_spool_mem_table_unflushed",
+        "Approximate memory usage of un-flushed mem-tables",
+        &["path"]
+    )
+    .unwrap()
+});
+static MEM_TABLE_READERS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "rocks_spool_mem_table_readers_total",
+        "Approximate memory usage of all the table readers",
+        &["path"]
+    )
+    .unwrap()
+});
+static CACHE_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    prometheus::register_int_gauge_vec!(
+        "rocks_spool_cache_total",
+        "Approximate memory usage by cache",
+        &["path"]
+    )
+    .unwrap()
+});
+
+async fn metrics_monitor(db: Weak<DB>, path: String) {
+    let mem_table_total = MEM_TABLE_TOTAL
+        .get_metric_with_label_values(&[path.as_str()])
+        .unwrap();
+    let mem_table_unflushed = MEM_TABLE_UNFLUSHED
+        .get_metric_with_label_values(&[path.as_str()])
+        .unwrap();
+    let mem_table_readers_total = MEM_TABLE_READERS_TOTAL
+        .get_metric_with_label_values(&[path.as_str()])
+        .unwrap();
+    let cache_total = CACHE_TOTAL
+        .get_metric_with_label_values(&[path.as_str()])
+        .unwrap();
+
+    loop {
+        match db.upgrade() {
+            Some(db) => {
+                match get_memory_usage_stats(Some(&[&db]), None) {
+                    Ok(stats) => {
+                        mem_table_total.set(stats.mem_table_total as i64);
+                        mem_table_unflushed.set(stats.mem_table_unflushed as i64);
+                        mem_table_readers_total.set(stats.mem_table_readers_total as i64);
+                        cache_total.set(stats.cache_total as i64);
+                    }
+                    Err(err) => {
+                        tracing::error!("error getting stats: {err:#}");
+                    }
+                };
+            }
+            None => {
+                // Dead
+                return;
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }

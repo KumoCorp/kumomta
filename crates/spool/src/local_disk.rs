@@ -203,6 +203,10 @@ impl Spool for LocalDiskSpool {
     async fn shutdown(&self) -> anyhow::Result<()> {
         Ok(())
     }
+
+    async fn advise_low_memory(&self) -> anyhow::Result<isize> {
+        Ok(0)
+    }
 }
 
 /// Set the sticky bit on path.

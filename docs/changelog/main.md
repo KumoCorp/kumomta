@@ -114,8 +114,9 @@
   [remember_broken_tls](../reference/kumo/make_egress_path/remember_broken_tls.md)
   option to streamline dealing with sites with broken TLS.
 
-* We now also purge [memoize](../reference/kumo/memoize.md) and other TTL
-  based LRU caches when the system is in a low-memory state.
+* We now also flush/purge rocksdb memtables/caches,
+  [memoize](../reference/kumo/memoize.md) and other TTL based LRU caches when
+  the system is in a low-memory state.
 
 * New SPF validation function,
   [kumo.check_host](../reference/kumo.spf/check_host.md). Thanks to @djc! #83

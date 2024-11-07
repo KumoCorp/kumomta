@@ -50,6 +50,13 @@ pub trait Spool: Send + Sync {
 
     /// Shutdown the store
     async fn shutdown(&self) -> anyhow::Result<()>;
+
+    /// Called when system memory is low.
+    /// The spool module should flush and drop caches.
+    /// Returns the number of bytes that were saved,
+    /// which might be negative if the flush actually
+    /// increased the total.
+    async fn advise_low_memory(&self) -> anyhow::Result<isize>;
 }
 
 static DATA: OnceLock<Arc<dyn Spool + Send + Sync>> = OnceLock::new();

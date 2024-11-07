@@ -3,8 +3,10 @@ use crate::queue::QueueManager;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
+use humansize::{format_size, DECIMAL};
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
+use kumo_server_memory::subscribe_to_memory_status_changes;
 use kumo_server_runtime::{spawn, spawn_simple_worker_pool};
 use message::Message;
 use mlua::{Lua, Value};
@@ -549,6 +551,53 @@ impl SpoolManager {
                 cause of the failure is addressed and kumod is restarted."
             );
         }
+
+        // Manage and trim memory usage
+        tokio::spawn(async move {
+            tracing::debug!("starting memory monitor");
+            let mut memory_status = subscribe_to_memory_status_changes();
+            while let Ok(()) = memory_status.changed().await {
+                if kumo_server_memory::get_headroom() == 0 {
+                    let mut spools = vec![];
+
+                    {
+                        let named = Self::get().named.lock().await;
+                        for (name, spool) in named.iter() {
+                            spools.push((name.clone(), spool.clone()));
+                        }
+                    }
+
+                    for (name, spool) in spools {
+                        match spool.advise_low_memory().await {
+                            Ok(amount) if amount == 0 => {
+                                tracing::error!("purge cache of {name}: no memory was reclaimed");
+                            }
+                            Ok(amount) if amount < 0 => {
+                                tracing::error!(
+                                    "purge cache of {name}: used additional {}",
+                                    format_size((-amount) as usize, DECIMAL)
+                                );
+                            }
+                            Ok(amount) => {
+                                tracing::error!(
+                                    "purge cache of {name}: saved {}",
+                                    format_size(amount as usize, DECIMAL)
+                                );
+                            }
+                            Err(err) => {
+                                tracing::error!("purge cache of {name}: {err:#}");
+                            }
+                        }
+                    }
+
+                    // Wait a little bit so that we can debounce
+                    // in the case where we're riding the cusp of
+                    // the limit and would thrash the caches
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                }
+            }
+        });
+
         Ok(())
     }
 }
