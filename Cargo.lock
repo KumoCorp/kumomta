@@ -3437,8 +3437,11 @@ dependencies = [
 name = "lruttl"
 version = "0.1.0"
 dependencies = [
+ "kumo-server-memory",
  "lru-cache",
  "parking_lot",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3928,14 +3931,12 @@ dependencies = [
  "anyhow",
  "config",
  "duration-serde",
- "kumo-server-memory",
  "lruttl",
  "mlua",
  "prometheus",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]

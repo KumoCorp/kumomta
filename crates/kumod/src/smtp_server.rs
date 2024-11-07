@@ -70,7 +70,12 @@ struct DomainAndListener {
 }
 
 static DOMAINS: LazyLock<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(1024)));
+    LazyLock::new(|| {
+        Mutex::new(LruCacheWithTtl::new_named(
+            "smtp_server_listener_domains",
+            1024,
+        ))
+    });
 
 static SMTPSRV: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());

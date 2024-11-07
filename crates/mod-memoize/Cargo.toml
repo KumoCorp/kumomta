@@ -9,10 +9,8 @@ edition = "2021"
 anyhow = "1.0"
 config = {path="../config"}
 duration-serde = {path="../duration-serde"}
-kumo-server-memory = {path="../kumo-server-memory"}
 lruttl = {path="../lruttl"}
 tokio = {workspace=true, features=["sync"]}
-tracing = "0.1"
 prometheus = "0.13"
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
 serde = {workspace=true}

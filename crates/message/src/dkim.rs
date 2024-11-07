@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 
 static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
-    LazyLock::new(|| LruCacheWithTtl::new(1024));
+    LazyLock::new(|| LruCacheWithTtl::new_named("dkim_signer_cache", 1024));
 static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "dkim_signer_key_fetch",

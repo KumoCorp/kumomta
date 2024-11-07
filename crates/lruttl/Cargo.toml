@@ -6,5 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+kumo-server-memory = {path="../kumo-server-memory"}
 lru-cache = "0.1"
 parking_lot = "0.12"
+tokio = {workspace=true, features=["sync"]}
+tracing = "0.1"

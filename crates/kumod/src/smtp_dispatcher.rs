@@ -28,7 +28,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 static BROKEN_TLS_BY_SITE: LazyLock<LruCacheWithTtl<String, ()>> =
-    LazyLock::new(|| LruCacheWithTtl::new(64 * 1024));
+    LazyLock::new(|| LruCacheWithTtl::new_named("smtp_dispatcher_broken_tls", 64 * 1024));
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {

@@ -12,7 +12,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 static AUTH_CACHE: LazyLock<Mutex<LruCacheWithTtl<AuthKind, Result<bool, String>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("http_server_auth", 128)));
 
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference

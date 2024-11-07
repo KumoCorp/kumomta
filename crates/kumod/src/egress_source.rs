@@ -23,9 +23,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
 static SOURCES: LazyLock<Mutex<LruCacheWithTtl<String, EgressSource>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("egress_source_sources", 128)));
 static POOLS: LazyLock<Mutex<LruCacheWithTtl<String, EgressPool>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(128)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("egress_source_pools", 128)));
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]

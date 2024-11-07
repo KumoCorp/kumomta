@@ -7,7 +7,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 static CACHE: LazyLock<Mutex<LruCacheWithTtl<Name, CachedPolicy>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(64 * 1024)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("mta_sts_policy", 64 * 1024)));
 
 pub mod dns;
 pub mod policy;

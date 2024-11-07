@@ -289,7 +289,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             default_filter: if opts.validate || opts.script {
                 ""
             } else {
-                "kumod=info,config=info,kumo_server_common=info,kumo_server_runtime=info,mod_memoize=info"
+                "kumod=info,config=info,kumo_server_common=info,kumo_server_runtime=info,lruttl=info"
             },
         },
         lua_funcs: &[

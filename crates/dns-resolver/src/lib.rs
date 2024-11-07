@@ -25,13 +25,13 @@ static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
 static MX_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(64 * 1024)));
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_mx", 64 * 1024)));
 static IPV4_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ipv4", 1024)));
 static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ipv6", 1024)));
 static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new(1024)));
+    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ip", 1024)));
 
 fn default_resolver() -> impl Resolver {
     #[cfg(feature = "default-unbound")]

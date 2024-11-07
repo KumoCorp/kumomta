@@ -50,7 +50,7 @@ impl std::hash::Hash for RustlsCacheKey {
 }
 
 static RUSTLS_CACHE: LazyLock<Mutex<LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new(32)));
+    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("rfc5321_rustls_config", 32)));
 
 impl RustlsCacheKey {
     fn get(&self) -> Option<Arc<ClientConfig>> {

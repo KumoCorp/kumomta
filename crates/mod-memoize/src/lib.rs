@@ -1,6 +1,5 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
-use kumo_server_memory::subscribe_to_memory_status_changes;
 use lruttl::LruCacheWithTtl;
 use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
 use prometheus::CounterVec;
@@ -187,48 +186,7 @@ struct MemoizeCache {
     cache: Arc<LruCacheWithTtl<CacheKey, CacheEntry>>,
 }
 
-static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> = LazyLock::new(initialize);
-
-fn initialize() -> Mutex<HashMap<String, MemoizeCache>> {
-    if tokio::runtime::Handle::try_current().is_ok() {
-        // Only try to spawn this task if tokio is initialized.
-        // In the context of our test harness, or other embedded
-        // usage, it may not be started at the time that memoize
-        // is enabled.
-        tokio::spawn(purge_caches_on_memory_shortage());
-    }
-    Mutex::default()
-}
-
-async fn purge_caches_on_memory_shortage() {
-    tracing::debug!("starting memory monitor");
-    let mut memory_status = subscribe_to_memory_status_changes();
-    while let Ok(()) = memory_status.changed().await {
-        if kumo_server_memory::get_headroom() == 0 {
-            // We have transitioned to the low memory state,
-            // let's purge caches.
-
-            let mut caches = vec![];
-            {
-                let guard = CACHES.lock().unwrap();
-                for (name, entry) in guard.iter() {
-                    caches.push((name.to_string(), entry.cache.clone()));
-                }
-            }
-
-            tracing::error!("purging {} caches", caches.len());
-            for (name, cache) in &caches {
-                let num_entries = cache.clear();
-                tracing::error!("cleared {num_entries} entries from cache {name}");
-            }
-
-            // Wait a little bit so that we can debounce
-            // in the case where we're riding the cusp of
-            // the limit and would thrash the caches
-            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-        }
-    }
-}
+static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> = LazyLock::new(Mutex::default);
 
 type CacheKey = (ConfigEpoch, String);
 
@@ -421,7 +379,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     cache_name.to_string(),
                     MemoizeCache {
                         params: params.clone(),
-                        cache: Arc::new(LruCacheWithTtl::new(params.capacity)),
+                        cache: Arc::new(LruCacheWithTtl::new_named(
+                            cache_name.clone(),
+                            params.capacity,
+                        )),
                     },
                 );
             }

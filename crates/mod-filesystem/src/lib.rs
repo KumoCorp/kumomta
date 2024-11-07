@@ -18,7 +18,10 @@ static CACHE: LazyLock<Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>
     LazyLock::new(|| make_cache());
 
 fn make_cache() -> Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>> {
-    Arc::new(LruCacheWithTtl::new(GLOB_CACHE_CAPACITY))
+    Arc::new(LruCacheWithTtl::new_named(
+        "mod_filesystem_glob_cache",
+        GLOB_CACHE_CAPACITY,
+    ))
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
