@@ -271,6 +271,7 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
                 .await
                 .context("start_spool")?;
 
+            lruttl::spawn_memory_monitor();
             config::epoch::start_monitor();
         }
 

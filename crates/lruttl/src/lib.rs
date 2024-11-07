@@ -17,16 +17,8 @@ use std::hash::Hash;
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 
-static CACHES: LazyLock<Mutex<Vec<Weak<dyn CachePurger + Send + Sync>>>> = LazyLock::new(|| {
-    if tokio::runtime::Handle::try_current().is_ok() {
-        // Only try to spawn this task if tokio is initialized.
-        // In the context of our test harness, or other embedded
-        // usage, it may not be started at the time that memoize
-        // is enabled.
-        tokio::spawn(purge_caches_on_memory_shortage());
-    }
-    Mutex::default()
-});
+static CACHES: LazyLock<Mutex<Vec<Weak<dyn CachePurger + Send + Sync>>>> =
+    LazyLock::new(Mutex::default);
 
 struct Inner<K: Hash + Eq, V: Clone> {
     name: String,
@@ -69,6 +61,10 @@ pub fn purge_all_caches() {
         let num_entries = purger.purge();
         tracing::error!("cleared {num_entries} entries from cache {name}");
     }
+}
+
+pub fn spawn_memory_monitor() {
+    tokio::spawn(purge_caches_on_memory_shortage());
 }
 
 async fn purge_caches_on_memory_shortage() {
