@@ -206,9 +206,7 @@ max_deliveries_per_connection = 100
 # https://www.postmastery.com/orange-postmaster-smtp-error-codes-ofr/
 # https://messagerie.orange.fr/postmaster.html
 [provider."orange"]
-match=[
-        {MXSuffix=".orange.fr"}
-]
+match=[{MXSuffix=".orange.fr"}]
 provider_connection_limit = 2
 max_deliveries_per_connection = 100
 
