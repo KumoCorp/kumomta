@@ -229,7 +229,45 @@ $ORIGIN 0.0.10.in-addr.arpa.
 
 async fn evaluate_ip(client_ip: impl Into<IpAddr>, resolver: &dyn Resolver) -> SpfResult {
     match SpfContext::new("sender@example.com", "example.com", client_ip.into()) {
-        Ok(cx) => cx.check(resolver).await,
+        Ok(cx) => cx.check(resolver, true).await,
         Err(result) => result,
     }
+}
+
+/// "If the <domain> is malformed (e.g., label longer than 63 characters,
+/// zero-length label not at the end, etc.) or is not a multi-label
+/// domain name, or if the DNS lookup returns "Name Error" (RCODE 3, also
+/// known as "NXDOMAIN" [RFC2308]), check_host() immediately returns the
+/// result "none".  DNS RCODEs are defined in [RFC1035].  Properly formed
+/// domains are fully qualified domains as defined in [RFC1983].  That
+/// is, in the DNS they are implicitly qualified relative to the root
+/// (see Section 3.1 of [RFC1034]).  Internationalized domain names MUST
+/// be encoded as A-labels, as described in Section 2.3 of [RFC5890].
+///
+/// <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>
+#[tokio::test]
+async fn initial_processing() {
+    let resolver = TestResolver::default();
+
+    // Invalid domain
+    let cx = SpfContext::new(
+        "sender@example.com",
+        "example..com",
+        Ipv4Addr::LOCALHOST.into(),
+    )
+    .unwrap();
+    let result = cx.check(&resolver, true).await;
+    assert_eq!(result.disposition, SpfDisposition::None);
+    assert_eq!(result.context, "invalid domain name: example..com");
+
+    // NXDOMAIN
+    let cx = SpfContext::new(
+        "sender@example.com",
+        "example.com",
+        Ipv4Addr::LOCALHOST.into(),
+    )
+    .unwrap();
+    let result = cx.check(&resolver, true).await;
+    assert_eq!(result.disposition, SpfDisposition::None);
+    assert_eq!(result.context, "no SPF records found for example.com");
 }

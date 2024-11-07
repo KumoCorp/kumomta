@@ -79,7 +79,7 @@ impl Record {
             };
 
             let nested = cx.with_domain(&domain);
-            match Box::pin(nested.check(resolver)).await {
+            match Box::pin(nested.check(resolver, false)).await {
                 SpfResult {
                     disposition: SpfDisposition::Fail,
                     context,
@@ -269,7 +269,7 @@ impl Directive {
                 let domain = cx.domain(Some(domain))?;
                 let nested = cx.with_domain(&domain);
                 use SpfDisposition::*;
-                match Box::pin(nested.check(resolver)).await {
+                match Box::pin(nested.check(resolver, false)).await {
                     SpfResult {
                         disposition: Pass, ..
                     } => true,

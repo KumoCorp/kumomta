@@ -37,6 +37,7 @@ kumo-server-common = {path="../kumo-server-common"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
+kumo-spf = {path="../kumo-spf"}
 lru-cache = "0.1"
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}

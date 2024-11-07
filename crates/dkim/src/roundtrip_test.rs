@@ -130,7 +130,7 @@ Hello Alice
         method_version: None,
         result: "temperror",
         reason: Some(
-            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",
@@ -195,7 +195,7 @@ From: Sven Sauleau <sven@cloudflare.com>
         method_version: None,
         result: "temperror",
         reason: Some(
-            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",
@@ -299,7 +299,7 @@ sentation" style=3D"width:100%;">
         method_version: None,
         result: "temperror",
         reason: Some(
-            "DNS: authority not found: bogus-selector._domainkey.cloudflare.com",
+            "key unavailable: failed to resolve bogus-selector._domainkey.cloudflare.com",
         ),
         props: {
             "header.a": "rsa-sha256",

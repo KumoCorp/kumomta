@@ -1,7 +1,9 @@
 use crate::record::Record;
 use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
-use serde::Deserialize;
+use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::Name;
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
 use std::time::SystemTime;
@@ -48,6 +50,26 @@ pub enum SpfDisposition {
     PermError,
 }
 
+impl SpfDisposition {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Neutral => "neutral",
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+            Self::SoftFail => "softfail",
+            Self::TempError => "temperror",
+            Self::PermError => "permerror",
+        }
+    }
+}
+
+impl Serialize for SpfDisposition {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl From<Qualifier> for SpfDisposition {
     fn from(qualifier: Qualifier) -> Self {
         match qualifier {
@@ -61,15 +83,7 @@ impl From<Qualifier> for SpfDisposition {
 
 impl fmt::Display for SpfDisposition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => write!(f, "none"),
-            Self::Neutral => write!(f, "neutral"),
-            Self::Pass => write!(f, "pass"),
-            Self::Fail => write!(f, "fail"),
-            Self::SoftFail => write!(f, "softfail"),
-            Self::TempError => write!(f, "temperror"),
-            Self::PermError => write!(f, "permerror"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -116,7 +130,7 @@ impl CheckHostParams {
         };
 
         match SpfContext::new(&sender, &domain, client_ip) {
-            Ok(cx) => cx.check(resolver).await,
+            Ok(cx) => cx.check(resolver, true).await,
             Err(result) => result,
         }
     }
@@ -161,16 +175,38 @@ impl<'a> SpfContext<'a> {
         Self { domain, ..*self }
     }
 
-    pub async fn check(&self, resolver: &dyn Resolver) -> SpfResult {
-        let initial_txt = match resolver.resolve_txt(self.domain).await {
-            Ok(parts) => match parts.records.is_empty() {
+    pub async fn check(&self, resolver: &dyn Resolver, initial: bool) -> SpfResult {
+        let name = match Name::from_utf8(&self.domain) {
+            Ok(name) => name,
+            Err(_) => {
+                // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid
+                // domain names yield a "none" result during initial processing.
+                let context = format!("invalid domain name: {}", self.domain);
+                return match initial {
+                    true => SpfResult {
+                        disposition: SpfDisposition::None,
+                        context,
+                    },
+                    false => SpfResult {
+                        disposition: SpfDisposition::TempError,
+                        context,
+                    },
+                };
+            }
+        };
+
+        let initial_txt = match resolver.resolve(name, RecordType::TXT).await {
+            Ok(answer) => match answer.records.is_empty() || answer.nxdomain {
                 true => {
                     return SpfResult {
                         disposition: SpfDisposition::None,
-                        context: "no spf records found".to_owned(),
+                        context: match answer.records.is_empty() {
+                            true => format!("no SPF records found for {}", &self.domain),
+                            false => format!("domain {} not found", &self.domain),
+                        },
                     }
                 }
-                false => parts.as_txt().join(""),
+                false => answer.as_txt().join(""),
             },
             Err(err) => {
                 return SpfResult {

@@ -29,6 +29,7 @@ mod queue;
 mod ready_queue;
 mod smtp_dispatcher;
 mod smtp_server;
+mod spf;
 mod spool;
 
 /// KumoMTA Daemon.
@@ -298,6 +299,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             crate::spool::register,
             crate::logging::register,
             message::dkim::register,
+            crate::spf::register,
         ],
         policy: &opts.policy,
     }

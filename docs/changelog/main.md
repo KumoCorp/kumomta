@@ -117,6 +117,9 @@
 * We now also purge [memoize](../reference/kumo/memoize.md) and other TTL
   based LRU caches when the system is in a low-memory state.
 
+* New SPF validation function,
+  [kumo.check_host](../reference/kumo.spf/check_host.md). Thanks to @djc! #83
+
 ## Fixes
 
 * `kcli trace-smtp-client` and `kcli trace-smtp-server` would always report
