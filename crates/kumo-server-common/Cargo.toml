@@ -7,7 +7,6 @@ edition = "2021"
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
 axum = {workspace=true}
-axum-client-ip = {workspace=true}
 axum-server = {workspace=true, features=["tls-rustls"]}
 axum-streams = {workspace=true}
 backtrace = {workspace=true}

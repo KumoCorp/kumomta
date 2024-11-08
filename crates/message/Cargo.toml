@@ -27,7 +27,6 @@ rand = {workspace=true}
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {workspace=true}
 serde_json = {workspace=true}
-slog = {workspace=true}
 spool = {path="../spool"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["sync"]}

@@ -7,7 +7,6 @@ edition = "2021"
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
 async-channel = {workspace=true}
-async-recursion = {workspace=true}
 async-trait = {workspace=true}
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = {workspace=true}
