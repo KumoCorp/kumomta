@@ -44,6 +44,10 @@ ed25519-dalek = "2.0"
 flume = "0.11"
 futures = "0.3.28"
 gethostname = "0.4"
+# Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
+# to match the version that we are using when you update this dep
+hickory-resolver = "0.24"
+hickory-proto = "0.24"
 lapin = {version="2.5", default-features=false, features=["native-tls"]}
 libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="f00c353e7d0f37952206e41e3f4615edc1a606e4"}
 metrics = "0.22"
@@ -59,10 +63,6 @@ tempfile = "3.10"
 thiserror = "1"
 tokio = "1.32"
 tokio-rustls = "0.26"
-# Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
-# to match the version that we are using when you update this dep
-hickory-resolver = "0.24"
-hickory-proto = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="4.0", features = ["axum"] }
 uuid = "1.4"
