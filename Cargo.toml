@@ -77,7 +77,7 @@ futures = "0.3.28"
 futures-util = "0.3"
 futures-lite = "2.3"
 gcd = "2.3"
-gethostname = "0.4"
+gethostname = "0.5"
 getrandom = "0.2"
 git2 = { version = "0.18.2", default-features = false }
 hdrhistogram = "7.5"

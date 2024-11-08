@@ -2118,6 +2118,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc3655aa6818d65bc620d6911f05aa7b6aeb596291e1e9f79e52df85583d1e30"
+dependencies = [
+ "rustix 0.38.39",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3173,7 +3183,7 @@ dependencies = [
  "data-encoding",
  "data-loader",
  "domain-map",
- "gethostname",
+ "gethostname 0.5.0",
  "human_bytes",
  "kumo-api-types",
  "kumo-prometheus",
@@ -3299,7 +3309,7 @@ dependencies = [
  "duration-serde",
  "flume",
  "gcd",
- "gethostname",
+ "gethostname 0.5.0",
  "humansize",
  "k9",
  "kumo-api-types",
@@ -3618,7 +3628,7 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8390bb0f68168cabc59999706c2199c9b556d7dfd94e65a26e8840fa1d58b238"
 dependencies = [
- "gethostname",
+ "gethostname 0.4.3",
 ]
 
 [[package]]
@@ -3626,7 +3636,7 @@ name = "maildir"
 version = "0.6.3"
 dependencies = [
  "chrono",
- "gethostname",
+ "gethostname 0.5.0",
  "mailparsing",
  "memmap2",
  "percent-encoding",
