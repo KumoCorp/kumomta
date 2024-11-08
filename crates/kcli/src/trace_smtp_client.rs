@@ -7,7 +7,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use tungstenite::{connect, Message};
+use tokio_tungstenite::tungstenite::{connect, Message};
 
 /// Trace outgoing sessions made by the SMTP service.
 ///

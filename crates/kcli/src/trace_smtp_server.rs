@@ -6,7 +6,7 @@ use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use tungstenite::{connect, Message};
+use tokio_tungstenite::tungstenite::{connect, Message};
 
 /// Trace incoming connections made to the SMTP service.
 ///
