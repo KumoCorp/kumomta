@@ -3663,12 +3663,9 @@ dependencies = [
 
 [[package]]
 name = "map_vec"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "111eca49e254749133fc156821beda7b9a0445e2f3a37e9bd88701a6ebecf85f"
-dependencies = [
- "serde",
-]
+checksum = "1f9b409b59b2604dd5d1b7b4ff2584286bc73d9092788427f13d8cd55f686e06"
 
 [[package]]
 name = "maplit"
