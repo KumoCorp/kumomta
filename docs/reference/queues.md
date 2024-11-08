@@ -47,6 +47,16 @@ kumo.on('smtp_server_message_received', function(msg)
 end)
 ```
 
+!!! note
+    The `null` queue isn't an actual queue but rather a special name that is
+    checked for *only at the time a message is received*.
+    If the `queue` meta value is set to `null` prior to the insertion of
+    the message into the queue system, it will discard the message.
+
+    If you are considering eliminating a message *after* it has been received
+    and placed into the queue system, assigning it to the `null` queue will
+    **not** immediately eliminate the message from the spool.
+
 ## Egress Sources and Pools
 
 Once assigned to a Scheduled Queue, the system will attempt to deliver it.
