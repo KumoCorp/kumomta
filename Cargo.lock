@@ -556,9 +556,9 @@ dependencies = [
 
 [[package]]
 name = "axum-streams"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15bbf28496f8d73e058050074bc50ca93472087db487c73d37767018d75289d6"
+checksum = "ef49936ad8fd9750be8bb5c75f64b19bd407027c5c9e89c42e0939122d162d67"
 dependencies = [
  "axum",
  "bytes",
