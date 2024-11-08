@@ -248,7 +248,7 @@ pub struct EgressPathConfig {
     /// a site has broken TLS for the duration specified.  Once
     /// encountered, we will pretend that EHLO didn't advertise STARTTLS
     /// on subsequent connection attempts.
-    #[serde(default)]
+    #[serde(default, with = "duration_serde")]
     pub remember_broken_tls: Option<Duration>,
 }
 
