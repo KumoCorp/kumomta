@@ -46,7 +46,7 @@ async-trait = "0.1"
 axum = "0.7"
 axum-client-ip = "0.6"
 axum-server = "0.7"
-axum-streams = {version="0.18", features=["text"]}
+axum-streams = {version="0.19", features=["text"]}
 backtrace = "0.3"
 bitflags = "2.3"
 bitstring = "0.1"
