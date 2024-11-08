@@ -103,11 +103,11 @@ impl<'a> HeaderMap<'a> {
             .insert(0, Header::new_unstructured(name.to_string(), v));
     }
 
-    pub fn get_first(&'a self, name: &str) -> Option<&Header<'a>> {
+    pub fn get_first(&'a self, name: &str) -> Option<&'a Header<'a>> {
         self.iter_named(name).next()
     }
 
-    pub fn get_first_mut(&'a mut self, name: &str) -> Option<&mut Header<'a>> {
+    pub fn get_first_mut(&'a mut self, name: &str) -> Option<&'a mut Header<'a>> {
         self.iter_named_mut(name).next()
     }
 
@@ -115,7 +115,7 @@ impl<'a> HeaderMap<'a> {
         self.iter_named(name).rev().next()
     }
 
-    pub fn get_last_mut(&'a mut self, name: &str) -> Option<&mut Header<'a>> {
+    pub fn get_last_mut(&'a mut self, name: &str) -> Option<&'a mut Header<'a>> {
         self.iter_named_mut(name).rev().next()
     }
 
