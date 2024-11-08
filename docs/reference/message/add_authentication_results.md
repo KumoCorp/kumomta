@@ -16,14 +16,24 @@ The parameters are:
 ## Example: obtaining DKIM authentication results
 
 ```lua
-kumo.on('smtp_server_message_received', function(msg)
+kumo.on('smtp_server_message_received', function(msg, conn_meta)
   -- Verify the dkim signature and return the results.
   -- Note that this example isn't making any policy decisions;
   -- it is only annotating the message with the results and
   -- allowing it to be relayed
-  local verify = msg:dkim_verify()
+  local auth_results = msg:dkim_verify()
+
+  local spf_result = kumo.spf.check_host(
+    msg:sender().domain,
+    conn_meta,
+    tostring(msg:sender())
+  )
+
+  -- add the spf authentication result to our collection of results
+  table.insert(auth_results, spf_result.result)  
+
   -- Add the results to the message
-  msg:add_authentication_results(msg:get_meta 'hostname', verify)
+  msg:add_authentication_results(msg:get_meta 'hostname', auth_results)
 end)
 ```
 
@@ -37,6 +47,7 @@ Authentication-Results: hostname.example.com;
         header.d=github.com
         header.i=@github.com
         header.s=pf2023
+        spf=pass
 ```
 
 ## See Also:
