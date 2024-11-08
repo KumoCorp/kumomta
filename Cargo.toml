@@ -79,7 +79,7 @@ futures-lite = "2.3"
 gcd = "2.3"
 gethostname = "0.5"
 getrandom = "0.2"
-git2 = { version = "0.18.2", default-features = false }
+git2 = { version = "0.19", default-features = false }
 hdrhistogram = "7.5"
 hex = "0.4"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
