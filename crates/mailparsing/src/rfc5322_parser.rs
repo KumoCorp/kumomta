@@ -395,7 +395,7 @@ fn addr_spec(input: Span) -> IResult<Span, AddrSpec> {
 
 fn parse_with<'a, R, F>(text: &'a str, parser: F) -> Result<R>
 where
-    F: Fn(Span<'a>) -> IResult<Span<'a>, R>,
+    F: Fn(Span<'a>) -> IResult<'a, Span<'a>, R>,
 {
     let input = make_span(text);
     let (_, result) =
