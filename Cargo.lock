@@ -3180,7 +3180,6 @@ dependencies = [
  "rcgen",
  "regex-set-map",
  "rustls 0.23.16",
- "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "throttle",
