@@ -100,9 +100,13 @@ kumo.configure_local_logs {
 ```
 {% endraw %}
 
-The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
-is used to evalute logging templates.  The full supported syntax is [documented
-here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html). Any key present in the [default log format](../../reference/log_record.md) can be used in the templating engine.
+The Mini Jinja templating engine, with some supplemental
+extensions, is used to evaluate logging templates.  The syntax and
+extensions are [documented here](../../reference/template/index.md).
+
+Any key present in the [default log
+format](../../reference/log_record.md) can be used in the
+templating engine.
 
 ## Configuring Individual Record Types
 

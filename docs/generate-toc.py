@@ -353,6 +353,7 @@ TOC = [
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
             Page("Configuration Lifecycle", "reference/configuration.md"),
+            Gen("Template Syntax", "reference/template"),
             Page("Log Record", "reference/log_record.md"),
             Gen("kcli", "reference/kcli", extract_title=True),
             Gen(

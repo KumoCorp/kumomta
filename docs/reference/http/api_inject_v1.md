@@ -289,10 +289,9 @@ when processing the original message payload of an incoming ARF report.
 
 # Template Substitution
 
-The injection API embeds the [Mini
-Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine.  The
-full supported syntax is [documented
-here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html).
+The injection API embeds the Mini Jinja templating engine, with
+some supplemental extensions.  The syntax and extensions are
+[documented here](../template/index.md).
 
 For each recipient, the set of variables pre-defined in the template are:
 

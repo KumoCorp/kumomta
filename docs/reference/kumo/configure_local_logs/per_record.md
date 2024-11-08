@@ -54,9 +54,9 @@ and values:
 * `template` - the template to use to format the log line. Continue reading
   below for more information.
 
-The [Mini Jinja](https://docs.rs/minijinja/latest/minijinja/) templating engine
-is used to evalute logging templates.  The full supported syntax is [documented
-here](https://docs.rs/minijinja/latest/minijinja/syntax/index.html).
+The Mini Jinja templating engine, with some supplemental
+extensions, is used to evaluate logging templates.  The syntax and
+extensions are [documented here](../../template/index.md).
 
 The JSON log record fields shown in the section below are assigned as template
 variables, so using `{{ id }}` in your log template will be substituted with
