@@ -1467,7 +1467,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "vaultrs",
- "which 6.0.3",
+ "which 7.0.0",
 ]
 
 [[package]]
@@ -4075,7 +4075,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "which 6.0.3",
+ "which 7.0.0",
 ]
 
 [[package]]
@@ -6611,7 +6611,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid",
- "which 6.0.3",
+ "which 7.0.0",
 ]
 
 [[package]]
@@ -7634,6 +7634,18 @@ name = "which"
 version = "6.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ee928febd44d98f2f459a4a79bd4d928591333a494a10a868418ac1b39cf1f"
+dependencies = [
+ "either",
+ "home",
+ "rustix 0.38.39",
+ "winsafe",
+]
+
+[[package]]
+name = "which"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9cad3279ade7346b96e38731a641d7343dd6a53d55083dd54eadfa5a1b38c6b"
 dependencies = [
  "either",
  "home",

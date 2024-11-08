@@ -186,7 +186,7 @@ url = "2.4"
 uuid = "1.4"
 vaultrs = "0.7"
 walkdir = "2.3"
-which = "6"
+which = "7"
 zstd = "0.13"
 zstd-safe = {version="7.0", features=["std"]}
 
