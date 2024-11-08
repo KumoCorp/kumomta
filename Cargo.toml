@@ -156,7 +156,7 @@ sha-1 = { version = "0.10", features = ["oid"] }
 sha2 = "0.10"
 slog = "2.7"
 socksv5 = {version="0.3", default-features=false, features=["tokio"]}
-sqlite = "0.32"
+sqlite = "0.36"
 strum = { version = "0.26", features = ["derive"] }
 tabout = "0.3"
 tempfile = "3.10"
