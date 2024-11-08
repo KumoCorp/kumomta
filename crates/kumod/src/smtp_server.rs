@@ -1345,6 +1345,7 @@ impl SmtpServer {
                         None,
                     )
                     .await?;
+                    self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::Helo(domain)) => {
@@ -1363,6 +1364,7 @@ impl SmtpServer {
                     }
                     self.write_response(250, format!("Hello {domain}!"), None)
                         .await?;
+                    self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
                 Ok(Command::MailFrom {

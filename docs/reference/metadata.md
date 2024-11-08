@@ -22,6 +22,7 @@ table tbody tr td:nth-of-type(2) {
 |Connection|`hostname`|A copy of the effective value of the hostname set by [kumo.start_esmtp_listener](kumo/start_esmtp_listener/hostname.md)|{{since('2023.11.28-b5252a41', inline=True)}}|
 |Connection|`authn_id`|the authentication id if the message was received via authenticated SMTP||
 |Connection|`authz_id`|the authorization id if the message was received via authenticated SMTP||
+|Connection|`ehlo_domain`|the domain name that was passed in from the sender via the SMTP EHLO or HELO|{{since('dev', inline=True)}}|
 |Message|`queue`|specify the name of the queue to which the message will be queued. Must be a string value.||
 |Message|`tenant`|specify the name/identifier of the tenant, if any. Must be a string value.||
 |Message|`campaign`|specify the name/identifier of the campaign. Must be a string value.||
