@@ -3,15 +3,13 @@ name = "domain-map"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 config = {path="../config"}
 mod-memoize = {path="../mod-memoize"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {workspace=true}
-serde_json = "1.0"
+serde_json = {workspace=true}
 
 [dev-dependencies]
-k9 = "0.12"
+k9 = {workspace=true}

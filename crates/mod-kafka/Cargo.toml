@@ -3,12 +3,10 @@ name = "mod-kafka"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 config = {path="../config"}
 duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-rdkafka = "0.36"
+rdkafka = {workspace=true}
 serde = {workspace=true}

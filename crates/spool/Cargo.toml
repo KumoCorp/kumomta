@@ -3,27 +3,25 @@ name = "spool"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 rocksdb = ["dep:rocksdb"]
 
 [dependencies]
-anyhow = "1.0"
-async-trait = "0.1"
-chrono = {version="0.4", default-features=false, features=["now"]}
+anyhow = {workspace=true}
+async-trait = {workspace=true}
+chrono = {workspace=true, default-features=false, features=["now"]}
 duration-serde = {path="../duration-serde"}
-flume.workspace = true
-getrandom = "0.2"
-jwalk = "0.8"
-libc = "0.2.139"
-prometheus = "0.13"
-rocksdb = {version="0.22", features=["jemalloc"], optional=true}
+flume = {workspace=true}
+getrandom = {workspace=true}
+jwalk = {workspace=true}
+libc = {workspace=true}
+prometheus = {workspace=true}
+rocksdb = {workspace=true, optional=true}
 serde = {workspace=true}
-serde_json = "1.0"
+serde_json = {workspace=true}
 tempfile = {workspace=true}
 tokio = {workspace=true, features=["sync", "rt", "fs", "macros", "tracing"]}
-tracing = "0.1"
+tracing = {workspace=true}
 utoipa = {workspace=true}
 uuid = {workspace=true, features=["v1", "rng"]}
 uuid-helper = {path="../uuid-helper"}

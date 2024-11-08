@@ -3,19 +3,17 @@ name = "mod-amqp"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-amqprs = {version="2.0", features=["tls", "traces"]}
-anyhow = "1.0"
+amqprs = {workspace=true}
+anyhow = {workspace=true}
 config = {path="../config"}
-kumo-server-runtime = {path="../kumo-server-runtime"}
+deadpool = {workspace=true}
 duration-serde = {path="../duration-serde"}
-lapin.workspace = true
-deadpool = {version="0.12", features=["rt_tokio_1"]}
+kumo-server-runtime = {path="../kumo-server-runtime"}
+lapin = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {workspace=true}
 tokio.workspace = true
-tokio-executor-trait = "2.1.0"
-tokio-reactor-trait = "1.1.0"
-tracing = "0.1"
+tokio-executor-trait = {workspace=true}
+tokio-reactor-trait = {workspace=true}
+tracing = {workspace=true}

@@ -3,25 +3,23 @@ name = "traffic-gen"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
-chrono = {version="0.4", default-features=false, features=["clock"]}
-clap = {version="4.5", features=["derive"]}
-futures = "0.3"
-futures-util = "0.3"
-hdrhistogram = "7.5"
-humansize = "2.1" # for printing
-humanize-rs = "0.1" # for parsing
-lipsum = "0.9"
+anyhow = {workspace=true}
+chrono = {workspace=true, default-features=false, features=["clock"]}
+clap = {workspace=true}
+futures = {workspace=true}
+futures-util = {workspace=true}
+hdrhistogram = {workspace=true}
+humansize = {workspace=true}
+humanize-rs = {workspace=true}
+lipsum = {workspace=true}
 nix = {workspace=true, features=["resource"]}
-num-format = "0.4"
-rand = "0.8"
+num-format = {workspace=true}
+rand = {workspace=true}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
-textwrap = "0.16"
+textwrap = {workspace=true}
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "rng"]}

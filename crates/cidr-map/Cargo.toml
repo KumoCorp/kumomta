@@ -3,20 +3,18 @@ name = "cidr-map"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 default = ["lua"]
 lua = ["dep:config", "dep:mlua", "dep:mod-memoize"]
 
 [dependencies]
-anyhow = "1.0"
-bitstring = "0.1"
-cidr = {version="0.2.3", features=["serde", "bitstring"]}
+anyhow = {workspace=true}
+bitstring = {workspace=true}
+cidr = {workspace=true}
 config = {path="../config", optional=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"], optional=true}
 mod-memoize = {path="../mod-memoize", optional=true}
 serde = {workspace=true}
 
 [dev-dependencies]
-k9 = "0.12"
+k9 = {workspace=true}

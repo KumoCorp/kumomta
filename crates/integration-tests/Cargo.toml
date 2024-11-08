@@ -3,30 +3,28 @@ name = "integration-tests"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
-chrono = {version="0.4", default-features=false, features=["std", "clock"]}
-futures-lite = "2.3"
-k9 = "0.12"
+chrono = {workspace=true, default-features=false, features=["std", "clock"]}
+futures-lite = {workspace=true}
+k9 = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 lapin.workspace = true
-lipsum = "0.9"
+lipsum = {workspace=true}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 nix = {workspace=true, features=["signal", "user"]}
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
-serde_json = "1.0"
+serde_json = {workspace=true}
 sqlite = {workspace=true}
-testcontainers-modules = {version="0.9", default-features=false, features=["rabbitmq"]}
+testcontainers-modules = {workspace=true, default-features=false, features=["rabbitmq"]}
 tempfile = {workspace=true}
-textwrap = "0.16"
+textwrap = {workspace=true}
 tokio = {workspace=true, features=["full"]}
-tokio-executor-trait = "2.1.0"
-tokio-reactor-trait = "1.1.0"
-zstd = "0.13"
+tokio-executor-trait = {workspace=true}
+tokio-reactor-trait = {workspace=true}
+zstd = {workspace=true}

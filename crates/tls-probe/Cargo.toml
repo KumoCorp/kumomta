@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-clap = {version="4.5", features=["derive"]}
-env_logger = "0.11"
+anyhow = {workspace=true}
+clap = {workspace=true}
+env_logger = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
-log = "0.4"
+log = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 tokio = {workspace=true, features=["full"]}
-tracing = {version="0.1", features=["log"]}
+tracing = {workspace=true, features=["log"]}

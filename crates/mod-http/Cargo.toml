@@ -3,18 +3,16 @@ name = "mod-http"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 config = {path="../config"}
-humantime = "2.1"
 duration-serde = {path="../duration-serde"}
-mail-builder = "0.2"
-mailparse = "0.14"
+futures-util = {workspace=true}
+humantime = {workspace=true}
+mail-builder = {workspace=true}
+mailparse = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 reqwest = {workspace=true, default-features=false, features=["rustls-tls"]}
 serde = {workspace=true}
-tokio-tungstenite = "0.23"
 tokio = {workspace=true}
-futures-util = "0.3.30"
+tokio-tungstenite = {workspace=true}

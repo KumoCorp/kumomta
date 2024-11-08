@@ -3,32 +3,30 @@ name = "kumod"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
-arc-swap = "1.6"
-async-channel = "2.1"
-async-recursion = "1.1"
-async-trait = "0.1"
+anyhow = {workspace=true}
+arc-swap = {workspace=true}
+async-channel = {workspace=true}
+async-recursion = {workspace=true}
+async-trait = {workspace=true}
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = {workspace=true}
 axum-server = {workspace=true, features=["tls-rustls"]}
 bounce-classify = {path="../bounce-classify"}
-chrono = {version="0.4", default-features=false, features=["serde"]}
+chrono = {workspace=true, default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
-clap = {version="4.5", features=["derive"]}
-crossbeam-queue= "0.3"
-crossbeam-skiplist= "0.1"
+clap = {workspace=true, features=["derive"]}
+crossbeam-queue = {workspace=true}
+crossbeam-skiplist = {workspace=true}
 config = {path="../config"}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
-flume = "0.11"
-gcd = "2.3"
-gethostname.workspace = true
-humansize = "2.1" # for printing
+flume = {workspace=true}
+gcd = {workspace=true}
+gethostname = {workspace=true}
+humansize = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
@@ -38,28 +36,28 @@ kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 kumo-spf = {path="../kumo-spf"}
-lru-cache = "0.1"
+lru-cache = {workspace=true}
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
-memchr = "2.5"
+memchr = {workspace=true}
 message = {path="../message"}
 metrics = {workspace=true}
-minijinja-contrib = {version="2.0.1",features=["datetime", "timezone"]}
-minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
+minijinja-contrib = {workspace=true}
+minijinja = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
-parking_lot = "0.12"
-ppp = "2.2"
-prometheus = "0.13"
-rand = "0.8"
+parking_lot = {workspace=true}
+ppp = {workspace=true}
+prometheus = {workspace=true}
+rand = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 rustls = {workspace=true}
-self_cell = "1.0"
+self_cell = {workspace=true}
 serde = {workspace=true}
-serde_json = "1.0"
-socksv5 = {version="0.3", default-features=false, features=["tokio"]}
+serde_json = {workspace=true}
+socksv5 = {workspace=true}
 spool = {path="../spool", features=["rocksdb"]}
 sqlite = {workspace=true}
 thiserror = {workspace=true}
@@ -67,15 +65,15 @@ throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
-tracing = "0.1"
+tracing = {workspace=true}
 utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 version-info = {path="../version-info"}
-zstd = "0.13"
+zstd = {workspace=true}
 
 [target.'cfg(target_os = "linux")'.dependencies]
-caps = "0.5"
+caps = {workspace=true}
 
 [dev-dependencies]
-k9 = "0.12"
-maplit = "1.0"
+k9 = {workspace=true}
+maplit = {workspace=true}

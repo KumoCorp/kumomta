@@ -3,10 +3,8 @@ name = "kumo-server-lifecycle"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
-tracing = "0.1"
+anyhow = {workspace=true}
+tracing = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 uuid = {workspace=true, features=["v4", "fast-rng"]}

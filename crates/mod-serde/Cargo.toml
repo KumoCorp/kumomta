@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 config = {path="../config"}
-json_comments = "0.2"
+json_comments = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-serde_json = "1.0"
-serde_yaml = "0.9"
+serde_json = {workspace=true}
+serde_yaml = {workspace=true}
 tokio = {workspace=true, features=["fs"]}
-toml = "0.8"
+toml = {workspace=true}
