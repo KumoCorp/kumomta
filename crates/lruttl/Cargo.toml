@@ -3,11 +3,9 @@ name = "lruttl"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 kumo-server-memory = {path="../kumo-server-memory"}
-lru-cache = "0.1"
-parking_lot = "0.12"
+lru-cache = {workspace=true}
+parking_lot = {workspace=true}
 tokio = {workspace=true, features=["sync"]}
-tracing = "0.1"
+tracing = {workspace=true}

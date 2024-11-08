@@ -3,10 +3,8 @@ name = "mta-sts"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 futures = {workspace=true}
 lruttl = {path="../lruttl"}
@@ -15,4 +13,4 @@ hickory-resolver = {workspace=true}
 
 [dev-dependencies]
 tokio = {workspace=true}
-k9 = "0.12"
+k9 = {workspace=true}

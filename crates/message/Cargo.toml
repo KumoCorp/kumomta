@@ -3,36 +3,34 @@ name = "message"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 default = ["impl"]
 impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:dns-resolver", "dep:mlua"]
 
 [dependencies]
-anyhow = "1.0"
-bitflags = "2.3"
+anyhow = {workspace=true}
+bitflags = {workspace=true}
 kumo-dkim = {path="../dkim", optional=true}
 config = {path="../config"}
-chrono = {version="0.4", default-features=false, features=["serde", "clock"]}
-chrono-tz = {version="0.8", features=["serde"]}
+chrono = {workspace=true, default-features=false, features=["serde", "clock"]}
+chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver", optional=true}
-futures = "0.3"
+futures = {workspace=true}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}
-prometheus = "0.13"
-rand = "0.8"
+prometheus = {workspace=true}
+rand = {workspace=true}
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {workspace=true}
-serde_json = "1.0"
-slog = "2.7"
+serde_json = {workspace=true}
+slog = {workspace=true}
 spool = {path="../spool"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["sync"]}
 
 [dev-dependencies]
-k9 = "0.12"
+k9 = {workspace=true}

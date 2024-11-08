@@ -10,30 +10,28 @@ keywords = ["email", "dkim", "authentification"]
 readme = "README.md"
 license = "MIT"
 
-[features]
-
 [dependencies]
-chrono = { version = "0.4.26", default-features = false, features = ["clock", "std"] }
+chrono = { workspace = true, default-features = false, features = ["clock", "std"] }
 data-encoding = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 ed25519-dalek = {workspace=true, features=["pkcs8", "pem"]}
-indexmap = "2.2"
+foreign-types = {workspace=true}
+indexmap = {workspace=true}
 mailparsing = { path="../mailparsing" }
-memchr = "2.5"
-nom = "7.1.0"
-foreign-types = "0.3"
+memchr = {workspace=true}
+nom = {workspace=true}
 openssl = { workspace=true }
 openssl-sys = { workspace=true }
-sha-1 = { version = "0.10", features = ["oid"] }
-sha2 = { version = "0.10", features = ["oid"] }
-textwrap = "0.16"
+sha-1 = { workspace=true, features = ["oid"] }
+sha2 = { workspace = true, features = ["oid"] }
+textwrap = {workspace=true}
 thiserror = {workspace=true}
-tracing = "0.1"
+tracing = {workspace=true}
 
 [dev-dependencies]
-criterion = "0.5"
-k9 = "0.12"
-regex = "1"
+criterion = {workspace=true}
+k9 = {workspace=true}
+regex = {workspace=true}
 tokio = { workspace=true, features = ["macros"] }
 
 [[bench]]

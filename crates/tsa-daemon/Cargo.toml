@@ -3,17 +3,15 @@ name = "tsa-daemon"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 axum = {workspace=true, features=["ws"]}
 axum-client-ip = {workspace=true}
 axum-server = {workspace=true, features=["tls-rustls"]}
-chrono = {version="0.4", default-features=false, features=["serde"]}
-clap = {version="4.5", features=["derive"]}
+chrono = {workspace=true, default-features=false, features=["serde"]}
+clap = {workspace=true}
 config = {path="../config"}
-hex = "0.4"
+hex = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
@@ -23,15 +21,15 @@ message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rfc5321= {path="../rfc5321"}
 serde = {workspace=true}
-serde_json = "1.0"
-sha2 = "0.10"
+serde_json = {workspace=true}
+sha2 = {workspace=true}
 sqlite = {workspace=true}
-tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
-tikv-jemallocator = "0.5"
+tikv-jemalloc-sys = {workspace=true, features=["profiling", "unprefixed_malloc_on_supported_platforms"]}
+tikv-jemallocator = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
-toml = "0.8"
-toml_edit = "0.22"
-tracing = "0.1"
+toml = {workspace=true}
+toml_edit = {workspace=true}
+tracing = {workspace=true}
 utoipa = {workspace=true}
 version-info = {path="../version-info"}

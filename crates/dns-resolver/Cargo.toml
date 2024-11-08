@@ -3,8 +3,6 @@ name = "dns-resolver"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 # Enable this feature to run real DNS lookups.
 # Resulting tests may be flaky and, if the upstream
@@ -16,19 +14,19 @@ default-unbound = ["unbound"]
 unbound = ["dep:libunbound"]
 
 [dependencies]
-anyhow = "1.0"
-arc-swap = "1.6"
-async-trait = "0.1"
+anyhow = {workspace=true}
+arc-swap = {workspace=true}
+async-trait = {workspace=true}
 kumo-log-types = {path="../kumo-log-types"}
 libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
-rand = "0.8"
+rand = {workspace=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
 tokio = {workspace=true, features=["macros"]}
-tracing = "0.1"
+tracing = {workspace=true}
 hickory-proto = {workspace=true, features = ["text-parsing"]} # need to enable the feature
 hickory-resolver = {workspace=true}
 
 [dev-dependencies]
-k9 = "0.12"
+k9 = {workspace=true}

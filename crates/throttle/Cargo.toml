@@ -3,14 +3,12 @@ name = "throttle"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [features]
 default = ["redis"]
 redis = ["dep:redis-cell-impl", "dep:mod-redis"]
 
 [dependencies]
-anyhow = "1.0"
+anyhow = {workspace=true}
 mod-redis = {path="../mod-redis", optional=true}
 redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="97d409c3a62f2a0f5518c31fc9b4b65afbce2053" , optional=true}
 serde = {workspace=true}
@@ -19,4 +17,4 @@ tokio = {workspace=true, features=["full"]}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 
 [dev-dependencies]
-which = "6.0"
+which = {workspace=true}

@@ -3,34 +3,32 @@ name = "kumo-server-common"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0"
-arc-swap = "1.6"
+anyhow = {workspace=true}
+arc-swap = {workspace=true}
 axum = {workspace=true}
 axum-client-ip = {workspace=true}
 axum-server = {workspace=true, features=["tls-rustls"]}
-axum-streams = {version="0.18", features=["text"]}
-backtrace = "0.3"
+axum-streams = {workspace=true}
+backtrace = {workspace=true}
 cidr-map = {path="../cidr-map"}
-clap = {version="4.1", features=["derive"]}
+clap = {workspace=true}
 config = {path="../config"}
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 domain-map = {path="../domain-map"}
-gethostname.workspace = true
-human_bytes = "0.4.3"
+gethostname = {workspace=true}
+human_bytes = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-prometheus = {path="../kumo-prometheus"}
 kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
-libc = "0.2.139"
+libc = {workspace=true}
 lruttl = {path="../lruttl"}
 metrics = {workspace=true}
-metrics-prometheus = "0.6"
-metrics-tracing-context = "0.15"
+metrics-prometheus = {workspace=true}
+metrics-tracing-context = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mod-amqp = {path="../mod-amqp"}
 mod-digest = {path="../mod-digest"}
@@ -47,22 +45,22 @@ mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}
 mod-uuid = {path="../mod-uuid"}
 nix = {workspace=true, features=["fs", "signal"]}
-num-format = "0.4.4"
-prometheus = "0.13"
-rcgen = "0.13"
+num-format = {workspace=true}
+prometheus = {workspace=true}
+rcgen = {workspace=true}
 regex-set-map = {path="../regex-set-map"}
 rustls = {workspace=true}
-rustls-pemfile = "2.1"
+rustls-pemfile = {workspace=true}
 serde = {workspace=true}
-serde_json = "1.0"
+serde_json = {workspace=true}
 throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full", "tracing"]}
-tokio-metrics = "0.3.1"
-tokio-metrics-collector = "0.2.1"
-tower-http = {version="0.5", features=["trace", "compression-deflate", "compression-gzip"]}
-tracing = "0.1"
-tracing-appender = "0.2"
-tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
+tokio-metrics = {workspace=true}
+tokio-metrics-collector = {workspace=true}
+tower-http = {workspace=true}
+tracing = {workspace=true}
+tracing-appender = {workspace=true}
+tracing-subscriber = {workspace=true}
 utoipa = {workspace=true}
 utoipa-rapidoc = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
