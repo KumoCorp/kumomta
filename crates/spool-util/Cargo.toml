@@ -11,6 +11,5 @@ flume = {workspace=true}
 hdrhistogram = {workspace=true}
 human_bytes = {workspace=true}
 incr_stats = {workspace=true}
-message = {path="../message", default-features=false}
 spool = {path="../spool", features=["rocksdb"]}
 tokio = {workspace=true, features=["full", "tracing"]}

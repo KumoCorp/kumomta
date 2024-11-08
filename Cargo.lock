@@ -353,17 +353,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-recursion"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
-dependencies = [
- "proc-macro2 1.0.89",
- "quote 1.0.37",
- "syn 2.0.87",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3137,7 +3126,6 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum",
- "axum-client-ip",
  "axum-server",
  "axum-streams",
  "backtrace",
@@ -3253,7 +3241,6 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-channel",
- "async-recursion",
  "async-trait",
  "axum",
  "axum-client-ip",
@@ -3738,7 +3725,6 @@ dependencies = [
  "rfc5321",
  "serde",
  "serde_json",
- "slog",
  "spool",
  "timeq",
  "tokio",
@@ -6066,12 +6052,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "slog"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8347046d4ebd943127157b94d63abb990fcf729dc4e9978927fdf4ac3c998d06"
-
-[[package]]
 name = "smallvec"
 version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6177,7 +6157,6 @@ dependencies = [
  "hdrhistogram",
  "human_bytes",
  "incr_stats",
- "message",
  "spool",
  "tokio",
 ]
@@ -7162,7 +7141,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "axum-client-ip",
  "axum-server",
  "chrono",
  "clap",
