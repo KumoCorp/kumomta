@@ -352,6 +352,7 @@ TOC = [
         children=[
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
+            Page("Configuration Lifecycle", "reference/configuration.md"),
             Page("Log Record", "reference/log_record.md"),
             Gen("kcli", "reference/kcli", extract_title=True),
             Gen(

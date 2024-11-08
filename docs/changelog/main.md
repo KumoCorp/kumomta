@@ -25,7 +25,9 @@
 * Queue and Egress configs can now be set to work in a mode where they refresh
   when the underlying configuration files have changed, rather than always
   reloading on a schedule. This makes a difference for sites with many queues.
-  This mode is used for the shaping and queue helpers.
+  This mode is used for the shaping and queue helpers. See
+  [Configuration Monitoring](../reference/configuration.md#configuration-monitoring)
+  for more information about this.
 
 * Improved performance of `/metrics` and `/metrics.json` endpoint generation;
   these endpoints now stream data rather than buffering and sending to the
