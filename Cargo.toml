@@ -120,7 +120,7 @@ mlua = "0.9"
 nix = "0.28"
 nom = "7.1.0"
 nom_locate = "4.1"
-notify = "6.1"
+notify = "7"
 num-format = "0.4.4"
 openssl = { version="=0.10.65" } # pinned; see patch below
 openssl-sys = { version="0.9" }
