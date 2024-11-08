@@ -219,17 +219,6 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "async-channel"
-version = "1.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81953c529336010edd6d8e358f886d9581267795c61b19475b71314bffa46d35"
-dependencies = [
- "concurrent-queue",
- "event-listener 2.5.3",
- "futures-core",
-]
-
-[[package]]
-name = "async-channel"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89b47800b0be77592da0afd425cc03468052844aff33b84e33cc696f64e77b6a"
@@ -272,7 +261,7 @@ version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05b1b633a2115cd122d73b955eadd9916c18c8f510ec9cd1686404c60ad1c29c"
 dependencies = [
- "async-channel 2.3.1",
+ "async-channel",
  "async-executor",
  "async-io 2.4.0",
  "async-lock 3.4.0",
@@ -684,7 +673,7 @@ version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "703f41c54fc768e63e091340b424302bb1c29ef4aa0c7f10fe849dfb114d29ea"
 dependencies = [
- "async-channel 2.3.1",
+ "async-channel",
  "async-task",
  "futures-io",
  "futures-lite 2.5.0",
@@ -3249,7 +3238,7 @@ name = "kumo-server-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-channel 1.9.0",
+ "async-channel",
  "kumo-server-memory",
  "prometheus",
  "tokio",
@@ -3274,7 +3263,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "async-channel 1.9.0",
+ "async-channel",
  "async-recursion",
  "async-trait",
  "axum",
