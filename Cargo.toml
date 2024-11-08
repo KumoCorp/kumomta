@@ -180,7 +180,6 @@ tower-http = {version="0.5", features=["trace", "compression-deflate", "compress
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
-tungstenite = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="4.0", features = ["axum"] }
 url = "2.4"

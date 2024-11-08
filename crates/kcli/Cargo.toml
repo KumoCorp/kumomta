@@ -28,7 +28,7 @@ serde = {workspace=true}
 serde_json = {workspace=true}
 tabout = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
-tungstenite = {workspace=true}
+tokio-tungstenite = {workspace=true}
 uuid = {workspace=true}
 version-info = {path="../version-info"}
 
