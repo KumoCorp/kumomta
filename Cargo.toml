@@ -173,14 +173,14 @@ tokio-openssl = "0.6.4"
 tokio-reactor-trait = "1.1.0"
 tokio-rustls = "0.26"
 tokio-splice = "0.2"
-tokio-tungstenite = "0.23"
+tokio-tungstenite = "0.24"
 toml = "0.8"
 toml_edit = "0.22"
 tower-http = {version="0.5", features=["trace", "compression-deflate", "compression-gzip"]}
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
-tungstenite = "0.23"
+tungstenite = "0.24"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="4.0", features = ["axum"] }
 url = "2.4"
