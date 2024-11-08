@@ -160,7 +160,7 @@ sqlite = "0.36"
 strum = { version = "0.26", features = ["derive"] }
 tabout = "0.3"
 tempfile = "3.10"
-testcontainers-modules = { version = "0.9", default-features = false }
+testcontainers-modules = { version = "0.11", default-features = false }
 textwrap = "0.16"
 thiserror = "1"
 tikv-jemallocator = "0.5"

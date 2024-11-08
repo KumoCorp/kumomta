@@ -15,7 +15,7 @@ async fn test_lapin_rabbit() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let rabbitmq_instance = RabbitMq.start().await?;
+    let rabbitmq_instance = RabbitMq::default().start().await?;
 
     let amqp_url = format!(
         "amqp://{}:{}",
@@ -100,7 +100,7 @@ async fn test_amqprs_rabbit() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let rabbitmq_instance = RabbitMq.start().await?;
+    let rabbitmq_instance = RabbitMq::default().start().await?;
 
     let amqp_host_port = format!(
         "{}:{}",
