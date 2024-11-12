@@ -30,7 +30,7 @@ kumo.on('smtp_server_message_received', function(msg, conn_meta)
   )
 
   -- add the spf authentication result to our collection of results
-  table.insert(auth_results, spf_result.result)  
+  table.insert(auth_results, spf_result.result)
 
   -- Add the results to the message
   msg:add_authentication_results(msg:get_meta 'hostname', auth_results)
