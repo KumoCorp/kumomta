@@ -180,7 +180,7 @@ steps:
       PULLREQUEST_DRONE_PULL_REQUEST: 0
     settings: &docker_manifest_settings_tag
       <<: *docker_credentials
-      target: "ghcr.io/kumocorp/kumomta-dev"
+      target: "ghcr.io/kumocorp/kumomta"
       template: "ghcr.io/kumocorp/kumomta:${CI_COMMIT_TAG}-ARCH"
       tags:
         - latest
