@@ -1,6 +1,6 @@
 # `kumo.on('throttle_insert_ready_queue', function(message))`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 !!! note
     This event was actually added in `2024.06.10-84e84b89` but

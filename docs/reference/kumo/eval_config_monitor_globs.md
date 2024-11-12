@@ -1,6 +1,6 @@
 # `kumo.eval_config_monitor_globs()`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Evalutes the glob expressions that have been configured by
 [kumo.set_config_monitor_globs](set_config_monitor_globs.md) and returns the

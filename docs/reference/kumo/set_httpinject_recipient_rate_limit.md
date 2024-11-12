@@ -1,6 +1,6 @@
 # `kumo.set_httpinject_recipient_rate_limit(SPEC)`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Configures an optional throttle for the HTTP injection API. The *SPEC*
 parameter may be `nil` to clear the rate limit, or be a throttle specification

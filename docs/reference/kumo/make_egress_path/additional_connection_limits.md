@@ -1,6 +1,6 @@
 # additional_connection_limits
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Specifies additional connection limit constraints that cut across the
 per-site-per-source scoping of the [connection_limit](connection_limit.md)

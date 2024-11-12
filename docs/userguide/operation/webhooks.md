@@ -124,7 +124,7 @@ than HTTP, such as AMQP or Kafka.
 
 ## batched hooks
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 It can be desirable for log events to be delivered to the destination
 system in a batch; the primary motivation for this is to amortize the

@@ -1,6 +1,6 @@
 # `kumo.spf.check_host()`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 This function will check SPF records from DNS for the given domain and IP address.
 

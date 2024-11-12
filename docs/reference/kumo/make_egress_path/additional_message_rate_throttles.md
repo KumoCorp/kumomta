@@ -1,6 +1,6 @@
 # additional_message_rate_throttles
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Specifies additional message rate constraints that cut across the
 per-site-per-source scoping of the [max_message_rate](max_message_rate.md)

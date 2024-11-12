@@ -151,7 +151,7 @@ Specifies a set of global substitutions to for template expansion:
 
 ## deferred_spool
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 !!! danger
     Enabling this option may result in loss of accountability for messages.
@@ -169,7 +169,7 @@ request and the messages which it produces are subject to deferred spooling.
 
 ## deferred_generation
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 The default mode of operation is to respond to the injection request only
 once every message in the request has been enqueued to the internal queue
@@ -225,7 +225,7 @@ kumo.on(
 
 ## trace_headers
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Controls the addition of tracing headers to received messages.
 

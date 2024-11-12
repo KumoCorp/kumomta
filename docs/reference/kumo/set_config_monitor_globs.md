@@ -1,6 +1,6 @@
 # `kumo.set_config_monitor_globs(GLOBS)`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 *GLOBS* is an array-style table listing out the set of glob expressions which
 should be monitored as part of the [Configuration

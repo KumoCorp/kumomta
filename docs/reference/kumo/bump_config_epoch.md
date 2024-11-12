@@ -1,6 +1,6 @@
 # `kumo.bump_config_epoch()`
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Increments the current *configuration epoch* and notifies various
 internal modules and processes of the change, causing them to refresh

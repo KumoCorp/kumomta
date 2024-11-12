@@ -217,7 +217,7 @@ While the default max_deliveries_per_connection is 100, it is overridden for yah
 
 #### Pattern Matching Rollups
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 There are a number of mailbox providers that host multiple domains, but which do not provide consistent MX results across all hosted domains.
 

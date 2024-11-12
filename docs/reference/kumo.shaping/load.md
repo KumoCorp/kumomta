@@ -23,7 +23,7 @@ end)
 
 ## Options Parameter
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 The options parameter allows for the following fields:
 
@@ -177,7 +177,7 @@ The following fields are possible in an automation rule:
     * `{SetConfig{name="NAME", value="VALUE"}}` - define a configuration override that sets `NAME=VALUE`.
     * `{SetDomainConfig{name="NAME", value="VALUE"}}` - define a configuration
       override that sets `NAME=VALUE`, but with `mx_rollup=false`, even if the
-      rule was defined inside a domain where `mx_rollup=true`. {{since('dev',
+      rule was defined inside a domain where `mx_rollup=true`. {{since('2024.11.08-d383b033',
       inline=True)}}
  * `trigger` - optional. Can be one of:
     * `"Immediate"` - this is the default. The action is taken each time a `regex` matches.
@@ -191,7 +191,7 @@ The following fields are possible in an automation rule:
    could trigger surprising cyclical behavior where a suspension is triggered
    from a remote response and then subsequently the transient failures logged
    when messages hit that suspension would also match the rule and continue
-   to apply and extend the lifetime of the suspension. {{since('dev', inline=True)}}
+   to apply and extend the lifetime of the suspension. {{since('2024.11.08-d383b033', inline=True)}}
 
 {{since('2024.06.10-84e84b89')}}
 

@@ -31,7 +31,7 @@ The default value depends on the version:
 |Version|Default|
 |-------|-------|
 |2024.09.02-c5476b89 and earlier|`"TimerWheel"`|
-|{{since('dev', inline=True)}}|`"SingletonTimerWheel"`|
+|{{since('2024.11.08-d383b033', inline=True)}}|`"SingletonTimerWheel"`|
 
 
 Which should you use? Whichever works best for your environment! Make sure that

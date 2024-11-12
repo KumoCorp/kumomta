@@ -67,7 +67,7 @@ KumoMTA provides two different configuration refresh strategies:
 
 ## Config Epoch
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 KumoMTA monitors your local configuration files and computes a hash
 of their contents.  When that hash changes, which signals an observable

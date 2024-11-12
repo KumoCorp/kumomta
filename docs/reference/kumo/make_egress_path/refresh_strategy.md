@@ -1,6 +1,6 @@
 # refresh_strategy
 
-{{since('dev')}}
+{{since('2024.11.08-d383b033')}}
 
 Defines the refresh strategy that should be used to determine when
 this particular egress path object needs to be refreshed.
