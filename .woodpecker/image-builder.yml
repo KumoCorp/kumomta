@@ -94,3 +94,7 @@ steps:
         - ${VERSION}
       dockerfile: Dockerfile.builder
 
+  cache-clear:
+    image: alpine:latest
+    commands:
+      - rm -rf /build-cache/sccache
