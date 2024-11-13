@@ -3088,6 +3088,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-dmarc"
+version = "0.1.0"
+
+[[package]]
 name = "kumo-log-types"
 version = "0.1.0"
 dependencies = [
