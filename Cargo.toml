@@ -28,6 +28,7 @@ members = [
   "crates/validate-bounces",
   "crates/validate-shaping",
   "crates/version-info",
+  "crates/kumo-dmarc",
 ]
 resolver = "2"
 
