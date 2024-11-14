@@ -575,12 +575,23 @@ pub struct DaemonWithMaildirAndWebHook {
     pub webhook: WebHookServer,
 }
 
+pub struct BatchParams {
+    pub min_batch_size: usize,
+    pub max_batch_size: usize,
+    pub max_batch_latency: usize,
+}
+
 impl DaemonWithMaildirAndWebHook {
     pub async fn start() -> anyhow::Result<Self> {
-        Self::start_batched(1).await
+        Self::start_batched(BatchParams {
+            min_batch_size: 1,
+            max_batch_size: 1,
+            max_batch_latency: 0,
+        })
+        .await
     }
 
-    pub async fn start_batched(batch_size: usize) -> anyhow::Result<Self> {
+    pub async fn start_batched(batch_params: BatchParams) -> anyhow::Result<Self> {
         let webhook = WebHookServer::start().await?;
         let sink = KumoDaemon::spawn_maildir().await?;
         let smtp = sink.listener("smtp");
@@ -593,8 +604,16 @@ impl DaemonWithMaildirAndWebHook {
                     webhook.addr.port().to_string(),
                 ),
                 (
-                    "KUMOD_WEBHOOK_BATCH_SIZE".to_string(),
-                    batch_size.to_string(),
+                    "KUMOD_WEBHOOK_MAX_BATCH_SIZE".to_string(),
+                    batch_params.max_batch_size.to_string(),
+                ),
+                (
+                    "KUMOD_WEBHOOK_MIN_BATCH_SIZE".to_string(),
+                    batch_params.min_batch_size.to_string(),
+                ),
+                (
+                    "KUMOD_WEBHOOK_MAX_BATCH_LATENCY".to_string(),
+                    format!("{}s", batch_params.max_batch_latency),
                 ),
             ],
         })

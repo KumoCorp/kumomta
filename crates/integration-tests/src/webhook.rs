@@ -9,20 +9,26 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[derive(Default)]
+struct Shared {
+    records: Vec<JsonLogRecord>,
+    request_counter: usize,
+}
+
 pub struct WebHookServer {
     pub addr: SocketAddr,
-    pub records: Arc<Mutex<Vec<JsonLogRecord>>>,
+    shared: Arc<Mutex<Shared>>,
     handle: Handle,
 }
 
 impl WebHookServer {
     pub async fn start() -> anyhow::Result<Self> {
-        let records = Arc::new(Mutex::new(vec![]));
+        let shared = Arc::new(Mutex::new(Shared::default()));
 
         let app = Router::new()
             .route("/log", post(log_record))
             .route("/log-batch", post(log_batch))
-            .layer(Extension(Arc::clone(&records)));
+            .layer(Extension(Arc::clone(&shared)));
 
         let handle = Handle::new();
 
@@ -41,7 +47,7 @@ impl WebHookServer {
 
         Ok(Self {
             addr,
-            records,
+            shared,
             handle,
         })
     }
@@ -55,7 +61,7 @@ impl WebHookServer {
 
         tokio::select! {
             _ = async {
-                    while self.records.lock().unwrap().len() != count {
+                    while self.shared.lock().unwrap().records.len() != count {
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
             } => true,
@@ -63,32 +69,40 @@ impl WebHookServer {
         }
     }
 
+    pub fn request_counter(&self) -> usize {
+        self.shared.lock().unwrap().request_counter
+    }
+
     pub fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
-        let records = self.records.lock().unwrap();
+        let records = self.shared.lock().unwrap().records.clone();
 
         let mut counts = BTreeMap::new();
 
-        for record in records.iter() {
+        for record in records {
             *counts.entry(record.kind).or_default() += 1;
         }
         Ok(counts)
     }
 
     pub fn return_logs(&self) -> Vec<JsonLogRecord> {
-        (*self.records.lock().unwrap()).clone()
+        self.shared.lock().unwrap().records.clone()
     }
 }
 
 async fn log_batch(
-    Extension(records): Extension<Arc<Mutex<Vec<JsonLogRecord>>>>,
+    Extension(shared): Extension<Arc<Mutex<Shared>>>,
     Json(mut batch): Json<Vec<JsonLogRecord>>,
 ) {
-    records.lock().unwrap().append(&mut batch);
+    let mut shared = shared.lock().unwrap();
+    shared.records.append(&mut batch);
+    shared.request_counter += 1;
 }
 
 async fn log_record(
-    Extension(records): Extension<Arc<Mutex<Vec<JsonLogRecord>>>>,
+    Extension(shared): Extension<Arc<Mutex<Shared>>>,
     Json(record): Json<JsonLogRecord>,
 ) {
-    records.lock().unwrap().push(record);
+    let mut shared = shared.lock().unwrap();
+    shared.records.push(record);
+    shared.request_counter += 1;
 }

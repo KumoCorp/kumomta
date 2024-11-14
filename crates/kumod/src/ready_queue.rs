@@ -898,8 +898,17 @@ pub trait QueueDispatcher: Debug + Send {
     async fn have_more_connection_candidates(&mut self, dispatcher: &mut Dispatcher) -> bool;
 
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool>;
+
     fn max_batch_size(&self) -> usize {
         1
+    }
+
+    fn min_batch_size(&self) -> usize {
+        1
+    }
+
+    fn max_batch_latency(&self) -> Duration {
+        Duration::from_secs(0)
     }
 }
 
@@ -925,6 +934,7 @@ pub struct Dispatcher {
     pub delivery_protocol: String,
     pub suspended: Option<AdminSuspendReadyQEntryRef>,
     leases: Vec<LimitLease>,
+    batch_started: Option<tokio::time::Instant>,
 }
 
 impl Drop for Dispatcher {
@@ -1018,6 +1028,7 @@ impl Dispatcher {
             delivery_protocol,
             leases,
             suspended: None,
+            batch_started: None,
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
@@ -1539,9 +1550,21 @@ impl Dispatcher {
         .await;
     }
 
+    /// Grab message(s) to satisfy the batching constraints.
+    /// This function does not block.
+    /// Returns true if the batch is ready to send on return.
+    /// false indicates that it is not fully satisfied; we may
+    /// have 0 or more messages accumulated.
+    /// The batch latency is NOT considered by this function.
     #[instrument(skip(self))]
     async fn obtain_message(&mut self, queue_dispatcher: &mut dyn QueueDispatcher) -> bool {
-        if !self.msgs.is_empty() {
+        if self.msgs.len() >= queue_dispatcher.min_batch_size() {
+            tracing::trace!(
+                "already have {} messages which is >= min batch {}",
+                self.msgs.len(),
+                queue_dispatcher.min_batch_size()
+            );
+            self.batch_started.take();
             return true;
         }
         while self.msgs.len() < queue_dispatcher.max_batch_size() {
@@ -1594,7 +1617,22 @@ impl Dispatcher {
                 break;
             }
         }
-        !self.msgs.is_empty()
+
+        tracing::trace!(
+            "now have {} messages. min batch {}, max {}",
+            self.msgs.len(),
+            queue_dispatcher.min_batch_size(),
+            queue_dispatcher.max_batch_size()
+        );
+
+        if self.msgs.len() >= queue_dispatcher.min_batch_size() {
+            // batch is satisfied and ready to go
+            self.batch_started.take();
+            true
+        } else {
+            // batch is not fully satisfied
+            false
+        }
     }
 
     fn get_suspension(&mut self) -> Option<AdminSuspendReadyQEntryRef> {
@@ -1613,6 +1651,8 @@ impl Dispatcher {
         self.suspended.as_ref().cloned()
     }
 
+    /// Wait for sufficient message(s) to satisfy the batch constraints.
+    /// This is bounded by the idle timeout and the maximum batch latency
     #[instrument(skip(self, shutting_down))]
     async fn wait_for_message(
         &mut self,
@@ -1672,9 +1712,40 @@ impl Dispatcher {
         if self.obtain_message(queue_dispatcher).await {
             return Ok(true);
         }
-
         let idle_timeout = self.path_config.borrow().client_timeouts.idle_timeout;
-        let idle_deadline = tokio::time::Instant::now() + idle_timeout;
+        let mut idle_deadline = tokio::time::Instant::now() + idle_timeout;
+
+        tracing::trace!(
+            "have {} messages. min batch {}, max {}, latency={:?}",
+            self.msgs.len(),
+            queue_dispatcher.min_batch_size(),
+            queue_dispatcher.max_batch_size(),
+            queue_dispatcher.max_batch_latency()
+        );
+
+        if !self.msgs.is_empty() {
+            // If we have some messages and didn't return true from obtain_message
+            // above, then we must have a partially fulfilled batch.
+            // Ensure that we start tracking its latency for the deadline
+            // calculation below, if we haven't already.
+            if self.batch_started.is_none() {
+                // We just started a batch
+                self.batch_started.replace(tokio::time::Instant::now());
+            }
+
+            let batch_deadline = self.batch_started.expect("guaranteed to be set")
+                + queue_dispatcher.max_batch_latency();
+
+            // Use the smaller of the idle timeout and batch deadline
+            // so that we don't timeout waiting for messages when we
+            // have some already to go.
+            // Note that we don't do anything here to recognize or
+            // deal with a misconfiguration like the batch latency
+            // being set higher than the maximum possible idle
+            // timeout.
+            idle_deadline = idle_deadline.min(batch_deadline);
+        }
+
         loop {
             let notify_dispatcher = self.notify_dispatcher.clone();
             // Need to spawn this into a separate task otherwise the notifier future
@@ -1688,7 +1759,11 @@ impl Dispatcher {
                     match result {
                         Ok(Err(_)) | Err(_) => {
                             // Timeout
-                            return Ok(false);
+                            self.batch_started.take();
+
+                            // when the latency timer expires, we're satisfied by
+                            // having any amount of messages in the batch
+                            return Ok(!self.msgs.is_empty());
                         }
                         Ok(_) => {
                             if self.activity.is_shutting_down() {

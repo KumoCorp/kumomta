@@ -104,11 +104,15 @@ elseif AMQP_HOST_PORT then
 end
 
 if WEBHOOK_PORT then
-  local batch_size = tonumber(os.getenv 'KUMOD_WEBHOOK_BATCH_SIZE')
-  if batch_size > 1 then
+  local min_batch_size = tonumber(os.getenv 'KUMOD_WEBHOOK_MIN_BATCH_SIZE')
+  local max_batch_size = tonumber(os.getenv 'KUMOD_WEBHOOK_MAX_BATCH_SIZE')
+  local max_batch_latency = os.getenv 'KUMOD_WEBHOOK_MAX_BATCH_LATENCY'
+  if max_batch_size > 1 then
     log_hooks:new {
       name = 'webhookbatch',
-      batch_size = batch_size,
+      batch_size = max_batch_size,
+      min_batch_size = min_batch_size,
+      max_batch_latency = max_batch_latency,
       constructor = function(domain, tenant, campaign)
         local sender = {}
 
@@ -118,7 +122,15 @@ if WEBHOOK_PORT then
           for _, msg in ipairs(messages) do
             table.insert(payload, msg:get_meta 'log_record')
           end
-          print(string.format('batch size is %d ***************', #payload))
+          print(
+            string.format(
+              'batch size is %d *************** min=%d max=%d latency=%s',
+              #payload,
+              min_batch_size,
+              max_batch_size,
+              max_batch_latency
+            )
+          )
           local response = client
             :post(
               string.format('http://127.0.0.1:%d/log-batch', WEBHOOK_PORT)
@@ -253,9 +265,10 @@ kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
   end
 
   if domain == 'webhookbatch.log_hook' then
-    -- we use a slow throttle here to encourage batches
-    -- to be used
-    params.max_message_rate = '3/s'
+    -- If we allow more connections, then we can end up
+    -- with batches smaller than desired because we split
+    -- them among multiple connections
+    params.connection_limit = 1
   end
 
   print('get_egress_path_config *******************', domain)

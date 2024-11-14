@@ -19,6 +19,8 @@ local LogHookOptions = Record('LogHookOptions', {
   queue_config = Option(QueueConfig),
   constructor = typing.Function,
   batch_size = Option(typing.number),
+  min_batch_size = Option(typing.number),
+  max_batch_latency = Option(String),
 })
 
 --[[
@@ -130,6 +132,8 @@ function mod:new(options)
     custom_lua = {
       constructor = constructor_name,
       batch_size = options.batch_size or 1,
+      min_batch_size = options.min_batch_size,
+      max_batch_latency = options.max_batch_latency,
     },
   }
 

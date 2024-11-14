@@ -14,6 +14,7 @@ use mlua::{RegistryKey, Value};
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
+use tokio::time::Duration;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
@@ -24,11 +25,22 @@ pub struct LuaDeliveryProtocol {
 
     #[serde(default = "LuaDeliveryProtocol::default_batch_size")]
     batch_size: usize,
+    #[serde(default = "LuaDeliveryProtocol::default_batch_size")]
+    min_batch_size: usize,
+    #[serde(
+        default = "LuaDeliveryProtocol::default_max_batch_latency",
+        with = "duration_serde"
+    )]
+    max_batch_latency: Duration,
 }
 
 impl LuaDeliveryProtocol {
     fn default_batch_size() -> usize {
         1
+    }
+
+    fn default_max_batch_latency() -> Duration {
+        Duration::from_secs(0)
     }
 }
 
@@ -111,6 +123,12 @@ impl QueueDispatcher for LuaQueueDispatcher {
 
     fn max_batch_size(&self) -> usize {
         self.proto_config.batch_size
+    }
+    fn min_batch_size(&self) -> usize {
+        self.proto_config.min_batch_size
+    }
+    fn max_batch_latency(&self) -> Duration {
+        self.proto_config.max_batch_latency
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
