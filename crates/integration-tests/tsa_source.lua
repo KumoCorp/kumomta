@@ -32,6 +32,10 @@ kumo.on('init', function()
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
     max_segment_duration = '1s',
+    -- aggressively flush log segments; the volume in the test
+    -- harness is too low for the purely time based flush to be
+    -- effective
+    max_file_size = 1,
   }
 
   kumo.define_spool {
