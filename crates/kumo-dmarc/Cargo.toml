@@ -2,3 +2,8 @@
 name = "kumo-dmarc"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+chrono = {workspace=true}
+instant-xml = {workspace=true}
+kumo-spf = { path = "../kumo-spf" }

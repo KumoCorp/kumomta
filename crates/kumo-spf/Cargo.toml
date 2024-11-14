@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 dns-resolver = {path="../dns-resolver"}
 hickory-resolver = {workspace=true}
+instant-xml = {workspace=true}
 serde = {workspace=true}
 thiserror = {workspace=true}
 

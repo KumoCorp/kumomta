@@ -1,3 +1,8 @@
+use chrono::{DateTime, Utc};
+use instant_xml::{FromXml, ToXml};
+use kumo_spf::SpfDisposition;
+use std::fmt::{self, Write};
+use std::net::IpAddr;
 use std::str::FromStr;
 
 enum Format {
@@ -15,7 +20,8 @@ impl FromStr for Format {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ToXml)]
+#[xml(scalar)]
 enum Policy {
     None,
     Quarantine,
@@ -35,7 +41,8 @@ impl FromStr for Policy {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ToXml)]
+#[xml(scalar)]
 enum Mode {
     Relaxed,
     Strict,
@@ -68,6 +75,44 @@ struct ReportFailure {
     any_pass: bool,
     dkim: bool,
     spf: bool,
+}
+
+impl ToXml for ReportFailure {
+    fn serialize<W: std::fmt::Write + ?Sized>(
+        &self,
+        _: Option<instant_xml::Id<'_>>,
+        serializer: &mut instant_xml::Serializer<W>,
+    ) -> Result<(), instant_xml::Error> {
+        serializer.write_str(self)
+    }
+}
+
+impl fmt::Display for ReportFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let values = [
+            (self.all_pass, '0'),
+            (self.any_pass, '1'),
+            (self.dkim, 'd'),
+            (self.spf, 's'),
+        ];
+
+        let mut first = true;
+        for (value, ch) in values.into_iter() {
+            if !value {
+                continue;
+            }
+
+            if !first {
+                f.write_char(':')?;
+            } else {
+                first = false;
+            }
+
+            f.write_char(ch)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl FromStr for ReportFailure {
@@ -235,6 +280,169 @@ impl FromStr for Record {
             false => Err(format!("missing policy in {s:?}")),
         }
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct DateRange {
+    begin: DateTime<Utc>,
+    end: DateTime<Utc>,
+}
+
+impl ToXml for DateRange {
+    fn serialize<W: std::fmt::Write + ?Sized>(
+        &self,
+        field: Option<instant_xml::Id<'_>>,
+        serializer: &mut instant_xml::Serializer<W>,
+    ) -> Result<(), instant_xml::Error> {
+        #[derive(ToXml)]
+        #[xml(rename = "date_range")]
+        struct Timestamps {
+            begin: i64,
+            end: i64,
+        }
+
+        Timestamps {
+            begin: self.begin.timestamp(),
+            end: self.end.timestamp(),
+        }
+        .serialize(field, serializer)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "report_metadata")]
+struct ReportMetadata {
+    org_name: String,
+    email: String,
+    extra_contact_info: Option<String>,
+    report_id: String,
+    date_range: DateRange,
+    error: Vec<String>,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "policy_published")]
+struct PolicyPublished {
+    domain: String,
+    #[xml(rename = "adkim")]
+    align_dkim: Option<Mode>,
+    #[xml(rename = "aspf")]
+    align_spf: Option<Mode>,
+    #[xml(rename = "p")]
+    policy: Policy,
+    #[xml(rename = "sp")]
+    subdomain_policy: Policy,
+    #[xml(rename = "pct")]
+    rate: u8,
+    #[xml(rename = "fo")]
+    report_failure: ReportFailure,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(scalar, rename_all = "lowercase")]
+enum DmarcResult {
+    Pass,
+    Fail,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(scalar, rename_all = "lowercase")]
+enum PolicyOverride {
+    Forwarded,
+    SampledOut,
+    TrustedForwarder,
+    MailingList,
+    LocalPolicy,
+    Other,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "reason")]
+struct PolicyOverrideReason {
+    r#type: PolicyOverride,
+    comment: Option<String>,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "policy_evaluated")]
+struct PolicyEvaluated {
+    disposition: Policy,
+    dkim: DmarcResult,
+    spf: DmarcResult,
+    reason: Vec<PolicyOverrideReason>,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "row")]
+struct Row {
+    source_ip: IpAddr,
+    count: u64,
+    policy_evaluated: PolicyEvaluated,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+struct Identifier {
+    envelope_to: Option<String>,
+    envelope_from: String,
+    header_from: String,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(scalar, rename_all = "lowercase")]
+enum DkimResult {
+    None,
+    Pass,
+    Fail,
+    Policy,
+    Neutral,
+    TempError,
+    PermError,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+struct DkimAuthResult {
+    domain: String,
+    selector: Option<String>,
+    result: DkimResult,
+    human_result: Option<String>,
+}
+
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[xml(scalar, rename_all = "lowercase")]
+enum SpfScope {
+    Helo,
+    Mfrom,
+}
+
+#[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
+#[xml(rename = "spf")]
+struct SpfAuthResult {
+    domain: String,
+    scope: SpfScope,
+    result: SpfDisposition,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "auth_results")]
+struct AuthResults {
+    dkim: Vec<DkimAuthResult>,
+    spf: Vec<SpfAuthResult>,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+#[xml(rename = "record")]
+struct Results {
+    row: Row,
+    identifiers: Identifier,
+    auth_results: AuthResults,
+}
+
+#[derive(Debug, Eq, PartialEq, ToXml)]
+struct Feedback {
+    version: String,
+    metadata: ReportMetadata,
+    policy: PolicyPublished,
+    record: Vec<Results>,
 }
 
 #[cfg(test)]

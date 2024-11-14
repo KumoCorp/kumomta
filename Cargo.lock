@@ -2781,6 +2781,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "instant-xml"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d6d9e2e7cd304905e95ebb35f8849e644f72221497f7236061265c7baa216f0"
+dependencies = [
+ "instant-xml-macros",
+ "thiserror",
+ "xmlparser",
+]
+
+[[package]]
+name = "instant-xml-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feda749282b394baa2b889625be2e823e19014ab33eb30911ec01a7a321a63bf"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.89",
+ "quote 1.0.37",
+ "syn 2.0.87",
+]
+
+[[package]]
 name = "integration-tests"
 version = "0.1.0"
 dependencies = [
@@ -3090,6 +3113,11 @@ dependencies = [
 [[package]]
 name = "kumo-dmarc"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "instant-xml",
+ "kumo-spf",
+]
 
 [[package]]
 name = "kumo-log-types"
@@ -3232,6 +3260,7 @@ version = "0.1.0"
 dependencies = [
  "dns-resolver",
  "hickory-resolver",
+ "instant-xml",
  "k9",
  "serde",
  "thiserror",
@@ -7930,6 +7959,12 @@ name = "xml-rs"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af310deaae937e48a26602b730250b4949e125f468f11e6990be3e5304ddd96f"
+
+[[package]]
+name = "xmlparser"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
 
 [[package]]
 name = "yasna"
