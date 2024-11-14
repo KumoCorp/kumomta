@@ -3,6 +3,7 @@ use crate::spec::MacroSpec;
 use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
+use instant_xml::{FromXml, ToXml};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
@@ -14,7 +15,8 @@ use record::Qualifier;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq, FromXml, PartialEq, ToXml)]
+#[xml(scalar, rename_all = "lowercase")]
 pub enum SpfDisposition {
     /// A result of "none" means either (a) no syntactically valid DNS domain
     /// name was extracted from the SMTP session that could be used as the
