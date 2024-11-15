@@ -528,7 +528,8 @@ impl SmtpDispatcher {
             }
             (
                 Tls::Required | Tls::RequiredInsecure,
-                AdvTls::Yes, _ /* don't care if we think tls is broken when policy is required */
+                AdvTls::Yes,
+                _, /* don't care if we think tls is broken when policy is required */
             )
             | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
                 match client
