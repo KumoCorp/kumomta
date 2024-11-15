@@ -180,6 +180,10 @@ impl SmtpClient {
         }
     }
 
+    pub fn is_connected(&self) -> bool {
+        self.socket.is_some()
+    }
+
     pub fn set_tracer(&mut self, tracer: Arc<dyn SmtpClientTracer + Send + Sync>) {
         self.tracer.replace(tracer);
     }
@@ -287,8 +291,22 @@ impl SmtpClient {
     }
 
     pub async fn send_command(&mut self, command: &Command) -> Result<Response, ClientError> {
+        self.write_command_request(command, false).await?;
+        self.read_response(Some(command), command.client_timeout(&self.timeouts))
+            .await
+    }
+
+    async fn write_command_request(
+        &mut self,
+        command: &Command,
+        is_pipeline: bool,
+    ) -> Result<(), ClientError> {
         let line = command.encode();
-        tracing::trace!("send->{}: {line}", self.hostname);
+        tracing::trace!(
+            "send->{}: {}{line}",
+            self.hostname,
+            if is_pipeline { "(PIPELINE) " } else { "" },
+        );
         match self.socket.as_mut() {
             Some(socket) => {
                 if let Some(tracer) = &self.tracer {
@@ -301,20 +319,64 @@ impl SmtpClient {
                 )
                 .await
                 {
-                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
+                    Ok(result) => result.map_err(|_| {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
+                        ClientError::NotConnected
+                    }),
                     Err(_) => {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
                         return Err(ClientError::TimeOutRequest {
                             command: command.clone(),
                             duration: command.client_timeout_request(&self.timeouts),
-                        })
+                        });
                     }
                 }
             }
-            None => return Err(ClientError::NotConnected),
-        };
+            None => Err(ClientError::NotConnected),
+        }
+    }
 
-        self.read_response(Some(command), command.client_timeout(&self.timeouts))
-            .await
+    async fn write_data_with_timeout(&mut self, data: &[u8]) -> Result<(), ClientError> {
+        match self.socket.as_mut() {
+            Some(sock) => {
+                if let Some(tracer) = &self.tracer {
+                    BinWriteTracer::trace(tracer, &data);
+                }
+
+                match timeout(
+                    Command::Data.client_timeout_request(&self.timeouts),
+                    sock.write_all(data),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|_| {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
+                        ClientError::NotConnected
+                    }),
+                    Err(_) => {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
+                        Err(ClientError::TimeOutData)
+                    }
+                }
+            }
+            None => Err(ClientError::NotConnected),
+        }
     }
 
     /// Issue a series of commands, and return the responses to
@@ -340,40 +402,10 @@ impl SmtpClient {
         let mut results: Vec<Result<Response, ClientError>> = vec![];
 
         for cmd in &commands {
-            let line = cmd.encode();
-            tracing::trace!(
-                "send->{}: {}{line}",
-                self.hostname,
-                if pipeline { "(PIPELINE) " } else { "" },
-            );
-            match self.socket.as_mut() {
-                Some(socket) => {
-                    if let Some(tracer) = &self.tracer {
-                        WriteTracer::trace(tracer, &line);
-                    }
-
-                    let res = match timeout(
-                        cmd.client_timeout_request(&self.timeouts),
-                        socket.write_all(line.as_bytes()),
-                    )
-                    .await
-                    {
-                        Ok(result) => result.map_err(|_| ClientError::NotConnected),
-                        Err(_) => Err(ClientError::TimeOutRequest {
-                            command: cmd.clone(),
-                            duration: cmd.client_timeout_request(&self.timeouts),
-                        }),
-                    };
-                    if let Err(err) = res {
-                        results.push(Err(err.into()));
-                        return results;
-                    }
-                }
-                None => {
-                    results.push(Err(ClientError::NotConnected));
-                    return results;
-                }
-            };
+            if let Err(err) = self.write_command_request(cmd, pipeline).await {
+                results.push(Err(err.into()));
+                return results;
+            }
             if !pipeline {
                 // Immediately request the response if the server
                 // doesn't support pipelining
@@ -636,52 +668,13 @@ impl SmtpClient {
 
         tracing::trace!("message data is {} bytes", data.len());
 
-        match self.socket.as_mut() {
-            Some(sock) => {
-                if let Some(tracer) = &self.tracer {
-                    BinWriteTracer::trace(tracer, &data);
-                }
-
-                match timeout(
-                    Command::Data.client_timeout_request(&self.timeouts),
-                    sock.write_all(data),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => return Err(ClientError::TimeOutData),
-                }
-            }
-            None => return Err(ClientError::NotConnected),
-        }
+        self.write_data_with_timeout(&data).await?;
 
         let marker = if needs_newline { "\r\n.\r\n" } else { ".\r\n" };
 
         tracing::trace!("send->{}: {}", self.hostname, marker.escape_debug());
 
-        match self.socket.as_mut() {
-            Some(sock) => {
-                if let Some(tracer) = &self.tracer {
-                    WriteTracer::trace(tracer, &marker);
-                }
-
-                match timeout(
-                    Command::Data.client_timeout_request(&self.timeouts),
-                    sock.write_all(marker.as_bytes()),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| ClientError::NotConnected)?,
-                    Err(_) => {
-                        return Err(ClientError::TimeOutRequest {
-                            command: Command::Data,
-                            duration: Command::Data.client_timeout_request(&self.timeouts),
-                        })
-                    }
-                }
-            }
-            None => return Err(ClientError::NotConnected),
-        }
+        self.write_data_with_timeout(marker.as_bytes()).await?;
 
         let data_dot = Command::DataDot;
         let resp = self

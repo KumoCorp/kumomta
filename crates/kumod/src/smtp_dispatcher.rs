@@ -955,6 +955,17 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         };
 
+        let is_connected = self
+            .client
+            .as_ref()
+            .map(|c| c.is_connected())
+            .unwrap_or(false);
+        if !is_connected {
+            anyhow::bail!(
+                "after previous send attempt, client is unexpectedly no longer connected"
+            );
+        }
+
         Ok(())
     }
 }
