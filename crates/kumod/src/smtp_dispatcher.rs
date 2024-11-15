@@ -467,9 +467,6 @@ impl SmtpDispatcher {
             (Tls::Required | Tls::RequiredInsecure, AdvTls::No, _) => {
                 anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS is not advertised by {address:?}:{port}");
             }
-            (Tls::Required | Tls::RequiredInsecure, AdvTls::Yes, BrokenTls::Yes) => {
-                anyhow::bail!("tls policy is {enable_tls:?} but STARTTLS was previously found to be broken and remember_broken_tls is set");
-            }
             (Tls::Disabled, _, _) => {
                 // Do not use TLS
                 false
@@ -530,10 +527,10 @@ impl SmtpDispatcher {
                 enabled
             }
             (
-                Tls::Opportunistic | Tls::Required | Tls::RequiredInsecure,
-                AdvTls::Yes,
-                BrokenTls::No,
-            ) => {
+                Tls::Required | Tls::RequiredInsecure,
+                AdvTls::Yes, _ /* don't care if we think tls is broken when policy is required */
+            )
+            | (Tls::Opportunistic, AdvTls::Yes, BrokenTls::No) => {
                 match client
                     .starttls(TlsOptions {
                         insecure: enable_tls.allow_insecure(),
