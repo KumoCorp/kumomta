@@ -756,7 +756,47 @@ impl QueueDispatcher for SmtpDispatcher {
                     }
                 }
 
-                if response.code >= 400 && response.code < 500 {
+                if response.code >= 300 && response.code < 400 {
+                    // This should be an impossible status: there isn't
+                    // a valid RFC-defined 300 final disposition for
+                    // submitting an email message.  In order to get
+                    // here there has most likely been a protocol
+                    // synchronization issue and we should consider
+                    // the connection to be broken and we should
+                    // allow the message to be retried later on.
+                    tracing::error!(
+                        "Unexpected 3xx response while sending message \
+                        to {} {:?}: {response:?}. \
+                        Probable protocol synchronization error, please report this! \
+                        Message will be re-queued.",
+                        dispatcher.name,
+                        self.client_address
+                    );
+                    if let Some(msg) = dispatcher.msgs.pop() {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: &dispatcher.name,
+                            peer_address: self.client_address.as_ref(),
+                            response: response.clone(),
+                            egress_pool: Some(&dispatcher.egress_pool),
+                            egress_source: Some(&dispatcher.egress_source.name),
+                            relay_disposition: None,
+                            delivery_protocol: Some(&dispatcher.delivery_protocol),
+                            tls_info: self.tls_info.as_ref(),
+                            source_address: self.source_address.clone(),
+                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+                        })
+                        .await;
+                        spawn_local(
+                            "requeue message".to_string(),
+                            Dispatcher::requeue_message(msg, true, None, response),
+                        )?;
+                    }
+                    dispatcher.metrics.inc_transfail();
+                    // Break this connection
+                    anyhow::bail!("Protocol synchronization error!");
+                } else if response.code >= 400 && response.code < 500 {
                     // Transient failure
                     tracing::debug!(
                         "failed to send message to {} {:?}: {response:?}",
