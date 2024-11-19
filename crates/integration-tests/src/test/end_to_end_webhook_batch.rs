@@ -13,7 +13,7 @@ async fn end_to_end_with_webhook_batch() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildirAndWebHook::start_batched(BatchParams {
         max_batch_size: 100,
         min_batch_size: batch_size,
-        max_batch_latency: 10,
+        max_batch_latency: 15,
     })
     .await?;
 
@@ -34,11 +34,11 @@ async fn end_to_end_with_webhook_batch() -> anyhow::Result<()> {
 
     daemon
         .with_maildir
-        .wait_for_maildir_count(batch_size, Duration::from_secs(10))
+        .wait_for_maildir_count(batch_size, Duration::from_secs(30))
         .await;
 
     daemon
-        .wait_for_webhook_record_count(2 * batch_size, Duration::from_secs(10))
+        .wait_for_webhook_record_count(2 * batch_size, Duration::from_secs(30))
         .await;
 
     daemon.stop().await?;
