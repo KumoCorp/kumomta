@@ -314,7 +314,7 @@ mod test {
         println!("max_rate: {max_rate:?}");
 
         assert!(
-            diff < tolerance,
+            diff <= tolerance,
             "throttled after {throttled_iter} iterations for \
                 limit {limit}. diff={diff} is not within tolerance {tolerance}"
         );
