@@ -4,6 +4,10 @@
 
 ## Other Changes and Enhancements
 
+* Log records now include an optional `session_id` field to correlate
+  messages received or sent (depending on the type of the record) on
+  the same connection/session. #316
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
