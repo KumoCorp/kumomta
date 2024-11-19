@@ -87,9 +87,10 @@ async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()>
     );
     let mut expect = 5;
     for actual in intervals {
+        let upper_bound = expect + expect / 2;
         assert!(
-            actual >= expect && actual <= (expect + expect / 2),
-            "expected {expect} got {actual}"
+            actual >= expect && actual <= upper_bound,
+            "expected {expect}..={upper_bound} got {actual}"
         );
         expect *= 2;
     }
