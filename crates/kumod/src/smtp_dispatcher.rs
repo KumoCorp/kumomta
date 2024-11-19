@@ -25,7 +25,6 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::{Arc, LazyLock};
 use tracing::Level;
-use uuid::Uuid;
 
 static BROKEN_TLS_BY_SITE: LazyLock<LruCacheWithTtl<String, ()>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("smtp_dispatcher_broken_tls", 64 * 1024));
@@ -97,8 +96,6 @@ impl SmtpDispatcher {
             },
         };
 
-        let trace_id = Uuid::new_v4().to_string();
-
         let addresses = if proto_config.mx_list.is_empty() {
             dispatcher
                 .mx
@@ -128,7 +125,7 @@ impl SmtpDispatcher {
         let tracer = Arc::new(SmtpClientTracerImpl::new(serde_json::json!({
             "egress_pool": dispatcher.egress_pool.to_string(),
             "egress_source": dispatcher.egress_source.name.to_string(),
-            "id": trace_id,
+            "id": dispatcher.session_id.to_string(),
             "ready_queue_name": dispatcher.name.to_string(),
             "mx_plan": addresses.clone(),
         })));

@@ -39,6 +39,7 @@ use throttle::ThrottleSpec;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::instrument; // TODO move to here
+use uuid::Uuid;
 
 static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
     LazyLock::new(|| StdMutex::new(ReadyQueueManager::new()));
@@ -933,6 +934,7 @@ pub struct Dispatcher {
     pub msgs: Vec<Message>,
     pub delivery_protocol: String,
     pub suspended: Option<AdminSuspendReadyQEntryRef>,
+    pub session_id: Uuid,
     leases: Vec<LimitLease>,
     batch_started: Option<tokio::time::Instant>,
 }
@@ -1029,6 +1031,7 @@ impl Dispatcher {
             leases,
             suspended: None,
             batch_started: None,
+            session_id: Uuid::new_v4(),
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
