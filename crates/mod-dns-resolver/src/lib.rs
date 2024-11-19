@@ -143,20 +143,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             for ns in config.name_servers {
                 let addr = match ns {
-                    NameServer::Ip(ip) => {
-                        let ip: SocketAddr = ip
-                            .parse()
-                            .with_context(|| format!("name server: '{ip}'"))
-                            .map_err(any_err)?;
-                        ip.ip()
-                    }
-                    NameServer::Detailed { socket_addr, .. } => {
-                        let ip: SocketAddr = socket_addr
-                            .parse()
-                            .with_context(|| format!("name server: '{socket_addr}'"))
-                            .map_err(any_err)?;
-                        ip.ip()
-                    }
+                    NameServer::Ip(ip) => ip
+                        .parse()
+                        .with_context(|| format!("name server: '{ip}'"))
+                        .map_err(any_err)?,
+                    NameServer::Detailed { socket_addr, .. } => socket_addr
+                        .parse()
+                        .with_context(|| format!("name server: '{socket_addr}'"))
+                        .map_err(any_err)?,
                 };
                 context
                     .set_forward(Some(addr))

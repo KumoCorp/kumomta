@@ -8,6 +8,8 @@
   messages received or sent (depending on the type of the record) on
   the same connection/session. #316
 
+* Updated embedded libunbound to 1.22
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
@@ -15,3 +17,7 @@
   of `remember_broken_tls` without having to remember to special case it for
   sites where TLS is required, or sites that use MTA-STS or DANE to advertise
   that it should be required.
+
+* When configuring the unbound resolver, the port number was not passed through
+  for the upstream DNS server, so non-standard ports would not be respected.
+  #314

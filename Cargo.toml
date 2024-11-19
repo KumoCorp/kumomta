@@ -99,7 +99,7 @@ k9 = "0.12"
 lapin = {version="2.5", default-features=false, features=["native-tls"]}
 lexicmp = "0.1"
 libc = "0.2.139"
-libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="f00c353e7d0f37952206e41e3f4615edc1a606e4"}
+libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="514258fa097d04236761fff2f97b4221ff4965e0"}
 lipsum = "0.9"
 log = "0.4"
 lru-cache = "0.1"
