@@ -39,6 +39,7 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
 static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
@@ -471,6 +472,7 @@ pub struct SmtpServer {
     meta: ConnectionMetaData,
     global_reception_count: AtomicCounter,
     reception_count: AtomicCounter,
+    session_id: Uuid,
 }
 
 #[derive(Debug)]
@@ -534,6 +536,7 @@ impl SmtpServer {
             global_reception_count: crate::metrics_helper::total_msgs_received_for_service(
                 "esmtp_listener",
             ),
+            session_id: Uuid::new_v4(),
         };
 
         server.params.connection_gauge().inc();
@@ -721,6 +724,7 @@ impl SmtpServer {
                     response,
                     sender,
                     recipient,
+                    session_id: Some(self.session_id),
                 })
                 .await;
             }
@@ -1750,6 +1754,7 @@ impl SmtpServer {
                 tls_info: None, // TODO: populate with peer info
                 source_address: None,
                 provider: None,
+                session_id: Some(self.session_id),
             })
             .await;
             if queue_name != "null" {

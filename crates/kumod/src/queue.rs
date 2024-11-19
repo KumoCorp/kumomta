@@ -1294,6 +1294,7 @@ impl Queue {
                 tls_info: None,
                 source_address: None,
                 provider: None,
+                session_id: None,
             })
             .await;
         }
@@ -1398,6 +1399,7 @@ impl Queue {
                 tls_info: None,
                 source_address: None,
                 provider: self.queue_config.borrow().provider_name.as_deref(),
+                session_id: None,
             })
             .await;
             SpoolManager::remove_from_spool(id).await?;
@@ -1552,6 +1554,7 @@ impl Queue {
                 provider: None,
                 tls_info: None,
                 source_address: None,
+                session_id: None,
             })
             .await;
 
@@ -1659,6 +1662,7 @@ impl Queue {
                             tls_info: None,
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
+                            session_id: None,
                         })
                         .await;
                         anyhow::bail!("all possible sources for {} are suspended", self.name);
@@ -1689,6 +1693,7 @@ impl Queue {
                             tls_info: None,
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
+                            session_id: None,
                         })
                         .await;
                         anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
@@ -1739,6 +1744,7 @@ impl Queue {
                             tls_info: None,
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
+                            session_id: None,
                         })
                         .await;
                         anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
@@ -1794,6 +1800,7 @@ impl Queue {
                             tls_info: None,
                             source_address: None,
                             provider: None,
+                            session_id: None,
                         })
                         .await;
                         spawn("remove from spool", async move {
@@ -1820,6 +1827,7 @@ impl Queue {
                             tls_info: None,
                             source_address: None,
                             provider: None,
+                            session_id: None,
                         })
                         .await;
                         anyhow::bail!("failed maildir store: {err:#}");
@@ -2093,6 +2101,7 @@ impl QueueManager {
                     tls_info: None,
                     source_address: None,
                     provider: None,
+                    session_id: None,
                 })
                 .await;
 

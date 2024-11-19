@@ -354,6 +354,7 @@ impl SpoolManager {
                                                 tls_info: None,
                                                 source_address: None,
                                                 provider: None,
+                                                session_id: None,
                                             })
                                             .await;
                                             self.remove_from_spool_impl(id).await?;
@@ -405,6 +406,7 @@ impl SpoolManager {
                                     tls_info: None,
                                     source_address: None,
                                     provider: None,
+                                    session_id: None,
                                 })
                                 .await;
                                 self.remove_from_spool_impl(id).await?;

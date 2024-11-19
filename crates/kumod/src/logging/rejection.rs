@@ -4,6 +4,7 @@ use chrono::Utc;
 pub use kumo_log_types::*;
 use rfc5321::Response;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 pub struct LogRejection {
     pub peer_address: ResolvedAddress,
@@ -11,6 +12,7 @@ pub struct LogRejection {
     pub meta: serde_json::Value,
     pub sender: Option<String>,
     pub recipient: Option<String>,
+    pub session_id: Option<Uuid>,
 }
 
 pub async fn log_rejection(args: LogRejection) {
@@ -57,6 +59,7 @@ pub async fn log_rejection(args: LogRejection) {
             tls_peer_subject_name: None,
             source_address: None,
             provider_name: None,
+            session_id: args.session_id,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");

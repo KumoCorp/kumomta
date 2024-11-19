@@ -9,6 +9,7 @@ pub use kumo_log_types::*;
 use message::Message;
 use rfc5321::{EnhancedStatusCode, Response, TlsInformation};
 use std::net::Ipv4Addr;
+use uuid::Uuid;
 
 pub struct LogDisposition<'a> {
     pub kind: RecordType,
@@ -23,6 +24,7 @@ pub struct LogDisposition<'a> {
     pub tls_info: Option<&'a TlsInformation>,
     pub source_address: Option<MaybeProxiedSourceAddress>,
     pub provider: Option<&'a str>,
+    pub session_id: Option<Uuid>,
 }
 
 pub async fn log_disposition(args: LogDisposition<'_>) {
@@ -39,6 +41,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         tls_info,
         source_address,
         provider,
+        session_id,
     } = args;
 
     let loggers = Logger::get_loggers();
@@ -157,6 +160,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             tls_peer_subject_name,
             source_address: source_address.clone(),
             provider_name: provider.map(|s| s.to_string()),
+            session_id,
         };
         if let Err(err) = logger.log(record).await {
             tracing::error!("failed to log: {err:#}");
@@ -243,6 +247,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             tls_peer_subject_name: None,
                             source_address: None,
                             provider_name: provider.map(|s| s.to_string()),
+                            session_id,
                         };
 
                         if let Err(err) = logger.log(record).await {

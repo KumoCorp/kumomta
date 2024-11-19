@@ -1143,6 +1143,7 @@ impl Dispatcher {
                             tls_info: None,
                             source_address: None,
                             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+                            session_id: Some(dispatcher.session_id),
                         })
                         .await;
                         Dispatcher::requeue_message(msg, true, None, response).await?;
@@ -1368,6 +1369,7 @@ impl Dispatcher {
                                     tls_info: None,
                                     source_address: None,
                                     provider: None,
+                                    session_id: None,
                                 })
                                 .await;
                                 SpoolManager::remove_from_spool(*msg.id()).await.ok();
@@ -1516,6 +1518,7 @@ impl Dispatcher {
                 tls_info: None,
                 source_address: None,
                 provider: path_config.provider_name.as_deref(),
+                session_id: Some(self.session_id),
             })
             .await;
 
@@ -1605,6 +1608,7 @@ impl Dispatcher {
                             provider: None,
                             tls_info: None,
                             source_address: None,
+                            session_id: Some(self.session_id),
                         })
                         .await;
 

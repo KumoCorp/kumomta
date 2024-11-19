@@ -1600,6 +1600,7 @@ match_internal = true
                 tls_protocol_version: None,
                 tls_peer_subject_name: None,
                 provider_name: None,
+                session_id: None,
             }
         }
 

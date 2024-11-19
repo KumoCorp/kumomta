@@ -596,6 +596,7 @@ async fn process_recipient<'a>(
             tls_info: None,
             source_address: None,
             provider: None,
+            session_id: None,
         })
         .await;
         QueueManager::insert_or_unwind(&queue_name, message.clone(), request.deferred_spool)
@@ -651,6 +652,7 @@ async fn queue_deferred(
         tls_info: None,
         source_address: None,
         provider: None,
+        session_id: None,
     })
     .await;
     QueueManager::insert_or_unwind(GENERATOR_QUEUE_NAME, message, request.deferred_spool).await?;
@@ -910,6 +912,7 @@ impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
                 tls_info: None,
                 source_address: None,
                 provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+                session_id: None,
             })
             .await;
             SpoolManager::remove_from_spool(*msg.id()).await?;

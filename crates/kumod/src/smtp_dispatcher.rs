@@ -647,6 +647,7 @@ impl SmtpDispatcher {
             tls_info: self.tls_info.as_ref(),
             source_address: self.source_address.clone(),
             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+            session_id: Some(dispatcher.session_id),
         })
         .await
     }

@@ -139,7 +139,16 @@ The log record is a JSON object with the following shape:
     "tls_protocol_version": "TLSv1.3",
     "tls_peer_subject_name": ["C=US","ST=CA","L=SanFrancisco","O=Fort-Funston",
                               "OU=MyOrganizationalUnit","CN=do.havedane.net",
-                              "name=EasyRSA","emailAddress=me@myhost.mydomain"]}
+                              "name=EasyRSA","emailAddress=me@myhost.mydomain"]},
+
+    // A correlating session identifier. Messages received via
+    // the same connection will have the same session_id in their
+    // Reception or Rejection records. Messages being sent via the
+    // same session will have the same session_id in their TransientFailure,
+    // Delivery and Bounce records.
+    // May not be set in situations where there is no active session.
+    // {{since('dev', inline=True)}}
+    "session_id": "9bcd689e-23d9-41b7-a015-63a1382f8b57"
 }
 ```
 

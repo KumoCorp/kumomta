@@ -116,6 +116,13 @@ pub struct JsonLogRecord {
     /// by the same provider.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_name: Option<String>,
+
+    /// Uuid identifying a connection/session for either inbound
+    /// or outbound (depending on the type of the record).
+    /// This is useful when correlating a series of messages to
+    /// the same connection for either ingress or egress
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
