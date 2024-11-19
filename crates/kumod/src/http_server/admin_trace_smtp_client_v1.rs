@@ -3,9 +3,10 @@ use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
+use parking_lot::Mutex;
 use rfc5321::DeferredTracer;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use tokio::sync::broadcast::{channel, Sender};
 use tracing::Level;
 
@@ -32,9 +33,21 @@ impl SmtpClientTraceManager {
     }
 }
 
-#[derive(Debug)]
 pub struct SmtpClientTracerImpl {
     meta: Mutex<serde_json::Value>,
+}
+
+impl std::fmt::Debug for SmtpClientTracerImpl {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let meta = self.meta.lock();
+        match serde_json::to_string(&*meta) {
+            Ok(s) => write!(fmt, "SmtpClientTracerImpl(meta={s})"),
+            Err(_) => fmt
+                .debug_struct("SmtpClientTracerImpl")
+                .field("meta", &meta)
+                .finish(),
+        }
+    }
 }
 
 impl SmtpClientTracerImpl {
@@ -51,11 +64,11 @@ impl SmtpClientTracerImpl {
     }
 
     pub fn set_meta<V: Into<serde_json::Value>>(&self, key: &str, value: V) {
-        self.meta.lock().unwrap()[key] = value.into();
+        self.meta.lock()[key] = value.into();
     }
 
     pub fn unset_meta(&self, key: &str) {
-        let mut map = self.meta.lock().unwrap();
+        let mut map = self.meta.lock();
         match &mut *map {
             serde_json::Value::Object(map) => {
                 map.remove(key);
@@ -65,7 +78,7 @@ impl SmtpClientTracerImpl {
     }
 
     fn clone_meta(&self) -> serde_json::Value {
-        self.meta.lock().unwrap().clone()
+        self.meta.lock().clone()
     }
 
     pub fn submit<F: FnOnce() -> SmtpClientTraceEventPayload>(&self, f: F) {
@@ -101,7 +114,7 @@ impl rfc5321::SmtpClientTracer for SmtpClientTracerImpl {
         SmtpClientTraceManager::submit(|| {
             let payload = port_payload(event);
             SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().unwrap().clone(),
+                conn_meta: self.meta.lock().clone(),
                 payload,
                 when: Utc::now(),
             }
@@ -112,7 +125,7 @@ impl rfc5321::SmtpClientTracer for SmtpClientTracerImpl {
         SmtpClientTraceManager::submit(|| {
             let payload = port_payload(deferred.trace());
             SmtpClientTraceEvent {
-                conn_meta: self.meta.lock().unwrap().clone(),
+                conn_meta: self.meta.lock().clone(),
                 payload,
                 when: Utc::now(),
             }
