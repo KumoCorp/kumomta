@@ -626,6 +626,30 @@ impl SmtpDispatcher {
             false
         }
     }
+
+    async fn log_disposition(
+        &self,
+        dispatcher: &Dispatcher,
+        kind: RecordType,
+        msg: Message,
+        response: Response,
+    ) {
+        log_disposition(LogDisposition {
+            kind,
+            msg,
+            response,
+            site: &dispatcher.name,
+            peer_address: self.client_address.as_ref(),
+            egress_pool: Some(&dispatcher.egress_pool),
+            egress_source: Some(&dispatcher.egress_source.name),
+            relay_disposition: None,
+            delivery_protocol: Some(&dispatcher.delivery_protocol),
+            tls_info: self.tls_info.as_ref(),
+            source_address: self.source_address.clone(),
+            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
+        })
+        .await
+    }
 }
 
 #[async_trait(?Send)]
@@ -770,20 +794,12 @@ impl QueueDispatcher for SmtpDispatcher {
                         self.client_address
                     );
                     if let Some(msg) = dispatcher.msgs.pop() {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: self.client_address.as_ref(),
-                            response: response.clone(),
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address.clone(),
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                        })
+                        self.log_disposition(
+                            dispatcher,
+                            RecordType::TransientFailure,
+                            msg.clone(),
+                            response.clone(),
+                        )
                         .await;
                         spawn_local(
                             "requeue message".to_string(),
@@ -801,20 +817,12 @@ impl QueueDispatcher for SmtpDispatcher {
                         self.client_address
                     );
                     if let Some(msg) = dispatcher.msgs.pop() {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: self.client_address.as_ref(),
-                            response: response.clone(),
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address.clone(),
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                        })
+                        self.log_disposition(
+                            dispatcher,
+                            RecordType::TransientFailure,
+                            msg.clone(),
+                            response.clone(),
+                        )
                         .await;
                         spawn_local(
                             "requeue message".to_string(),
@@ -825,20 +833,12 @@ impl QueueDispatcher for SmtpDispatcher {
                 } else if response.code >= 200 && response.code < 300 {
                     tracing::debug!("Delivered OK! {response:?}");
                     if let Some(msg) = dispatcher.msgs.pop() {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::Delivery,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: self.client_address.as_ref(),
+                        self.log_disposition(
+                            dispatcher,
+                            RecordType::Delivery,
+                            msg.clone(),
                             response,
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address.clone(),
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                        })
+                        )
                         .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
                     }
@@ -851,21 +851,8 @@ impl QueueDispatcher for SmtpDispatcher {
                         self.client_address
                     );
                     if let Some(msg) = dispatcher.msgs.pop() {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::Bounce,
-                            msg: msg.clone(),
-                            site: &dispatcher.name,
-                            peer_address: self.client_address.as_ref(),
-                            response,
-                            egress_pool: Some(&dispatcher.egress_pool),
-                            egress_source: Some(&dispatcher.egress_source.name),
-                            relay_disposition: None,
-                            delivery_protocol: Some(&dispatcher.delivery_protocol),
-                            tls_info: self.tls_info.as_ref(),
-                            source_address: self.source_address.clone(),
-                            provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                        })
-                        .await;
+                        self.log_disposition(dispatcher, RecordType::Bounce, msg.clone(), response)
+                            .await;
                         SpoolManager::remove_from_spool(*msg.id()).await?;
                     }
                 }
@@ -889,20 +876,12 @@ impl QueueDispatcher for SmtpDispatcher {
                         content: reason.clone(),
                         command: Some(command.encode()),
                     };
-                    log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: self.client_address.as_ref(),
-                        response: response.clone(),
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address.clone(),
-                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                    })
+                    self.log_disposition(
+                        dispatcher,
+                        RecordType::TransientFailure,
+                        msg.clone(),
+                        response.clone(),
+                    )
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
@@ -933,20 +912,12 @@ impl QueueDispatcher for SmtpDispatcher {
                         content: reason.clone(),
                         command: command.map(|c| c.encode()),
                     };
-                    log_disposition(LogDisposition {
-                        kind: RecordType::TransientFailure,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: self.client_address.as_ref(),
-                        response: response.clone(),
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address.clone(),
-                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                    })
+                    self.log_disposition(
+                        dispatcher,
+                        RecordType::TransientFailure,
+                        msg.clone(),
+                        response.clone(),
+                    )
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
@@ -969,21 +940,8 @@ impl QueueDispatcher for SmtpDispatcher {
             Ok(response) => {
                 tracing::debug!("Delivered OK! {response:?}");
                 if let Some(msg) = dispatcher.msgs.pop() {
-                    log_disposition(LogDisposition {
-                        kind: RecordType::Delivery,
-                        msg: msg.clone(),
-                        site: &dispatcher.name,
-                        peer_address: self.client_address.as_ref(),
-                        response,
-                        egress_pool: Some(&dispatcher.egress_pool),
-                        egress_source: Some(&dispatcher.egress_source.name),
-                        relay_disposition: None,
-                        delivery_protocol: Some(&dispatcher.delivery_protocol),
-                        tls_info: self.tls_info.as_ref(),
-                        source_address: self.source_address.clone(),
-                        provider: dispatcher.path_config.borrow().provider_name.as_deref(),
-                    })
-                    .await;
+                    self.log_disposition(dispatcher, RecordType::Delivery, msg.clone(), response)
+                        .await;
                     SpoolManager::remove_from_spool(*msg.id()).await?;
                 }
                 dispatcher.metrics.inc_delivered();
