@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use chrono::{DateTime, Utc};
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
