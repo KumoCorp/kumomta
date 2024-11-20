@@ -21,3 +21,8 @@
 * When configuring the unbound resolver, the port number was not passed through
   for the upstream DNS server, so non-standard ports would not be respected.
   #314
+
+* Expiration was checked only when incrementing the number of attempts, or when
+  spooling in.  There are some situations where a message can be delayed and
+  re-queued without incrementing the number of attempts, which meant that some
+  messages could linger in the queues until they are actually attempted again.

@@ -1435,6 +1435,43 @@ impl Queue {
             msg.delay_with_jitter(60).await?;
         }
 
+        if let Some(due) = msg.get_due() {
+            let max_age = self.queue_config.borrow().get_max_age();
+            // The age of the message at its next due time
+            let due_age = msg.age(due);
+            if due_age >= max_age {
+                let id = *msg.id();
+                tracing::debug!("expiring {id} {due_age} > {max_age}");
+                log_disposition(LogDisposition {
+                    kind: RecordType::Expiration,
+                    msg,
+                    site: "localhost",
+                    peer_address: None,
+                    response: Response {
+                        code: 551,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 5,
+                            subject: 4,
+                            detail: 7,
+                        }),
+                        content: format!("Next delivery time {due_age} > {max_age}"),
+                        command: None,
+                    },
+                    egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
+                    egress_source: None,
+                    relay_disposition: None,
+                    delivery_protocol: None,
+                    tls_info: None,
+                    source_address: None,
+                    provider: self.queue_config.borrow().provider_name.as_deref(),
+                    session_id: None,
+                })
+                .await;
+                SpoolManager::remove_from_spool(id).await?;
+                return Ok(());
+            }
+        }
+
         self.insert(msg).await?;
 
         Ok(())
