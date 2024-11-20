@@ -9,7 +9,9 @@ use crate::http_server::inject_v1::HttpInjectionGeneratorDispatcher;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
-use crate::queue::{DeliveryProto, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME};
+use crate::queue::{
+    DeliveryProto, IncrementAttempts, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME,
+};
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
@@ -967,8 +969,13 @@ impl Drop for Dispatcher {
                                 command: None,
                             };
 
-                            if let Err(err) =
-                                Dispatcher::requeue_message(msg, false, None, response).await
+                            if let Err(err) = Dispatcher::requeue_message(
+                                msg,
+                                IncrementAttempts::No,
+                                None,
+                                response,
+                            )
+                            .await
                             {
                                 tracing::error!("error requeuing message on Drop: {err:#}");
                             }
@@ -1146,7 +1153,8 @@ impl Dispatcher {
                             session_id: Some(dispatcher.session_id),
                         })
                         .await;
-                        Dispatcher::requeue_message(msg, true, None, response).await?;
+                        Dispatcher::requeue_message(msg, IncrementAttempts::Yes, None, response)
+                            .await?;
                         dispatcher.metrics.inc_transfail();
                     }
 
@@ -1298,7 +1306,7 @@ impl Dispatcher {
     #[instrument(skip(msg))]
     pub async fn requeue_message(
         msg: Message,
-        mut increment_attempts: bool,
+        mut increment_attempts: IncrementAttempts,
         mut delay: Option<chrono::Duration>,
         response: Response,
     ) -> anyhow::Result<()> {
@@ -1313,7 +1321,7 @@ impl Dispatcher {
         // to an alternative scheduled queue.
         // Moving to another queue will make the message immediately eligible
         // for delivery in that new queue.
-        if increment_attempts {
+        if increment_attempts == IncrementAttempts::Yes {
             match load_config().await {
                 Ok(mut config) => {
                     let result: anyhow::Result<()> = config
@@ -1332,7 +1340,7 @@ impl Dispatcher {
                                 // in Queue::requeue_message, but we still want the
                                 // number to be incremented.
                                 msg.increment_num_attempts();
-                                increment_attempts = false;
+                                increment_attempts = IncrementAttempts::No;
 
                                 // Avoid adding jitter as part of the queue change
                                 delay = Some(chrono::Duration::zero());
@@ -1471,9 +1479,13 @@ impl Dispatcher {
                             command: None,
                         };
                         for msg in msgs {
-                            if let Err(err) =
-                                Self::requeue_message(msg, false, Some(delay), response.clone())
-                                    .await
+                            if let Err(err) = Self::requeue_message(
+                                msg,
+                                IncrementAttempts::No,
+                                Some(delay),
+                                response.clone(),
+                            )
+                            .await
                             {
                                 tracing::error!("error requeuing message for throttle: {err:#}");
                             }
@@ -1499,7 +1511,6 @@ impl Dispatcher {
             self.metrics.inc_fail_by(msgs.len());
         }
         let path_config = self.path_config.borrow();
-        let increment_attempts = true;
         for msg in msgs {
             log_disposition(LogDisposition {
                 kind: if response.is_transient() {
@@ -1524,7 +1535,7 @@ impl Dispatcher {
 
             if response.is_transient() {
                 if let Err(err) =
-                    Self::requeue_message(msg, increment_attempts, None, response.clone()).await
+                    Self::requeue_message(msg, IncrementAttempts::Yes, None, response.clone()).await
                 {
                     tracing::error!("error requeuing for bulk {} operation: {err:#}", self.name);
                 }
@@ -1612,8 +1623,7 @@ impl Dispatcher {
                         })
                         .await;
 
-                        let increment_attempts = true;
-                        Self::requeue_message(msg, increment_attempts, None, response)
+                        Self::requeue_message(msg, IncrementAttempts::Yes, None, response)
                             .await
                             .ok();
                         continue;

@@ -1233,13 +1233,15 @@ impl Queue {
             }
         }
 
-        let increment_attempts = false;
         let mut delay = None;
 
         let queue_name = match msg.get_queue_name() {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
-                if let Err(err) = self.requeue_message(msg, increment_attempts, delay).await {
+                if let Err(err) = self
+                    .requeue_message(msg, IncrementAttempts::No, delay)
+                    .await
+                {
                     tracing::error!(
                         "failed to requeue message to {} after failed rebind: {err:#}",
                         self.name
@@ -1299,7 +1301,10 @@ impl Queue {
             .await;
         }
 
-        if let Err(err) = queue.requeue_message(msg, increment_attempts, delay).await {
+        if let Err(err) = queue
+            .requeue_message(msg, IncrementAttempts::No, delay)
+            .await
+        {
             tracing::error!(
                 "failed to requeue message to {} after failed rebind: {err:#}",
                 queue.name
@@ -1414,10 +1419,10 @@ impl Queue {
     pub async fn requeue_message(
         &self,
         msg: Message,
-        increment_attempts: bool,
+        increment_attempts: IncrementAttempts,
         delay: Option<chrono::Duration>,
     ) -> anyhow::Result<()> {
-        if increment_attempts {
+        if increment_attempts == IncrementAttempts::Yes {
             match self.increment_attempts_and_update_delay(msg).await? {
                 Some(msg) => {
                     return self.insert(msg).await;
@@ -2261,4 +2266,10 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
             }
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IncrementAttempts {
+    No,
+    Yes,
 }
