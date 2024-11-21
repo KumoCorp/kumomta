@@ -1019,6 +1019,9 @@ impl Dispatcher {
             DeliveryProto::Lua { .. } => "Lua".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
             DeliveryProto::HttpInjectionGenerator => "HttpInjectionGenerator".to_string(),
+            DeliveryProto::Null => {
+                anyhow::bail!("Should not have a ready_queue for the null queue")
+            }
         };
 
         let mut dispatcher = Self {
@@ -1059,6 +1062,9 @@ impl Dispatcher {
             }
             DeliveryProto::HttpInjectionGenerator => {
                 Box::new(HttpInjectionGeneratorDispatcher::new())
+            }
+            DeliveryProto::Null => {
+                anyhow::bail!("Should not have a ready_queue for the null queue")
             }
         };
 

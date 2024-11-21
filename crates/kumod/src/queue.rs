@@ -317,6 +317,7 @@ pub enum DeliveryProto {
     Maildir { maildir_path: std::path::PathBuf },
     Lua { custom_lua: LuaDeliveryProtocol },
     HttpInjectionGenerator,
+    Null,
 }
 
 impl DeliveryProto {
@@ -326,13 +327,14 @@ impl DeliveryProto {
             Self::Maildir { .. } => "maildir",
             Self::Lua { .. } => "lua",
             Self::HttpInjectionGenerator { .. } => "httpinject",
+            Self::Null { .. } => "null",
         }
     }
 
     pub fn ready_queue_name(&self) -> String {
         let proto_name = self.metrics_protocol_name();
         match self {
-            Self::Smtp { .. } => proto_name.to_string(),
+            Self::Smtp { .. } | Self::Null => proto_name.to_string(),
             Self::Maildir { maildir_path } => format!("{proto_name}:{}", maildir_path.display()),
             Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
             Self::HttpInjectionGenerator => format!("{proto_name}:generator"),
@@ -928,6 +930,15 @@ impl Queue {
     ) -> anyhow::Result<QueueConfig> {
         if name == GENERATOR_QUEUE_NAME {
             return make_generate_queue_config();
+        }
+
+        if name == "null" {
+            return Ok(QueueConfig {
+                protocol: DeliveryProto::Null,
+                retry_interval: Duration::from_secs(10),
+                max_retry_interval: Some(Duration::from_secs(10)),
+                ..QueueConfig::default()
+            });
         }
 
         let components = QueueNameComponents::parse(&name);
@@ -1792,6 +1803,17 @@ impl Queue {
                         anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
                     }
                 }
+            }
+            DeliveryProto::Null => {
+                // We don't log anything here; this is in alignment with
+                // our reception time behavior of not logging either.
+                // We shouldn't get here unless someone re-bound a message
+                // into the "null" queue, and there will be an AdminRebind
+                // log entry recording that
+                spawn("remove from spool", async move {
+                    SpoolManager::remove_from_spool(*msg.id()).await
+                })?;
+                Ok(())
             }
             DeliveryProto::Maildir { maildir_path } => {
                 tracing::trace!(
