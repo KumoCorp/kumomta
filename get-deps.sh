@@ -184,6 +184,7 @@ debian_deps() {
     'jq' \
     'libclang-dev' \
     'libssl-dev' \
+    'lld' \
     'llvm-dev' \
     'lsb-release' \
     'pkg-config' \
