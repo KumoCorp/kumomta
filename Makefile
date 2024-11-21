@@ -1,3 +1,9 @@
+# pick up env vars from an optional .make-env file.
+# On ubuntu you probably want ROCKSDB_LIB_DIR=/usr/lib/x86_64-linux-gnu
+# in .make-env to make it faster to build the rocksdb crate
+-include .make-env
+export $(shell test -f .make-env && sed 's/=.*//' .make-env)
+
 check:
 	cargo check
 

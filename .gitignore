@@ -15,6 +15,7 @@ dhat-heap.json
 **/*.rs.bk
 .*.sw*
 /perf.data*
+/.make-env
 /jeprof*
 /.cache
 /.cache-env
