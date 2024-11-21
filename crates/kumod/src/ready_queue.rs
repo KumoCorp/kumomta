@@ -40,7 +40,7 @@ use throttle::limit::{LimitLease, LimitSpec};
 use throttle::ThrottleSpec;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
-use tracing::instrument; // TODO move to here
+use tracing::instrument;
 use uuid::Uuid;
 
 static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
