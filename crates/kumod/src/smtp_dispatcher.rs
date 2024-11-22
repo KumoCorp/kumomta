@@ -179,7 +179,7 @@ impl SmtpDispatcher {
                             detail: 4,
                         }),
                         content: format!(
-                            "{addr:?} is on the list of prohibited_hosts {:?}",
+                            "{addr} is on the list of prohibited_hosts {:?}",
                             path_config.prohibited_hosts
                         ),
                         command: None,
@@ -276,10 +276,10 @@ impl SmtpDispatcher {
             .egress_source
             .remote_port
             .unwrap_or(path_config.smtp_port);
-        let connect_context = format!("connect to {address:?} port {port} and read initial banner");
+        let connect_context = format!("connect to {address} port {port} and read initial banner");
 
         self.tracer.diagnostic(Level::INFO, || {
-            format!("Attempting connection to {address:?} port {port}")
+            format!("Attempting connection to {address} port {port}")
         });
 
         let make_connection = {
@@ -301,7 +301,7 @@ impl SmtpDispatcher {
                     .await?;
 
                 tracing::debug!(
-                    "connected to {address:?} port {port} via source address {source_address:?}"
+                    "connected to {address} port {port} via source address {source_address:?}"
                 );
 
                 let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
@@ -341,7 +341,7 @@ impl SmtpDispatcher {
         let pretls_caps = client
             .ehlo(&ehlo_name)
             .await
-            .with_context(|| format!("{address:?}:{port}: EHLO after banner"))?;
+            .with_context(|| format!("{address}:{port}: EHLO after banner"))?;
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
@@ -493,7 +493,7 @@ impl SmtpDispatcher {
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
                         tracing::debug!(
-                            "TLS handshake with {address:?}:{port} failed: \
+                            "TLS handshake with {address}:{port} failed: \
                         {handshake_error}, but continuing in clear text because \
                         we are in OpportunisticInsecure mode"
                         );
@@ -518,7 +518,7 @@ impl SmtpDispatcher {
                     self.remember_broken_tls(&dispatcher.name, &path_config);
                     OpportunisticInsecureTlsHandshakeError {
                         error,
-                        address: format!("{address:?}:{port}"),
+                        address: format!("{address}:{port}"),
                         label,
                     }
                 })?;

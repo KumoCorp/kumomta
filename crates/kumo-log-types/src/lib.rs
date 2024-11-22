@@ -18,6 +18,12 @@ pub struct ResolvedAddress {
     pub addr: IpAddr,
 }
 
+impl std::fmt::Display for ResolvedAddress {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "{}/{}", self.name, self.addr)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum RecordType {
     /// Recorded by a receiving listener

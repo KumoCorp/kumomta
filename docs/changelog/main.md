@@ -10,6 +10,11 @@
 
 * Updated embedded libunbound to 1.22
 
+* Use more compact representation of ResolvedAddress in logs. Instead of
+  showing something like `ResolvedAddress { name: "some.host.", addr: 10.0.0.1 }`
+  we now display it as `some.host./10.0.0.1` which is a bit easier to
+  understand and occupies less space in the logs.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
