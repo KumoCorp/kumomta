@@ -1,7 +1,7 @@
+use crate::shaping_config::{assign_shaping, load_shaping, spawn_shaping_updater};
 use anyhow::Context;
 use clap::Parser;
 use config::CallbackSignature;
-use kumo_api_types::shaping::Shaping;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use std::future::Future;
@@ -11,6 +11,7 @@ use std::pin::Pin;
 mod http_server;
 mod mod_auto;
 mod publish;
+mod shaping_config;
 
 /// KumoMTA Traffic Shaping Automation Daemon.
 ///
@@ -66,11 +67,9 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
 
         // Explicitly load the shaping config now to catch silly
         // mistakes before we start up the listeners
-        let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
-        let _shaping: Shaping = config
-            .async_call_callback_non_default(&sig, ())
-            .await
-            .context("in tsa_load_shaping_data event")?;
+        let shaping = load_shaping().await?;
+        // and set it as the global shared copy of the shaping config
+        assign_shaping(shaping);
 
         let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
 
@@ -79,7 +78,7 @@ fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
             .await
             .context("in tsa_init event")?;
 
-        // TODO: start something else here?
+        spawn_shaping_updater()?;
 
         Ok(())
     })

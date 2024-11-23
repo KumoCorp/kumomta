@@ -253,7 +253,7 @@ impl Rule {
 }
 
 #[cfg(feature = "lua")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ShapingInner {
     by_site: OrderMap<String, PartialEntry>,
     by_domain: OrderMap<String, PartialEntry>,
@@ -431,7 +431,7 @@ impl ShapingInner {
 }
 
 #[cfg(feature = "lua")]
-#[derive(Debug, Clone, mlua::FromLua)]
+#[derive(Debug, Default, Clone, mlua::FromLua)]
 pub struct Shaping {
     inner: Arc<ShapingInner>,
 }

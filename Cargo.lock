@@ -7233,6 +7233,7 @@ name = "tsa-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "axum",
  "axum-server",
  "batch-channel",

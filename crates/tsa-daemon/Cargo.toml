@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = {workspace=true}
+arc-swap.workspace = true
 axum = {workspace=true, features=["ws"]}
 axum-server = {workspace=true, features=["tls-rustls"]}
 batch-channel.workspace = true

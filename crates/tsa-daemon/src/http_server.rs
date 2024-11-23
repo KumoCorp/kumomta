@@ -1,11 +1,11 @@
 use crate::publish::submit_record;
+use crate::shaping_config::get_shaping;
 use anyhow::{anyhow, Context};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::DateTime;
-use config::CallbackSignature;
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
 use kumo_api_types::tsa::{ReadyQSuspension, SchedQSuspension, SuspensionEntry, Suspensions};
 use kumo_log_types::*;
@@ -338,12 +338,7 @@ pub async fn publish_log_batch(
     db: &ConnectionThreadSafe,
     records: &mut Vec<JsonLogRecord>,
 ) -> anyhow::Result<()> {
-    let mut config = config::load_config().await?;
-    let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
-    let shaping: Shaping = config
-        .async_call_callback_non_default(&sig, ())
-        .await
-        .context("in tsa_load_shaping_data event")?;
+    let shaping = get_shaping();
 
     let mut events = vec![];
 
