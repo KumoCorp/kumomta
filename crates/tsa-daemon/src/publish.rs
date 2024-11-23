@@ -1,4 +1,4 @@
-use crate::http_server::publish_log_v1_impl;
+use crate::http_server::{open_history_db, publish_log_batch};
 use batch_channel::{Receiver, Sender};
 use kumo_log_types::JsonLogRecord;
 use std::sync::LazyLock;
@@ -13,8 +13,17 @@ pub async fn submit_record(record: JsonLogRecord) -> anyhow::Result<()> {
 }
 
 async fn run_processor(rx: Receiver<JsonLogRecord>) {
-    while let Some(record) = rx.recv().await {
-        if let Err(err) = publish_log_v1_impl(record).await {
+    const BATCH_SIZE: usize = 1024;
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    let db = open_history_db().unwrap();
+    loop {
+        rx.recv_vec(BATCH_SIZE, &mut batch).await;
+        if batch.is_empty() {
+            // All Senders are dropped
+            return;
+        }
+
+        if let Err(err) = publish_log_batch(&db, &mut batch).await {
             tracing::error!("Error in publish_log_v1_impl: {err:#}");
         }
     }

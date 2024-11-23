@@ -30,10 +30,12 @@ static HISTORY: LazyLock<ConnectionThreadSafe> = LazyLock::new(|| open_history_d
 static SUSPENSION_TX: LazyLock<SuspensionSubscriberMgr> =
     LazyLock::new(|| SuspensionSubscriberMgr::new());
 
-fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
+pub fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();
-    let db = Connection::open_thread_safe(&path)
+    let mut db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening TSA database {path}"))?;
+
+    db.set_busy_timeout(60_000)?;
 
     let query = r#"
 CREATE TABLE IF NOT EXISTS event_history (
@@ -78,6 +80,11 @@ CREATE TABLE IF NOT EXISTS sched_q_suspensions (
     "#;
 
     db.execute(query)?;
+    db.execute("PRAGMA synchronous = OFF")?;
+
+    // This one is risky and doesn't make a significant
+    // impact on overall performance
+    // db.execute("PRAGMA journal_mode = MEMORY")?;
 
     Ok(db)
 }
@@ -98,6 +105,7 @@ pub fn make_router() -> RouterAndDocs {
 }
 
 fn create_config(
+    db: &ConnectionThreadSafe,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -106,7 +114,7 @@ fn create_config(
     source: &str,
     prefer_rollup: bool,
 ) -> anyhow::Result<()> {
-    let mut upsert = HISTORY.prepare(
+    let mut upsert = db.prepare(
         "INSERT INTO config
                  (rule_hash, site_name, domain, mx_rollup, source, name, value, reason, expires)
                  VALUES
@@ -159,10 +167,12 @@ fn regex_list_to_string(list: &[Regex]) -> String {
 }
 
 fn create_tenant_suspension(
+    db: &ConnectionThreadSafe,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
     use_campaign: bool,
+    events: &mut Vec<SuspensionEntry>,
 ) -> anyhow::Result<()> {
     let components = QueueNameComponents::parse(&record.queue);
     let Some(tenant) = components.tenant else {
@@ -180,7 +190,7 @@ fn create_tenant_suspension(
         None
     };
 
-    let mut upsert = HISTORY
+    let mut upsert = db
         .prepare(
             "INSERT INTO sched_q_suspensions
                  (rule_hash, campaign, tenant, domain, reason, expires)
@@ -214,7 +224,7 @@ fn create_tenant_suspension(
         .next()
         .context("execute sched_q_suspensions upsert")?;
 
-    SuspensionSubscriberMgr::submit(SuspensionEntry::SchedQ(SchedQSuspension {
+    events.push(SuspensionEntry::SchedQ(SchedQSuspension {
         rule_hash: rule_hash.to_string(),
         domain: components.domain.to_string(),
         tenant: tenant.to_string(),
@@ -227,12 +237,14 @@ fn create_tenant_suspension(
 }
 
 fn create_ready_q_suspension(
+    db: &ConnectionThreadSafe,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
     source: &str,
+    events: &mut Vec<SuspensionEntry>,
 ) -> anyhow::Result<()> {
-    let mut upsert = HISTORY.prepare(
+    let mut upsert = db.prepare(
         "INSERT INTO ready_q_suspensions
                  (rule_hash, site_name, source, reason, expires)
                  VALUES
@@ -254,7 +266,7 @@ fn create_ready_q_suspension(
 
     upsert.next()?;
 
-    SuspensionSubscriberMgr::submit(SuspensionEntry::ReadyQ(ReadyQSuspension {
+    events.push(SuspensionEntry::ReadyQ(ReadyQSuspension {
         rule_hash: rule_hash.to_string(),
         site_name: record.site.to_string(),
         reason,
@@ -265,10 +277,15 @@ fn create_ready_q_suspension(
     Ok(())
 }
 
-fn insert_record(rule_hash: &str, record: &JsonLogRecord, record_hash: &str) -> anyhow::Result<()> {
+fn insert_record(
+    db: &ConnectionThreadSafe,
+    rule_hash: &str,
+    record: &JsonLogRecord,
+    record_hash: &str,
+) -> anyhow::Result<()> {
     let unix: i64 = record.timestamp.format("%s").to_string().parse()?;
-    let mut insert = HISTORY
-        .prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
+    let mut insert =
+        db.prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
     insert.bind((1, rule_hash))?;
     insert.bind((2, record_hash))?;
     insert.bind((3, unix))?;
@@ -276,11 +293,15 @@ fn insert_record(rule_hash: &str, record: &JsonLogRecord, record_hash: &str) -> 
     Ok(())
 }
 
-fn prune_old_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<()> {
+fn prune_old_records(
+    db: &ConnectionThreadSafe,
+    rule: &Rule,
+    rule_hash: &str,
+) -> anyhow::Result<()> {
     match rule.trigger {
         Trigger::Immediate => Ok(()),
         Trigger::Threshold(spec) => {
-            let mut query = HISTORY.prepare(
+            let mut query = db.prepare(
                 "delete from event_history where rule_hash = ? and ts < unixepoch() - ?",
             )?;
             query.bind((1, rule_hash))?;
@@ -292,11 +313,15 @@ fn prune_old_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<()> {
     }
 }
 
-fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
+fn count_matching_records(
+    db: &ConnectionThreadSafe,
+    rule: &Rule,
+    rule_hash: &str,
+) -> anyhow::Result<u64> {
     match rule.trigger {
         Trigger::Immediate => Ok(0),
         Trigger::Threshold(spec) => {
-            let mut query = HISTORY.prepare(
+            let mut query = db.prepare(
                 "SELECT COUNT(ts) from event_history where rule_hash = ? and ts >= unixepoch() - ?",
             )?;
             query.bind((1, rule_hash))?;
@@ -309,7 +334,42 @@ fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
     }
 }
 
-pub async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
+pub async fn publish_log_batch(
+    db: &ConnectionThreadSafe,
+    records: &mut Vec<JsonLogRecord>,
+) -> anyhow::Result<()> {
+    let mut config = config::load_config().await?;
+    let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
+    let shaping: Shaping = config
+        .async_call_callback_non_default(&sig, ())
+        .await
+        .context("in tsa_load_shaping_data event")?;
+
+    let mut events = vec![];
+
+    db.execute("BEGIN")?;
+
+    for record in records.drain(..) {
+        if let Err(err) = publish_log_v1_impl(db, &shaping, record, &mut events).await {
+            tracing::error!("error processing record: {err:#}");
+        }
+    }
+
+    db.execute("COMMIT")?;
+
+    for event in events {
+        SuspensionSubscriberMgr::submit(event);
+    }
+
+    Ok(())
+}
+
+async fn publish_log_v1_impl(
+    db: &ConnectionThreadSafe,
+    shaping: &Shaping,
+    record: JsonLogRecord,
+    events: &mut Vec<SuspensionEntry>,
+) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
     // Extract the domain from the recipient.
     let recipient = ForwardPath::try_from(record.recipient.as_str())
@@ -329,13 +389,6 @@ pub async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
     let source = record.egress_source.as_deref().unwrap_or("unspecified");
     let store_key = record.site.to_string();
 
-    let mut config = config::load_config().await?;
-    let sig = CallbackSignature::<(), Shaping>::new("tsa_load_shaping_data");
-    let shaping: Shaping = config
-        .async_call_callback_non_default(&sig, ())
-        .await
-        .context("in tsa_load_shaping_data event")?;
-
     let matches = shaping.match_rules(&record).await?;
     let record_hash = sha256hex(&record)?;
 
@@ -347,10 +400,10 @@ pub async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
         let triggered = match m.trigger {
             Trigger::Immediate => true,
             Trigger::Threshold(spec) => {
-                insert_record(&rule_hash, &record, &record_hash)?;
-                prune_old_records(m, &rule_hash)?;
+                insert_record(db, &rule_hash, &record, &record_hash)?;
+                prune_old_records(db, m, &rule_hash)?;
 
-                let count = count_matching_records(m, &rule_hash)?;
+                let count = count_matching_records(db, m, &rule_hash)?;
 
                 count >= spec.limit
             }
@@ -362,22 +415,22 @@ pub async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
         // in the db with its effects and its expiry
         if triggered {
             for action in &m.action {
-                tracing::info!("{action:?} for {record:?}");
+                tracing::debug!("{action:?} for {record:?}");
                 match action {
                     Action::Suspend => {
-                        create_ready_q_suspension(&rule_hash, m, &record, &source)?;
+                        create_ready_q_suspension(db, &rule_hash, m, &record, &source, events)?;
                     }
                     Action::SuspendTenant => {
-                        create_tenant_suspension(&rule_hash, m, &record, false)?;
+                        create_tenant_suspension(db, &rule_hash, m, &record, false, events)?;
                     }
                     Action::SuspendCampaign => {
-                        create_tenant_suspension(&rule_hash, m, &record, true)?;
+                        create_tenant_suspension(db, &rule_hash, m, &record, true, events)?;
                     }
                     Action::SetConfig(config) => {
-                        create_config(&rule_hash, m, &record, config, &domain, &source, true)?;
+                        create_config(db, &rule_hash, m, &record, config, &domain, &source, true)?;
                     }
                     Action::SetDomainConfig(config) => {
-                        create_config(&rule_hash, m, &record, config, &domain, &source, false)?;
+                        create_config(db, &rule_hash, m, &record, config, &domain, &source, false)?;
                     }
                 }
             }
