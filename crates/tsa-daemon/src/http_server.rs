@@ -1,3 +1,4 @@
+use crate::publish::submit_record;
 use anyhow::{anyhow, Context};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
@@ -10,7 +11,6 @@ use kumo_api_types::tsa::{ReadyQSuspension, SchedQSuspension, SuspensionEntry, S
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
-use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
 use rfc5321::ForwardPath;
 use serde::Serialize;
@@ -309,7 +309,7 @@ fn count_matching_records(rule: &Rule, rule_hash: &str) -> anyhow::Result<u64> {
     }
 }
 
-async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
+pub async fn publish_log_v1_impl(record: JsonLogRecord) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
     // Extract the domain from the recipient.
     let recipient = ForwardPath::try_from(record.recipient.as_str())
@@ -435,20 +435,11 @@ async fn publish_log_v1(
     // Note: Json<> must be last in the param list
     Json(record): Json<JsonLogRecord>,
 ) -> Result<(), AppError> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-
-    // Bounce to the thread pool where we can run async lua
-    rt_spawn("process record".to_string(), move || {
-        Ok(async move {
-            tx.send(publish_log_v1_impl(record).await.map_err(|err| {
-                tracing::error!("while processing /publish_log_v1: {err:#}");
-                let app_err: AppError = err.into();
-                app_err
-            }))
-        })
+    submit_record(record).await.map_err(|err| {
+        tracing::error!("while processing /publish_log_v1: {err:#}");
+        let app_err: AppError = err.into();
+        app_err
     })
-    .await?;
-    rx.await?
 }
 
 fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {

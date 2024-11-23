@@ -10,6 +10,7 @@ use std::pin::Pin;
 
 mod http_server;
 mod mod_auto;
+mod publish;
 
 /// KumoMTA Traffic Shaping Automation Daemon.
 ///
