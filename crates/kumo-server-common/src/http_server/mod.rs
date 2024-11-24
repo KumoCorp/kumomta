@@ -172,22 +172,20 @@ impl HttpListenerParams {
             .with_context(|| format!("listen on {}", self.listen))?;
         let addr = socket.local_addr()?;
 
+        let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
+
         if self.use_tls {
             let config = self.tls_config().await?;
             tracing::info!("https listener on {addr:?}");
             let server = axum_server::from_tcp_rustls(socket, config);
             spawn(format!("https {addr:?}"), async move {
-                server
-                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                    .await
+                server.serve(make_service).await
             })?;
         } else {
             tracing::info!("http listener on {addr:?}");
             let server = axum_server::from_tcp(socket);
             spawn(format!("http {addr:?}"), async move {
-                server
-                    .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-                    .await
+                server.serve(make_service).await
             })?;
         }
         Ok(())
