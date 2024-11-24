@@ -33,7 +33,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let params: HttpListenerParams = from_lua_value(lua, params)?;
             if !config::is_validating() {
                 params
-                    .start(crate::http_server::make_router())
+                    .start(crate::http_server::make_router(), None)
                     .await
                     .map_err(any_err)?;
             }

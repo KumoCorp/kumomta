@@ -13,6 +13,8 @@ export const options = {
 export default function () {
   const url = "http://127.0.0.1:8008/publish_log_v1";
 
+  const now = Math.floor(Date.now()/1000);
+
   const content = {
     "type": "TransientFailure",
     "id": "1d98076abbbc11ed940250ebf67f93bd",
@@ -31,8 +33,8 @@ export default function () {
       "content": "[TSS04] Messages from a.b.c.d temporarily deferred due to user complaints",
       "command": "."
     },
-    "timestamp": 1678069691,
-    "created": 1678069691,
+    "timestamp": now,
+    "created": now,
     "num_attempts": 1,
     "bounce_classification": "Uncategorized",
     "meta": {},

@@ -137,7 +137,11 @@ impl HttpListenerParams {
     // So, for now at least, we'll have to manually verify if
     // a request should proceed based on the results from the lifecycle
     // module.
-    pub async fn start(self, router_and_docs: RouterAndDocs) -> anyhow::Result<()> {
+    pub async fn start(
+        self,
+        router_and_docs: RouterAndDocs,
+        runtime: Option<tokio::runtime::Handle>,
+    ) -> anyhow::Result<()> {
         let api_docs = router_and_docs.make_docs();
 
         let compression_layer: CompressionLayer = CompressionLayer::new()
@@ -174,19 +178,30 @@ impl HttpListenerParams {
 
         let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
 
+        // The logic below is a bit repeatey, but it is still fewer
+        // lines of magic than it would be to factor out into a
+        // generic function because of all of the trait bounds
+        // that it would require.
         if self.use_tls {
             let config = self.tls_config().await?;
             tracing::info!("https listener on {addr:?}");
             let server = axum_server::from_tcp_rustls(socket, config);
-            spawn(format!("https {addr:?}"), async move {
-                server.serve(make_service).await
-            })?;
+            let serve = async move { server.serve(make_service).await };
+
+            if let Some(runtime) = runtime {
+                runtime.spawn(serve);
+            } else {
+                spawn(format!("https {addr:?}"), serve)?;
+            }
         } else {
             tracing::info!("http listener on {addr:?}");
             let server = axum_server::from_tcp(socket);
-            spawn(format!("http {addr:?}"), async move {
-                server.serve(make_service).await
-            })?;
+            let serve = async move { server.serve(make_service).await };
+            if let Some(runtime) = runtime {
+                runtime.spawn(serve);
+            } else {
+                spawn(format!("http {addr:?}"), serve)?;
+            }
         }
         Ok(())
     }

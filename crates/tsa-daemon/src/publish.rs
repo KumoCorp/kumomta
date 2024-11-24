@@ -87,7 +87,7 @@ pub async fn submit_record(mut record: JsonLogRecord) -> anyhow::Result<()> {
             Err(rec) => {
                 record = rec;
                 NOTIFY_CONSUMER.notify_waiters();
-                tracing::warn!("backlog hit, waiting");
+                tracing::debug!("backlog hit, waiting");
                 NOTIFY_PRODUCER.notified().await;
                 tracing::debug!("after backlog wait");
             }
