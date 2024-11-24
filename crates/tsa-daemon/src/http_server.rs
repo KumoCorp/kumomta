@@ -5,7 +5,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
 use kumo_api_types::tsa::{ReadyQSuspension, SchedQSuspension, SuspensionEntry, Suspensions};
 use kumo_log_types::*;
@@ -344,8 +344,10 @@ pub async fn publish_log_batch(
 
     db.execute("BEGIN")?;
 
+    let now = Utc::now();
+
     for record in records.drain(..) {
-        if let Err(err) = publish_log_v1_impl(db, &shaping, record, &mut events).await {
+        if let Err(err) = publish_log_v1_impl(&now, db, &shaping, record, &mut events).await {
             tracing::error!("error processing record: {err:#}");
         }
     }
@@ -360,6 +362,7 @@ pub async fn publish_log_batch(
 }
 
 async fn publish_log_v1_impl(
+    now: &DateTime<Utc>,
     db: &ConnectionThreadSafe,
     shaping: &Shaping,
     record: JsonLogRecord,
@@ -388,6 +391,12 @@ async fn publish_log_v1_impl(
     let record_hash = sha256hex(&record)?;
 
     for m in &matches {
+        let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
+        if expires <= *now {
+            // Record was perhaps delayed and is already expired, no sense recording it now
+            continue;
+        }
+
         let m_hash = match_hash(m);
 
         let rule_hash = format!("{store_key}-{m_hash}");
