@@ -17,6 +17,7 @@ use kumo_api_types::shaping::{CheckLevel, Shaping, ShapingMergeOptions};
 #[derive(Debug, Parser)]
 #[command(about)]
 struct Opt {
+    #[arg(required = true)]
     files: Vec<String>,
 
     /// Check for overlap between domain blocks and provider blocks.

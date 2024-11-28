@@ -31,3 +31,6 @@
   spooling in.  There are some situations where a message can be delayed and
   re-queued without incrementing the number of attempts, which meant that some
   messages could linger in the queues until they are actually attempted again.
+
+* Running `validate-shaping` without passing any files to validate would report
+  `OK` instead of telling you that you should have passed one or more file names.
