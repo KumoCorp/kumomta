@@ -1591,24 +1591,26 @@ impl Queue {
             let remaining = suspend.get_duration();
             tracing::trace!("{} is suspended, delay={remaining:?}", self.name);
 
+            let response = Response {
+                code: 451,
+                enhanced_code: Some(rfc5321::EnhancedStatusCode {
+                    class: 4,
+                    subject: 4,
+                    detail: 4,
+                }),
+                content: format!(
+                    "KumoMTA internal: scheduled queue is suspended: {}",
+                    suspend.reason
+                ),
+                command: None,
+            };
+
             log_disposition(LogDisposition {
                 kind: RecordType::TransientFailure,
                 msg: msg.clone(),
                 site: &self.name,
                 peer_address: None,
-                response: rfc5321::Response {
-                    code: 451,
-                    enhanced_code: Some(rfc5321::EnhancedStatusCode {
-                        class: 4,
-                        subject: 4,
-                        detail: 4,
-                    }),
-                    content: format!(
-                        "KumoMTA internal: scheduled queue is suspended: {}",
-                        suspend.reason
-                    ),
-                    command: None,
-                },
+                response: response.clone(),
                 egress_source: None,
                 egress_pool: None,
                 relay_disposition: None,
@@ -1620,29 +1622,48 @@ impl Queue {
             })
             .await;
 
-            match self.increment_attempts_and_update_delay(msg).await? {
-                Some(msg) => {
-                    self.force_into_delayed(msg).await?;
-                }
-                None => {
-                    // It was expired and removed from the spool
-                }
-            }
+            Box::pin(QueueManager::requeue_message(
+                msg,
+                IncrementAttempts::Yes,
+                None,
+                response,
+            ))
+            .await?;
+
             return Ok(());
         }
 
         if let Some(result) = self.check_message_rate_throttle().await? {
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
-                let delay = chrono::Duration::from_std(delay).unwrap_or(kumo_chrono_helper::MINUTE);
                 // We're not using jitter here because the throttle should
                 // ideally result in smooth message flow and the jitter will
                 // (intentionally) perturb that.
-                msg.delay_by(delay).await?;
+                let delay = chrono::Duration::from_std(delay).unwrap_or(kumo_chrono_helper::MINUTE);
+
+                Box::pin(QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::No,
+                    Some(delay),
+                    Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: format!(
+                            "KumoMTA internal: {} throttled message rate, delay={delay:?}",
+                            self.name
+                        ),
+                        command: None,
+                    },
+                ))
+                .await?;
 
                 self.metrics().delay_due_to_message_rate_throttle().inc();
 
-                return self.force_into_delayed(msg).await;
+                return Ok(());
             }
         }
 
@@ -1659,7 +1680,26 @@ impl Queue {
                 );
                 self.metrics().delay_due_to_throttle_insert_ready().inc();
 
-                return self.force_into_delayed(msg).await;
+                Box::pin(QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::No,
+                    None,
+                    Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: format!(
+                            "KumoMTA internal: {} throttle_insert_ready_queue event throttled message rate, due={due:?}",
+                            self.name
+                        ),
+                        command: None,
+                    },
+                ))
+                .await?;
+                return Ok(());
             }
         }
 
@@ -1668,14 +1708,26 @@ impl Queue {
 
             if err.downcast_ref::<ReadyQueueFull>().is_none() {
                 // It was a legit error while trying to do something useful
-                match self.increment_attempts_and_update_delay(msg).await? {
-                    Some(msg) => {
-                        self.force_into_delayed(msg).await?;
-                    }
-                    None => {
-                        // It was expired and removed from the spool
-                    }
-                }
+
+                Box::pin(QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::Yes,
+                    None,
+                    Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: format!(
+                            "KumoMTA internal: {} error while inserting into ready queue: {err:#}",
+                            self.name
+                        ),
+                        command: None,
+                    },
+                ))
+                .await?;
             } else {
                 // Queue is full; try again shortly
                 self.metrics().delay_due_to_ready_queue_full().inc();
@@ -2205,89 +2257,81 @@ impl QueueManager {
         }
         let mut queue_name = msg.get_queue_name()?;
 
-        // When increment_attempts is true, the intent is to handle a transient
-        // failure for this message. In that circumstance we want to allow
-        // the requeue_message event the opportunity to rebind the message
-        // to an alternative scheduled queue.
-        // Moving to another queue will make the message immediately eligible
-        // for delivery in that new queue.
-        if increment_attempts == IncrementAttempts::Yes {
-            match load_config().await {
-                Ok(mut config) => {
-                    let result: anyhow::Result<()> = config
-                        .async_call_callback(
-                            &REQUEUE_MESSAGE_SIG,
-                            (msg.clone(), response.to_single_line()),
-                        )
-                        .await;
+        match load_config().await {
+            Ok(mut config) => {
+                let result: anyhow::Result<()> = config
+                    .async_call_callback(
+                        &REQUEUE_MESSAGE_SIG,
+                        (msg.clone(), response.to_single_line()),
+                    )
+                    .await;
 
-                    match result {
-                        Ok(()) => {
-                            let queue_name_after = msg.get_queue_name()?;
-                            if queue_name != queue_name_after {
-                                // We want to avoid the normal due-time adjustment
-                                // that would kick in when incrementing attempts
-                                // in Queue::requeue_message, but we still want the
-                                // number to be incremented.
-                                msg.increment_num_attempts();
-                                increment_attempts = IncrementAttempts::No;
+                match result {
+                    Ok(()) => {
+                        let queue_name_after = msg.get_queue_name()?;
+                        if queue_name != queue_name_after {
+                            // We want to avoid the normal due-time adjustment
+                            // that would kick in when incrementing attempts
+                            // in Queue::requeue_message, but we still want the
+                            // number to be incremented.
+                            msg.increment_num_attempts();
+                            increment_attempts = IncrementAttempts::No;
 
-                                // Avoid adding jitter as part of the queue change
-                                delay = Some(chrono::Duration::zero());
-                                // and ensure that the message is due now
-                                msg.set_due(None).await?;
+                            // Avoid adding jitter as part of the queue change
+                            delay = Some(chrono::Duration::zero());
+                            // and ensure that the message is due now
+                            msg.set_due(None).await?;
 
-                                // and use the new queue name
-                                queue_name = queue_name_after;
-                            }
-                        }
-                        Err(err) => {
-                            // If they did a kumo.reject() in the handler, translate that
-                            // into a Bounce. We do this even if they used a 4xx code; it
-                            // only makes sense to map it to a Bounce rather than a
-                            // TransientFailure because we already just had a TransientFailure.
-                            if let Some(rej) = RejectError::from_anyhow(&err) {
-                                log_disposition(LogDisposition {
-                                    kind: RecordType::Bounce,
-                                    msg: msg.clone(),
-                                    // There is no site because this was a policy bounce
-                                    // triggered in an event handler
-                                    site: "",
-                                    peer_address: None,
-                                    response: Response {
-                                        code: rej.code,
-                                        enhanced_code: None,
-                                        content: rej.message,
-                                        command: None,
-                                    },
-                                    egress_pool: None,
-                                    egress_source: None,
-                                    relay_disposition: None,
-                                    delivery_protocol: None,
-                                    tls_info: None,
-                                    source_address: None,
-                                    provider: None,
-                                    session_id: None,
-                                })
-                                .await;
-                                SpoolManager::remove_from_spool(*msg.id()).await.ok();
-                                return Ok(());
-                            }
-
-                            tracing::error!(
-                                "Error while calling requeue_message event: {err:#}. \
-                                 will reuse current queue"
-                            );
+                            // and use the new queue name
+                            queue_name = queue_name_after;
                         }
                     }
+                    Err(err) => {
+                        // If they did a kumo.reject() in the handler, translate that
+                        // into a Bounce. We do this even if they used a 4xx code; it
+                        // only makes sense to map it to a Bounce rather than a
+                        // TransientFailure because we already just had a TransientFailure.
+                        if let Some(rej) = RejectError::from_anyhow(&err) {
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Bounce,
+                                msg: msg.clone(),
+                                // There is no site because this was a policy bounce
+                                // triggered in an event handler
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: rej.code,
+                                    enhanced_code: None,
+                                    content: rej.message,
+                                    command: None,
+                                },
+                                egress_pool: None,
+                                egress_source: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                                tls_info: None,
+                                source_address: None,
+                                provider: None,
+                                session_id: None,
+                            })
+                            .await;
+                            SpoolManager::remove_from_spool(*msg.id()).await.ok();
+                            return Ok(());
+                        }
+
+                        tracing::error!(
+                            "Error while calling requeue_message event: {err:#}. \
+                                 will reuse current queue"
+                        );
+                    }
                 }
-                Err(err) => {
-                    tracing::error!(
-                        "ReadyQueue::requeue_message: error getting \
+            }
+            Err(err) => {
+                tracing::error!(
+                    "ReadyQueue::requeue_message: error getting \
                          lua config in order to call requeue_message event: \
                          {err:#}, will reuse current queue"
-                    );
-                }
+                );
             }
         }
 

@@ -15,6 +15,12 @@
   we now display it as `some.host./10.0.0.1` which is a bit easier to
   understand and occupies less space in the logs.
 
+* We will now trigger the
+  [requeue_message](../reference/events/requeue_message.md) event in the
+  case of an error resolving the ready queue, such as DNS related errors.
+  This gives an opportunity to rebind or reject messages which are
+  experiencing persistent DNS resolution issues. #319
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
