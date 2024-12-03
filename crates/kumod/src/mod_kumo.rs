@@ -22,7 +22,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     crate::logging::hooks::SHOULD_ENQ_LOG_RECORD_SIG.register();
     crate::PRE_INIT_SIG.register();
     crate::VALIDATE_SIG.register();
-    crate::ready_queue::REQUEUE_MESSAGE_SIG.register();
+    crate::queue::REQUEUE_MESSAGE_SIG.register();
     crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
     crate::http_server::admin_suspend_v1::register(lua)?;
     crate::http_server::inject_v1::register(lua)?;

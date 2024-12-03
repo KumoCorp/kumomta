@@ -3,7 +3,7 @@ use crate::http_server::admin_trace_smtp_client_v1::{
     SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::IncrementAttempts;
+use crate::queue::{IncrementAttempts, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -805,7 +805,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         .await;
                         spawn_local(
                             "requeue message".to_string(),
-                            Dispatcher::requeue_message(
+                            QueueManager::requeue_message(
                                 msg,
                                 IncrementAttempts::Yes,
                                 None,
@@ -833,7 +833,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         .await;
                         spawn_local(
                             "requeue message".to_string(),
-                            Dispatcher::requeue_message(
+                            QueueManager::requeue_message(
                                 msg,
                                 IncrementAttempts::Yes,
                                 None,
@@ -897,7 +897,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
-                        Dispatcher::requeue_message(msg, IncrementAttempts::Yes, None, response),
+                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();
@@ -933,7 +933,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn_local(
                         "requeue message".to_string(),
-                        Dispatcher::requeue_message(msg, IncrementAttempts::Yes, None, response),
+                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();

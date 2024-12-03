@@ -1,6 +1,6 @@
 use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition};
-use crate::queue::IncrementAttempts;
+use crate::queue::{IncrementAttempts, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
@@ -244,7 +244,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                             .await;
                             spawn_local(
                                 "requeue message".to_string(),
-                                Dispatcher::requeue_message(
+                                QueueManager::requeue_message(
                                     msg,
                                     IncrementAttempts::Yes,
                                     None,

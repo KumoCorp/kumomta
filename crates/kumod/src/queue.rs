@@ -11,6 +11,7 @@ use crate::metrics_helper::{
 };
 use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_dispatcher::SmtpProtocol;
+use crate::smtp_server::RejectError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -80,6 +81,9 @@ pub static THROTTLE_INSERT_READY_SIG: LazyLock<CallbackSignature<'static, Messag
     LazyLock::new(|| CallbackSignature::new_with_multiple("throttle_insert_ready_queue"));
 static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, String>), ()>> =
     LazyLock::new(|| CallbackSignature::new("rebind_message"));
+pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<'static, (Message, String), ()>> =
+    LazyLock::new(|| CallbackSignature::new_with_multiple("requeue_message"));
+
 pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =
     LazyLock::new(|| Arc::new(StdMutex::new(TimeQ::new())));
 
@@ -1908,6 +1912,8 @@ impl Queue {
         }
     }
 
+    /// Insert a newly received, or freshly loaded from spool, message
+    /// into this queue
     #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(&self, msg: Message) -> anyhow::Result<()> {
         loop {
@@ -2179,6 +2185,112 @@ impl QueueManager {
                 Err(err)
             }
         }
+    }
+
+    /// Re-insert message into the queue subsystem, likely the scheduled queue,
+    /// after first calling out to the requeue_message event handler, which
+    /// gives the user the opportunity to rebind or do other things to the
+    /// message before we put it back into the queues.
+    #[instrument(skip(msg))]
+    pub async fn requeue_message(
+        msg: Message,
+        mut increment_attempts: IncrementAttempts,
+        mut delay: Option<chrono::Duration>,
+        response: Response,
+    ) -> anyhow::Result<()> {
+        if !msg.is_meta_loaded() {
+            msg.load_meta().await?;
+        }
+        let mut queue_name = msg.get_queue_name()?;
+
+        // When increment_attempts is true, the intent is to handle a transient
+        // failure for this message. In that circumstance we want to allow
+        // the requeue_message event the opportunity to rebind the message
+        // to an alternative scheduled queue.
+        // Moving to another queue will make the message immediately eligible
+        // for delivery in that new queue.
+        if increment_attempts == IncrementAttempts::Yes {
+            match load_config().await {
+                Ok(mut config) => {
+                    let result: anyhow::Result<()> = config
+                        .async_call_callback(
+                            &REQUEUE_MESSAGE_SIG,
+                            (msg.clone(), response.to_single_line()),
+                        )
+                        .await;
+
+                    match result {
+                        Ok(()) => {
+                            let queue_name_after = msg.get_queue_name()?;
+                            if queue_name != queue_name_after {
+                                // We want to avoid the normal due-time adjustment
+                                // that would kick in when incrementing attempts
+                                // in Queue::requeue_message, but we still want the
+                                // number to be incremented.
+                                msg.increment_num_attempts();
+                                increment_attempts = IncrementAttempts::No;
+
+                                // Avoid adding jitter as part of the queue change
+                                delay = Some(chrono::Duration::zero());
+                                // and ensure that the message is due now
+                                msg.set_due(None).await?;
+
+                                // and use the new queue name
+                                queue_name = queue_name_after;
+                            }
+                        }
+                        Err(err) => {
+                            // If they did a kumo.reject() in the handler, translate that
+                            // into a Bounce. We do this even if they used a 4xx code; it
+                            // only makes sense to map it to a Bounce rather than a
+                            // TransientFailure because we already just had a TransientFailure.
+                            if let Some(rej) = RejectError::from_anyhow(&err) {
+                                log_disposition(LogDisposition {
+                                    kind: RecordType::Bounce,
+                                    msg: msg.clone(),
+                                    // There is no site because this was a policy bounce
+                                    // triggered in an event handler
+                                    site: "",
+                                    peer_address: None,
+                                    response: Response {
+                                        code: rej.code,
+                                        enhanced_code: None,
+                                        content: rej.message,
+                                        command: None,
+                                    },
+                                    egress_pool: None,
+                                    egress_source: None,
+                                    relay_disposition: None,
+                                    delivery_protocol: None,
+                                    tls_info: None,
+                                    source_address: None,
+                                    provider: None,
+                                    session_id: None,
+                                })
+                                .await;
+                                SpoolManager::remove_from_spool(*msg.id()).await.ok();
+                                return Ok(());
+                            }
+
+                            tracing::error!(
+                                "Error while calling requeue_message event: {err:#}. \
+                                 will reuse current queue"
+                            );
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        "ReadyQueue::requeue_message: error getting \
+                         lua config in order to call requeue_message event: \
+                         {err:#}, will reuse current queue"
+                    );
+                }
+            }
+        }
+
+        let queue = QueueManager::resolve(&queue_name).await?;
+        queue.requeue_message(msg, increment_attempts, delay).await
     }
 
     fn resolve_lease(name: &str) -> SlotLease {
