@@ -34,3 +34,7 @@
 
 * Running `validate-shaping` without passing any files to validate would report
   `OK` instead of telling you that you should have passed one or more file names.
+
+* Some messages could sometimes get delayed slightly longer than intended when
+  using TimerWheels (the default) when moving from the scheduled queue to
+  the ready queue.

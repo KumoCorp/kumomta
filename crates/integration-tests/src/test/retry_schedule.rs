@@ -48,7 +48,7 @@ async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()>
     daemon
         .wait_for_source_summary(
             |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 1,
-            Duration::from_secs(15),
+            Duration::from_secs(30),
         )
         .await;
 
@@ -65,7 +65,10 @@ async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()>
         .collect();
 
     println!("***** event_times: {event_times:?}");
-    assert!(event_times.len() > 1);
+    assert!(
+        event_times.len() > 1,
+        "need more than one event time, got {event_times:?}, {records:#?}"
+    );
 
     let mut last = None;
     let mut intervals: Vec<_> = event_times

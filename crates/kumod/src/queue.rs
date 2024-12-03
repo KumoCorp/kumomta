@@ -2442,6 +2442,33 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 q.metrics().sub(messages.len());
                 tracing::debug!("{} {} msgs are now ready", q.name, messages.len());
 
+                // There can sometimes be a small (eg: 20ms or so) discrepancy
+                // between what the time wheel considers to be ready and what
+                // the precise due time of the individual messages shows as
+                // their due time.
+                // That is expected and fine, however: we want to ensure that
+                // the actual time is after the due time of this batch of
+                // messages so that the logic after THROTTLE_INSERT_READY_SIG
+                // doesn't think that the event handler has explicitly delayed
+                // the messages and pushes them into the next retry window.
+                // This loop accumulates the longest delay from the batch
+                // and sleeps until we are past it.
+                // An alternative approach to avoiding that confusion might
+                // be to call msg.set_due(None), but there is some additional
+                // logic in that method that inspects and manipulates scheduling
+                // constraints, so it feels slightly better just wait those
+                // few milliseconds here than to trigger more work over there.
+                let now = Utc::now();
+                let mut delay = Duration::from_secs(0);
+                for msg in &messages {
+                    if let Some(due) = msg.get_due() {
+                        if let Ok(delta) = (due - now).to_std() {
+                            delay = delay.max(delta);
+                        }
+                    }
+                }
+                tokio::time::sleep(delay).await;
+
                 for msg in messages {
                     q.insert_ready(msg).await?;
                 }
