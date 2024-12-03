@@ -1438,7 +1438,10 @@ impl Queue {
                 Some(msg) => {
                     return self.insert(msg).await;
                 }
-                None => return Ok(()),
+                None => {
+                    // It was expired and removed from the spool
+                    return Ok(());
+                }
             };
         } else if let Some(delay) = delay {
             msg.delay_by(delay).await?;
@@ -1615,7 +1618,9 @@ impl Queue {
                 Some(msg) => {
                     self.force_into_delayed(msg).await?;
                 }
-                None => {}
+                None => {
+                    // It was expired and removed from the spool
+                }
             }
             return Ok(());
         }
@@ -1661,7 +1666,9 @@ impl Queue {
                     Some(msg) => {
                         self.force_into_delayed(msg).await?;
                     }
-                    None => {}
+                    None => {
+                        // It was expired and removed from the spool
+                    }
                 }
             } else {
                 // Queue is full; try again shortly
