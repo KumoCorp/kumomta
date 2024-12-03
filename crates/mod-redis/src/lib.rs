@@ -70,7 +70,7 @@ impl RedisConnection {
     }
 }
 
-fn redis_value_to_lua<'lua>(lua: &'lua Lua, value: RedisValue) -> mlua::Result<Value> {
+fn redis_value_to_lua<'lua>(lua: &'lua Lua, value: RedisValue) -> mlua::Result<Value<'lua>> {
     Ok(match value {
         RedisValue::Nil => Value::Nil,
         RedisValue::Int(i) => Value::Integer(i),
