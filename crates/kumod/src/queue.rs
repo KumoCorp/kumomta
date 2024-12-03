@@ -1254,7 +1254,7 @@ impl Queue {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
                 if let Err(err) = self
-                    .requeue_message(msg, IncrementAttempts::No, delay)
+                    .requeue_message_internal(msg, IncrementAttempts::No, delay)
                     .await
                 {
                     tracing::error!(
@@ -1317,7 +1317,7 @@ impl Queue {
         }
 
         if let Err(err) = queue
-            .requeue_message(msg, IncrementAttempts::No, delay)
+            .requeue_message_internal(msg, IncrementAttempts::No, delay)
             .await
         {
             tracing::error!(
@@ -1430,8 +1430,10 @@ impl Queue {
         Ok(Some(msg))
     }
 
+    /// Performs the raw re-insertion of a message into a scheduled queue.
+    /// The requeue_message event is NOT called by this function.
     #[instrument(skip(self, msg))]
-    pub async fn requeue_message(
+    async fn requeue_message_internal(
         &self,
         msg: Message,
         increment_attempts: IncrementAttempts,
@@ -2290,7 +2292,9 @@ impl QueueManager {
         }
 
         let queue = QueueManager::resolve(&queue_name).await?;
-        queue.requeue_message(msg, increment_attempts, delay).await
+        queue
+            .requeue_message_internal(msg, increment_attempts, delay)
+            .await
     }
 
     fn resolve_lease(name: &str) -> SlotLease {
