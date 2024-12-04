@@ -44,3 +44,8 @@
 * Some messages could sometimes get delayed slightly longer than intended when
   using TimerWheels (the default) when moving from the scheduled queue to
   the ready queue.
+
+* The `get_listener_domain` event handler results were incorectly cached globally
+  which allowed a given source IP which successfully authenticated in one session
+  to appear authenticated for other separate connections made by that *same IP*
+  to/from the same domain, within the same 60 second period. #320

@@ -15,7 +15,6 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
-use lruttl::LruCacheWithTtl;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
@@ -28,11 +27,12 @@ use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use spool::SpoolId;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -70,14 +70,6 @@ struct DomainAndListener {
     pub listener: String,
 }
 
-static DOMAINS: LazyLock<Mutex<LruCacheWithTtl<DomainAndListener, Option<EsmtpDomain>>>> =
-    LazyLock::new(|| {
-        Mutex::new(LruCacheWithTtl::new_named(
-            "smtp_server_listener_domains",
-            1024,
-        ))
-    });
-
 static SMTPSRV: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("smtpsrv", |cpus| cpus * 3 / 8, &SMTPSRV_THREADS).unwrap());
 
@@ -99,6 +91,7 @@ pub struct EsmtpDomain {
     #[serde(default)]
     pub relay_from: CidrSet,
 
+    // Deprecated and no longer used
     #[serde(default = "default_ttl", with = "duration_serde")]
     pub ttl: Duration,
 }
@@ -473,6 +466,7 @@ pub struct SmtpServer {
     global_reception_count: AtomicCounter,
     reception_count: AtomicCounter,
     session_id: Uuid,
+    domains: HashMap<String, Option<EsmtpDomain>>,
 }
 
 #[derive(Debug)]
@@ -537,6 +531,7 @@ impl SmtpServer {
                 "esmtp_listener",
             ),
             session_id: Uuid::new_v4(),
+            domains: HashMap::new(),
         };
 
         server.params.connection_gauge().inc();
@@ -584,8 +579,8 @@ impl SmtpServer {
             listener: self.my_address.to_string(),
         };
 
-        if let Some(opt_dom) = DOMAINS.lock().get(&key) {
-            return Ok(opt_dom);
+        if let Some(opt_dom) = self.domains.get(domain_name) {
+            return Ok(opt_dom.clone());
         }
 
         let mut config = load_config().await?;
@@ -628,11 +623,19 @@ impl SmtpServer {
             }
         };
 
-        DOMAINS.lock().insert(
-            key,
-            value.clone(),
-            Instant::now() + value.as_ref().map(|v| v.ttl).unwrap_or_else(default_ttl),
-        );
+        // Remember a bounded number of entries, so that an abusive
+        // client can't trivially use up a lot of ram by trying a
+        // lot of random domains
+        while self.domains.len() > 16 {
+            let key = self
+                .domains
+                .keys()
+                .next()
+                .expect("have at least one key when !empty")
+                .to_string();
+            self.domains.remove(&key);
+        }
+        self.domains.insert(domain_name.to_string(), value.clone());
 
         Ok(value)
     }
