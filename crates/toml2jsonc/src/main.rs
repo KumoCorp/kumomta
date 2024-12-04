@@ -110,12 +110,17 @@ impl CommentedValue {
             Value::Array(arr) => {
                 write!(target, "[\n")?;
 
-                for value in arr {
+                let mut iter = arr.iter().peekable();
+                while let Some(value) = iter.next() {
                     emit_comment(value.before.as_deref(), target, &indent)?;
 
                     write!(target, "{indent}")?;
                     value.pretty_print_to(target, depth + 1)?;
-                    write!(target, ",\n")?;
+
+                    if iter.peek().is_some() {
+                        write!(target, ",")?;
+                    }
+                    write!(target, "\n")?;
 
                     emit_comment(value.after.as_deref(), target, &indent)?;
                 }
@@ -128,14 +133,18 @@ impl CommentedValue {
                 } else {
                     write!(target, "{{\n")?;
                 }
-                for (key, value) in map {
+                let mut iter = map.iter().peekable();
+                while let Some((key, value)) = iter.next() {
                     emit_comment(value.before.as_deref(), target, &indent)?;
 
                     let key_str = serde_json::to_string(key)?;
                     write!(target, "{indent}{key_str}: ")?;
 
                     value.pretty_print_to(target, depth + 1)?;
-                    write!(target, ",\n")?;
+                    if iter.peek().is_some() {
+                        write!(target, ",")?;
+                    }
+                    write!(target, "\n")?;
 
                     emit_comment(value.after.as_deref(), target, &indent)?;
                 }
