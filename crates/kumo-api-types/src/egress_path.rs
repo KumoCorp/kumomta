@@ -216,12 +216,6 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub ehlo_domain: Option<String>,
 
-    /// Deprecated and unused. This used to facilitate suspension setting
-    /// by the TSA-daemon, but it was very awkward to implement and manage
-    /// and has been replaced by realtime suspension updates via websocket
-    #[serde(default)]
-    pub suspended: bool,
-
     // TODO: decide if we want to keep this and then document
     #[serde(default)]
     pub aggressive_connection_opening: bool,
@@ -277,7 +271,6 @@ impl Default for EgressPathConfig {
             allow_smtp_auth_plain_without_tls: false,
             smtp_auth_plain_username: None,
             smtp_auth_plain_password: None,
-            suspended: false,
             aggressive_connection_opening: false,
             rustls_cipher_suites: vec![],
             openssl_cipher_list: None,
