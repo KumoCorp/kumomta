@@ -20,6 +20,7 @@ async-trait = {workspace=true}
 kumo-log-types = {path="../kumo-log-types"}
 libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}
+prometheus.workspace = true
 rand = {workspace=true}
 serde = {workspace=true}
 thiserror = {workspace=true}

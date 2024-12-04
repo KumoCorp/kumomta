@@ -21,6 +21,11 @@
   This gives an opportunity to rebind or reject messages which are
   experiencing persistent DNS resolution issues. #319
 
+* New `dns_mx_resolve_in_progress`, `dns_mx_resolve_status_ok`,
+  `dns_mx_resolve_status_fail`, `dns_mx_resolve_cache_hit`,
+  `dns_mx_resolve_cache_miss` metrics that reflect the status of MX
+  resolution. These are available via the metrics endpoints.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

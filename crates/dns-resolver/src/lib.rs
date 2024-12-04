@@ -33,6 +33,43 @@ static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
 static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
     LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ip", 1024)));
 
+static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
+    prometheus::register_int_gauge!(
+        "dns_mx_resolve_in_progress",
+        "number of MailExchanger::resolve calls currently in progress"
+    )
+    .unwrap()
+});
+static MX_SUCCESS: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
+    prometheus::register_int_counter!(
+        "dns_mx_resolve_status_ok",
+        "total number of successful MailExchanger::resolve calls"
+    )
+    .unwrap()
+});
+static MX_FAIL: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
+    prometheus::register_int_counter!(
+        "dns_mx_resolve_status_fail",
+        "total number of failed MailExchanger::resolve calls"
+    )
+    .unwrap()
+});
+static MX_CACHED: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
+    prometheus::register_int_counter!(
+        "dns_mx_resolve_cache_hit",
+        "total number of MailExchanger::resolve calls satisfied by level 1 cache"
+    )
+    .unwrap()
+});
+static MX_QUERIES: LazyLock<prometheus::IntCounter> = LazyLock::new(|| {
+    prometheus::register_int_counter!(
+        "dns_mx_resolve_cache_miss",
+        "total number of MailExchanger::resolve calls that resulted in an \
+        MX DNS request to the next level of cache"
+    )
+    .unwrap()
+});
+
 fn default_resolver() -> impl Resolver {
     #[cfg(feature = "default-unbound")]
     return UnboundResolver::new().unwrap();
@@ -191,6 +228,18 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
 
 impl MailExchanger {
     pub async fn resolve(domain_name: &str) -> anyhow::Result<Arc<Self>> {
+        MX_IN_PROGRESS.inc();
+        let result = Self::resolve_impl(domain_name).await;
+        MX_IN_PROGRESS.dec();
+        if result.is_ok() {
+            MX_SUCCESS.inc();
+        } else {
+            MX_FAIL.inc();
+        }
+        result
+    }
+
+    async fn resolve_impl(domain_name: &str) -> anyhow::Result<Arc<Self>> {
         if domain_name.starts_with('[') {
             // It's a literal address, no DNS lookup necessary
 
@@ -252,10 +301,12 @@ impl MailExchanger {
 
         let name_fq = fully_qualify(domain_name)?;
         if let Some(mx) = mx_cache_get(&name_fq) {
+            MX_CACHED.inc();
             return Ok(mx);
         }
 
         let start = Instant::now();
+        MX_QUERIES.inc();
         let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
             Ok((by_pref, expires)) => (by_pref, expires),
             Err(err) => anyhow::bail!(
