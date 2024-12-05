@@ -30,7 +30,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: HttpListenerParams = from_lua_value(lua, params)?;
+            let params: HttpListenerParams = from_lua_value(&lua, params)?;
             if !config::is_validating() {
                 params
                     .start(crate::http_server::make_router(), None)
@@ -44,7 +44,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "start_esmtp_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: EsmtpListenerParams = from_lua_value(lua, params)?;
+            let params: EsmtpListenerParams = from_lua_value(&lua, params)?;
             if !config::is_validating() {
                 spawn("start_esmtp_listener", async move {
                     if let Err(err) = params.run().await {
@@ -145,7 +145,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(
             |lua, (routing_domain, egress_source, site_name): (String, String, String)| async move {
                 let path_config: EgressPathConfig = config::async_call_callback(
-                    lua,
+                    &lua,
                     &GET_EGRESS_PATH_CONFIG_SIG,
                     (routing_domain, egress_source, site_name),
                 )
@@ -224,7 +224,7 @@ struct UserThrottle {
 }
 
 impl LuaUserData for UserThrottle {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("throttle", |lua, this, ()| async move {
             let result = this.spec.throttle(&this.name).await.map_err(any_err)?;
             lua.to_value(&result)

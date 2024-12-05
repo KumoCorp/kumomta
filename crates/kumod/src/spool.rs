@@ -110,7 +110,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "define_spool",
         lua.create_async_function(|lua, params: Value| async move {
-            let params = from_lua_value(lua, params)?;
+            let params = from_lua_value(&lua, params)?;
             if config::is_validating() {
                 return Ok(());
             }

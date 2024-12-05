@@ -165,7 +165,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
         };
 
         let _timer = latency_timer("context-creation");
-        func.call_async::<_, ()>(()).await?;
+        func.call_async::<()>(()).await?;
     }
     LUA_COUNT.increment(1.);
 
@@ -193,9 +193,9 @@ impl LuaConfig {
     }
 
     /// Intended to be used together with kumo.spawn_task
-    pub async fn convert_args_and_call_callback<'lua, A: Serialize>(
-        &'lua mut self,
-        sig: &CallbackSignature<'lua, Value<'lua>, ()>,
+    pub async fn convert_args_and_call_callback<A: Serialize>(
+        &mut self,
+        sig: &CallbackSignature<Value, ()>,
         args: A,
     ) -> anyhow::Result<()> {
         let lua = self.inner.as_mut().unwrap();
@@ -216,13 +216,9 @@ impl LuaConfig {
         }
     }
 
-    pub async fn async_call_callback<
-        'lua,
-        A: IntoLuaMulti<'lua> + Clone,
-        R: FromLuaMulti<'lua> + Default,
-    >(
-        &'lua mut self,
-        sig: &CallbackSignature<'lua, A, R>,
+    pub async fn async_call_callback<A: IntoLuaMulti + Clone, R: FromLuaMulti + Default>(
+        &mut self,
+        sig: &CallbackSignature<A, R>,
         args: A,
     ) -> anyhow::Result<R> {
         let name = sig.name();
@@ -231,13 +227,9 @@ impl LuaConfig {
         async_call_callback(&lua.lua, sig, args).await
     }
 
-    pub async fn async_call_callback_non_default<
-        'lua,
-        A: IntoLuaMulti<'lua> + Clone,
-        R: FromLuaMulti<'lua>,
-    >(
-        &'lua mut self,
-        sig: &CallbackSignature<'lua, A, R>,
+    pub async fn async_call_callback_non_default<A: IntoLuaMulti + Clone, R: FromLuaMulti>(
+        &mut self,
+        sig: &CallbackSignature<A, R>,
         args: A,
     ) -> anyhow::Result<R> {
         let name = sig.name();
@@ -246,13 +238,9 @@ impl LuaConfig {
         async_call_callback_non_default(&lua.lua, sig, args).await
     }
 
-    pub async fn async_call_callback_non_default_opt<
-        'lua,
-        A: IntoLuaMulti<'lua> + Clone,
-        R: FromLua<'lua>,
-    >(
-        &'lua mut self,
-        sig: &CallbackSignature<'lua, A, Option<R>>,
+    pub async fn async_call_callback_non_default_opt<A: IntoLuaMulti + Clone, R: FromLua>(
+        &mut self,
+        sig: &CallbackSignature<A, Option<R>>,
         args: A,
     ) -> anyhow::Result<Option<R>> {
         let name = sig.name();
@@ -265,7 +253,7 @@ impl LuaConfig {
             .named_registry_value::<mlua::Value>(&decorated_name)?
         {
             Value::Table(tbl) => {
-                for func in tbl.sequence_values::<mlua::Function>() {
+                for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
                     let func = func?;
                     let _timer = latency_timer(name);
                     let result: mlua::MultiValue = func.call_async(args.clone()).await?;
@@ -306,9 +294,9 @@ impl LuaConfig {
 
     /// Call a constructor registered via `on`. Returns a registry key that can be
     /// used to reference the returned value again later on this same Lua instance
-    pub async fn async_call_ctor<'lua, A: IntoLuaMulti<'lua> + Clone>(
-        &'lua mut self,
-        sig: &CallbackSignature<'lua, A, Value<'lua>>,
+    pub async fn async_call_ctor<A: IntoLuaMulti + Clone>(
+        &mut self,
+        sig: &CallbackSignature<A, Value>,
         args: A,
     ) -> anyhow::Result<RegistryKey> {
         let name = sig.name();
@@ -335,15 +323,15 @@ impl LuaConfig {
 
     /// Operate on an object/value that was previously constructed via
     /// async_call_ctor.
-    pub async fn with_registry_value<'lua, F, R, FUT>(
-        &'lua mut self,
+    pub async fn with_registry_value<F, R, FUT>(
+        &mut self,
         value: &RegistryKey,
         func: F,
     ) -> anyhow::Result<R>
     where
-        R: FromLuaMulti<'lua>,
-        F: FnOnce(Value<'lua>) -> anyhow::Result<FUT>,
-        FUT: std::future::Future<Output = anyhow::Result<R>> + 'lua,
+        R: FromLuaMulti,
+        F: FnOnce(Value) -> anyhow::Result<FUT>,
+        FUT: std::future::Future<Output = anyhow::Result<R>>,
     {
         let inner = self.inner.as_mut().unwrap();
         let value = inner.lua.registry_value(value)?;
@@ -352,13 +340,9 @@ impl LuaConfig {
     }
 }
 
-pub async fn async_call_callback<
-    'lua,
-    A: IntoLuaMulti<'lua> + Clone,
-    R: FromLuaMulti<'lua> + Default,
->(
-    lua: &'lua Lua,
-    sig: &CallbackSignature<'lua, A, R>,
+pub async fn async_call_callback<A: IntoLuaMulti + Clone, R: FromLuaMulti + Default>(
+    lua: &Lua,
+    sig: &CallbackSignature<A, R>,
     args: A,
 ) -> anyhow::Result<R> {
     let name = sig.name();
@@ -366,7 +350,7 @@ pub async fn async_call_callback<
 
     match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
         Value::Table(tbl) => {
-            for func in tbl.sequence_values::<mlua::Function>() {
+            for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
                 let func = func?;
                 let _timer = latency_timer(name);
                 let result: mlua::MultiValue = func.call_async(args.clone()).await?;
@@ -388,13 +372,9 @@ pub async fn async_call_callback<
     }
 }
 
-pub async fn async_call_callback_non_default<
-    'lua,
-    A: IntoLuaMulti<'lua> + Clone,
-    R: FromLuaMulti<'lua>,
->(
-    lua: &'lua Lua,
-    sig: &CallbackSignature<'lua, A, R>,
+pub async fn async_call_callback_non_default<A: IntoLuaMulti + Clone, R: FromLuaMulti>(
+    lua: &Lua,
+    sig: &CallbackSignature<A, R>,
     args: A,
 ) -> anyhow::Result<R> {
     let name = sig.name();
@@ -402,7 +382,7 @@ pub async fn async_call_callback_non_default<
 
     match lua.named_registry_value::<mlua::Value>(&decorated_name)? {
         Value::Table(tbl) => {
-            for func in tbl.sequence_values::<mlua::Function>() {
+            for func in tbl.sequence_values::<mlua::Function>().collect::<Vec<_>>() {
                 let func = func?;
                 let _timer = latency_timer(name);
                 let result: mlua::MultiValue = func.call_async(args.clone()).await?;
@@ -424,7 +404,7 @@ pub async fn async_call_callback_non_default<
     }
 }
 
-pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<mlua::Table<'lua>> {
+pub fn get_or_create_module(lua: &Lua, name: &str) -> anyhow::Result<mlua::Table> {
     let globals = lua.globals();
     let package: Table = globals.get("package")?;
     let loaded: Table = package.get("loaded")?;
@@ -450,10 +430,7 @@ pub fn get_or_create_module<'lua>(lua: &'lua Lua, name: &str) -> anyhow::Result<
 /// registry hierarchy to instantiate that path.
 /// Returns the leaf node of that path to allow the caller to
 /// register/assign functions etc. into it
-pub fn get_or_create_sub_module<'lua>(
-    lua: &'lua Lua,
-    name_path: &str,
-) -> anyhow::Result<mlua::Table<'lua>> {
+pub fn get_or_create_sub_module(lua: &Lua, name_path: &str) -> anyhow::Result<mlua::Table> {
     let mut parent = get_or_create_module(lua, "kumo")?;
     let mut path_so_far = String::new();
 
@@ -490,7 +467,7 @@ pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
 
 /// Convert from a lua value to a deserializable type,
 /// with a slightly more helpful error message in case of failure.
-pub fn from_lua_value<'lua, R>(lua: &'lua Lua, value: mlua::Value<'lua>) -> mlua::Result<R>
+pub fn from_lua_value<R>(lua: &Lua, value: mlua::Value) -> mlua::Result<R>
 where
     R: serde::de::DeserializeOwned,
 {
@@ -518,20 +495,20 @@ where
 /// `allow_multiple`; when that is set to true, `kumo.on` will allow
 /// recording multiple callback instances, calling them in sequence
 /// until one of them returns a value.
-pub struct CallbackSignature<'lua, A, R>
+pub struct CallbackSignature<A, R>
 where
-    A: IntoLuaMulti<'lua>,
-    R: FromLuaMulti<'lua>,
+    A: IntoLuaMulti,
+    R: FromLuaMulti,
 {
-    marker: std::marker::PhantomData<&'lua (A, R)>,
+    marker: std::marker::PhantomData<(A, R)>,
     allow_multiple: bool,
     name: Cow<'static, str>,
 }
 
-impl<'lua, A, R> CallbackSignature<'lua, A, R>
+impl<A, R> CallbackSignature<A, R>
 where
-    A: IntoLuaMulti<'lua>,
-    R: FromLuaMulti<'lua>,
+    A: IntoLuaMulti,
+    R: FromLuaMulti,
 {
     pub fn new<S: Into<Cow<'static, str>>>(name: S) -> Self {
         let name = name.into();

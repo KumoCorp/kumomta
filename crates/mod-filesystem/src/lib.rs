@@ -32,7 +32,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn read_dir<'lua>(_: &'lua Lua, path: String) -> mlua::Result<Vec<String>> {
+async fn read_dir(_: Lua, path: String) -> mlua::Result<Vec<String>> {
     let mut dir = tokio::fs::read_dir(path)
         .await
         .map_err(mlua::Error::external)?;
@@ -50,8 +50,8 @@ async fn read_dir<'lua>(_: &'lua Lua, path: String) -> mlua::Result<Vec<String>>
     Ok(entries)
 }
 
-async fn cached_glob<'lua>(
-    _: &'lua Lua,
+async fn cached_glob(
+    _: Lua,
     (pattern, path, ttl): (String, Option<String>, Option<f32>),
 ) -> mlua::Result<Vec<String>> {
     let key = GlobKey {
@@ -73,8 +73,8 @@ async fn cached_glob<'lua>(
         .map_err(mlua::Error::external)
 }
 
-async fn uncached_glob<'lua>(
-    _: &'lua Lua,
+async fn uncached_glob(
+    _: Lua,
     (pattern, path): (String, Option<String>),
 ) -> mlua::Result<Vec<String>> {
     glob(pattern, path).await

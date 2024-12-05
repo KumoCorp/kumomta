@@ -118,7 +118,7 @@ metrics-prometheus = "0.8"
 metrics-tracing-context = "0.17"
 minijinja = {version="2.0.1",features=["loader", "builtins", "json"]}
 minijinja-contrib = {version="2.0.1",features=["datetime", "timezone"]}
-mlua = "0.9"
+mlua = "0.10"
 nix = "0.28"
 nom = "7.1.0"
 nom_locate = "4.1"

@@ -959,12 +959,11 @@ impl SmtpServer {
     }
 
     pub async fn call_callback<
-        'lua,
-        R: for<'a> FromLuaMulti<'a> + Default + serde::Serialize,
+        R: FromLuaMulti + Default + serde::Serialize,
         S: Into<std::borrow::Cow<'static, str>>,
-        A: for<'a> IntoLuaMulti<'a> + Clone,
+        A: IntoLuaMulti + Clone,
     >(
-        &'lua mut self,
+        &mut self,
         name: S,
         args: A,
     ) -> anyhow::Result<Result<R, RejectError>> {
@@ -1846,7 +1845,7 @@ impl ConnectionMetaData {
 }
 
 impl UserData for ConnectionMetaData {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method_mut(
             "set_meta",
             move |_, this, (name, value): (String, mlua::Value)| {

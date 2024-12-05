@@ -23,7 +23,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         digest_mod.set(
             format!("{name}_encode"),
             lua.create_function(move |_, data: mlua::Value| match data {
-                Value::String(s) => Ok(encoder.encode(s.as_bytes())),
+                Value::String(s) => Ok(encoder.encode(&s.as_bytes())),
                 _ => Err(mlua::Error::external(
                     "parameter must be a string".to_string(),
                 )),

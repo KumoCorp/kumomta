@@ -915,7 +915,7 @@ impl Shaping {
 
 #[cfg(feature = "lua")]
 impl LuaUserData for Shaping {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
         methods.add_async_method(
             "get_egress_path_config",

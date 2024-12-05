@@ -5,7 +5,7 @@ use uuid::Uuid;
 struct WrappedUuid(Uuid);
 
 impl UserData for WrappedUuid {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("hyphenated", |_, this| {
             Ok(format!("{}", this.0.as_hyphenated()))
         });
@@ -15,7 +15,7 @@ impl UserData for WrappedUuid {
         fields.add_field_method_get("bytes", |lua, this| lua.create_string(this.0.as_bytes()));
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             Ok(format!("{}", this.0.as_hyphenated()))
         });

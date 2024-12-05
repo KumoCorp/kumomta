@@ -217,11 +217,8 @@ fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> 
             // the argument list
             #[derive(Clone)]
             struct ParamList(Vec<String>);
-            impl<'lua> mlua::IntoLuaMulti<'lua> for ParamList {
-                fn into_lua_multi(
-                    self,
-                    lua: &'lua mlua::Lua,
-                ) -> mlua::Result<mlua::MultiValue<'lua>> {
+            impl mlua::IntoLuaMulti for ParamList {
+                fn into_lua_multi(self, lua: &mlua::Lua) -> mlua::Result<mlua::MultiValue> {
                     let mut args = vec![];
                     for arg in self.0 {
                         args.push(mlua::Value::String(lua.create_string(arg)?));

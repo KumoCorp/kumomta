@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::Mutex as TokioMutex;
 use tokio_tungstenite::tungstenite::Message;
 
 // Client ----
@@ -40,7 +41,7 @@ impl ClientWrapper {
 }
 
 impl LuaUserData for ClientWrapper {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("get", |_, this, url: String| {
             let builder = this.get_client()?.get(url);
             Ok(RequestWrapper::new(builder))
@@ -110,7 +111,7 @@ pub struct FilePart {
 }
 
 impl LuaUserData for RequestWrapper {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("header", |_, this, (key, value): (String, String)| {
             this.apply(|b| Ok(b.header(key, value)))?;
             Ok(this.clone())
@@ -275,7 +276,7 @@ impl ResponseWrapper {
         r.text().await.map_err(any_err)
     }
 
-    async fn bytes<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::String<'lua>> {
+    async fn bytes(&self, lua: &Lua) -> mlua::Result<mlua::String> {
         let r = self
             .response
             .lock()
@@ -290,7 +291,7 @@ impl ResponseWrapper {
 }
 
 impl LuaUserData for ResponseWrapper {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("status_code", |_, this, _: ()| Ok(this.status.as_u16()));
         methods.add_method("status_reason", |_, this, _: ()| {
             Ok(this.status.canonical_reason())
@@ -321,7 +322,7 @@ impl LuaUserData for ResponseWrapper {
 
         methods.add_async_method(
             "bytes",
-            |lua, this, _: ()| async move { this.bytes(lua).await },
+            |lua, this, _: ()| async move { this.bytes(&lua).await },
         );
     }
 }
@@ -332,7 +333,7 @@ impl LuaUserData for ResponseWrapper {
 struct HeaderMapWrapper(HeaderMap);
 
 impl LuaUserData for HeaderMapWrapper {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
             if let Some(value) = this.0.get(&key) {
                 let s = lua.create_string(value.as_bytes())?;
@@ -376,7 +377,7 @@ impl LuaUserData for HeaderMapWrapper {
 #[derive(Clone)]
 struct WebSocketStream {
     stream: Arc<
-        Mutex<
+        TokioMutex<
             tokio_tungstenite::WebSocketStream<
                 tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
             >,
@@ -385,9 +386,12 @@ struct WebSocketStream {
 }
 
 impl LuaUserData for WebSocketStream {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("recv", |lua, this, ()| async move {
-            let maybe_msg = this.stream.lock().unwrap().next().await;
+            let maybe_msg = {
+                let mut stream = this.stream.lock().await;
+                stream.next().await
+            };
             let msg = match maybe_msg {
                 Some(msg) => msg.map_err(any_err)?,
                 None => return Ok(None),
@@ -454,7 +458,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .await
                 .map_err(any_err)?;
             let stream = WebSocketStream {
-                stream: Arc::new(Mutex::new(stream)),
+                stream: Arc::new(TokioMutex::new(stream)),
             };
 
             // Adapt the retured http::response into a reqwest::Response

@@ -3816,17 +3816,18 @@ dependencies = [
 
 [[package]]
 name = "mlua"
-version = "0.9.9"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d111deb18a9c9bd33e1541309f4742523bfab01d276bfa9a27519f6de9c11dc7"
+checksum = "9ea43c3ffac2d0798bd7128815212dd78c98316b299b7a902dabef13dc7b6b8d"
 dependencies = [
  "bstr",
+ "either",
  "erased-serde",
  "futures-util",
  "mlua-sys",
  "mlua_derive",
  "num-traits",
- "once_cell",
+ "parking_lot",
  "rustc-hash 2.0.0",
  "serde",
  "serde-value",
@@ -3834,9 +3835,9 @@ dependencies = [
 
 [[package]]
 name = "mlua-sys"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efa6bf1a64f06848749b7e7727417f4ec2121599e2a10ef0a8a3888b0e9a5a0d"
+checksum = "63a11d485edf0f3f04a508615d36c7d50d299cf61a7ee6d3e2530651e0a31771"
 dependencies = [
  "cc",
  "cfg-if",
@@ -3847,13 +3848,13 @@ dependencies = [
 
 [[package]]
 name = "mlua_derive"
-version = "0.9.3"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09697a6cec88e7f58a02c7ab5c18c611c6907c8654613df9cc0192658a4fb859"
+checksum = "870d71c172fcf491c6b5fb4c04160619a2ee3e5a42a1402269c66bcbf1dd4deb"
 dependencies = [
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "once_cell",
- "proc-macro-error",
+ "proc-macro-error2",
  "proc-macro2 1.0.92",
  "quote 1.0.37",
  "regex",
@@ -4832,6 +4833,28 @@ dependencies = [
  "proc-macro2 1.0.92",
  "quote 1.0.37",
  "version_check",
+]
+
+[[package]]
+name = "proc-macro-error-attr2"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96de42df36bb9bba5542fe9f1a054b8cc87e172759a1868aa05c1f3acc89dfc5"
+dependencies = [
+ "proc-macro2 1.0.92",
+ "quote 1.0.37",
+]
+
+[[package]]
+name = "proc-macro-error2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11ec05c52be0a07b08061f7dd003e7d7092e0472bc731b4af7bb1ef876109802"
+dependencies = [
+ "proc-macro-error-attr2",
+ "proc-macro2 1.0.92",
+ "quote 1.0.37",
+ "syn 2.0.89",
 ]
 
 [[package]]

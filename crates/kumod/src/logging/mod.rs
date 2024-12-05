@@ -371,7 +371,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_bounce_classifier",
         lua.create_function(move |lua, params: LuaValue| {
-            let params: ClassifierParams = from_lua_value(lua, params)?;
+            let params: ClassifierParams = from_lua_value(&lua, params)?;
             params.register().map_err(any_err)
         })?,
     )?;
@@ -379,7 +379,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_local_logs",
         lua.create_async_function(|lua, params: LuaValue| async move {
-            let params: LogFileParams = from_lua_value(lua, params)?;
+            let params: LogFileParams = from_lua_value(&lua, params)?;
             Logger::init(params).await.map_err(any_err)
         })?,
     )?;
@@ -387,7 +387,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_log_hook",
         lua.create_async_function(|lua, params: LuaValue| async move {
-            let params: LogHookParams = from_lua_value(lua, params)?;
+            let params: LogHookParams = from_lua_value(&lua, params)?;
             Logger::init_hook(params).await.map_err(any_err)
         })?,
     )?;

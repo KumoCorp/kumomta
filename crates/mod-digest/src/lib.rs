@@ -10,7 +10,7 @@ use ring::digest::*;
 fn digest_recursive(value: &Value, ctx: &mut Context) -> anyhow::Result<()> {
     match value {
         Value::String(s) => {
-            ctx.update(s.as_bytes());
+            ctx.update(&s.as_bytes());
         }
         _ => {
             let json = serde_json::to_string(value)?;
@@ -35,7 +35,7 @@ fn digest_helper(
 struct DigestResult(Vec<u8>);
 
 impl LuaUserData for DigestResult {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("hex", |_, this| Ok(HEXLOWER.encode(&this.0)));
 
         fields.add_field_method_get("base32", |_, this| Ok(BASE32.encode(&this.0)));
@@ -57,7 +57,7 @@ impl LuaUserData for DigestResult {
         fields.add_field_method_get("bytes", |lua, this| lua.create_string(&this.0));
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             Ok(HEXLOWER.encode(&this.0))
         });

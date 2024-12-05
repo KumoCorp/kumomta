@@ -540,7 +540,7 @@ impl<V: Clone> Into<Vec<(AnyIpCidr, V)>> for CidrMap<V> {
 
 #[cfg(feature = "lua")]
 impl LuaUserData for CidrMap<CacheValue> {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
             let key = parse_cidr_from_ip_and_or_port(&key).map_err(any_err)?;

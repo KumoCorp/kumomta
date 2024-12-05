@@ -60,13 +60,13 @@ impl TryInto<ReversePath> for EnvelopeAddress {
 
 #[cfg(feature = "impl")]
 impl UserData for EnvelopeAddress {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| Ok(this.user().to_string()));
         fields.add_field_method_get("domain", |_, this| Ok(this.domain().to_string()));
         fields.add_field_method_get("email", |_, this| Ok(this.0.to_string()));
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             Ok(this.0.to_string())
         });
@@ -157,7 +157,7 @@ impl From<AddressList> for HeaderAddressList {
 
 #[cfg(feature = "impl")]
 impl UserData for HeaderAddressList {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| {
             Ok(this.user().map_err(any_err)?.to_string())
         });
@@ -179,7 +179,7 @@ impl UserData for HeaderAddressList {
         });
     }
 
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             let json = serde_json::to_string(&this.0).map_err(any_err)?;
             Ok(json)
@@ -257,7 +257,7 @@ impl HeaderAddress {
 
 #[cfg(feature = "impl")]
 impl UserData for HeaderAddress {
-    fn add_fields<'lua, F: UserDataFields<'lua, Self>>(fields: &mut F) {
+    fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("user", |_, this| {
             Ok(this.user().map_err(any_err)?.to_string())
         });
@@ -267,7 +267,7 @@ impl UserData for HeaderAddress {
         fields.add_field_method_get("email", |_, this| Ok(this.email().map(|s| s.to_string())));
         fields.add_field_method_get("name", |_, this| Ok(this.name().map(|s| s.to_string())));
     }
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| {
             let json = serde_json::to_string(&this).map_err(any_err)?;
             Ok(json)

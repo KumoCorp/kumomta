@@ -9,7 +9,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     tsa_mod.set(
         "start_http_listener",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: HttpListenerParams = from_lua_value(lua, params)?;
+            let params: HttpListenerParams = from_lua_value(&lua, params)?;
             params
                 .start(crate::http_server::make_router(), Some(get_main_runtime()))
                 .await

@@ -75,7 +75,7 @@ impl<V: Clone> RegexSetMapBuilder<V> {
 }
 
 impl LuaUserData for RegexSetMap<CacheValue> {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         mod_memoize::Memoized::impl_memoize(methods);
         methods.add_meta_method(MetaMethod::Index, |lua, this, key: String| {
             if let Some(value) = this.lookup(&key) {

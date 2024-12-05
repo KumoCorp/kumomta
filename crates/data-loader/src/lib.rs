@@ -85,7 +85,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     secrets_mod.set(
         "load",
         lua.create_async_function(|lua, source: mlua::Value| async move {
-            let source: KeySource = from_lua_value(lua, source)?;
+            let source: KeySource = from_lua_value(&lua, source)?;
             lua.create_string(&source.get().await.map_err(any_err)?)
         })?,
     )?;

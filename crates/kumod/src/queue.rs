@@ -77,11 +77,11 @@ pub static GET_Q_CONFIG_SIG: LazyLock<
         QueueConfig,
     >,
 > = LazyLock::new(|| CallbackSignature::new_with_multiple("get_queue_config"));
-pub static THROTTLE_INSERT_READY_SIG: LazyLock<CallbackSignature<'static, Message, ()>> =
+pub static THROTTLE_INSERT_READY_SIG: LazyLock<CallbackSignature<Message, ()>> =
     LazyLock::new(|| CallbackSignature::new_with_multiple("throttle_insert_ready_queue"));
 static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, String>), ()>> =
     LazyLock::new(|| CallbackSignature::new("rebind_message"));
-pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<'static, (Message, String), ()>> =
+pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, String), ()>> =
     LazyLock::new(|| CallbackSignature::new_with_multiple("requeue_message"));
 
 pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =

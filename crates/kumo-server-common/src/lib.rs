@@ -105,7 +105,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, (name, func): (String, Function)| {
             let decorated_name = decorate_callback_name(&name);
 
-            if let Ok(current_event) = lua.globals().get::<_, String>("_KUMO_CURRENT_EVENT") {
+            if let Ok(current_event) = lua.globals().get::<String>("_KUMO_CURRENT_EVENT") {
                 if current_event != "main" {
                     return Err(mlua::Error::external(format!(
                         "Attempting to register an event handler via \
@@ -232,7 +232,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "configure_redis_throttles",
         lua.create_async_function(|lua, params: Value| async move {
-            let key: RedisConnKey = from_lua_value(lua, params)?;
+            let key: RedisConnKey = from_lua_value(&lua, params)?;
             let conn = key.open().map_err(any_err)?;
             conn.ping().await.map_err(any_err)?;
             throttle::use_redis(conn).await.map_err(any_err)

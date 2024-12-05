@@ -5,7 +5,7 @@ use mlua::{Lua, UserData, UserDataMethods};
 struct RegexWrap(Regex);
 
 impl UserData for RegexWrap {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("captures", |lua, this, haystack: String| {
             match this.0.captures(&haystack).map_err(any_err)? {
                 Some(c) => {

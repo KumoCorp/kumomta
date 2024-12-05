@@ -173,7 +173,7 @@ impl Signer {
 
 impl LuaUserData for Signer {}
 
-pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
+pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let dkim_mod = get_or_create_sub_module(lua, "dkim")?;
     dkim_mod.set(
         "set_signing_threads",
@@ -193,7 +193,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     dkim_mod.set(
         "rsa_sha256_signer",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(lua, params)?;
+            let params: SignerConfig = from_lua_value(&lua, params)?;
 
             SIGNER_CACHE_LOOKUP.inc();
             if let Some(inner) = SIGNER_CACHE.get(&params) {
@@ -231,7 +231,7 @@ pub fn register<'lua>(lua: &'lua Lua) -> anyhow::Result<()> {
     dkim_mod.set(
         "ed25519_signer",
         lua.create_async_function(|lua, params: Value| async move {
-            let params: SignerConfig = from_lua_value(lua, params)?;
+            let params: SignerConfig = from_lua_value(&lua, params)?;
 
             if let Some(inner) = SIGNER_CACHE.get(&params) {
                 return Ok(Signer(inner));

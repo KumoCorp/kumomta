@@ -56,7 +56,7 @@ struct Record {
 }
 
 impl LuaUserData for Producer {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("send", |lua, this, value: Value| async move {
             let record: Record = lua.from_value(value)?;
 

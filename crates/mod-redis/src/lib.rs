@@ -70,7 +70,7 @@ impl RedisConnection {
     }
 }
 
-fn redis_value_to_lua<'lua>(lua: &'lua Lua, value: RedisValue) -> mlua::Result<Value<'lua>> {
+fn redis_value_to_lua(lua: &Lua, value: RedisValue) -> mlua::Result<Value> {
     Ok(match value {
         RedisValue::Nil => Value::Nil,
         RedisValue::Int(i) => Value::Integer(i),
@@ -146,15 +146,15 @@ fn redis_value_to_lua<'lua>(lua: &'lua Lua, value: RedisValue) -> mlua::Result<V
 }
 
 impl UserData for RedisConnection {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("query", |lua, this, params: MultiValue| async move {
             let mut args = vec![];
             for p in params {
-                args.push(from_lua_value(lua, p)?);
+                args.push(from_lua_value(&lua, p)?);
             }
             let cmd = build_cmd(args).map_err(any_err)?;
             let result = this.query(cmd).await.map_err(any_err)?;
-            redis_value_to_lua(lua, result)
+            redis_value_to_lua(&lua, result)
         });
     }
 }

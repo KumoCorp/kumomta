@@ -36,10 +36,10 @@ impl PartialEq for Memoized {
 impl Memoized {
     /// Call this from your `UserData::add_methods` implementation to
     /// enable memoization for your UserData type
-    pub fn impl_memoize<'lua, T, M>(methods: &mut M)
+    pub fn impl_memoize<T, M>(methods: &mut M)
     where
         T: UserData + Send + Sync + Clone + 'static,
-        M: UserDataMethods<'lua, T>,
+        M: UserDataMethods<T>,
     {
         methods.add_meta_method(
             "__memoize",
@@ -70,9 +70,9 @@ pub enum MapKey {
 }
 
 impl MapKey {
-    pub fn as_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+    pub fn as_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         match self {
-            Self::Integer(j) => Ok(mlua::Value::Integer(*j)),
+            Self::Integer(j) => Ok(mlua::Value::Integer(j)),
             Self::String(b) => Ok(mlua::Value::String(lua.create_string(b)?)),
         }
     }
@@ -85,11 +85,11 @@ pub enum CacheValue {
     Memoized(Memoized),
 }
 
-impl<'lua> FromLua<'lua> for CacheValue {
-    fn from_lua(value: mlua::Value<'lua>, lua: &'lua Lua) -> mlua::Result<Self> {
+impl FromLua for CacheValue {
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
         match value {
             mlua::Value::UserData(ud) => {
-                let mt = ud.get_metatable()?;
+                let mt = ud.metatable()?;
                 let func: Function = mt.get("__memoize")?;
                 let m: Memoized = func.call(mlua::Value::UserData(ud))?;
                 Ok(Self::Memoized(m))
@@ -118,21 +118,21 @@ impl<'lua> FromLua<'lua> for CacheValue {
     }
 }
 
-impl<'lua> IntoLua<'lua> for CacheValue {
-    fn into_lua(self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+impl IntoLua for CacheValue {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         self.as_lua(lua)
     }
 }
 
 impl CacheValue {
-    pub fn as_lua<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+    pub fn as_lua(&self, lua: &Lua) -> mlua::Result<mlua::Value> {
         match self {
             Self::Json(j) => lua.to_value_with(j, serialize_options()),
             Self::Memoized(m) => (m.to_value)(lua),
             Self::Table(m) => {
                 let result = lua.create_table()?;
                 for (k, v) in m {
-                    result.set(k.as_lua(lua)?, v.as_lua(lua)?)?;
+                    result.set(k.clone().as_lua(lua)?, v.as_lua(lua)?)?;
                 }
                 Ok(mlua::Value::Table(result))
             }
@@ -148,7 +148,7 @@ enum CacheEntry {
 }
 
 impl CacheEntry {
-    fn to_value<'lua>(&self, lua: &'lua Lua) -> mlua::Result<mlua::Value<'lua>> {
+    fn to_value(&self, lua: &Lua) -> mlua::Result<mlua::Value> {
         match self {
             Self::Null => Ok(mlua::Value::Nil),
             Self::Single(value) => value.as_lua(lua),
@@ -415,7 +415,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 let populate_counter = populate_counter.clone();
                 async move {
                     lookup_counter.inc();
-                    let key = multi_value_to_json_value(lua, params.clone())?;
+                    let key = multi_value_to_json_value(&lua, params.clone())?;
                     let key = serde_json::to_string(&key).map_err(any_err)?;
 
                     // We use the epoch from the start of the lookup as part
@@ -437,7 +437,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
                     if let Some(value) = cache.get(&key) {
                         hit_counter.inc();
-                        return Ok(value.to_value(lua)?);
+                        return Ok(value.to_value(&lua)?);
                     }
                     miss_counter.inc();
 
@@ -449,15 +449,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     // while waiting for the semaphore
                     if let Some(value) = cache.get(&key) {
                         miss_other_counter.inc();
-                        return Ok(value.to_value(lua)?);
+                        return Ok(value.to_value(&lua)?);
                     }
 
                     populate_counter.inc();
 
                     let result: MultiValue = (func?).call_async(params).await?;
 
-                    let value = CacheEntry::from_multi_value(lua, result.clone())?;
-                    let return_value = value.to_value(lua)?;
+                    let value = CacheEntry::from_multi_value(&lua, result.clone())?;
+                    let return_value = value.to_value(&lua)?;
 
                     cache.insert(key, value, Instant::now() + ttl);
 
@@ -548,7 +548,7 @@ mod test {
         }
 
         impl UserData for Foo {
-            fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+            fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
                 Memoized::impl_memoize(methods);
                 methods.add_method("get_value", move |_lua, this, _: ()| Ok(this.value));
             }

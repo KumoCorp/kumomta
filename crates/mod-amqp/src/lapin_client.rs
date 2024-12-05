@@ -32,9 +32,9 @@ pub struct AMQPClient {
 }
 
 impl LuaUserData for AMQPClient {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("publish", |lua, this, value: Value| async move {
-            let params: PublishParams = from_lua_value(lua, value)?;
+            let params: PublishParams = from_lua_value(&lua, value)?;
 
             let confirm = this
                 .holder
@@ -57,7 +57,7 @@ impl LuaUserData for AMQPClient {
         methods.add_async_method(
             "publish_with_timeout",
             |lua, this, (value, duration_millis): (Value, u64)| async move {
-                let params: PublishParams = from_lua_value(lua, value)?;
+                let params: PublishParams = from_lua_value(&lua, value)?;
 
                 let publish = async {
                     let confirm = this
@@ -73,7 +73,7 @@ impl LuaUserData for AMQPClient {
                         .await
                         .map_err(any_err)?;
 
-                    wait_confirmation(lua, confirm).await
+                    wait_confirmation(&lua, confirm).await
                 };
 
                 let duration = std::time::Duration::from_millis(duration_millis);
@@ -127,10 +127,7 @@ struct ConfirmResult {
     reply_text: Option<String>,
 }
 
-async fn wait_confirmation<'lua>(
-    lua: &'lua Lua,
-    confirm: PublisherConfirm,
-) -> mlua::Result<Value<'lua>> {
+async fn wait_confirmation(lua: &Lua, confirm: PublisherConfirm) -> mlua::Result<Value> {
     let confirmation = confirm.await.map_err(any_err)?;
     let status = ConfirmStatus::from_confirmation(&confirmation);
     let (reply_code, reply_text) = if let Some(msg) = confirmation.take_message() {
@@ -153,7 +150,7 @@ async fn wait_confirmation<'lua>(
 }
 
 impl LuaUserData for Confirm {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("wait", |lua, this, _: ()| async move {
             let confirm = this
                 .confirm
@@ -162,7 +159,7 @@ impl LuaUserData for Confirm {
                 .take()
                 .ok_or_else(|| mlua::Error::external("confirmation already taken!?"))?;
 
-            wait_confirmation(lua, confirm).await
+            wait_confirmation(&lua, confirm).await
         })
     }
 }

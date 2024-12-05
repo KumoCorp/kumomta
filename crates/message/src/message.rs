@@ -1027,7 +1027,7 @@ fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
 
 #[cfg(feature = "impl")]
 impl UserData for Message {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method(
             "set_meta",
             move |_, this, (name, value): (String, mlua::Value)| {
@@ -1079,7 +1079,7 @@ impl UserData for Message {
             let sender = match value {
                 mlua::Value::String(s) => {
                     let s = s.to_str()?;
-                    EnvelopeAddress::parse(s).map_err(any_err)?
+                    EnvelopeAddress::parse(&s).map_err(any_err)?
                 }
                 _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
             };
@@ -1094,7 +1094,7 @@ impl UserData for Message {
             let recipient = match value {
                 mlua::Value::String(s) => {
                     let s = s.to_str()?;
-                    EnvelopeAddress::parse(s).map_err(any_err)?
+                    EnvelopeAddress::parse(&s).map_err(any_err)?
                 }
                 _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
             };

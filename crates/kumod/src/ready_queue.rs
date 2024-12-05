@@ -47,7 +47,7 @@ static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
 pub static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
-    CallbackSignature<'static, (String, String, String), EgressPathConfig>,
+    CallbackSignature<(String, String, String), EgressPathConfig>,
 > = LazyLock::new(|| CallbackSignature::new("get_egress_path_config"));
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);

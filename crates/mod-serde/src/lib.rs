@@ -49,7 +49,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn json_load(lua: &Lua, file_name: String) -> mlua::Result<LuaValue> {
+async fn json_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
     let data = tokio::fs::read(&file_name)
         .await
         .with_context(|| format!("reading file {file_name}"))
@@ -79,7 +79,7 @@ fn json_encode_pretty(_: &Lua, value: LuaValue) -> mlua::Result<String> {
     serde_json::to_string_pretty(&value).map_err(any_err)
 }
 
-async fn toml_load(lua: &Lua, file_name: String) -> mlua::Result<LuaValue> {
+async fn toml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
     let data = tokio::fs::read_to_string(&file_name)
         .await
         .with_context(|| format!("reading file {file_name}"))
@@ -106,7 +106,7 @@ fn toml_encode_pretty(_: &Lua, value: LuaValue) -> mlua::Result<String> {
     toml::to_string_pretty(&value).map_err(any_err)
 }
 
-async fn yaml_load(lua: &Lua, file_name: String) -> mlua::Result<LuaValue> {
+async fn yaml_load(lua: Lua, file_name: String) -> mlua::Result<LuaValue> {
     let data = tokio::fs::read(&file_name)
         .await
         .with_context(|| format!("reading file {file_name}"))

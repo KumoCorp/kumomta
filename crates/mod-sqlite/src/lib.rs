@@ -28,7 +28,7 @@ fn bind_param<I: ParameterIndex>(
     })
 }
 
-fn params_to_json<'lua>(lua: &'lua Lua, mut params: MultiValue) -> mlua::Result<JsonValue> {
+fn params_to_json(lua: &Lua, mut params: MultiValue) -> mlua::Result<JsonValue> {
     match params.len() {
         0 => Ok(JsonValue::Null),
         1 => {
@@ -163,11 +163,11 @@ impl Conn {
 }
 
 impl UserData for Conn {
-    fn add_methods<'lua, M: UserDataMethods<'lua, Self>>(methods: &mut M) {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
             "execute",
             |lua, this, (sql, params): (String, MultiValue)| async move {
-                let json_params = params_to_json(lua, params)?;
+                let json_params = params_to_json(&lua, params)?;
                 let result = this
                     .clone()
                     .async_execute(sql, json_params)
