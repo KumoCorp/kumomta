@@ -1,16 +1,3 @@
-//! This is a little helper for routing small units of work to
-//! a thread pool that runs a LocalSet + single threaded tokio
-//! runtime.
-//!
-//! The rationale for this is that mlua doesn't currently provide
-//! async call implementations that are Send, so it is not possible
-//! to use them within the usual Send Future that is required by
-//! the normal tokio::spawn function.
-//!
-//! We use Runtime::run() to spawn a little closure whose purpose
-//! is to use tokio::task::spawn_local to spawn the local future.
-//! For example, when accepting new connections, we use this to
-//! spawn the server processing future.
 use prometheus::IntGaugeVec;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
