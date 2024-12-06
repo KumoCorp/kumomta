@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use kumo_api_types::{BounceV1CancelRequest, BounceV1ListEntry, BounceV1Request, BounceV1Response};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
-use kumo_server_runtime::rt_spawn_non_blocking;
+use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
 use message::Message;
 use parking_lot::FairMutex as Mutex;
@@ -219,14 +219,12 @@ pub async fn bounce_v1(
 
     // Move into a lua-capable thread so that logging related
     // lua events can be triggered by log_disposition.
-    rt_spawn_non_blocking("process_bounce_v1".to_string(), move || {
-        Ok(async move {
-            for name in &queue_names {
-                if let Some(q) = QueueManager::get_opt(name) {
-                    q.bounce_all(&entry).await;
-                }
+    rt_spawn("process_bounce_v1".to_string(), async move {
+        for name in &queue_names {
+            if let Some(q) = QueueManager::get_opt(name) {
+                q.bounce_all(&entry).await;
             }
-        })
+        }
     })?;
 
     Ok(Json(BounceV1Response {

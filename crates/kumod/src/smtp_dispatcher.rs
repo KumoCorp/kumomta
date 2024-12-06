@@ -13,7 +13,7 @@ use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_api_types::egress_path::{EgressPathConfig, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
-use kumo_server_runtime::spawn_local;
+use kumo_server_runtime::spawn;
 use lruttl::LruCacheWithTtl;
 use message::message::QueueNameComponents;
 use message::Message;
@@ -654,7 +654,7 @@ impl SmtpDispatcher {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl QueueDispatcher for SmtpDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         if let Some(mut client) = self.client.take() {
@@ -803,7 +803,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             response.clone(),
                         )
                         .await;
-                        spawn_local(
+                        spawn(
                             "requeue message".to_string(),
                             QueueManager::requeue_message(
                                 msg,
@@ -831,7 +831,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             response.clone(),
                         )
                         .await;
-                        spawn_local(
+                        spawn(
                             "requeue message".to_string(),
                             QueueManager::requeue_message(
                                 msg,
@@ -895,7 +895,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         response.clone(),
                     )
                     .await;
-                    spawn_local(
+                    spawn(
                         "requeue message".to_string(),
                         QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
                     )?;
@@ -931,7 +931,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         response.clone(),
                     )
                     .await;
-                    spawn_local(
+                    spawn(
                         "requeue message".to_string(),
                         QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
                     )?;

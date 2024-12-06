@@ -6,7 +6,7 @@ use tokio_openssl::SslStream;
 use tokio_rustls::client::TlsStream as TlsClientStream;
 use tokio_rustls::server::TlsStream as TlsServerStream;
 
-pub trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Debug + Unpin + Send {
+pub trait AsyncReadAndWrite: AsyncRead + AsyncWrite + Debug + Unpin + Send + Sync {
     /// Optionally clone a TcpStream that represents the same underlying
     /// stream as this one.
     /// This only has an impl that returns Some for TcpStream.

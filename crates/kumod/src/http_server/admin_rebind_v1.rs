@@ -3,7 +3,7 @@ use axum::extract::Json;
 use kumo_api_types::rebind::{RebindV1Request, RebindV1Response};
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
-use kumo_server_runtime::rt_spawn_non_blocking;
+use kumo_server_runtime::rt_spawn;
 use message::message::QueueNameComponents;
 use std::sync::Arc;
 
@@ -89,14 +89,12 @@ pub async fn rebind_v1(
 
     // Move into a lua-capable thread so that logging related
     // lua events can be triggered by log_disposition.
-    rt_spawn_non_blocking("process_rebind_v1".to_string(), move || {
-        Ok(async move {
-            for name in &queue_names {
-                if let Some(q) = QueueManager::get_opt(name) {
-                    q.rebind_all(&entry).await;
-                }
+    rt_spawn("process_rebind_v1".to_string(), async move {
+        for name in &queue_names {
+            if let Some(q) = QueueManager::get_opt(name) {
+                q.rebind_all(&entry).await;
             }
-        })
+        }
     })?;
 
     Ok(Json(RebindV1Response {}))

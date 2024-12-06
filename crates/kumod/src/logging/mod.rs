@@ -16,9 +16,7 @@ use prometheus::{CounterVec, Histogram, HistogramVec};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Mutex as TokioMutex;
@@ -148,14 +146,10 @@ impl Logger {
 
         let mut state = LogHookState::new(params, receiver, template_engine);
 
-        let thread = LOGGING_RUNTIME
-            .spawn("log hook".to_string(), move || {
-                Ok(async move {
-                    tracing::debug!("calling state.logger_thread()");
-                    state.logger_thread().await
-                })
-            })
-            .await?;
+        let thread = LOGGING_RUNTIME.spawn("log hook".to_string(), async move {
+            tracing::debug!("calling state.logger_thread()");
+            state.logger_thread().await
+        })?;
 
         let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
 
@@ -213,20 +207,16 @@ impl Logger {
         }
         .register();
 
-        let thread = LOGGING_RUNTIME
-            .spawn("log file".to_string(), move || {
-                Ok(async move {
-                    tracing::debug!("calling state.logger_thread()");
-                    let mut state = LogThreadState {
-                        params,
-                        receiver,
-                        template_engine,
-                        file_map: HashMap::new(),
-                    };
-                    state.logger_thread().await
-                })
-            })
-            .await?;
+        let thread = LOGGING_RUNTIME.spawn("log file".to_string(), async move {
+            tracing::debug!("calling state.logger_thread()");
+            let mut state = LogThreadState {
+                params,
+                receiver,
+                template_engine,
+                file_map: HashMap::new(),
+            };
+            state.logger_thread().await
+        })?;
 
         let submit_latency = SUBMIT_LATENCY.get_metric_with_label_values(&[&name])?;
 
@@ -273,20 +263,18 @@ impl Logger {
         }
     }
 
-    pub fn signal_shutdown() -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(async move {
-            let loggers = Self::get_loggers();
-            for logger in loggers.iter() {
-                tracing::debug!("Terminating a logger");
-                logger.sender.send(LogCommand::Terminate).await.ok();
-                tracing::debug!("Joining that logger");
-                let res = match logger.thread.lock().await.take() {
-                    Some(task) => Some(task.await),
-                    None => None,
-                };
-                tracing::debug!("Joined -> {res:?}");
-            }
-        })
+    pub async fn signal_shutdown() {
+        let loggers = Self::get_loggers();
+        for logger in loggers.iter() {
+            tracing::debug!("Terminating a logger");
+            logger.sender.send(LogCommand::Terminate).await.ok();
+            tracing::debug!("Joining that logger");
+            let res = match logger.thread.lock().await.take() {
+                Some(task) => Some(task.await),
+                None => None,
+            };
+            tracing::debug!("Joined -> {res:?}");
+        }
     }
 
     pub fn extract_meta(&self, meta: &serde_json::Value) -> HashMap<String, Value> {

@@ -4,9 +4,7 @@ use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 
 mod http_server;
 mod mod_auto;
@@ -61,32 +59,28 @@ fn main() -> anyhow::Result<()> {
         .block_on(async move { run(opts).await })
 }
 
-fn perform_init() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
-    Box::pin(async move {
-        let mut config = config::load_config().await?;
+async fn perform_init() -> anyhow::Result<()> {
+    let mut config = config::load_config().await?;
 
-        // Explicitly load the shaping config now to catch silly
-        // mistakes before we start up the listeners
-        let shaping = load_shaping().await?;
-        // and set it as the global shared copy of the shaping config
-        assign_shaping(shaping);
+    // Explicitly load the shaping config now to catch silly
+    // mistakes before we start up the listeners
+    let shaping = load_shaping().await?;
+    // and set it as the global shared copy of the shaping config
+    assign_shaping(shaping);
 
-        let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
+    let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
 
-        config
-            .async_call_callback(&tsa_init_sig, ())
-            .await
-            .context("in tsa_init event")?;
+    config
+        .async_call_callback(&tsa_init_sig, ())
+        .await
+        .context("in tsa_init event")?;
 
-        spawn_shaping_updater()?;
+    spawn_shaping_updater()?;
 
-        Ok(())
-    })
+    Ok(())
 }
 
-fn signal_shutdown() -> Pin<Box<dyn Future<Output = ()>>> {
-    Box::pin(async move {})
-}
+async fn signal_shutdown() {}
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
     kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());
@@ -100,6 +94,6 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         lua_funcs: &[kumo_server_common::register, mod_auto::register],
         policy: &opts.policy,
     }
-    .run(perform_init, signal_shutdown)
+    .run(perform_init(), signal_shutdown())
     .await
 }

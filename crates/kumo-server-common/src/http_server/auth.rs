@@ -5,7 +5,6 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
-use kumo_server_runtime::rt_spawn;
 use lruttl::LruCacheWithTtl;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{LazyLock, Mutex};
@@ -78,18 +77,7 @@ impl AuthKind {
         match self.lookup_cache() {
             Some(res) => res.map_err(|err| anyhow::anyhow!("{err}")),
             None => {
-                async fn try_validate(kind: AuthKind) -> anyhow::Result<bool> {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    rt_spawn(format!("http auth validate {kind:?}"), move || {
-                        Ok(async move { tx.send(kind.validate_impl().await) })
-                    })
-                    .await?;
-                    rx.await?
-                }
-
-                let res = try_validate(self.clone())
-                    .await
-                    .map_err(|err| format!("{err:#}"));
+                let res = self.validate_impl().await.map_err(|err| format!("{err:#}"));
 
                 let res = AUTH_CACHE.lock().unwrap().insert(
                     self.clone(),

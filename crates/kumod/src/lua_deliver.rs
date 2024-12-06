@@ -8,7 +8,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::{CallbackSignature, LuaConfig};
 use kumo_log_types::{RecordType, ResolvedAddress};
-use kumo_server_runtime::spawn_local;
+use kumo_server_runtime::spawn;
 use message::message::QueueNameComponents;
 use message::Message;
 use mlua::{RegistryKey, Value};
@@ -85,7 +85,7 @@ impl LuaQueueDispatcher {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl QueueDispatcher for LuaQueueDispatcher {
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         tracing::debug!("close_connection called");
@@ -242,7 +242,7 @@ impl QueueDispatcher for LuaQueueDispatcher {
                                 session_id: Some(dispatcher.session_id),
                             })
                             .await;
-                            spawn_local(
+                            spawn(
                                 "requeue message".to_string(),
                                 QueueManager::requeue_message(
                                     msg,

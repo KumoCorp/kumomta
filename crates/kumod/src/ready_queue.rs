@@ -165,11 +165,10 @@ pub struct ReadyQueueManager {
 impl ReadyQueueManager {
     pub fn new() -> Self {
         QMAINT_RUNTIME
-            .spawn_non_blocking("ready_queue_config_maintainer".to_string(), move || {
-                Ok(async move {
-                    ReadyQueueManager::queue_config_maintainer().await;
-                })
-            })
+            .spawn(
+                "ready_queue_config_maintainer".to_string(),
+                ReadyQueueManager::queue_config_maintainer(),
+            )
             .expect("failed to spawn ReadyQueueManager::queue_config_maintainer");
 
         Self::default()
@@ -299,6 +298,15 @@ impl ReadyQueueManager {
         Self::get_by_name(&name.name)
     }
 
+    fn spawn_maintainer(name: &str, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
+        let name = name.to_string();
+        QMAINT_RUNTIME.spawn(
+            format!("maintain {name}"),
+            Self::maintainer_task(name, notify_maintainer),
+        )?;
+        Ok(())
+    }
+
     pub async fn resolve_by_queue_name(
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
@@ -319,12 +327,7 @@ impl ReadyQueueManager {
 
         let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
             let notify_maintainer = Arc::new(Notify::new());
-            QMAINT_RUNTIME
-                .spawn_non_blocking(format!("maintain {name}"), {
-                    let name = name.clone();
-                    let notify_maintainer = notify_maintainer.clone();
-                    move || Ok(async move { Self::maintainer_task(name, notify_maintainer).await })
-                })
+            Self::spawn_maintainer(&name, notify_maintainer.clone())
                 .expect("failed to spawn maintainer");
             let proto = queue_config.borrow().protocol.metrics_protocol_name();
             let service = format!("{proto}:{name}");
@@ -592,17 +595,14 @@ impl ReadyQueue {
         if !reinsert.is_empty() {
             let activity = self.activity.clone();
             READYQ_RUNTIME
-                .spawn("reinserting".to_string(), move || {
-                    Ok(async move {
-                        for msg in reinsert {
-                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
-                                tracing::error!("error reinserting message: {err:#}");
-                            }
+                .spawn("reinserting".to_string(), async move {
+                    for msg in reinsert {
+                        if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                            tracing::error!("error reinserting message: {err:#}");
                         }
-                        drop(activity);
-                    })
+                    }
+                    drop(activity);
                 })
-                .await
                 .expect("failed to spawn reinsertion");
         }
 
@@ -621,18 +621,15 @@ impl ReadyQueue {
             READYQ_RUNTIME
                 .spawn(
                     format!("reinserting {} due to {reason}", self.name),
-                    move || {
-                        Ok(async move {
-                            for msg in msgs {
-                                if let Err(err) = Dispatcher::reinsert_message(msg).await {
-                                    tracing::error!("error reinserting message: {err:#}");
-                                }
+                    async move {
+                        for msg in msgs {
+                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                                tracing::error!("error reinserting message: {err:#}");
                             }
-                            drop(activity);
-                        })
+                        }
+                        drop(activity);
                     },
                 )
-                .await
                 .expect("failed to spawn reinsertion");
         }
     }
@@ -767,33 +764,30 @@ impl ReadyQueue {
                 let consecutive_connection_failures = self.consecutive_connection_failures.clone();
 
                 tracing::trace!("spawning client for {name}");
-                if let Ok(handle) = READYQ_RUNTIME
-                    .spawn(format!("smtp client {name}"), move || {
-                        Ok(async move {
-                            if let Err(err) = Dispatcher::run(
-                                &name,
-                                queue_name_for_config_change_purposes_only,
-                                mx,
-                                ready,
-                                notify_dispatcher,
-                                queue_config,
-                                path_config,
-                                metrics,
-                                consecutive_connection_failures.clone(),
-                                egress_source,
-                                egress_pool,
-                                leases,
-                            )
-                            .await
-                            {
-                                tracing::debug!(
-                                    "Error in Dispatcher::run for {name}: {err:#} \
+                if let Ok(handle) =
+                    READYQ_RUNTIME.spawn(format!("smtp client {name}"), async move {
+                        if let Err(err) = Dispatcher::run(
+                            &name,
+                            queue_name_for_config_change_purposes_only,
+                            mx,
+                            ready,
+                            notify_dispatcher,
+                            queue_config,
+                            path_config,
+                            metrics,
+                            consecutive_connection_failures.clone(),
+                            egress_source,
+                            egress_pool,
+                            leases,
+                        )
+                        .await
+                        {
+                            tracing::debug!(
+                                "Error in Dispatcher::run for {name}: {err:#} \
                          (consecutive_connection_failures={consecutive_connection_failures:?})"
-                                );
-                            }
-                        })
+                            );
+                        }
                     })
-                    .await
                 {
                     self.connections.lock().push(handle);
                 }
@@ -886,7 +880,7 @@ impl Drop for ReadyQueue {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait QueueDispatcher: Debug + Send {
     async fn deliver_message(
         &mut self,
@@ -946,48 +940,46 @@ impl Drop for Dispatcher {
         let name = self.name.to_string();
         let notify_dispatcher = self.notify_dispatcher.clone();
         READYQ_RUNTIME
-            .spawn_non_blocking("Dispatcher::drop".to_string(), move || {
-                Ok(async move {
-                    let had_msgs = !msgs.is_empty();
+            .spawn("Dispatcher::drop".to_string(), async move {
+                let had_msgs = !msgs.is_empty();
 
-                    for msg in msgs {
-                        if activity.is_shutting_down() {
-                            Queue::save_if_needed_and_log(&msg).await;
-                        } else {
-                            let response = Response {
-                                code: 451,
-                                enhanced_code: Some(EnhancedStatusCode {
-                                    class: 4,
-                                    subject: 4,
-                                    detail: 1,
-                                }),
-                                content: "KumoMTA internal: returning message to scheduled queue"
-                                    .to_string(),
-                                command: None,
-                            };
+                for msg in msgs {
+                    if activity.is_shutting_down() {
+                        Queue::save_if_needed_and_log(&msg).await;
+                    } else {
+                        let response = Response {
+                            code: 451,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 4,
+                                subject: 4,
+                                detail: 1,
+                            }),
+                            content: "KumoMTA internal: returning message to scheduled queue"
+                                .to_string(),
+                            command: None,
+                        };
 
-                            if let Err(err) = QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::No,
-                                None,
-                                response,
-                            )
-                            .await
-                            {
-                                tracing::error!("error requeuing message on Drop: {err:#}");
-                            }
+                        if let Err(err) = QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::No,
+                            None,
+                            response,
+                        )
+                        .await
+                        {
+                            tracing::error!("error requeuing message on Drop: {err:#}");
                         }
                     }
+                }
 
-                    if !had_msgs {
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        let ready_queue = ReadyQueueManager::get_by_name(&name);
-                        if let Some(q) = ready_queue {
-                            q.notify_maintainer.notify_one();
-                        }
-                        notify_dispatcher.notify_one();
+                if !had_msgs {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let ready_queue = ReadyQueueManager::get_by_name(&name);
+                    if let Some(q) = ready_queue {
+                        q.notify_maintainer.notify_one();
                     }
-                })
+                    notify_dispatcher.notify_one();
+                }
             })
             .ok();
     }
@@ -1333,19 +1325,16 @@ impl Dispatcher {
             );
             let activity = self.activity.clone();
             READYQ_RUNTIME
-                .spawn("reinserting".to_string(), move || {
-                    Ok(async move {
-                        for msg in msgs {
-                            if let Err(err) = Self::reinsert_message(msg).await {
-                                if err.to_string() != "shutting down" {
-                                    tracing::error!("error reinserting message: {err:#}");
-                                }
+                .spawn("reinserting".to_string(), async move {
+                    for msg in msgs {
+                        if let Err(err) = Self::reinsert_message(msg).await {
+                            if err.to_string() != "shutting down" {
+                                tracing::error!("error reinserting message: {err:#}");
                             }
                         }
-                        drop(activity);
-                    })
+                    }
+                    drop(activity);
                 })
-                .await
                 .expect("failed to spawn reinsertion");
         }
     }
@@ -1367,34 +1356,31 @@ impl Dispatcher {
                 kumo_chrono_helper::MINUTE
             });
             READYQ_RUNTIME
-                .spawn("requeue for throttle".to_string(), move || {
-                    Ok(async move {
-                        let response = Response {
-                            code: 451,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 4,
-                                detail: 1,
-                            }),
-                            content: "KumoMTA internal: ready queue throttled".to_string(),
-                            command: None,
-                        };
-                        for msg in msgs {
-                            if let Err(err) = QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::No,
-                                Some(delay),
-                                response.clone(),
-                            )
-                            .await
-                            {
-                                tracing::error!("error requeuing message for throttle: {err:#}");
-                            }
+                .spawn("requeue for throttle".to_string(), async move {
+                    let response = Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 1,
+                        }),
+                        content: "KumoMTA internal: ready queue throttled".to_string(),
+                        command: None,
+                    };
+                    for msg in msgs {
+                        if let Err(err) = QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::No,
+                            Some(delay),
+                            response.clone(),
+                        )
+                        .await
+                        {
+                            tracing::error!("error requeuing message for throttle: {err:#}");
                         }
-                        drop(activity);
-                    })
+                    }
+                    drop(activity);
                 })
-                .await
                 .expect("failed to spawn requeue");
         }
     }

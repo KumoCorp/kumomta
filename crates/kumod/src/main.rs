@@ -7,9 +7,7 @@ use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::LazyLock;
 
 pub static PRE_INIT_SIG: LazyLock<CallbackSignature<(), ()>> =
@@ -201,79 +199,77 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn perform_init(opts: Opt) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
-    Box::pin(async move {
-        let nodeid = kumo_server_common::nodeid::NodeId::get();
-        tracing::info!("NodeId is {nodeid}");
-        let start_time = Utc::now();
+async fn perform_init(opts: Opt) -> anyhow::Result<()> {
+    let nodeid = kumo_server_common::nodeid::NodeId::get();
+    tracing::info!("NodeId is {nodeid}");
+    let start_time = Utc::now();
 
-        let mut config = config::load_config().await.context("load_config")?;
+    let mut config = config::load_config().await.context("load_config")?;
 
-        if opts.script {
-            // Convert the list of strings into a MultiValue so that
-            // the event handler can be like:
-            // `kumo.on('main', function(arg1, arg2)`
-            // rather than receiving an array and manually unpacking
-            // the argument list
-            #[derive(Clone)]
-            struct ParamList(Vec<String>);
-            impl mlua::IntoLuaMulti for ParamList {
-                fn into_lua_multi(self, lua: &mlua::Lua) -> mlua::Result<mlua::MultiValue> {
-                    let mut args = vec![];
-                    for arg in self.0 {
-                        args.push(mlua::Value::String(lua.create_string(arg)?));
-                    }
-                    Ok(mlua::MultiValue::from_vec(args))
+    if opts.script {
+        // Convert the list of strings into a MultiValue so that
+        // the event handler can be like:
+        // `kumo.on('main', function(arg1, arg2)`
+        // rather than receiving an array and manually unpacking
+        // the argument list
+        #[derive(Clone)]
+        struct ParamList(Vec<String>);
+        impl mlua::IntoLuaMulti for ParamList {
+            fn into_lua_multi(self, lua: &mlua::Lua) -> mlua::Result<mlua::MultiValue> {
+                let mut args = vec![];
+                for arg in self.0 {
+                    args.push(mlua::Value::String(lua.create_string(arg)?));
                 }
+                Ok(mlua::MultiValue::from_vec(args))
             }
-
-            let main_sig = CallbackSignature::<ParamList, ()>::new("main");
-
-            let mut script_args = opts.legacy_script_args;
-            script_args.append(&mut opts.script_args.clone());
-
-            config
-                .async_call_callback(&main_sig, ParamList(script_args))
-                .await
-                .context("call main callback")?;
-            LifeCycle::request_shutdown().await;
-            return Ok(());
         }
 
+        let main_sig = CallbackSignature::<ParamList, ()>::new("main");
+
+        let mut script_args = opts.legacy_script_args;
+        script_args.append(&mut opts.script_args.clone());
+
         config
-            .async_call_callback(&PRE_INIT_SIG, ())
+            .async_call_callback(&main_sig, ParamList(script_args))
             .await
-            .context("call pre_init callback")?;
+            .context("call main callback")?;
+        LifeCycle::request_shutdown().await;
+        return Ok(());
+    }
 
-        let init_sig = CallbackSignature::<(), ()>::new("init");
+    config
+        .async_call_callback(&PRE_INIT_SIG, ())
+        .await
+        .context("call pre_init callback")?;
+
+    let init_sig = CallbackSignature::<(), ()>::new("init");
+    config
+        .async_call_callback(&init_sig, ())
+        .await
+        .context("call init callback")?;
+
+    if opts.validate {
         config
-            .async_call_callback(&init_sig, ())
+            .async_call_callback(&VALIDATE_SIG, ())
             .await
-            .context("call init callback")?;
+            .context("call validate_config callback")?;
 
-        if opts.validate {
-            config
-                .async_call_callback(&VALIDATE_SIG, ())
-                .await
-                .context("call validate_config callback")?;
-
-            if config::validation_failed() {
-                anyhow::bail!("Validation failed");
-            }
-
-            LifeCycle::request_shutdown().await;
-        } else {
-            crate::spool::SpoolManager::get()
-                .start_spool(start_time)
-                .await
-                .context("start_spool")?;
-
-            lruttl::spawn_memory_monitor();
-            config::epoch::start_monitor();
+        if config::validation_failed() {
+            anyhow::bail!("Validation failed");
         }
 
-        Ok(())
-    })
+        LifeCycle::request_shutdown().await;
+    } else {
+        crate::spool::SpoolManager::get()
+            .start_spool(start_time)
+            .await
+            .context("start_spool")?;
+
+        lruttl::spawn_memory_monitor();
+        config::epoch::start_monitor();
+    }
+
+    Ok(())
 }
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
@@ -304,9 +300,11 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     .run(
         {
             let opts = opts.clone();
-            move || perform_init(opts)
+            async move {
+            perform_init(opts).await
+            }
         },
-        crate::logging::Logger::signal_shutdown,
+        crate::logging::Logger::signal_shutdown(),
     )
     .await;
 

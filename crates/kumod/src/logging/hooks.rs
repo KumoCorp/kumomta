@@ -164,24 +164,22 @@ impl LogHookState {
         let deferred_spool = self.params.deferred_spool;
         let name = self.params.name.clone();
 
-        LOGGING_RUNTIME.spawn_non_blocking("log-hook".to_string(), move || {
-            Ok(async move {
-                let mut lua_config = load_config().await?;
+        LOGGING_RUNTIME.spawn("log-hook".to_string(), async move {
+            let mut lua_config = load_config().await?;
 
-                let enqueue: bool = lua_config
-                    .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
-                    .await?;
+            let enqueue: bool = lua_config
+                .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
+                .await?;
 
-                if enqueue {
-                    let queue_name = msg.get_queue_name()?;
-                    if !deferred_spool {
-                        msg.save().await?;
-                    }
-                    QueueManager::insert(&queue_name, msg).await?;
+            if enqueue {
+                let queue_name = msg.get_queue_name()?;
+                if !deferred_spool {
+                    msg.save().await?;
                 }
-                drop(permit);
-                anyhow::Result::<()>::Ok(())
-            })
+                QueueManager::insert(&queue_name, msg).await?;
+            }
+            drop(permit);
+            anyhow::Result::<()>::Ok(())
         })?;
 
         Ok(())

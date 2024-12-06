@@ -5,8 +5,6 @@ use kumo_server_lifecycle::LifeCycle;
 use kumo_server_runtime::rt_spawn;
 use std::future::Future;
 use std::path::Path;
-use std::pin::Pin;
-
 pub struct StartConfig<'a> {
     pub logging: LoggingConfig<'a>,
     pub lua_funcs: &'a [RegisterFunc],
@@ -16,12 +14,12 @@ pub struct StartConfig<'a> {
 impl<'a> StartConfig<'a> {
     pub async fn run<INIT, FINI>(
         self,
-        perform_init: INIT,
-        broadcast_shutdown: FINI,
+        init_future: INIT,
+        shutdown_future: FINI,
     ) -> anyhow::Result<()>
     where
-        INIT: FnOnce() -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> + Send + 'static,
-        FINI: FnOnce() -> Pin<Box<dyn Future<Output = ()>>> + Send + 'static,
+        INIT: Future<Output = anyhow::Result<()>> + Send + 'static,
+        FINI: Future<Output = ()> + Send + 'static,
     {
         self.logging.init()?;
 
@@ -46,29 +44,24 @@ impl<'a> StartConfig<'a> {
 
         let mut life_cycle = LifeCycle::new();
 
-        let init_handle = rt_spawn("initialize".to_string(), move || {
-            Ok(async move {
-                let mut error = None;
-                let init_future = (perform_init)();
-                if let Err(err) = init_future.await {
-                    let err = format!("{err:#}");
-                    tracing::error!("problem initializing: {err}");
-                    LifeCycle::request_shutdown().await;
-                    error.replace(err);
-                }
-                // This log line is depended upon by the integration
-                // test harness. Do not change or remove it without
-                // making appropriate adjustments over there!
-                tracing::info!("initialization complete");
-                error
-            })
-        })
-        .await?;
+        let init_handle = rt_spawn("initialize".to_string(), async move {
+            let mut error = None;
+            if let Err(err) = init_future.await {
+                let err = format!("{err:#}");
+                tracing::error!("problem initializing: {err}");
+                LifeCycle::request_shutdown().await;
+                error.replace(err);
+            }
+            // This log line is depended upon by the integration
+            // test harness. Do not change or remove it without
+            // making appropriate adjustments over there!
+            tracing::info!("initialization complete");
+            error
+        })?;
 
         life_cycle.wait_for_shutdown().await;
 
         // after waiting for those to idle out, shut down logging
-        let shutdown_future = (broadcast_shutdown)();
         shutdown_future.await;
 
         tracing::info!("Shutdown completed OK!");

@@ -367,14 +367,15 @@ impl EsmtpListenerParams {
                     let params = self.clone();
                     SMTPSRV.spawn(
                         format!("SmtpServer {peer_address:?}"),
-                        move || Ok(async move {
+                        async move {
                             if let Err(err) =
                                 SmtpServer::run(socket, my_address, peer_address, params).await
                                 {
                                     tracing::error!("SmtpServer::run: {err:#}");
                             }
                             drop(permit);
-                    })).await?;
+                        }
+                    )?;
                 }
             };
         }

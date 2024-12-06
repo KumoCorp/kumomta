@@ -788,8 +788,6 @@ pub async fn inject_v1(
 
     let sender = EnvelopeAddress::parse(&request.envelope_sender).context("envelope_sender")?;
 
-    let (tx, rx) = tokio::sync::oneshot::channel();
-
     // Bounce to the thread pool where we can run async lua
     let pool = if request.deferred_generation {
         &*RUNTIME
@@ -797,11 +795,10 @@ pub async fn inject_v1(
         &*HTTPINJECT
     };
 
-    pool.spawn(format!("http inject_v1 for {peer_address:?}"), move || {
-        Ok(async move { tx.send(inject_v1_impl(auth, sender, peer_address, request).await) })
-    })
-    .await?;
-    rx.await?
+    pool.spawn(format!("http inject_v1 for {peer_address:?}"), async move {
+        inject_v1_impl(auth, sender, peer_address, request).await
+    })?
+    .await?
 }
 
 #[derive(Debug)]
@@ -816,37 +813,34 @@ impl HttpInjectionGeneratorDispatcher {
 
     async fn try_send(&self, msg: Message) -> anyhow::Result<()> {
         HTTPINJECT
-            .spawn("http inject_v1".to_string(), move || {
-                Ok(async move {
-                    msg.load_data_if_needed().await?;
-                    msg.load_meta_if_needed().await?;
-                    let data = msg.get_data();
-                    let request: InjectV1Request = serde_json::from_slice(&data)?;
-                    let peer_address = msg
-                        .get_meta_string("received_from")?
-                        .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
-                        .parse()?;
+            .spawn("http inject_v1".to_string(), async move {
+                msg.load_data_if_needed().await?;
+                msg.load_meta_if_needed().await?;
+                let data = msg.get_data();
+                let request: InjectV1Request = serde_json::from_slice(&data)?;
+                let peer_address = msg
+                    .get_meta_string("received_from")?
+                    .ok_or_else(|| anyhow::anyhow!("received_from metadata is missing!?"))?
+                    .parse()?;
 
-                    let sender = msg.sender()?;
+                let sender = msg.sender()?;
 
-                    let _ = inject_v1_impl(
-                        AuthKind::TrustedIp(peer_address),
-                        sender,
-                        peer_address,
-                        request,
-                    )
-                    .await
-                    .map_err(|err| err.0)?;
+                let _ = inject_v1_impl(
+                    AuthKind::TrustedIp(peer_address),
+                    sender,
+                    peer_address,
+                    request,
+                )
+                .await
+                .map_err(|err| err.0)?;
 
-                    Ok(())
-                })
-            })
-            .await?
+                Ok(())
+            })?
             .await?
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl QueueDispatcher for HttpInjectionGeneratorDispatcher {
     async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
         match self.connection.take() {

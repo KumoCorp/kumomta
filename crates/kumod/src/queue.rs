@@ -860,12 +860,10 @@ impl QueueStructure {
                         q.lock().insert(msg);
                         STARTED_SINGLETON_WHEEL.call_once(|| {
                             QMAINT_RUNTIME
-                                .spawn_non_blocking("singleton_wheel".to_string(), move || {
-                                    Ok(async move {
-                                        if let Err(err) = Queue::run_singleton_wheel().await {
-                                            tracing::error!("run_singleton_wheel: {err:#}");
-                                        }
-                                    })
+                                .spawn("singleton_wheel".to_string(), async move {
+                                    if let Err(err) = Queue::run_singleton_wheel().await {
+                                        tracing::error!("run_singleton_wheel: {err:#}");
+                                    }
                                 })
                                 .expect("failed to spawn singleton_wheel");
                         });
@@ -1025,21 +1023,22 @@ impl Queue {
         });
 
         if !matches!(strategy, QueueStrategy::SingletonTimerWheel) {
-            let queue_clone = handle.clone();
-            QMAINT_RUNTIME
-                .spawn_non_blocking(format!("maintain {name}"), move || {
-                    Ok(async move {
-                        QMAINT_COUNT.inc();
-                        if let Err(err) = maintain_named_queue(&queue_clone).await {
-                            tracing::error!("maintain_named_queue {}: {err:#}", queue_clone.name);
-                        }
-                        QMAINT_COUNT.dec();
-                    })
-                })
-                .expect("failed to spawn maintainer");
+            Self::spawn_queue_maintainer(&handle)?;
         }
 
         Ok(handle)
+    }
+
+    fn spawn_queue_maintainer(queue: &QueueHandle) -> anyhow::Result<()> {
+        let queue = queue.clone();
+        QMAINT_RUNTIME.spawn(format!("maintain {}", queue.name), async move {
+            QMAINT_COUNT.inc();
+            if let Err(err) = maintain_named_queue(&queue).await {
+                tracing::error!("maintain_named_queue {}: {err:#}", queue.name);
+            }
+            QMAINT_COUNT.dec();
+        })?;
+        Ok(())
     }
 
     async fn queue_config_maintainer() {
@@ -1351,18 +1350,14 @@ impl Queue {
             // reported numbers shown the to initial bounce request will
             // likely be lower, but it is better for the server to be
             // healthy than for that command to block and show 100% stats.
-            let result = QMAINT_RUNTIME.spawn_non_blocking(
-                "bounce_all remove_from_spool".to_string(),
-                move || {
-                    Ok(async move {
-                        for msg in msgs {
-                            let id = *msg.id();
-                            bounce.log(msg, Some(&name)).await;
-                            SpoolManager::remove_from_spool(id).await.ok();
-                        }
-                    })
-                },
-            );
+            let result =
+                QMAINT_RUNTIME.spawn("bounce_all remove_from_spool".to_string(), async move {
+                    for msg in msgs {
+                        let id = *msg.id();
+                        bounce.log(msg, Some(&name)).await;
+                        SpoolManager::remove_from_spool(id).await.ok();
+                    }
+                });
             if let Err(err) = result {
                 tracing::error!("Unable to schedule spool removal for {count} messages! {err:#}");
             }
@@ -2140,10 +2135,8 @@ impl QueueManager {
     pub fn new() -> Self {
         kumo_server_runtime::get_main_runtime().spawn(queue_meta_maintainer());
         QMAINT_RUNTIME
-            .spawn_non_blocking("queue_config_maintainer".to_string(), move || {
-                Ok(async move {
-                    Queue::queue_config_maintainer().await;
-                })
+            .spawn("queue_config_maintainer".to_string(), async move {
+                Queue::queue_config_maintainer().await;
             })
             .expect("failed to spawn queue_config_maintainer");
         Self {

@@ -364,7 +364,6 @@ impl MailExchanger {
     pub async fn resolve_addresses(&self) -> ResolvedMxAddresses {
         let mut result = vec![];
 
-        let mut rng = rand::thread_rng();
         for hosts in self.by_pref.values().rev() {
             let mut by_pref = vec![];
 
@@ -402,6 +401,7 @@ impl MailExchanger {
             // Randomize the list of addresses within this preference
             // level. This probablistically "load balances" outgoing
             // traffic across MX hosts with equal preference value.
+            let mut rng = rand::thread_rng();
             by_pref.shuffle(&mut rng);
             result.append(&mut by_pref);
         }
