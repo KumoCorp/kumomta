@@ -3,7 +3,7 @@ use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use tokio::runtime::Handle;
-use tokio::task::{JoinHandle, LocalSet};
+use tokio::task::JoinHandle;
 
 pub static RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("localset", |cpus| cpus / 4, &LOCALSET_THREADS).unwrap());
@@ -59,99 +59,6 @@ impl Drop for Runtime {
     }
 }
 
-pub fn spawn_simple_worker_pool<SIZE, FUNC, FUT>(
-    name_prefix: &'static str,
-    default_size: SIZE,
-    configured_size: &AtomicUsize,
-    func_factory: FUNC,
-) -> anyhow::Result<usize>
-where
-    SIZE: FnOnce(usize) -> usize,
-    FUNC: (Fn() -> FUT) + Send + Sync + 'static,
-    FUT: Future + 'static,
-    FUT::Output: Send,
-{
-    let env_name = format!("KUMOD_{}_THREADS", name_prefix.to_uppercase());
-    let n_threads = match std::env::var(env_name) {
-        Ok(n) => n.parse()?,
-        Err(_) => {
-            let configured = configured_size.load(Ordering::SeqCst);
-            if configured == 0 {
-                let cpus = std::thread::available_parallelism()?.get();
-                (default_size)(cpus).max(1)
-            } else {
-                configured
-            }
-        }
-    };
-
-    let num_parked = PARKED_THREADS.get_metric_with_label_values(&[name_prefix])?;
-    let num_threads = NUM_THREADS.get_metric_with_label_values(&[name_prefix])?;
-    num_threads.set(n_threads as i64);
-
-    let func_factory = Arc::new(func_factory);
-
-    for n in 0..n_threads.into() {
-        let num_parked = num_parked.clone();
-        let func_factory = func_factory.clone();
-        std::thread::Builder::new()
-            .name(format!("{name_prefix}-{n}"))
-            .spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_io()
-                    .enable_time()
-                    .event_interval(
-                        std::env::var("KUMOD_EVENT_INTERVAL")
-                            .ok()
-                            .and_then(|n| n.parse().ok())
-                            .unwrap_or(61),
-                    )
-                    .max_io_events_per_tick(
-                        std::env::var("KUMOD_IO_EVENTS_PER_TICK")
-                            .ok()
-                            .and_then(|n| n.parse().ok())
-                            .unwrap_or(1024),
-                    )
-                    .on_thread_park({
-                        let num_parked = num_parked.clone();
-                        move || {
-                            kumo_server_memory::purge_thread_cache();
-                            num_parked.inc();
-                        }
-                    })
-                    .thread_name(format!("{name_prefix}-blocking"))
-                    .max_blocking_threads(
-                        std::env::var(format!(
-                            "KUMOD_{}_MAX_BLOCKING_THREADS",
-                            name_prefix.to_uppercase()
-                        ))
-                        .ok()
-                        .and_then(|n| n.parse().ok())
-                        .unwrap_or(512),
-                    )
-                    .on_thread_unpark({
-                        let num_parked = num_parked.clone();
-                        move || {
-                            num_parked.dec();
-                        }
-                    })
-                    .build()
-                    .unwrap();
-                let local_set = LocalSet::new();
-
-                local_set.block_on(&runtime, async move {
-                    if n == 0 {
-                        tracing::info!("{name_prefix} pool starting with {n_threads} threads");
-                    }
-                    tracing::trace!("{name_prefix}-{n} started up!");
-                    let func = (func_factory)();
-                    (func).await
-                });
-            })?;
-    }
-    Ok(n_threads)
-}
-
 impl Runtime {
     pub fn new<F>(
         name_prefix: &'static str,
@@ -179,9 +86,12 @@ impl Runtime {
         let num_threads = NUM_THREADS.get_metric_with_label_values(&[name_prefix])?;
         num_threads.set(n_threads as i64);
 
+        let next_id = Arc::new(AtomicUsize::new(0));
+
         let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_io()
             .enable_time()
+            .worker_threads(n_threads)
             .event_interval(
                 std::env::var("KUMOD_EVENT_INTERVAL")
                     .ok()
@@ -203,9 +113,9 @@ impl Runtime {
             })
             .thread_name_fn({
                 let name_prefix = name_prefix.to_string();
+                let next_id = next_id.clone();
                 move || {
-                    static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-                    let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+                    let id = next_id.fetch_add(1, Ordering::SeqCst);
                     format!("{name_prefix}-{id}")
                 }
             })

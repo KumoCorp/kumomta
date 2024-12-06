@@ -7,7 +7,7 @@ use humansize::{format_size, DECIMAL};
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
 use kumo_server_memory::subscribe_to_memory_status_changes;
-use kumo_server_runtime::{spawn, spawn_simple_worker_pool};
+use kumo_server_runtime::spawn;
 use message::Message;
 use mlua::{Lua, Value};
 use rfc5321::{EnhancedStatusCode, Response};
@@ -498,11 +498,12 @@ impl SpoolManager {
 
         let spooled_in_clone = Arc::clone(&spooled_in);
         let failed_spool_in_clone = Arc::clone(&failed_spool_in);
-        let n_threads = spawn_simple_worker_pool(
-            "spoolin",
-            |cpus| cpus / 2,
-            &SPOOLIN_THREADS,
-            move || {
+
+        let spool_in =
+            kumo_server_runtime::Runtime::new("spoolin", |cpus| cpus / 2, &SPOOLIN_THREADS)?;
+
+        for idx in 0..spool_in.get_num_threads() {
+            spool_in.spawn(format!("spoolin-{idx}"), {
                 let spooled_in = Arc::clone(&spooled_in_clone);
                 let failed_spool_in = Arc::clone(&failed_spool_in_clone);
                 let rx = rx.clone();
@@ -512,10 +513,10 @@ impl SpoolManager {
                     let result = mgr.spool_in_thread(rx, spooled_in, failed_spool_in).await;
                     complete_tx.send_async(result).await
                 }
-            },
-        )?;
-        let mut num_tasks = n_threads;
-        tracing::info!("Using concurrency {n_threads} for spooling in");
+            })?;
+        }
+        let mut num_tasks = spool_in.get_num_threads();
+        tracing::info!("Using concurrency {num_tasks} for spooling in");
 
         while num_tasks > 0 {
             tokio::select! {
@@ -555,6 +556,10 @@ impl SpoolManager {
                 cause of the failure is addressed and kumod is restarted."
             );
         }
+
+        // Move the Runtime to a non-async context so that we can drop it.
+        // tokio's Runtime will panic if we don't do this.
+        tokio::task::spawn_blocking(move || drop(spool_in)).await?;
 
         Ok(())
     }
