@@ -479,6 +479,8 @@ impl SpoolManager {
                 })?;
                 spool.0.maintainer.lock().unwrap().replace(maintainer);
             }
+
+            Self::spawn_memory_monitor();
         }
 
         // Ensure that there are no more senders outstanding,
@@ -554,9 +556,13 @@ impl SpoolManager {
             );
         }
 
+        Ok(())
+    }
+
+    fn spawn_memory_monitor() {
         // Manage and trim memory usage
         tokio::spawn(async move {
-            tracing::debug!("starting memory monitor");
+            tracing::debug!("starting spool memory monitor");
             let mut memory_status = subscribe_to_memory_status_changes();
             while let Ok(()) = memory_status.changed().await {
                 if kumo_server_memory::get_headroom() == 0 {
@@ -599,7 +605,5 @@ impl SpoolManager {
                 }
             }
         });
-
-        Ok(())
     }
 }

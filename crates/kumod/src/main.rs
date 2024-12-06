@@ -260,13 +260,12 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
 
         LifeCycle::request_shutdown().await;
     } else {
+        config::epoch::start_monitor();
+        lruttl::spawn_memory_monitor();
         crate::spool::SpoolManager::get()
             .start_spool(start_time)
             .await
             .context("start_spool")?;
-
-        lruttl::spawn_memory_monitor();
-        config::epoch::start_monitor();
     }
 
     Ok(())
