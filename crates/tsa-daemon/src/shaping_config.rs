@@ -2,8 +2,8 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use config::CallbackSignature;
 use kumo_api_types::shaping::Shaping;
+use kumo_server_runtime::spawn;
 use std::sync::{Arc, LazyLock};
-use tokio::task::LocalSet;
 
 static SHAPING: LazyLock<ArcSwap<Shaping>> =
     LazyLock::new(|| ArcSwap::from_pointee(Shaping::default()));
@@ -41,17 +41,6 @@ async fn run_updater() {
 }
 
 pub fn spawn_shaping_updater() -> anyhow::Result<()> {
-    std::thread::Builder::new()
-        .name(format!("shaping-updater"))
-        .spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_io()
-                .enable_time()
-                .on_thread_park(|| kumo_server_memory::purge_thread_cache())
-                .build()
-                .unwrap();
-            let local_set = LocalSet::new();
-            local_set.block_on(&runtime, run_updater());
-        })?;
+    spawn("shaping-updater", run_updater())?;
     Ok(())
 }
