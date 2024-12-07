@@ -6,7 +6,6 @@ use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
-use kumo_server_runtime::spawn;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
@@ -46,12 +45,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, params: Value| async move {
             let params: EsmtpListenerParams = from_lua_value(&lua, params)?;
             if !config::is_validating() {
-                spawn("start_esmtp_listener", async move {
-                    if let Err(err) = params.run().await {
-                        tracing::error!("Error in SmtpServer: {err:#}");
-                    }
-                })
-                .map_err(any_err)?;
+                params.run().await.map_err(any_err)?;
             }
             Ok(())
         })?,

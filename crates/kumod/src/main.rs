@@ -300,7 +300,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
         {
             let opts = opts.clone();
             async move {
-            perform_init(opts).await
+                perform_init(opts).await
             }
         },
         crate::logging::Logger::signal_shutdown(),
