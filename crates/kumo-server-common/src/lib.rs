@@ -349,5 +349,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    kumo_mod.set(
+        "enable_memory_callstack_tracking",
+        lua.create_function(|_, enable: bool| {
+            kumo_server_memory::set_tracking_callstacks(enable);
+            Ok(())
+        })?,
+    )?;
+
     Ok(())
 }

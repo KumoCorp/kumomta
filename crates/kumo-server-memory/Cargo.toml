@@ -8,6 +8,7 @@ anyhow = {workspace=true}
 humansize = {workspace=true}
 metrics = {workspace=true}
 nix = {workspace=true, features=["resource", "feature"]}
+re_memory.workspace = true
 tikv-jemallocator = {workspace=true}
 tikv-jemalloc-sys = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}

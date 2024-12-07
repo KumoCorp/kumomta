@@ -9,6 +9,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use axum_streams::{HttpHeaderValue, StreamBodyAsOptions};
 use cidr_map::CidrSet;
 use data_loader::KeySource;
+use kumo_server_memory::tracking_stats;
 use kumo_server_runtime::spawn;
 use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
@@ -160,6 +161,7 @@ impl HttpListenerParams {
                 post(set_diagnostic_log_filter_v1),
             )
             .route("/api/admin/bump-config-epoch", post(bump_config_epoch))
+            .route("/api/admin/memory/stats", get(memory_stats))
             .route("/metrics", get(report_metrics))
             .route("/metrics.json", get(report_metrics_json))
             // Require that all requests be authenticated as either coming
@@ -256,6 +258,60 @@ where
 async fn bump_config_epoch(_: TrustedIpRequired) -> Result<(), AppError> {
     config::epoch::bump_current_epoch();
     Ok(())
+}
+
+/// Returns information about the system memory usage in an unstructured
+/// human readable format.  The output is not machine parseable and may
+/// change without notice between versions of kumomta.
+#[utoipa::path(
+    get,
+    tag="memory",
+    path="/api/admin/memory/stats",
+    responses(
+        (status=200, description = "stats were returned")
+    ),
+)]
+async fn memory_stats(_: TrustedIpRequired) -> String {
+    use std::fmt::Write;
+    let mut result = String::new();
+
+    if let Some(stats) = tracking_stats() {
+        write!(
+            result,
+            "track_size_threshold = {}\n",
+            stats.track_size_threshold
+        )
+        .ok();
+        write!(result, "untracked = {:?}\n", stats.untracked).ok();
+        write!(
+            result,
+            "stochastically_tracked = {:?}\n",
+            stats.stochastically_tracked
+        )
+        .ok();
+        write!(result, "fully_tracked = {:?}\n", stats.fully_tracked).ok();
+        write!(result, "overhead = {:?}\n", stats.overhead).ok();
+        write!(result, "top call stacks:\n").ok();
+        for stack in &stats.top_callstacks {
+            write!(
+                result,
+                "sampled every {} allocations, estimated {} allocations of {} total bytes\n",
+                stack.stochastic_rate,
+                stack.extant.count * stack.stochastic_rate,
+                stack.extant.size * stack.stochastic_rate
+            )
+            .ok();
+            write!(result, "{}\n\n", stack.readable_backtrace).ok();
+        }
+    } else {
+        write!(
+            result,
+            "use kumo.enable_memory_callstack_tracking(true) to enable stats\n"
+        )
+        .ok();
+    }
+
+    result
 }
 
 #[derive(Deserialize)]

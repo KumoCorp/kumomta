@@ -13,14 +13,17 @@ use cgroups_rs::memory::MemController;
 use cgroups_rs::{Hierarchy, MaxValue};
 use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
+use re_memory::AccountingAllocator;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::watch::Receiver;
 
+pub use re_memory::accounting_allocator::{set_tracking_callstacks, tracking_stats};
+
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: AccountingAllocator<Jemalloc> = AccountingAllocator::new(Jemalloc);
 
 static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
     metrics::describe_counter!(
@@ -30,12 +33,22 @@ static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
     metrics::counter!("memory_over_limit_count")
 });
 static MEM_USAGE: LazyLock<metrics::Gauge> = LazyLock::new(|| {
-    metrics::describe_gauge!("memory_usage", "number of bytes of used memory");
+    metrics::describe_gauge!(
+        "memory_usage",
+        "number of bytes of used memory (Resident Set Size)"
+    );
     metrics::gauge!("memory_usage")
 });
 static MEM_LIMIT: LazyLock<metrics::Gauge> = LazyLock::new(|| {
     metrics::describe_gauge!("memory_limit", "soft memory limit measured in bytes");
     metrics::gauge!("memory_limit")
+});
+static MEM_COUNTED: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!(
+        "memory_usage_rust",
+        "number of bytes of used memory (allocated by Rust)"
+    );
+    metrics::gauge!("memory_usage_rust")
 });
 static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -320,6 +333,11 @@ fn memory_thread() {
     SUBSCRIBER.lock().unwrap().replace(rx);
 
     loop {
+        let usage = re_memory::MemoryUse::capture();
+        if let Some(counted) = usage.counted {
+            MEM_COUNTED.set(counted as f64);
+        }
+
         match get_usage_and_limit() {
             Ok((
                 MemoryUsage { bytes: usage },
