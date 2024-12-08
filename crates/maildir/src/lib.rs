@@ -379,9 +379,7 @@ impl Iterator for MaildirEntries {
                     return Ok(None);
                 }
 
-                Ok(Some(Maildir {
-                    path: self.path.join(filename),
-                }))
+                Ok(Some(Maildir::with_path(self.path.join(filename))))
             });
 
             return match result {
@@ -400,12 +398,54 @@ impl Iterator for MaildirEntries {
 /// maildir (the folder containing `cur`, `new`, and `tmp`).
 pub struct Maildir {
     path: PathBuf,
+    #[cfg(unix)]
+    dir_mode: Option<u32>,
+    #[cfg(unix)]
+    file_mode: Option<u32>,
 }
 
 impl Maildir {
     /// Create a Maildir from a path-compatible parameter
     pub fn with_path<P: Into<PathBuf>>(p: P) -> Self {
-        Self { path: p.into() }
+        Self {
+            path: p.into(),
+            #[cfg(unix)]
+            dir_mode: None,
+            #[cfg(unix)]
+            file_mode: None,
+        }
+    }
+
+    /// Set the directory permission mode.
+    /// By default this is left unspecified, which causes
+    /// directories to be created with permissions
+    /// suitable for the owner, obeying the standard unix
+    /// umask semantics.
+    /// If you choose to assign the permission modes here,
+    /// the umask will be ignored and the explicit modes
+    /// that you set will be used on any directories
+    /// that are created by Maildir.
+    /// This will NOT change modes on existing directories
+    /// they will only be applied to directores created
+    /// by this instance of Maildir
+    pub fn set_dir_mode(&mut self, dir_mode: Option<u32>) {
+        self.dir_mode = dir_mode;
+    }
+
+    /// Set the file permission mode.
+    /// By default this is left unspecified, which causes
+    /// files to be created with permissions
+    /// suitable for the owner, obeying the standard unix
+    /// umask semantics.
+    /// If you choose to assign the permission modes here,
+    /// the umask will be ignored and the explicit modes
+    /// that you set will be used on any files
+    /// that are created by Maildir.
+    /// This will NOT change modes on existing files
+    /// they will only be applied to files created
+    /// by this instance of Maildir
+    pub fn set_file_mode(&mut self, file_mode: Option<u32>) {
+        self.file_mode = file_mode;
     }
 
     /// Returns the path of the maildir base folder.
@@ -615,10 +655,44 @@ impl Maildir {
         let mut path = self.path.clone();
         for d in &["cur", "new", "tmp"] {
             path.push(d);
-            fs::create_dir_all(path.as_path())?;
+            self.create_dir_all(path.as_path())?;
             path.pop();
         }
         Ok(())
+    }
+
+    fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
+        match path.metadata() {
+            Ok(meta) => {
+                if meta.is_dir() {
+                    return Ok(());
+                }
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotADirectory,
+                    format!(
+                        "{} already exists as non-directory {meta:?}",
+                        path.display()
+                    ),
+                ));
+            }
+            Err(err) => {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    return Err(err);
+                }
+
+                if let Some(parent) = path.parent() {
+                    self.create_dir_all(parent)?;
+                }
+
+                std::fs::create_dir(path)?;
+
+                #[cfg(unix)]
+                if let Some(mode) = self.dir_mode {
+                    chmod(path, mode)?;
+                }
+                return Ok(());
+            }
+        }
     }
 
     /// Stores the given message data as a new message file in the Maildir `new` folder. Does not
@@ -693,6 +767,13 @@ impl Maildir {
             {
                 Ok(f) => {
                     file = f;
+
+                    #[cfg(unix)]
+                    if let Some(mode) = self.file_mode {
+                        use std::os::unix::fs::PermissionsExt;
+                        let mode = std::fs::Permissions::from_mode(mode);
+                        file.set_permissions(mode)?;
+                    }
                     break;
                 }
                 Err(err) => {
@@ -759,4 +840,11 @@ impl Maildir {
         unlink_guard.path_to_unlink.take();
         Ok(id)
     }
+}
+
+#[cfg(unix)]
+fn chmod(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::Permissions::from_mode(mode);
+    std::fs::set_permissions(path, mode)
 }

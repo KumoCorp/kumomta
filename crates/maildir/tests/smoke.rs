@@ -237,6 +237,37 @@ fn check_received() {
 }
 
 #[test]
+#[cfg(unix)]
+fn check_create_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    with_maildir_empty("maildir2", |mut maildir| {
+        assert!(!maildir.path().exists());
+        for name in &["cur", "new", "tmp"] {
+            assert!(!maildir.path().join(name).exists());
+        }
+
+        maildir.set_dir_mode(Some(0o777));
+        maildir.set_file_mode(Some(0o777));
+
+        maildir.create_dirs().unwrap();
+        assert!(maildir.path().exists());
+        for name in &["cur", "new", "tmp"] {
+            let path = maildir.path().join(name);
+            let metadata = path.metadata().unwrap();
+            let perms = metadata.permissions();
+            assert_eq!(perms.mode() & 0o777, 0o777);
+        }
+
+        let id = maildir.store_new(TEST_MAIL_BODY).unwrap();
+        let entry = maildir.find(&id).unwrap();
+        let metadata = entry.path().metadata().unwrap();
+        let perms = metadata.permissions();
+        assert_eq!(perms.mode() & 0o777, 0o777);
+    });
+}
+
+#[test]
 fn check_create_dirs() {
     with_maildir_empty("maildir2", |maildir| {
         assert!(!maildir.path().exists());
