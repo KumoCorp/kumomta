@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["get_headroom","get_usage_and_limit","low_memory","purge_thread_cache","set_tracking_callstacks","setup_memory_limit","subscribe_to_memory_status_changes","tracking_stats"],"struct":["MemoryLimits","MemoryUsage"]};
