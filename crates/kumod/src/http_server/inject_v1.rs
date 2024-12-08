@@ -16,13 +16,11 @@ use kumo_prometheus::AtomicCounter;
 use kumo_server_common::http_server::auth::AuthKind;
 use kumo_server_common::http_server::AppError;
 use kumo_server_runtime::{Runtime, RUNTIME};
+use kumo_template::{CompiledTemplates, TemplateEngine, TemplateList};
 use mailparsing::{AddrSpec, Address, EncodeHeaderValue, Mailbox, MessageBuilder, MimePart};
 use message::{EnvelopeAddress, Message};
-use minijinja::{Environment, Template};
-use minijinja_contrib::add_to_environment;
 use mlua::{Lua, LuaSerdeExt};
 use rfc5321::Response;
-use self_cell::self_cell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spool::SpoolId;
@@ -249,18 +247,8 @@ pub struct Attachment {
     base64: bool,
 }
 
-type TemplateList<'a> = Vec<Template<'a, 'a>>;
-
-self_cell!(
-    struct CompiledTemplates<'a> {
-        owner: Environment<'a>,
-        #[covariant]
-        dependent: TemplateList,
-    }
-);
-
 struct Compiled<'a> {
-    env_and_templates: CompiledTemplates<'a>,
+    env_and_templates: CompiledTemplates,
     attached: Vec<MimePart<'a>>,
 }
 
@@ -385,15 +373,14 @@ impl InjectV1Request {
     }
 
     fn compile(&self) -> anyhow::Result<Compiled> {
-        let mut env = Environment::new();
-        add_to_environment(&mut env);
+        let mut env = TemplateEngine::new();
         let mut id = 0;
 
         // Pass 1: create the templates
         match &self.content {
             Content::Rfc822(text) => {
                 let name = id.to_string();
-                env.add_template_owned(name, text)?;
+                env.add_template(name, text)?;
             }
             Content::Builder {
                 text_body: None,
@@ -409,18 +396,18 @@ impl InjectV1Request {
                 if let Some(tb) = text_body {
                     let name = id.to_string();
                     id += 1;
-                    env.add_template_owned(name, tb)?;
+                    env.add_template(name, tb)?;
                 }
                 if let Some(hb) = html_body {
                     // The filename extension is needed to enable auto-escaping
                     let name = format!("{id}.html");
                     id += 1;
-                    env.add_template_owned(name, hb)?;
+                    env.add_template(name, hb)?;
                 }
                 for value in headers.values() {
                     let name = id.to_string();
                     id += 1;
-                    env.add_template_owned(name, value)?;
+                    env.add_template(name, value)?;
                 }
             }
         }
@@ -428,7 +415,7 @@ impl InjectV1Request {
         // Pass 2: retrieve the references
 
         fn get_templates<'b>(
-            env: &'b Environment,
+            env: &'b TemplateEngine,
             content: &Content,
         ) -> anyhow::Result<TemplateList<'b>> {
             let mut id = 0;
@@ -467,8 +454,9 @@ impl InjectV1Request {
 
         let attached = self.attachment_data()?;
 
-        let env_and_templates =
-            CompiledTemplates::try_new(env, |env: &Environment| get_templates(env, &self.content))?;
+        let env_and_templates = CompiledTemplates::try_new(env, |env: &TemplateEngine| {
+            get_templates(env, &self.content)
+        })?;
 
         Ok(Compiled {
             env_and_templates,

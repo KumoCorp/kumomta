@@ -29,6 +29,7 @@ members = [
   "crates/validate-shaping",
   "crates/version-info",
   "crates/kumo-dmarc",
+  "crates/kumo-template",
 ]
 resolver = "2"
 

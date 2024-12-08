@@ -5,8 +5,8 @@ use anyhow::Context;
 use async_channel::Receiver;
 use config::{load_config, CallbackSignature};
 pub use kumo_log_types::*;
+use kumo_template::{Template, TemplateEngine};
 use message::{EnvelopeAddress, Message};
-use minijinja::{Environment, Template};
 use prometheus::CounterVec;
 use serde::Deserialize;
 use spool::SpoolId;
@@ -56,7 +56,7 @@ pub struct LogHookParams {
 pub struct LogHookState {
     params: LogHookParams,
     receiver: Receiver<LogCommand>,
-    template_engine: Environment<'static>,
+    template_engine: TemplateEngine,
     sema: Arc<Semaphore>,
 }
 
@@ -64,7 +64,7 @@ impl LogHookState {
     pub fn new(
         params: LogHookParams,
         receiver: Receiver<LogCommand>,
-        template_engine: Environment<'static>,
+        template_engine: TemplateEngine,
     ) -> Self {
         let sema = Arc::new(Semaphore::new(params.back_pressure));
 
@@ -135,7 +135,7 @@ impl LogHookState {
 
         let mut record_text = Vec::new();
         self.template_engine
-            .add_global("log_record", minijinja::Value::from_serialize(&record));
+            .add_global("log_record", kumo_template::Value::from_serialize(&record));
 
         if let Some(template) =
             Self::resolve_template(&self.params, &self.template_engine, record.kind)
@@ -187,7 +187,7 @@ impl LogHookState {
 
     fn resolve_template<'a>(
         params: &LogHookParams,
-        template_engine: &'a Environment,
+        template_engine: &'a TemplateEngine,
         kind: RecordType,
     ) -> Option<Template<'a, 'a>> {
         if let Some(pr) = params.per_record.get(&kind) {

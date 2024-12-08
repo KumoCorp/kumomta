@@ -7,9 +7,8 @@ use config::{any_err, from_lua_value, get_or_create_module};
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MonitoredPath;
 use kumo_server_runtime::Runtime;
+use kumo_template::TemplateEngine;
 use message::Message;
-use minijinja::Environment;
-use minijinja_contrib::add_to_environment;
 use mlua::{Lua, Value as LuaValue};
 use parking_lot::FairMutex as Mutex;
 use prometheus::{CounterVec, Histogram, HistogramVec};
@@ -118,13 +117,12 @@ impl Logger {
             );
         }
 
-        let mut template_engine = Environment::new();
-        add_to_environment(&mut template_engine);
+        let mut template_engine = TemplateEngine::new();
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
                 template_engine
-                    .add_template_owned(format!("{kind:?}"), template_source.clone())
+                    .add_template(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
                         format!(
                             "compiling template:\n{template_source}\nfor log record type {kind:?}"
@@ -170,13 +168,12 @@ impl Logger {
     }
 
     pub async fn init(params: LogFileParams) -> anyhow::Result<()> {
-        let mut template_engine = Environment::new();
-        add_to_environment(&mut template_engine);
+        let mut template_engine = TemplateEngine::new();
 
         for (kind, per_rec) in &params.per_record {
             if let Some(template_source) = &per_rec.template {
                 template_engine
-                    .add_template_owned(format!("{kind:?}"), template_source.clone())
+                    .add_template(format!("{kind:?}"), template_source.clone())
                     .with_context(|| {
                         format!(
                             "compiling template:\n{template_source}\nfor log record type {kind:?}"

@@ -4,7 +4,7 @@ use async_channel::Receiver;
 use chrono::Utc;
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MinFree;
-use minijinja::{Environment, Template};
+use kumo_template::{Template, TemplateEngine};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
@@ -126,7 +126,7 @@ fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
 pub struct LogThreadState {
     pub params: LogFileParams,
     pub receiver: Receiver<LogCommand>,
-    pub template_engine: Environment<'static>,
+    pub template_engine: TemplateEngine,
     pub file_map: HashMap<FileNameKey, OpenedFile>,
 }
 
@@ -230,7 +230,7 @@ impl LogThreadState {
 
     fn resolve_template<'a>(
         params: &LogFileParams,
-        template_engine: &'a Environment,
+        template_engine: &'a TemplateEngine,
         kind: RecordType,
     ) -> Option<Template<'a, 'a>> {
         if let Some(pr) = params.per_record.get(&kind) {
@@ -315,7 +315,7 @@ impl LogThreadState {
         if let Some(file) = self.file_map.get_mut(&file_key) {
             let mut record_text = Vec::new();
             self.template_engine
-                .add_global("log_record", minijinja::Value::from_serialize(&record));
+                .add_global("log_record", kumo_template::Value::from_serialize(&record));
 
             if let Some(template) =
                 Self::resolve_template(&self.params, &self.template_engine, record.kind)

@@ -1,0 +1,9 @@
+[package]
+name = "kumo-template"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+minijinja-contrib.workspace = true
+minijinja.workspace = true
+self_cell.workspace = true

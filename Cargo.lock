@@ -3197,6 +3197,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-template"
+version = "0.1.0"
+dependencies = [
+ "minijinja",
+ "minijinja-contrib",
+ "self_cell",
+]
+
+[[package]]
 name = "kumod"
 version = "0.1.0"
 dependencies = [
@@ -3233,6 +3242,7 @@ dependencies = [
  "kumo-server-memory",
  "kumo-server-runtime",
  "kumo-spf",
+ "kumo-template",
  "lru-cache",
  "lruttl",
  "maildir",
@@ -3241,8 +3251,6 @@ dependencies = [
  "memchr",
  "message",
  "metrics",
- "minijinja",
- "minijinja-contrib",
  "mlua",
  "mta-sts",
  "nix 0.28.0",
@@ -3252,7 +3260,6 @@ dependencies = [
  "rand",
  "rfc5321",
  "rustls",
- "self_cell",
  "serde",
  "serde_json",
  "socksv5",

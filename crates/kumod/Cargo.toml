@@ -35,6 +35,7 @@ kumo-server-lifecycle = {path="../kumo-server-lifecycle"}
 kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 kumo-spf = {path="../kumo-spf"}
+kumo-template = {path="../kumo-template"}
 lru-cache = {workspace=true}
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}
@@ -42,8 +43,6 @@ mailparsing = {path="../mailparsing"}
 memchr = {workspace=true}
 message = {path="../message"}
 metrics = {workspace=true}
-minijinja-contrib = {workspace=true}
-minijinja = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
@@ -53,7 +52,6 @@ prometheus = {workspace=true}
 rand = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 rustls = {workspace=true}
-self_cell = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
 socksv5 = {workspace=true}
