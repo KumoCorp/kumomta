@@ -74,10 +74,7 @@ impl From<&'static str> for MailEntryError {
 
 enum MailData {
     None,
-    #[cfg(not(feature = "mmap"))]
     Bytes(Vec<u8>),
-    #[cfg(feature = "mmap")]
-    File(memmap2::Mmap),
 }
 
 impl MailData {
@@ -91,10 +88,7 @@ impl MailData {
     fn data(&self) -> Option<&[u8]> {
         match self {
             Self::None => None,
-            #[cfg(not(feature = "mmap"))]
             MailData::Bytes(ref b) => Some(b),
-            #[cfg(feature = "mmap")]
-            MailData::File(ref m) => Some(m),
         }
     }
 }
@@ -118,20 +112,10 @@ impl MailEntry {
 
     fn read_data(&mut self) -> std::io::Result<()> {
         if self.data.is_none() {
-            #[cfg(feature = "mmap")]
-            {
-                let f = fs::File::open(&self.path)?;
-                let mmap = unsafe { memmap2::MmapOptions::new().map(&f)? };
-                self.data = MailData::File(mmap);
-            }
-
-            #[cfg(not(feature = "mmap"))]
-            {
-                let mut f = fs::File::open(&self.path)?;
-                let mut d = Vec::<u8>::new();
-                f.read_to_end(&mut d)?;
-                self.data = MailData::Bytes(d);
-            }
+            let mut f = fs::File::open(&self.path)?;
+            let mut d = Vec::<u8>::new();
+            f.read_to_end(&mut d)?;
+            self.data = MailData::Bytes(d);
         }
         Ok(())
     }
