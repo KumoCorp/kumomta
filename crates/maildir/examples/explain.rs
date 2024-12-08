@@ -23,7 +23,7 @@ fn process_maildirs(maildirs: impl IntoIterator<Item = Maildir>) -> Result<(), i
 }
 
 fn main() {
-    let rc = match process_maildirs(std::env::args().skip(1).map(Into::into)) {
+    let rc = match process_maildirs(std::env::args().skip(1).map(Maildir::with_path)) {
         Err(e) => {
             eprintln!("Error: {:?}", e);
             1

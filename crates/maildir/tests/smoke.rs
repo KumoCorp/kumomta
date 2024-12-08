@@ -65,7 +65,7 @@ where
             fs::copy(entry.path(), tmp_path.join(decoded)).expect("could not copy test data");
         }
     }
-    func(Maildir::from(tmp_path.join(name)));
+    func(Maildir::with_path(tmp_path.join(name)));
 }
 
 fn with_maildir_empty<F>(name: &str, func: F)
@@ -74,7 +74,7 @@ where
 {
     let tmp_dir = tempdir().expect("could not create temporary directory");
     let tmp_path = tmp_dir.path();
-    func(Maildir::from(tmp_path.join(name)));
+    func(Maildir::with_path(tmp_path.join(name)));
 }
 
 #[test]

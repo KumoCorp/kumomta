@@ -3561,7 +3561,7 @@ dependencies = [
 
 [[package]]
 name = "maildir"
-version = "0.6.3"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "gethostname 0.5.0",

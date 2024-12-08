@@ -1890,7 +1890,7 @@ impl Queue {
                     {
                         let msg = msg.clone();
                         move || {
-                            let md = maildir::Maildir::from(maildir_path.clone());
+                            let md = maildir::Maildir::with_path(&maildir_path);
                             md.create_dirs().with_context(|| {
                                 format!(
                                     "creating dirs for maildir {maildir_path:?} in queue {}",

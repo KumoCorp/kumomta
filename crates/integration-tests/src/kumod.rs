@@ -428,7 +428,7 @@ impl KumoDaemon {
     }
 
     pub fn maildir(&self) -> Maildir {
-        Maildir::from(self.dir.path().join("maildir"))
+        Maildir::with_path(self.dir.path().join("maildir"))
     }
 
     pub fn check_for_x_and_y_headers_in_logs(&self) -> anyhow::Result<()> {

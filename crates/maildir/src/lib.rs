@@ -403,6 +403,11 @@ pub struct Maildir {
 }
 
 impl Maildir {
+    /// Create a Maildir from a path-compatible parameter
+    pub fn with_path<P: Into<PathBuf>>(p: P) -> Self {
+        Self { path: p.into() }
+    }
+
     /// Returns the path of the maildir base folder.
     pub fn path(&self) -> &Path {
         &self.path
@@ -753,23 +758,5 @@ impl Maildir {
         std::fs::rename(&tmppath, &newpath)?;
         unlink_guard.path_to_unlink.take();
         Ok(id)
-    }
-}
-
-impl From<PathBuf> for Maildir {
-    fn from(p: PathBuf) -> Maildir {
-        Maildir { path: p }
-    }
-}
-
-impl From<String> for Maildir {
-    fn from(s: String) -> Maildir {
-        Maildir::from(PathBuf::from(s))
-    }
-}
-
-impl<'a> From<&'a str> for Maildir {
-    fn from(s: &str) -> Maildir {
-        Maildir::from(PathBuf::from(s))
     }
 }
