@@ -23,6 +23,7 @@ use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRe
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
+use kumo_template::{context, TemplateEngine};
 use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
 use mlua::prelude::*;
@@ -321,7 +322,7 @@ pub enum DeliveryProto {
         smtp: SmtpProtocol,
     },
     Maildir {
-        maildir_path: std::path::PathBuf,
+        maildir_path: String,
         dir_mode: Option<u32>,
         file_mode: Option<u32>,
     },
@@ -348,7 +349,7 @@ impl DeliveryProto {
         match self {
             Self::Smtp { .. } | Self::Null => proto_name.to_string(),
             Self::Maildir { maildir_path, .. } => {
-                format!("{proto_name}:{}", maildir_path.display())
+                format!("{proto_name}:{maildir_path}")
             }
             Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
             Self::HttpInjectionGenerator => format!("{proto_name}:generator"),
@@ -1890,28 +1891,51 @@ impl Queue {
                 dir_mode,
                 file_mode,
             } => {
+                msg.load_data_if_needed().await?;
+
+                let engine = TemplateEngine::new();
+                let queue_name = msg.get_queue_name()?;
+                let components = QueueNameComponents::parse(&queue_name);
+                let recipient = msg.recipient()?;
+                let sender = msg.sender()?;
+                let expanded_maildir_path = engine.render(
+                    "maildir_path",
+                    maildir_path,
+                    context! {
+                        meta => msg.get_meta_obj()?,
+                        queue => queue_name,
+                        campaign => components.campaign,
+                        tenant => components.tenant,
+                        domain => components.domain,
+                        routing_domain => components.routing_domain,
+                        local_part => recipient.user(),
+                        domain_part => recipient.domain(),
+                        email => recipient.to_string(),
+                        sender_local_part => sender.user(),
+                        sender_domain_part => sender.domain(),
+                        sender_email => sender.to_string(),
+                    },
+                )?;
+
                 tracing::trace!(
-                    "Deliver msg {} to maildir at {}",
+                    "Deliver msg {} to maildir at {maildir_path} -> {expanded_maildir_path}",
                     msg.id(),
-                    maildir_path.display()
                 );
-                let maildir_path = maildir_path.to_path_buf();
                 let dir_mode = *dir_mode;
                 let file_mode = *file_mode;
 
-                msg.load_data_if_needed().await?;
                 let name = self.name.to_string();
                 let result: anyhow::Result<String> = spawn_blocking_on(
                     "write to maildir",
                     {
                         let msg = msg.clone();
                         move || {
-                            let mut md = maildir::Maildir::with_path(&maildir_path);
+                            let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
                             md.set_dir_mode(dir_mode);
                             md.set_file_mode(file_mode);
                             md.create_dirs().with_context(|| {
                                 format!(
-                                    "creating dirs for maildir {maildir_path:?} in queue {}",
+                                    "creating dirs for maildir {expanded_maildir_path} in queue {}",
                                     name
                                 )
                             })?;

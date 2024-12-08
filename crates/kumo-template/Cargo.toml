@@ -7,3 +7,4 @@ edition = "2021"
 minijinja-contrib.workspace = true
 minijinja.workspace = true
 self_cell.workspace = true
+serde.workspace = true

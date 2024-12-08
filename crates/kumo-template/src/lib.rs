@@ -1,5 +1,5 @@
 use minijinja::Environment;
-pub use minijinja::{Error, Template, Value};
+pub use minijinja::{context, Error, Template, Value};
 use minijinja_contrib::add_to_environment;
 use self_cell::self_cell;
 
@@ -38,6 +38,13 @@ impl TemplateEngine {
         V: Into<Value>,
     {
         self.env.add_global(name.into(), value)
+    }
+
+    pub fn render<CTX>(&self, name: &str, source: &str, context: CTX) -> Result<String, Error>
+    where
+        CTX: serde::Serialize,
+    {
+        self.env.render_named_str(name, source, context)
     }
 }
 

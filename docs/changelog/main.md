@@ -29,6 +29,9 @@
 * [maildir](../reference/kumo/make_queue_config/protocol.md#specifying-directory-and-file-modes-for-maildir)
   can now specify file and directory modes. #109
 
+* [maildir](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path)
+  now supports template expansion in the `maildir_path`. #109
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

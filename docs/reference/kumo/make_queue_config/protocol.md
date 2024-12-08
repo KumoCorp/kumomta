@@ -89,6 +89,54 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
 end)
 ```
 
+#### Advanced Maildir Path
+
+{{since('dev')}}
+
+If you are sharing the maildir with something like dovecot it is desirable
+to be able to put messages into per-user maildirs.
+You can achieve this through templated paths.
+
+The `maildir_path` field supports [template expansion](../../template/index.md).
+
+The following values are pre-defined in the context:
+
+  * `meta` - the full set of metadata from the message.
+  * `queue` - the effective queue name of the message.
+  * `campaign` - the campaign associated with the message (may be nil).
+  * `tenant` - the tenant associated with the message (may be nil).
+  * `domain` - the domain portion of the queue name (usually the same thing
+    as `domain_part`, but may be different if you are using advanced queue
+    name assignment).
+  * `routing_domain` - the routing domain portion of the queue (may be nil).
+  * `local_part` - the user mailbox portion of the envelope recipient email address.
+  * `domain_part` - the domain portion of the envelope recipient email address.
+  * `email` - the full envelope recipient email address.
+  * `sender_local_part` the user mailbox portion of the envelope sender email address.
+  * `sender_domain_part` the domain portion of the envelope sender email address.
+  * `sender_email` the full envelope sender email address.
+
+In the example below, each recipient domain has its own directory created
+(although in this example, we only do this for `maildir.example.com`), and each
+individual user at that domain has their own maildir created.
+
+"created" here means that kumomta will create it if it doesn't already exist,
+and deliver to it in either case.
+
+```lua
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+  if domain == 'maildir.example.com' then
+    return kumo.make_queue_config {
+      protocol = {
+        maildir_path = '/maildirs/{{ domain_part }}/{{ local_part }}',
+        dir_mode = tonumber('775', 8),
+        file_mode = tonumber('664', 8),
+      },
+    }
+  end
+end)
+```
+
 ### Using Lua as a delivery protocol
 
 ```lua
