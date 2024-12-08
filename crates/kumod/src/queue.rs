@@ -317,9 +317,17 @@ pub fn set_qmaint_threads(n: usize) {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum DeliveryProto {
-    Smtp { smtp: SmtpProtocol },
-    Maildir { maildir_path: std::path::PathBuf },
-    Lua { custom_lua: LuaDeliveryProtocol },
+    Smtp {
+        smtp: SmtpProtocol,
+    },
+    Maildir {
+        maildir_path: std::path::PathBuf,
+        dir_mode: Option<u32>,
+        file_mode: Option<u32>,
+    },
+    Lua {
+        custom_lua: LuaDeliveryProtocol,
+    },
     HttpInjectionGenerator,
     Null,
 }
@@ -339,7 +347,9 @@ impl DeliveryProto {
         let proto_name = self.metrics_protocol_name();
         match self {
             Self::Smtp { .. } | Self::Null => proto_name.to_string(),
-            Self::Maildir { maildir_path } => format!("{proto_name}:{}", maildir_path.display()),
+            Self::Maildir { maildir_path, .. } => {
+                format!("{proto_name}:{}", maildir_path.display())
+            }
             Self::Lua { custom_lua } => format!("{proto_name}:{}", custom_lua.constructor),
             Self::HttpInjectionGenerator => format!("{proto_name}:generator"),
         }
@@ -1875,13 +1885,19 @@ impl Queue {
                 })?;
                 Ok(())
             }
-            DeliveryProto::Maildir { maildir_path } => {
+            DeliveryProto::Maildir {
+                maildir_path,
+                dir_mode,
+                file_mode,
+            } => {
                 tracing::trace!(
                     "Deliver msg {} to maildir at {}",
                     msg.id(),
                     maildir_path.display()
                 );
                 let maildir_path = maildir_path.to_path_buf();
+                let dir_mode = *dir_mode;
+                let file_mode = *file_mode;
 
                 msg.load_data_if_needed().await?;
                 let name = self.name.to_string();
@@ -1890,7 +1906,9 @@ impl Queue {
                     {
                         let msg = msg.clone();
                         move || {
-                            let md = maildir::Maildir::with_path(&maildir_path);
+                            let mut md = maildir::Maildir::with_path(&maildir_path);
+                            md.set_dir_mode(dir_mode);
+                            md.set_file_mode(file_mode);
                             md.create_dirs().with_context(|| {
                                 format!(
                                     "creating dirs for maildir {maildir_path:?} in queue {}",

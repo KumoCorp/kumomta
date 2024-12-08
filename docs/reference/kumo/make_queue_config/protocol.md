@@ -61,6 +61,34 @@ Failures to write to the maildir will cause the message to be delayed and
 retried approximately 1 minute later.  The normal message retry schedule does
 not apply.
 
+#### Specifying directory and file modes for maildir
+
+{{since('dev')}}
+
+If you are sharing the maildir with something like dovecot it can sometimes
+be desirable to explicitly control the file permissions of the directory
+structure and files that are created.  You can achieve this via the `dir_mode`
+and `file_mode` parameters.
+
+!!! note
+    Lua doesn't support native octal literal numbers, so you must use
+    `tonumber` as shown in the example below if you wish to specify
+    the modes in octal
+
+```lua
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+  if domain == 'maildir.example.com' then
+    return kumo.make_queue_config {
+      protocol = {
+        maildir_path = '/var/tmp/kumo-maildir',
+        dir_mode = tonumber('775', 8),
+        file_mode = tonumber('664', 8),
+      },
+    }
+  end
+end)
+```
+
 ### Using Lua as a delivery protocol
 
 ```lua

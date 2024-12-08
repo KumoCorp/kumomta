@@ -26,6 +26,9 @@
   `dns_mx_resolve_cache_miss` metrics that reflect the status of MX
   resolution. These are available via the metrics endpoints.
 
+* [maildir](../reference/kumo/make_queue_config/protocol.md#specifying-directory-and-file-modes-for-maildir)
+  can now specify file and directory modes. #109
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
