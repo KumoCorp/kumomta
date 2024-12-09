@@ -32,6 +32,10 @@
 * [maildir](../reference/kumo/make_queue_config/protocol.md#advanced-maildir-path)
   now supports template expansion in the `maildir_path`. #109
 
+* TSA now supports `"Bounce"`, `"BounceTenant"` and `"BounceCampaign"` actions
+  which create bounces for scheduled queues which match the
+  domain/tenant/campaign of the triggering event. #272
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

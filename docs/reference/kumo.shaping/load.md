@@ -206,3 +206,16 @@ The following new actions are now supported:
    If no campaign was assigned, behave as though `"SuspendTenant"` was the
    action.
 
+{{since('dev')}}
+
+The following new actions are now supported:
+
+ * `"Bounce"` - Generate a bounce for all scheduled queues that have the
+   same destination domain as the triggered record.
+ * `"BounceTenant"` - Generate a bounce for all scheduled queues that have
+   both the same destination domain and *tenant* as the triggering record.
+   If no tenant was assigned, this action has no effect.
+ * `"BounceCampaign"` - Generate a bounce for all scheduled queues that have
+   both the same destination domain, *tenant* AND *campaign* as the triggering
+   record.  If no campaign was assigned, behave as though `"BounceTenant"` was
+   the action.
