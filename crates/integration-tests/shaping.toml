@@ -15,3 +15,18 @@ duration = "1 hour"
 regex = "you said 450-suspend-tenant"
 action = "SuspendTenant"
 duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 550-go-away"
+action = "Bounce"
+duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 550-bounce-campaign"
+action = "BounceCampaign"
+duration = "1 hour"
+
+[["default".automation]]
+regex = "you said 550-bounce-tenant"
+action = "BounceTenant"
+duration = "1 hour"

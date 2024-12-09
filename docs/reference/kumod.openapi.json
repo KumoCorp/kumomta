@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.10.15-3e4b6c13"
+    "version": "2024.12.09-a316f7a9"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -545,6 +545,14 @@
             "example": "20m",
             "nullable": true
           },
+          "expires": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              }
+            ],
+            "nullable": true
+          },
           "reason": {
             "type": "string",
             "description": "Reason to log in the delivery log. Each matching message will be bounced\nwith an AdminBounce record unless you suppress logging.\nThe reason will also be shown in the list of currently active admin\nbounces.",
@@ -564,7 +572,8 @@
             "description": "The tenant to match. If omitted, any tenant will match.",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "BounceV1Response": {
         "type": "object",

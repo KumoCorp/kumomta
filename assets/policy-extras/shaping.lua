@@ -198,6 +198,31 @@ local function apply_sched_q_suspension(item)
   end
 end
 
+local function apply_sched_q_bounce(item)
+  local current_suspensions = kumo.api.admin.bounce.list()
+  local seen = false
+  local reason =
+    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+  -- avoid conflating/overriding existing entries
+  for _, v in ipairs(current_suspensions) do
+    if v.reason == reason then
+      seen = true
+      break
+    end
+  end
+
+  if not seen then
+    kumo.api.admin.bounce.bounce {
+      campaign = item.campaign,
+      domain = item.domain,
+      tenant = item.tenant,
+      reason = reason,
+      expires = item.expires,
+    }
+  end
+end
+
 kumo.on('kumo.tsa.config.monitor', function(args)
   local last_hash = ''
   print 'TSA config monitor running'
@@ -240,6 +265,8 @@ local function process_tsa_events(url)
         apply_ready_q_suspension(data.ReadyQSuspension)
       elseif data.SchedQSuspension then
         apply_sched_q_suspension(data.SchedQSuspension)
+      elseif data.SchedQBounce then
+        apply_sched_q_bounce(data.SchedQBounce)
       else
         print(
           'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',

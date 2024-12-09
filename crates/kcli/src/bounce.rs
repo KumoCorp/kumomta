@@ -87,6 +87,7 @@ impl BounceCommand {
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
                 duration: self.duration.clone(),
+                expires: None,
                 suppress_logging: self.suppress_logging,
             },
         )

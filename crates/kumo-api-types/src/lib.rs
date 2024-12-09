@@ -17,6 +17,7 @@ pub mod tsa;
 /// The criteria apply to the scheduled queue associated
 /// with a given message.
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BounceV1Request {
     /// The campaign name to match. If omitted, any campaign will match.
     #[serde(default)]
@@ -57,11 +58,19 @@ pub struct BounceV1Request {
     /// messages.
     #[serde(default)]
     pub suppress_logging: bool,
+
+    /// instead of specifying the duration, you can set an explicit
+    /// expiration timestamp
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<DateTime<Utc>>,
 }
 
 impl BounceV1Request {
     pub fn duration(&self) -> Duration {
-        self.duration.unwrap_or_else(default_duration)
+        match &self.expires {
+            Some(exp) => (*exp - Utc::now()).to_std().unwrap_or(Duration::ZERO),
+            None => self.duration.unwrap_or_else(default_duration),
+        }
     }
 }
 

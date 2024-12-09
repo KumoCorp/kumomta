@@ -39,6 +39,9 @@ kumo.on('smtp_server_rcpt_to', function(recipient)
   if utils.starts_with(recipient.user, '450-') then
     kumo.reject(450, 'you said ' .. recipient.user)
   end
+  if utils.starts_with(recipient.user, '550-') then
+    kumo.reject(550, 'you said ' .. recipient.user)
+  end
 end)
 
 kumo.on('smtp_server_message_received', function(msg)
