@@ -31,3 +31,20 @@ pub enum SuspensionEntry {
     ReadyQ(ReadyQSuspension),
     SchedQ(SchedQSuspension),
 }
+
+#[derive(Serialize, Default, Clone)]
+pub struct SchedQBounce {
+    pub rule_hash: String,
+    pub domain: String,
+    pub tenant: Option<String>,
+    pub campaign: Option<String>,
+    pub reason: String,
+    pub expires: DateTime<Utc>,
+}
+
+#[derive(Serialize, Clone)]
+pub enum SubscriptionItem {
+    ReadyQSuspension(ReadyQSuspension),
+    SchedQSuspension(SchedQSuspension),
+    SchedQBounce(SchedQBounce),
+}

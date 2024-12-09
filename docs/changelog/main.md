@@ -60,3 +60,6 @@
   which allowed a given source IP which successfully authenticated in one session
   to appear authenticated for other separate connections made by that *same IP*
   to/from the same domain, within the same 60 second period. #320
+
+* TSA daemon would not report the list of scheduled queue suspensions in the
+  initial websocket request made by a (re)connecting client.

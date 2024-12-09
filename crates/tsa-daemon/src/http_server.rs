@@ -7,7 +7,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
-use kumo_api_types::tsa::{ReadyQSuspension, SchedQSuspension, SuspensionEntry, Suspensions};
+use kumo_api_types::tsa::{
+    ReadyQSuspension, SchedQBounce, SchedQSuspension, SubscriptionItem, SuspensionEntry,
+    Suspensions,
+};
 use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
@@ -27,8 +30,7 @@ use utoipa::OpenApi;
 pub static DB_PATH: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
 static HISTORY: LazyLock<ConnectionThreadSafe> = LazyLock::new(|| open_history_db().unwrap());
-static SUSPENSION_TX: LazyLock<SuspensionSubscriberMgr> =
-    LazyLock::new(|| SuspensionSubscriberMgr::new());
+static SUSPENSION_TX: LazyLock<SubscriberMgr> = LazyLock::new(|| SubscriberMgr::new());
 
 pub fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().unwrap().clone();
@@ -77,6 +79,15 @@ CREATE TABLE IF NOT EXISTS sched_q_suspensions (
     PRIMARY KEY (rule_hash, campaign, tenant, domain)
 );
 
+CREATE TABLE IF NOT EXISTS sched_q_bounces (
+    rule_hash text,
+    campaign text,
+    tenant text,
+    domain text,
+    reason text,
+    expires DATETIME,
+    PRIMARY KEY (rule_hash, campaign, tenant, domain)
+);
     "#;
 
     db.execute(query)?;
@@ -99,7 +110,9 @@ pub fn make_router() -> RouterAndDocs {
             .route("/publish_log_v1", post(publish_log_v1))
             .route("/get_config_v1/shaping.toml", get(get_config_v1))
             .route("/get_suspension_v1/suspended.json", get(get_suspension_v1))
-            .route("/subscribe_suspension_v1", get(subscribe_suspension_v1)),
+            .route("/subscribe_suspension_v1", get(subscribe_suspension_v1))
+            .route("/get_bounce_v1/bounced.json", get(get_bounce_v1))
+            .route("/subscribe_event_v1", get(subscribe_event_v1)),
         docs: ApiDoc::openapi(),
     }
 }
@@ -166,13 +179,102 @@ fn regex_list_to_string(list: &[Regex]) -> String {
     }
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum UseCampaign {
+    Yes,
+    No,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum UseTenant {
+    Yes,
+    No,
+}
+
+fn create_bounce(
+    db: &ConnectionThreadSafe,
+    rule_hash: &str,
+    rule: &Rule,
+    record: &JsonLogRecord,
+    use_tenant: UseTenant,
+    use_campaign: UseCampaign,
+    events: &mut Vec<SubscriptionItem>,
+) -> anyhow::Result<()> {
+    let components = QueueNameComponents::parse(&record.queue);
+
+    let tenant = match components.tenant {
+        Some(tenant) => Some(tenant),
+        None if use_tenant == UseTenant::Yes => {
+            tracing::error!(
+                "Cannot create tenant based bounce for {rule:?} \
+                because the incoming record queue {} has no tenant component",
+                record.queue
+            );
+            return Ok(());
+        }
+        None => None,
+    };
+
+    let campaign = if use_campaign == UseCampaign::Yes {
+        components.campaign
+    } else {
+        None
+    };
+
+    let mut upsert = db
+        .prepare(
+            "INSERT INTO sched_q_bounces
+                 (rule_hash, campaign, tenant, domain, reason, expires)
+                 VALUES
+                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
+                 ON CONFLICT (rule_hash, campaign, tenant, domain)
+                 DO UPDATE SET expires=$expires",
+        )
+        .context("prepare sched_q_bounces upsert")?;
+
+    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
+    let expires_str = expires.to_rfc3339();
+
+    upsert.bind(("$hash", rule_hash))?;
+    upsert.bind(("$campaign", campaign))?;
+    upsert.bind(("$tenant", tenant))?;
+    upsert.bind(("$domain", components.domain))?;
+
+    let mut reason = format!(
+        "automation rule: {} domain={}",
+        regex_list_to_string(&rule.regex),
+        components.domain
+    );
+    if let Some(tenant) = &tenant {
+        reason.push_str(&format!(" tenant={tenant}"));
+    }
+    if let Some(campaign) = &campaign {
+        reason.push_str(&format!(" campaign={campaign}"));
+    }
+    upsert.bind(("$reason", reason.as_str()))?;
+    upsert.bind(("$expires", expires_str.as_str()))?;
+
+    upsert.next().context("execute sched_q_bounces upsert")?;
+
+    events.push(SubscriptionItem::SchedQBounce(SchedQBounce {
+        rule_hash: rule_hash.to_string(),
+        domain: components.domain.to_string(),
+        tenant: tenant.map(|s| s.to_string()),
+        campaign: campaign.map(|s| s.to_string()),
+        reason,
+        expires,
+    }));
+
+    Ok(())
+}
+
 fn create_tenant_suspension(
     db: &ConnectionThreadSafe,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
-    use_campaign: bool,
-    events: &mut Vec<SuspensionEntry>,
+    use_campaign: UseCampaign,
+    events: &mut Vec<SubscriptionItem>,
 ) -> anyhow::Result<()> {
     let components = QueueNameComponents::parse(&record.queue);
     let Some(tenant) = components.tenant else {
@@ -184,7 +286,7 @@ fn create_tenant_suspension(
         return Ok(());
     };
 
-    let campaign = if use_campaign {
+    let campaign = if use_campaign == UseCampaign::Yes {
         components.campaign
     } else {
         None
@@ -224,7 +326,7 @@ fn create_tenant_suspension(
         .next()
         .context("execute sched_q_suspensions upsert")?;
 
-    events.push(SuspensionEntry::SchedQ(SchedQSuspension {
+    events.push(SubscriptionItem::SchedQSuspension(SchedQSuspension {
         rule_hash: rule_hash.to_string(),
         domain: components.domain.to_string(),
         tenant: tenant.to_string(),
@@ -242,7 +344,7 @@ fn create_ready_q_suspension(
     rule: &Rule,
     record: &JsonLogRecord,
     source: &str,
-    events: &mut Vec<SuspensionEntry>,
+    events: &mut Vec<SubscriptionItem>,
 ) -> anyhow::Result<()> {
     let mut upsert = db.prepare(
         "INSERT INTO ready_q_suspensions
@@ -266,7 +368,7 @@ fn create_ready_q_suspension(
 
     upsert.next()?;
 
-    events.push(SuspensionEntry::ReadyQ(ReadyQSuspension {
+    events.push(SubscriptionItem::ReadyQSuspension(ReadyQSuspension {
         rule_hash: rule_hash.to_string(),
         site_name: record.site.to_string(),
         reason,
@@ -355,7 +457,7 @@ pub async fn publish_log_batch(
     db.execute("COMMIT")?;
 
     for event in events {
-        SuspensionSubscriberMgr::submit(event);
+        SubscriberMgr::submit(event);
     }
 
     Ok(())
@@ -366,7 +468,7 @@ async fn publish_log_v1_impl(
     db: &ConnectionThreadSafe,
     shaping: &Shaping,
     record: JsonLogRecord,
-    events: &mut Vec<SuspensionEntry>,
+    events: &mut Vec<SubscriptionItem>,
 ) -> anyhow::Result<()> {
     tracing::trace!("got record: {record:?}");
     // Extract the domain from the recipient.
@@ -425,16 +527,63 @@ async fn publish_log_v1_impl(
                         create_ready_q_suspension(db, &rule_hash, m, &record, &source, events)?;
                     }
                     Action::SuspendTenant => {
-                        create_tenant_suspension(db, &rule_hash, m, &record, false, events)?;
+                        create_tenant_suspension(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            UseCampaign::No,
+                            events,
+                        )?;
                     }
                     Action::SuspendCampaign => {
-                        create_tenant_suspension(db, &rule_hash, m, &record, true, events)?;
+                        create_tenant_suspension(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            UseCampaign::Yes,
+                            events,
+                        )?;
                     }
                     Action::SetConfig(config) => {
                         create_config(db, &rule_hash, m, &record, config, &domain, &source, true)?;
                     }
                     Action::SetDomainConfig(config) => {
                         create_config(db, &rule_hash, m, &record, config, &domain, &source, false)?;
+                    }
+                    Action::Bounce => {
+                        create_bounce(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            UseTenant::No,
+                            UseCampaign::No,
+                            events,
+                        )?;
+                    }
+                    Action::BounceTenant => {
+                        create_bounce(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            UseTenant::Yes,
+                            UseCampaign::No,
+                            events,
+                        )?;
+                    }
+                    Action::BounceCampaign => {
+                        create_bounce(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            UseTenant::Yes,
+                            UseCampaign::Yes,
+                            events,
+                        )?;
                     }
                 }
             }
@@ -701,17 +850,17 @@ async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, Ap
     Ok(result)
 }
 
-struct SuspensionSubscriberMgr {
-    tx: Sender<SuspensionEntry>,
+struct SubscriberMgr {
+    tx: Sender<SubscriptionItem>,
 }
 
-impl SuspensionSubscriberMgr {
+impl SubscriberMgr {
     pub fn new() -> Self {
         let (tx, _rx) = channel(16);
         Self { tx }
     }
 
-    pub fn submit(entry: SuspensionEntry) {
+    pub fn submit(entry: SubscriptionItem) {
         let mgr = &SUSPENSION_TX;
         if mgr.tx.receiver_count() > 0 {
             mgr.tx.send(entry).ok();
@@ -719,14 +868,126 @@ impl SuspensionSubscriberMgr {
     }
 }
 
+/// This is a legacy endpoint that can only report on the old SuspensionEntry
+/// enum variants
 async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     let mut rx = SUSPENSION_TX.tx.subscribe();
 
     // send the current set of suspensions first
     {
-        let suspensions = do_get_suspension().await?;
-        for record in &suspensions.ready_q {
-            let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record.clone()))?;
+        let suspensions = do_get_suspension().await?.0;
+        for record in suspensions.ready_q {
+            let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
+            socket.send(Message::Text(json)).await?;
+        }
+        for record in suspensions.sched_q {
+            let json = serde_json::to_string(&SuspensionEntry::SchedQ(record))?;
+            socket.send(Message::Text(json)).await?;
+        }
+    }
+
+    // then wait for more to show up
+    loop {
+        let event = rx.recv().await?;
+        let event = match event {
+            SubscriptionItem::ReadyQSuspension(s) => SuspensionEntry::ReadyQ(s),
+            SubscriptionItem::SchedQSuspension(s) => SuspensionEntry::SchedQ(s),
+            _ => continue,
+        };
+        let json = serde_json::to_string(&event)?;
+        socket.send(Message::Text(json)).await?;
+    }
+}
+
+/// This is a legacy endpoint that can only report on the old SuspensionEntry
+/// enum variants
+async fn process_suspension_subscription(socket: WebSocket) {
+    if let Err(err) = process_suspension_subscription_inner(socket).await {
+        tracing::error!("error in websocket: {err:#}");
+    }
+}
+
+/// This is a legacy endpoint that can only report on the old SuspensionEntry
+/// enum variants
+pub async fn subscribe_suspension_v1(
+    _: TrustedIpRequired,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| process_suspension_subscription(socket))
+}
+
+async fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
+    let mut stmt = HISTORY.prepare(
+        "SELECT * from sched_q_bounces where
+                                   unixepoch(expires) - unixepoch() > 0
+                                   order by expires, tenant, domain, campaign",
+    )?;
+
+    let mut by_rule_hash = HashMap::new();
+
+    fn add_schedq_bounce(by_rule_hash: &mut HashMap<String, SchedQBounce>, item: SchedQBounce) {
+        let entry = by_rule_hash
+            .entry(item.rule_hash.to_string())
+            .or_insert_with(|| item.clone());
+
+        if item.expires > entry.expires {
+            entry.expires = item.expires;
+        }
+    }
+
+    while let Ok(sqlite::State::Row) = stmt.next() {
+        let rule_hash: String = stmt.read("rule_hash")?;
+        let tenant: Option<String> = stmt.read("tenant")?;
+        let domain: String = stmt.read("domain")?;
+        let campaign: Option<String> = stmt.read("campaign")?;
+        let reason: String = stmt.read("reason")?;
+        let expires: String = stmt.read("expires")?;
+
+        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+
+        add_schedq_bounce(
+            &mut by_rule_hash,
+            SchedQBounce {
+                rule_hash,
+                domain,
+                tenant,
+                campaign,
+                reason,
+                expires,
+            },
+        );
+    }
+
+    let bounces = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+
+    Ok(Json(bounces))
+}
+
+async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
+    let result = do_get_bounces().await?;
+    Ok(result)
+}
+
+async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
+    let mut rx = SUSPENSION_TX.tx.subscribe();
+
+    // send the current set of suspensions first
+    {
+        let suspensions = do_get_suspension().await?.0;
+        for record in suspensions.ready_q {
+            let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
+            socket.send(Message::Text(json)).await?;
+        }
+        for record in suspensions.sched_q {
+            let json = serde_json::to_string(&SubscriptionItem::SchedQSuspension(record))?;
+            socket.send(Message::Text(json)).await?;
+        }
+    }
+    // and then bounces
+    {
+        let bounces = do_get_bounces().await?.0;
+        for record in bounces {
+            let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
             socket.send(Message::Text(json)).await?;
         }
     }
@@ -739,15 +1000,12 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
     }
 }
 
-async fn process_suspension_subscription(socket: WebSocket) {
-    if let Err(err) = process_suspension_subscription_inner(socket).await {
+async fn process_event_subscription(socket: WebSocket) {
+    if let Err(err) = process_event_subscription_inner(socket).await {
         tracing::error!("error in websocket: {err:#}");
     }
 }
 
-pub async fn subscribe_suspension_v1(
-    _: TrustedIpRequired,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| process_suspension_subscription(socket))
+pub async fn subscribe_event_v1(_: TrustedIpRequired, ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(|socket| process_event_subscription(socket))
 }

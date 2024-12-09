@@ -198,6 +198,9 @@ pub enum Action {
     SuspendTenant,
     SuspendCampaign,
     SetDomainConfig(EgressPathConfigValue),
+    Bounce,
+    BounceTenant,
+    BounceCampaign,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Hash, Default)]
