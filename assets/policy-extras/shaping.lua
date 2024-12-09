@@ -218,23 +218,69 @@ kumo.on('kumo.tsa.config.monitor', function(args)
   end
 end)
 
-local function process_suspension_subscriptions(url)
+local function process_tsa_events(url)
   -- Generate the websocket URL from the user-provided HTTP URL
-  local endpoint =
-    string.format('%s/subscribe_suspension_v1', url):gsub('^http', 'ws')
-  local stream, response = kumo.http.connect_websocket(endpoint)
+  local ws_url = url:gsub('^http', 'ws')
 
-  -- Loop and consume all suspensions from the host; the initial
-  -- connection will pre-populate the stream with any current
-  -- suspensions, and then will later deliver any subsequently
-  -- generated suspension events in realtime.
-  while true do
-    local data = kumo.json_parse(stream:recv())
-    if data.ReadyQ then
-      apply_ready_q_suspension(data.ReadyQ)
-    elseif data.SchedQ then
-      apply_sched_q_suspension(data.SchedQ)
+  -- First let's try the new generic event endpoint URL
+  local event_endpoint = string.format('%s/subscribe_event_v1', ws_url)
+
+  local status, err_or_stream, response =
+    pcall(kumo.http.connect_websocket, event_endpoint)
+  if status then
+    -- Daemon supports the new endpoint
+
+    -- Loop and consume all suspensions from the host; the initial
+    -- connection will pre-populate the stream with any current
+    -- suspensions, and then will later deliver any subsequently
+    -- generated suspension events in realtime.
+    while true do
+      local data = kumo.json_parse(err_or_stream:recv())
+      if data.ReadyQSuspension then
+        apply_ready_q_suspension(data.ReadyQSuspension)
+      elseif data.SchedQSuspension then
+        apply_sched_q_suspension(data.SchedQSuspension)
+      else
+        print(
+          'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
+          kumo.serde.json_encode(data)
+        )
+      end
     end
+  elseif tostring(err_or_stream):find 'HTTP error: 404 Not Found' then
+    -- Daemon is up, but the endpoint is not supported.
+    -- Fall back to the legacy endpoint
+    local endpoint = string.format('%s/subscribe_suspension_v1', ws_url)
+
+    print(
+      "NOTE: Your TSA daemon doesn't support %s, falling back to %s. Please upgrade and restart your TSA daemon to enable full functionality!",
+      event_endpoint,
+      endpoint
+    )
+
+    local stream, response = kumo.http.connect_websocket(endpoint)
+
+    -- Loop and consume all suspensions from the host; the initial
+    -- connection will pre-populate the stream with any current
+    -- suspensions, and then will later deliver any subsequently
+    -- generated suspension events in realtime.
+    while true do
+      local data = kumo.json_parse(stream:recv())
+      if data.ReadyQ then
+        apply_ready_q_suspension(data.ReadyQ)
+      elseif data.SchedQ then
+        apply_sched_q_suspension(data.SchedQ)
+      end
+    end
+  else
+    -- Some other error
+    error(
+      string.format(
+        'Request to %s failed: %s',
+        event_endpoint,
+        tostring(err_or_stream)
+      )
+    )
   end
 end
 
@@ -244,7 +290,7 @@ kumo.on('kumo.tsa.suspension.subscriber', function(args)
   -- If we encounter an error (likely cause: tsa-daemon restarting),
   -- then we'll try again after a short sleep
   while true do
-    local status, err = pcall(process_suspension_subscriptions, url)
+    local status, err = pcall(process_tsa_events, url)
     print('TSA Error, will retry in 30 seconds', status, err)
     kumo.sleep(30)
   end
