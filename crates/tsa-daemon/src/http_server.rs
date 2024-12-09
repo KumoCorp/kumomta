@@ -117,6 +117,12 @@ pub fn make_router() -> RouterAndDocs {
     }
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum PreferRollup {
+    Yes,
+    No,
+}
+
 fn create_config(
     db: &ConnectionThreadSafe,
     rule_hash: &str,
@@ -125,7 +131,7 @@ fn create_config(
     config: &EgressPathConfigValue,
     domain: &str,
     source: &str,
-    prefer_rollup: bool,
+    prefer_rollup: PreferRollup,
 ) -> anyhow::Result<()> {
     let mut upsert = db.prepare(
         "INSERT INTO config
@@ -143,7 +149,7 @@ fn create_config(
     upsert.bind(("$domain", domain))?;
     upsert.bind((
         "$mx_rollup",
-        if prefer_rollup && rule.was_rollup {
+        if prefer_rollup == PreferRollup::Yes && rule.was_rollup {
             1
         } else {
             0
@@ -547,10 +553,28 @@ async fn publish_log_v1_impl(
                         )?;
                     }
                     Action::SetConfig(config) => {
-                        create_config(db, &rule_hash, m, &record, config, &domain, &source, true)?;
+                        create_config(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            config,
+                            &domain,
+                            &source,
+                            PreferRollup::Yes,
+                        )?;
                     }
                     Action::SetDomainConfig(config) => {
-                        create_config(db, &rule_hash, m, &record, config, &domain, &source, false)?;
+                        create_config(
+                            db,
+                            &rule_hash,
+                            m,
+                            &record,
+                            config,
+                            &domain,
+                            &source,
+                            PreferRollup::No,
+                        )?;
                     }
                     Action::Bounce => {
                         create_bounce(
