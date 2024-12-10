@@ -7373,7 +7373,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "human_bytes",
  "kumo-api-types",
+ "re_memory",
  "tokio",
 ]
 

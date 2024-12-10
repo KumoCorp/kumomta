@@ -6,5 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 clap = {workspace=true}
+human_bytes.workspace = true
 kumo-api-types = {path="../kumo-api-types", features=["lua"]}
+re_memory.workspace = true
 tokio = {workspace=true, features=["full"]}
