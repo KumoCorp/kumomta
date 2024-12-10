@@ -58,7 +58,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     if kind == RecordType::Reception {
         if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
             if let Ok(Some(report)) = msg.parse_rfc5965() {
-                feedback_report.replace(report);
+                feedback_report.replace(Box::new(report));
                 kind = RecordType::Feedback;
             }
         }

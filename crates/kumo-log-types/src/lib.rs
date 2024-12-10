@@ -91,7 +91,7 @@ pub struct JsonLogRecord {
     pub egress_source: Option<String>,
     pub source_address: Option<MaybeProxiedSourceAddress>,
 
-    pub feedback_report: Option<ARFReport>,
+    pub feedback_report: Option<Box<ARFReport>>,
 
     pub meta: HashMap<String, Value>,
     pub headers: HashMap<String, Value>,
@@ -138,4 +138,10 @@ pub struct MaybeProxiedSourceAddress {
     pub server: Option<SocketAddr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<Cow<'static, str>>,
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+#[test]
+fn sizes() {
+    assert_eq!(std::mem::size_of::<JsonLogRecord>(), 712);
 }
