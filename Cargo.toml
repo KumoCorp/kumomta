@@ -30,6 +30,7 @@ members = [
   "crates/version-info",
   "crates/kumo-dmarc",
   "crates/kumo-template",
+  "crates/summarize-memory",
 ]
 resolver = "2"
 

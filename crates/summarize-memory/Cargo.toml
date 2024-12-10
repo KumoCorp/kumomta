@@ -1,0 +1,10 @@
+[package]
+name = "summarize-memory"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive"] }
+human_bytes.workspace = true
+regex.workspace = true
