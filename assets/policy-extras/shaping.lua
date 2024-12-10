@@ -383,7 +383,7 @@ function mod:setup_with_automation(options)
   local cached_load_data = kumo.memoize(load_shaping_data, {
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
-    capacity = 10,
+    capacity = 1,
   })
 
   local file_names = {}
