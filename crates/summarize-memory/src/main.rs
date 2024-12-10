@@ -1,6 +1,7 @@
 use clap::Parser;
 use human_bytes::human_bytes;
 use regex::Regex;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Summarize memory stats, by focusing the call stacks on the
@@ -124,7 +125,7 @@ impl RawStack {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 struct Frame {
     symbol: String,
     source: String,
@@ -147,7 +148,29 @@ fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
 
     let stats = RawStatFile::new(&opts.stats_file)?;
-    for stack in &stats.call_stacks {
+
+    let mut unique_stacks: HashMap<Vec<Frame>, RawStack> = HashMap::new();
+
+    for stack in stats.call_stacks {
+        let frames = stack.interesting_stack();
+
+        if let Some(entry) = unique_stacks.get_mut(&frames) {
+            entry.total_size += stack.total_size;
+            entry.count += stack.count;
+        } else {
+            unique_stacks.insert(frames, stack);
+        }
+    }
+
+    let mut stacks: Vec<(RawStack, Vec<Frame>)> = unique_stacks
+        .into_iter()
+        .map(|(frames, raw)| (raw, frames))
+        .collect();
+    println!("Aggregated into {} stacks", stacks.len());
+
+    stacks.sort_by(|a, b| b.0.total_size.cmp(&a.0.total_size));
+
+    for (stack, frames) in stacks {
         println!(
             "{total} in {count} allocations ({per_alloc} each)",
             total = human_bytes(stack.total_size as f64),
@@ -155,7 +178,6 @@ fn main() -> anyhow::Result<()> {
             per_alloc = human_bytes(stack.total_size as f64 / stack.count as f64)
         );
 
-        let frames = stack.interesting_stack();
         for f in &frames {
             println!("{} {}", f.symbol, f.source);
         }
