@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "impl")]
 use config::{any_err, from_lua_value, serialize_options};
 use futures::FutureExt;
+use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use kumo_chrono_helper::*;
 use kumo_log_types::rfc3464::Report;
 use kumo_log_types::rfc5965::ARFReport;
@@ -94,6 +95,79 @@ struct MessageInner {
 struct MessageWithId {
     id: SpoolId,
     inner: Mutex<MessageInner>,
+    link: LinkedListAtomicLink,
+}
+
+intrusive_adapter!(
+    MessageWithIdAdapter = Arc<MessageWithId>: MessageWithId { link: LinkedListAtomicLink }
+);
+
+/// A list of messages with an O(1) list overhead; no additional
+/// memory per-message is required to track this list.
+/// However, a given Message can only belong to one instance
+/// of such a list at a time.
+pub struct MessageList {
+    list: LinkedList<MessageWithIdAdapter>,
+    len: usize,
+}
+
+impl MessageList {
+    /// Create a new MessageList
+    pub fn new() -> Self {
+        Self {
+            list: LinkedList::new(MessageWithIdAdapter::default()),
+            len: 0,
+        }
+    }
+
+    /// Returns the number of elements contained in the list
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Take all of the elements from this list and return them
+    /// in a new separate instance of MessageList.
+    pub fn take(&mut self) -> Self {
+        let new_list = Self {
+            list: self.list.take(),
+            len: self.len,
+        };
+        self.len = 0;
+        new_list
+    }
+
+    /// Push a message to the back of the list
+    pub fn push_back(&mut self, message: Message) {
+        self.list.push_back(message.msg_and_id);
+        self.len += 1;
+    }
+
+    /// Pop a message from the front of the list
+    pub fn pop_front(&mut self) -> Option<Message> {
+        self.list.pop_front().map(|msg_and_id| {
+            self.len -= 1;
+            Message { msg_and_id }
+        })
+    }
+
+    /// Pop a message from the back of the list
+    pub fn pop_back(&mut self) -> Option<Message> {
+        self.list.pop_back().map(|msg_and_id| {
+            self.len -= 1;
+            Message { msg_and_id }
+        })
+    }
+
+    /// Pop all of the messages from this list into a vector
+    /// of messages.
+    /// Memory usage is O(number-of-messages).
+    pub fn drain(&mut self) -> Vec<Message> {
+        let mut messages = Vec::with_capacity(self.len);
+        while let Some(msg) = self.pop_front() {
+            messages.push(msg);
+        }
+        messages
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -181,6 +255,7 @@ impl Message {
                     num_attempts: 0,
                     due: None,
                 }),
+                link: LinkedListAtomicLink::default(),
             }),
         })
     }
@@ -215,6 +290,7 @@ impl Message {
                     num_attempts: 0,
                     due: None,
                 }),
+                link: LinkedListAtomicLink::default(),
             }),
         })
     }

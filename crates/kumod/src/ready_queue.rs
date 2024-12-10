@@ -15,18 +15,16 @@ use crate::queue::{
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
-use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
 use config::{load_config, CallbackSignature};
-use crossbeam_queue::ArrayQueue;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
 use kumo_server_runtime::{spawn, Runtime};
-use message::message::QueueNameComponents;
+use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex as StdMutex;
 use rfc5321::{EnhancedStatusCode, Response};
@@ -59,76 +57,76 @@ pub fn set_readyq_threads(n: usize) {
 }
 
 pub struct Fifo {
-    queue: ArcSwap<ArrayQueue<Message>>,
+    list: StdMutex<MessageList>,
     count: ReadyCountBundle,
+    capacity: AtomicUsize,
 }
 
 impl Fifo {
     pub fn new(capacity: usize, count: ReadyCountBundle) -> Self {
         Self {
-            queue: Arc::new(ArrayQueue::new(capacity)).into(),
             count,
+            list: StdMutex::new(MessageList::new()),
+            capacity: AtomicUsize::new(capacity),
         }
     }
 
     pub fn push(&self, msg: Message) -> Result<(), Message> {
-        self.queue.load().push(msg)?;
+        let mut list = self.list.lock();
+        if list.len() + 1 > self.capacity.load(Ordering::Relaxed) {
+            return Err(msg);
+        }
+        list.push_back(msg);
         self.count.inc();
         Ok(())
     }
 
     #[must_use]
     pub fn pop(&self) -> Option<Message> {
-        let msg = self.queue.load().pop()?;
+        let msg = self.list.lock().pop_front()?;
         self.count.dec();
         Some(msg)
     }
 
     #[must_use]
     pub fn drain(&self) -> Vec<Message> {
-        let queue = self.queue.load();
-        let mut messages = Vec::with_capacity(queue.len());
-        while let Some(msg) = queue.pop() {
-            messages.push(msg);
-        }
+        let messages = self.list.lock().drain();
         self.count.sub(messages.len());
         messages
     }
 
     /// Adjust the capacity of the Fifo.
     /// If the capacity is the same, nothing changes.
-    /// Otherwise, a new ArrayQueue is constructed and swapped in
-    /// to replace the existing queue.
-    /// The old queue is then drained into the new queue.
-    /// Any messages that won't fit into the new queue are
+    /// Any messages that won't fit into the updated capacity are
     /// returned to the caller, who is responsible for re-inserting
     /// those messages into the scheduled queue
     #[must_use]
     pub fn update_capacity(&self, capacity: usize) -> Vec<Message> {
-        let queue = self.queue.load();
-        if queue.capacity() == capacity {
+        if self.capacity.load(Ordering::Relaxed) == capacity {
             return vec![];
         }
 
-        let queue = self.queue.swap(Arc::new(ArrayQueue::new(capacity)).into());
-        let new_queue = self.queue.load();
+        let mut list = self.list.lock();
+        self.capacity.store(capacity, Ordering::Relaxed);
 
-        let mut messages = Vec::with_capacity(queue.len());
-        while let Some(msg) = queue.pop() {
-            // Note that we may race with other actors who are inserting
-            // into this queue, so even if the new capacity is greater
-            // than the prior capacity, there is still a chance that
-            // we'll have some overflow to deal with
-            if let Err(msg) = new_queue.push(msg) {
-                messages.push(msg);
+        let mut messages = vec![];
+        while list.len() > capacity {
+            match list.pop_back() {
+                Some(msg) => {
+                    messages.push(msg);
+                }
+                None => {
+                    break;
+                }
             }
         }
+
         self.count.sub(messages.len());
         messages
     }
 
     pub fn len(&self) -> usize {
-        self.queue.load().len()
+        self.list.lock().len()
     }
 }
 

@@ -17,6 +17,7 @@ chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver", optional=true}
 futures = {workspace=true}
+intrusive-collections.workspace = true
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
 lruttl = {path="../lruttl", optional=true}

@@ -36,6 +36,10 @@
   which create bounces for scheduled queues which match the
   domain/tenant/campaign of the triggering event. #272
 
+* Ready Queues now use intrusive lists through the internal Message structure,
+  which keeps memory usage for the ready queues bounded to `O(number-of-messages)`
+  rather than the previous `O(number-of-ready-queues * max_ready)`.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

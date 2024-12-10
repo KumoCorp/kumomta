@@ -15,7 +15,6 @@ bounce-classify = {path="../bounce-classify"}
 chrono = {workspace=true, default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map"}
 clap = {workspace=true, features=["derive"]}
-crossbeam-queue = {workspace=true}
 crossbeam-skiplist = {workspace=true}
 config = {path="../config"}
 data-encoding = {workspace=true}
