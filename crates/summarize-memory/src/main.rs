@@ -170,6 +170,31 @@ fn main() -> anyhow::Result<()> {
 
     stacks.sort_by(|a, b| b.0.total_size.cmp(&a.0.total_size));
 
+    let interesting_symbols = [
+        (
+            "kumo_api_types::shaping::Shaping::merge_files::{{closure}}",
+            "load shaping data",
+        ),
+        ("kumod::ready_queue::Fifo::new", "ready queues"),
+    ];
+
+    let mut notable_things: HashMap<&str, usize> = HashMap::new();
+    for (stack, frames) in &stacks {
+        for (symbol, label) in &interesting_symbols {
+            for f in frames {
+                if f.symbol == *symbol {
+                    let entry = notable_things.entry(label).or_insert(0);
+                    *entry += stack.total_size;
+                    break;
+                }
+            }
+        }
+    }
+
+    for (label, size) in notable_things {
+        println!("{label}: {}", human_bytes(size as f64));
+    }
+
     for (stack, frames) in stacks {
         println!(
             "{total} in {count} allocations ({per_alloc} each)",
