@@ -420,7 +420,8 @@ impl ReadyQueueManager {
 
     async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
-        let mut memory = subscribe_to_memory_status_changes();
+        let mut memory =
+            subscribe_to_memory_status_changes().expect("memory_thread to have started");
         let mut last_notify = Instant::now();
         let mut force_reap_deadline = None;
         let mut age_out_time = last_notify + AGE_OUT_INTERVAL;

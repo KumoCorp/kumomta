@@ -415,8 +415,8 @@ pub fn low_memory() -> bool {
 
 /// Returns a receiver that will notify when memory status
 /// changes from OK -> !OK or vice versa.
-pub fn subscribe_to_memory_status_changes() -> Receiver<()> {
-    SUBSCRIBER.lock().unwrap().clone().unwrap()
+pub fn subscribe_to_memory_status_changes() -> Option<Receiver<()>> {
+    SUBSCRIBER.lock().unwrap().clone()
 }
 
 /// Initialize the memory thread to monitor memory usage/limits

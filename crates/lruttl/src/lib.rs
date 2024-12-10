@@ -69,7 +69,19 @@ pub fn spawn_memory_monitor() {
 
 async fn purge_caches_on_memory_shortage() {
     tracing::debug!("starting memory monitor");
-    let mut memory_status = subscribe_to_memory_status_changes();
+    let mut memory_status;
+
+    loop {
+        match subscribe_to_memory_status_changes() {
+            Some(s) => {
+                memory_status = s;
+                break;
+            }
+            None => {
+                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            }
+        }
+    }
     while let Ok(()) = memory_status.changed().await {
         if kumo_server_memory::get_headroom() == 0 {
             purge_all_caches();

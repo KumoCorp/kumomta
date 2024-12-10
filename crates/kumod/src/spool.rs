@@ -568,7 +568,8 @@ impl SpoolManager {
         // Manage and trim memory usage
         tokio::spawn(async move {
             tracing::debug!("starting spool memory monitor");
-            let mut memory_status = subscribe_to_memory_status_changes();
+            let mut memory_status =
+                subscribe_to_memory_status_changes().expect("memory_thread to have started");
             while let Ok(()) = memory_status.changed().await {
                 if kumo_server_memory::get_headroom() == 0 {
                     let mut spools = vec![];
