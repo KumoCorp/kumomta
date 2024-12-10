@@ -2,8 +2,8 @@ use crate::logging::files::LogFileParams;
 use crate::logging::{LogCommand, LogRecordParams, LOGGING_RUNTIME};
 use crate::queue::QueueManager;
 use anyhow::Context;
-use async_channel::Receiver;
 use config::{load_config, CallbackSignature};
+use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_template::{Template, TemplateEngine};
 use message::{EnvelopeAddress, Message};
@@ -80,7 +80,7 @@ impl LogHookState {
         tracing::debug!("LogHookParams: {:#?}", self.params);
 
         loop {
-            let cmd = match self.receiver.recv().await {
+            let cmd = match self.receiver.recv_async().await {
                 Ok(cmd) => cmd,
                 other => {
                     tracing::debug!("logging channel closed {other:?}");

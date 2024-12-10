@@ -42,7 +42,6 @@ debug = 1 # include line tables for more meaningful backtraces
 amqprs = {version="2.0", features=["tls", "traces"]}
 anyhow = "1.0"
 arc-swap = "1.6"
-async-channel = "2"
 async-stream = "0.3"
 async-trait = "0.1"
 axum = "0.7"

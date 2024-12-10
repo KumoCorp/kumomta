@@ -1,7 +1,7 @@
 use crate::logging::{LogCommand, LogRecordParams};
 use anyhow::Context;
-use async_channel::Receiver;
 use chrono::Utc;
+use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MinFree;
 use kumo_template::{Template, TemplateEngine};
@@ -143,7 +143,7 @@ impl LogThreadState {
 
             let cmd = if let Some(deadline) = deadline {
                 tokio::select! {
-                    cmd = self.receiver.recv() => {
+                    cmd = self.receiver.recv_async() => {
                         // If we are super busy and always have another command immediately
                         // available, we need to take the opportunity to notice when
                         // segments expire.
@@ -164,7 +164,7 @@ impl LogThreadState {
                     }
                 }
             } else {
-                self.receiver.recv().await
+                self.receiver.recv_async().await
             };
             let cmd = match cmd {
                 Ok(cmd) => cmd,

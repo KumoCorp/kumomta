@@ -3185,7 +3185,6 @@ name = "kumo-server-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-channel",
  "kumo-server-memory",
  "prometheus",
  "tokio",
@@ -3221,7 +3220,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arc-swap",
- "async-channel",
  "async-trait",
  "axum",
  "axum-client-ip",

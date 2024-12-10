@@ -2,8 +2,8 @@ use crate::logging::classify::{apply_classification, ClassifierParams};
 use crate::logging::files::{LogFileParams, LogThreadState};
 use crate::logging::hooks::{LogHookParams, LogHookState};
 use anyhow::Context;
-use async_channel::{Sender, TrySendError};
 use config::{any_err, from_lua_value, get_or_create_module};
+use flume::{bounded, Sender, TrySendError};
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MonitoredPath;
 use kumo_server_runtime::Runtime;
@@ -140,7 +140,7 @@ impl Logger {
         let meta = params.meta.clone();
         let hook_name = params.name.to_string();
         let name = format!("hook-{hook_name}");
-        let (sender, receiver) = async_channel::bounded(params.back_pressure);
+        let (sender, receiver) = bounded(params.back_pressure);
 
         let mut state = LogHookState::new(params, receiver, template_engine);
 
@@ -192,7 +192,7 @@ impl Logger {
 
         let headers = params.headers.clone();
         let meta = params.meta.clone();
-        let (sender, receiver) = async_channel::bounded(params.back_pressure);
+        let (sender, receiver) = bounded(params.back_pressure);
         let filter_event = params.filter_event.clone();
         let name = format!("dir-{}", params.log_dir.display());
 
@@ -253,10 +253,10 @@ impl Logger {
                     .get_metric_with_label_values(&[&self.name])
                     .expect("get counter")
                     .inc();
-                self.sender.send(record).await?;
+                self.sender.send_async(record).await?;
                 Ok(())
             }
-            Err(TrySendError::Closed(_)) => anyhow::bail!("log channel was closed"),
+            Err(TrySendError::Disconnected(_)) => anyhow::bail!("log channel was closed"),
         }
     }
 
@@ -264,7 +264,7 @@ impl Logger {
         let loggers = Self::get_loggers();
         for logger in loggers.iter() {
             tracing::debug!("Terminating a logger");
-            logger.sender.send(LogCommand::Terminate).await.ok();
+            logger.sender.send_async(LogCommand::Terminate).await.ok();
             tracing::debug!("Joining that logger");
             let res = match logger.thread.lock().await.take() {
                 Some(task) => Some(task.await),
