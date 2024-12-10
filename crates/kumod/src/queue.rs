@@ -799,6 +799,16 @@ impl QueueStructure {
         }
     }
 
+    fn shrink(&self) {
+        match self {
+            Self::TimerWheel(_q) => {}
+            Self::SkipList(_q) => {}
+            Self::SingletonTimerWheel(q) => {
+                q.lock().shrink_to_fit();
+            }
+        }
+    }
+
     fn pop(&self) -> (Vec<Message>, Option<Duration>) {
         match self {
             Self::TimerWheel(q) => match q.lock().pop() {
@@ -2043,7 +2053,10 @@ impl Queue {
 
         tracing::debug!("singleton_wheel: starting up");
 
-        async fn reinsert_ready(msg: Message) -> anyhow::Result<()> {
+        async fn reinsert_ready(
+            msg: Message,
+            to_shrink: &mut HashMap<String, QueueHandle>,
+        ) -> anyhow::Result<()> {
             if !msg.is_meta_loaded() {
                 msg.load_meta().await?;
             }
@@ -2072,6 +2085,9 @@ impl Queue {
                     if remove(q, &msg) {
                         queue.metrics().sub(1);
                         queue.insert_ready(msg).await?;
+                        if !to_shrink.contains_key(&queue_name) {
+                            to_shrink.insert(queue_name, queue);
+                        }
                     }
                 }
                 _ => {
@@ -2081,6 +2097,8 @@ impl Queue {
 
             Ok(())
         }
+
+        let mut to_shrink = HashMap::new();
 
         loop {
             tokio::select! {
@@ -2105,13 +2123,17 @@ impl Queue {
                     for weak_message in msgs {
                         if let Some(msg) = weak_message.upgrade() {
                             reinserted += 1;
-                            if let Err(err) = reinsert_ready(msg).await {
+                            if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
                                 tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
                             }
                         }
                     }
                     tracing::debug!("singleton_wheel: done reinserting {reinserted}. total scheduled={len}");
 
+                    for (_queue_name, queue) in to_shrink.drain() {
+                        queue.queue.shrink();
+                    }
+                    to_shrink.shrink_to_fit();
                 }
                 _ = shutdown.shutting_down() => {
                     tracing::info!("singleton_wheel: stopping");
