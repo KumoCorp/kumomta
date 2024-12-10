@@ -26,7 +26,7 @@ kumo.on(
 
 local shaper = shaping:setup_with_automation {
   no_default_files = true,
-  extra_files = { 'assets/policy-extras/shaping.toml' },
+  -- extra_files = { 'assets/policy-extras/shaping.toml' },
 }
 
 local sources = require 'policy-extras.sources'
@@ -250,8 +250,8 @@ local function common_processing(msg)
   -- then remove that header from the message
   msg:import_scheduling_header('X-Schedule', true)
 
-  msg:set_meta('tenant', 't' .. tostring(math.random(1000)))
-  msg:set_meta('campaign', 'c' .. tostring(math.random(1000)))
+  -- msg:set_meta('tenant', 't' .. tostring(math.random(1000)))
+  -- msg:set_meta('campaign', 'c' .. tostring(math.random(1000)))
 
   local do_signing = true
   if do_signing then
