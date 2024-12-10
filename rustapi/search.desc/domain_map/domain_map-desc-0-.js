@@ -1,0 +1,1 @@
+searchState.loadedDescShard("domain_map", 0, "This module provides a simple datastructure that can store …\nA DomainMap is conceptually similar to a HashMap. The …\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.")
