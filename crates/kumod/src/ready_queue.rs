@@ -101,19 +101,20 @@ impl Fifo {
     /// returned to the caller, who is responsible for re-inserting
     /// those messages into the scheduled queue
     #[must_use]
-    pub fn update_capacity(&self, capacity: usize) -> Vec<Message> {
+    pub fn update_capacity(&self, capacity: usize) -> MessageList {
+        let mut excess = MessageList::new();
+
         if self.capacity.load(Ordering::Relaxed) == capacity {
-            return vec![];
+            return excess;
         }
 
         let mut list = self.list.lock();
         self.capacity.store(capacity, Ordering::Relaxed);
 
-        let mut messages = vec![];
         while list.len() > capacity {
             match list.pop_back() {
                 Some(msg) => {
-                    messages.push(msg);
+                    excess.push_back(msg);
                 }
                 None => {
                     break;
@@ -121,8 +122,8 @@ impl Fifo {
             }
         }
 
-        self.count.sub(messages.len());
-        messages
+        self.count.sub(excess.len());
+        excess
     }
 
     pub fn len(&self) -> usize {
