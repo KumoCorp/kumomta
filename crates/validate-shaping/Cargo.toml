@@ -8,5 +8,5 @@ anyhow = {workspace=true}
 clap = {workspace=true}
 human_bytes.workspace = true
 kumo-api-types = {path="../kumo-api-types", features=["lua"]}
-re_memory.workspace = true
+kumo-server-memory.path = "../kumo-server-memory"
 tokio = {workspace=true, features=["full"]}

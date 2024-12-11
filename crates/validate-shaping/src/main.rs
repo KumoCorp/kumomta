@@ -1,7 +1,7 @@
 use clap::Parser;
 use human_bytes::human_bytes;
 use kumo_api_types::shaping::{CheckLevel, Shaping, ShapingMergeOptions};
-use re_memory::MemoryUse;
+use kumo_server_memory::tracking::counted_usage;
 
 /// KumoMTA shaping configuration validator
 ///
@@ -84,10 +84,10 @@ async fn main() {
         local_load: opts.local_load,
     };
 
-    let memory_start = MemoryUse::capture();
+    let memory_start = counted_usage();
     match Shaping::merge_files(&opts.files, &shaping_opts).await {
         Ok(merged) => {
-            let memory_end = MemoryUse::capture();
+            let memory_end = counted_usage();
 
             for err in merged.get_errors() {
                 eprintln!("ERROR: {err}");
@@ -96,10 +96,7 @@ async fn main() {
             for warn in merged.get_warnings() {
                 eprintln!("WARNING: {warn}");
             }
-            let counted = memory_end
-                .counted
-                .unwrap_or(0)
-                .saturating_sub(memory_start.counted.unwrap_or(0));
+            let counted = memory_end.saturating_sub(memory_start);
             println!("INFO: approx memory used = {}", human_bytes(counted as f64));
             if !failed {
                 eprintln!("OK");

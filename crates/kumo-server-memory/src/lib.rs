@@ -3,6 +3,7 @@
 //! release cached memory back to the system when memory
 //! is low.
 
+use crate::tracking::TrackingAllocator;
 #[cfg(target_os = "linux")]
 use cgroups_rs::cgroup::{get_cgroups_relative_paths, Cgroup, UNIFIED_MOUNTPOINT};
 #[cfg(target_os = "linux")]
@@ -13,17 +14,18 @@ use cgroups_rs::memory::MemController;
 use cgroups_rs::{Hierarchy, MaxValue};
 use nix::sys::resource::{rlim_t, RLIM_INFINITY};
 use nix::unistd::{sysconf, SysconfVar};
-use re_memory::AccountingAllocator;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tikv_jemallocator::Jemalloc;
 use tokio::sync::watch::Receiver;
 
-pub use re_memory::accounting_allocator::{set_tracking_callstacks, tracking_stats};
+pub mod tracking;
+
+pub use tracking::{set_tracking_callstacks, tracking_stats};
 
 #[global_allocator]
-static GLOBAL: AccountingAllocator<Jemalloc> = AccountingAllocator::new(Jemalloc);
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator::new(Jemalloc);
 
 static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
     metrics::describe_counter!(
@@ -333,10 +335,7 @@ fn memory_thread() {
     SUBSCRIBER.lock().unwrap().replace(rx);
 
     loop {
-        let usage = re_memory::MemoryUse::capture();
-        if let Some(counted) = usage.counted {
-            MEM_COUNTED.set(counted as f64);
-        }
+        MEM_COUNTED.set(crate::tracking::counted_usage() as f64);
 
         match get_usage_and_limit() {
             Ok((

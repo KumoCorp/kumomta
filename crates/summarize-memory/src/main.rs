@@ -12,6 +12,7 @@ struct Opt {
 }
 
 struct RawStatFile {
+    #[allow(unused)]
     summary: String,
     call_stacks: Vec<RawStack>,
 }
@@ -41,6 +42,7 @@ impl RawStatFile {
                 sampled,
                 count,
                 total_size,
+                min_size: total_size / sampled,
                 stack,
             })
         }
@@ -58,13 +60,14 @@ struct RawStack {
     sampled: usize,
     count: usize,
     total_size: usize,
+    min_size: usize,
     stack: String,
 }
 
 impl RawStack {
     fn parse_stack(&self) -> Vec<Frame> {
         let mut frames = vec![];
-        let mut lines = self.stack.lines().skip(1).peekable();
+        let mut lines = self.stack.lines().peekable();
 
         let opt_frame_no_prefix_re = Regex::new("^\\s+(\\d+:\\s+)?").unwrap();
         let at_prefix_re = Regex::new("^\\s+at\\s+").unwrap();
@@ -95,29 +98,30 @@ impl RawStack {
         let mut frames = self.parse_stack();
 
         frames.retain(|frame| match frame.module() {
-            "std"
-            | "alloc"
-            | "core"
-            | "tokio"
-            | "clone"
-            | "__rust_alloc"
+            "__rust_alloc"
+            | "__rust_alloc_zeroed"
             | "__rust_realloc"
-            | "tracing"
-            | "lua"
+            | "alloc"
+            | "clone"
+            | "core"
             | "hashbrown"
+            | "indexmap"
+            | "kumo_server_memory"
+            | "lua"
             | "mlua"
-            | "serde_json"
-            | "toml"
-            | "toml_edit"
-            | "serde_path_to_error"
-            | "serde"
             | "mlua_sys"
             | "ordermap"
-            | "indexmap"
+            | "regex_automata"
+            | "serde"
+            | "serde_json"
+            | "serde_path_to_error"
             | "sharded_slab"
             | "start_thread"
-            | "re_memory"
-            | "regex_automata" => false,
+            | "std"
+            | "tokio"
+            | "toml"
+            | "toml_edit"
+            | "tracing" => false,
             _ => true,
         });
 
@@ -156,6 +160,7 @@ fn main() -> anyhow::Result<()> {
 
         if let Some(entry) = unique_stacks.get_mut(&frames) {
             entry.total_size += stack.total_size;
+            entry.min_size += stack.min_size;
             entry.count += stack.count;
         } else {
             unique_stacks.insert(frames, stack);
@@ -196,9 +201,19 @@ fn main() -> anyhow::Result<()> {
     }
 
     for (stack, frames) in stacks {
+        let guessed = if stack.sampled == 1 { "" } else { "~" };
+        let total = if stack.min_size == stack.total_size {
+            format!("{}", human_bytes(stack.total_size as f64))
+        } else {
+            format!(
+                "{} - {}",
+                human_bytes(stack.min_size as f64),
+                human_bytes(stack.total_size as f64)
+            )
+        };
+
         println!(
-            "{total} in {count} allocations ({per_alloc} each)",
-            total = human_bytes(stack.total_size as f64),
+            "{total} in {guessed}{count} allocations ({per_alloc} each)",
             count = stack.count,
             per_alloc = human_bytes(stack.total_size as f64 / stack.count as f64)
         );

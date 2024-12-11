@@ -39,6 +39,7 @@ opt-level = 3
 debug = 1 # include line tables for more meaningful backtraces
 
 [workspace.dependencies]
+ahash = "0.8.11"
 amqprs = {version="2.0", features=["tls", "traces"]}
 anyhow = "1.0"
 arc-swap = "1.6"
@@ -139,7 +140,6 @@ psl = "2.1.46"
 quoted_printable = "0.5"
 rand = "0.8"
 ratatui = { version = "0.26.2", features = ["crossterm", "unstable-widget-ref"] }
-re_memory = "0.20"
 rcgen = "0.13"
 rdkafka = "0.36"
 redis = {version="0.27", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
