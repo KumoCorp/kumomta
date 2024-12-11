@@ -89,8 +89,8 @@ impl Fifo {
     }
 
     #[must_use]
-    pub fn drain(&self) -> Vec<Message> {
-        let messages = self.list.lock().drain();
+    pub fn take_list(&self) -> MessageList {
+        let messages = self.list.lock().take();
         self.count.sub(messages.len());
         messages
     }
@@ -577,7 +577,7 @@ impl ReadyQueue {
 
         let mut reinsert = vec![];
 
-        for msg in self.ready.drain() {
+        for msg in self.ready.take_list() {
             seen += 1;
             if let Ok(true) = msg.save_and_shrink().await {
                 count += 1;
@@ -614,7 +614,7 @@ impl ReadyQueue {
     }
 
     async fn reinsert_ready_queue(&self, reason: &str) {
-        let msgs = self.ready.drain();
+        let msgs = self.ready.take_list();
         if !msgs.is_empty() {
             let activity = self.activity.clone();
             READYQ_RUNTIME
@@ -662,7 +662,7 @@ impl ReadyQueue {
 
         if self.activity.is_shutting_down() {
             // We are shutting down; we want all messages to get saved.
-            let msgs = self.ready.drain();
+            let msgs = self.ready.take_list();
             if !msgs.is_empty() {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
@@ -1314,8 +1314,8 @@ impl Dispatcher {
     /// The insertion logic will take care of logging a transient failure
     /// if it transpires that no sources are enabled for the message.
     pub async fn reinsert_ready_queue(&mut self) {
-        let mut msgs = self.ready.drain();
-        msgs.append(&mut self.msgs);
+        let mut msgs = self.ready.take_list();
+        msgs.extend_from_iter(self.msgs.drain(..));
         if !msgs.is_empty() {
             tracing::debug!(
                 "suspend: reinserting ready queue {} - {} messages",
@@ -1339,8 +1339,8 @@ impl Dispatcher {
     }
 
     pub async fn throttle_ready_queue(&mut self, delay: Duration) {
-        let mut msgs = self.ready.drain();
-        msgs.append(&mut self.msgs);
+        let mut msgs = self.ready.take_list();
+        msgs.extend_from_iter(self.msgs.drain(..));
         if !msgs.is_empty() {
             tracing::debug!(
                 "throttled: delaying ready queue {} - {} messages",
@@ -1386,8 +1386,8 @@ impl Dispatcher {
 
     #[instrument(skip(self))]
     pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
-        let mut msgs = self.ready.drain();
-        msgs.append(&mut self.msgs);
+        let mut msgs = self.ready.take_list();
+        msgs.extend_from_iter(self.msgs.drain(..));
         if msgs.is_empty() {
             return;
         }

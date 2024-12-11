@@ -125,6 +125,10 @@ impl MessageList {
         self.len
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Take all of the elements from this list and return them
     /// in a new separate instance of MessageList.
     pub fn take(&mut self) -> Self {
@@ -167,6 +171,36 @@ impl MessageList {
             messages.push(msg);
         }
         messages
+    }
+
+    pub fn extend_from_iter<I>(&mut self, mut iter: I)
+    where
+        I: Iterator<Item = Message>,
+    {
+        while let Some(msg) = iter.next() {
+            self.push_back(msg)
+        }
+    }
+}
+
+impl IntoIterator for MessageList {
+    type Item = Message;
+    type IntoIter = MessageListIter;
+    fn into_iter(self) -> MessageListIter {
+        MessageListIter { list: self.list }
+    }
+}
+
+pub struct MessageListIter {
+    list: LinkedList<MessageWithIdAdapter>,
+}
+
+impl Iterator for MessageListIter {
+    type Item = Message;
+    fn next(&mut self) -> Option<Message> {
+        self.list
+            .pop_front()
+            .map(|msg_and_id| Message { msg_and_id })
     }
 }
 
