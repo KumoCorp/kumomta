@@ -6,7 +6,7 @@ use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
-use kumo_server_memory::subscribe_to_memory_status_changes;
+use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_server_runtime::spawn;
 use message::Message;
 use mlua::{Lua, Value};
@@ -568,8 +568,7 @@ impl SpoolManager {
         // Manage and trim memory usage
         tokio::spawn(async move {
             tracing::debug!("starting spool memory monitor");
-            let mut memory_status =
-                subscribe_to_memory_status_changes().expect("memory_thread to have started");
+            let mut memory_status = subscribe_to_memory_status_changes_async().await;
             while let Ok(()) = memory_status.changed().await {
                 if kumo_server_memory::get_headroom() == 0 {
                     let mut spools = vec![];

@@ -22,7 +22,7 @@ use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
-use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes};
+use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes_async};
 use kumo_server_runtime::{spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
@@ -421,8 +421,7 @@ impl ReadyQueueManager {
 
     async fn maintainer_task(name: String, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
         let mut shutdown = ShutdownSubcription::get();
-        let mut memory =
-            subscribe_to_memory_status_changes().expect("memory_thread to have started");
+        let mut memory = subscribe_to_memory_status_changes_async().await;
         let mut last_notify = Instant::now();
         let mut force_reap_deadline = None;
         let mut age_out_time = last_notify + AGE_OUT_INTERVAL;

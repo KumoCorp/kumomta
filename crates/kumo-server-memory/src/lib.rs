@@ -418,6 +418,15 @@ pub fn subscribe_to_memory_status_changes() -> Option<Receiver<()>> {
     SUBSCRIBER.lock().unwrap().clone()
 }
 
+pub async fn subscribe_to_memory_status_changes_async() -> Receiver<()> {
+    loop {
+        if let Some(rx) = subscribe_to_memory_status_changes() {
+            return rx;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+    }
+}
+
 /// Initialize the memory thread to monitor memory usage/limits
 pub fn setup_memory_limit() -> anyhow::Result<()> {
     let (usage, limit) = get_usage_and_limit()?;
