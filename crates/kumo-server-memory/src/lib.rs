@@ -458,3 +458,105 @@ fn get_my_cgroup(v2: bool) -> anyhow::Result<Cgroup> {
     let cgroup = Cgroup::load(h, format!("{}/{}", UNIFIED_MOUNTPOINT, path));
     Ok(cgroup)
 }
+
+#[derive(Copy, Clone)]
+pub struct NumBytes(pub usize);
+
+impl std::fmt::Debug for NumBytes {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            fmt,
+            "{} ({})",
+            self.0,
+            humansize::format_size(self.0, humansize::DECIMAL)
+        )
+    }
+}
+
+impl From<usize> for NumBytes {
+    fn from(n: usize) -> Self {
+        Self(n)
+    }
+}
+
+impl From<u64> for NumBytes {
+    fn from(n: u64) -> Self {
+        Self(n as usize)
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Number(pub usize);
+
+impl std::fmt::Debug for Number {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use num_format::{Locale, ToFormattedString};
+        write!(
+            fmt,
+            "{} ({})",
+            self.0,
+            self.0.to_formatted_string(&Locale::en)
+        )
+    }
+}
+
+impl From<usize> for Number {
+    fn from(n: usize) -> Self {
+        Self(n)
+    }
+}
+
+impl From<u64> for Number {
+    fn from(n: u64) -> Self {
+        Self(n as usize)
+    }
+}
+
+#[derive(Debug)]
+pub struct JemallocStats {
+    /// stats.allocated` - Total number of bytes allocated by the application.
+    pub allocated: NumBytes,
+
+    /// `stats.active`
+    /// Total number of bytes in active pages allocated by the application. This is a multiple of
+    /// the page size, and greater than or equal to stats.allocated. This does not include
+    /// stats.arenas.<i>.pdirty, stats.arenas.<i>.pmuzzy, nor pages entirely devoted to allocator
+    /// metadata.
+    pub active: NumBytes,
+
+    /// stats.metadata (size_t) r- [--enable-stats]
+    /// Total number of bytes dedicated to metadata, which comprise base allocations used for bootstrap-sensitive allocator metadata structures (see stats.arenas.<i>.base) and internal allocations (see stats.arenas.<i>.internal). Transparent huge page (enabled with opt.metadata_thp) usage is not considered.
+    pub metadata: NumBytes,
+
+    /// stats.resident (size_t) r- [--enable-stats]
+    /// Maximum number of bytes in physically resident data pages mapped by the allocator, comprising all pages dedicated to allocator metadata, pages backing active allocations, and unused dirty pages. This is a maximum rather than precise because pages may not actually be physically resident if they correspond to demand-zeroed virtual memory that has not yet been touched. This is a multiple of the page size, and is larger than stats.active.
+    pub resident: NumBytes,
+
+    /// stats.mapped (size_t) r- [--enable-stats]
+    /// Total number of bytes in active extents mapped by the allocator. This is larger than stats.active. This does not include inactive extents, even those that contain unused dirty pages, which means that there is no strict ordering between this and stats.resident.
+    pub mapped: NumBytes,
+
+    /// stats.retained (size_t) r- [--enable-stats]
+    /// Total number of bytes in virtual memory mappings that were retained rather than being returned to the operating system via e.g. munmap(2) or similar. Retained virtual memory is typically untouched, decommitted, or purged, so it has no strongly associated physical memory (see extent hooks for details). Retained memory is excluded from mapped memory statistics, e.g. stats.mapped.
+    pub retained: NumBytes,
+}
+
+impl JemallocStats {
+    pub fn collect() -> Self {
+        use tikv_jemalloc_ctl::{epoch, stats};
+
+        // jemalloc stats are cached and don't fully report current
+        // values until an epoch is advanced, so let's explicitly
+        // do that here.
+        epoch::advance().ok();
+
+        Self {
+            allocated: stats::allocated::read().unwrap_or(0).into(),
+            active: stats::active::read().unwrap_or(0).into(),
+            metadata: stats::metadata::read().unwrap_or(0).into(),
+            resident: stats::resident::read().unwrap_or(0).into(),
+            mapped: stats::mapped::read().unwrap_or(0).into(),
+            retained: stats::retained::read().unwrap_or(0).into(),
+        }
+    }
+}

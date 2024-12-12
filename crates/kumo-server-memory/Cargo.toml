@@ -10,8 +10,10 @@ backtrace.workspace = true
 humansize = {workspace=true}
 metrics = {workspace=true}
 nix = {workspace=true, features=["resource", "feature"]}
+num-format.workspace = true
 parking_lot.workspace = true
 tikv-jemallocator = {workspace=true}
+tikv-jemalloc-ctl.workspace = true
 tikv-jemalloc-sys = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tracing = {workspace=true}

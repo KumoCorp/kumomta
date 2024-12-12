@@ -3169,7 +3169,9 @@ dependencies = [
  "humansize",
  "metrics",
  "nix 0.28.0",
+ "num-format",
  "parking_lot",
+ "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
  "tokio",
@@ -6492,6 +6494,17 @@ dependencies = [
  "tokio",
  "uuid",
  "which 7.0.0",
+]
+
+[[package]]
+name = "tikv-jemalloc-ctl"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "619bfed27d807b54f7f776b9430d4f8060e66ee138a28632ca898584d462c31c"
+dependencies = [
+ "libc",
+ "paste",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]

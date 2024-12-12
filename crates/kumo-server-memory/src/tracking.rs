@@ -1,3 +1,4 @@
+use crate::{NumBytes, Number};
 use backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::alloc::{GlobalAlloc, Layout};
@@ -252,8 +253,8 @@ impl AtomicCountAndSize {
 
     fn load(&self) -> CountAndSize {
         CountAndSize {
-            count: self.count.load(Relaxed),
-            size: self.size.load(Relaxed),
+            count: self.count.load(Relaxed).into(),
+            size: self.size.load(Relaxed).into(),
         }
     }
 
@@ -272,8 +273,8 @@ impl AtomicCountAndSize {
 
 #[derive(Debug, Clone, Copy)]
 pub struct CountAndSize {
-    pub count: usize,
-    pub size: usize,
+    pub count: Number,
+    pub size: NumBytes,
 }
 
 struct Stats {
@@ -308,15 +309,12 @@ pub fn set_tracking_callstacks(enable: bool) {
 }
 
 pub struct TrackingStats {
-    pub small_threshold: usize,
+    pub small_threshold: NumBytes,
     pub live: CountAndSize,
     pub top_callstacks: Vec<CallstackStats>,
 }
 
-pub fn tracking_stats() -> Option<TrackingStats> {
-    if !STATS.track_callstacks.load(Relaxed) {
-        return None;
-    }
+pub fn tracking_stats() -> TrackingStats {
     const MAX_STACKS: usize = 128;
 
     let mut top_callstacks = vec![];
@@ -337,9 +335,9 @@ pub fn tracking_stats() -> Option<TrackingStats> {
         }
     });
 
-    Some(TrackingStats {
-        small_threshold: SMALL_SIZE,
+    TrackingStats {
+        small_threshold: SMALL_SIZE.into(),
         live: STATS.live.load(),
         top_callstacks,
-    })
+    }
 }
