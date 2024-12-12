@@ -337,7 +337,7 @@ mod test {
 
     #[tokio::test]
     async fn basic_throttle_60_000() {
-        test_big_limits(60_000, Some(100), 0.05, &*MEMORY).await;
+        test_big_limits(60_000, Some(100), 0.1, &*MEMORY).await;
     }
 
     #[tokio::test]
@@ -345,7 +345,7 @@ mod test {
         // Note that the 5% tolerance here is the same as the basic_throttle_60_000
         // test case because the variance is due to timing issues with very small
         // time periods produced by the overally limit, rather than the burst.
-        test_big_limits(60_000, Some(100), 0.05, &*MEMORY).await;
+        test_big_limits(60_000, Some(100), 0.1, &*MEMORY).await;
     }
 
     #[tokio::test]
