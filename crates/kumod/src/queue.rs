@@ -2120,12 +2120,17 @@ impl Queue {
 
                     let mut reinserted = 0;
                     let (msgs, len) = pop();
+                    let mut messages = vec![];
                     for weak_message in msgs {
                         if let Some(msg) = weak_message.upgrade() {
-                            reinserted += 1;
-                            if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
-                                tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
-                            }
+                            messages.push(msg);
+                        }
+                    }
+                    wait_for_message_batch(&messages).await;
+                    for msg in messages {
+                        reinserted += 1;
+                        if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+                            tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
                         }
                     }
                     tracing::debug!("singleton_wheel: done reinserting {reinserted}. total scheduled={len}");
@@ -2472,6 +2477,38 @@ impl QueueManager {
     }
 }
 
+/// There can sometimes be a small (eg: 20ms or so) discrepancy
+/// between what the time wheel considers to be ready and what
+/// the precise due time of the individual messages shows as
+/// their due time.
+/// That is expected and fine, however: we want to ensure that
+/// the actual time is after the due time of this batch of
+/// messages so that the logic after THROTTLE_INSERT_READY_SIG
+/// doesn't think that the event handler has explicitly delayed
+/// the messages and pushes them into the next retry window.
+/// This loop accumulates the longest delay from the batch
+/// and sleeps until we are past it.
+/// An alternative approach to avoiding that confusion might
+/// be to call msg.set_due(None), but there is some additional
+/// logic in that method that inspects and manipulates scheduling
+/// constraints, so it feels slightly better just wait those
+/// few milliseconds here than to trigger more work over there.
+async fn wait_for_message_batch(batch: &[Message]) {
+    if batch.is_empty() {
+        return;
+    }
+    let now = Utc::now();
+    let mut delay = Duration::from_secs(0);
+    for msg in batch {
+        if let Some(due) = msg.get_due() {
+            if let Ok(delta) = (due - now).to_std() {
+                delay = delay.max(delta);
+            }
+        }
+    }
+    tokio::time::sleep(delay).await;
+}
+
 #[instrument(skip(q))]
 async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
@@ -2543,32 +2580,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 q.metrics().sub(messages.len());
                 tracing::debug!("{} {} msgs are now ready", q.name, messages.len());
 
-                // There can sometimes be a small (eg: 20ms or so) discrepancy
-                // between what the time wheel considers to be ready and what
-                // the precise due time of the individual messages shows as
-                // their due time.
-                // That is expected and fine, however: we want to ensure that
-                // the actual time is after the due time of this batch of
-                // messages so that the logic after THROTTLE_INSERT_READY_SIG
-                // doesn't think that the event handler has explicitly delayed
-                // the messages and pushes them into the next retry window.
-                // This loop accumulates the longest delay from the batch
-                // and sleeps until we are past it.
-                // An alternative approach to avoiding that confusion might
-                // be to call msg.set_due(None), but there is some additional
-                // logic in that method that inspects and manipulates scheduling
-                // constraints, so it feels slightly better just wait those
-                // few milliseconds here than to trigger more work over there.
-                let now = Utc::now();
-                let mut delay = Duration::from_secs(0);
-                for msg in &messages {
-                    if let Some(due) = msg.get_due() {
-                        if let Ok(delta) = (due - now).to_std() {
-                            delay = delay.max(delta);
-                        }
-                    }
-                }
-                tokio::time::sleep(delay).await;
+                wait_for_message_batch(&messages).await;
 
                 for msg in messages {
                     q.insert_ready(msg).await?;
