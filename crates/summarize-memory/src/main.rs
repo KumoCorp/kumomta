@@ -183,34 +183,48 @@ fn main() -> anyhow::Result<()> {
         ("kumod::ready_queue::Fifo::new", "ready queues"),
     ];
 
-    let mut notable_things: HashMap<&str, usize> = HashMap::new();
+    #[derive(Default)]
+    struct Notable {
+        min_size: usize,
+        total_size: usize,
+    }
+
+    let mut notable_things: HashMap<&str, Notable> = HashMap::new();
     for (stack, frames) in &stacks {
         for (symbol, label) in &interesting_symbols {
             for f in frames {
                 if f.symbol == *symbol {
-                    let entry = notable_things.entry(label).or_insert(0);
-                    *entry += stack.total_size;
+                    let entry = notable_things.entry(label).or_insert_with(Notable::default);
+                    entry.total_size += stack.total_size;
+                    entry.min_size += stack.min_size;
                     break;
                 }
             }
         }
     }
 
-    for (label, size) in notable_things {
-        println!("{label}: {}", human_bytes(size as f64));
+    fn format_range(min_size: usize, total_size: usize) -> String {
+        if min_size == total_size {
+            format!("{}", human_bytes(total_size as f64))
+        } else {
+            format!(
+                "{} - {}",
+                human_bytes(min_size as f64),
+                human_bytes(total_size as f64)
+            )
+        }
+    }
+
+    for (label, entry) in notable_things {
+        println!(
+            "{label}: {}",
+            format_range(entry.min_size, entry.total_size)
+        );
     }
 
     for (stack, frames) in stacks {
         let guessed = if stack.sampled == 1 { "" } else { "~" };
-        let total = if stack.min_size == stack.total_size {
-            format!("{}", human_bytes(stack.total_size as f64))
-        } else {
-            format!(
-                "{} - {}",
-                human_bytes(stack.min_size as f64),
-                human_bytes(stack.total_size as f64)
-            )
-        };
+        let total = format_range(stack.min_size, stack.total_size);
 
         println!(
             "{total} in {guessed}{count} allocations ({per_alloc} each)",
