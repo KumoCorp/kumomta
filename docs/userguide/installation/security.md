@@ -92,7 +92,7 @@ for your listeners.
 
 The default configuration in the shaping helper for outgoing SMTP is to enable
 `Opportunistic` TLS, which is to make use of TLS if the destination host
-adverises it, but only if the certificate is trusted.
+advertises it, but only if the certificate is trusted.
 
 Unfortunately, there are a large number of destination sites with poorly
 maintained TLS, so many kumomta users choose to deploy with
