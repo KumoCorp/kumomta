@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 const GLOB_CACHE_CAPACITY: usize = 32;
 const DEFAULT_CACHE_TTL: f32 = 60.;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 struct GlobKey {
     pattern: String,
     path: Option<String>,

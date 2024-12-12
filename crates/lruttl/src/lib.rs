@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 static CACHES: LazyLock<Mutex<Vec<Weak<dyn CachePurger + Send + Sync>>>> =
     LazyLock::new(Mutex::default);
 
-struct Inner<K: Hash + Eq, V: Clone> {
+struct Inner<K: Clone + Hash + Eq, V: Clone> {
     name: String,
     cache: Mutex<LruCache<K, Item<V>>>,
 }
@@ -28,9 +28,31 @@ struct Inner<K: Hash + Eq, V: Clone> {
 trait CachePurger {
     fn name(&self) -> &str;
     fn purge(&self) -> usize;
+    fn prune_expired(&self) -> usize;
 }
 
-impl<K: Hash + Eq, V: Clone> CachePurger for Inner<K, V> {
+impl<K: Clone + Hash + Eq, V: Clone> Inner<K, V> {
+    fn do_prune_expired(&self) -> usize {
+        let mut cache = self.cache.lock();
+        let mut keys_to_remove = vec![];
+        let now = Instant::now();
+        for (k, entry) in cache.iter() {
+            if now >= entry.expiration {
+                keys_to_remove.push(k.clone());
+            }
+        }
+
+        let mut pruned = 0;
+        for k in keys_to_remove {
+            if cache.remove(&k).is_some() {
+                pruned += 1;
+            }
+        }
+        pruned
+    }
+}
+
+impl<K: Clone + Hash + Eq, V: Clone> CachePurger for Inner<K, V> {
     fn name(&self) -> &str {
         &self.name
     }
@@ -39,6 +61,9 @@ impl<K: Hash + Eq, V: Clone> CachePurger for Inner<K, V> {
         let num_entries = cache.len();
         cache.clear();
         num_entries
+    }
+    fn prune_expired(&self) -> usize {
+        self.do_prune_expired()
     }
 }
 
@@ -63,8 +88,32 @@ pub fn purge_all_caches() {
     }
 }
 
+async fn prune_expired_caches() {
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+        let mut purgers = vec![];
+        {
+            let mut caches = CACHES.lock();
+            caches.retain(|entry| match entry.upgrade() {
+                Some(purger) => {
+                    purgers.push(purger);
+                    true
+                }
+                None => false,
+            })
+        }
+
+        for purger in purgers {
+            let name = purger.name();
+            let num_entries = purger.prune_expired();
+            tracing::trace!("expired {num_entries} entries from cache {name}");
+        }
+    }
+}
+
 pub fn spawn_memory_monitor() {
     tokio::spawn(purge_caches_on_memory_shortage());
+    tokio::spawn(prune_expired_caches());
 }
 
 async fn purge_caches_on_memory_shortage() {
@@ -88,11 +137,11 @@ struct Item<V> {
     expiration: Instant,
 }
 
-pub struct LruCacheWithTtl<K: Hash + Eq, V: Clone> {
+pub struct LruCacheWithTtl<K: Clone + Hash + Eq, V: Clone> {
     inner: Arc<Inner<K, V>>,
 }
 
-impl<K: Hash + Eq + Send + 'static, V: Clone + Send + 'static> LruCacheWithTtl<K, V> {
+impl<K: Clone + Hash + Eq + Send + 'static, V: Clone + Send + 'static> LruCacheWithTtl<K, V> {
     #[deprecated = "use new_named instead"]
     pub fn new(capacity: usize) -> Self {
         Self::new_named("<anonymous>", capacity)
@@ -165,6 +214,10 @@ impl<K: Hash + Eq + Send + 'static, V: Clone + Send + 'static> LruCacheWithTtl<K
             },
         );
         item
+    }
+
+    pub fn prune_expired(&self) -> usize {
+        self.inner.do_prune_expired()
     }
 
     /// Get an existing item, but if that item doesn't already exist,
