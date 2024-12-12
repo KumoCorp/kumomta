@@ -61,6 +61,7 @@ data_timeout = "30s"
 data_dot_timeout = "60s"
 enable_tls = "Opportunistic"
 consecutive_connection_failures_before_delay = 100
+remember_broken_tls = "3 days"
 
 [["default".automation]]
 # We use ''' for strings in the regex section because it forces a string literal that requires no extra
@@ -77,28 +78,6 @@ action = [
         {SetConfig={name="connection_limit", value=1}},
 ]
 duration = "90m"
-
-# Some destinations are running very old TLS implementations with outdated cipher suites
-# that are not recommended for modern use. Those sites will result in a HandhsakeFailure
-# when using the default rustls TLS implementation, because both sides will mutually
-# conclude that they have no suitable ciphers in common. Our recommendation for those sites
-# is to disable OpportunisticInsecure TLS so that mail can continue to flow without
-# requiring manual intervention by the system operator.
-#
-# This automation rule achieves that; the first message(s) will experience a transient
-# failure, but by the time they are ready to be retried they will no longer attempt
-# to use TLS with that particular destination. The rule will remain in effect for
-# 30 days at a time, before triggering again.
-#
-# There are tens of thousands of domains with broken TLS, which can result in a large
-# number of instances of this rule applying. We use SetDomainConfig for these so
-# that we can reduce the number of unconditional MX lookups necessary to resolve
-# the effective configuration.
-[["default".automation]]
-regex="KumoMTA internal: failed to connect to any candidate hosts: All failures are related to OpportunisticInsecure STARTTLS. Consider setting enable_tls=Disabled for this site"
-action = {SetDomainConfig={name="enable_tls", value="Disabled"}}
-duration = "30 days"
-match_internal = true
 
 # https://support.google.com/mail/answer/81126
 # NOTE: While it's commonly understood that Gmail and Google Workspace use different filtering
