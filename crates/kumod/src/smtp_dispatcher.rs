@@ -779,20 +779,24 @@ impl QueueDispatcher for SmtpDispatcher {
                     }
                 }
 
-                if response.code >= 300 && response.code < 400 {
-                    // This should be an impossible status: there isn't
-                    // a valid RFC-defined 300 final disposition for
-                    // submitting an email message.  In order to get
-                    // here there has most likely been a protocol
-                    // synchronization issue and we should consider
-                    // the connection to be broken and we should
-                    // allow the message to be retried later on.
+                if response.code == 503 || (response.code >= 300 && response.code < 400) {
+                    // 503 is a "permanent" failure response but it indicates
+                    // that there was a protocol synchronization issue.
+                    //
+                    // For 3xx: there isn't a valid RFC-defined 300 final
+                    // disposition for submitting an email message.  In order
+                    // to get here there has most likely been a protocol
+                    // synchronization issue.
+                    //
+                    // We should consider the connection to be broken and we
+                    // should allow the message to be retried later on.
                     tracing::error!(
-                        "Unexpected 3xx response while sending message \
+                        "Unexpected {} response while sending message \
                         to {} {:?}: {response:?}. \
                         Probable protocol synchronization error, please report this! \
                         Session ID={}. \
                         Message will be re-queued.",
+                        response.code,
                         dispatcher.name,
                         self.client_address,
                         dispatcher.session_id,
