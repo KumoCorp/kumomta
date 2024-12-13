@@ -1,10 +1,11 @@
 use crate::map::CidrMap;
-use crate::parse_cidr;
+use crate::{parse_cidr, Node};
 pub use cidr::AnyIpCidr;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::net::IpAddr;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 #[serde(try_from = "Vec<String>", into = "Vec<String>")]
 pub struct CidrSet(CidrMap<()>);
 
@@ -27,6 +28,31 @@ impl CidrSet {
 
     pub fn insert<T: Ord + Into<AnyIpCidr>>(&mut self, value: T) {
         self.0.insert(value.into(), ());
+    }
+}
+
+impl Debug for CidrSet {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use std::fmt::DebugSet;
+        let mut set = fmt.debug_set();
+
+        fn walk(node: &Node<()>, set: &mut DebugSet) {
+            match node {
+                Node::InnerNode(inner) => {
+                    walk(&inner.children.left, set);
+                    walk(&inner.children.right, set);
+                }
+                Node::Leaf(leaf) => {
+                    set.entry(&leaf.key.to_string());
+                }
+            }
+        }
+
+        if let Some(root) = &self.0.root() {
+            walk(root, &mut set);
+        }
+
+        set.finish()
     }
 }
 
@@ -176,34 +202,19 @@ mod test {
         // Note that the snapshot does not contain 192.168.1.24/32; that
         // overlaps with the broader 192.168.1.0/24 so is "lost"
         // when extracting the information from the set
-        let decompose: Vec<AnyIpCidr> = set.into();
         k9::snapshot!(
-            decompose,
-            "
-[
-    V4(
-        10.0.3.0/24,
-    ),
-    V4(
-        10.0.4.0/24,
-    ),
-    V4(
-        10.0.7.0/24,
-    ),
-    V4(
-        127.0.0.1/32,
-    ),
-    V4(
-        192.168.1.0/24,
-    ),
-    V4(
-        192.168.3.0/28,
-    ),
-    V6(
-        ::1/128,
-    ),
-]
-"
+            &set,
+            r#"
+{
+    "10.0.3.0/24",
+    "10.0.4.0/24",
+    "10.0.7.0/24",
+    "127.0.0.1",
+    "192.168.1.0/24",
+    "192.168.3.0/28",
+    "::1",
+}
+"#
         );
     }
 }

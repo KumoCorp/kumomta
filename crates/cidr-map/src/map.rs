@@ -14,15 +14,45 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
 #[cfg(feature = "lua")]
 use mod_memoize::CacheValue;
+use std::fmt::Debug;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct CidrMap<V>
 where
     V: Clone,
 {
     root: Option<Node<V>>,
+}
+
+impl<V> Debug for CidrMap<V>
+where
+    V: Clone + Debug,
+{
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use std::fmt::DebugMap;
+        let mut map = fmt.debug_map();
+
+        fn walk<V: Clone + Debug>(node: &Node<V>, map: &mut DebugMap) {
+            match node {
+                Node::InnerNode(inner) => {
+                    walk(&inner.children.left, map);
+                    walk(&inner.children.right, map);
+                }
+                Node::Leaf(leaf) => {
+                    map.key(&leaf.key.to_string());
+                    map.value(&leaf.value);
+                }
+            }
+        }
+
+        if let Some(root) = &self.root {
+            walk(root, &mut map);
+        }
+
+        map.finish()
+    }
 }
 
 /// Nodes of a CidrMap can be either an InnerNode (with two children)
@@ -54,17 +84,17 @@ pub struct InnerNode<V>
 where
     V: Clone,
 {
-    key: AnyIpCidr,
-    children: Box<Children<V>>,
+    pub(crate) key: AnyIpCidr,
+    pub(crate) children: Box<Children<V>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct Children<V>
+pub(crate) struct Children<V>
 where
     V: Clone,
 {
-    left: Node<V>,
-    right: Node<V>,
+    pub(crate) left: Node<V>,
+    pub(crate) right: Node<V>,
 }
 
 impl<V> InnerNode<V>
@@ -692,78 +722,22 @@ mod test {
         // Furthermore, the .3.split value inserted for .3.2
         // causes more .3 entries to be generated to accomodate the
         // split in that subnet.
-        let decompose: Vec<(AnyIpCidr, &str)> = set.into();
         k9::snapshot!(
-            decompose,
+            &set,
             r#"
-[
-    (
-        V4(
-            10.0.3.0/24,
-        ),
-        "10.3",
-    ),
-    (
-        V4(
-            10.0.4.0/24,
-        ),
-        "10.4",
-    ),
-    (
-        V4(
-            10.0.7.0/24,
-        ),
-        "10.7",
-    ),
-    (
-        V4(
-            127.0.0.1/32,
-        ),
-        "loopbackv4",
-    ),
-    (
-        V4(
-            192.168.1.0/24,
-        ),
-        ".1",
-    ),
-    (
-        V4(
-            192.168.3.0/31,
-        ),
-        ".3",
-    ),
-    (
-        V4(
-            192.168.3.2/32,
-        ),
-        ".3.split",
-    ),
-    (
-        V4(
-            192.168.3.3/32,
-        ),
-        ".3",
-    ),
-    (
-        V4(
-            192.168.3.4/30,
-        ),
-        ".3",
-    ),
-    (
-        V4(
-            192.168.3.8/29,
-        ),
-        ".3",
-    ),
-    (
-        V6(
-            ::1/128,
-        ),
-        "loopbackv6",
-    ),
-]
+{
+    "10.0.3.0/24": "10.3",
+    "10.0.4.0/24": "10.4",
+    "10.0.7.0/24": "10.7",
+    "127.0.0.1": "loopbackv4",
+    "192.168.1.0/24": ".1",
+    "192.168.3.0/31": ".3",
+    "192.168.3.2": ".3.split",
+    "192.168.3.3": ".3",
+    "192.168.3.4/30": ".3",
+    "192.168.3.8/29": ".3",
+    "::1": "loopbackv6",
+}
 "#
         );
     }

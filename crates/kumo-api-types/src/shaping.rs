@@ -1799,40 +1799,11 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
-        prohibited_hosts: CidrSet(
-            CidrMap {
-                root: Some(
-                    InnerNode(
-                        InnerNode {
-                            key: Any,
-                            children: Children {
-                                left: Leaf(
-                                    Leaf {
-                                        key: V4(
-                                            127.0.0.0/8,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                                right: Leaf(
-                                    Leaf {
-                                        key: V6(
-                                            ::1/128,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                            },
-                        },
-                    ),
-                ),
-            },
-        ),
-        skip_hosts: CidrSet(
-            CidrMap {
-                root: None,
-            },
-        ),
+        prohibited_hosts: {
+            "127.0.0.0/8",
+            "::1",
+        },
+        skip_hosts: {},
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -1962,40 +1933,11 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
-        prohibited_hosts: CidrSet(
-            CidrMap {
-                root: Some(
-                    InnerNode(
-                        InnerNode {
-                            key: Any,
-                            children: Children {
-                                left: Leaf(
-                                    Leaf {
-                                        key: V4(
-                                            127.0.0.0/8,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                                right: Leaf(
-                                    Leaf {
-                                        key: V6(
-                                            ::1/128,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                            },
-                        },
-                    ),
-                ),
-            },
-        ),
-        skip_hosts: CidrSet(
-            CidrMap {
-                root: None,
-            },
-        ),
+        prohibited_hosts: {
+            "127.0.0.0/8",
+            "::1",
+        },
+        skip_hosts: {},
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
@@ -2038,40 +1980,11 @@ MergedEntry {
             additional_message_rate_throttles: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
-            prohibited_hosts: CidrSet(
-                CidrMap {
-                    root: Some(
-                        InnerNode(
-                            InnerNode {
-                                key: Any,
-                                children: Children {
-                                    left: Leaf(
-                                        Leaf {
-                                            key: V4(
-                                                127.0.0.0/8,
-                                            ),
-                                            value: (),
-                                        },
-                                    ),
-                                    right: Leaf(
-                                        Leaf {
-                                            key: V6(
-                                                ::1/128,
-                                            ),
-                                            value: (),
-                                        },
-                                    ),
-                                },
-                            },
-                        ),
-                    ),
-                },
-            ),
-            skip_hosts: CidrSet(
-                CidrMap {
-                    root: None,
-                },
-            ),
+            prohibited_hosts: {
+                "127.0.0.0/8",
+                "::1",
+            },
+            skip_hosts: {},
             ehlo_domain: None,
             aggressive_connection_opening: false,
             refresh_interval: 60s,
@@ -2207,40 +2120,11 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 20,
-        prohibited_hosts: CidrSet(
-            CidrMap {
-                root: Some(
-                    InnerNode(
-                        InnerNode {
-                            key: Any,
-                            children: Children {
-                                left: Leaf(
-                                    Leaf {
-                                        key: V4(
-                                            127.0.0.0/8,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                                right: Leaf(
-                                    Leaf {
-                                        key: V6(
-                                            ::1/128,
-                                        ),
-                                        value: (),
-                                    },
-                                ),
-                            },
-                        },
-                    ),
-                ),
-            },
-        ),
-        skip_hosts: CidrSet(
-            CidrMap {
-                root: None,
-            },
-        ),
+        prohibited_hosts: {
+            "127.0.0.0/8",
+            "::1",
+        },
+        skip_hosts: {},
         ehlo_domain: None,
         aggressive_connection_opening: false,
         refresh_interval: 60s,
