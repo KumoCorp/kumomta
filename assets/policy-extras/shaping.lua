@@ -239,6 +239,18 @@ kumo.on('kumo.tsa.config.monitor', function(args)
     if not status then
       print('TSA Error, will retry in 30 seconds', status, err)
     end
+    -- load_shaping_data is a memoized function that will return
+    -- a cached reference to the shaping data, but if TSA is producing
+    -- many records then lua will accumulate a variety of those references.
+    -- For some sites, the TSA data can be very large.
+    -- Ordinarily, lua will gc based on its perceived memory usage
+    -- but the memory consumed by the shaping data is largely
+    -- invisible to lua because it is an indirect Arc<> to the
+    -- bulk of the data.
+    -- So we explicitly collect garbage now to encourage lua
+    -- to drop the un-referenced shaping data before we go
+    -- to sleep and keep things better trimmed.
+    collectgarbage()
     kumo.sleep(30)
   end
 end)
