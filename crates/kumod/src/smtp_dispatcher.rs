@@ -791,9 +791,11 @@ impl QueueDispatcher for SmtpDispatcher {
                         "Unexpected 3xx response while sending message \
                         to {} {:?}: {response:?}. \
                         Probable protocol synchronization error, please report this! \
+                        Session ID={}. \
                         Message will be re-queued.",
                         dispatcher.name,
-                        self.client_address
+                        self.client_address,
+                        dispatcher.session_id,
                     );
                     if let Some(msg) = dispatcher.msgs.pop() {
                         self.log_disposition(
