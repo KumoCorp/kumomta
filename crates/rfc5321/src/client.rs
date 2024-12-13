@@ -635,21 +635,42 @@ impl SmtpClient {
         }
 
         let rset_resp = responses.remove(0)?;
+        let mail_resp = responses.remove(0)?;
+        let rcpt_resp = responses.remove(0)?;
+        let data_resp = responses.remove(0)?;
+
+        if data_resp.code == 354
+            && (rset_resp.code != 250 || mail_resp.code != 250 || rcpt_resp.code != 250)
+        {
+            // RFC 2920 3.1:
+            // the client cannot assume that the DATA command will be rejected
+            // just because none of the RCPT TO commands worked.  If the DATA
+            // command was properly rejected the client SMTP can just issue
+            // RSET, but if the DATA command was accepted the client SMTP
+            // should send a single dot.
+
+            // Send dummy data
+            self.write_data_with_timeout(b".\r\n").await?;
+            let data_dot = Command::DataDot;
+            // wait for its response
+            let _ = self
+                .read_response(Some(&data_dot), data_dot.client_timeout(&self.timeouts))
+                .await?;
+
+            // Continue below: we will match one of the failure cases and
+            // return a ClientError::Rejected from one of the earlier
+            // commands
+        }
+
         if rset_resp.code != 250 {
             return Err(ClientError::Rejected(rset_resp));
         }
-
-        let mail_resp = responses.remove(0)?;
         if mail_resp.code != 250 {
             return Err(ClientError::Rejected(mail_resp));
         }
-
-        let rcpt_resp = responses.remove(0)?;
         if rcpt_resp.code != 250 {
             return Err(ClientError::Rejected(rcpt_resp));
         }
-
-        let data_resp = responses.remove(0)?;
         if data_resp.code != 354 {
             return Err(ClientError::Rejected(data_resp));
         }
