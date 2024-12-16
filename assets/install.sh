@@ -23,6 +23,8 @@ install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/toml2jsonc -t ${PREFIX}/sbi
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/tls-probe -t ${PREFIX}/sbin
 install -Dm755 assets/accounting.sh -t ${PREFIX}/sbin
 install -Dm755 assets/resolve-site-name -t ${PREFIX}/sbin
+install -Dm755 assets/resolve-queue-config -t ${PREFIX}/sbin
+install -Dm755 assets/resolve-shaping-domain -t ${PREFIX}/sbin
 install -Dm644 assets/bounce_classifier/* -t ${PREFIX}/share/bounce_classifier
 install -Dm644 assets/init.lua -T ${PREFIX}/share/minimal-init.lua
 install -Dm644 assets/tsa_init.lua -T ${PREFIX}/share/minimal-tsa_init.lua

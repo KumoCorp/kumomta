@@ -1067,10 +1067,16 @@ impl ProviderEntry {
         // so we bias to looking at those first
         let mut has_mx_rules = false;
 
+        tracing::trace!(
+            "ProviderEntry::domain_matches({domain}) vs {:?}",
+            self.matches
+        );
+
         for rule in &self.matches {
             match rule {
                 ProviderMatch::DomainSuffix(suffix) => {
                     if suffix_matches(domain, suffix) {
+                        tracing::trace!("{domain} suffix matches {suffix}");
                         return true;
                     }
                 }
@@ -1095,30 +1101,34 @@ impl ProviderEntry {
                 false
             }
             Ok(mx) => {
-                for rule in &self.matches {
-                    match rule {
-                        ProviderMatch::MXSuffix(suffix) => {
-                            // For a given MX suffix rule, all hosts must match
-                            // it for it to be valid. This is so that we don't
-                            // falsely lump a vanity domain that blends providers
-                            // together.
-                            let mut matched = true;
-                            for host in &mx.hosts {
-                                if !suffix_matches(host, suffix) {
-                                    matched = false;
+                tracing::trace!("Consider MXSuffix rules");
+                for host in &mx.hosts {
+                    let mut matched = false;
+
+                    for rule in &self.matches {
+                        match rule {
+                            ProviderMatch::MXSuffix(suffix) => {
+                                // For a given MX suffix rule, all hosts must match
+                                // it for it to be valid. This is so that we don't
+                                // falsely lump a vanity domain that blends providers
+                                // together.
+                                tracing::trace!("suffix={suffix} vs host {host}");
+                                if suffix_matches(host, suffix) {
+                                    matched = true;
                                     break;
                                 }
                             }
-
-                            if matched {
-                                return true;
-                            }
+                            ProviderMatch::DomainSuffix(_) => {}
                         }
-                        ProviderMatch::DomainSuffix(_) => {}
+                    }
+
+                    if !matched {
+                        tracing::trace!("host didn't match any of these suffixes");
+                        return false;
                     }
                 }
 
-                false
+                true
             }
         }
     }
@@ -1489,6 +1499,28 @@ additional_message_rate_throttles = {"second"="100/hr"}
 }
 "#
         );
+    }
+
+    #[tokio::test]
+    async fn test_provider_multi_suffix() {
+        let shaping = make_shaping_configs(&[r#"
+[provider."yahoo"]
+match=[{MXSuffix="mta5.am0.yahoodns.net"},{MXSuffix="mta6.am0.yahoodns.net"},{MXSuffix="mta7.am0.yahoodns.net"}]
+enable_tls = "Required"
+        "#])
+        .await;
+
+        let resolved = shaping
+            .get_egress_path_config("yahoo.com", "invalid.source", "invalid.site")
+            .await
+            .finish()
+            .unwrap();
+
+        k9::assert_equal!(
+            resolved.params.enable_tls,
+            crate::egress_path::Tls::Required
+        );
+        k9::assert_equal!(resolved.params.provider_name.unwrap(), "yahoo");
     }
 
     #[tokio::test]

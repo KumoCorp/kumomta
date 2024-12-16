@@ -71,3 +71,6 @@
 
 * TSA daemon would not report the list of scheduled queue suspensions in the
   initial websocket request made by a (re)connecting client.
+
+* Certain providers configurations with multiple `MXSuffix` rules and multiple
+  candidate MX hosts might not match in cases where they should.

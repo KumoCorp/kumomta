@@ -152,6 +152,18 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "invoke_get_queue_config",
+        lua.create_async_function(|lua, queue_name: String| async move {
+            let mut config = config::load_config().await.map_err(any_err)?;
+            let queue_config: QueueConfig =
+                crate::queue::Queue::call_get_queue_config(&queue_name, &mut config)
+                    .await
+                    .map_err(any_err)?;
+            lua.to_value(&queue_config)
+        })?,
+    )?;
+
+    kumo_mod.set(
         "make_queue_config",
         lua.create_function(move |lua, params: Value| {
             let config: QueueConfig = from_lua_value(lua, params)?;

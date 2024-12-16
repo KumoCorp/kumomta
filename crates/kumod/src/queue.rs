@@ -949,7 +949,7 @@ pub struct Queue {
 }
 
 impl Queue {
-    async fn call_get_queue_config(
+    pub async fn call_get_queue_config(
         name: &str,
         config: &mut LuaConfig,
     ) -> anyhow::Result<QueueConfig> {
