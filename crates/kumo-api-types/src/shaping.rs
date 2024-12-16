@@ -1061,11 +1061,28 @@ fn test_suffix_matches() {
 }
 
 #[cfg(feature = "lua")]
+fn host_matches(candidate: &str, name: &str) -> bool {
+    // Remove trailing dot from candidate, as our resolver tends
+    // to leave the canonical dot on the input host name
+    let candidate = candidate.strip_suffix(".").unwrap_or(candidate);
+    candidate == name
+}
+
+#[cfg(feature = "lua")]
+#[cfg(test)]
+#[test]
+fn test_host_matches() {
+    assert!(host_matches("foo.com", "foo.com"));
+    assert!(host_matches("foo.com.", "foo.com"));
+    assert!(!host_matches("foo.com", "notfoo.com"));
+}
+
+#[cfg(feature = "lua")]
 impl ProviderEntry {
     async fn domain_matches(&self, domain: &str) -> bool {
         // We'd like to avoid doing DNS if we can do a simple suffix match,
         // so we bias to looking at those first
-        let mut has_mx_rules = false;
+        let mut need_mx = false;
 
         tracing::trace!(
             "ProviderEntry::domain_matches({domain}) vs {:?}",
@@ -1080,13 +1097,13 @@ impl ProviderEntry {
                         return true;
                     }
                 }
-                ProviderMatch::MXSuffix(_) => {
-                    has_mx_rules = true;
+                ProviderMatch::HostName(_) | ProviderMatch::MXSuffix(_) => {
+                    need_mx = true;
                 }
             }
         }
 
-        if !has_mx_rules {
+        if !need_mx {
             return false;
         }
 
@@ -1118,12 +1135,18 @@ impl ProviderEntry {
                                     break;
                                 }
                             }
+                            ProviderMatch::HostName(name) => {
+                                if host_matches(host, name) {
+                                    matched = true;
+                                    break;
+                                }
+                            }
                             ProviderMatch::DomainSuffix(_) => {}
                         }
                     }
 
                     if !matched {
-                        tracing::trace!("host didn't match any of these suffixes");
+                        tracing::trace!("host didn't match any of these rules");
                         return false;
                     }
                 }
@@ -1241,6 +1264,7 @@ impl ProviderEntry {
 pub enum ProviderMatch {
     MXSuffix(String),
     DomainSuffix(String),
+    HostName(String),
 }
 
 #[cfg(feature = "lua")]
@@ -1499,6 +1523,28 @@ additional_message_rate_throttles = {"second"="100/hr"}
 }
 "#
         );
+    }
+
+    #[tokio::test]
+    async fn test_provider_multi_hostname() {
+        let shaping = make_shaping_configs(&[r#"
+[provider."yahoo"]
+match=[{HostName="mta5.am0.yahoodns.net"},{HostName="mta6.am0.yahoodns.net"},{HostName="mta7.am0.yahoodns.net"}]
+enable_tls = "Required"
+        "#])
+        .await;
+
+        let resolved = shaping
+            .get_egress_path_config("yahoo.com", "invalid.source", "invalid.site")
+            .await
+            .finish()
+            .unwrap();
+
+        k9::assert_equal!(
+            resolved.params.enable_tls,
+            crate::egress_path::Tls::Required
+        );
+        k9::assert_equal!(resolved.params.provider_name.unwrap(), "yahoo");
     }
 
     #[tokio::test]

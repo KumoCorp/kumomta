@@ -284,12 +284,20 @@ consecutive_connection_failures_before_delay = 5
 provider_max_message_rate = "100/s"
 {% endcall %}
 
-The match can be one of two possible options:
+The match can be one of these possible options:
 
-* `{MXSuffix="SUFFIX"}` - matches if ALL of the individual MX hostname suffixes
-  match the specified suffix string.
 * `{DomainSuffix="SUFFIX"}` - matches if the domain name suffix matches the
   specified suffix string.
+* `{MXSuffix="SUFFIX"}` - matches if one of the MX hostnames matches the
+  specified suffix string. (but see below!)
+* `{HostName="NAME"}` - matches if one of the MX hostnames exactly equals
+  the specified name. (but see below!) {{since('dev', inline=True)}}
+
+When matching MX hostnames, rather than DomainSuffixes, every hostname from the
+MX record must match one or more of the `MXSuffix` or `HostName` match rules in
+order to fully match a destination site against the provider.  The reason for
+this is to avoid pathologically weird situations when someone has a vanity
+domain that blends multiple different providers together.
 
 !!!note
     The suffix matching is *not* a regex operation, it is purely based on whether the string specified appears at the end of the MX or domain being tested. Do not use any wildcard characters.

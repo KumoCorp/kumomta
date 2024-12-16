@@ -40,6 +40,9 @@
   which keeps memory usage for the ready queues bounded to `O(number-of-messages)`
   rather than the previous `O(number-of-ready-queues * max_ready)`.
 
+* Provider match rules now also support exactly matching MX hostnames via the
+  new `HostName` entry.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
