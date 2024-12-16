@@ -244,6 +244,12 @@ pub struct EgressPathConfig {
     /// on subsequent connection attempts.
     #[serde(default, with = "duration_serde")]
     pub remember_broken_tls: Option<Duration>,
+
+    /// If true, when a TLS handshake fails and TLS is set to
+    /// opportunistic, we will re-connect to that host with
+    /// TLS disabled.
+    #[serde(default)]
+    pub opportunistic_tls_reconnect_on_failed_handshake: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -282,6 +288,7 @@ impl Default for EgressPathConfig {
             additional_connection_limits: OrderMap::default(),
             provider_name: None,
             remember_broken_tls: None,
+            opportunistic_tls_reconnect_on_failed_handshake: false,
         }
     }
 }

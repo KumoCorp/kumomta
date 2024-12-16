@@ -1888,6 +1888,7 @@ MergedEntry {
         refresh_strategy: Ttl,
         provider_name: None,
         remember_broken_tls: None,
+        opportunistic_tls_reconnect_on_failed_handshake: false,
     },
     sources: {},
     automation: [
@@ -2022,6 +2023,7 @@ MergedEntry {
         refresh_strategy: Ttl,
         provider_name: None,
         remember_broken_tls: None,
+        opportunistic_tls_reconnect_on_failed_handshake: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2069,6 +2071,7 @@ MergedEntry {
             refresh_strategy: Ttl,
             provider_name: None,
             remember_broken_tls: None,
+            opportunistic_tls_reconnect_on_failed_handshake: false,
         },
     },
     automation: [
@@ -2209,6 +2212,7 @@ MergedEntry {
         refresh_strategy: Ttl,
         provider_name: None,
         remember_broken_tls: None,
+        opportunistic_tls_reconnect_on_failed_handshake: false,
     },
     sources: {},
     automation: [

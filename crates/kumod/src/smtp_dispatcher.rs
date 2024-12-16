@@ -218,7 +218,11 @@ impl SmtpDispatcher {
         }))
     }
 
-    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+    async fn attempt_connection_impl(
+        &mut self,
+        dispatcher: &mut Dispatcher,
+        tls_override: Option<Tls>,
+    ) -> anyhow::Result<()> {
         if self.client.is_some() {
             return Ok(());
         }
@@ -264,6 +268,11 @@ impl SmtpDispatcher {
 
         let connection_wrapper = dispatcher.metrics.wrap_connection(());
 
+        // This pops the next address (which is at the end) from the
+        // list of candidate addresses.
+        // Be aware that in the failed TLS handshake case below,
+        // the current address is put back before we recurse to
+        // try again.
         let address = self
             .addresses
             .pop()
@@ -271,7 +280,7 @@ impl SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let mut enable_tls = path_config.enable_tls;
+        let mut enable_tls = tls_override.unwrap_or(path_config.enable_tls);
         let port = dispatcher
             .egress_source
             .remote_port
@@ -500,6 +509,14 @@ impl SmtpDispatcher {
 
                         self.remember_broken_tls(&dispatcher.name, &path_config);
 
+                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                            self.addresses.push(address);
+                            return Box::pin(
+                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
+                            )
+                            .await;
+                        }
+
                         // We did not enable TLS
                         (false, format!("failed: {handshake_error}"))
                     }
@@ -514,15 +531,26 @@ impl SmtpDispatcher {
                 // incorrectly roll over failed TLS into the following command,
                 // and we want to consider those as connection errors rather than
                 // having them show up per-message in MAIL FROM
-                client.ehlo(&ehlo_name).await.map_err(|error| {
-                    self.remember_broken_tls(&dispatcher.name, &path_config);
-                    OpportunisticInsecureTlsHandshakeError {
-                        error,
-                        address: format!("{address}:{port}"),
-                        label,
+                match client.ehlo(&ehlo_name).await {
+                    Ok(_) => enabled,
+                    Err(error) => {
+                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                            self.addresses.push(address);
+                            return Box::pin(
+                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
+                            )
+                            .await;
+                        }
+
+                        return Err(OpportunisticInsecureTlsHandshakeError {
+                            error,
+                            address: format!("{address}:{port}"),
+                            label,
+                        }
+                        .into());
                     }
-                })?;
-                enabled
+                }
             }
             (
                 Tls::Required | Tls::RequiredInsecure,
@@ -544,6 +572,8 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
+                        self.remember_broken_tls(&dispatcher.name, &path_config);
+
                         // Don't try too hard to send the quit here; the connection may
                         // be busted by the failed handshake and never succeed
                         tokio::time::timeout(
@@ -553,7 +583,13 @@ impl SmtpDispatcher {
                         .await
                         .ok();
 
-                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                            self.addresses.push(address);
+                            return Box::pin(
+                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
+                            )
+                            .await;
+                        }
                         anyhow::bail!(
                             "TLS handshake with {address:?}:{port} failed: {handshake_error}"
                         );
@@ -565,11 +601,25 @@ impl SmtpDispatcher {
                         self.tls_info.replace(info);
                     }
                 }
-                client.ehlo(&ehlo_name).await.with_context(|| {
-                    self.remember_broken_tls(&dispatcher.name, &path_config);
-                    format!("{address:?}:{port}: EHLO after STARTTLS")
-                })?;
-                true
+
+                match client
+                    .ehlo(&ehlo_name)
+                    .await
+                    .with_context(|| format!("{address:?}:{port}: EHLO after STARTTLS"))
+                {
+                    Ok(_) => true,
+                    Err(err) => {
+                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                            self.addresses.push(address);
+                            return Box::pin(
+                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
+                            )
+                            .await;
+                        }
+                        return Err(err);
+                    }
+                }
             }
         };
 
@@ -668,7 +718,7 @@ impl QueueDispatcher for SmtpDispatcher {
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        self.attempt_connection_impl(dispatcher)
+        self.attempt_connection_impl(dispatcher, None)
             .await
             .map_err(|err| {
                 self.tracer.diagnostic(Level::ERROR, || format!("{err:#}"));

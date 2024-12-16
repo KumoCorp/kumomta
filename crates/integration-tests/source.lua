@@ -255,6 +255,9 @@ kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
     enable_tls = os.getenv 'KUMOD_ENABLE_TLS' or 'OpportunisticInsecure',
     smtp_port = SINK_PORT,
     prohibited_hosts = {},
+    opportunistic_tls_reconnect_on_failed_handshake = (
+      (os.getenv 'KUMOD_OPPORTUNISTIC_TLS_RECONNECT') and true
+    ) or false,
   }
 
   local username = os.getenv 'KUMOD_SMTP_AUTH_USERNAME'
