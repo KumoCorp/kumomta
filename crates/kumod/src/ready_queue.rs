@@ -13,6 +13,7 @@ use crate::queue::{
     DeliveryProto, IncrementAttempts, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME,
 };
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
+use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -1006,6 +1007,7 @@ impl Dispatcher {
             DeliveryProto::Smtp { .. } => "ESMTP".to_string(),
             DeliveryProto::Lua { .. } => "Lua".to_string(),
             DeliveryProto::Maildir { .. } => "Maildir".to_string(),
+            DeliveryProto::DeferredSmtpInjection => "DeferredSmtpInjection".to_string(),
             DeliveryProto::HttpInjectionGenerator => "HttpInjectionGenerator".to_string(),
             DeliveryProto::Null => {
                 anyhow::bail!("Should not have a ready_queue for the null queue")
@@ -1050,6 +1052,9 @@ impl Dispatcher {
             }
             DeliveryProto::HttpInjectionGenerator => {
                 Box::new(HttpInjectionGeneratorDispatcher::new())
+            }
+            DeliveryProto::DeferredSmtpInjection => {
+                Box::new(DeferredSmtpInjectionDispatcher::new())
             }
             DeliveryProto::Null => {
                 anyhow::bail!("Should not have a ready_queue for the null queue")

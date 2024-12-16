@@ -63,6 +63,12 @@ enable_tls = "Opportunistic"
 consecutive_connection_failures_before_delay = 100
 remember_broken_tls = "3 days"
 
+["generator.kumomta.internal"]
+mx_rollup = false
+
+["deferred_smtp_inject.kumomta.internal"]
+mx_rollup = false
+
 [["default".automation]]
 # We use ''' for strings in the regex section because it forces a string literal that requires no extra
 # delimiters while also allowing for literal ' characters in the regex strings.

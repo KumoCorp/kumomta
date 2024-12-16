@@ -11,7 +11,7 @@ use crate::metrics_helper::{
 };
 use crate::ready_queue::ReadyQueueManager;
 use crate::smtp_dispatcher::SmtpProtocol;
-use crate::smtp_server::RejectError;
+use crate::smtp_server::{make_deferred_queue_config, RejectError, DEFERRED_QUEUE_NAME};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -330,6 +330,7 @@ pub enum DeliveryProto {
         custom_lua: LuaDeliveryProtocol,
     },
     HttpInjectionGenerator,
+    DeferredSmtpInjection,
     Null,
 }
 
@@ -340,6 +341,7 @@ impl DeliveryProto {
             Self::Maildir { .. } => "maildir",
             Self::Lua { .. } => "lua",
             Self::HttpInjectionGenerator { .. } => "httpinject",
+            Self::DeferredSmtpInjection { .. } => "defersmtpinject",
             Self::Null { .. } => "null",
         }
     }
@@ -347,7 +349,7 @@ impl DeliveryProto {
     pub fn ready_queue_name(&self) -> String {
         let proto_name = self.metrics_protocol_name();
         match self {
-            Self::Smtp { .. } | Self::Null => proto_name.to_string(),
+            Self::Smtp { .. } | Self::Null | Self::DeferredSmtpInjection => proto_name.to_string(),
             Self::Maildir { maildir_path, .. } => {
                 format!("{proto_name}:{maildir_path}")
             }
@@ -953,6 +955,10 @@ impl Queue {
     ) -> anyhow::Result<QueueConfig> {
         if name == GENERATOR_QUEUE_NAME {
             return make_generate_queue_config();
+        }
+
+        if name == DEFERRED_QUEUE_NAME {
+            return make_deferred_queue_config();
         }
 
         if name == "null" {
@@ -1760,6 +1766,7 @@ impl Queue {
         match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. }
             | DeliveryProto::Lua { .. }
+            | DeliveryProto::DeferredSmtpInjection
             | DeliveryProto::HttpInjectionGenerator => {
                 let (egress_source, ready_name) = match self
                     .rr

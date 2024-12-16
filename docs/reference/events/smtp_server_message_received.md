@@ -1,6 +1,7 @@
 # `kumo.on('smtp_server_message_received', function(message, conn_meta))`
 
-Called by the ESMTP server after receiving the message data.
+Called by the ESMTP server after receiving the message data, but before
+responding to the client in the live SMTP session.
 
 If the client issued multiple `"RCPT TO"` commands in the same transaction,
 each one will result in a separate message being created, and this event

@@ -1,11 +1,14 @@
+use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::http_server::admin_trace_smtp_server_v1::{
     SmtpServerTraceEvent, SmtpServerTraceEventPayload, SmtpServerTraceManager,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
-use crate::queue::QueueManager;
+use crate::queue::{DeliveryProto, IncrementAttempts, QueueConfig, QueueManager};
+use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
+use async_trait::async_trait;
 use chrono::Utc;
 use cidr_map::CidrSet;
 use config::{any_err, load_config, serialize_options, CallbackSignature};
@@ -40,6 +43,15 @@ use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+pub const DEFERRED_QUEUE_NAME: &str = "deferred_smtp_inject.kumomta.internal";
+
+static SMTP_SERVER_MSG_RX: LazyLock<CallbackSignature<(Message, ConnectionMetaData), ()>> =
+    LazyLock::new(|| CallbackSignature::new("smtp_server_message_received"));
+
+static DEFERRED_SMTP_SERVER_MSG_INJECT: LazyLock<
+    CallbackSignature<(Message, ConnectionMetaData), ()>,
+> = LazyLock::new(|| CallbackSignature::new("smtp_server_message_deferred_inject"));
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
 static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
@@ -193,6 +205,9 @@ pub struct EsmtpListenerParams {
 
     #[serde(default)]
     pub deferred_spool: bool,
+
+    #[serde(default)]
+    pub deferred_queue: bool,
 
     #[serde(default)]
     pub trace_headers: TraceHeaders,
@@ -962,19 +977,17 @@ impl SmtpServer {
         }
     }
 
-    pub async fn call_callback<
+    async fn call_callback_sig<
         R: FromLuaMulti + Default + serde::Serialize,
-        S: Into<std::borrow::Cow<'static, str>>,
         A: IntoLuaMulti + Clone,
     >(
         &mut self,
-        name: S,
+        sig: &CallbackSignature<A, R>,
         args: A,
     ) -> anyhow::Result<Result<R, RejectError>> {
-        let name = name.into();
         let mut config = load_config().await?;
-        let sig = CallbackSignature::<A, R>::new(name.clone());
-        match config.async_call_callback(&sig, args).await {
+        let name = sig.name();
+        match config.async_call_callback(sig, args).await {
             Ok(r) => {
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
@@ -1005,6 +1018,20 @@ impl SmtpServer {
                 }
             }
         }
+    }
+
+    pub async fn call_callback<
+        R: FromLuaMulti + Default + serde::Serialize,
+        S: Into<std::borrow::Cow<'static, str>>,
+        A: IntoLuaMulti + Clone,
+    >(
+        &mut self,
+        name: S,
+        args: A,
+    ) -> anyhow::Result<Result<R, RejectError>> {
+        let name = name.into();
+        let sig = CallbackSignature::<A, R>::new(name);
+        self.call_callback_sig(&sig, args).await
     }
 
     #[instrument(skip(self))]
@@ -1671,19 +1698,20 @@ impl SmtpServer {
                 Arc::new(body.into_boxed_slice()),
             )?;
 
-            if let Err(rej) = self
-                .call_callback::<(), _, _>(
-                    "smtp_server_message_received",
-                    (message.clone(), self.meta.clone()),
-                )
-                .await?
-            {
-                // Rejecting any one message from a batch in
-                // smtp_server_message_received will reject the
-                // entire batch
-                self.write_response(rej.code, rej.message, Some("DATA".into()))
-                    .await?;
-                return Ok(());
+            if self.params.deferred_queue {
+                message.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+            } else {
+                if let Err(rej) = self
+                    .call_callback_sig(&SMTP_SERVER_MSG_RX, (message.clone(), self.meta.clone()))
+                    .await?
+                {
+                    // Rejecting any one message from a batch in
+                    // smtp_server_message_received will reject the
+                    // entire batch
+                    self.write_response(rej.code, rej.message, Some("DATA".into()))
+                        .await?;
+                    return Ok(());
+                }
             }
             accepted_messages.push(message);
         }
@@ -1920,6 +1948,158 @@ fn check_line_lengths(data: &[u8], limit: usize) -> bool {
         last_index = idx;
     }
     data.len() - last_index <= limit
+}
+
+pub fn make_deferred_queue_config() -> anyhow::Result<QueueConfig> {
+    Ok(QueueConfig {
+        protocol: DeliveryProto::DeferredSmtpInjection,
+        retry_interval: Duration::from_secs(60),
+        ..QueueConfig::default()
+    })
+}
+
+#[derive(Debug)]
+pub struct DeferredSmtpInjectionDispatcher {
+    connection: Option<MetricsWrappedConnection<()>>,
+}
+
+impl DeferredSmtpInjectionDispatcher {
+    pub fn new() -> Self {
+        Self { connection: None }
+    }
+}
+
+#[async_trait]
+impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
+    async fn close_connection(&mut self, _dispatcher: &mut Dispatcher) -> anyhow::Result<bool> {
+        match self.connection.take() {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
+        if self.connection.is_none() {
+            self.connection
+                .replace(dispatcher.metrics.wrap_connection(()));
+        }
+        Ok(())
+    }
+
+    async fn have_more_connection_candidates(&mut self, _dispatcher: &mut Dispatcher) -> bool {
+        false
+    }
+
+    async fn deliver_message(
+        &mut self,
+        mut msgs: Vec<Message>,
+        dispatcher: &mut Dispatcher,
+    ) -> anyhow::Result<()> {
+        // parse out the inject payload and run it
+        anyhow::ensure!(
+            msgs.len() == 1,
+            "DeferredSmtpInjectionDispatcher only supports a batch size of 1"
+        );
+        let msg = msgs.pop().expect("just verified that there is one");
+
+        msg.set_meta("queue", serde_json::Value::Null)?;
+        let meta = ConnectionMetaData {
+            map: Arc::new(msg.get_meta_obj()?.into()),
+        };
+
+        let mut config = load_config().await?;
+
+        let mut response = match config
+            .async_call_callback(&DEFERRED_SMTP_SERVER_MSG_INJECT, (msg.clone(), meta))
+            .await
+        {
+            Ok(_) => Response {
+                code: 250,
+                enhanced_code: None,
+                content: "ok".to_string(),
+                command: None,
+            },
+            Err(err) => {
+                if let Some(rej) = RejectError::from_anyhow(&err) {
+                    Response {
+                        code: rej.code,
+                        enhanced_code: None,
+                        content: rej.message,
+                        command: None,
+                    }
+                } else {
+                    Response {
+                        code: 450,
+                        enhanced_code: None,
+                        content: format!("{err:#}"),
+                        command: None,
+                    }
+                }
+            }
+        };
+
+        if response.code == 250 {
+            msg.set_due(None).await?;
+            let queue_name = msg.get_queue_name()?;
+            if let Err(err) = QueueManager::insert(&queue_name, msg.clone()).await {
+                response = Response {
+                    code: 450,
+                    enhanced_code: None,
+                    content: format!("{err:#}"),
+                    command: None,
+                };
+            }
+        }
+
+        let code = response.code;
+        let kind = if code == 250 {
+            RecordType::Delivery
+        } else if code >= 500 {
+            RecordType::Bounce
+        } else {
+            RecordType::TransientFailure
+        };
+
+        log_disposition(LogDisposition {
+            kind,
+            msg: msg.clone(),
+            site: &dispatcher.name,
+            peer_address: None,
+            response: response.clone(),
+            egress_pool: None,
+            egress_source: None,
+            relay_disposition: None,
+            delivery_protocol: Some("DeferredSmtpInjection"),
+            tls_info: None,
+            source_address: None,
+            provider: None,
+            session_id: None,
+        })
+        .await;
+
+        if code == 250 {
+            // Message has been re-queued
+            let _ = dispatcher.msgs.pop();
+            dispatcher.metrics.inc_delivered();
+        } else if code >= 500 {
+            // Policy decided to permanently fail it
+            SpoolManager::remove_from_spool(*msg.id()).await?;
+            let _ = dispatcher.msgs.pop();
+            dispatcher.metrics.inc_fail();
+        } else {
+            dispatcher.metrics.inc_transfail();
+
+            // Ensure that we get another crack at it later
+            msg.set_meta("queue", DEFERRED_QUEUE_NAME)?;
+            let _ = dispatcher.msgs.pop();
+            spawn(
+                "requeue message".to_string(),
+                QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
