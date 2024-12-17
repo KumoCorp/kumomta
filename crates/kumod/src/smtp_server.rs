@@ -1595,7 +1595,7 @@ impl SmtpServer {
                     self.write_response(250, "the goggles do nothing", None)
                         .await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_)) => {
+                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
                     self.write_response(502, format!("5.5.1 Command unimplemented"), Some(line))
                         .await?;
                 }

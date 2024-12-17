@@ -1889,6 +1889,7 @@ MergedEntry {
         provider_name: None,
         remember_broken_tls: None,
         opportunistic_tls_reconnect_on_failed_handshake: false,
+        use_lmtp: false,
     },
     sources: {},
     automation: [
@@ -2024,6 +2025,7 @@ MergedEntry {
         provider_name: None,
         remember_broken_tls: None,
         opportunistic_tls_reconnect_on_failed_handshake: false,
+        use_lmtp: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2072,6 +2074,7 @@ MergedEntry {
             provider_name: None,
             remember_broken_tls: None,
             opportunistic_tls_reconnect_on_failed_handshake: false,
+            use_lmtp: false,
         },
     },
     automation: [
@@ -2213,6 +2216,7 @@ MergedEntry {
         provider_name: None,
         remember_broken_tls: None,
         opportunistic_tls_reconnect_on_failed_handshake: false,
+        use_lmtp: false,
     },
     sources: {},
     automation: [

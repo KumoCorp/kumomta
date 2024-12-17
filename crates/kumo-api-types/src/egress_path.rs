@@ -250,6 +250,10 @@ pub struct EgressPathConfig {
     /// TLS disabled.
     #[serde(default)]
     pub opportunistic_tls_reconnect_on_failed_handshake: bool,
+
+    /// If true, rather than ESMTP, use the LMTP protocol
+    #[serde(default)]
+    pub use_lmtp: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -289,6 +293,7 @@ impl Default for EgressPathConfig {
             provider_name: None,
             remember_broken_tls: None,
             opportunistic_tls_reconnect_on_failed_handshake: false,
+            use_lmtp: false,
         }
     }
 }

@@ -429,6 +429,28 @@ impl SmtpClient {
         results
     }
 
+    pub async fn ehlo_lhlo(
+        &mut self,
+        ehlo_name: &str,
+        use_lmtp: bool,
+    ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
+        if use_lmtp {
+            self.lhlo(ehlo_name).await
+        } else {
+            self.ehlo(ehlo_name).await
+        }
+    }
+
+    pub async fn lhlo(
+        &mut self,
+        ehlo_name: &str,
+    ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
+        let response = self
+            .send_command(&Command::Lhlo(Domain::Name(ehlo_name.to_string())))
+            .await?;
+        self.ehlo_common(response)
+    }
+
     pub async fn ehlo(
         &mut self,
         ehlo_name: &str,
@@ -436,6 +458,13 @@ impl SmtpClient {
         let response = self
             .send_command(&Command::Ehlo(Domain::Name(ehlo_name.to_string())))
             .await?;
+        self.ehlo_common(response)
+    }
+
+    fn ehlo_common(
+        &mut self,
+        response: Response,
+    ) -> Result<&HashMap<String, EsmtpCapability>, ClientError> {
         if response.code != 250 {
             return Err(ClientError::Rejected(response));
         }

@@ -343,6 +343,7 @@ impl ToString for EsmtpParameter {
 pub enum Command {
     Ehlo(Domain),
     Helo(Domain),
+    Lhlo(Domain),
     MailFrom {
         address: ReversePath,
         parameters: Vec<EsmtpParameter>,
@@ -375,6 +376,7 @@ impl Command {
         match self {
             Self::Ehlo(domain) => format!("EHLO {}\r\n", domain.to_string()),
             Self::Helo(domain) => format!("HELO {}\r\n", domain.to_string()),
+            Self::Lhlo(domain) => format!("LHLO {}\r\n", domain.to_string()),
             Self::MailFrom {
                 address,
                 parameters,
@@ -424,7 +426,7 @@ impl Command {
     /// Timeouts for reading the response
     pub fn client_timeout(&self, timeouts: &SmtpClientTimeouts) -> Duration {
         match self {
-            Self::Helo(_) | Self::Ehlo(_) => timeouts.ehlo_timeout,
+            Self::Helo(_) | Self::Ehlo(_) | Self::Lhlo(_) => timeouts.ehlo_timeout,
             Self::MailFrom { .. } => timeouts.mail_from_timeout,
             Self::RcptTo { .. } => timeouts.rcpt_to_timeout,
             Self::Data { .. } => timeouts.data_timeout,

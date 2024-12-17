@@ -346,11 +346,12 @@ impl SmtpDispatcher {
         .with_context(|| connect_context.clone())?;
         self.source_address.replace(source_address);
 
-        // Say EHLO
+        // Say EHLO/LHLO
+        let helo_verb = if path_config.use_lmtp { "LHLO" } else { "EHLO" };
         let pretls_caps = client
-            .ehlo(&ehlo_name)
+            .ehlo_lhlo(&ehlo_name, path_config.use_lmtp)
             .await
-            .with_context(|| format!("{address}:{port}: EHLO after banner"))?;
+            .with_context(|| format!("{address}:{port}: {helo_verb} after banner"))?;
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
@@ -531,7 +532,7 @@ impl SmtpDispatcher {
                 // incorrectly roll over failed TLS into the following command,
                 // and we want to consider those as connection errors rather than
                 // having them show up per-message in MAIL FROM
-                match client.ehlo(&ehlo_name).await {
+                match client.ehlo_lhlo(&ehlo_name, path_config.use_lmtp).await {
                     Ok(_) => enabled,
                     Err(error) => {
                         self.remember_broken_tls(&dispatcher.name, &path_config);
@@ -603,9 +604,9 @@ impl SmtpDispatcher {
                 }
 
                 match client
-                    .ehlo(&ehlo_name)
+                    .ehlo_lhlo(&ehlo_name, path_config.use_lmtp)
                     .await
-                    .with_context(|| format!("{address:?}:{port}: EHLO after STARTTLS"))
+                    .with_context(|| format!("{address:?}:{port}: {helo_verb} after STARTTLS"))
                 {
                     Ok(_) => true,
                     Err(err) => {
