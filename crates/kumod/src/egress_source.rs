@@ -665,7 +665,7 @@ impl<'a> ProxyProto<'a> {
                     )
                 })?;
                 Ok(MaybeProxiedSourceAddress {
-                    address: (source, 0).into(),
+                    address: SocketAddr::from((source, 0)).into(),
                     protocol: Some("haproxy".into()),
                     server: Some(server),
                 })
@@ -786,13 +786,13 @@ impl<'a> ProxyProto<'a> {
                 }
 
                 Ok(MaybeProxiedSourceAddress {
-                    address: socks_response_addr(&connect_status)?,
+                    address: socks_response_addr(&connect_status)?.into(),
                     server: Some(server),
                     protocol: Some("socks5".into()),
                 })
             }
             Self::None => Ok(MaybeProxiedSourceAddress {
-                address: stream.local_addr()?,
+                address: stream.local_addr()?.into(),
                 server: None,
                 protocol: None,
             }),

@@ -3,6 +3,7 @@ use hickory_resolver::error::ResolveResult;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
+use kumo_address::host::HostAddress;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
 use rand::prelude::SliceRandom;
@@ -198,7 +199,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
         // Try to interpret the literal as either an IPv4 or IPv6 address.
         // Note that RFC5321 doesn't actually permit using an untagged
         // IPv6 address, so this is non-conforming behavior.
-        match literal.parse::<IpAddr>() {
+        match literal.parse::<HostAddress>() {
             Ok(addr) => {
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
@@ -208,6 +209,14 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
             Err(err) => {
                 anyhow::bail!("invalid address: `{literal}`: {err:#}");
             }
+        }
+    } else {
+        // Maybe its a unix domain socket path
+        if let Ok(addr) = domain_name.parse::<HostAddress>() {
+            return Ok(vec![ResolvedAddress {
+                name: domain_name.to_string(),
+                addr,
+            }]);
         }
     }
 

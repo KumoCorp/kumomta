@@ -168,6 +168,13 @@ impl From<SocketAddr> for SocketAddress {
     }
 }
 
+impl From<tokio::net::unix::SocketAddr> for SocketAddress {
+    fn from(unix: tokio::net::unix::SocketAddr) -> SocketAddress {
+        let unix: UnixSocketAddr = unix.into();
+        unix.into()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

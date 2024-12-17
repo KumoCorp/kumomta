@@ -1587,6 +1587,7 @@ dependencies = [
  "hickory-proto",
  "hickory-resolver",
  "k9",
+ "kumo-address",
  "kumo-log-types",
  "libunbound",
  "lruttl",
@@ -2974,6 +2975,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -3247,6 +3249,7 @@ dependencies = [
  "gethostname 0.5.0",
  "humansize",
  "k9",
+ "kumo-address",
  "kumo-api-types",
  "kumo-chrono-helper",
  "kumo-log-types",

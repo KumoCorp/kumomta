@@ -40,5 +40,6 @@ impl AsyncReadAndWrite for TcpStream {
 }
 impl AsyncReadAndWrite for SslStream<TcpStream> {}
 impl AsyncReadAndWrite for SslStream<BoxedAsyncReadAndWrite> {}
+impl AsyncReadAndWrite for tokio::net::UnixStream {}
 
 pub type BoxedAsyncReadAndWrite = Box<dyn AsyncReadAndWrite>;

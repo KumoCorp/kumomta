@@ -2,6 +2,7 @@ use crate::rfc5965::ARFReport;
 use bounce_classify::BounceClass;
 use chrono::{DateTime, Utc};
 use kumo_address::host::HostAddress;
+use kumo_address::socket::SocketAddress;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -21,7 +22,13 @@ pub struct ResolvedAddress {
 
 impl std::fmt::Display for ResolvedAddress {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(fmt, "{}/{}", self.name, self.addr)
+        let addr = format!("{}", self.addr);
+        if addr == self.name {
+            // likely: unix domain socket path
+            write!(fmt, "{addr}")
+        } else {
+            write!(fmt, "{}/{addr}", self.name)
+        }
     }
 }
 
@@ -134,7 +141,7 @@ pub struct JsonLogRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaybeProxiedSourceAddress {
-    pub address: SocketAddr,
+    pub address: SocketAddress,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server: Option<SocketAddr>,
     #[serde(skip_serializing_if = "Option::is_none")]

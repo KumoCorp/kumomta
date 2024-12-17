@@ -17,6 +17,7 @@ unbound = ["dep:libunbound"]
 anyhow = {workspace=true}
 arc-swap = {workspace=true}
 async-trait = {workspace=true}
+kumo-address = {path="../kumo-address"}
 kumo-log-types = {path="../kumo-log-types"}
 libunbound = {workspace=true, optional=true}
 lruttl = {path="../lruttl"}

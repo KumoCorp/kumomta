@@ -24,6 +24,7 @@ flume = {workspace=true}
 gcd = {workspace=true}
 gethostname = {workspace=true}
 humansize = {workspace=true}
+kumo-address = {path="../kumo-address"}
 kumo-api-types = {path="../kumo-api-types"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}

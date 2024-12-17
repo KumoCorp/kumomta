@@ -212,7 +212,7 @@ impl ReadyQueueManager {
                     for a in smtp.mx_list.iter() {
                         match a {
                             MxListEntry::Name(a) => {
-                                mx_list.push(a.clone());
+                                mx_list.push(a.to_string());
                             }
                             MxListEntry::Resolved(addr) => {
                                 mx_list.push(addr.addr.to_string());

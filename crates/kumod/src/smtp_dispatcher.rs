@@ -10,6 +10,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
+use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
@@ -25,6 +26,7 @@ use rfc5321::{
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::{Arc, LazyLock};
+use tokio::net::UnixStream;
 use tracing::Level;
 
 static BROKEN_TLS_BY_SITE: LazyLock<LruCacheWithTtl<String, ()>> =
@@ -42,6 +44,7 @@ pub enum MxListEntry {
     /// A name that needs to be resolved to its A or AAAA record in DNS,
     /// or an IP domain literal enclosed in square brackets like `[10.0.0.1]`
     Name(String),
+
     /// A pre-resolved name and IP address
     Resolved(ResolvedAddress),
 }
@@ -290,13 +293,23 @@ impl SmtpDispatcher {
             .egress_source
             .remote_port
             .unwrap_or(path_config.smtp_port);
-        let connect_context = format!("connect to {address} port {port} and read initial banner");
+
+        let target_address: SocketAddress = match address.addr.ip() {
+            Some(ip) => SocketAddr::new(ip, port).into(),
+            None => {
+                let unix = address.addr.unix().expect("ip case handled above");
+                unix.into()
+            }
+        };
+
+        let connect_context = format!("connect to {target_address} and read initial banner");
 
         self.tracer.diagnostic(Level::INFO, || {
-            format!("Attempting connection to {address} port {port}")
+            format!("Attempting connection to {target_address}")
         });
 
         let make_connection = {
+            let target_address = target_address.clone();
             let address = address.clone();
             let timeouts = path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
@@ -307,23 +320,43 @@ impl SmtpDispatcher {
             // awaiting the shutdown subscription, causing us to uselessly wait
             // for the full connect timeout during shutdown.
             tokio::spawn(async move {
-                let (stream, source_address) = egress_source
-                    .connect_to(
-                        SocketAddr::new(
-                            address.addr.ip().ok_or_else(|| {
-                                anyhow::anyhow!("only ip addresses are currently supported")
-                            })?,
-                            port,
-                        ),
-                        timeouts.connect_timeout,
-                    )
-                    .await?;
+                let (mut client, source_address) = match address.addr.ip() {
+                    Some(ip) => {
+                        let (stream, source_address) = egress_source
+                            .connect_to(SocketAddr::new(ip, port), timeouts.connect_timeout)
+                            .await?;
+                        tracing::debug!(
+                            "connected to {target_address} via source address {source_address:?}"
+                        );
 
-                tracing::debug!(
-                    "connected to {address} port {port} via source address {source_address:?}"
-                );
+                        let client = SmtpClient::with_stream(stream, &mx_host, timeouts);
+                        (client, source_address)
+                    }
+                    None => {
+                        let unix = address.addr.unix().expect("ip case handled above");
+                        let path = unix.as_pathname().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "cannot connect to an unbound unix domain socket address"
+                            )
+                        })?;
 
-                let mut client = SmtpClient::with_stream(stream, &mx_host, timeouts);
+                        let stream = UnixStream::connect(&path).await?;
+
+                        let source_address = MaybeProxiedSourceAddress {
+                            address: stream.local_addr()?.into(),
+                            server: None,
+                            protocol: None,
+                        };
+
+                        tracing::debug!(
+                            "connected to {target_address} via source address {source_address:?}"
+                        );
+
+                        let client = SmtpClient::with_stream(stream, &mx_host, timeouts);
+                        (client, source_address)
+                    }
+                };
+
                 tracer.set_meta("source_address", source_address.address.to_string());
                 tracer.set_meta("mx_host", mx_host.to_string());
                 tracer.set_meta("mx_address", address.addr.to_string());
@@ -361,7 +394,7 @@ impl SmtpDispatcher {
         let pretls_caps = client
             .ehlo_lhlo(&ehlo_name, path_config.use_lmtp)
             .await
-            .with_context(|| format!("{address}:{port}: {helo_verb} after banner"))?;
+            .with_context(|| format!("{target_address}: {helo_verb} after banner"))?;
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
