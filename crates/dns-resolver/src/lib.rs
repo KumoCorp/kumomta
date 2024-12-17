@@ -186,7 +186,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
                 Ok(addr) => {
                     return Ok(vec![ResolvedAddress {
                         name: domain_name.to_string(),
-                        addr: std::net::IpAddr::V6(addr),
+                        addr: std::net::IpAddr::V6(addr).into(),
                     }]);
                 }
                 Err(err) => {
@@ -202,7 +202,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
             Ok(addr) => {
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
-                    addr,
+                    addr: addr.into(),
                 }]);
             }
             Err(err) => {
@@ -217,7 +217,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
                 .iter()
                 .map(|&addr| ResolvedAddress {
                     name: domain_name.to_string(),
-                    addr,
+                    addr: addr.into(),
                 })
                 .collect();
             Ok(addrs)
@@ -377,7 +377,7 @@ impl MailExchanger {
                 if let Ok(addr) = mx_host.parse::<IpAddr>() {
                     by_pref.push(ResolvedAddress {
                         name: mx_host.to_string(),
-                        addr,
+                        addr: addr.into(),
                     });
                     continue;
                 }
@@ -391,7 +391,7 @@ impl MailExchanger {
                         for addr in addresses.iter() {
                             by_pref.push(ResolvedAddress {
                                 name: mx_host.to_string(),
-                                addr: *addr,
+                                addr: (*addr).into(),
                             });
                         }
                     }

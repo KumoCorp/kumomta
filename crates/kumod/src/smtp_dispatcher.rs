@@ -169,27 +169,32 @@ impl SmtpDispatcher {
         }
 
         for addr in &addresses {
-            if path_config.prohibited_hosts.contains(addr.addr) {
-                dispatcher
-                    .bulk_ready_queue_operation(Response {
-                        code: 550,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
-                            subject: 4,
-                            detail: 4,
-                        }),
-                        content: format!(
-                            "{addr} is on the list of prohibited_hosts {:?}",
-                            path_config.prohibited_hosts
-                        ),
-                        command: None,
-                    })
-                    .await;
-                return Ok(None);
+            if let Some(ip) = addr.addr.ip() {
+                if path_config.prohibited_hosts.contains(ip) {
+                    dispatcher
+                        .bulk_ready_queue_operation(Response {
+                            code: 550,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 5,
+                                subject: 4,
+                                detail: 4,
+                            }),
+                            content: format!(
+                                "{addr} is on the list of prohibited_hosts {:?}",
+                                path_config.prohibited_hosts
+                            ),
+                            command: None,
+                        })
+                        .await;
+                    return Ok(None);
+                }
             }
         }
 
-        addresses.retain(|addr| !path_config.skip_hosts.contains(addr.addr));
+        addresses.retain(|addr| match addr.addr.ip() {
+            Some(ip) => !path_config.skip_hosts.contains(ip),
+            None => true,
+        });
 
         if addresses.is_empty() {
             dispatcher
@@ -304,7 +309,12 @@ impl SmtpDispatcher {
             tokio::spawn(async move {
                 let (stream, source_address) = egress_source
                     .connect_to(
-                        SocketAddr::new(address.addr, port),
+                        SocketAddr::new(
+                            address.addr.ip().ok_or_else(|| {
+                                anyhow::anyhow!("only ip addresses are currently supported")
+                            })?,
+                            port,
+                        ),
                         timeouts.connect_timeout,
                     )
                     .await?;

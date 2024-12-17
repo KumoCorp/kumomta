@@ -221,7 +221,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             peer_address: Some(ResolvedAddress {
                                 name: report.per_message.reporting_mta.name.to_string(),
                                 addr: peer_address
-                                    .map(|a| a.addr)
+                                    .map(|a| a.addr.clone())
                                     .unwrap_or_else(|| Ipv4Addr::UNSPECIFIED.into()),
                             }),
                             response: Response {

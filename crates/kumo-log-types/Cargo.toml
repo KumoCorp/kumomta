@@ -8,6 +8,7 @@ anyhow = {workspace=true}
 bounce-classify = {path="../bounce-classify"}
 chrono = {workspace=true, default-features=false, features=["serde", "std"]}
 data-encoding = {workspace=true}
+kumo-address = {path="../kumo-address"}
 mailparsing = {path="../mailparsing"}
 rfc5321 = {path="../rfc5321", default-features=false}
 serde = {workspace=true}

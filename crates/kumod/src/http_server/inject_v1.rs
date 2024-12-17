@@ -569,7 +569,7 @@ async fn process_recipient<'a>(
             site: "",
             peer_address: Some(&ResolvedAddress {
                 name: "".to_string(),
-                addr: peer_address,
+                addr: peer_address.into(),
             }),
             response: Response {
                 code: 250,
@@ -625,7 +625,7 @@ async fn queue_deferred(
         site: "",
         peer_address: Some(&ResolvedAddress {
             name: "".to_string(),
-            addr: peer_address,
+            addr: peer_address.into(),
         }),
         response: Response {
             code: 250,

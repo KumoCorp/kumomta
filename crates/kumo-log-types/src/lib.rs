@@ -1,12 +1,13 @@
 use crate::rfc5965::ARFReport;
 use bounce_classify::BounceClass;
 use chrono::{DateTime, Utc};
+use kumo_address::host::HostAddress;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 pub mod rfc3464;
@@ -15,7 +16,7 @@ pub mod rfc5965;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedAddress {
     pub name: String,
-    pub addr: IpAddr,
+    pub addr: HostAddress,
 }
 
 impl std::fmt::Display for ResolvedAddress {

@@ -741,7 +741,7 @@ impl SmtpServer {
                     meta: self.meta.clone_inner(),
                     peer_address: ResolvedAddress {
                         name: self.said_hello.as_deref().unwrap_or("").to_string(),
-                        addr: self.peer_address.ip(),
+                        addr: self.peer_address.ip().into(),
                     },
                     response,
                     sender,
@@ -1773,7 +1773,7 @@ impl SmtpServer {
                 site: "",
                 peer_address: Some(&ResolvedAddress {
                     name: self.said_hello.as_deref().unwrap_or("").to_string(),
-                    addr: self.peer_address.ip(),
+                    addr: self.peer_address.ip().into(),
                 }),
                 response: Response {
                     code: 250,

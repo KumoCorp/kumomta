@@ -2969,6 +2969,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kumo-address"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "kumo-api-types"
 version = "0.1.0"
 dependencies = [
@@ -3059,6 +3067,7 @@ dependencies = [
  "chrono",
  "data-encoding",
  "k9",
+ "kumo-address",
  "mailparsing",
  "rfc5321",
  "serde",
