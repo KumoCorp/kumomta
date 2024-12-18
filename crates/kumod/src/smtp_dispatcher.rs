@@ -226,11 +226,7 @@ impl SmtpDispatcher {
         }))
     }
 
-    async fn attempt_connection_impl(
-        &mut self,
-        dispatcher: &mut Dispatcher,
-        tls_override: Option<Tls>,
-    ) -> anyhow::Result<()> {
+    async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
         if self.client.is_some() {
             return Ok(());
         }
@@ -288,7 +284,7 @@ impl SmtpDispatcher {
 
         let ehlo_name = self.ehlo_name.to_string();
         let mx_host = address.name.to_string();
-        let mut enable_tls = tls_override.unwrap_or(path_config.enable_tls);
+        let mut enable_tls = path_config.enable_tls;
         let port = dispatcher
             .egress_source
             .remote_port
@@ -398,7 +394,7 @@ impl SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
-        let broken_tls = self.has_broken_tls(&dispatcher.name, &path_config);
+        let broken_tls = self.has_broken_tls(&dispatcher.name);
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
@@ -555,10 +551,11 @@ impl SmtpDispatcher {
 
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
-                            return Box::pin(
-                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
-                            )
-                            .await;
+                            anyhow::bail!(
+                                "TLS handshake failed: {handshake_error}, \
+                                will re-connect in the clear because \
+                                opportunistic_tls_reconnect_on_failed_handshake=true"
+                            );
                         }
 
                         // We did not enable TLS
@@ -581,10 +578,11 @@ impl SmtpDispatcher {
                         self.remember_broken_tls(&dispatcher.name, &path_config);
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
-                            return Box::pin(
-                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
-                            )
-                            .await;
+                            anyhow::bail!(
+                                "{helo_verb} after STARTLS failed: {error:#}, \
+                                will re-connect in the clear because \
+                                opportunistic_tls_reconnect_on_failed_handshake=true"
+                            );
                         }
 
                         return Err(OpportunisticInsecureTlsHandshakeError {
@@ -629,10 +627,11 @@ impl SmtpDispatcher {
 
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
-                            return Box::pin(
-                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
-                            )
-                            .await;
+                            anyhow::bail!(
+                                "TLS handshake failed: {handshake_error}, will \
+                                re-connect in the clear because \
+                                opportunistic_tls_reconnect_on_failed_handshake=true"
+                            );
                         }
                         anyhow::bail!(
                             "TLS handshake with {address:?}:{port} failed: {handshake_error}"
@@ -656,10 +655,11 @@ impl SmtpDispatcher {
                         self.remember_broken_tls(&dispatcher.name, &path_config);
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
-                            return Box::pin(
-                                self.attempt_connection_impl(dispatcher, Some(Tls::Disabled)),
-                            )
-                            .await;
+                            anyhow::bail!(
+                                "{helo_verb} after STARTLS failed {err:#}, \
+                                will re-connect in the clear because \
+                                opportunistic_tls_reconnect_on_failed_handshake=true"
+                            );
                         }
                         return Err(err);
                     }
@@ -705,7 +705,14 @@ impl SmtpDispatcher {
     }
 
     fn remember_broken_tls(&self, site_name: &str, path_config: &EgressPathConfig) {
-        if let Some(duration) = path_config.remember_broken_tls {
+        let duration = match path_config.remember_broken_tls {
+            Some(duration) => Some(duration),
+            None if path_config.opportunistic_tls_reconnect_on_failed_handshake => {
+                Some(std::time::Duration::from_secs(15 * 60))
+            }
+            None => None,
+        };
+        if let Some(duration) = duration {
             BROKEN_TLS_BY_SITE.insert(
                 site_name.to_string(),
                 (),
@@ -714,12 +721,8 @@ impl SmtpDispatcher {
         }
     }
 
-    fn has_broken_tls(&self, site_name: &str, path_config: &EgressPathConfig) -> bool {
-        if path_config.remember_broken_tls.is_some() {
-            BROKEN_TLS_BY_SITE.get(site_name).is_some()
-        } else {
-            false
-        }
+    fn has_broken_tls(&self, site_name: &str) -> bool {
+        BROKEN_TLS_BY_SITE.get(site_name).is_some()
     }
 
     async fn log_disposition(
@@ -762,7 +765,7 @@ impl QueueDispatcher for SmtpDispatcher {
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        self.attempt_connection_impl(dispatcher, None)
+        self.attempt_connection_impl(dispatcher)
             .await
             .map_err(|err| {
                 self.tracer.diagnostic(Level::ERROR, || format!("{err:#}"));
