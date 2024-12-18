@@ -215,7 +215,7 @@ end)
 
 ```mermaid
 graph TD
-   SQ["Scheduled Queue: campaign:tenant@domain.com"]
+   SQ["Scheduled Queue: campaign:tenant\@domain.com"]
    SMTPL["ESMTP Listener"]
    HTTPI["Injection API"]
    RQ1["Ready Queue: 10.0.0.1->MX(domain.com)"]
@@ -234,7 +234,7 @@ graph TD
    POOL -- per tenant:domain config --> MAINT
    MAINT -- throttle per tenant:domain config --> RQ1
    MAINT -- throttle per tenant:domain config --> RQ2
-   RQ1 -- throttle per source:domain config\nconnect via 10.0.0.1 --> DESTSITE
-   RQ2 -- throttle per source:domain config\nconnect via 10.0.0.2 --> DESTSITE
+   RQ1 -- throttle per source:domain config<br>connect via 10.0.0.1 --> DESTSITE
+   RQ2 -- throttle per source:domain config<br>connect via 10.0.0.2 --> DESTSITE
 ```
 
