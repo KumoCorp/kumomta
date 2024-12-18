@@ -1,4 +1,6 @@
 use config::{any_err, get_or_create_sub_module};
+use futures::stream::FuturesOrdered;
+use futures::StreamExt;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, LuaSerdeExt, UserDataMethods, Value};
 use rdkafka::message::{Header, OwnedHeaders};
@@ -92,6 +94,69 @@ impl LuaUserData for Producer {
                 .map_err(|(code, _msg)| any_err(code))?;
 
             Ok((partition, offset))
+        });
+
+        methods.add_async_method("send_batch", |lua, this, values: Vec<Value>| async move {
+            let mut tasks = FuturesOrdered::new();
+            let producer = this.get_producer()?;
+
+            for value in values {
+                let record: Record = lua.from_value(value)?;
+
+                let headers = if record.headers.is_empty() {
+                    None
+                } else {
+                    let mut headers = OwnedHeaders::new();
+                    for (key, v) in &record.headers {
+                        headers = headers.insert(Header {
+                            key,
+                            value: Some(v),
+                        });
+                    }
+                    Some(headers)
+                };
+
+                let producer = producer.clone();
+
+                tasks.push_back(tokio::spawn(async move {
+                    producer
+                        .send(
+                            FutureRecord {
+                                topic: &record.topic,
+                                partition: record.partition,
+                                payload: record.payload.as_ref(),
+                                key: record.key.as_ref(),
+                                headers,
+                                timestamp: None,
+                            },
+                            Timeout::After(record.timeout.unwrap_or(Duration::from_secs(60))),
+                        )
+                        .await
+                }));
+            }
+
+            let mut failed_indexes = vec![];
+            let mut index = 1;
+
+            while let Some(result) = tasks.next().await {
+                match result {
+                    Ok(Ok(_)) => {}
+                    Ok(Err((error, _msg))) => {
+                        tracing::error!("Error sending to kafka {:?}", error);
+                        failed_indexes.push(index);
+                    }
+                    Err(error) => {
+                        tracing::error!("Error sending to kafka {:?}", error);
+                        failed_indexes.push(index)
+                    }
+                }
+                index += 1;
+            }
+            if failed_indexes.is_empty() {
+                Ok(Value::Nil)
+            } else {
+                Ok(lua.to_value(&failed_indexes)?)
+            }
         });
 
         methods.add_method("close", |_lua, this, _: ()| {

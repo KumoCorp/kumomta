@@ -10,3 +10,6 @@ duration-serde = {path="../duration-serde"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rdkafka = {workspace=true}
 serde = {workspace=true}
+futures = {workspace=true}
+tokio = {workspace=true, features=["full"]}
+tracing = {workspace=true}

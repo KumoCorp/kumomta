@@ -3974,9 +3974,12 @@ dependencies = [
  "anyhow",
  "config",
  "duration-serde",
+ "futures",
  "mlua",
  "rdkafka",
  "serde",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
