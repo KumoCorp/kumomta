@@ -18,6 +18,7 @@ use chrono::{DateTime, Utc};
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
+use humantime::format_duration;
 use kumo_api_types::egress_path::ConfigRefreshStrategy;
 use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
 use kumo_server_common::config_handle::ConfigHandle;
@@ -1418,11 +1419,13 @@ impl Queue {
         let age = msg.age(now);
         let delayed_age = age + delay;
         if delayed_age > max_age {
+            let delayed_age = format_duration(delayed_age.to_std().unwrap_or(Duration::ZERO));
+            let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
             tracing::debug!("expiring {id} {delayed_age} > {max_age}");
             log_disposition(LogDisposition {
                 kind: RecordType::Expiration,
                 msg,
-                site: "localhost",
+                site: "",
                 peer_address: None,
                 response: Response {
                     code: 551,
@@ -1431,7 +1434,10 @@ impl Queue {
                         subject: 4,
                         detail: 7,
                     }),
-                    content: format!("Next delivery time {delayed_age} > {max_age}"),
+                    content: format!(
+                        "Next delivery time would be {delayed_age} \
+                        after creation, which exceeds max_age={max_age}"
+                    ),
                     command: None,
                 },
                 egress_pool: self.queue_config.borrow().egress_pool.as_deref(),

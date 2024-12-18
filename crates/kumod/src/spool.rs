@@ -4,6 +4,7 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
 use humansize::{format_size, DECIMAL};
+use humantime::format_duration;
 use kumo_server_common::disk_space::{MinFree, MonitoredPath};
 use kumo_server_lifecycle::{Activity, LifeCycle, ShutdownSubcription};
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
@@ -329,11 +330,17 @@ impl SpoolManager {
                                         .compute_delay_based_on_age(num_attempts, age)
                                     {
                                         None => {
+                                            let age = format_duration(
+                                                age.to_std().unwrap_or(Duration::ZERO),
+                                            );
+                                            let max_age = format_duration(
+                                                max_age.to_std().unwrap_or(Duration::ZERO),
+                                            );
                                             tracing::debug!("expiring {id} {age} > {max_age}");
                                             log_disposition(LogDisposition {
                                                 kind: RecordType::Expiration,
                                                 msg,
-                                                site: "localhost",
+                                                site: "",
                                                 peer_address: None,
                                                 response: Response {
                                                     code: 551,
@@ -343,7 +350,8 @@ impl SpoolManager {
                                                         detail: 7,
                                                     }),
                                                     content: format!(
-                                                        "Delivery time {age} > {max_age}"
+                                                        "Next delivery time would be {age} \
+                                                        after creation, which exceeds max_age={max_age}"
                                                     ),
                                                     command: None,
                                                 },
