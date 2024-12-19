@@ -135,28 +135,25 @@ impl LuaUserData for Producer {
                 }));
             }
 
-            let mut failed_indexes = vec![];
+            let failed_indexes = lua.create_table()?;
+            let errors = lua.create_table()?;
             let mut index = 1;
 
             while let Some(result) = tasks.next().await {
                 match result {
                     Ok(Ok(_)) => {}
                     Ok(Err((error, _msg))) => {
-                        tracing::error!("Error sending to kafka {:?}", error);
-                        failed_indexes.push(index);
+                        failed_indexes.push(index)?;
+                        errors.push(format!("{error:#}"))?;
                     }
                     Err(error) => {
-                        tracing::error!("Error sending to kafka {:?}", error);
-                        failed_indexes.push(index)
+                        failed_indexes.push(index)?;
+                        errors.push(format!("{error:#}"))?;
                     }
                 }
                 index += 1;
             }
-            if failed_indexes.is_empty() {
-                Ok(Value::Nil)
-            } else {
-                Ok(lua.to_value(&failed_indexes)?)
-            }
+            Ok((failed_indexes, errors))
         });
 
         methods.add_method("close", |_lua, this, _: ()| {
