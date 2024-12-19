@@ -56,6 +56,10 @@ pub enum RecordType {
     /// Administratively rebound from one queue to another
     AdminRebind,
 
+    /// Moved from the special deferred injection queue
+    /// and into some other queue
+    DeferredInjectionRebind,
+
     /// Special for matching anything in the logging config
     Any,
 }

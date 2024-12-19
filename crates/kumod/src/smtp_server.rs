@@ -2053,7 +2053,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
 
         let code = response.code;
         let kind = if code == 250 {
-            RecordType::Delivery
+            RecordType::DeferredInjectionRebind
         } else if code >= 500 {
             RecordType::Bounce
         } else {

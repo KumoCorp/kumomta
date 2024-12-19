@@ -44,7 +44,8 @@ async fn end_to_end_deferred_queue() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 1,
-        Delivery: 2,
+        Delivery: 1,
+        DeferredInjectionRebind: 1,
     },
     sink_counts: {
         Reception: 1,
@@ -58,7 +59,7 @@ DeliverySummary {
         "
 AccountingStats {
     received: 1,
-    delivered: 2,
+    delivered: 1,
 }
 "
     );
