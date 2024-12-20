@@ -40,6 +40,43 @@ producer:send {
 }
 ```
 
+### client:send_batch({PARAMS})
+
+{{ since('dev') }}
+
+Sends a batch of messages. `PARAMS` is a table of object style table with the
+following keys:
+
+* `topic` - required string; the name of the queue to which to send the message
+* `payload` - required string; the message to send
+* `timeout` - how long to wait for a response.
+
+The result from send_batch is a tuple of tables: local failed_items, errors = producer:send_batch(...).
+
+```lua
+local producer = kumo.kafka.build_producer {
+  ['bootstrap.servers'] = 'localhost:9092',
+}
+
+local failed_items, errors = producer:send_batch {{
+  topic = 'my.topic',
+  payload = 'payload 1',
+  timeout = '1 minute',
+},
+{
+  topic = 'my.other.topic',
+  payload = 'payload 2',
+  timeout = '1 minute',
+}}
+if #failed_items > 0 then
+   -- some items failed
+   for i, item_idx in ipairs(failed_items) do
+      local error = errors[i]
+      print(string.format("item idx %d failed: %s", item_idx, error))
+   end
+end
+```
+
 ### client:close()
 
 {{since('2024.09.02-c5476b89')}}
