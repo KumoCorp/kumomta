@@ -3980,7 +3980,6 @@ dependencies = [
  "rdkafka",
  "serde",
  "tokio",
- "tracing",
 ]
 
 [[package]]

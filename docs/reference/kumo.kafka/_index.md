@@ -1,4 +1,4 @@
-# Module `kumo.amqp`
+# Module `kumo.kafka`
 
 This module provides Apache Kafka client functionality.
 

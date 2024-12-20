@@ -12,4 +12,3 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 rdkafka.workspace=true
 serde.workspace=true
 tokio.workspace=true
-tracing.workspace=true
