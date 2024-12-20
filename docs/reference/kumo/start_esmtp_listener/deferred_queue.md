@@ -31,8 +31,8 @@ according to these steps:
 
 * The [smtp_server_message_deferred_inject](../../events/smtp_server_message_deferred_inject.md) event will be triggered
 * If returns without error:
-  * A `Delivery` record is logged for the message showing that the message
-    was "delivered" via the `DeferredSmtpInjection` protocol.
+  * A `DeferredInjectionRebind` record is logged for the message showing that the message
+    was rebound into a different queue via the `DeferredSmtpInjection` protocol.
   * The message will be rebound into the appropriate queue per the
     normal rules based on the message metadata and envelope recipient.
 * If the event triggered a `kumo.reject` with a 5xx code, a `Bounce` record
