@@ -43,6 +43,14 @@
 * Provider match rules now also support exactly matching MX hostnames via the
   new `HostName` entry.
 
+* kcli queue-summary will now show connection limit and connection rate throttled
+  status effects as part of the ready queue information, making it easier to
+  determine when a (potentially shared with multiple nodes) limit might be
+  responsible for messages in the ready queue. There is a corresponding
+  [ready-q-states](../reference/rapidoc.md/#get-/api/admin/ready-q-states/v1) API
+  endpoint that can be used to retrieve this same information.
+
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

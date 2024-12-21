@@ -546,11 +546,10 @@ pub struct ReadyQueue {
     egress_source: EgressSource,
     next_config_refresh: StdMutex<Instant>,
     config_epoch: StdMutex<ConfigEpoch>,
-    states: Arc<StdMutex<ReadyQueueStates>>,
+    pub states: Arc<StdMutex<ReadyQueueStates>>,
 }
 
 impl ReadyQueue {
-    #[allow(unused)]
     pub fn name(&self) -> &str {
         &self.name
     }

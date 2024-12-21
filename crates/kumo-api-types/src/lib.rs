@@ -443,3 +443,21 @@ pub struct TraceSmtpClientV1Request {
     #[serde(default)]
     pub mx_addr: Option<CidrSet>,
 }
+
+#[derive(Serialize, Deserialize, Debug, ToSchema, IntoParams)]
+pub struct ReadyQueueStateRequest {
+    /// Which queues to request. If empty, request all queue states.
+    #[serde(default)]
+    pub queues: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct QueueState {
+    pub context: String,
+    pub since: DateTime<Utc>,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct ReadyQueueStateResponse {
+    pub states_by_ready_queue: HashMap<String, HashMap<String, QueueState>>,
+}

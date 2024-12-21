@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.12.09-a316f7a9"
+    "version": "2024.12.21-02fc8458"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -140,6 +140,42 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InspectMessageV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/ready-q-states/v1": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Retrieve information about the states that apply to a set of",
+        "description": "ready queues, or all queues if no specific queues were named\nin the request.",
+        "operationId": "readyq_states",
+        "parameters": [
+          {
+            "name": "queues",
+            "in": "query",
+            "description": "Which queues to request. If empty, request all queue states.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Obtained state information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyQueueStateResponse"
                 }
               }
             }
@@ -834,6 +870,50 @@
           }
         }
       },
+      "QueueState": {
+        "type": "object",
+        "required": [
+          "context",
+          "since"
+        ],
+        "properties": {
+          "context": {
+            "type": "string"
+          },
+          "since": {
+            "$ref": "#/components/schemas/DateTime"
+          }
+        }
+      },
+      "ReadyQueueStateRequest": {
+        "type": "object",
+        "properties": {
+          "queues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Which queues to request. If empty, request all queue states."
+          }
+        }
+      },
+      "ReadyQueueStateResponse": {
+        "type": "object",
+        "required": [
+          "states_by_ready_queue"
+        ],
+        "properties": {
+          "states_by_ready_queue": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/components/schemas/QueueState"
+              }
+            }
+          }
+        }
+      },
       "RebindV1Request": {
         "type": "object",
         "description": "Describes which messages should be rebound.\nThe criteria apply to the scheduled queue associated\nwith a given message.",
@@ -1237,6 +1317,30 @@
                 },
                 "message": {
                   "$ref": "#/components/schemas/MessageInformation"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ReadyQueueStateResponse": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "states_by_ready_queue"
+              ],
+              "properties": {
+                "states_by_ready_queue": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/components/schemas/QueueState"
+                    }
+                  }
                 }
               }
             }
