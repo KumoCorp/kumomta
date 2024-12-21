@@ -10,7 +10,7 @@ use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
 use crate::queue::{
-    DeliveryProto, IncrementAttempts, Queue, QueueConfig, QueueManager, QMAINT_RUNTIME,
+    DeliveryProto, IncrementAttempts, Queue, QueueConfig, QueueManager, QueueState, QMAINT_RUNTIME,
 };
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::DeferredSmtpInjectionDispatcher;
@@ -29,6 +29,7 @@ use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex as StdMutex;
 use rfc5321::{EnhancedStatusCode, Response};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -365,6 +366,7 @@ impl ReadyQueueManager {
                 egress_pool: egress_pool.to_string(),
                 next_config_refresh: StdMutex::new(next_config_refresh),
                 config_epoch: StdMutex::new(config_epoch),
+                states: Arc::new(StdMutex::new(ReadyQueueStates::default())),
             })
         });
         Ok(handle.clone())
@@ -442,6 +444,23 @@ impl ReadyQueueManager {
                 }
             };
 
+            {
+                let states = queue.states.lock();
+                let limited = states.connection_limited.is_some()
+                    || states.connection_rate_throttled.is_some();
+                if limited {
+                    // If we are throttled or up against a (possibly shared with
+                    // other nodes in the cluster) connection limit, then arrange
+                    // to wake up in about a minute, otherwise we wouldn't wake
+                    // up until the next message is ready, or for 10 minutes,
+                    // which is a bit too long.
+                    // Ideally we'd get notified when someone releases a relevant
+                    // lease, but we don't have a mechanism for that with redis
+                    // at this time.
+                    age_out_time = Instant::now() + ONE_MINUTE;
+                }
+            }
+
             tokio::select! {
                 _ = wait_for_shutdown => {
                     shutting_down = true;
@@ -504,6 +523,12 @@ impl ReadyQueueManager {
 
 pub type ReadyQueueHandle = Arc<ReadyQueue>;
 
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ReadyQueueStates {
+    pub connection_rate_throttled: Option<QueueState>,
+    pub connection_limited: Option<QueueState>,
+}
+
 pub struct ReadyQueue {
     name: String,
     queue_name_for_config_change_purposes_only: String,
@@ -521,6 +546,7 @@ pub struct ReadyQueue {
     egress_source: EgressSource,
     next_config_refresh: StdMutex<Instant>,
     config_epoch: StdMutex<ConfigEpoch>,
+    states: Arc<StdMutex<ReadyQueueStates>>,
 }
 
 impl ReadyQueue {
@@ -735,6 +761,10 @@ impl ReadyQueue {
                                 "maintain {}: could not acquire connection lease {label}: {err:#}",
                                 self.name
                             );
+                            self.states
+                                .lock()
+                                .connection_limited
+                                .replace(QueueState::new(format!("TooManyLeases for {label}")));
                             break 'new_dispatcher;
                         }
                         Err(err) => {
@@ -744,10 +774,18 @@ impl ReadyQueue {
                                 "maintain {}: could not acquire connection lease {label}: {err:#}",
                                 self.name
                             );
+                            self.states
+                                .lock()
+                                .connection_limited
+                                .replace(QueueState::new(format!(
+                                    "Error acquiring {label}: {err:#}"
+                                )));
                             break 'new_dispatcher;
                         }
                     }
                 }
+
+                self.states.lock().connection_limited.take();
 
                 // Open a new connection
                 let name = self.name.clone();
@@ -762,6 +800,7 @@ impl ReadyQueue {
                 let egress_source = self.egress_source.clone();
                 let egress_pool = self.egress_pool.clone();
                 let consecutive_connection_failures = self.consecutive_connection_failures.clone();
+                let states = self.states.clone();
 
                 tracing::trace!("spawning client for {name}");
                 if let Ok(handle) =
@@ -779,6 +818,7 @@ impl ReadyQueue {
                             egress_source,
                             egress_pool,
                             leases,
+                            states,
                         )
                         .await
                         {
@@ -930,6 +970,7 @@ pub struct Dispatcher {
     pub session_id: Uuid,
     leases: Vec<LimitLease>,
     batch_started: Option<tokio::time::Instant>,
+    pub states: Arc<StdMutex<ReadyQueueStates>>,
 }
 
 impl Drop for Dispatcher {
@@ -1000,6 +1041,7 @@ impl Dispatcher {
         egress_source: EgressSource,
         egress_pool: String,
         leases: Vec<LimitLease>,
+        states: Arc<StdMutex<ReadyQueueStates>>,
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
@@ -1032,6 +1074,7 @@ impl Dispatcher {
             suspended: None,
             batch_started: None,
             session_id: Uuid::new_v4(),
+            states,
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {

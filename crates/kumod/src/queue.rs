@@ -2608,3 +2608,18 @@ pub enum IncrementAttempts {
     No,
     Yes,
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct QueueState {
+    pub context: String,
+    pub since: DateTime<Utc>,
+}
+
+impl QueueState {
+    pub fn new<S: Into<String>>(context: S) -> Self {
+        Self {
+            context: context.into(),
+            since: Utc::now(),
+        }
+    }
+}

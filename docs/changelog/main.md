@@ -77,3 +77,8 @@
 
 * Certain providers configurations with multiple `MXSuffix` rules and multiple
   candidate MX hosts might not match in cases where they should.
+
+* Connection establishment rate for a ready queue could be constrained to
+  1-new-connection-per-10-minute period if that ready queue had no new messages
+  being added to it and if a connection limit had prevented new connections
+  being opened.
