@@ -90,3 +90,7 @@
   1-new-connection-per-10-minute period if that ready queue had no new messages
   being added to it and if a connection limit had prevented new connections
   being opened.
+
+* When using the HTTP injection API to construct a mailbox using UTF-8 characters,
+  the resulting From header could wrap in an undesirable location and produce
+  an invalid From header that fails to parse.

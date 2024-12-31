@@ -3607,7 +3607,6 @@ dependencies = [
  "paste",
  "quoted_printable",
  "serde",
- "textwrap",
  "thiserror 1.0.69",
  "uuid",
 ]

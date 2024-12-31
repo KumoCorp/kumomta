@@ -15,7 +15,6 @@ nom_locate = {workspace=true}
 paste = {workspace=true}
 quoted_printable = {workspace=true}
 serde = {workspace=true}
-textwrap = {workspace=true}
 thiserror = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
 
