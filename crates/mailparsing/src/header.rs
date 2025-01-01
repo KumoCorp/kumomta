@@ -701,6 +701,35 @@ Subject: =?UTF-8?q?hello_there_Andr=C3=A9,_this_is_a_longer_header_than_the_stan
     }
 
     #[test]
+    fn test_multi_line_filename() {
+        let header = Header::with_name_value(
+            "Content-Disposition",
+            "attachment;\r\n\
+            \tfilename*0*=UTF-8''%D0%A7%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%20%D0%B2;\r\n\
+            \tfilename*1*=%D0%BA%D0%BB%D0%B0%D0%B4%D0%B5%D0%BD%D0%BE%D0%B3%D0%BE%20;\r\n\
+            \tfilename*2*=%D0%BF%D0%BE%D0%B2%D1%96%D0%B4%D0%BE%D0%BC%D0%BB%D0%B5%D0%BD;\r\n\
+            \tfilename*3*=%D0%BD%D1%8F",
+        );
+
+        match header.as_content_disposition() {
+            Ok(cd) => {
+                k9::snapshot!(
+                    cd.get("filename"),
+                    r#"
+Some(
+    "Частина вкладеного повідомлення",
+)
+"#
+                );
+            }
+            Err(err) => {
+                eprintln!("{err:#}");
+                panic!("expected to parse");
+            }
+        }
+    }
+
+    #[test]
     fn test_date() {
         let header = Header::with_name_value("Date", "Tue, 1 Jul 2003 10:52:37 +0200");
         let date = header.as_date().unwrap();
