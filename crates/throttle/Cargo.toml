@@ -10,6 +10,7 @@ redis = ["dep:redis-cell-impl", "dep:mod-redis"]
 [dependencies]
 anyhow = {workspace=true}
 mod-redis = {path="../mod-redis", optional=true}
+parking_lot.workspace = true
 redis-cell-impl = { git = "https://github.com/wez/redis-cell.git", rev="97d409c3a62f2a0f5518c31fc9b4b65afbce2053" , optional=true}
 serde = {workspace=true}
 thiserror = {workspace=true}

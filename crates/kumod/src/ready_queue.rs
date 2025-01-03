@@ -747,10 +747,13 @@ impl ReadyQueue {
             // one and not do anything useful with the larger one
             limits.sort_by_key(|(_, LimitSpecWithDuration { spec, .. })| spec.limit);
 
+            // Don't wait longer than the implied expiration of a lease
+            let acquire_deadline = Instant::now() + lease_duration;
+
             'new_dispatcher: for _ in current_connection_count..ideal {
                 let mut leases = vec![];
                 for (label, limit) in &limits {
-                    match limit.acquire_lease(label).await {
+                    match limit.acquire_lease(label, acquire_deadline).await {
                         Ok(lease) => {
                             leases.push(lease);
                         }
