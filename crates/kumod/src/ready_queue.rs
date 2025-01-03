@@ -490,7 +490,26 @@ impl ReadyQueueManager {
             TOTAL_READYQ_RUNS.inc();
 
             let suspend = AdminSuspendReadyQEntry::get_for_queue_name(&name);
-            queue.maintain(&suspend).await;
+
+            // Run the maintain method. It may block waiting to acquire
+            // limit leases. Let's knock it out of that wait early
+            // if we're shutting down or the memory status changes
+            tokio::select! {
+                _ = queue.maintain(&suspend) => {}
+                _ = shutdown.shutting_down() => {
+                    // Not doing all the same guff as the wait_for_shutdown block above
+                    // because we will repeat that logic on the next loop iteration
+                },
+                _ = memory.changed() => {
+                    // It's slightly undesirable to knock the maintain()
+                    // method out of its acquire_lease wait if we transition
+                    // from low->OK, but, we really do need to handle the
+                    // other transition here.
+                    if get_headroom() == 0 {
+                        queue.shrink_ready_queue_due_to_low_mem().await;
+                    }
+                },
+            };
 
             if queue.reapable(&last_notify, &suspend) {
                 let mut mgr = MANAGER.lock();
@@ -756,6 +775,13 @@ impl ReadyQueue {
         'new_dispatcher: for _ in current_connection_count..ideal {
             let mut leases = vec![];
             for (label, limit) in &limits {
+                self.states
+                    .lock()
+                    .connection_limited
+                    .replace(QueueState::new(format!(
+                        "acquiring connection lease {label}"
+                    )));
+
                 match limit.acquire_lease(label, acquire_deadline).await {
                     Ok(lease) => {
                         leases.push(lease);
