@@ -9,7 +9,7 @@ use rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 use rustls::SupportedCipherSuite;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::time::Duration;
-use throttle::ThrottleSpec;
+use throttle::{LimitSpec, ThrottleSpec};
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Tls {
@@ -139,10 +139,10 @@ pub enum ConfigRefreshStrategy {
 #[serde(deny_unknown_fields)]
 pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_connection_limit")]
-    pub connection_limit: usize,
+    pub connection_limit: LimitSpec,
 
     #[serde(default)]
-    pub additional_connection_limits: OrderMap<String, usize>,
+    pub additional_connection_limits: OrderMap<String, LimitSpec>,
 
     #[serde(default)]
     pub enable_tls: Tls,
@@ -299,8 +299,8 @@ impl Default for EgressPathConfig {
 }
 
 impl EgressPathConfig {
-    fn default_connection_limit() -> usize {
-        32
+    fn default_connection_limit() -> LimitSpec {
+        LimitSpec::new(32)
     }
 
     fn default_enable_mta_sts() -> bool {

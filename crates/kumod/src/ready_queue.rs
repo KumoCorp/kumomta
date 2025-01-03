@@ -585,7 +585,7 @@ impl ReadyQueue {
         } else {
             let n = ideal_connection_count(
                 self.ready_count(),
-                self.path_config.borrow().connection_limit,
+                self.path_config.borrow().connection_limit.limit as usize,
             );
             if n > 0 && get_headroom() == 0 {
                 n.min(2)
@@ -728,7 +728,7 @@ impl ReadyQueue {
             let mut limits = vec![(
                 &limit_name,
                 LimitSpecWithDuration {
-                    limit: path_config.connection_limit,
+                    spec: path_config.connection_limit,
                     duration: lease_duration,
                 },
             )];
@@ -737,7 +737,7 @@ impl ReadyQueue {
                 limits.push((
                     label,
                     LimitSpecWithDuration {
-                        limit: *limit,
+                        spec: *limit,
                         duration: lease_duration,
                     },
                 ));
@@ -745,7 +745,7 @@ impl ReadyQueue {
             // Check limits from smallest to largest so that we avoid
             // taking up a slot from a larger one only to hit a smaller
             // one and not do anything useful with the larger one
-            limits.sort_by_key(|(_, LimitSpecWithDuration { limit, .. })| *limit);
+            limits.sort_by_key(|(_, LimitSpecWithDuration { spec, .. })| spec.limit);
 
             'new_dispatcher: for _ in current_connection_count..ideal {
                 let mut leases = vec![];

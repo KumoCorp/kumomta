@@ -1,4 +1,4 @@
-use crate::{Error, REDIS};
+use crate::{Error, LimitSpec, REDIS};
 use anyhow::{anyhow, Context};
 use mod_redis::{RedisConnection, Script};
 use std::collections::HashMap;
@@ -35,8 +35,7 @@ return redis.status_reply('OK')
 });
 
 pub struct LimitSpecWithDuration {
-    /// Maximum amount
-    pub limit: usize,
+    pub spec: LimitSpec,
     /// Maximum lease duration for a single count
     pub duration: Duration,
 }
@@ -58,10 +57,9 @@ enum Backend {
 
 impl LimitSpecWithDuration {
     pub async fn acquire_lease<S: AsRef<str>>(&self, key: S) -> Result<LimitLease, Error> {
-        if let Some(redis) = REDIS.get() {
-            self.acquire_lease_redis(&redis, key.as_ref()).await
-        } else {
-            self.acquire_lease_memory(key.as_ref()).await
+        match (self.spec.force_local, REDIS.get()) {
+            (false, Some(redis)) => self.acquire_lease_redis(&redis, key.as_ref()).await,
+            (true, _) | (false, None) => self.acquire_lease_memory(key.as_ref()).await,
         }
     }
 
@@ -84,7 +82,7 @@ impl LimitSpecWithDuration {
             .key(key)
             .arg(now_ts)
             .arg(expires_ts)
-            .arg(self.limit)
+            .arg(self.spec.limit)
             .arg(uuid_str);
 
         match conn
@@ -118,7 +116,7 @@ impl LimitSpecWithDuration {
         let set = store.get_or_create(key);
         set.expire_old();
 
-        set.acquire(uuid, self.limit, self.duration)?;
+        set.acquire(uuid, self.spec.limit, self.duration)?;
 
         Ok(LimitLease {
             name: key.to_string(),
@@ -253,8 +251,8 @@ impl LeaseSet {
         self.members.retain(|_k, expiry| *expiry > now);
     }
 
-    fn acquire(&mut self, uuid: Uuid, limit: usize, duration: Duration) -> Result<(), Error> {
-        if self.members.len() + 1 > limit {
+    fn acquire(&mut self, uuid: Uuid, limit: u64, duration: Duration) -> Result<(), Error> {
+        if self.members.len() as u64 + 1 > limit {
             let min_expiration = self.members.values().min().expect("some elements");
             Err(Error::TooManyLeases(*min_expiration - Instant::now()))
         } else {
@@ -308,7 +306,7 @@ mod test {
     #[tokio::test]
     async fn test_memory() {
         let limit = LimitSpecWithDuration {
-            limit: 2,
+            spec: LimitSpec::new(2),
             duration: Duration::from_secs(2),
         };
 
@@ -343,7 +341,7 @@ mod test {
         let conn = redis.connection().await.unwrap();
 
         let limit = LimitSpecWithDuration {
-            limit: 2,
+            spec: LimitSpec::new(2),
             duration: Duration::from_secs(2),
         };
 
@@ -381,7 +379,7 @@ mod test {
         let conn = redis.connection().await.unwrap();
 
         let limit = LimitSpecWithDuration {
-            limit: 2,
+            spec: LimitSpec::new(2),
             duration: Duration::from_secs(2),
         };
 
@@ -413,7 +411,7 @@ mod test {
     #[tokio::test]
     async fn test_memory_extension() {
         let limit = LimitSpecWithDuration {
-            limit: 1,
+            spec: LimitSpec::new(1),
             duration: Duration::from_secs(2),
         };
 
@@ -448,7 +446,7 @@ mod test {
         let conn = redis.connection().await.unwrap();
 
         let limit = LimitSpecWithDuration {
-            limit: 1,
+            spec: LimitSpec::new(1),
             duration: Duration::from_secs(2),
         };
 

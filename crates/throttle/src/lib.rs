@@ -4,7 +4,7 @@
 //! among multiple machines.
 #[cfg(feature = "redis")]
 use mod_redis::RedisError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::convert::TryFrom;
 use std::time::Duration;
 use thiserror::Error;
@@ -229,6 +229,194 @@ pub struct ThrottleResult {
     pub retry_after: Option<Duration>,
 }
 
+#[derive(Eq, PartialEq, Clone, Copy, Serialize, Hash)]
+pub struct LimitSpec {
+    /// Maximum amount
+    pub limit: u64,
+    pub force_local: bool,
+}
+
+impl std::fmt::Debug for LimitSpec {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.force_local {
+            write!(fmt, "local:{:?}", self.limit)
+        } else {
+            self.limit.fmt(fmt)
+        }
+    }
+}
+
+impl LimitSpec {
+    pub const fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            force_local: false,
+        }
+    }
+}
+
+impl TryFrom<&str> for LimitSpec {
+    type Error = String;
+    fn try_from(s: &str) -> Result<Self, String> {
+        let (force_local, s) = match s.strip_prefix("local:") {
+            Some(s) => (true, s),
+            None => (false, s),
+        };
+
+        // Allow "1_000/hr" and "1,000/hr" for more readable config
+        let limit: String = s
+            .chars()
+            .filter_map(|c| match c {
+                '_' | ',' => None,
+                c => Some(c),
+            })
+            .collect();
+
+        let limit = limit
+            .parse::<u64>()
+            .map_err(|err| format!("invalid limit '{limit}': {err:#}"))?;
+
+        if limit == 0 {
+            return Err(format!(
+                "invalid LimitSpec `{s}`: limit must be greater than 0!"
+            ));
+        }
+
+        Ok(Self { limit, force_local })
+    }
+}
+
+impl<'de> Deserialize<'de> for LimitSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Visitor;
+
+        struct Helper {}
+        impl<'de> Visitor<'de> for Helper {
+            type Value = LimitSpec;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("string or numeric limit spec")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                value.try_into().map_err(|err| E::custom(err))
+            }
+
+            fn visit_i8<E>(self, value: i8) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_i16<E>(self, value: i16) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_i32<E>(self, value: i32) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_u8<E>(self, value: u8) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_u16<E>(self, value: u16) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_u32<E>(self, value: u32) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<LimitSpec, E>
+            where
+                E: serde::de::Error,
+            {
+                if value < 1 {
+                    return Err(E::custom("limit must be 1 or larger"));
+                }
+                Ok(LimitSpec {
+                    limit: value as u64,
+                    force_local: false,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(Helper {})
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -292,6 +480,23 @@ mod test {
         );
         assert_eq!(
             ThrottleSpec::try_from("three/hour").unwrap_err(),
+            "invalid limit 'three': invalid digit found in string".to_string()
+        );
+    }
+
+    #[test]
+    fn limit_spec_parse() {
+        assert_eq!(LimitSpec::try_from("100").unwrap(), LimitSpec::new(100));
+        assert_eq!(LimitSpec::try_from("1_00").unwrap(), LimitSpec::new(100));
+        assert_eq!(
+            LimitSpec::try_from("local:1_00").unwrap(),
+            LimitSpec {
+                limit: 100,
+                force_local: true
+            }
+        );
+        assert_eq!(
+            LimitSpec::try_from("three").unwrap_err(),
             "invalid limit 'three': invalid digit found in string".to_string()
         );
     }

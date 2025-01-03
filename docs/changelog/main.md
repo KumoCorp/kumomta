@@ -50,6 +50,9 @@
   [ready-q-states](../reference/rapidoc.md/#get-/api/admin/ready-q-states/v1) API
   endpoint that can be used to retrieve this same information.
 
+* [connection_limit](../reference/kumo/make_egress_path/connection_limit.md)
+  may now be explicitly set to be local to the kumod instance, even if
+  redis-sharing is enabled, by using a string value like `"local:100"`.
 
 ## Fixes
 
