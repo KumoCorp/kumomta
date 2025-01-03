@@ -10,6 +10,7 @@ use utoipa::OpenApi;
 
 pub mod admin_bounce_v1;
 pub mod admin_inspect_message;
+pub mod admin_ready_queue_states;
 pub mod admin_rebind_v1;
 pub mod admin_suspend_ready_q_v1;
 pub mod admin_suspend_v1;
@@ -27,6 +28,7 @@ pub mod inject_v1;
         admin_bounce_v1::bounce_v1_list,
         admin_bounce_v1::bounce_v1_delete,
         admin_inspect_message::inspect_v1,
+        admin_ready_queue_states::readyq_states,
         admin_rebind_v1::rebind_v1,
         admin_suspend_ready_q_v1::suspend,
         admin_suspend_ready_q_v1::list,
@@ -52,6 +54,9 @@ pub mod inject_v1;
             BounceV1CancelRequest,
             InspectMessageV1Response,
             MessageInformation,
+            ReadyQueueStateRequest,
+            ReadyQueueStateResponse,
+            QueueState,
             RebindV1Request,
             RebindV1Response,
             SuspendReadyQueueV1Request,
@@ -62,7 +67,12 @@ pub mod inject_v1;
             SuspendV1Request,
             TraceHeaders,
         ),
-        responses(InjectV1Response, BounceV1Response, InspectMessageV1Response),
+        responses(
+            InjectV1Response,
+            BounceV1Response,
+            InspectMessageV1Response,
+            ReadyQueueStateResponse
+        ),
     )
 )]
 struct ApiDoc;
@@ -80,6 +90,10 @@ pub fn make_router() -> RouterAndDocs {
             .route(
                 "/api/admin/bounce/v1",
                 delete(admin_bounce_v1::bounce_v1_delete),
+            )
+            .route(
+                "/api/admin/ready-q-states/v1",
+                get(admin_ready_queue_states::readyq_states),
             )
             .route("/api/admin/rebind/v1", post(admin_rebind_v1::rebind_v1))
             .route("/api/admin/suspend/v1", post(admin_suspend_v1::suspend))

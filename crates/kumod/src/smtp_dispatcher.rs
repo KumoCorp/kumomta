@@ -3,7 +3,7 @@ use crate::http_server::admin_trace_smtp_client_v1::{
     SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{IncrementAttempts, QueueManager};
+use crate::queue::{IncrementAttempts, QueueManager, QueueState};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -241,6 +241,14 @@ impl SmtpDispatcher {
                     .await?;
 
                 if let Some(delay) = result.retry_after {
+                    dispatcher
+                        .states
+                        .lock()
+                        .connection_rate_throttled
+                        .replace(QueueState::new(format!(
+                            "max_connection_rate throttling for {delay:?}"
+                        )));
+
                     if delay >= path_config.client_timeouts.idle_timeout {
                         self.tracer.diagnostic(Level::INFO, || {
                             format!(
@@ -268,6 +276,7 @@ impl SmtpDispatcher {
                     break;
                 }
             }
+            dispatcher.states.lock().connection_rate_throttled.take();
         }
 
         let connection_wrapper = dispatcher.metrics.wrap_connection(());

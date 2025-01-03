@@ -43,6 +43,14 @@
 * Provider match rules now also support exactly matching MX hostnames via the
   new `HostName` entry.
 
+* kcli queue-summary will now show connection limit and connection rate throttled
+  status effects as part of the ready queue information, making it easier to
+  determine when a (potentially shared with multiple nodes) limit might be
+  responsible for messages in the ready queue. There is a corresponding
+  [ready-q-states](../reference/rapidoc.md/#get-/api/admin/ready-q-states/v1) API
+  endpoint that can be used to retrieve this same information.
+
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
@@ -77,3 +85,12 @@
 
 * Certain providers configurations with multiple `MXSuffix` rules and multiple
   candidate MX hosts might not match in cases where they should.
+
+* Connection establishment rate for a ready queue could be constrained to
+  1-new-connection-per-10-minute period if that ready queue had no new messages
+  being added to it and if a connection limit had prevented new connections
+  being opened.
+
+* When using the HTTP injection API to construct a mailbox using UTF-8 characters,
+  the resulting From header could wrap in an undesirable location and produce
+  an invalid From header that fails to parse.

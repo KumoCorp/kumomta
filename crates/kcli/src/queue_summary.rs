@@ -1,7 +1,9 @@
 use clap::Parser;
 use dns_resolver::MailExchanger;
 use futures::StreamExt;
-use kumo_api_types::{BounceV1ListEntry, SuspendReadyQueueV1ListEntry, SuspendV1ListEntry};
+use kumo_api_types::{
+    BounceV1ListEntry, ReadyQueueStateResponse, SuspendReadyQueueV1ListEntry, SuspendV1ListEntry,
+};
 use kumo_prometheus::parser::Metric;
 use lexicmp::natural_lexical_cmp;
 use message::message::QueueNameComponents;
@@ -280,6 +282,13 @@ impl QueueSummaryCommand {
         )
         .await?;
 
+        let ready_queue_states: ReadyQueueStateResponse = crate::request_with_json_response(
+            reqwest::Method::GET,
+            endpoint.join("/api/admin/ready-q-states/v1")?,
+            &(),
+        )
+        .await?;
+
         let mut metrics = QueueMetrics::obtain(
             endpoint,
             QueueMetricsParams {
@@ -361,11 +370,19 @@ impl QueueSummaryCommand {
 
         let mut ready_rows = vec![];
         for m in &metrics.ready {
-            let status = if let Some(s) = suspended_sites.iter().find(|s| s.name == m.name) {
-                format!("🛑suspend: {}", s.reason)
-            } else {
-                String::new()
-            };
+            let mut status = vec![];
+
+            if let Some(s) = suspended_sites.iter().find(|s| s.name == m.name) {
+                status.push(format!("🛑suspend: {}", s.reason));
+            }
+
+            if let Some(states) = ready_queue_states.states_by_ready_queue.get(&m.name) {
+                for (key, state) in states {
+                    status.push(format!("{key}: {} @ {}", state.context, state.since));
+                }
+            }
+
+            let status = status.join(", ");
 
             ready_rows.push(vec![
                 m.site_name().to_string(),

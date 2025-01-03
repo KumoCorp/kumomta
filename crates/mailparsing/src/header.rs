@@ -112,14 +112,7 @@ impl<'a> Header<'a> {
         let value = value.into();
 
         let value = if value.chars().all(|c| c.is_ascii()) {
-            textwrap::fill(
-                &value,
-                textwrap::Options::new(75)
-                    .initial_indent("")
-                    .line_ending(textwrap::LineEnding::CRLF)
-                    .word_separator(textwrap::WordSeparator::AsciiSpace)
-                    .subsequent_indent("\t"),
-            )
+            crate::textwrap::wrap(&value)
         } else {
             crate::rfc5322_parser::qp_encode(&value)
         }
@@ -689,6 +682,51 @@ Subject: =?UTF-8?q?hello_there_Andr=C3=A9,_this_is_a_longer_header_than_the_stan
         );
 
         k9::assert_equal!(header.as_unstructured().unwrap(), input_text);
+    }
+
+    #[test]
+    fn test_wrapping_in_from_header() {
+        let header = Header::new_unstructured(
+            "From",
+            "=?UTF-8?q?=D8=B1=D9=87=D9=86=D9=85=D8=A7_=DA=A9=D8=A7=D9=84=D8=AC?= \
+            <from-dash-wrap-me@example.com>",
+        );
+
+        eprintln!("made: {}", header.to_header_string());
+
+        // In the original problem report, the header got wrapped onto a second
+        // line at `from-` which broke parsing the header as a mailbox.
+        // This line asserts that it does parse.
+        let _ = header.as_mailbox_list().unwrap();
+    }
+
+    #[test]
+    fn test_multi_line_filename() {
+        let header = Header::with_name_value(
+            "Content-Disposition",
+            "attachment;\r\n\
+            \tfilename*0*=UTF-8''%D0%A7%D0%B0%D1%81%D1%82%D0%B8%D0%BD%D0%B0%20%D0%B2;\r\n\
+            \tfilename*1*=%D0%BA%D0%BB%D0%B0%D0%B4%D0%B5%D0%BD%D0%BE%D0%B3%D0%BE%20;\r\n\
+            \tfilename*2*=%D0%BF%D0%BE%D0%B2%D1%96%D0%B4%D0%BE%D0%BC%D0%BB%D0%B5%D0%BD;\r\n\
+            \tfilename*3*=%D0%BD%D1%8F",
+        );
+
+        match header.as_content_disposition() {
+            Ok(cd) => {
+                k9::snapshot!(
+                    cd.get("filename"),
+                    r#"
+Some(
+    "Частина вкладеного повідомлення",
+)
+"#
+                );
+            }
+            Err(err) => {
+                eprintln!("{err:#}");
+                panic!("expected to parse");
+            }
+        }
     }
 
     #[test]
