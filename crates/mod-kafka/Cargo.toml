@@ -4,9 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = {workspace=true}
+anyhow.workspace=true
 config = {path="../config"}
 duration-serde = {path="../duration-serde"}
+futures.workspace=true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
-rdkafka = {workspace=true}
-serde = {workspace=true}
+rdkafka.workspace=true
+serde.workspace=true
+tokio.workspace=true
