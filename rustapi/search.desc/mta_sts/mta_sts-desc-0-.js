@@ -1,0 +1,1 @@
+searchState.loadedDescShard("mta_sts", 0, "Returns the argument unchanged.\nCalls <code>U::from(self)</code>.\nReturns the argument unchanged.\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.\nCalls <code>U::from(self)</code>.\nReturns true if <code>name</code> matches any of the allowed mx host …")
