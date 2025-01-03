@@ -34,7 +34,7 @@ return redis.status_reply('OK')
     )
 });
 
-pub struct LimitSpec {
+pub struct LimitSpecWithDuration {
     /// Maximum amount
     pub limit: usize,
     /// Maximum lease duration for a single count
@@ -56,7 +56,7 @@ enum Backend {
     Redis,
 }
 
-impl LimitSpec {
+impl LimitSpecWithDuration {
     pub async fn acquire_lease<S: AsRef<str>>(&self, key: S) -> Result<LimitLease, Error> {
         if let Some(redis) = REDIS.get() {
             self.acquire_lease_redis(&redis, key.as_ref()).await
@@ -307,7 +307,7 @@ mod test {
 
     #[tokio::test]
     async fn test_memory() {
-        let limit = LimitSpec {
+        let limit = LimitSpecWithDuration {
             limit: 2,
             duration: Duration::from_secs(2),
         };
@@ -342,7 +342,7 @@ mod test {
         let redis = RedisServer::spawn("").await.unwrap();
         let conn = redis.connection().await.unwrap();
 
-        let limit = LimitSpec {
+        let limit = LimitSpecWithDuration {
             limit: 2,
             duration: Duration::from_secs(2),
         };
@@ -380,7 +380,7 @@ mod test {
         let redis = RedisCluster::spawn().await.unwrap();
         let conn = redis.connection().await.unwrap();
 
-        let limit = LimitSpec {
+        let limit = LimitSpecWithDuration {
             limit: 2,
             duration: Duration::from_secs(2),
         };
@@ -412,7 +412,7 @@ mod test {
 
     #[tokio::test]
     async fn test_memory_extension() {
-        let limit = LimitSpec {
+        let limit = LimitSpecWithDuration {
             limit: 1,
             duration: Duration::from_secs(2),
         };
@@ -447,7 +447,7 @@ mod test {
         let redis = RedisServer::spawn("").await.unwrap();
         let conn = redis.connection().await.unwrap();
 
-        let limit = LimitSpec {
+        let limit = LimitSpecWithDuration {
             limit: 1,
             duration: Duration::from_secs(2),
         };

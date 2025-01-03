@@ -35,7 +35,7 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
-use throttle::limit::{LimitLease, LimitSpec};
+use throttle::limit::{LimitLease, LimitSpecWithDuration};
 use throttle::ThrottleSpec;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
@@ -727,7 +727,7 @@ impl ReadyQueue {
             let limit_name = format!("kumomta.connection_limit.{}", self.name);
             let mut limits = vec![(
                 &limit_name,
-                LimitSpec {
+                LimitSpecWithDuration {
                     limit: path_config.connection_limit,
                     duration: lease_duration,
                 },
@@ -736,7 +736,7 @@ impl ReadyQueue {
             for (label, limit) in &path_config.additional_connection_limits {
                 limits.push((
                     label,
-                    LimitSpec {
+                    LimitSpecWithDuration {
                         limit: *limit,
                         duration: lease_duration,
                     },
@@ -745,7 +745,7 @@ impl ReadyQueue {
             // Check limits from smallest to largest so that we avoid
             // taking up a slot from a larger one only to hit a smaller
             // one and not do anything useful with the larger one
-            limits.sort_by_key(|(_, LimitSpec { limit, .. })| *limit);
+            limits.sort_by_key(|(_, LimitSpecWithDuration { limit, .. })| *limit);
 
             'new_dispatcher: for _ in current_connection_count..ideal {
                 let mut leases = vec![];
