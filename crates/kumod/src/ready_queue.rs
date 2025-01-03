@@ -722,117 +722,115 @@ impl ReadyQueue {
             self.name
         );
 
-        if current_connection_count < ideal {
-            let lease_duration = path_config.client_timeouts.total_message_send_duration();
-            let limit_name = format!("kumomta.connection_limit.{}", self.name);
-            let mut limits = vec![(
-                &limit_name,
+        if current_connection_count >= ideal {
+            return;
+        }
+
+        let lease_duration = path_config.client_timeouts.total_message_send_duration();
+        let limit_name = format!("kumomta.connection_limit.{}", self.name);
+        let mut limits = vec![(
+            &limit_name,
+            LimitSpecWithDuration {
+                spec: path_config.connection_limit,
+                duration: lease_duration,
+            },
+        )];
+
+        for (label, limit) in &path_config.additional_connection_limits {
+            limits.push((
+                label,
                 LimitSpecWithDuration {
-                    spec: path_config.connection_limit,
+                    spec: *limit,
                     duration: lease_duration,
                 },
-            )];
+            ));
+        }
+        // Check limits from smallest to largest so that we avoid
+        // taking up a slot from a larger one only to hit a smaller
+        // one and not do anything useful with the larger one
+        limits.sort_by_key(|(_, LimitSpecWithDuration { spec, .. })| spec.limit);
 
-            for (label, limit) in &path_config.additional_connection_limits {
-                limits.push((
-                    label,
-                    LimitSpecWithDuration {
-                        spec: *limit,
-                        duration: lease_duration,
-                    },
-                ));
-            }
-            // Check limits from smallest to largest so that we avoid
-            // taking up a slot from a larger one only to hit a smaller
-            // one and not do anything useful with the larger one
-            limits.sort_by_key(|(_, LimitSpecWithDuration { spec, .. })| spec.limit);
+        // Don't wait longer than the implied expiration of a lease
+        let acquire_deadline = Instant::now() + lease_duration;
 
-            // Don't wait longer than the implied expiration of a lease
-            let acquire_deadline = Instant::now() + lease_duration;
-
-            'new_dispatcher: for _ in current_connection_count..ideal {
-                let mut leases = vec![];
-                for (label, limit) in &limits {
-                    match limit.acquire_lease(label, acquire_deadline).await {
-                        Ok(lease) => {
-                            leases.push(lease);
-                        }
-                        Err(err @ throttle::Error::TooManyLeases(_)) => {
-                            // Over budget; we'll try again later
-                            tracing::debug!(
-                                "maintain {}: could not acquire connection lease {label}: {err:#}",
-                                self.name
-                            );
-                            self.states
-                                .lock()
-                                .connection_limited
-                                .replace(QueueState::new(format!("TooManyLeases for {label}")));
-                            break 'new_dispatcher;
-                        }
-                        Err(err) => {
-                            // Some kind of error trying to acquire the lease, could be
-                            // a redis/connectivity error, let's surface it
-                            tracing::error!(
-                                "maintain {}: could not acquire connection lease {label}: {err:#}",
-                                self.name
-                            );
-                            self.states
-                                .lock()
-                                .connection_limited
-                                .replace(QueueState::new(format!(
-                                    "Error acquiring {label}: {err:#}"
-                                )));
-                            break 'new_dispatcher;
-                        }
+        'new_dispatcher: for _ in current_connection_count..ideal {
+            let mut leases = vec![];
+            for (label, limit) in &limits {
+                match limit.acquire_lease(label, acquire_deadline).await {
+                    Ok(lease) => {
+                        leases.push(lease);
+                    }
+                    Err(err @ throttle::Error::TooManyLeases(_)) => {
+                        // Over budget; we'll try again later
+                        tracing::debug!(
+                            "maintain {}: could not acquire connection lease {label}: {err:#}",
+                            self.name
+                        );
+                        self.states
+                            .lock()
+                            .connection_limited
+                            .replace(QueueState::new(format!("TooManyLeases for {label}")));
+                        break 'new_dispatcher;
+                    }
+                    Err(err) => {
+                        // Some kind of error trying to acquire the lease, could be
+                        // a redis/connectivity error, let's surface it
+                        tracing::error!(
+                            "maintain {}: could not acquire connection lease {label}: {err:#}",
+                            self.name
+                        );
+                        self.states
+                            .lock()
+                            .connection_limited
+                            .replace(QueueState::new(format!("Error acquiring {label}: {err:#}")));
+                        break 'new_dispatcher;
                     }
                 }
+            }
 
-                self.states.lock().connection_limited.take();
+            self.states.lock().connection_limited.take();
 
-                // Open a new connection
-                let name = self.name.clone();
-                let queue_name_for_config_change_purposes_only =
-                    self.queue_name_for_config_change_purposes_only.clone();
-                let mx = self.mx.clone();
-                let ready = Arc::clone(&self.ready);
-                let notify_dispatcher = self.notify_dispatcher.clone();
-                let path_config = self.path_config.clone();
-                let queue_config = self.queue_config.clone();
-                let metrics = self.metrics.clone();
-                let egress_source = self.egress_source.clone();
-                let egress_pool = self.egress_pool.clone();
-                let consecutive_connection_failures = self.consecutive_connection_failures.clone();
-                let states = self.states.clone();
+            // Open a new connection
+            let name = self.name.clone();
+            let queue_name_for_config_change_purposes_only =
+                self.queue_name_for_config_change_purposes_only.clone();
+            let mx = self.mx.clone();
+            let ready = Arc::clone(&self.ready);
+            let notify_dispatcher = self.notify_dispatcher.clone();
+            let path_config = self.path_config.clone();
+            let queue_config = self.queue_config.clone();
+            let metrics = self.metrics.clone();
+            let egress_source = self.egress_source.clone();
+            let egress_pool = self.egress_pool.clone();
+            let consecutive_connection_failures = self.consecutive_connection_failures.clone();
+            let states = self.states.clone();
 
-                tracing::trace!("spawning client for {name}");
-                if let Ok(handle) =
-                    READYQ_RUNTIME.spawn(format!("smtp client {name}"), async move {
-                        if let Err(err) = Dispatcher::run(
-                            &name,
-                            queue_name_for_config_change_purposes_only,
-                            mx,
-                            ready,
-                            notify_dispatcher,
-                            queue_config,
-                            path_config,
-                            metrics,
-                            consecutive_connection_failures.clone(),
-                            egress_source,
-                            egress_pool,
-                            leases,
-                            states,
-                        )
-                        .await
-                        {
-                            tracing::debug!(
-                                "Error in Dispatcher::run for {name}: {err:#} \
-                         (consecutive_connection_failures={consecutive_connection_failures:?})"
-                            );
-                        }
-                    })
+            tracing::trace!("spawning client for {name}");
+            if let Ok(handle) = READYQ_RUNTIME.spawn(format!("smtp client {name}"), async move {
+                if let Err(err) = Dispatcher::run(
+                    &name,
+                    queue_name_for_config_change_purposes_only,
+                    mx,
+                    ready,
+                    notify_dispatcher,
+                    queue_config,
+                    path_config,
+                    metrics,
+                    consecutive_connection_failures.clone(),
+                    egress_source,
+                    egress_pool,
+                    leases,
+                    states,
+                )
+                .await
                 {
-                    self.connections.lock().push(handle);
+                    tracing::debug!(
+                        "Error in Dispatcher::run for {name}: {err:#} \
+                         (consecutive_connection_failures={consecutive_connection_failures:?})"
+                    );
                 }
+            }) {
+                self.connections.lock().push(handle);
             }
         }
     }
