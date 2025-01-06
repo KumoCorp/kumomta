@@ -29,10 +29,11 @@ redis.log(redis.LOG_DEBUG, "limiter: ZCARD", KEYS[1], " -> count=", count)
 
 if count + 1 > limit then
   -- find the next expiration time
-  redis.log(redis.LOG_DEBUG, "limiter: going to call ZRANGE", KEYS[1])
-  local smallest = redis.call("ZRANGE", KEYS[1], "-inf", "+inf", "BYSCORE", "LIMIT", 0, 1, "WITHSCORES")
+  redis.log(redis.LOG_DEBUG, "limiter: going to call ZRANGEBYSCORE", KEYS[1])
+  local smallest = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", "+inf", "WITHSCORES", "LIMIT", 0, 1)
 
-  redis.log(redis.LOG_DEBUG, "limiter: ZRANGE", KEYS[1], " -> smallest size=", #smallest, "uuid=", smallest[1], "exp=", smallest[2])
+  redis.log(redis.LOG_DEBUG, "limiter: ZRANGEBYSCORE", KEYS[1], " -> smallest size=", #smallest, "uuid=", smallest[1], "exp=", smallest[2])
+  redis.log(redis.LOG_DEBUG, "limiter: ZRANGEBYSCORE", KEYS[1], " -> uuid=", smallest[1], "exp=", smallest[2])
 
   -- smallest holds the uuid and its expiration time;
   -- we want to just return the remaining time interval
