@@ -17,12 +17,11 @@ local now_ts = tonumber(ARGV[1])
 local expires_ts = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 local uuid = ARGV[4]
-local tomorrow_ts = now_ts + 86400
 
 -- prune expired values
-redis.call("ZREMRANGEBYSCORE", KEYS[1], 0, now_ts-1)
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now_ts-1)
 
-local count = redis.call("ZCOUNT", KEYS[1], now_ts, tomorrow_ts)
+local count = redis.call("ZCOUNT", KEYS[1], now_ts, "+inf")
 if count + 1 > limit then
   -- find the next expiration time
   local smallest = redis.call("ZRANGE", KEYS[1], "-inf", "+inf", "BYSCORE", "LIMIT", 0, 1, "WITHSCORES")
@@ -96,11 +95,14 @@ impl LimitSpecWithDuration {
                 .arg(self.spec.limit)
                 .arg(uuid_str);
 
-            match conn
-                .invoke_script(script)
-                .await
-                .context("error invoking redis lease acquisition script")?
-            {
+            match conn.invoke_script(script).await.with_context(|| {
+                format!(
+                    "error invoking redis lease acquisition script \
+                     key={key} now={now_ts} expires={expires_ts} \
+                     limit={} uuid={uuid}",
+                    self.spec.limit
+                )
+            })? {
                 mod_redis::RedisValue::Okay => {
                     return Ok(LimitLease {
                         name: key.to_string(),
