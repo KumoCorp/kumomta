@@ -10,45 +10,7 @@ use uuid::Uuid;
 
 static MEMORY: LazyLock<Mutex<MemoryStore>> = LazyLock::new(|| Mutex::new(MemoryStore::new()));
 
-static ACQUIRE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
-    Script::new(
-        r#"
-local now_ts = math.floor(tonumber(ARGV[1]))
-local expires_ts = math.ceil(tonumber(ARGV[2]))
-local limit = tonumber(ARGV[3])
-local uuid = ARGV[4]
-
--- prune expired values
-redis.log(redis.LOG_DEBUG, "limiter: going to call ZREMRANGEBYSCORE", KEYS[1], now_ts-1)
-local pruned = redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now_ts-1)
-redis.log(redis.LOG_DEBUG, "limiter: ZREMRANGEBYSCORE -> pruned=", pruned)
-
-redis.log(redis.LOG_DEBUG, "limiter: going to call ZCARD", KEYS[1])
-local count = redis.call("ZCARD", KEYS[1])
-redis.log(redis.LOG_DEBUG, "limiter: ZCARD", KEYS[1], " -> count=", count)
-
-if count + 1 > limit then
-  -- find the next expiration time
-  redis.log(redis.LOG_DEBUG, "limiter: going to call ZRANGEBYSCORE", KEYS[1])
-  local smallest = redis.call("ZRANGEBYSCORE", KEYS[1], "-inf", "+inf", "WITHSCORES", "LIMIT", 0, 1)
-
-  redis.log(redis.LOG_DEBUG, "limiter: ZRANGEBYSCORE", KEYS[1], " -> smallest size=", #smallest, "uuid=", smallest[1], "exp=", smallest[2])
-  redis.log(redis.LOG_DEBUG, "limiter: ZRANGEBYSCORE", KEYS[1], " -> uuid=", smallest[1], "exp=", smallest[2])
-
-  -- smallest holds the uuid and its expiration time;
-  -- we want to just return the remaining time interval
-  if #smallest == 0 then
-    return 0
-  end
-  return math.ceil(smallest[2] - now_ts)
-end
-redis.log(redis.LOG_DEBUG, "limiter: going to call ZADD", KEYS[1], expires_ts, uuid)
-local result = redis.call("ZADD", KEYS[1], "NX", expires_ts, uuid)
-redis.log(redis.LOG_DEBUG, "limiter: ZADD", KEYS[1], " -> ", result)
-return redis.status_reply('OK')
-"#,
-    )
-});
+static ACQUIRE_SCRIPT: LazyLock<Script> = LazyLock::new(|| Script::new(include_str!("limit.lua")));
 
 pub struct LimitSpecWithDuration {
     pub spec: LimitSpec,
