@@ -41,7 +41,7 @@ if count + 1 > limit then
   end
 
   local smallest
-  if redis.REDIS_VERSION_NUM >= 0x062000 then
+  if (redis.REDIS_VERSION_NUM or 0) >= 0x062000 then
     smallest = redis.call(
       'ZRANGE',
       KEYS[1],
