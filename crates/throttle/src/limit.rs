@@ -13,13 +13,13 @@ static MEMORY: LazyLock<Mutex<MemoryStore>> = LazyLock::new(|| Mutex::new(Memory
 static ACQUIRE_SCRIPT: LazyLock<Script> = LazyLock::new(|| {
     Script::new(
         r#"
-local now_ts = tonumber(ARGV[1])
-local expires_ts = tonumber(ARGV[2])
+local now_ts = math.floor(tonumber(ARGV[1]))
+local expires_ts = math.ceil(tonumber(ARGV[2]))
 local limit = tonumber(ARGV[3])
 local uuid = ARGV[4]
 
 -- prune expired values
-redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", math.floor(now_ts-1))
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now_ts-1)
 
 local count = redis.call("ZCARD", KEYS[1])
 if count + 1 > limit then
@@ -30,7 +30,7 @@ if count + 1 > limit then
   if #smallest == 0 then
     return 0
   end
-  return math.floor(smallest[2] - now_ts)
+  return math.ceil(smallest[2] - now_ts)
 end
 redis.call("ZADD", KEYS[1], "NX", expires_ts, uuid)
 return redis.status_reply('OK')
