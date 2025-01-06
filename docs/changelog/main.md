@@ -101,3 +101,7 @@
 * When using the HTTP injection API to construct a mailbox with a `name` containing
   the `@` sign, the resulting From header did not enclose the `name` portion
   in double quotes, producing an invalid From header that failed to parse.
+
+* When using the HTTP injection API to construct a subject header with a non-space
+  UTF-8 sequence containing the byte 0x20, the quoted printable encoder would
+  confuse that sequence with a space and produce an invalid output sequence.

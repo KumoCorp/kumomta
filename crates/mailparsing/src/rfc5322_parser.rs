@@ -1789,28 +1789,33 @@ pub(crate) fn qp_encode(s: &str) -> String {
     result.extend_from_slice(prefix);
     let mut line_length = 0;
 
-    enum Byte {
-        Passthru(u8),
-        Encode(u8),
+    enum Bytes<'a> {
+        Passthru(&'a [u8]),
+        Encode(&'a [u8]),
     }
 
-    for c in s.bytes() {
+    // Iterate by char so that we don't confuse space (0x20) with a
+    // utf8 subsequence and incorrectly encode the input string.
+    for c in s.chars() {
+        let mut bytes = [0u8; 4];
+        let bytes = c.encode_utf8(&mut bytes).as_bytes();
+
         let b = if (c.is_ascii_alphanumeric() || c.is_ascii_punctuation())
-            && c != b'?'
-            && c != b'='
-            && c != b' '
-            && c != b'\t'
+            && c != '?'
+            && c != '='
+            && c != ' '
+            && c != '\t'
         {
-            Byte::Passthru(c)
-        } else if c == b' ' {
-            Byte::Passthru(b'_')
+            Bytes::Passthru(bytes)
+        } else if c == ' ' {
+            Bytes::Passthru(b"_")
         } else {
-            Byte::Encode(c)
+            Bytes::Encode(bytes)
         };
 
         let need_len = match b {
-            Byte::Passthru(_) => 1,
-            Byte::Encode(_) => 3,
+            Bytes::Passthru(b) => b.len(),
+            Bytes::Encode(b) => b.len() * 3,
         };
 
         if need_len > limit - line_length {
@@ -1822,13 +1827,15 @@ pub(crate) fn qp_encode(s: &str) -> String {
         }
 
         match b {
-            Byte::Passthru(c) => {
-                result.push(c);
+            Bytes::Passthru(c) => {
+                result.extend_from_slice(c);
             }
-            Byte::Encode(c) => {
-                result.push(b'=');
-                result.push(HEX_CHARS[(c as usize) >> 4]);
-                result.push(HEX_CHARS[(c as usize) & 0x0f]);
+            Bytes::Encode(bytes) => {
+                for &c in bytes {
+                    result.push(b'=');
+                    result.push(HEX_CHARS[(c as usize) >> 4]);
+                    result.push(HEX_CHARS[(c as usize) & 0x0f]);
+                }
             }
         }
 
