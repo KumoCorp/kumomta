@@ -1861,9 +1861,10 @@ fn test_qp_encode() {
 }
 
 /// Quote input string `s`, using a backslash escape,
-/// any of the characters listed in needs_quote
+/// any of the characters listed in needs_quote,
+/// or if the string contains an @ sign.
 pub(crate) fn quote_string(s: &str, needs_quote: &str) -> String {
-    if s.chars().any(|c| needs_quote.contains(c)) {
+    if s.chars().any(|c| needs_quote.contains(c)) || s.contains('@') {
         let mut result = String::with_capacity(s.len() + 4);
         result.push('"');
         for c in s.chars() {
@@ -1959,6 +1960,18 @@ impl EncodeHeaderValue for AddressList {
 mod test {
     use super::*;
     use crate::{Header, MimePart};
+
+    #[test]
+    fn mailbox_encodes_at() {
+        let mbox = Mailbox {
+            name: Some("foo@bar.com".to_string()),
+            address: AddrSpec {
+                local_part: "foo".to_string(),
+                domain: "bar.com".to_string(),
+            },
+        };
+        assert_eq!(mbox.encode_value(), "\"foo@bar.com\" <foo@bar.com>");
+    }
 
     #[test]
     fn mailbox_list_singular() {

@@ -97,3 +97,7 @@
 * When using the HTTP injection API to construct a mailbox using UTF-8 characters,
   the resulting From header could wrap in an undesirable location and produce
   an invalid From header that fails to parse.
+
+* When using the HTTP injection API to construct a mailbox with a `name` containing
+  the `@` sign, the resulting From header did not enclose the `name` portion
+  in double quotes, producing an invalid From header that failed to parse.
