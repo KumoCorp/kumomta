@@ -70,7 +70,7 @@ impl RedisServer {
         // Generate configuration
         if let Some(mut stdin) = daemon.stdin.take() {
             stdin
-                .write_all(b"bind 127.0.0.1\nlogfile /dev/stdout\n")
+                .write_all(b"bind 127.0.0.1\nlogfile /dev/stdout\nloglevel debug\n")
                 .await?;
             stdin.write_all(format!("port {port}\n").as_bytes()).await?;
             stdin

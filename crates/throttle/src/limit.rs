@@ -18,12 +18,16 @@ local expires_ts = math.ceil(tonumber(ARGV[2]))
 local limit = tonumber(ARGV[3])
 local uuid = ARGV[4]
 
+redis.log(redis.LOG_DEBUG, "limiter: going to call ZREMRANGEBYSCORE", KEYS[1], now_ts-1)
+
 -- prune expired values
 redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now_ts-1)
 
+redis.log(redis.LOG_DEBUG, "limiter: going to call ZCARD", KEYS[1])
 local count = redis.call("ZCARD", KEYS[1])
 if count + 1 > limit then
   -- find the next expiration time
+  redis.log(redis.LOG_DEBUG, "limiter: going to call ZRANGE", KEYS[1])
   local smallest = redis.call("ZRANGE", KEYS[1], "-inf", "+inf", "BYSCORE", "LIMIT", 0, 1, "WITHSCORES")
   -- smallest holds the uuid and its expiration time;
   -- we want to just return the remaining time interval
@@ -32,6 +36,7 @@ if count + 1 > limit then
   end
   return math.ceil(smallest[2] - now_ts)
 end
+redis.log(redis.LOG_DEBUG, "limiter: going to call ZADD", KEYS[1], expires_ts, uuid)
 redis.call("ZADD", KEYS[1], "NX", expires_ts, uuid)
 return redis.status_reply('OK')
 "#,
@@ -115,6 +120,15 @@ impl LimitSpecWithDuration {
                     });
                 }
                 mod_redis::RedisValue::Int(next_expiration_interval) => {
+                    if Instant::now() >= deadline {
+                        return Err(Error::TooManyLeases(Duration::from_secs(
+                            next_expiration_interval as u64,
+                        )));
+                    }
+
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
+                mod_redis::RedisValue::Double(next_expiration_interval) => {
                     if Instant::now() >= deadline {
                         return Err(Error::TooManyLeases(Duration::from_secs(
                             next_expiration_interval as u64,
