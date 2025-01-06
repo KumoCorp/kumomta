@@ -19,15 +19,18 @@ local limit = tonumber(ARGV[3])
 local uuid = ARGV[4]
 
 -- prune expired values
-redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now_ts-1)
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", math.floor(now_ts-1))
 
-local count = redis.call("ZCOUNT", KEYS[1], now_ts, "+inf")
+local count = redis.call("ZCARD", KEYS[1])
 if count + 1 > limit then
   -- find the next expiration time
   local smallest = redis.call("ZRANGE", KEYS[1], "-inf", "+inf", "BYSCORE", "LIMIT", 0, 1, "WITHSCORES")
   -- smallest holds the uuid and its expiration time;
   -- we want to just return the remaining time interval
-  return smallest[2] - now_ts
+  if #smallest == 0 then
+    return 0
+  end
+  return math.floor(smallest[2] - now_ts)
 end
 redis.call("ZADD", KEYS[1], "NX", expires_ts, uuid)
 return redis.status_reply('OK')
