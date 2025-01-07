@@ -246,6 +246,12 @@ impl std::fmt::Debug for LimitSpec {
     }
 }
 
+impl std::fmt::Display for LimitSpec {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "{:?}", self)
+    }
+}
+
 impl LimitSpec {
     pub const fn new(limit: u64) -> Self {
         Self {

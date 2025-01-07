@@ -27,6 +27,8 @@ use std::marker::PhantomData;
 #[cfg(feature = "lua")]
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "lua")]
+use throttle::LimitSpec;
 use throttle::ThrottleSpec;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -1011,7 +1013,7 @@ pub struct ProviderEntry {
     pub provider_name: String,
 
     #[serde(default)]
-    pub provider_connection_limit: Option<usize>,
+    pub provider_connection_limit: Option<LimitSpec>,
 
     #[serde(default)]
     pub provider_max_message_rate: Option<ThrottleSpec>,
@@ -1197,7 +1199,7 @@ impl ProviderEntry {
             let mut limits = toml::Table::new();
             limits.insert(
                 format!("shaping-provider-{}-{source}-limit", self.provider_name),
-                toml::Value::Integer((*limit) as i64),
+                toml::Value::String(limit.to_string()),
             );
             implied.insert(
                 "additional_connection_limits".to_string(),
