@@ -54,6 +54,11 @@
   may now be explicitly set to be local to the kumod instance, even if
   redis-sharing is enabled, by using a string value like `"local:100"`.
 
+* New kafka
+  [client:send_batch](../reference/kumo.kafka/build_producer.md#clientsend_batchparams)
+  method for submitting a batch of kafka messages and waiting for the results
+  of the complete batch. Thanks to @cai-n! #324
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
