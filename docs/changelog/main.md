@@ -59,6 +59,10 @@
   method for submitting a batch of kafka messages and waiting for the results
   of the complete batch. Thanks to @cai-n! #324
 
+* The Ready Queue maintainer will now perform blocking acquisition of connection
+  limit leases in order to reduce latency when the limit is contended. For
+  Redis-backed limits the "blocking" is really a periodic poll every 3 seconds.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
