@@ -58,22 +58,24 @@ local producer = kumo.kafka.build_producer {
   ['bootstrap.servers'] = 'localhost:9092',
 }
 
-local failed_items, errors = producer:send_batch {{
-  topic = 'my.topic',
-  payload = 'payload 1',
-  timeout = '1 minute',
-},
-{
-  topic = 'my.other.topic',
-  payload = 'payload 2',
-  timeout = '1 minute',
-}}
+local failed_items, errors = producer:send_batch {
+  {
+    topic = 'my.topic',
+    payload = 'payload 1',
+    timeout = '1 minute',
+  },
+  {
+    topic = 'my.other.topic',
+    payload = 'payload 2',
+    timeout = '1 minute',
+  },
+}
 if #failed_items > 0 then
-   -- some items failed
-   for i, item_idx in ipairs(failed_items) do
-      local error = errors[i]
-      print(string.format("item idx %d failed: %s", item_idx, error))
-   end
+  -- some items failed
+  for i, item_idx in ipairs(failed_items) do
+    local error = errors[i]
+    print(string.format('item idx %d failed: %s', item_idx, error))
+  end
 end
 ```
 
