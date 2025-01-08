@@ -1,3 +1,7 @@
+---
+tags:
+ - threadpool
+---
 
 # `kumo.set_qmaint_threads(N)`
 

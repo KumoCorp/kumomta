@@ -1,3 +1,8 @@
+---
+tags:
+ - threadpool
+---
+
 # `kumo.dkim.set_signing_threads(N)`
 
 {{since('2024.11.08-d383b033')}}

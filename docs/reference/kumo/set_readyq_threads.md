@@ -1,3 +1,8 @@
+---
+tags:
+ - threadpool
+---
+
 # `kumo.set_readyq_threads(N)`
 
 {{since('2024.09.02-c5476b89')}}
@@ -11,7 +16,7 @@ startup.
 
 ```lua
 kumo.on('pre_init', function()
-  kumo.set_httpinject_threads(12)
+  kumo.set_readyq_threads(12)
 end)
 ```
 

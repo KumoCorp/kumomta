@@ -1,3 +1,7 @@
+---
+tags:
+ - threadpool
+---
 
 # `kumo.set_spoolin_threads(N)`
 
