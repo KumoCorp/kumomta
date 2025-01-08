@@ -1,4 +1,4 @@
-# `kumo.dns.configure_resolver{PARAMS}`
+# `kumo.dns.configure_unbound_resolver{PARAMS}`
 
 {{since('2023.11.28-b5252a41')}}
 
