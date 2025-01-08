@@ -1,3 +1,8 @@
+---
+tags:
+ - threadpool
+---
+
 # `kumo.available_parallelism()`
 
 {{since('2024.06.10-84e84b89')}}
