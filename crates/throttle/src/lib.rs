@@ -139,21 +139,29 @@ impl std::fmt::Display for ThrottleSpec {
 
 impl ThrottleSpec {
     pub fn as_string(&self) -> Result<String, String> {
+        let mut period_scale = None;
         let period = match self.period {
             86400 => "d",
             3600 => "h",
             60 => "m",
             1 => "s",
-            _ => return Err(format!("cannot represent period {} as string", self.period)),
+            other => {
+                period_scale.replace(other.to_string());
+                "s"
+            }
         };
         if let Some(burst) = self.max_burst {
             return Err(format!("cannot represent max_burst {burst} as string"));
         }
 
         Ok(format!(
-            "{}{}/{period}",
+            "{}{}/{}{period}",
             if self.force_local { "local:" } else { "" },
-            self.limit
+            self.limit,
+            match &period_scale {
+                Some(scale) => scale.as_str(),
+                None => "",
+            }
         ))
     }
 }
@@ -163,6 +171,36 @@ impl TryFrom<String> for ThrottleSpec {
     fn try_from(s: String) -> Result<Self, String> {
         Self::try_from(s.as_str())
     }
+}
+
+fn opt_digit_prefix(s: &str) -> Result<(u64, &str), String> {
+    let mut n: Option<u64> = None;
+    for (idx, c) in s.char_indices() {
+        if !c.is_ascii_digit() {
+            return Ok((n.unwrap_or(1), &s[idx..]));
+        }
+
+        let byte = c as u8;
+
+        let digit = match byte.checked_sub(b'0') {
+            None => return Err(format!("invalid digit {c}")),
+            Some(digit) if digit > 9 => return Err(format!("invalid digit {c}")),
+            Some(digit) => {
+                debug_assert!((0..=9).contains(&digit));
+                u64::from(digit)
+            }
+        };
+
+        n = Some(
+            n.take()
+                .unwrap_or(0)
+                .checked_mul(10)
+                .and_then(|n| n.checked_add(digit))
+                .ok_or_else(|| format!("number too big"))?,
+        );
+    }
+
+    Err(format!("invalid period quantity {s}"))
 }
 
 impl TryFrom<&str> for ThrottleSpec {
@@ -176,13 +214,15 @@ impl TryFrom<&str> for ThrottleSpec {
             .split_once("/")
             .ok_or_else(|| format!("expected 'limit/period', got {s}"))?;
 
+        let (period_scale, period) = opt_digit_prefix(period)?;
+
         let period = match period {
             "h" | "hr" | "hour" => 3600,
             "m" | "min" | "minute" => 60,
             "s" | "sec" | "second" => 1,
             "d" | "day" => 86400,
             invalid => return Err(format!("unknown period quantity {invalid}")),
-        };
+        } * period_scale;
 
         // Allow "1_000/hr" and "1,000/hr" for more readable config
         let limit: String = limit
@@ -471,6 +511,18 @@ mod test {
             "local:100/h"
         );
 
+        let weird_duration = ThrottleSpec::try_from("local:100/123m").unwrap();
+        assert_eq!(
+            weird_duration,
+            ThrottleSpec {
+                limit: 100,
+                period: 123 * 60,
+                max_burst: None,
+                force_local: true,
+            }
+        );
+        assert_eq!(weird_duration.as_string().unwrap(), "local:100/7380s");
+
         assert_eq!(
             ThrottleSpec::try_from("1_0,0/hour").unwrap(),
             ThrottleSpec {
@@ -488,6 +540,19 @@ mod test {
             ThrottleSpec::try_from("three/hour").unwrap_err(),
             "invalid limit 'three': invalid digit found in string".to_string()
         );
+    }
+
+    #[test]
+    fn test_opt_digit_prefix() {
+        assert_eq!(opt_digit_prefix("m").unwrap(), (1, "m"));
+        assert_eq!(
+            opt_digit_prefix("1").unwrap_err(),
+            "invalid period quantity 1"
+        );
+        assert_eq!(opt_digit_prefix("1q").unwrap(), (1, "q"));
+        assert_eq!(opt_digit_prefix("2s").unwrap(), (2, "s"));
+        assert_eq!(opt_digit_prefix("20s").unwrap(), (20, "s"));
+        assert_eq!(opt_digit_prefix("12378s").unwrap(), (12378, "s"));
     }
 
     #[test]
