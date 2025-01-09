@@ -1378,10 +1378,7 @@ impl SmtpServer {
 
                     self.write_response(
                         250,
-                        format!(
-                            "{} Aloha {domain}\n{extensions}",
-                            self.params.hostname,
-                        ),
+                        format!("{} Aloha {domain}\n{extensions}", self.params.hostname,),
                         None,
                     )
                     .await?;
