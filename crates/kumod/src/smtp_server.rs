@@ -1353,18 +1353,6 @@ impl SmtpServer {
                 Ok(Command::Ehlo(domain)) => {
                     let domain = domain.to_string();
 
-                    if let Err(rej) = self
-                        .call_callback::<(), _, _>(
-                            "smtp_server_ehlo",
-                            (domain.clone(), self.meta.clone()),
-                        )
-                        .await?
-                    {
-                        self.write_response(rej.code, rej.message, Some(line))
-                            .await?;
-                        continue;
-                    }
-
                     let mut extensions = vec!["PIPELINING", "ENHANCEDSTATUSCODES"];
                     if !self.tls_active {
                         extensions.push("STARTTLS");
@@ -1372,16 +1360,32 @@ impl SmtpServer {
                         extensions.push("AUTH PLAIN");
                     }
 
+                    let extensions = match self
+                        .call_callback::<Option<Vec<String>>, _, _>(
+                            "smtp_server_ehlo",
+                            (domain.clone(), self.meta.clone(), extensions.clone()),
+                        )
+                        .await?
+                    {
+                        Err(rej) => {
+                            self.write_response(rej.code, rej.message, Some(line))
+                                .await?;
+                            continue;
+                        }
+                        Ok(None) => extensions.join("\n"),
+                        Ok(Some(ext)) => ext.join("\n"),
+                    };
+
                     self.write_response(
                         250,
                         format!(
-                            "{} Aloha {domain}\n{}",
+                            "{} Aloha {domain}\n{extensions}",
                             self.params.hostname,
-                            extensions.join("\n"),
                         ),
                         None,
                     )
                     .await?;
+
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }

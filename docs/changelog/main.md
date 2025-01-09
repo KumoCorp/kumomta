@@ -63,6 +63,10 @@
   limit leases in order to reduce latency when the limit is contended. For
   Redis-backed limits the "blocking" is really a periodic poll every 3 seconds.
 
+* The [smtp_server_ehlo](../reference/events/smtp_server_ehlo.md) event now
+  supports editing the list of ESMTP extensions that are reported by the
+  SMTP listener in response to the EHLO command.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
