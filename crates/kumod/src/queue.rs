@@ -14,6 +14,7 @@ use crate::smtp_dispatcher::SmtpProtocol;
 use crate::smtp_server::{make_deferred_queue_config, RejectError, DEFERRED_QUEUE_NAME};
 use crate::spool::SpoolManager;
 use anyhow::Context;
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
@@ -942,7 +943,7 @@ pub struct Queue {
     queue_config: ConfigHandle<QueueConfig>,
     metrics: OnceLock<ScheduledMetrics>,
     activity: Activity,
-    rr: EgressPoolRoundRobin,
+    rr: ArcSwap<EgressPoolRoundRobin>,
     next_config_refresh: StdMutex<Instant>,
     warned_strategy_change: AtomicBool,
     config_epoch: StdMutex<ConfigEpoch>,
@@ -994,7 +995,7 @@ impl Queue {
         let queue_config = Self::call_get_queue_config(&name, &mut config).await?;
 
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
-        let rr = EgressPoolRoundRobin::new(&pool);
+        let rr = ArcSwap::new(EgressPoolRoundRobin::new(&pool).into());
 
         let activity = Activity::get(format!("Queue {name}"))?;
         let strategy = queue_config.strategy;
@@ -1191,6 +1192,20 @@ impl Queue {
     async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
         if let Ok(mut config) = load_config().await {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
+                match EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await {
+                    Ok(pool) => {
+                        if self.rr.load().name != pool.name {
+                            self.rr.store(EgressPoolRoundRobin::new(&pool).into());
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!(
+                            "error while processing queue config update for {}: {err:#}",
+                            self.name
+                        );
+                    }
+                }
+
                 let strategy = queue_config.strategy;
 
                 self.queue_config.update(queue_config);
@@ -1774,8 +1789,8 @@ impl Queue {
             | DeliveryProto::Lua { .. }
             | DeliveryProto::DeferredSmtpInjection
             | DeliveryProto::HttpInjectionGenerator => {
-                let (egress_source, ready_name) = match self
-                    .rr
+                let rr = self.rr.load();
+                let (egress_source, ready_name) = match rr
                     .next(&self.name, &self.queue_config)
                     .await
                 {
@@ -1860,7 +1875,7 @@ impl Queue {
                     &self.name,
                     &self.queue_config,
                     &egress_source,
-                    &self.rr.name,
+                    &rr.name,
                     self.get_config_epoch(),
                 )
                 .await

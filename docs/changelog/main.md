@@ -118,3 +118,6 @@
 * When using the HTTP injection API to construct a subject header with a non-space
   UTF-8 sequence containing the byte 0x20, the quoted printable encoder would
   confuse that sequence with a space and produce an invalid output sequence.
+
+* Changing the egress pool associated with a scheduled queue would not actually
+  take effect until the scheduled queue aged out (eg: was idle for 10 minutes).
