@@ -442,6 +442,10 @@ TOC = [
                 "reference/string",
             ),
             Gen(
+                "module: kumo.time",
+                "reference/kumo.time",
+            ),
+            Gen(
                 "module: tsa",
                 "reference/tsa",
             ),

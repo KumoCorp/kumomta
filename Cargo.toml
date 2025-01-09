@@ -9,6 +9,7 @@ members = [
   "crates/kumo-prometheus",
   "crates/kumod",
   "crates/mailparsing",
+  "crates/mod-time",
   "crates/mod-uuid",
   "crates/mta-sts",
   "crates/proxy-server",

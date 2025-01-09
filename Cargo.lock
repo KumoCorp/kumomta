@@ -3140,6 +3140,7 @@ dependencies = [
  "mod-serde",
  "mod-sqlite",
  "mod-string",
+ "mod-time",
  "mod-uuid",
  "nix 0.28.0",
  "num-format",
@@ -4063,6 +4064,17 @@ dependencies = [
  "config",
  "mlua",
  "psl",
+]
+
+[[package]]
+name = "mod-time"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "mlua",
+ "prometheus",
+ "tokio",
 ]
 
 [[package]]

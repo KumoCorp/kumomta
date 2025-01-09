@@ -1,0 +1,11 @@
+[package]
+name = "mod-time"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+config = {path="../config"}
+mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+prometheus.workspace = true
+tokio.workspace = true

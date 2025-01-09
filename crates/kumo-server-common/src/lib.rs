@@ -31,6 +31,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_serde::register,
         mod_sqlite::register,
         mod_string::register,
+        mod_time::register,
         mod_dns_resolver::register,
         mod_kafka::register,
         mod_memoize::register,
@@ -236,14 +237,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let conn = key.open().map_err(any_err)?;
             conn.ping().await.map_err(any_err)?;
             throttle::use_redis(conn).await.map_err(any_err)
-        })?,
-    )?;
-
-    kumo_mod.set(
-        "sleep",
-        lua.create_async_function(|_, seconds: f64| async move {
-            tokio::time::sleep(tokio::time::Duration::from_secs_f64(seconds)).await;
-            Ok(())
         })?,
     )?;
 

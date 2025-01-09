@@ -42,6 +42,7 @@ mod-redis = {path="../mod-redis"}
 mod-serde = {path="../mod-serde"}
 mod-sqlite = {path="../mod-sqlite"}
 mod-string = {path="../mod-string"}
+mod-time = {path="../mod-time"}
 mod-uuid = {path="../mod-uuid"}
 nix = {workspace=true, features=["fs", "signal"]}
 num-format = {workspace=true}
