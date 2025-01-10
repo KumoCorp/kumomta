@@ -1418,17 +1418,7 @@ impl SmtpServer {
                         .await?;
                         continue;
                     }
-                    let address = address.to_string();
-                    if !address.is_ascii() {
-                        self.write_response(
-                            501,
-                            "Syntax error: address is not ASCII and SMTPUTF8 is not supported by this server",
-                            Some(line),
-                        ).await?;
-                        continue;
-                    }
-
-                    let address = EnvelopeAddress::parse(&address)?;
+                    let address = EnvelopeAddress::parse(&address.to_string())?;
                     if let Err(rej) = self
                         .call_callback::<(), _, _>(
                             "smtp_server_mail_from",
@@ -1462,16 +1452,7 @@ impl SmtpServer {
                         .await?;
                         continue;
                     }
-                    let address = address.to_string();
-                    if !address.is_ascii() {
-                        self.write_response(
-                            501,
-                            "Syntax error: address is not ASCII and SMTPUTF8 is not supported by this server",
-                            Some(line),
-                        ).await?;
-                        continue;
-                    }
-                    let address = EnvelopeAddress::parse(&address)?;
+                    let address = EnvelopeAddress::parse(&address.to_string())?;
 
                     let sender = self.state.as_ref().unwrap().sender.clone();
                     let relay_disposition = self.check_relaying(&sender, &address).await?;
