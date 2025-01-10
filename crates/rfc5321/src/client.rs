@@ -1,5 +1,8 @@
 use crate::client_types::*;
-use crate::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, ForwardPath, ReversePath};
+use crate::{
+    AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, EsmtpParameter, ForwardPath,
+    ReversePath,
+};
 use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
@@ -642,15 +645,47 @@ impl SmtpClient {
         recipient: RECIP,
         data: B,
     ) -> Result<Response, ClientError> {
+        let sender = sender.into();
+        let recipient = recipient.into();
+
+        let data: &[u8] = data.as_ref();
+        let stuffed;
+
+        let data = match apply_dot_stuffing(data) {
+            Some(d) => {
+                stuffed = d;
+                &stuffed
+            }
+            None => data,
+        };
+
+        let data_is_8bit = data.iter().any(|&b| b >= 0x80);
+        let envelope_is_8bit = !sender.is_ascii() || !recipient.is_ascii();
+
+        let mut mail_from_params = vec![];
+        if data_is_8bit && self.capabilities.contains_key("8BITMIME") {
+            mail_from_params.push(EsmtpParameter {
+                name: "BODY".to_string(),
+                value: Some("8BITMIME".to_string()),
+            });
+        }
+
+        if envelope_is_8bit && self.capabilities.contains_key("SMTPUTF8") {
+            mail_from_params.push(EsmtpParameter {
+                name: "SMTPUTF8".to_string(),
+                value: None,
+            });
+        }
+
         let mut responses = self
             .pipeline_commands(vec![
                 Command::Rset,
                 Command::MailFrom {
-                    address: sender.into(),
-                    parameters: vec![],
+                    address: sender,
+                    parameters: mail_from_params,
                 },
                 Command::RcptTo {
-                    address: recipient.into(),
+                    address: recipient,
                     parameters: vec![],
                 },
                 Command::Data,
@@ -704,16 +739,6 @@ impl SmtpClient {
             return Err(ClientError::Rejected(data_resp));
         }
 
-        let data: &[u8] = data.as_ref();
-        let stuffed;
-
-        let data = match apply_dot_stuffing(data) {
-            Some(d) => {
-                stuffed = d;
-                &stuffed
-            }
-            None => data,
-        };
         let needs_newline = data.last().map(|&b| b != b'\n').unwrap_or(true);
 
         tracing::trace!("message data is {} bytes", data.len());

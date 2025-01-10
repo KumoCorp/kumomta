@@ -204,6 +204,15 @@ pub enum ReversePath {
     NullSender,
 }
 
+impl ReversePath {
+    pub fn is_ascii(&self) -> bool {
+        match self {
+            Self::Path(path) => path.is_ascii(),
+            Self::NullSender => true,
+        }
+    }
+}
+
 impl TryFrom<&str> for ReversePath {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -239,6 +248,15 @@ impl ToString for ReversePath {
 pub enum ForwardPath {
     Path(MailPath),
     Postmaster,
+}
+
+impl ForwardPath {
+    pub fn is_ascii(&self) -> bool {
+        match self {
+            Self::Path(p) => p.is_ascii(),
+            Self::Postmaster => true,
+        }
+    }
 }
 
 impl TryFrom<&str> for ForwardPath {
@@ -280,6 +298,14 @@ pub struct MailPath {
     pub mailbox: Mailbox,
 }
 
+impl MailPath {
+    pub fn is_ascii(&self) -> bool {
+        // Note: ignoring at_domain_list here per the to_string()
+        // implementation
+        self.mailbox.is_ascii()
+    }
+}
+
 impl ToString for MailPath {
     fn to_string(&self) -> String {
         // Note: RFC5321 says about at_domain_list:
@@ -296,6 +322,18 @@ impl ToString for MailPath {
 pub struct Mailbox {
     pub local_part: String,
     pub domain: Domain,
+}
+
+impl Mailbox {
+    pub fn is_ascii(&self) -> bool {
+        if !self.local_part.is_ascii() {
+            return false;
+        }
+        match &self.domain {
+            Domain::V4(s) | Domain::V6(s) | Domain::Name(s) => s.is_ascii(),
+            Domain::Tagged { tag, literal } => tag.is_ascii() && literal.is_ascii(),
+        }
+    }
 }
 
 impl ToString for Mailbox {
