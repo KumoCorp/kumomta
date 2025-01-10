@@ -169,7 +169,7 @@ impl Parser {
 
     fn parse_domain(domain: Pair<Rule>) -> Result<Domain, String> {
         Ok(match domain.as_rule() {
-            Rule::domain => Domain::Name(domain.as_str().to_string()),
+            Rule::domain => Domain::name(domain.as_str())?,
             Rule::address_literal => {
                 let literal = domain.into_inner().next().unwrap();
                 match literal.as_rule() {
@@ -205,7 +205,7 @@ pub enum ReversePath {
 }
 
 impl TryFrom<&str> for ReversePath {
-    type Error = &'static str;
+    type Error = String;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         if s.is_empty() {
             Ok(Self::NullSender)
@@ -216,11 +216,11 @@ impl TryFrom<&str> for ReversePath {
                     at_domain_list: vec![],
                     mailbox: Mailbox {
                         local_part: fields[0].to_string(),
-                        domain: Domain::Name(fields[1].to_string()),
+                        domain: Domain::name(fields[1])?,
                     },
                 }))
             } else {
-                Err("wrong number of @ signs")
+                Err(format!("{s} has the wrong number of @ signs"))
             }
         }
     }
@@ -242,10 +242,10 @@ pub enum ForwardPath {
 }
 
 impl TryFrom<&str> for ForwardPath {
-    type Error = &'static str;
+    type Error = String;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         if s.is_empty() {
-            Err("cannot send to null sender")
+            Err("cannot send to null sender".to_string())
         } else if s.eq_ignore_ascii_case("postmaster") {
             Ok(Self::Postmaster)
         } else {
@@ -255,11 +255,11 @@ impl TryFrom<&str> for ForwardPath {
                     at_domain_list: vec![],
                     mailbox: Mailbox {
                         local_part: fields[0].to_string(),
-                        domain: Domain::Name(fields[1].to_string()),
+                        domain: Domain::name(fields[1])?,
                     },
                 }))
             } else {
-                Err("wrong number of @ signs")
+                Err(format!("{s} has the wrong number of @ signs"))
             }
         }
     }
@@ -311,6 +311,15 @@ pub enum Domain {
     V4(String),
     V6(String),
     Tagged { tag: String, literal: String },
+}
+
+impl Domain {
+    pub fn name(name: &str) -> Result<Self, String> {
+        match idna::domain_to_ascii(name) {
+            Ok(name) => Ok(Self::Name(name)),
+            Err(err) => Err(format!("{err:#}")),
+        }
+    }
 }
 
 impl ToString for Domain {
@@ -550,6 +559,32 @@ mod test {
                     at_domain_list: vec![],
                     mailbox: Mailbox {
                         local_part: "user".to_string(),
+                        domain: Domain::Name("host".to_string())
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
+        assert_eq!(
+            Parser::parse_command("Rcpt To:<user@éxample.com>").unwrap(),
+            Command::RcptTo {
+                address: ForwardPath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "user".to_string(),
+                        domain: Domain::Name("xn--xample-9ua.com".to_string())
+                    }
+                }),
+                parameters: vec![],
+            }
+        );
+        assert_eq!(
+            Parser::parse_command("Rcpt To:<rené@host>").unwrap(),
+            Command::RcptTo {
+                address: ForwardPath::Path(MailPath {
+                    at_domain_list: vec![],
+                    mailbox: Mailbox {
+                        local_part: "rené".to_string(),
                         domain: Domain::Name("host".to_string())
                     }
                 }),

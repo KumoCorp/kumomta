@@ -20,6 +20,7 @@ client = [
 data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 hickory-proto = {workspace=true, optional=true}
+idna.workspace = true
 libc = {workspace=true}
 lruttl = {path="../lruttl", optional=true}
 memchr = {workspace=true}

@@ -45,14 +45,14 @@ impl EnvelopeAddress {
 }
 
 impl TryInto<ForwardPath> for EnvelopeAddress {
-    type Error = &'static str;
+    type Error = String;
     fn try_into(self) -> Result<ForwardPath, Self::Error> {
         ForwardPath::try_from(self.0.as_str())
     }
 }
 
 impl TryInto<ReversePath> for EnvelopeAddress {
-    type Error = &'static str;
+    type Error = String;
     fn try_into(self) -> Result<ReversePath, Self::Error> {
         ReversePath::try_from(self.0.as_str())
     }

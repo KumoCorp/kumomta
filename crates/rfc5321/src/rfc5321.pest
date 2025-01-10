@@ -2,12 +2,14 @@
 alpha = { 'a'..'z' | 'A'..'Z' }
 digit = { '0'..'9' }
 hexdig = { 'a'..'f' | 'A'..'F' | '0'..'9' }
+utf8_non_ascii = { '\u{80}'..'\u{10FFFF}' }
+
 atext = { "!" | "#" | "$" | "%" | "&" | "'" | "*" | "+" | "-" | "/" | "=" |
-          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit }
+          "?" | "^" | "_" | "`" | "{" | "|" | "}" | "~" | alpha | digit | utf8_non_ascii }
 atom = { atext+ }
 
-let_dig = { alpha | digit }
-ldh_str = { (alpha | digit | "-")+ } // FIXME: validate that it doesn't end with -
+let_dig = { alpha | digit | utf8_non_ascii }
+ldh_str = { (alpha | digit | "-" | utf8_non_ascii )+ } // FIXME: validate that it doesn't end with -
 
 sub_domain = { let_dig ~ ldh_str? }
 domain = { sub_domain ~ ("." ~ sub_domain)* }
@@ -17,7 +19,7 @@ dot_string = { atom ~ ("." ~ atom)* }
 quoted_string = { "\"" ~ q_content_smtp* ~ "\"" }
 q_content_smtp = { q_text_smtp | quoted_pair_smtp }
 quoted_pair_smtp = { "\\" ~ '\u{20}'..'\u{7e}' }
-q_text_smtp = { '\u{20}'..'\u{21}' | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' }
+q_text_smtp = { '\u{20}'..'\u{21}' | '\u{23}'..'\u{5b}' | '\u{5d}'..'\u{7e}' | utf8_non_ascii }
 
 string = { atom | quoted_string }
 
@@ -54,7 +56,7 @@ postmaster = { ^"<postmaster>" }
 smtp_parameters = { esmtp_param ~ ( " " ~ esmtp_param )* }
 esmtp_param = { esmtp_keyword  ~ ("=" ~ esmtp_value )? }
 esmtp_keyword = { (alpha | digit | "-")+ }
-esmtp_value = { ( '\u{21}' .. '\u{3c}' | '\u{3e}'..'\u{7e}' )+ }
+esmtp_value = { ( '\u{21}' .. '\u{3c}' | '\u{3e}'..'\u{7e}' | utf8_non_ascii )+ }
 
 complete_domain = _{ SOI ~ domain ~ EOI }
 
