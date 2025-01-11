@@ -1,5 +1,8 @@
 use anyhow::Context;
-use config::{any_err, get_or_create_module, get_or_create_sub_module, serialize_options};
+use config::{
+    any_err, get_or_create_module, get_or_create_sub_module, materialize_to_lua_value,
+    serialize_options,
+};
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde_json::Value as JValue;
 
@@ -71,11 +74,13 @@ fn json_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     lua.to_value_with(&obj, serialize_options())
 }
 
-fn json_encode(_: &Lua, value: LuaValue) -> mlua::Result<String> {
+fn json_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
     serde_json::to_string(&value).map_err(any_err)
 }
 
-fn json_encode_pretty(_: &Lua, value: LuaValue) -> mlua::Result<String> {
+fn json_encode_pretty(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
     serde_json::to_string_pretty(&value).map_err(any_err)
 }
 
@@ -98,11 +103,13 @@ fn toml_parse(lua: &Lua, toml: String) -> mlua::Result<LuaValue> {
     lua.to_value_with(&obj, serialize_options())
 }
 
-fn toml_encode(_: &Lua, value: LuaValue) -> mlua::Result<String> {
+fn toml_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
     toml::to_string(&value).map_err(any_err)
 }
 
-fn toml_encode_pretty(_: &Lua, value: LuaValue) -> mlua::Result<String> {
+fn toml_encode_pretty(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
     toml::to_string_pretty(&value).map_err(any_err)
 }
 
@@ -125,6 +132,7 @@ fn yaml_parse(lua: &Lua, text: String) -> mlua::Result<LuaValue> {
     lua.to_value_with(&value, serialize_options())
 }
 
-fn yaml_encode(_: &Lua, value: LuaValue) -> mlua::Result<String> {
+fn yaml_encode(lua: &Lua, value: LuaValue) -> mlua::Result<String> {
+    let value = materialize_to_lua_value(lua, value)?;
     serde_yaml::to_string(&value).map_err(any_err)
 }
