@@ -64,3 +64,5 @@ local function mything()
 end
 ```
 
+The `timer:done()` method returns the number of seconds that have elapsed
+since the timer was started.
