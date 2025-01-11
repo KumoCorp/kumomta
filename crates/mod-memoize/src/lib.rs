@@ -1,7 +1,10 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
 use lruttl::LruCacheWithTtl;
-use mlua::{FromLua, Function, IntoLua, Lua, LuaSerdeExt, MultiValue, UserData, UserDataMethods};
+use mlua::{
+    FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
+    UserDataMethods, UserDataRef,
+};
 use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -70,6 +73,14 @@ pub enum MapKey {
 }
 
 impl MapKey {
+    pub fn from_lua(v: mlua::Value) -> Option<Self> {
+        match v {
+            mlua::Value::String(s) => Some(Self::String(s.as_bytes().to_vec())),
+            mlua::Value::Integer(n) => Some(Self::Integer(n)),
+            _ => None,
+        }
+    }
+
     pub fn as_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         match self {
             Self::Integer(j) => Ok(mlua::Value::Integer(j)),
@@ -80,7 +91,7 @@ impl MapKey {
 
 #[derive(Clone, PartialEq)]
 pub enum CacheValue {
-    Table(HashMap<MapKey, CacheValue>),
+    Table(Arc<HashMap<MapKey, CacheValue>>),
     Json(serde_json::Value),
     Memoized(Memoized),
 }
@@ -111,7 +122,7 @@ impl FromLua for CacheValue {
                     let value = CacheValue::from_lua(value, lua)?;
                     map.insert(key, value);
                 }
-                Ok(Self::Table(map))
+                Ok(Self::Table(map.into()))
             }
             _ => Ok(Self::Json(from_lua_value(lua, value)?)),
         }
@@ -129,14 +140,108 @@ impl CacheValue {
         match self {
             Self::Json(j) => lua.to_value_with(j, serialize_options()),
             Self::Memoized(m) => (m.to_value)(lua),
-            Self::Table(m) => {
-                let result = lua.create_table()?;
-                for (k, v) in m {
-                    result.set(k.clone().as_lua(lua)?, v.as_lua(lua)?)?;
-                }
-                Ok(mlua::Value::Table(result))
-            }
+            Self::Table(m) => Ok(mlua::Value::UserData(
+                lua.create_userdata(MemoizedTable::Shared(m.clone()))?,
+            )),
         }
+    }
+}
+
+/// MemoizedTable is a helper type that is returned to represent
+/// cached table values.  We'll return the Shared variant by
+/// default as that presents the cheapest way to return the cached
+/// data--only a clone of the underlying Arc is required to return
+/// the value.
+///
+/// This type implements __index, __newindex and __pairs metamethods
+/// which allow reading and iterating the table.
+///
+/// Writing to the table via __newindex will "unshare" the table in
+/// a similar manner to the Cow type, creating a mutable copy of the top
+/// level of the table.
+enum MemoizedTable {
+    Shared(Arc<HashMap<MapKey, CacheValue>>),
+    Mut(HashMap<MapKey, CacheValue>),
+}
+
+impl MemoizedTable {
+    /// Get a reference to the table, facilitating get() and iter(),
+    /// regardless of whether we are Shared or Mut.
+    fn table(&self) -> &HashMap<MapKey, CacheValue> {
+        match self {
+            Self::Shared(s) => s,
+            Self::Mut(s) => s,
+        }
+    }
+
+    /// Transform Shared -> Mut
+    fn unshare(&mut self) {
+        match self {
+            Self::Shared(t) => {
+                *self = Self::Mut(t.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            }
+            Self::Mut(_) => {}
+        }
+    }
+}
+
+impl UserData for MemoizedTable {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        // Index allows reading fields of the table
+        methods.add_meta_method(MetaMethod::Index, move |lua, this, key: mlua::Value| {
+            match MapKey::from_lua(key) {
+                Some(key) => match this.table().get(&key) {
+                    Some(value) => value.as_lua(lua),
+                    None => Ok(mlua::Value::Nil),
+                },
+                None => Ok(mlua::Value::Nil),
+            }
+        });
+
+        // NewIndex allows writing fields of the table
+        methods.add_meta_method_mut(MetaMethod::NewIndex, move |lua, this, key: mlua::Value| {
+            this.unshare();
+            match MapKey::from_lua(key) {
+                Some(key) => match this.table().get(&key) {
+                    Some(value) => value.as_lua(lua),
+                    None => Ok(mlua::Value::Nil),
+                },
+                None => Ok(mlua::Value::Nil),
+            }
+        });
+
+        // Pairs iterates the keys of the table.
+        // We use add_meta_function rather than add_meta_method here
+        // because we need to return `this` as the "state" parameter
+        // for use in a generic-for statement
+        methods.add_meta_function(MetaMethod::Pairs, move |lua, this: mlua::Value| {
+            // Maintain our own local idea of the control variable,
+            // as it is much cheaper and simpler to iterate based
+            // on skipping than to keep comparing keys
+            let mut idx = 0;
+
+            let iter_func =
+                lua.create_function_mut(
+                    move |lua, (state, _control): (UserDataRef<MemoizedTable>, mlua::Value)| {
+                        match state.table().iter().skip(idx).next() {
+                            Some((key, value)) => {
+                                idx += 1;
+                                let key = key.clone().as_lua(lua)?;
+                                let value = value.as_lua(lua)?;
+                                Ok((key, value))
+                            }
+                            None => Ok((mlua::Value::Nil, mlua::Value::Nil)),
+                        }
+                    },
+                )?;
+
+            // Return the iterator, state and control values.
+            // The state and control will be passed back into iter_func
+            // as the for-loop iterates.
+            // Control is Nil here because we track our own idx
+            // value in the iter_func closure.
+            Ok((mlua::Value::Function(iter_func), this, mlua::Value::Nil))
+        });
     }
 }
 
