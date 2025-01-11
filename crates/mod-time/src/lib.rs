@@ -55,11 +55,8 @@ impl Timer {
         Ok(Self { timer: Some(timer) })
     }
 
-    fn done(_lua: &Lua, this: &mut Self, _: ()) -> mlua::Result<()> {
-        if let Some(timer) = this.timer.take() {
-            timer.observe_duration();
-        }
-        Ok(())
+    fn done(_lua: &Lua, this: &mut Self, _: ()) -> mlua::Result<Option<f64>> {
+        Ok(this.timer.take().map(|timer| timer.stop_and_record()))
     }
 }
 
