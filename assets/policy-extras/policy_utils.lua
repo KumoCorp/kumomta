@@ -1,6 +1,17 @@
 local mod = {}
 local kumo = require 'kumo'
 
+local function is_table_or_ud(o)
+  local ot = type(o)
+  if ot == 'table' then
+    return true
+  end
+  if ot == 'userdata' then
+    return true
+  end
+  return false
+end
+
 ---@param o1 any|table First object to compare
 ---@param o2 any|table Second object to compare
 ---@param ignore_mt boolean True to ignore metatables (a recursive function to tests tables inside tables)
@@ -9,12 +20,10 @@ function mod.equals(o1, o2, ignore_mt)
   if o1 == o2 then
     return true
   end
-  local o1Type = type(o1)
-  local o2Type = type(o2)
-  if o1Type ~= o2Type then
+  if not is_table_or_ud(o1) then
     return false
   end
-  if o1Type ~= 'table' then
+  if not is_table_or_ud(o2) then
     return false
   end
 
