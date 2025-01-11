@@ -465,21 +465,79 @@ pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
     mlua::Error::external(format!("{err:#}"))
 }
 
+/// This function will try to obtain a native lua representation
+/// of the provided value. It does this by attempting to iterate
+/// the pairs of any userdata it finds as either the value itself
+/// or the values of a table value by recursively applying
+/// materialize_to_lua_value to the value.
+/// This produces a lua value that can then be processed by the
+/// Deserialize impl on Value.
+pub fn materialize_to_lua_value(lua: &Lua, value: mlua::Value) -> mlua::Result<mlua::Value> {
+    match value {
+        mlua::Value::UserData(ud) => {
+            let mt = ud.metatable()?;
+            let pairs: mlua::Function = mt.get("__pairs")?;
+            let tbl = lua.create_table()?;
+            let (iter_func, state, mut control): (mlua::Function, mlua::Value, mlua::Value) =
+                pairs.call(mlua::Value::UserData(ud.clone()))?;
+
+            loop {
+                let (k, v): (mlua::Value, mlua::Value) =
+                    iter_func.call((state.clone(), control))?;
+                if k.is_nil() {
+                    break;
+                }
+
+                tbl.set(k.clone(), materialize_to_lua_value(lua, v)?)?;
+                control = k;
+            }
+
+            Ok(mlua::Value::Table(tbl))
+        }
+        mlua::Value::Table(t) => {
+            let tbl = lua.create_table()?;
+            for pair in t.pairs::<mlua::Value, mlua::Value>() {
+                let (k, v) = pair?;
+                tbl.set(k.clone(), materialize_to_lua_value(lua, v)?)?;
+            }
+            Ok(mlua::Value::Table(tbl))
+        }
+        value => Ok(value),
+    }
+}
+
 /// Convert from a lua value to a deserializable type,
 /// with a slightly more helpful error message in case of failure.
+/// NOTE: the ", while processing" portion of the error messages generated
+/// here is coupled with a regex in typing.lua!
 pub fn from_lua_value<R>(lua: &Lua, value: mlua::Value) -> mlua::Result<R>
 where
     R: serde::de::DeserializeOwned,
 {
     let value_cloned = value.clone();
-    lua.from_value(value).map_err(|err| {
-        let mut serializer = serde_json::Serializer::new(Vec::new());
-        let serialized = match value_cloned.serialize(&mut serializer) {
-            Ok(_) => String::from_utf8_lossy(&serializer.into_inner()).to_string(),
-            Err(err) => format!("<unable to encode as json: {err:#}>"),
-        };
-        mlua::Error::external(format!("{err:#}, while processing {serialized}"))
-    })
+    match lua.from_value(value) {
+        Ok(r) => Ok(r),
+        Err(err) => match materialize_to_lua_value(lua, value_cloned.clone()) {
+            Ok(materialized) => match lua.from_value(materialized.clone()) {
+                Ok(r) => Ok(r),
+                Err(err) => {
+                    let mut serializer = serde_json::Serializer::new(Vec::new());
+                    let serialized = match materialized.serialize(&mut serializer) {
+                        Ok(_) => String::from_utf8_lossy(&serializer.into_inner()).to_string(),
+                        Err(err) => format!("<unable to encode as json: {err:#}>"),
+                    };
+                    Err(mlua::Error::external(format!(
+                        "{err:#}, while processing {serialized}"
+                    )))
+                }
+            },
+            Err(materialize_err) => Err(mlua::Error::external(format!(
+                "{err:#}, while processing a userdata. \
+                    Additionally, encountered {materialize_err:#} \
+                    when trying to iterate the pairs of that userdata"
+            ))),
+        },
+    }
 }
 
 /// CallbackSignature is a bit sugar to aid with statically typing event callback
