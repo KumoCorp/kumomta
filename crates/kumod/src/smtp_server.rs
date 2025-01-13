@@ -108,7 +108,11 @@ pub struct EsmtpDomain {
     pub ttl: Duration,
 }
 
-impl LuaUserData for EsmtpDomain {}
+impl LuaUserData for EsmtpDomain {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        config::impl_pairs_and_index(methods);
+    }
+}
 
 fn default_ttl() -> Duration {
     Duration::from_secs(60)

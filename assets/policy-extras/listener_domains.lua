@@ -119,7 +119,7 @@ local function lookup_impl(
         -- Add the peer to the relay_from list
         local peer_ip, _peer_port =
           utils.split_ip_port(conn_meta:get_meta 'received_from')
-        table.insert(listener_domain.relay_from, peer_ip)
+        listener_domain.relay_from = { peer_ip }
       end
 
       if skip_make then
@@ -285,6 +285,29 @@ kumo.on('validate_config', function()
 end)
 
 function mod:test()
+  local cached_load_data = kumo.memoize(load_data, {
+    name = 'test_listener_domains_data',
+    ttl = '5 minutes',
+    capacity = 10,
+  })
+
+  local function get_listener_domain(
+    data,
+    domain_name,
+    listener,
+    conn_meta,
+    skip_make
+  )
+    local by_listener = cached_load_data { data }
+    return get_listener_domain_impl(
+      by_listener,
+      domain_name,
+      listener,
+      conn_meta,
+      skip_make
+    )
+  end
+
   local open_relay = [=[
 ['*']
 relay_to = true
@@ -297,42 +320,80 @@ relay_from = ['10.0.0.0/24']
 [listener."127.0.0.1:25"."*.example.com"]
 log_oob = false
 
+['elsewhere.com']
+relay_to = false
+relay_from_authz = ["john"]
+
 ]=]
 
-  local data = parse_toml_data(open_relay)
-  local skip_make = true
+  local data = kumo.serde.toml_parse(open_relay)
+
+  -- Fake up something that quacks like the connection metadata object.
+  -- This is really just a matter of adding a metatable with a get_meta
+  -- method to it.
+  local function make_conn_meta(obj)
+    local methods = {}
+    function methods:get_meta(key)
+      return rawget(self, key)
+    end
+    local mt = {
+      __index = methods,
+    }
+    setmetatable(obj, mt)
+    return obj
+  end
 
   utils.assert_eq(
-    get_listener_domain_impl(
+    get_listener_domain(
       data,
       'example.com',
       '127.0.0.1:25',
-      {},
-      skip_make
+      make_conn_meta {}
     ),
-    { relay_to = true }
+    kumo.make_listener_domain { relay_to = true }
   )
 
   utils.assert_eq(
-    get_listener_domain_impl(
+    get_listener_domain(
       data,
       'woof.example.com',
       '127.0.0.1:25',
-      {},
-      skip_make
+      make_conn_meta {}
     ),
-    { log_oob = false }
+    kumo.make_listener_domain { log_oob = false, relay_to = true }
   )
 
   utils.assert_eq(
-    get_listener_domain_impl(
+    get_listener_domain(
       data,
       'somewhere.com',
       '127.0.0.1:25',
-      { received_from = '10.0.0.1' },
-      skip_make
+      make_conn_meta { received_from = '10.0.0.1' }
     ),
-    { relay_from = { '10.0.0.0/24' }, relay_to = false }
+    kumo.make_listener_domain {
+      relay_from = { '10.0.0.0/24' },
+      relay_to = false,
+    }
+  )
+
+  utils.assert_eq(
+    get_listener_domain(
+      data,
+      'elsewhere.com',
+      '10.0.0.1:25',
+      make_conn_meta {}
+    ),
+    kumo.make_listener_domain { relay_to = false }
+  )
+
+  utils.assert_eq(
+    get_listener_domain(
+      data,
+      'elsewhere.com',
+      '10.0.0.1:25',
+      make_conn_meta { authz_id = 'john', received_from = '10.0.0.1:25' }
+    ),
+    kumo.make_listener_domain { relay_from = { '10.0.0.1' } }
   )
 
   local status, err = pcall(

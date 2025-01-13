@@ -29,6 +29,7 @@ use kumo_template::{context, TemplateEngine};
 use message::message::{QueueNameComponents, WeakMessage};
 use message::Message;
 use mlua::prelude::*;
+use mlua::UserDataMethods;
 use parking_lot::FairMutex as StdMutex;
 use prometheus::{Histogram, IntCounter, IntGauge};
 use rfc5321::{EnhancedStatusCode, Response};
@@ -446,7 +447,11 @@ pub struct QueueConfig {
     pub provider_name: Option<String>,
 }
 
-impl LuaUserData for QueueConfig {}
+impl LuaUserData for QueueConfig {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        config::impl_pairs_and_index(methods);
+    }
+}
 
 impl Default for QueueConfig {
     fn default() -> Self {

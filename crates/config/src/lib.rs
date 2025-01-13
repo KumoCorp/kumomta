@@ -1,7 +1,10 @@
 use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
-use mlua::{FromLua, FromLuaMulti, IntoLuaMulti, Lua, LuaSerdeExt, RegistryKey, Table, Value};
+use mlua::{
+    FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, LuaSerdeExt, MetaMethod, RegistryKey, Table,
+    UserData, UserDataMethods, Value,
+};
 use parking_lot::FairMutex as Mutex;
 use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
@@ -465,6 +468,47 @@ pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
     mlua::Error::external(format!("{err:#}"))
 }
 
+/// Provides implementations of __pairs and __index metamethods
+/// for a type that is Serialize and UserData.
+/// Neither implementation is considered to be ideal, as we must
+/// first serialize the value into a json Value which is then either
+/// iterated over, or indexed to produce the appropriate result for
+/// the metamethod.
+pub fn impl_pairs_and_index<T, M>(methods: &mut M)
+where
+    T: UserData + Serialize,
+    M: UserDataMethods<T>,
+{
+    methods.add_meta_method(MetaMethod::Pairs, move |lua, this, _: ()| {
+        let Ok(serde_json::Value::Object(map)) = serde_json::to_value(this).map_err(any_err) else {
+            return Err(mlua::Error::external("must serialize to Map"));
+        };
+
+        let mut value_iter = map.into_iter();
+
+        let iter_func = lua.create_function_mut(
+            move |lua, (_state, _control): (Value, Value)| match value_iter.next() {
+                Some((key, value)) => {
+                    let key = lua.to_value(&key)?;
+                    let value = lua.to_value(&value)?;
+                    Ok((key, value))
+                }
+                None => Ok((Value::Nil, Value::Nil)),
+            },
+        )?;
+
+        Ok((Value::Function(iter_func), Value::Nil, Value::Nil))
+    });
+
+    methods.add_meta_method(MetaMethod::Index, move |lua, this, field: Value| {
+        let value = lua.to_value(this)?;
+        match value {
+            Value::Table(t) => t.get(field),
+            _ => Ok(Value::Nil),
+        }
+    });
+}
+
 /// This function will try to obtain a native lua representation
 /// of the provided value. It does this by attempting to iterate
 /// the pairs of any userdata it finds as either the value itself
@@ -476,7 +520,13 @@ pub fn materialize_to_lua_value(lua: &Lua, value: mlua::Value) -> mlua::Result<m
     match value {
         mlua::Value::UserData(ud) => {
             let mt = ud.metatable()?;
-            let pairs: mlua::Function = mt.get("__pairs")?;
+            let Ok(pairs) = mt.get::<mlua::Function>("__pairs") else {
+                let value = ud.into_lua(lua)?;
+                return Err(mlua::Error::external(format!(
+                    "cannot materialize_to_lua_value {value:?} \
+                     because it has no __pairs metamethod"
+                )));
+            };
             let tbl = lua.create_table()?;
             let (iter_func, state, mut control): (mlua::Function, mlua::Value, mlua::Value) =
                 pairs.call(mlua::Value::UserData(ud.clone()))?;

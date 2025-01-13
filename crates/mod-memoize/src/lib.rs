@@ -175,12 +175,14 @@ impl MemoizedTable {
     }
 
     /// Transform Shared -> Mut
-    fn unshare(&mut self) {
+    fn unshare(&mut self) -> &mut HashMap<MapKey, CacheValue> {
+        if let Self::Shared(t) = self {
+            *self = Self::Mut(t.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+        }
+
         match self {
-            Self::Shared(t) => {
-                *self = Self::Mut(t.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-            }
-            Self::Mut(_) => {}
+            Self::Shared(_) => unreachable!(),
+            Self::Mut(map) => map,
         }
     }
 }
@@ -199,16 +201,19 @@ impl UserData for MemoizedTable {
         });
 
         // NewIndex allows writing fields of the table
-        methods.add_meta_method_mut(MetaMethod::NewIndex, move |lua, this, key: mlua::Value| {
-            this.unshare();
-            match MapKey::from_lua(key) {
-                Some(key) => match this.table().get(&key) {
-                    Some(value) => value.as_lua(lua),
-                    None => Ok(mlua::Value::Nil),
-                },
-                None => Ok(mlua::Value::Nil),
-            }
-        });
+        methods.add_meta_method_mut(
+            MetaMethod::NewIndex,
+            move |lua, this, (key, value): (mlua::Value, mlua::Value)| match MapKey::from_lua(key) {
+                Some(key) => {
+                    let value = CacheValue::from_lua(value, lua)?;
+                    this.unshare().insert(key, value);
+                    Ok(())
+                }
+                None => Err(mlua::Error::external(
+                    "invalid key type while trying to call __newindex and assign a value",
+                )),
+            },
+        );
 
         // Pairs iterates the keys of the table.
         // We use add_meta_function rather than add_meta_method here

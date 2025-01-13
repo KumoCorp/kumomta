@@ -257,7 +257,11 @@ pub struct EgressPathConfig {
 }
 
 #[cfg(feature = "lua")]
-impl LuaUserData for EgressPathConfig {}
+impl LuaUserData for EgressPathConfig {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        config::impl_pairs_and_index(methods);
+    }
+}
 
 impl Default for EgressPathConfig {
     fn default() -> Self {
