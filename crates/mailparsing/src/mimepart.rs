@@ -5,6 +5,7 @@ use crate::{
     has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameters, Result, SharedString,
 };
 use charset::Charset;
+use std::borrow::Cow;
 use std::str::FromStr;
 
 /// Define our own because data_encoding::BASE64_MIME, despite its name,
@@ -860,6 +861,15 @@ impl FromStr for ContentTransferEncoding {
 pub enum DecodedBody<'a> {
     Text(SharedString<'a>),
     Binary(Vec<u8>),
+}
+
+impl<'a> DecodedBody<'a> {
+    pub fn to_string_lossy(&'a self) -> Cow<'a, str> {
+        match self {
+            Self::Text(s) => Cow::Borrowed(s),
+            Self::Binary(b) => String::from_utf8_lossy(b),
+        }
+    }
 }
 
 #[cfg(test)]

@@ -267,8 +267,7 @@ impl Report {
     }
 
     fn parse_inner(part: &MimePart, original_message: Option<String>) -> anyhow::Result<Self> {
-        let body = part.raw_body();
-        let body = body.replace("\r\n", "\n");
+        let body = part.body()?.to_string_lossy().replace("\r\n", "\n");
         let mut parts = body.trim().split("\n\n");
 
         let per_message = parts

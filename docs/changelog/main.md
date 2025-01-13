@@ -121,3 +121,6 @@
 
 * Changing the egress pool associated with a scheduled queue would not actually
   take effect until the scheduled queue aged out (eg: was idle for 10 minutes).
+
+* RFC3464 reports that used a transfer encoding for their delivery-status parts
+  were not parsed successfully into OOB log records.
