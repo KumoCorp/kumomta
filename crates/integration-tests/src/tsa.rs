@@ -1,6 +1,7 @@
 #![cfg(test)]
 use crate::kumod::target_bin;
 use anyhow::Context;
+use kumo_api_types::shaping::{Shaping, ShapingMergeOptions};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::process::Stdio;
@@ -139,5 +140,13 @@ impl TsaDaemon {
             Some(addr) => *addr,
             None => panic!("listener service {service} is not defined. Did it fail to start?"),
         }
+    }
+
+    pub async fn get_shaping(&self) -> anyhow::Result<Shaping> {
+        let url = format!(
+            "http://{}/get_config_v1/shaping.toml",
+            self.listener("http")
+        );
+        Shaping::merge_files(&[url], &ShapingMergeOptions::default()).await
     }
 }

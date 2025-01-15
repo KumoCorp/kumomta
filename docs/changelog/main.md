@@ -124,3 +124,6 @@
 
 * RFC3464 reports that used a transfer encoding for their delivery-status parts
   were not parsed successfully into OOB log records.
+
+* TSA daemon would not apply multiple `SetConfig` actions that were present
+  in an automation rule, and would instead only apply the first listed rule.

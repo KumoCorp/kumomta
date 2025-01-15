@@ -3,7 +3,7 @@ enable_tls = "OpportunisticInsecure"
 
 [["default".automation]]
 regex = "you said 450-go-away"
-action = "Suspend"
+action = ["Suspend", {SetConfig={name="max_message_rate", value="3/m"}}, {SetConfig={name="max_deliveries_per_connection", value=1}}]
 duration = "1 hour"
 
 [["default".automation]]

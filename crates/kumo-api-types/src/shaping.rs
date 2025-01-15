@@ -878,6 +878,18 @@ impl Shaping {
             .await
     }
 
+    pub async fn get_egress_path_config_value(
+        &self,
+        domain: &str,
+        egress_source: &str,
+        site_name: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let partial = self
+            .get_egress_path_config(domain, egress_source, site_name)
+            .await;
+        Ok(serde_json::to_value(&partial)?)
+    }
+
     pub fn get_errors(&self) -> &[String] {
         &self.inner.errors
     }

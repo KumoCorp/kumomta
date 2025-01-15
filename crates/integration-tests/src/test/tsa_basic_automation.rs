@@ -80,6 +80,19 @@ DeliverySummary {
         "expiration should be about an hour remaining, {remaining:?}"
     );
 
+    let shaping = daemon.tsa.get_shaping().await?;
+    eprintln!("{shaping:#?}");
+    let partial = shaping
+        .get_egress_path_config_value(
+            "foo.mx-sink.wezfurlong.org",
+            "unspecified",
+            "loopback.dummy-mx.wezfurlong.org",
+        )
+        .await?;
+    eprintln!("{partial:#?}");
+    assert_eq!(partial.get("max_message_rate").unwrap(), "3/m");
+    assert_eq!(partial.get("max_deliveries_per_connection").unwrap(), 1);
+
     daemon.stop().await?;
     Ok(())
 }

@@ -505,13 +505,12 @@ async fn publish_log_v1_impl(
             continue;
         }
 
-        let m_hash = match_hash(m);
-
-        let rule_hash = format!("{store_key}-{m_hash}");
-
         let triggered = match m.trigger {
             Trigger::Immediate => true,
             Trigger::Threshold(spec) => {
+                let m_hash = match_hash(m);
+                let rule_hash = format!("{store_key}-{m_hash}");
+
                 insert_record(db, &rule_hash, &record, &record_hash)?;
                 prune_old_records(db, m, &rule_hash)?;
 
@@ -527,6 +526,13 @@ async fn publish_log_v1_impl(
         // in the db with its effects and its expiry
         if triggered {
             for action in &m.action {
+                // Since there can be multiple actions within a match,
+                // ensure that the rule_hash that we use to record
+                // the effects of an action varies by the current
+                // action that we are iterating
+                let a_hash = action_hash(m, action);
+                let rule_hash = format!("{store_key}-{a_hash}");
+
                 tracing::debug!("{action:?} for {record:?}");
                 match action {
                     Action::Suspend => {
@@ -657,6 +663,13 @@ impl std::hash::Hasher for Sha256Hasher {
 fn match_hash(m: &Rule) -> String {
     let mut hasher = Sha256Hasher::new();
     m.hash(&mut hasher);
+    hasher.get()
+}
+
+fn action_hash(m: &Rule, action: &Action) -> String {
+    let mut hasher = Sha256Hasher::new();
+    m.hash(&mut hasher);
+    action.hash(&mut hasher);
     hasher.get()
 }
 
