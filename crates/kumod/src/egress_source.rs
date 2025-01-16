@@ -295,6 +295,7 @@ pub struct EgressPool {
     pub name: String,
 
     /// and the sources the constitute this pool
+    #[serde(default)]
     pub entries: Vec<EgressPoolEntry>,
 
     #[serde(default = "default_ttl", with = "duration_serde")]

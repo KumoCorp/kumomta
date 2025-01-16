@@ -127,3 +127,6 @@
 
 * TSA daemon would not apply multiple `SetConfig` actions that were present
   in an automation rule, and would instead only apply the first listed rule.
+
+* Egress pools didn't allow de-serializing definitions that had an empty set
+  of sources.
