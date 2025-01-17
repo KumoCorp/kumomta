@@ -1,6 +1,6 @@
 use crate::logging::files::LogFileParams;
 use crate::logging::{LogCommand, LogRecordParams, LOGGING_RUNTIME};
-use crate::queue::QueueManager;
+use crate::queue::{InsertReason, QueueManager};
 use anyhow::Context;
 use config::{load_config, CallbackSignature};
 use flume::Receiver;
@@ -176,7 +176,7 @@ impl LogHookState {
                 if !deferred_spool {
                     msg.save().await?;
                 }
-                QueueManager::insert(&queue_name, msg).await?;
+                QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
             }
             drop(permit);
             anyhow::Result::<()>::Ok(())

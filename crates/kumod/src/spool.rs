@@ -1,5 +1,5 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::QueueManager;
+use crate::queue::{InsertReason, QueueManager};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
@@ -373,7 +373,10 @@ impl SpoolManager {
                                         }
                                     }
 
-                                    if let Err(err) = queue.insert(msg.clone()).await {
+                                    if let Err(err) = queue
+                                        .insert(msg.clone(), InsertReason::Enumerated.into())
+                                        .await
+                                    {
                                         tracing::error!(
                                             "failed to insert Message {id} \
                                              to queue {queue_name}: {err:#}. \

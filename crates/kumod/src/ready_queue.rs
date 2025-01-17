@@ -10,7 +10,8 @@ use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
 use crate::queue::{
-    DeliveryProto, IncrementAttempts, Queue, QueueConfig, QueueManager, QueueState, QMAINT_RUNTIME,
+    DeliveryProto, IncrementAttempts, InsertContext, InsertReason, Queue, QueueConfig,
+    QueueManager, QueueState, QMAINT_RUNTIME,
 };
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::DeferredSmtpInjectionDispatcher;
@@ -518,7 +519,9 @@ impl ReadyQueueManager {
                     mgr.queues.remove(&name);
                     drop(mgr);
 
-                    queue.reinsert_ready_queue("reap").await;
+                    queue
+                        .reinsert_ready_queue("reap", InsertReason::ReadyQueueWasReaped.into())
+                        .await;
                     return Ok(());
                 }
             } else if force_reap_deadline
@@ -641,7 +644,12 @@ impl ReadyQueue {
             READYQ_RUNTIME
                 .spawn("reinserting".to_string(), async move {
                     for msg in reinsert {
-                        if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                        if let Err(err) = Dispatcher::reinsert_message(
+                            msg,
+                            InsertReason::ReadyQueueWasDelayedDueToLowMemory.into(),
+                        )
+                        .await
+                        {
                             tracing::error!("error reinserting message: {err:#}");
                         }
                     }
@@ -658,7 +666,7 @@ impl ReadyQueue {
         );
     }
 
-    async fn reinsert_ready_queue(&self, reason: &str) {
+    async fn reinsert_ready_queue(&self, reason: &str, context: InsertContext) {
         let msgs = self.ready.take_list();
         if !msgs.is_empty() {
             let activity = self.activity.clone();
@@ -667,7 +675,9 @@ impl ReadyQueue {
                     format!("reinserting {} due to {reason}", self.name),
                     async move {
                         for msg in msgs {
-                            if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                            if let Err(err) =
+                                Dispatcher::reinsert_message(msg, context.clone()).await
+                            {
                                 tracing::error!("error reinserting message: {err:#}");
                             }
                         }
@@ -729,7 +739,8 @@ impl ReadyQueue {
                 "{} is suspended until {duration:?}, throttling ready queue",
                 self.name,
             );
-            self.reinsert_ready_queue("suspend").await;
+            self.reinsert_ready_queue("suspend", InsertReason::ReadyQueueWasSuspended.into())
+                .await;
             self.notify_dispatcher.notify_waiters();
             return;
         }
@@ -921,7 +932,12 @@ impl ReadyQueue {
                     );
                     self.notify_dispatcher.notify_waiters();
                     for msg in self.ready.update_capacity(max_ready) {
-                        if let Err(err) = Dispatcher::reinsert_message(msg).await {
+                        if let Err(err) = Dispatcher::reinsert_message(
+                            msg,
+                            InsertReason::MaxReadyWasReducedByConfigUpdate.into(),
+                        )
+                        .await
+                        {
                             tracing::error!("error reinserting message: {err:#}");
                         }
                     }
@@ -1031,6 +1047,7 @@ impl Drop for Dispatcher {
                             IncrementAttempts::No,
                             None,
                             response,
+                            InsertReason::DispatcherDrop.into(),
                         )
                         .await
                         {
@@ -1221,8 +1238,14 @@ impl Dispatcher {
                             session_id: Some(dispatcher.session_id),
                         })
                         .await;
-                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response)
-                            .await?;
+                        QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::Yes,
+                            None,
+                            response,
+                            InsertReason::LoggedTransientFailure.into(),
+                        )
+                        .await?;
                         dispatcher.metrics.inc_transfail();
                     }
 
@@ -1269,7 +1292,8 @@ impl Dispatcher {
 
             if let Some(delay) = result.retry_after {
                 if delay >= path_config.client_timeouts.idle_timeout {
-                    self.throttle_ready_queue(delay).await;
+                    self.throttle_ready_queue(delay, InsertReason::MessageRateThrottle.into())
+                        .await;
                     return Ok(true);
                 }
                 tracing::trace!("{} throttled message rate, sleep for {delay:?}", self.name);
@@ -1372,13 +1396,13 @@ impl Dispatcher {
     }
 
     #[instrument(skip(msg))]
-    pub async fn reinsert_message(msg: Message) -> anyhow::Result<()> {
+    pub async fn reinsert_message(msg: Message, context: InsertContext) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
         }
         let queue_name = msg.get_queue_name()?;
         let queue = QueueManager::resolve(&queue_name).await?;
-        queue.insert(msg).await
+        queue.insert(msg, context).await
     }
 
     /// Take the contents of the ready queue and reinsert them into
@@ -1387,7 +1411,7 @@ impl Dispatcher {
     /// paths to be delivered without additional delay.
     /// The insertion logic will take care of logging a transient failure
     /// if it transpires that no sources are enabled for the message.
-    pub async fn reinsert_ready_queue(&mut self) {
+    pub async fn reinsert_ready_queue(&mut self, context: InsertContext) {
         let mut msgs = self.ready.take_list();
         msgs.extend_from_iter(self.msgs.drain(..));
         if !msgs.is_empty() {
@@ -1400,7 +1424,7 @@ impl Dispatcher {
             READYQ_RUNTIME
                 .spawn("reinserting".to_string(), async move {
                     for msg in msgs {
-                        if let Err(err) = Self::reinsert_message(msg).await {
+                        if let Err(err) = Self::reinsert_message(msg, context.clone()).await {
                             if err.to_string() != "shutting down" {
                                 tracing::error!("error reinserting message: {err:#}");
                             }
@@ -1412,7 +1436,7 @@ impl Dispatcher {
         }
     }
 
-    pub async fn throttle_ready_queue(&mut self, delay: Duration) {
+    pub async fn throttle_ready_queue(&mut self, delay: Duration, context: InsertContext) {
         let mut msgs = self.ready.take_list();
         msgs.extend_from_iter(self.msgs.drain(..));
         if !msgs.is_empty() {
@@ -1446,6 +1470,7 @@ impl Dispatcher {
                             IncrementAttempts::No,
                             Some(delay),
                             response.clone(),
+                            context.clone(),
                         )
                         .await
                         {
@@ -1459,7 +1484,7 @@ impl Dispatcher {
     }
 
     #[instrument(skip(self))]
-    pub async fn bulk_ready_queue_operation(&mut self, response: Response) {
+    pub async fn bulk_ready_queue_operation(&mut self, response: Response, context: InsertContext) {
         let mut msgs = self.ready.take_list();
         msgs.extend_from_iter(self.msgs.drain(..));
         if msgs.is_empty() {
@@ -1499,6 +1524,7 @@ impl Dispatcher {
                     IncrementAttempts::Yes,
                     None,
                     response.clone(),
+                    context.clone().add(InsertReason::LoggedTransientFailure),
                 )
                 .await
                 {
@@ -1516,19 +1542,22 @@ impl Dispatcher {
             "too many connection failures, delaying ready queue {}",
             self.name,
         );
-        self.bulk_ready_queue_operation(Response {
-            code: 451,
-            enhanced_code: Some(EnhancedStatusCode {
-                class: 4,
-                subject: 4,
-                detail: 1,
-            }),
-            content: "bulk delay of ready queue: \
+        self.bulk_ready_queue_operation(
+            Response {
+                code: 451,
+                enhanced_code: Some(EnhancedStatusCode {
+                    class: 4,
+                    subject: 4,
+                    detail: 1,
+                }),
+                content: "bulk delay of ready queue: \
                 too many successive connection failures \
                 where there was no answer from any hosts listed in MX"
-                .to_string(),
-            command: None,
-        })
+                    .to_string(),
+                command: None,
+            },
+            InsertReason::TooManyConnectionFailures.into(),
+        )
         .await;
     }
 
@@ -1588,9 +1617,15 @@ impl Dispatcher {
                         })
                         .await;
 
-                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response)
-                            .await
-                            .ok();
+                        QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::Yes,
+                            None,
+                            response,
+                            InsertReason::LoggedTransientFailure.into(),
+                        )
+                        .await
+                        .ok();
                         continue;
                     }
                 }
@@ -1667,7 +1702,8 @@ impl Dispatcher {
                 "{} is suspended until {duration:?}, throttling ready queue",
                 self.name,
             );
-            self.reinsert_ready_queue().await;
+            self.reinsert_ready_queue(InsertReason::ReadyQueueWasSuspended.into())
+                .await;
             // Close the connection and stop trying to deliver
             return Ok(false);
         }
@@ -1757,7 +1793,7 @@ impl Dispatcher {
                                     "{} is suspended until {duration:?}, throttling ready queue",
                                     self.name,
                                 );
-                                self.reinsert_ready_queue().await;
+                                self.reinsert_ready_queue(InsertReason::ReadyQueueWasSuspended.into()).await;
                                 // Close the connection and stop trying to deliver
                                 return Ok(false);
                             }

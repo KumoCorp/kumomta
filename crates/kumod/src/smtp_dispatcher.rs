@@ -3,7 +3,7 @@ use crate::http_server::admin_trace_smtp_client_v1::{
     SmtpClientTraceEventPayload, SmtpClientTracerImpl,
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{IncrementAttempts, QueueManager, QueueState};
+use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -139,16 +139,19 @@ impl SmtpDispatcher {
         let mut addresses = match addresses {
             ResolvedMxAddresses::NullMx => {
                 dispatcher
-                    .bulk_ready_queue_operation(Response {
-                        code: 556,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 5,
-                            subject: 1,
-                            detail: 10,
-                        }),
-                        content: "Recipient address has a null MX".to_string(),
-                        command: None,
-                    })
+                    .bulk_ready_queue_operation(
+                        Response {
+                            code: 556,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 5,
+                                subject: 1,
+                                detail: 10,
+                            }),
+                            content: "Recipient address has a null MX".to_string(),
+                            command: None,
+                        },
+                        InsertReason::FailedDueToNullMx.into(),
+                    )
                     .await;
                 return Ok(None);
             }
@@ -157,16 +160,19 @@ impl SmtpDispatcher {
 
         if addresses.is_empty() {
             dispatcher
-                .bulk_ready_queue_operation(Response {
-                    code: 451,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 4,
-                        subject: 4,
-                        detail: 4,
-                    }),
-                    content: "MX didn't resolve to any hosts".to_string(),
-                    command: None,
-                })
+                .bulk_ready_queue_operation(
+                    Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: "MX didn't resolve to any hosts".to_string(),
+                        command: None,
+                    },
+                    InsertReason::MxResolvedToZeroHosts.into(),
+                )
                 .await;
             return Ok(None);
         }
@@ -175,19 +181,22 @@ impl SmtpDispatcher {
             if let Some(ip) = addr.addr.ip() {
                 if path_config.prohibited_hosts.contains(ip) {
                     dispatcher
-                        .bulk_ready_queue_operation(Response {
-                            code: 550,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 5,
-                                subject: 4,
-                                detail: 4,
-                            }),
-                            content: format!(
-                                "{addr} is on the list of prohibited_hosts {:?}",
-                                path_config.prohibited_hosts
-                            ),
-                            command: None,
-                        })
+                        .bulk_ready_queue_operation(
+                            Response {
+                                code: 550,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 5,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!(
+                                    "{addr} is on the list of prohibited_hosts {:?}",
+                                    path_config.prohibited_hosts
+                                ),
+                                command: None,
+                            },
+                            InsertReason::MxWasProhibited.into(),
+                        )
                         .await;
                     return Ok(None);
                 }
@@ -201,16 +210,19 @@ impl SmtpDispatcher {
 
         if addresses.is_empty() {
             dispatcher
-                .bulk_ready_queue_operation(Response {
-                    code: 550,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 4,
-                        detail: 4,
-                    }),
-                    content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
-                    command: None,
-                })
+                .bulk_ready_queue_operation(
+                    Response {
+                        code: 550,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 5,
+                            subject: 4,
+                            detail: 4,
+                        }),
+                        content: "MX consisted solely of hosts on the skip_hosts list".to_string(),
+                        command: None,
+                    },
+                    InsertReason::MxWasSkipped.into(),
+                )
                 .await;
             return Ok(None);
         }
@@ -256,7 +268,12 @@ impl SmtpDispatcher {
                                  longer than the idle_timeout, will disconnect"
                             )
                         });
-                        dispatcher.throttle_ready_queue(delay).await;
+                        dispatcher
+                            .throttle_ready_queue(
+                                delay,
+                                InsertReason::ConnectionRateThrottle.into(),
+                            )
+                            .await;
                         anyhow::bail!("connection rate throttled for {delay:?}");
                     }
                     self.tracer.diagnostic(Level::INFO, || {
@@ -922,6 +939,7 @@ impl QueueDispatcher for SmtpDispatcher {
                                 IncrementAttempts::Yes,
                                 None,
                                 response,
+                                InsertReason::LoggedTransientFailure.into(),
                             ),
                         )?;
                     }
@@ -950,6 +968,7 @@ impl QueueDispatcher for SmtpDispatcher {
                                 IncrementAttempts::Yes,
                                 None,
                                 response,
+                                InsertReason::LoggedTransientFailure.into(),
                             ),
                         )?;
                     }
@@ -1009,7 +1028,13 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn(
                         "requeue message".to_string(),
-                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
+                        QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::Yes,
+                            None,
+                            response,
+                            InsertReason::LoggedTransientFailure.into(),
+                        ),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();
@@ -1045,7 +1070,13 @@ impl QueueDispatcher for SmtpDispatcher {
                     .await;
                     spawn(
                         "requeue message".to_string(),
-                        QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
+                        QueueManager::requeue_message(
+                            msg,
+                            IncrementAttempts::Yes,
+                            None,
+                            response,
+                            InsertReason::LoggedTransientFailure.into(),
+                        ),
                     )?;
                 }
                 dispatcher.metrics.inc_transfail();

@@ -92,6 +92,7 @@ DeliverySummary {
         Reception: 2,
         Delivery: 1,
         TransientFailure: 2,
+        Delayed: 1,
     },
     sink_counts: {
         Rejection: 2,

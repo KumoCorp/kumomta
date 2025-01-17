@@ -54,6 +54,7 @@ rfc5321 = {path="../rfc5321"}
 rustls = {workspace=true}
 serde = {workspace=true}
 serde_json = {workspace=true}
+smallvec.workspace = true
 socksv5 = {workspace=true}
 spool = {path="../spool", features=["rocksdb"]}
 sqlite = {workspace=true}

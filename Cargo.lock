@@ -3286,6 +3286,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "smallvec 1.13.2",
  "socksv5",
  "spool",
  "sqlite",

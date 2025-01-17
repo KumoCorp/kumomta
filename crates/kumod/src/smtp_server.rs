@@ -4,7 +4,7 @@ use crate::http_server::admin_trace_smtp_server_v1::{
 };
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::logging::rejection::{log_rejection, LogRejection};
-use crate::queue::{DeliveryProto, IncrementAttempts, QueueConfig, QueueManager};
+use crate::queue::{DeliveryProto, IncrementAttempts, InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
 use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
@@ -2045,7 +2045,9 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
         if response.code == 250 {
             msg.set_due(None).await?;
             let queue_name = msg.get_queue_name()?;
-            if let Err(err) = QueueManager::insert(&queue_name, msg.clone()).await {
+            if let Err(err) =
+                QueueManager::insert(&queue_name, msg.clone(), InsertReason::Received.into()).await
+            {
                 response = Response {
                     code: 450,
                     enhanced_code: None,
@@ -2098,7 +2100,13 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             let _ = dispatcher.msgs.pop();
             spawn(
                 "requeue message".to_string(),
-                QueueManager::requeue_message(msg, IncrementAttempts::Yes, None, response),
+                QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::Yes,
+                    None,
+                    response,
+                    InsertReason::LoggedTransientFailure.into(),
+                ),
             )?;
         }
 

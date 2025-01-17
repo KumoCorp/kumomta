@@ -368,6 +368,14 @@ impl Message {
         }
     }
 
+    pub fn get_scheduling(&self) -> Option<Scheduling> {
+        let inner = self.msg_and_id.inner.lock().unwrap();
+        inner
+            .metadata
+            .as_ref()
+            .and_then(|meta| meta.schedule.clone())
+    }
+
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
         let inner = self.msg_and_id.inner.lock().unwrap();
         inner.due

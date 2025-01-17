@@ -34,6 +34,7 @@ use parking_lot::FairMutex as StdMutex;
 use prometheus::{Histogram, IntCounter, IntGauge};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
+use smallvec::{smallvec, SmallVec};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Once, OnceLock};
@@ -1263,7 +1264,12 @@ impl Queue {
         msgs
     }
 
-    async fn do_rebind(&self, msg: Message, rebind: &Arc<AdminRebindEntry>) {
+    async fn do_rebind(
+        &self,
+        msg: Message,
+        rebind: &Arc<AdminRebindEntry>,
+        context: InsertContext,
+    ) {
         async fn try_apply(msg: &Message, rebind: &Arc<AdminRebindEntry>) -> anyhow::Result<()> {
             if !msg.is_meta_loaded() {
                 msg.load_meta().await?;
@@ -1301,7 +1307,12 @@ impl Queue {
             Err(err) => {
                 tracing::error!("failed to determine queue name for msg: {err:#}");
                 if let Err(err) = self
-                    .requeue_message_internal(msg, IncrementAttempts::No, delay)
+                    .requeue_message_internal(
+                        msg,
+                        IncrementAttempts::No,
+                        delay,
+                        context.add(InsertReason::MessageGetQueueNameFailed),
+                    )
                     .await
                 {
                     tracing::error!(
@@ -1364,7 +1375,7 @@ impl Queue {
         }
 
         if let Err(err) = queue
-            .requeue_message_internal(msg, IncrementAttempts::No, delay)
+            .requeue_message_internal(msg, IncrementAttempts::No, delay, context)
             .await
         {
             tracing::error!(
@@ -1380,7 +1391,8 @@ impl Queue {
         let count = msgs.len();
         if count > 0 {
             for msg in msgs {
-                self.do_rebind(msg, rebind).await;
+                self.do_rebind(msg, rebind, InsertReason::AdminRebind.into())
+                    .await;
             }
         }
     }
@@ -1486,11 +1498,12 @@ impl Queue {
         msg: Message,
         increment_attempts: IncrementAttempts,
         delay: Option<chrono::Duration>,
+        context: InsertContext,
     ) -> anyhow::Result<()> {
         if increment_attempts == IncrementAttempts::Yes {
             match self.increment_attempts_and_update_delay(msg).await? {
                 Some(msg) => {
-                    return self.insert(msg).await;
+                    return self.insert(msg, context).await;
                 }
                 None => {
                     // It was expired and removed from the spool
@@ -1540,13 +1553,17 @@ impl Queue {
             }
         }
 
-        self.insert(msg).await?;
+        self.insert(msg, context).await?;
 
         Ok(())
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_delayed(&self, msg: Message) -> anyhow::Result<InsertResult> {
+    async fn insert_delayed(
+        &self,
+        msg: Message,
+        context: InsertContext,
+    ) -> anyhow::Result<InsertResult> {
         tracing::trace!("insert_delayed {}", msg.id());
 
         match msg.get_due() {
@@ -1560,7 +1577,7 @@ impl Queue {
 
                     match self.timeq_insert(msg.clone()) {
                         Ok(_) => {
-                            if let Err(err) = self.did_insert_delayed(msg.clone()).await {
+                            if let Err(err) = self.did_insert_delayed(msg.clone(), context).await {
                                 tracing::error!("while shrinking: {}: {err:#}", msg.id());
                             }
                             Ok(InsertResult::Delayed)
@@ -1573,10 +1590,10 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn force_into_delayed(&self, msg: Message) -> anyhow::Result<()> {
+    async fn force_into_delayed(&self, msg: Message, context: InsertContext) -> anyhow::Result<()> {
         tracing::trace!("force_into_delayed {}", msg.id());
         loop {
-            match self.insert_delayed(msg.clone()).await? {
+            match self.insert_delayed(msg.clone(), context.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 // Maybe delay_with_jitter computed an immediate
                 // time? Let's try again
@@ -1605,7 +1622,54 @@ impl Queue {
         }
     }
 
-    async fn did_insert_delayed(&self, msg: Message) -> anyhow::Result<()> {
+    async fn did_insert_delayed(
+        &self,
+        msg: Message,
+        mut context: InsertContext,
+    ) -> anyhow::Result<()> {
+        // Don't log Enumerated because we'll log 1 record for every message
+        // in the spool, which doesn't seem useful.
+        // We don't log records where LoggedTransientFailure is set, because
+        // we already have a TransientFailure log record for those explaining
+        // what happened.
+        let log_delay = !context.only(InsertReason::Enumerated)
+            && !context.contains(InsertReason::LoggedTransientFailure);
+
+        if log_delay {
+            if context.only(InsertReason::Received) && msg.get_scheduling().is_some() {
+                context.note(InsertReason::ScheduledForLater);
+            }
+
+            let now = Utc::now();
+            let due = msg.get_due().unwrap_or(now);
+            let due_in = (due - now).to_std().unwrap_or(Duration::ZERO);
+
+            log_disposition(LogDisposition {
+                kind: RecordType::Delayed,
+                msg: msg.clone(),
+                site: "",
+                peer_address: None,
+                response: Response {
+                    code: 400,
+                    enhanced_code: None,
+                    command: None,
+                    content: format!(
+                        "Context: {context}. Next due in {} at {due:?}",
+                        format_duration(due_in)
+                    ),
+                },
+                egress_source: None,
+                egress_pool: None,
+                relay_disposition: None,
+                delivery_protocol: None,
+                tls_info: None,
+                source_address: None,
+                provider: None,
+                session_id: None,
+            })
+            .await;
+        }
+
         Self::save_if_needed(&msg).await
     }
 
@@ -1633,7 +1697,7 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_ready(&self, msg: Message) -> anyhow::Result<()> {
+    async fn insert_ready(&self, msg: Message, mut context: InsertContext) -> anyhow::Result<()> {
         // Don't promote to ready queue while suspended
         if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
             let remaining = suspend.get_duration();
@@ -1675,6 +1739,7 @@ impl Queue {
                 IncrementAttempts::Yes,
                 None,
                 response,
+                InsertReason::LoggedTransientFailure.into(),
             ))
             .await?;
 
@@ -1706,6 +1771,7 @@ impl Queue {
                         ),
                         command: None,
                     },
+                    context.add(InsertReason::MessageRateThrottle),
                 ))
                 .await?;
 
@@ -1745,13 +1811,14 @@ impl Queue {
                         ),
                         command: None,
                     },
+                    context.add(InsertReason::ThrottledByThrottleInsertReadyQueue),
                 ))
                 .await?;
                 return Ok(());
             }
         }
 
-        if let Err(err) = self.insert_ready_impl(msg.clone()).await {
+        if let Err(err) = self.insert_ready_impl(msg.clone(), &mut context).await {
             tracing::debug!("insert_ready: {err:#}");
 
             if err.downcast_ref::<ReadyQueueFull>().is_none() {
@@ -1774,19 +1841,25 @@ impl Queue {
                         ),
                         command: None,
                     },
+                    context.add(InsertReason::FailedToInsertIntoReadyQueue),
                 ))
                 .await?;
             } else {
                 // Queue is full; try again shortly
                 self.metrics().delay_due_to_ready_queue_full().inc();
-                self.force_into_delayed(msg).await?;
+                self.force_into_delayed(msg, context.add(InsertReason::ReadyQueueWasFull))
+                    .await?;
             }
         }
         Ok(())
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_ready_impl(&self, msg: Message) -> anyhow::Result<()> {
+    async fn insert_ready_impl(
+        &self,
+        msg: Message,
+        context: &mut InsertContext,
+    ) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
         match &self.queue_config.borrow().protocol {
@@ -1832,6 +1905,7 @@ impl Queue {
                             session_id: None,
                         })
                         .await;
+                        context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("all possible sources for {} are suspended", self.name);
                     }
                     RoundRobinResult::NoSources => {
@@ -1863,6 +1937,7 @@ impl Queue {
                             session_id: None,
                         })
                         .await;
+                        context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
                     }
                 };
@@ -1914,6 +1989,7 @@ impl Queue {
                             session_id: None,
                         })
                         .await;
+                        context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
                     }
                 }
@@ -2039,6 +2115,7 @@ impl Queue {
                             session_id: None,
                         })
                         .await;
+                        context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("failed maildir store: {err:#}");
                     }
                 }
@@ -2049,7 +2126,7 @@ impl Queue {
     /// Insert a newly received, or freshly loaded from spool, message
     /// into this queue
     #[instrument(fields(self.name), skip(self, msg))]
-    pub async fn insert(&self, msg: Message) -> anyhow::Result<()> {
+    pub async fn insert(&self, msg: Message, context: InsertContext) -> anyhow::Result<()> {
         loop {
             *self.last_change.lock() = Instant::now();
 
@@ -2067,10 +2144,10 @@ impl Queue {
                 return Ok(());
             }
 
-            match self.insert_delayed(msg.clone()).await? {
+            match self.insert_delayed(msg.clone(), context.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 InsertResult::Ready(msg) => {
-                    self.insert_ready(msg.clone()).await?;
+                    self.insert_ready(msg.clone(), context).await?;
                     return Ok(());
                 }
             }
@@ -2117,7 +2194,9 @@ impl Queue {
 
                     if remove(q, &msg) {
                         queue.metrics().sub(1);
-                        queue.insert_ready(msg).await?;
+                        queue
+                            .insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                            .await?;
                         if !to_shrink.contains_key(&queue_name) {
                             to_shrink.insert(queue_name, queue);
                         }
@@ -2180,6 +2259,84 @@ impl Queue {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct InsertContext(SmallVec<[InsertReason; 4]>);
+
+impl std::fmt::Display for InsertContext {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for (idx, reason) in self.0.iter().enumerate() {
+            if idx > 0 {
+                write!(fmt, ", ")?;
+            }
+            write!(fmt, "{reason:?}")?;
+        }
+        Ok(())
+    }
+}
+
+impl InsertContext {
+    pub fn add(mut self, reason: InsertReason) -> Self {
+        self.note(reason);
+        self
+    }
+
+    pub fn note(&mut self, reason: InsertReason) {
+        if self.0.last().copied() != Some(reason) {
+            self.0.push(reason);
+        }
+    }
+
+    pub fn contains(&self, reason: InsertReason) -> bool {
+        self.0.contains(&reason)
+    }
+
+    pub fn only(&self, reason: InsertReason) -> bool {
+        self.contains(reason) && self.0.len() == 1
+    }
+}
+
+impl From<InsertReason> for InsertContext {
+    fn from(reason: InsertReason) -> InsertContext {
+        InsertContext(smallvec![reason])
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum InsertReason {
+    /// Message was just received
+    Received,
+    /// Message was just loaded from spool
+    Enumerated,
+    /// Message had its due time explicitly set.
+    /// This reason is synthesized from context
+    ScheduledForLater,
+    ReadyQueueWasSuspended,
+    MessageRateThrottle,
+    ThrottledByThrottleInsertReadyQueue,
+    ReadyQueueWasFull,
+    FailedToInsertIntoReadyQueue,
+    MessageGetQueueNameFailed,
+    AdminRebind,
+    DueTimeWasReached,
+    MaxReadyWasReducedByConfigUpdate,
+    ReadyQueueWasDelayedDueToLowMemory,
+    FailedDueToNullMx,
+    MxResolvedToZeroHosts,
+    MxWasProhibited,
+    MxWasSkipped,
+    TooManyConnectionFailures,
+    ConnectionRateThrottle,
+    /// There was a TransientFailure logged to explain what really happened
+    LoggedTransientFailure,
+    /// Should be impossible to see in practice, because we can only
+    /// reap when the queue has no messages in it
+    ReadyQueueWasReaped,
+    /// The safey net in Dispatcher::Drop re-queued the message.
+    /// This shouldn't happen; if you see this in a log, please report it!
+    DispatcherDrop,
 }
 
 #[must_use]
@@ -2248,14 +2405,14 @@ impl QueueManager {
 
     /// Insert message into a queue named `name`.
     #[instrument(skip(msg))]
-    pub async fn insert(name: &str, msg: Message) -> anyhow::Result<()> {
-        tracing::trace!("QueueManager::insert");
+    pub async fn insert(name: &str, msg: Message, context: InsertContext) -> anyhow::Result<()> {
+        tracing::trace!("QueueManager::insert {context:?}");
         let timer = RESOLVE_LATENCY.start_timer();
         let entry = Self::resolve(name).await?;
         timer.stop_and_record();
 
         let _timer = INSERT_LATENCY.start_timer();
-        entry.insert(msg).await
+        entry.insert(msg, context).await
     }
 
     /// Insert message into a queue named `name`, unwinding it in the case
@@ -2277,7 +2434,7 @@ impl QueueManager {
         msg: Message,
         spool_was_deferred: bool,
     ) -> anyhow::Result<()> {
-        match Self::insert(name, msg.clone()).await {
+        match Self::insert(name, msg.clone(), InsertReason::Received.into()).await {
             Ok(()) => Ok(()),
             Err(err) => {
                 // Well, this sucks. The likely cause is an error in the
@@ -2346,6 +2503,7 @@ impl QueueManager {
         mut increment_attempts: IncrementAttempts,
         mut delay: Option<chrono::Duration>,
         response: Response,
+        context: InsertContext,
     ) -> anyhow::Result<()> {
         if !msg.is_meta_loaded() {
             msg.load_meta().await?;
@@ -2432,7 +2590,7 @@ impl QueueManager {
 
         let queue = QueueManager::resolve(&queue_name).await?;
         queue
-            .requeue_message_internal(msg, increment_attempts, delay)
+            .requeue_message_internal(msg, increment_attempts, delay, context)
             .await
     }
 
@@ -2616,7 +2774,8 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 wait_for_message_batch(&messages).await;
 
                 for msg in messages {
-                    q.insert_ready(msg).await?;
+                    q.insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                        .await?;
                 }
             }
         }

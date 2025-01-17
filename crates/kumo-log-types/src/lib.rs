@@ -60,6 +60,9 @@ pub enum RecordType {
     /// and into some other queue
     DeferredInjectionRebind,
 
+    /// Explains why a message was put into the scheduled queue
+    Delayed,
+
     /// Special for matching anything in the logging config
     Any,
 }
