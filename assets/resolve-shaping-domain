@@ -24,11 +24,31 @@ cat >${script} <<-EOT
 local kumo = require 'kumo'
 dofile "${POLICY_PATH}"
 
-kumo.on('main', function(domain)
+kumo.on('main', function(domain, source)
+  if domain == nil or domain == '--help' or domain == '-h' then
+      print [[
+Resolves the effective shaping configuration for a domain
+and optionally for the source that you specify.
+
+The config is shown as a json object dump.
+
+resolve-shaping-domain DOMAIN_NAME [SOURCE_NAME]
+
+If SOURCE_NAME is omitted, 'unspecified' will be used
+for the source name.
+]]
+      if domain == nil then
+        os.exit(1)
+      end
+      return
+  end
+
+  local source = source or 'unspecified'
+
   local mx = kumo.dns.lookup_mx(domain)
   local path_config = kumo.invoke_get_egress_path_config(
     domain,
-    'unspecified',
+    source,
     mx.site_name
   )
   print(kumo.serde.json_encode_pretty(path_config))
