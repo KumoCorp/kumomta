@@ -67,6 +67,13 @@
   supports editing the list of ESMTP extensions that are reported by the
   SMTP listener in response to the EHLO command.
 
+* You may now configure an egress path to
+  [use_lmtp](../reference/kumo/make_egress_path/use_lmtp.md) to talk to an LMTP
+  implementation.  The
+  [mx_list](../reference/kumo/make_queue_config/protocol.md) in the queue
+  configuration can now also be set to a unix domain socket address to
+  facilitate this. #267
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
