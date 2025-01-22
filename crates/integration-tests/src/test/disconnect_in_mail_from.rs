@@ -28,6 +28,23 @@ async fn disconnect_in_mail_from() -> anyhow::Result<()> {
         .await;
 
     daemon.stop_both().await?;
+
+    let logs = daemon.source.collect_logs()?;
+    k9::snapshot!(
+        logs.last().unwrap().response.clone(),
+        r#"
+Response {
+    code: 421,
+    enhanced_code: None,
+    content: "disconnecting 421-disconnect-me",
+    command: Some(
+        "MAIL FROM:<421-disconnect-me@example.com>\r
+",
+    ),
+}
+"#
+    );
+
     let delivery_summary = daemon.dump_logs()?;
     k9::snapshot!(
         delivery_summary,

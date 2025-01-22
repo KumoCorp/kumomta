@@ -407,6 +407,10 @@ impl SmtpClient {
         for cmd in &commands {
             if let Err(err) = self.write_command_request(cmd, pipeline).await {
                 results.push(Err(err.into()));
+                while results.len() < commands.len() {
+                    // Synthesize failures for the remaining commands
+                    results.push(Err(ClientError::NotConnected));
+                }
                 return results;
             }
             if !pipeline {
@@ -692,16 +696,34 @@ impl SmtpClient {
             ])
             .await;
 
-        if responses.is_empty() {
-            // Should be impossible to get here really, but if we do,
-            // assume that we aren't connected
-            return Err(ClientError::NotConnected);
-        }
+        // This is a little awkward. We want to handle the RFC 2090 3.1 case
+        // below, which requires deferring checking the actual response codes
+        // until later, but we must also handle the case where we had a hard
+        // transport error partway through pipelining.
+        // So we set a flag for that case and will then "eagerly", wrt. the
+        // RFC 2090 3.1 logic, evaluate the SMTP response codes, so that we
+        // can propagate the correct error disposition up to the caller.
+        let is_err = responses.iter().any(|r| r.is_err());
 
         let rset_resp = responses.remove(0)?;
+        if is_err && rset_resp.code != 250 {
+            return Err(ClientError::Rejected(rset_resp));
+        }
+
         let mail_resp = responses.remove(0)?;
+        if is_err && mail_resp.code != 250 {
+            return Err(ClientError::Rejected(mail_resp));
+        }
+
         let rcpt_resp = responses.remove(0)?;
+        if is_err && rcpt_resp.code != 250 {
+            return Err(ClientError::Rejected(rcpt_resp));
+        }
+
         let data_resp = responses.remove(0)?;
+        if is_err && data_resp.code != 354 {
+            return Err(ClientError::Rejected(data_resp));
+        }
 
         if data_resp.code == 354
             && (rset_resp.code != 250 || mail_resp.code != 250 || rcpt_resp.code != 250)
