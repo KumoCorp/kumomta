@@ -778,7 +778,11 @@ impl SmtpServer {
             if status == 421 {
                 // 421 is only valid when disconnecting the session,
                 // so disconnect it!
-                self.socket.take();
+                if let Some(mut socket) = self.socket.take() {
+                    // Do a graceful shutdown of the socket so that we can
+                    // flush the 421 response through TLS to the peer
+                    let _ = socket.shutdown().await;
+                }
             }
         }
         Ok(())
