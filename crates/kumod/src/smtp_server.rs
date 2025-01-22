@@ -375,9 +375,12 @@ impl EsmtpListenerParams {
                             // connections on this listener.
                             let _ = tokio::time::timeout(
                                 Duration::from_secs(2),
-                                socket.write(response.as_bytes())
+                                async move {
+                                    let _ = socket.write(response.as_bytes()).await;
+                                    socket.shutdown().await
+                                }
                             ).await;
-                            drop(socket);
+
                             continue;
                         };
 
