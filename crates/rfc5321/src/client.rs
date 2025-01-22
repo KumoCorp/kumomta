@@ -47,9 +47,9 @@ pub enum ClientError {
         command: Option<Command>,
         duration: Duration,
     },
-    #[error("Timed Out writing {duration:?} {command:?}")]
+    #[error("Timed Out writing {duration:?} {commands:?}")]
     TimeOutRequest {
-        command: Command,
+        commands: Vec<Command>,
         duration: Duration,
     },
     #[error("Timed Out sending message payload data")]
@@ -294,22 +294,64 @@ impl SmtpClient {
     }
 
     pub async fn send_command(&mut self, command: &Command) -> Result<Response, ClientError> {
-        self.write_command_request(command, false).await?;
+        self.write_command_request(command).await?;
         self.read_response(Some(command), command.client_timeout(&self.timeouts))
             .await
     }
 
-    async fn write_command_request(
-        &mut self,
-        command: &Command,
-        is_pipeline: bool,
-    ) -> Result<(), ClientError> {
+    async fn write_pipeline_request(&mut self, commands: &[Command]) -> Result<(), ClientError> {
+        let total_timeout: Duration = commands
+            .iter()
+            .map(|cmd| cmd.client_timeout_request(&self.timeouts))
+            .sum();
+
+        let mut lines: Vec<String> = vec![];
+        let mut all = String::new();
+        for cmd in commands {
+            let line = cmd.encode();
+            all.push_str(&line);
+            lines.push(line);
+        }
+        tracing::trace!("send->{}: (PIPELINE) {all}", self.hostname);
+        match self.socket.as_mut() {
+            Some(socket) => {
+                if let Some(tracer) = &self.tracer {
+                    // Send the lines individually to the tracer, so that we
+                    // don't break --terse mode
+                    for line in lines {
+                        WriteTracer::trace(tracer, &line);
+                    }
+                }
+
+                match timeout(total_timeout, socket.write_all(all.as_bytes())).await {
+                    Ok(result) => result.map_err(|_| {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
+                        ClientError::NotConnected
+                    }),
+                    Err(_) => {
+                        // Ensure that we "break" the client if we think
+                        // we're not connected, so that the calling code
+                        // can't reuse a session that may be in an indeterminate
+                        // state
+                        self.socket.take();
+                        return Err(ClientError::TimeOutRequest {
+                            commands: commands.to_vec(),
+                            duration: total_timeout,
+                        });
+                    }
+                }
+            }
+            None => Err(ClientError::NotConnected),
+        }
+    }
+
+    async fn write_command_request(&mut self, command: &Command) -> Result<(), ClientError> {
         let line = command.encode();
-        tracing::trace!(
-            "send->{}: {}{line}",
-            self.hostname,
-            if is_pipeline { "(PIPELINE) " } else { "" },
-        );
+        tracing::trace!("send->{}: {line}", self.hostname);
         match self.socket.as_mut() {
             Some(socket) => {
                 if let Some(tracer) = &self.tracer {
@@ -337,7 +379,7 @@ impl SmtpClient {
                         // state
                         self.socket.take();
                         return Err(ClientError::TimeOutRequest {
-                            command: command.clone(),
+                            commands: vec![command.clone()],
                             duration: command.client_timeout_request(&self.timeouts),
                         });
                     }
@@ -401,11 +443,11 @@ impl SmtpClient {
         &mut self,
         commands: Vec<Command>,
     ) -> Vec<Result<Response, ClientError>> {
-        let pipeline = self.capabilities.contains_key("PIPELINING");
         let mut results: Vec<Result<Response, ClientError>> = vec![];
 
-        for cmd in &commands {
-            if let Err(err) = self.write_command_request(cmd, pipeline).await {
+        let pipeline = self.capabilities.contains_key("PIPELINING");
+        if pipeline {
+            if let Err(err) = self.write_pipeline_request(&commands).await {
                 results.push(Err(err.into()));
                 while results.len() < commands.len() {
                     // Synthesize failures for the remaining commands
@@ -413,17 +455,7 @@ impl SmtpClient {
                 }
                 return results;
             }
-            if !pipeline {
-                // Immediately request the response if the server
-                // doesn't support pipelining
-                results.push(
-                    self.read_response(Some(cmd), cmd.client_timeout(&self.timeouts))
-                        .await,
-                );
-            }
-        }
 
-        if pipeline {
             // Now read the responses effectively in a batch
             for cmd in &commands {
                 results.push(
@@ -431,8 +463,25 @@ impl SmtpClient {
                         .await,
                 );
             }
+            return results;
         }
 
+        for cmd in &commands {
+            if let Err(err) = self.write_command_request(cmd).await {
+                results.push(Err(err.into()));
+                while results.len() < commands.len() {
+                    // Synthesize failures for the remaining commands
+                    results.push(Err(ClientError::NotConnected));
+                }
+                return results;
+            }
+            // Immediately request the response if the server
+            // doesn't support pipelining
+            results.push(
+                self.read_response(Some(cmd), cmd.client_timeout(&self.timeouts))
+                    .await,
+            );
+        }
         results
     }
 

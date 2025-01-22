@@ -1000,15 +1000,17 @@ impl QueueDispatcher for SmtpDispatcher {
                     }
                 }
             }
-            Err(ClientError::TimeOutRequest { command, duration }) => {
+            Err(ClientError::TimeOutRequest { commands, duration }) => {
                 // Transient failure
                 let reason = format!(
                     "failed to send message to {} {:?}: \
-                    Timed Out waiting {duration:?} to write {command:?}",
+                    Timed Out waiting {duration:?} to write {commands:?}",
                     dispatcher.name, self.client_address
                 );
                 tracing::debug!("{reason}");
                 if let Some(msg) = dispatcher.msgs.pop() {
+                    let commands: Vec<String> =
+                        commands.into_iter().map(|cmd| cmd.encode()).collect();
                     let response = Response {
                         code: 421,
                         enhanced_code: Some(EnhancedStatusCode {
@@ -1017,7 +1019,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             detail: 2,
                         }),
                         content: reason.clone(),
-                        command: Some(command.encode()),
+                        command: Some(commands.join("")),
                     };
                     self.log_disposition(
                         dispatcher,
