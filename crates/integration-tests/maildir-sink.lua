@@ -29,19 +29,30 @@ kumo.on('init', function()
   }
 end)
 
-kumo.on('smtp_server_rcpt_to', function(recipient)
-  if string.find(recipient.user, 'tempfail') then
+local function apply_rejections(envelope_addr)
+  if string.find(envelope_addr.user, 'tempfail') then
     kumo.reject(400, 'tempfail requested')
   end
-  if string.find(recipient.user, 'permfail') then
+  if string.find(envelope_addr.user, 'permfail') then
     kumo.reject(500, 'permfail requested')
   end
-  if utils.starts_with(recipient.user, '450-') then
-    kumo.reject(450, 'you said ' .. recipient.user)
+  if utils.starts_with(envelope_addr.user, '450-') then
+    kumo.reject(450, 'you said ' .. envelope_addr.user)
   end
-  if utils.starts_with(recipient.user, '550-') then
-    kumo.reject(550, 'you said ' .. recipient.user)
+  if utils.starts_with(envelope_addr.user, '421-') then
+    kumo.reject(421, 'disconnecting ' .. envelope_addr.user)
   end
+  if utils.starts_with(envelope_addr.user, '550-') then
+    kumo.reject(550, 'you said ' .. envelope_addr.user)
+  end
+end
+
+kumo.on('smtp_server_rcpt_to', function(recipient)
+  apply_rejections(recipient)
+end)
+
+kumo.on('smtp_server_mail_from', function(sender)
+  apply_rejections(sender)
 end)
 
 kumo.on('smtp_server_message_received', function(msg)

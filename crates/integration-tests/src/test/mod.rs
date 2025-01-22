@@ -1,6 +1,7 @@
 #![cfg(test)]
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+mod disconnect_in_mail_from;
 mod end_to_end;
 mod end_to_end_deferred_queue;
 mod end_to_end_stuffed;
