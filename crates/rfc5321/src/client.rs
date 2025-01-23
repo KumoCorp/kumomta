@@ -137,6 +137,7 @@ pub struct SmtpClient {
     read_buffer: Vec<u8>,
     timeouts: SmtpClientTimeouts,
     tracer: Option<Arc<dyn SmtpClientTracer + Send + Sync>>,
+    use_rset: bool,
 }
 
 fn extract_hostname(hostname: &str) -> &str {
@@ -180,6 +181,7 @@ impl SmtpClient {
             read_buffer: Vec::with_capacity(1024),
             timeouts,
             tracer: None,
+            use_rset: false,
         }
     }
 
@@ -730,20 +732,33 @@ impl SmtpClient {
             });
         }
 
-        let mut responses = self
-            .pipeline_commands(vec![
-                Command::Rset,
-                Command::MailFrom {
-                    address: sender,
-                    parameters: mail_from_params,
-                },
-                Command::RcptTo {
-                    address: recipient,
-                    parameters: vec![],
-                },
-                Command::Data,
-            ])
-            .await;
+        let mut commands = vec![];
+
+        // We want to avoid using RSET for the first message we send on
+        // a given connection, because postfix can run in a mode where
+        // it will not tolerate RSET because it considers it to be a "junk"
+        // command, and rejecting junk commands will cut down on its load
+        // when it is under stress; it is used as a load shedding approach.
+        // If we always RSET then we will never deliver to a site that is
+        // configured that way. If we take care to RSET only for subsequent
+        // sends, then we should get one message per connection through
+        // without being unfairly penalized for defensively RSETing.
+        let used_rset = self.use_rset;
+        if self.use_rset {
+            commands.push(Command::Rset);
+        }
+        commands.push(Command::MailFrom {
+            address: sender,
+            parameters: mail_from_params,
+        });
+        commands.push(Command::RcptTo {
+            address: recipient,
+            parameters: vec![],
+        });
+        commands.push(Command::Data);
+        self.use_rset = true;
+
+        let mut responses = self.pipeline_commands(commands).await;
 
         // This is a little awkward. We want to handle the RFC 2090 3.1 case
         // below, which requires deferring checking the actual response codes
@@ -754,9 +769,11 @@ impl SmtpClient {
         // can propagate the correct error disposition up to the caller.
         let is_err = responses.iter().any(|r| r.is_err());
 
-        let rset_resp = responses.remove(0)?;
-        if is_err && rset_resp.code != 250 {
-            return Err(ClientError::Rejected(rset_resp));
+        if used_rset {
+            let rset_resp = responses.remove(0)?;
+            if rset_resp.code != 250 {
+                return Err(ClientError::Rejected(rset_resp));
+            }
         }
 
         let mail_resp = responses.remove(0)?;
@@ -774,9 +791,7 @@ impl SmtpClient {
             return Err(ClientError::Rejected(data_resp));
         }
 
-        if data_resp.code == 354
-            && (rset_resp.code != 250 || mail_resp.code != 250 || rcpt_resp.code != 250)
-        {
+        if data_resp.code == 354 && (mail_resp.code != 250 || rcpt_resp.code != 250) {
             // RFC 2920 3.1:
             // the client cannot assume that the DATA command will be rejected
             // just because none of the RCPT TO commands worked.  If the DATA
@@ -797,9 +812,6 @@ impl SmtpClient {
             // commands
         }
 
-        if rset_resp.code != 250 {
-            return Err(ClientError::Rejected(rset_resp));
-        }
         if mail_resp.code != 250 {
             return Err(ClientError::Rejected(mail_resp));
         }
