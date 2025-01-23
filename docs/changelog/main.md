@@ -74,6 +74,10 @@
   configuration can now also be set to a unix domain socket address to
   facilitate this. #267
 
+* New [enable_rset](../reference/kumo/make_egress_path/enable_rset.md) and
+  [enable_pipelining](../reference/kumo/make_egress_path/enable_pipelining.md)
+  options to influence the use of SMTP protocol features.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the

@@ -336,6 +336,8 @@ impl SmtpDispatcher {
             let timeouts = path_config.client_timeouts.clone();
             let egress_source = dispatcher.egress_source.clone();
             let tracer = self.tracer.clone();
+            let enable_rset = path_config.enable_rset;
+            let enable_pipelining = path_config.enable_pipelining;
 
             // We need to spawn the connection attempt into another task,
             // otherwise the select! invocation below won't run it in parallel with
@@ -385,6 +387,8 @@ impl SmtpDispatcher {
                 tracer.submit(|| SmtpClientTraceEventPayload::Connected);
 
                 client.set_tracer(tracer);
+                client.set_enable_pipelining(enable_pipelining);
+                client.set_enable_rset(enable_rset);
 
                 // Read banner
                 let banner = client

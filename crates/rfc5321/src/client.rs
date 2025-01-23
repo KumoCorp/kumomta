@@ -138,6 +138,8 @@ pub struct SmtpClient {
     timeouts: SmtpClientTimeouts,
     tracer: Option<Arc<dyn SmtpClientTracer + Send + Sync>>,
     use_rset: bool,
+    enable_rset: bool,
+    enable_pipelining: bool,
 }
 
 fn extract_hostname(hostname: &str) -> &str {
@@ -182,11 +184,21 @@ impl SmtpClient {
             timeouts,
             tracer: None,
             use_rset: false,
+            enable_rset: false,
+            enable_pipelining: false,
         }
     }
 
     pub fn is_connected(&self) -> bool {
         self.socket.is_some()
+    }
+
+    pub fn set_enable_rset(&mut self, enable: bool) {
+        self.enable_rset = enable;
+    }
+
+    pub fn set_enable_pipelining(&mut self, enable: bool) {
+        self.enable_pipelining = enable;
     }
 
     pub fn set_tracer(&mut self, tracer: Arc<dyn SmtpClientTracer + Send + Sync>) {
@@ -447,7 +459,7 @@ impl SmtpClient {
     ) -> Vec<Result<Response, ClientError>> {
         let mut results: Vec<Result<Response, ClientError>> = vec![];
 
-        let pipeline = self.capabilities.contains_key("PIPELINING");
+        let pipeline = self.enable_pipelining && self.capabilities.contains_key("PIPELINING");
         if pipeline {
             if let Err(err) = self.write_pipeline_request(&commands).await {
                 results.push(Err(err.into()));
@@ -756,7 +768,7 @@ impl SmtpClient {
             parameters: vec![],
         });
         commands.push(Command::Data);
-        self.use_rset = true;
+        self.use_rset = self.enable_rset;
 
         let mut responses = self.pipeline_commands(commands).await;
 

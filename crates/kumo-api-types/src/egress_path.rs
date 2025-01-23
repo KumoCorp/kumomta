@@ -153,6 +153,12 @@ pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_enable_dane")]
     pub enable_dane: bool,
 
+    #[serde(default = "EgressPathConfig::default_enable_pipelining")]
+    pub enable_pipelining: bool,
+
+    #[serde(default = "EgressPathConfig::default_enable_rset")]
+    pub enable_rset: bool,
+
     #[serde(default)]
     pub tls_prefer_openssl: bool,
 
@@ -271,6 +277,8 @@ impl Default for EgressPathConfig {
             enable_tls: Tls::default(),
             enable_mta_sts: Self::default_enable_mta_sts(),
             enable_dane: Self::default_enable_dane(),
+            enable_rset: Self::default_enable_rset(),
+            enable_pipelining: Self::default_enable_pipelining(),
             max_ready: Self::default_max_ready(),
             consecutive_connection_failures_before_delay:
                 Self::default_consecutive_connection_failures_before_delay(),
@@ -308,6 +316,14 @@ impl EgressPathConfig {
     }
 
     fn default_enable_mta_sts() -> bool {
+        true
+    }
+
+    fn default_enable_pipelining() -> bool {
+        true
+    }
+
+    fn default_enable_rset() -> bool {
         true
     }
 
