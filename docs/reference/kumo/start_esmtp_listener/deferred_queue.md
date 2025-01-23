@@ -1,6 +1,6 @@
 # deferred_queue
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 !!! warning
     Carefully read and understand this option before enabling it.

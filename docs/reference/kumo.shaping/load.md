@@ -206,7 +206,7 @@ The following new actions are now supported:
    If no campaign was assigned, behave as though `"SuspendTenant"` was the
    action.
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 The following new actions are now supported:
 

@@ -22,7 +22,7 @@ kumo.on('smtp_server_ehlo', function(domain, conn_meta)
 end)
 ```
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 The signature of the call has been extended to receive the list of
 SMTP extensions that will be reported by the EHLO command.

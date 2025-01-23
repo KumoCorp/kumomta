@@ -1,6 +1,6 @@
 # `kumo.on('smtp_server_message_deferred_inject', function(message, conn_meta))`
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 When [deferred_queue](../kumo/start_esmtp_listener/deferred_queue.md) is
 enabled, this is called by after accepting the message data and responding to

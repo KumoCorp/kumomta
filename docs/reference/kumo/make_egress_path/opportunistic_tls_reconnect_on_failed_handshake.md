@@ -1,6 +1,6 @@
 # opportunistic_tls_reconnect_on_failed_handshake
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 When set to `true` (the default is `false`), if `enable_tls` is set to
 `Opportunistic` or `OpportunisticInsecure`, and the TLS handshake, or the

@@ -1,6 +1,6 @@
 # enable_rset
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 When set to `true` (the default is `true`), then kumo will issue an `RSET`
 SMTP command in between each message send on a connection.

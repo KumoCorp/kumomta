@@ -3,7 +3,7 @@
 !!! warning
     This function has moved to the [kumo.time](../kumo.time/index.md) module and
     will be removed in a future release.
-    {{since('dev', inline=True)}}
+    {{since('2025.01.23-7273d2bc', inline=True)}}
 
 {{since('2024.06.10-84e84b89')}}
 

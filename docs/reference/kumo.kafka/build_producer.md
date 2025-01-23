@@ -42,7 +42,7 @@ producer:send {
 
 ### client:send_batch({PARAMS})
 
-{{ since('dev') }}
+{{ since('2025.01.23-7273d2bc') }}
 
 Sends a batch of messages. `PARAMS` is a table of object style table with the
 following keys:

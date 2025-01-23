@@ -11,7 +11,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, site_name)
 end)
 ```
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 `connection_limit` may now be specified using a string in addition to an integer;
 the string format allows the use of commas or underscores to separate digits

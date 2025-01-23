@@ -1,6 +1,6 @@
 # enable_pipelining
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 When set to `true` (the default is `true`), then kumo will use the SMTP
 `PIPELINING` extension when it is advertised by the remote host.

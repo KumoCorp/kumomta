@@ -291,7 +291,7 @@ The match can be one of these possible options:
 * `{MXSuffix="SUFFIX"}` - matches if one of the MX hostnames matches the
   specified suffix string. (but see below!)
 * `{HostName="NAME"}` - matches if one of the MX hostnames exactly equals
-  the specified name. (but see below!) {{since('dev', inline=True)}}
+  the specified name. (but see below!) {{since('2025.01.23-7273d2bc', inline=True)}}
 
 When matching MX hostnames, rather than DomainSuffixes, every hostname from the
 MX record must match one or more of the `MXSuffix` or `HostName` match rules in

@@ -63,7 +63,7 @@ not apply.
 
 #### Specifying directory and file modes for maildir
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 If you are sharing the maildir with something like dovecot it can sometimes
 be desirable to explicitly control the file permissions of the directory
@@ -91,7 +91,7 @@ end)
 
 #### Advanced Maildir Path
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 If you are sharing the maildir with something like dovecot it is desirable
 to be able to put messages into per-user maildirs.

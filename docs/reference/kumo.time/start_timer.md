@@ -1,6 +1,6 @@
 # `kumo.time.start_timer(LABEL)`
 
-{{since('dev')}}
+{{since('2025.01.23-7273d2bc')}}
 
 Starts a timer with a specific label and returns a timer object.
 
