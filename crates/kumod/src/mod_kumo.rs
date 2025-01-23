@@ -208,13 +208,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "make_message",
         lua.create_function(
-            move |_lua, (sender, recip, body): (String, String, String)| {
+            move |_lua, (sender, recip, body): (String, String, mlua::String)| {
                 Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::parse(&sender).map_err(any_err)?,
                     EnvelopeAddress::parse(&recip).map_err(any_err)?,
                     serde_json::json!({}),
-                    Arc::new(body.into_bytes().into_boxed_slice()),
+                    Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )
                 .map_err(any_err)
             },
