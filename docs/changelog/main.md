@@ -78,6 +78,10 @@
   [enable_pipelining](../reference/kumo/make_egress_path/enable_pipelining.md)
   options to influence the use of SMTP protocol features.
 
+* New
+  [opportunistic_tls_reconnect_on_failed_handshake](../reference/kumo/make_egress_path/opportunistic_tls_reconnect_on_failed_handshake.md)
+  option.
+
 ## Fixes
 
 * When `enable_tls` is set to `Required` or `RequiredInsecure`, ignore the
