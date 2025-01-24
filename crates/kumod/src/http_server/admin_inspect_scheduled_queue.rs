@@ -3,6 +3,7 @@ use axum::extract::{Json, Query};
 use kumo_api_types::{
     InspectMessageV1Response, InspectQueueV1Request, InspectQueueV1Response, MessageInformation,
 };
+use kumo_chrono_helper::Utc;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::AppError;
 
@@ -61,6 +62,7 @@ pub async fn inspect_v1(
     }
 
     let metrics = queue.metrics();
+    let now = Utc::now();
 
     Ok(Json(InspectQueueV1Response {
         queue_name: request.queue_name,
@@ -68,6 +70,7 @@ pub async fn inspect_v1(
         num_scheduled: queue.queue_len(),
         queue_config: serde_json::to_value(&**queue.get_config().borrow())?,
         delayed_metric: metrics.scheduled.delay_gauge.get(),
-        last_changed: chrono::Utc::now() - queue.get_last_change().elapsed(),
+        last_changed: now - queue.get_last_change().elapsed(),
+        now,
     }))
 }

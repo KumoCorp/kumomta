@@ -353,6 +353,7 @@ pub struct InspectQueueV1Response {
     pub num_scheduled: usize,
     pub queue_config: serde_json::Value,
     pub delayed_metric: usize,
+    pub now: DateTime<Utc>,
     pub last_changed: DateTime<Utc>,
 }
 

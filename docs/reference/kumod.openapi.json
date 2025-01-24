@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.01.23-01c52eef"
+    "version": "2025.01.24-41b6e79c"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -1401,6 +1401,7 @@
                 "num_scheduled",
                 "queue_config",
                 "delayed_metric",
+                "now",
                 "last_changed"
               ],
               "properties": {
@@ -1416,6 +1417,9 @@
                   "items": {
                     "$ref": "#/components/schemas/InspectMessageV1Response"
                   }
+                },
+                "now": {
+                  "$ref": "#/components/schemas/DateTime"
                 },
                 "num_scheduled": {
                   "type": "integer",
