@@ -239,8 +239,10 @@ impl SmtpDispatcher {
     }
 
     async fn attempt_connection_impl(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
-        if self.client.is_some() {
-            return Ok(());
+        if let Some(client) = &self.client {
+            if client.is_connected() {
+                return Ok(());
+            }
         }
 
         let mut shutdown = ShutdownSubcription::get();
