@@ -354,33 +354,31 @@ impl SmtpClient {
         F: FnOnce() -> ClientError,
     {
         match self.socket.as_mut() {
-            Some(socket) => {
-                match timeout(timeout_duration, socket.write_all(bytes)).await {
-                    Ok(Ok(response)) => Ok(response),
-                    Ok(Err(err)) => {
-                        self.socket.take();
-                        if let Some(tracer) = &self.tracer {
-                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
-                                level: Level::ERROR,
-                                message: format!("Error during write: {err:#}"),
-                            });
-                            tracer.trace_event(SmtpClientTraceEvent::Closed);
-                        }
-                        Err(ClientError::NotConnected)
+            Some(socket) => match timeout(timeout_duration, socket.write_all(bytes)).await {
+                Ok(Ok(response)) => Ok(response),
+                Ok(Err(err)) => {
+                    self.socket.take();
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!("Error during write: {err:#}"),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
-                    Err(_) => {
-                        self.socket.take();
-                        if let Some(tracer) = &self.tracer {
-                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
-                                level: Level::ERROR,
-                                message: format!("Write Timeout after {timeout_duration:?}"),
-                            });
-                            tracer.trace_event(SmtpClientTraceEvent::Closed);
-                        }
-                        Err(make_timeout_err())
-                    }
+                    Err(ClientError::NotConnected)
                 }
-            }
+                Err(_) => {
+                    self.socket.take();
+                    if let Some(tracer) = &self.tracer {
+                        tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                            level: Level::ERROR,
+                            message: format!("Write Timeout after {timeout_duration:?}"),
+                        });
+                        tracer.trace_event(SmtpClientTraceEvent::Closed);
+                    }
+                    Err(make_timeout_err())
+                }
+            },
             None => Err(ClientError::NotConnected),
         }
     }
@@ -777,7 +775,10 @@ impl SmtpClient {
             parameters: vec![],
         });
         commands.push(Command::Data);
-        self.use_rset = self.enable_rset;
+
+        // Assume that something might break below: if it does, we want
+        // to ensure that we RSET the connection on the next go around.
+        self.use_rset = true;
 
         let mut responses = self.pipeline_commands(commands).await;
 
@@ -862,6 +863,10 @@ impl SmtpClient {
         if resp.code != 250 {
             return Err(ClientError::Rejected(resp));
         }
+
+        // If everything went well, respect the user preference for speculatively
+        // issuing an RSET next time around
+        self.use_rset = self.enable_rset;
 
         Ok(resp)
     }

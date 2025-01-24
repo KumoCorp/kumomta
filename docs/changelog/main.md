@@ -8,3 +8,6 @@
 
 ## Fixes
 
+* Regression with the recent RSET optimizations: we didn't issue an RSET if a send
+  failed partway through, leading to issues with the connection state.
+
