@@ -1390,11 +1390,8 @@ impl TimerEntryWithDelay for Message {
         match inner.due {
             Some(time) => {
                 let now = Utc::now();
-                if time <= now {
-                    Duration::from_millis(0)
-                } else {
-                    Duration::from_millis((time - now).num_milliseconds() as u64)
-                }
+                let delta = time - now;
+                delta.to_std().unwrap_or(Duration::from_millis(0))
             }
             None => Duration::from_millis(0),
         }
