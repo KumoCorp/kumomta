@@ -134,6 +134,22 @@ pub enum ConfigRefreshStrategy {
     Epoch,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "lua", derive(FromLua))]
+pub enum ReconnectStrategy {
+    /// Close out the current connection session, allowing the maintainer
+    /// to decide about opening a new session and starting with a fresh
+    /// connection plan
+    TerminateSession,
+    /// Try to reconnect to the same host that we were using and where
+    /// we experienced the error
+    ReconnectSameHost,
+    /// Advance to the next host in the connection, if any. If none remain,
+    /// this is equivalent to TerminateSession
+    #[default]
+    ConnectNextHost,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
 #[serde(deny_unknown_fields)]
@@ -260,6 +276,11 @@ pub struct EgressPathConfig {
     /// If true, rather than ESMTP, use the LMTP protocol
     #[serde(default)]
     pub use_lmtp: bool,
+
+    /// How to behave if we experience either a 421 response, an IO Error,
+    /// or a timeout while talking to the peer.
+    #[serde(default)]
+    pub reconnect_strategy: ReconnectStrategy,
 }
 
 #[cfg(feature = "lua")]
@@ -306,6 +327,7 @@ impl Default for EgressPathConfig {
             remember_broken_tls: None,
             opportunistic_tls_reconnect_on_failed_handshake: false,
             use_lmtp: false,
+            reconnect_strategy: ReconnectStrategy::default(),
         }
     }
 }

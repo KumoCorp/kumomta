@@ -5,6 +5,10 @@
 ## Other Changes and Enhancements
 
 * Added [kcli inspect-sched-q](../reference/kcli/inspect-sched-q.md) command. #231
+* Added
+  [reconnect_strategy](../reference/kumo/make_egress_path/reconnect_strategy.md)
+  egress path option to control what happens with a session that experiences
+  a disconnection during message sending.
 
 ## Fixes
 

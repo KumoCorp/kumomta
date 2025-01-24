@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
-use kumo_api_types::egress_path::{EgressPathConfig, Tls};
+use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn;
@@ -781,6 +781,23 @@ impl SmtpDispatcher {
         })
         .await
     }
+
+    fn update_state_for_reconnect(&mut self, dispatcher: &mut Dispatcher) {
+        match dispatcher.path_config.borrow().reconnect_strategy {
+            ReconnectStrategy::TerminateSession => {
+                self.addresses.clear();
+            }
+            ReconnectStrategy::ReconnectSameHost => {
+                if let Some(address) = self.client_address.take() {
+                    self.addresses.push(address);
+                }
+            }
+            ReconnectStrategy::ConnectNextHost => {
+                // Nothing needed; we're naturally set up to do this
+            }
+        }
+        self.client.take();
+    }
 }
 
 #[async_trait]
@@ -959,6 +976,12 @@ impl QueueDispatcher for SmtpDispatcher {
                         dispatcher.name,
                         self.client_address
                     );
+                    if response.code == 421 {
+                        // We're effectively disconnected, so prepare
+                        // for reconnecting for the next message.
+                        self.update_state_for_reconnect(dispatcher);
+                    }
+
                     if let Some(msg) = dispatcher.msgs.pop() {
                         self.log_disposition(
                             dispatcher,
@@ -1047,6 +1070,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 }
                 dispatcher.metrics.inc_transfail();
                 // Move on to the next host
+                self.update_state_for_reconnect(dispatcher);
                 anyhow::bail!("{reason}");
             }
             Err(ClientError::TimeOutResponse { command, duration }) => {
@@ -1089,10 +1113,12 @@ impl QueueDispatcher for SmtpDispatcher {
                 }
                 dispatcher.metrics.inc_transfail();
                 // Move on to the next host
+                self.update_state_for_reconnect(dispatcher);
                 anyhow::bail!("{reason}");
             }
             Err(err) => {
                 // Transient failure; continue with another host
+                self.update_state_for_reconnect(dispatcher);
                 tracing::debug!(
                     "failed to send message to {} {:?}: {err:#}",
                     dispatcher.name,
@@ -1117,6 +1143,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .map(|c| c.is_connected())
             .unwrap_or(false);
         if !is_connected {
+            self.update_state_for_reconnect(dispatcher);
             anyhow::bail!(
                 "after previous send attempt, client is unexpectedly no longer connected"
             );
