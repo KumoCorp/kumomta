@@ -205,7 +205,7 @@ impl Client {
                 match result
                 {
                     Ok(_) => SendDisposition::Ok,
-                    Err(ClientError::Io(_) |
+                    Err(
                         ClientError::Rejected(Response { code: 421, .. }) |
                         ClientError::TimeOutResponse{..} |
                         ClientError::TimeOutRequest{..} |

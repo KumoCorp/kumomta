@@ -30,8 +30,6 @@ const MAX_LINE_LEN: usize = 4096;
 pub enum ClientError {
     #[error("response is not UTF8")]
     Utf8(#[from] std::string::FromUtf8Error),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
     #[error("Malformed Response: {0}")]
     MalformedResponseLine(String),
     #[error("Response line is too long")]
@@ -249,12 +247,31 @@ impl SmtpClient {
             let mut data = [0u8; MAX_LINE_LEN];
             let size = match self.socket.as_mut() {
                 Some(s) => match timeout(timeout_duration, s.read(&mut data)).await {
-                    Ok(result) => result?,
+                    Ok(Ok(size)) => size,
+                    Ok(Err(err)) => {
+                        self.socket.take();
+                        if let Some(tracer) = &self.tracer {
+                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("Error during read: {err:#}"),
+                            });
+                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                        }
+                        return Err(ClientError::NotConnected);
+                    }
                     Err(_) => {
+                        self.socket.take();
+                        if let Some(tracer) = &self.tracer {
+                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("Read Timeout after {timeout_duration:?}"),
+                            });
+                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                        }
                         return Err(ClientError::TimeOutResponse {
                             command: cmd.cloned(),
                             duration: timeout_duration,
-                        })
+                        });
                     }
                 },
                 None => return Err(ClientError::NotConnected),
@@ -281,7 +298,17 @@ impl SmtpClient {
         timeout_duration: Duration,
     ) -> Result<Response, ClientError> {
         if let Some(sock) = self.socket.as_mut() {
-            sock.flush().await?;
+            if let Err(err) = sock.flush().await {
+                self.socket.take();
+                if let Some(tracer) = &self.tracer {
+                    tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                        level: Level::ERROR,
+                        message: format!("Error during flush: {err:#}"),
+                    });
+                    tracer.trace_event(SmtpClientTraceEvent::Closed);
+                }
+                return Err(ClientError::NotConnected);
+            }
         }
 
         let mut line = self.read_line(timeout_duration, command).await?;
@@ -313,6 +340,51 @@ impl SmtpClient {
             .await
     }
 
+    /// Wrapper around socket.write_all() that will emit trace diagnostics and synthesize
+    /// a Close event to the tracer if a timeout or IO error occurs.
+    /// If an error or timeout, occurs ensures that the socket will not be reused.
+    /// IO errors are mapped to ClientError::NotConnected.
+    async fn write_all_with_timeout<F>(
+        &mut self,
+        timeout_duration: Duration,
+        bytes: &[u8],
+        make_timeout_err: F,
+    ) -> Result<(), ClientError>
+    where
+        F: FnOnce() -> ClientError,
+    {
+        match self.socket.as_mut() {
+            Some(socket) => {
+                match timeout(timeout_duration, socket.write_all(bytes)).await {
+                    Ok(Ok(response)) => Ok(response),
+                    Ok(Err(err)) => {
+                        self.socket.take();
+                        if let Some(tracer) = &self.tracer {
+                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("Error during write: {err:#}"),
+                            });
+                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                        }
+                        Err(ClientError::NotConnected)
+                    }
+                    Err(_) => {
+                        self.socket.take();
+                        if let Some(tracer) = &self.tracer {
+                            tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
+                                level: Level::ERROR,
+                                message: format!("Write Timeout after {timeout_duration:?}"),
+                            });
+                            tracer.trace_event(SmtpClientTraceEvent::Closed);
+                        }
+                        Err(make_timeout_err())
+                    }
+                }
+            }
+            None => Err(ClientError::NotConnected),
+        }
+    }
+
     async fn write_pipeline_request(&mut self, commands: &[Command]) -> Result<(), ClientError> {
         let total_timeout: Duration = commands
             .iter()
@@ -327,115 +399,52 @@ impl SmtpClient {
             lines.push(line);
         }
         tracing::trace!("send->{}: (PIPELINE) {all}", self.hostname);
-        match self.socket.as_mut() {
-            Some(socket) => {
-                if let Some(tracer) = &self.tracer {
-                    // Send the lines individually to the tracer, so that we
-                    // don't break --terse mode
-                    for line in lines {
-                        WriteTracer::trace(tracer, &line);
-                    }
-                }
-
-                match timeout(total_timeout, socket.write_all(all.as_bytes())).await {
-                    Ok(result) => result.map_err(|_| {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        ClientError::NotConnected
-                    }),
-                    Err(_) => {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        return Err(ClientError::TimeOutRequest {
-                            commands: commands.to_vec(),
-                            duration: total_timeout,
-                        });
-                    }
+        if self.socket.is_some() {
+            if let Some(tracer) = &self.tracer {
+                // Send the lines individually to the tracer, so that we
+                // don't break --terse mode
+                for line in lines {
+                    WriteTracer::trace(tracer, &line);
                 }
             }
-            None => Err(ClientError::NotConnected),
         }
+        self.write_all_with_timeout(total_timeout, all.as_bytes(), || {
+            ClientError::TimeOutRequest {
+                duration: total_timeout,
+                commands: commands.to_vec(),
+            }
+        })
+        .await
     }
 
     async fn write_command_request(&mut self, command: &Command) -> Result<(), ClientError> {
         let line = command.encode();
         tracing::trace!("send->{}: {line}", self.hostname);
-        match self.socket.as_mut() {
-            Some(socket) => {
-                if let Some(tracer) = &self.tracer {
-                    WriteTracer::trace(tracer, &line);
-                }
-
-                match timeout(
-                    command.client_timeout_request(&self.timeouts),
-                    socket.write_all(line.as_bytes()),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        ClientError::NotConnected
-                    }),
-                    Err(_) => {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        return Err(ClientError::TimeOutRequest {
-                            commands: vec![command.clone()],
-                            duration: command.client_timeout_request(&self.timeouts),
-                        });
-                    }
-                }
+        if self.socket.is_some() {
+            if let Some(tracer) = &self.tracer {
+                WriteTracer::trace(tracer, &line);
             }
-            None => Err(ClientError::NotConnected),
         }
+
+        let timeout_duration = command.client_timeout_request(&self.timeouts);
+        self.write_all_with_timeout(timeout_duration, line.as_bytes(), || {
+            ClientError::TimeOutRequest {
+                duration: timeout_duration,
+                commands: vec![command.clone()],
+            }
+        })
+        .await
     }
 
     async fn write_data_with_timeout(&mut self, data: &[u8]) -> Result<(), ClientError> {
-        match self.socket.as_mut() {
-            Some(sock) => {
-                if let Some(tracer) = &self.tracer {
-                    BinWriteTracer::trace(tracer, &data);
-                }
-
-                match timeout(
-                    Command::Data.client_timeout_request(&self.timeouts),
-                    sock.write_all(data),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|_| {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        ClientError::NotConnected
-                    }),
-                    Err(_) => {
-                        // Ensure that we "break" the client if we think
-                        // we're not connected, so that the calling code
-                        // can't reuse a session that may be in an indeterminate
-                        // state
-                        self.socket.take();
-                        Err(ClientError::TimeOutData)
-                    }
-                }
+        if self.socket.is_some() {
+            if let Some(tracer) = &self.tracer {
+                BinWriteTracer::trace(tracer, &data);
             }
-            None => Err(ClientError::NotConnected),
         }
+        let timeout_duration = Command::Data.client_timeout_request(&self.timeouts);
+        self.write_all_with_timeout(timeout_duration, data, || ClientError::TimeOutData)
+            .await
     }
 
     /// Issue a series of commands, and return the responses to
