@@ -10,6 +10,7 @@ use utoipa::OpenApi;
 
 pub mod admin_bounce_v1;
 pub mod admin_inspect_message;
+pub mod admin_inspect_scheduled_queue;
 pub mod admin_ready_queue_states;
 pub mod admin_rebind_v1;
 pub mod admin_suspend_ready_q_v1;
@@ -28,6 +29,7 @@ pub mod inject_v1;
         admin_bounce_v1::bounce_v1_list,
         admin_bounce_v1::bounce_v1_delete,
         admin_inspect_message::inspect_v1,
+        admin_inspect_scheduled_queue::inspect_v1,
         admin_ready_queue_states::readyq_states,
         admin_rebind_v1::rebind_v1,
         admin_suspend_ready_q_v1::suspend,
@@ -71,6 +73,7 @@ pub mod inject_v1;
             InjectV1Response,
             BounceV1Response,
             InspectMessageV1Response,
+            InspectQueueV1Response,
             ReadyQueueStateResponse
         ),
     )
@@ -114,6 +117,10 @@ pub fn make_router() -> RouterAndDocs {
             .route(
                 "/api/admin/inspect-message/v1",
                 get(admin_inspect_message::inspect_v1),
+            )
+            .route(
+                "/api/admin/inspect-sched-q/v1",
+                get(admin_inspect_scheduled_queue::inspect_v1),
             )
             .route(
                 "/api/admin/trace-smtp-client/v1",

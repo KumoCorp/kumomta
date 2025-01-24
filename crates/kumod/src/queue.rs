@@ -204,14 +204,14 @@ counter_bundle! {
     }
 }
 
-struct ScheduledMetrics {
-    name: Arc<String>,
-    scheduled: ScheduledCountBundle,
-    by_tenant: Option<AtomicCounter>,
-    by_tenant_campaign: Option<AtomicCounter>,
-    delay_due_to_message_rate_throttle: OnceLock<AtomicCounter>,
-    delay_due_to_throttle_insert_ready: OnceLock<AtomicCounter>,
-    delay_due_to_ready_queue_full: OnceLock<AtomicCounter>,
+pub struct ScheduledMetrics {
+    pub name: Arc<String>,
+    pub scheduled: ScheduledCountBundle,
+    pub by_tenant: Option<AtomicCounter>,
+    pub by_tenant_campaign: Option<AtomicCounter>,
+    pub delay_due_to_message_rate_throttle: OnceLock<AtomicCounter>,
+    pub delay_due_to_throttle_insert_ready: OnceLock<AtomicCounter>,
+    pub delay_due_to_ready_queue_full: OnceLock<AtomicCounter>,
 }
 
 impl ScheduledMetrics {
@@ -858,6 +858,19 @@ impl QueueStructure {
                 msgs
             }
             Self::SingletonTimerWheel(q) => q.lock().drain().collect(),
+        }
+    }
+
+    fn iter(&self, take: Option<usize>) -> Vec<Message> {
+        match self {
+            Self::TimerWheel(_) => vec![],
+            Self::SkipList(_) => vec![],
+            Self::SingletonTimerWheel(q) => q
+                .lock()
+                .iter()
+                .take(take.unwrap_or(usize::MAX))
+                .cloned()
+                .collect(),
         }
     }
 
@@ -1684,7 +1697,7 @@ impl Queue {
         }
     }
 
-    fn metrics(&self) -> &ScheduledMetrics {
+    pub fn metrics(&self) -> &ScheduledMetrics {
         self.metrics.get_or_init(|| {
             let queue_config = self.queue_config.borrow();
             ScheduledMetrics::new(
@@ -2154,8 +2167,22 @@ impl Queue {
         }
     }
 
+    /// Iterate over up to `take` messages in this queue.
+    /// Not implemented for every queue strategy.
+    pub fn iter(&self, take: Option<usize>) -> Vec<Message> {
+        self.queue.iter(take)
+    }
+
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
+    }
+
     pub fn get_config(&self) -> &ConfigHandle<QueueConfig> {
         &self.queue_config
+    }
+
+    pub fn get_last_change(&self) -> Instant {
+        *self.last_change.lock()
     }
 
     async fn run_singleton_wheel() -> anyhow::Result<()> {

@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2024.12.21-02fc8458"
+    "version": "2025.01.23-01c52eef"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -140,6 +140,58 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InspectMessageV1Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/inspect-sched-q/v1": {
+      "get": {
+        "tags": [
+          "inspect"
+        ],
+        "summary": "Retrieve information about messages in a scheduled queue.",
+        "operationId": "inspect_v1",
+        "parameters": [
+          {
+            "name": "queue_name",
+            "in": "query",
+            "description": "The name of the scheduled queue",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "want_body",
+            "in": "query",
+            "description": "If true, return the message body in addition to the\nmetadata",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Return up to `limit` messages in the queue sample.\nDepending on the strategy configured for the queue,\nmessages may not be directly reachable via this endpoint.\nIf no limit is provided, all messages in the queue will\nbe sampled.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Obtained queue information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectQueueV1Response"
                 }
               }
             }
@@ -855,8 +907,22 @@
             "description": "If `want_body` was set in the original request,\nholds the message body",
             "nullable": true
           },
+          "due": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DateTime"
+              }
+            ],
+            "nullable": true
+          },
           "meta": {
             "description": "The message metadata"
+          },
+          "num_attempts": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "minimum": 0
           },
           "recipient": {
             "type": "string",
@@ -1317,6 +1383,47 @@
                 },
                 "message": {
                   "$ref": "#/components/schemas/MessageInformation"
+                }
+              }
+            }
+          }
+        }
+      },
+      "InspectQueueV1Response": {
+        "description": "",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "queue_name",
+                "messages",
+                "num_scheduled",
+                "queue_config",
+                "delayed_metric",
+                "last_changed"
+              ],
+              "properties": {
+                "delayed_metric": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_changed": {
+                  "$ref": "#/components/schemas/DateTime"
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InspectMessageV1Response"
+                  }
+                },
+                "num_scheduled": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "queue_config": {},
+                "queue_name": {
+                  "type": "string"
                 }
               }
             }

@@ -315,6 +315,47 @@ pub struct InspectMessageV1Response {
     pub message: MessageInformation,
 }
 
+#[derive(Serialize, Deserialize, Debug, IntoParams)]
+pub struct InspectQueueV1Request {
+    /// The name of the scheduled queue
+    pub queue_name: String,
+    /// If true, return the message body in addition to the
+    /// metadata
+    #[serde(default)]
+    pub want_body: bool,
+
+    /// Return up to `limit` messages in the queue sample.
+    /// Depending on the strategy configured for the queue,
+    /// messages may not be directly reachable via this endpoint.
+    /// If no limit is provided, all messages in the queue will
+    /// be sampled.
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+impl InspectQueueV1Request {
+    pub fn apply_to_url(&self, url: &mut Url) {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("queue_name", &self.queue_name.to_string());
+        if self.want_body {
+            query.append_pair("want_body", "true");
+        }
+        if let Some(limit) = self.limit {
+            query.append_pair("limit", &limit.to_string());
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, ToResponse, ToSchema)]
+pub struct InspectQueueV1Response {
+    pub queue_name: String,
+    pub messages: Vec<InspectMessageV1Response>,
+    pub num_scheduled: usize,
+    pub queue_config: serde_json::Value,
+    pub delayed_metric: usize,
+    pub last_changed: DateTime<Utc>,
+}
+
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct MessageInformation {
     /// The envelope sender
@@ -332,6 +373,10 @@ pub struct MessageInformation {
     /// holds the message body
     #[serde(default)]
     pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_attempts: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]

@@ -38,6 +38,8 @@ pub async fn inspect_v1(
             recipient,
             meta,
             data,
+            due: None,
+            num_attempts: None,
         },
     }))
 }
