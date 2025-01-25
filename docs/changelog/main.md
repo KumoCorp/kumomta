@@ -16,3 +16,5 @@
   failed partway through, leading to issues with the connection state.
 * SMTP Client could sometimes get stuck attempting to process a series of messages
   on a connection that had previously been closed.
+* Potential cache thrashing issue with `remember_broken_tls` could lead to a larger
+  number of connection attempts to sites with broken TLS.

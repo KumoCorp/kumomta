@@ -58,6 +58,7 @@ pub struct SmtpDispatcher {
     ehlo_name: String,
     tls_info: Option<TlsInformation>,
     tracer: Arc<SmtpClientTracerImpl>,
+    site_has_broken_tls: bool,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -235,6 +236,7 @@ impl SmtpDispatcher {
             tls_info: None,
             source_address: None,
             tracer,
+            site_has_broken_tls: false,
         }))
     }
 
@@ -736,7 +738,7 @@ impl SmtpDispatcher {
         Ok(())
     }
 
-    fn remember_broken_tls(&self, site_name: &str, path_config: &EgressPathConfig) {
+    fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
         let duration = match path_config.remember_broken_tls {
             Some(duration) => Some(duration),
             None if path_config.opportunistic_tls_reconnect_on_failed_handshake => {
@@ -745,6 +747,7 @@ impl SmtpDispatcher {
             None => None,
         };
         if let Some(duration) = duration {
+            self.site_has_broken_tls = true;
             BROKEN_TLS_BY_SITE.insert(
                 site_name.to_string(),
                 (),
@@ -754,7 +757,7 @@ impl SmtpDispatcher {
     }
 
     fn has_broken_tls(&self, site_name: &str) -> bool {
-        BROKEN_TLS_BY_SITE.get(site_name).is_some()
+        self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
     }
 
     async fn log_disposition(
