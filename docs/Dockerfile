@@ -1,5 +1,6 @@
 FROM rust:latest AS rust
 
+COPY Cargo.toml .
 WORKDIR /toml2jsonc
 COPY crates/toml2jsonc .
 RUN rustup target add x86_64-unknown-linux-musl
