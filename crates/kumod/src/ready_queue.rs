@@ -975,6 +975,12 @@ pub trait QueueDispatcher: Debug + Send {
 
     async fn close_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<bool>;
 
+    /// If true, consider this session done with "success", just wind it down
+    /// similar to how we behave if we've hit the max_deliveries_per_connection limit
+    async fn has_terminated_ok(&mut self, _dispatcher: &mut Dispatcher) -> bool {
+        false
+    }
+
     fn max_batch_size(&self) -> usize {
         1
     }
@@ -1168,6 +1174,13 @@ impl Dispatcher {
         let mut shutting_down = ShutdownSubcription::get();
 
         loop {
+            if queue_dispatcher.has_terminated_ok(&mut dispatcher).await {
+                tracing::debug!("{} connection session has terminated", dispatcher.name);
+                dispatcher.release_leases().await;
+                queue_dispatcher.close_connection(&mut dispatcher).await?;
+                return Ok(());
+            }
+
             if !dispatcher
                 .wait_for_message(&mut *queue_dispatcher, &mut shutting_down)
                 .await?

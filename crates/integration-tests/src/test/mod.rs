@@ -2,6 +2,8 @@
 mod auth_deliver;
 mod auth_deliver_invalid_password;
 mod disconnect_in_mail_from;
+mod disconnect_reconnect_same_host;
+mod disconnect_terminate_ok;
 mod end_to_end;
 mod end_to_end_deferred_queue;
 mod end_to_end_stuffed;

@@ -59,6 +59,8 @@ pub struct SmtpDispatcher {
     tls_info: Option<TlsInformation>,
     tracer: Arc<SmtpClientTracerImpl>,
     site_has_broken_tls: bool,
+    terminated_ok: bool,
+    attempted_message_send: bool,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -237,6 +239,8 @@ impl SmtpDispatcher {
             source_address: None,
             tracer,
             site_has_broken_tls: false,
+            terminated_ok: false,
+            attempted_message_send: false,
         }))
     }
 
@@ -800,6 +804,17 @@ impl SmtpDispatcher {
             }
         }
         self.client.take();
+
+        // We consider our session to be terminated with "success" if
+        // we got as far as trying to send a message down any of them.
+        // The "success" part really is just short-cutting and preventing
+        // the "no more hosts" error that we would otherwise generate,
+        // which can "stun" the next message in the ready queue in a
+        // situation where we actually know enough about the situation
+        // that we should try a new session.
+        if self.addresses.is_empty() {
+            self.terminated_ok = self.attempted_message_send;
+        }
     }
 }
 
@@ -814,6 +829,12 @@ impl QueueDispatcher for SmtpDispatcher {
         } else {
             Ok(false)
         }
+    }
+
+    /// See the logic in update_state_for_reconnect for when we consider
+    /// our session to be terminated
+    async fn has_terminated_ok(&mut self, _dispatcher: &mut Dispatcher) -> bool {
+        self.terminated_ok
     }
 
     async fn attempt_connection(&mut self, dispatcher: &mut Dispatcher) -> anyhow::Result<()> {
@@ -880,6 +901,8 @@ impl QueueDispatcher for SmtpDispatcher {
         }
         self.tracer
             .submit(|| SmtpClientTraceEventPayload::MessageObtained);
+
+        self.attempted_message_send = true;
 
         match self
             .client
