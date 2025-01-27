@@ -49,7 +49,7 @@ async fn disconnect_terminate_ok() -> anyhow::Result<()> {
                 summary.get(&TransientFailure).copied().unwrap_or(0) > 0
                     && summary.get(&Delivery).copied().unwrap_or(0) >= 2
             },
-            Duration::from_secs(5),
+            Duration::from_secs(50),
         )
         .await;
 

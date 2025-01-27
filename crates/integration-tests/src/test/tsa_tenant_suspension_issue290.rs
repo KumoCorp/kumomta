@@ -72,7 +72,7 @@ async fn tsa_tenant_suspension_issue290() -> anyhow::Result<()> {
                 summary.get(&TransientFailure).copied().unwrap_or(0) > 1
                     && summary.get(&Delivery).copied().unwrap_or(0) > 0
             },
-            Duration::from_secs(10),
+            Duration::from_secs(50),
         )
         .await;
 

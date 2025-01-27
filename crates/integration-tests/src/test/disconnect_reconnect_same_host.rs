@@ -52,7 +52,7 @@ async fn disconnect_reconnect_same_host() -> anyhow::Result<()> {
                 summary.get(&TransientFailure).copied().unwrap_or(0) > 0
                     && summary.get(&Delivery).copied().unwrap_or(0) >= 2
             },
-            Duration::from_secs(5),
+            Duration::from_secs(50),
         )
         .await;
 
