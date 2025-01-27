@@ -11,4 +11,5 @@ futures.workspace=true
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 rdkafka.workspace=true
 serde.workspace=true
+serde_bytes.workspace=true
 tokio.workspace=true

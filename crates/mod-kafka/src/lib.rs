@@ -36,8 +36,8 @@ struct Record {
     #[serde(default)]
     partition: Option<i32>,
     /// Optional payload
-    #[serde(default)]
-    payload: Option<String>,
+    #[serde(with = "serde_bytes")]
+    payload: Option<Vec<u8>>,
     /// Optional key
     #[serde(default)]
     key: Option<String>,
