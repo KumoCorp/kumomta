@@ -994,6 +994,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     }
                     dispatcher.metrics.inc_transfail();
                     // Break this connection
+                    self.update_state_for_reconnect(dispatcher);
                     anyhow::bail!("Protocol synchronization error!");
                 } else if response.code >= 400 && response.code < 500 {
                     // Transient failure
