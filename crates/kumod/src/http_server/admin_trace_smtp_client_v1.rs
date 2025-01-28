@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use rfc5321::DeferredTracer;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{channel, Sender};
 use tracing::Level;
 
@@ -210,6 +211,7 @@ fn is_excluded(meta: &serde_json::Value, entries: &[(&str, &[String])]) -> bool 
 
 async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     let mut rx = MGR.tx.subscribe();
+    let mut has_lagged = false;
 
     let request: TraceSmtpClientV1Request = match socket
         .recv()
@@ -221,7 +223,32 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     };
 
     loop {
-        let event = rx.recv().await?;
+        let event = match rx.recv().await {
+            Ok(event) => event,
+            Err(RecvError::Closed) => {
+                return Ok(());
+            }
+            Err(RecvError::Lagged(n)) => {
+                let message = format!("Tracer Lagged behind and missed {n} events");
+                if !has_lagged {
+                    tracing::error!(
+                        "{message} (this message is shown only once per trace session)"
+                    );
+                    has_lagged = true;
+                }
+                let event = TraceSmtpClientV1Event {
+                    conn_meta: serde_json::Value::Null,
+                    when: Utc::now(),
+                    payload: TraceSmtpClientV1Payload::Diagnostic {
+                        level: tracing::Level::ERROR.to_string(),
+                        message,
+                    },
+                };
+                let json = serde_json::to_string(&event)?;
+                socket.send(Message::Text(json)).await?;
+                continue;
+            }
+        };
 
         if let Some(cidrset) = &request.source_addr {
             if let Some(src) = addr_from_meta(&event.conn_meta, "source_address") {

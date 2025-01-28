@@ -240,6 +240,10 @@ impl TraceSmtpClientCommand {
         let mut meta_by_conn: HashMap<String, ConnState> = HashMap::new();
 
         fn conn_key(meta: &serde_json::Value) -> anyhow::Result<String> {
+            if meta.is_null() {
+                return Ok(String::new());
+            }
+
             #[derive(Deserialize, Debug)]
             struct Decoded {
                 id: String,
@@ -272,7 +276,7 @@ impl TraceSmtpClientCommand {
                     let key = conn_key(&event.conn_meta)?;
 
                     if let Some(wanted_key) = &wanted_key {
-                        if *wanted_key != key {
+                        if *wanted_key != key && !key.is_empty() {
                             continue;
                         }
                     }

@@ -6,6 +6,7 @@ use kumo_server_common::http_server::auth::TrustedIpRequired;
 use spool::SpoolId;
 use std::net::IpAddr;
 use std::sync::LazyLock;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{channel, Sender};
 
 static MGR: LazyLock<SmtpServerTraceManager> = LazyLock::new(|| SmtpServerTraceManager::new());
@@ -133,6 +134,7 @@ fn peer_from_meta(meta: &serde_json::Value) -> Option<IpAddr> {
 
 async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     let mut rx = MGR.tx.subscribe();
+    let mut has_lagged = false;
 
     let request: TraceSmtpV1Request = match socket
         .recv()
@@ -144,7 +146,33 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     };
 
     loop {
-        let event = rx.recv().await?;
+        let event = match rx.recv().await {
+            Ok(event) => event,
+            Err(RecvError::Closed) => {
+                return Ok(());
+            }
+            Err(RecvError::Lagged(n)) => {
+                let message = format!("Tracer Lagged behind and missed {n} events");
+
+                if !has_lagged {
+                    tracing::error!(
+                        "{message} (this message is shown only once per trace session)"
+                    );
+                    has_lagged = true;
+                }
+                let event = TraceSmtpV1Event {
+                    conn_meta: serde_json::Value::Null,
+                    when: Utc::now(),
+                    payload: TraceSmtpV1Payload::Diagnostic {
+                        level: tracing::Level::ERROR.to_string(),
+                        message,
+                    },
+                };
+                let json = serde_json::to_string(&event)?;
+                socket.send(Message::Text(json)).await?;
+                continue;
+            }
+        };
         if let Some(cidrset) = &request.source_addr {
             if let Some(peer) = peer_from_meta(&event.conn_meta) {
                 if !cidrset.contains(peer) {

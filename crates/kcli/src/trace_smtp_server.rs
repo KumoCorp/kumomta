@@ -80,6 +80,9 @@ impl TraceSmtpServerCommand {
         let mut meta_by_conn: HashMap<String, ConnState> = HashMap::new();
 
         fn conn_key(meta: &serde_json::Value) -> anyhow::Result<String> {
+            if meta.is_null() {
+                return Ok(String::new());
+            }
             let from = meta
                 .get("received_from")
                 .ok_or_else(|| anyhow::anyhow!("conn_meta is missing received_from"))?
@@ -115,7 +118,7 @@ impl TraceSmtpServerCommand {
                     let key = conn_key(&event.conn_meta)?;
 
                     if let Some(wanted_key) = &wanted_key {
-                        if *wanted_key != key {
+                        if *wanted_key != key && !key.is_empty() {
                             continue;
                         }
                     }
