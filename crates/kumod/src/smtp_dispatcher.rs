@@ -874,6 +874,7 @@ impl QueueDispatcher for SmtpDispatcher {
             .try_into()
             .map_err(|err| anyhow::anyhow!("{err}"))?;
 
+        self.tracer.set_meta("message_id", msg.id().to_string());
         self.tracer.set_meta("sender", sender.to_string());
         self.tracer.set_meta("recipient", recipient.to_string());
         if let Ok(name) = msg.get_queue_name() {
