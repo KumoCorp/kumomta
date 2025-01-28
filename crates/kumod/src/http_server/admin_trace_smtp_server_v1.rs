@@ -23,10 +23,10 @@ pub struct SmtpServerTraceEvent {
 }
 
 impl SmtpServerTraceEvent {
-    fn to_v1(self) -> TraceSmtpV1Event {
+    fn to_v1(self, terse: bool) -> TraceSmtpV1Event {
         TraceSmtpV1Event {
             conn_meta: self.conn_meta,
-            payload: self.payload.to_v1(),
+            payload: self.payload.to_v1(terse),
             when: self.when,
         }
     }
@@ -60,11 +60,27 @@ pub enum SmtpServerTraceEventPayload {
 }
 
 impl SmtpServerTraceEventPayload {
-    fn to_v1(self) -> TraceSmtpV1Payload {
+    fn to_v1(self, terse: bool) -> TraceSmtpV1Payload {
         match self {
             Self::Connected => TraceSmtpV1Payload::Connected,
             Self::Closed => TraceSmtpV1Payload::Closed,
             Self::Read(data) => {
+                if terse {
+                    fn split_first_line(slice: &[u8]) -> Option<String> {
+                        let mut iter = slice.trim_ascii_end().split(|&b| b == b'\r');
+                        let snippet = iter.next()?;
+                        iter.next()?;
+                        Some(String::from_utf8_lossy(snippet).to_string())
+                    }
+
+                    if let Some(snippet) = split_first_line(&data) {
+                        return TraceSmtpV1Payload::AbbreviatedRead {
+                            snippet,
+                            len: data.len(),
+                        };
+                    }
+                }
+
                 TraceSmtpV1Payload::Read(String::from_utf8_lossy(&data).to_string())
             }
             Self::Write(s) => TraceSmtpV1Payload::Write(s),
@@ -106,7 +122,7 @@ impl SmtpServerTraceEventPayload {
 
 impl SmtpServerTraceManager {
     pub fn new() -> Self {
-        let (tx, _rx) = channel(128);
+        let (tx, _rx) = channel(128 * 1024);
         Self { tx }
     }
 
@@ -181,7 +197,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
             }
         }
 
-        let json = serde_json::to_string(&event.to_v1())?;
+        let json = serde_json::to_string(&event.to_v1(request.terse))?;
         socket.send(Message::Text(json)).await?;
     }
 }

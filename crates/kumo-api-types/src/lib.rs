@@ -384,6 +384,13 @@ pub struct MessageInformation {
 pub struct TraceSmtpV1Request {
     #[serde(default)]
     pub source_addr: Option<CidrSet>,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub terse: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
@@ -418,6 +425,13 @@ pub enum TraceSmtpV1Payload {
         recipient: String,
         id: SpoolId,
     },
+    /// Like `Read`, but abbreviated by `terse`
+    AbbreviatedRead {
+        /// The "first" or more relevant line(s)
+        snippet: String,
+        /// Total size of data being read
+        len: usize,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
@@ -434,8 +448,18 @@ pub enum TraceSmtpClientV1Payload {
     Closed,
     Read(String),
     Write(String),
-    Diagnostic { level: String, message: String },
+    Diagnostic {
+        level: String,
+        message: String,
+    },
     MessageObtained,
+    /// Like `Write`, but abbreviated by `terse`
+    AbbreviatedWrite {
+        /// The "first" or more relevant line(s)
+        snippet: String,
+        /// Total size of data being read
+        len: usize,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
@@ -488,6 +512,11 @@ pub struct TraceSmtpClientV1Request {
     /// The mx ip address to match. If omitted, any will match.
     #[serde(default)]
     pub mx_addr: Option<CidrSet>,
+
+    /// Use a more terse representation of the data, focusing on the first
+    /// line of larger writes
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub terse: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema, IntoParams)]

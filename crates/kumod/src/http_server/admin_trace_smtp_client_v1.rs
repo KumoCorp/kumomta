@@ -19,7 +19,7 @@ pub struct SmtpClientTraceManager {
 
 impl SmtpClientTraceManager {
     pub fn new() -> Self {
-        let (tx, _rx) = channel(128);
+        let (tx, _rx) = channel(128 * 1024);
         Self { tx }
     }
 
@@ -142,10 +142,10 @@ pub struct SmtpClientTraceEvent {
 }
 
 impl SmtpClientTraceEvent {
-    fn to_v1(self) -> TraceSmtpClientV1Event {
+    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Event {
         TraceSmtpClientV1Event {
             conn_meta: self.conn_meta,
-            payload: self.payload.to_v1(),
+            payload: self.payload.to_v1(terse),
             when: self.when,
         }
     }
@@ -166,7 +166,7 @@ pub enum SmtpClientTraceEventPayload {
 }
 
 impl SmtpClientTraceEventPayload {
-    fn to_v1(self) -> TraceSmtpClientV1Payload {
+    fn to_v1(self, terse: bool) -> TraceSmtpClientV1Payload {
         match self {
             Self::BeginSession => TraceSmtpClientV1Payload::BeginSession,
             Self::Connected => TraceSmtpClientV1Payload::Connected,
@@ -175,7 +175,23 @@ impl SmtpClientTraceEventPayload {
             Self::Read(data) => {
                 TraceSmtpClientV1Payload::Read(String::from_utf8_lossy(&data).to_string())
             }
-            Self::Write(s) => TraceSmtpClientV1Payload::Write(s),
+            Self::Write(s) => {
+                if terse {
+                    fn split_first_line(s: &str) -> Option<String> {
+                        let mut iter = s.lines();
+                        let snippet = iter.next()?;
+                        iter.next()?;
+                        Some(snippet.to_string())
+                    }
+                    if let Some(snippet) = split_first_line(&s) {
+                        return TraceSmtpClientV1Payload::AbbreviatedWrite {
+                            snippet,
+                            len: s.len(),
+                        };
+                    }
+                }
+                TraceSmtpClientV1Payload::Write(s)
+            }
             Self::Diagnostic { level, message } => TraceSmtpClientV1Payload::Diagnostic {
                 level: level.to_string(),
                 message: message.to_string(),
@@ -283,7 +299,7 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
             continue;
         }
 
-        let json = serde_json::to_string(&event.to_v1())?;
+        let json = serde_json::to_string(&event.to_v1(request.terse))?;
         socket.send(Message::Text(json)).await?;
     }
 }

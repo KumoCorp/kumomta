@@ -229,6 +229,7 @@ impl TraceSmtpClientCommand {
                 ready_queue: self.ready_queue.clone(),
                 source_addr,
                 mx_addr,
+                terse: self.terse,
             },
         )?))?;
 
@@ -338,6 +339,13 @@ impl TraceSmtpClientCommand {
                                     line.escape_debug()
                                 );
                             }
+                        }
+                        TraceSmtpClientV1Payload::AbbreviatedWrite { snippet, len } => {
+                            println!(
+                                "[{key}] {delta} {green}->  {}{normal}",
+                                snippet.escape_debug()
+                            );
+                            println!("[{key}] {delta} === bytes written={len}");
                         }
                         TraceSmtpClientV1Payload::Write(data) => {
                             for (idx, line) in data.lines().enumerate() {

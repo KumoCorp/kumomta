@@ -70,6 +70,7 @@ impl TraceSmtpServerCommand {
 
         socket.send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
             source_addr,
+            terse: self.terse,
         })?))?;
 
         struct ConnState {
@@ -162,6 +163,13 @@ impl TraceSmtpServerCommand {
                             if self.only_one {
                                 return Ok(());
                             }
+                        }
+                        TraceSmtpV1Payload::AbbreviatedRead { snippet, len } => {
+                            println!(
+                                "[{key}] {delta} {green} -> {}{normal}",
+                                snippet.escape_debug()
+                            );
+                            println!("[{key}] {delta} === bytes read={len}");
                         }
                         TraceSmtpV1Payload::Read(data) => {
                             for (idx, line) in data.lines().enumerate() {

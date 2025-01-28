@@ -9,6 +9,9 @@
   [reconnect_strategy](../reference/kumo/make_egress_path/reconnect_strategy.md)
   egress path option to control what happens with a session that experiences
   a disconnection during message sending.
+* Improved robustness of [kcli
+  trace-smtp-server](../reference/kcli/trace-smtp-server.md) and [kcli
+  trace-smtp-client](../reference/kcli/trace-smtp-client.md) on busy servers.
 
 ## Fixes
 
