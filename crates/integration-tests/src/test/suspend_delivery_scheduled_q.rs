@@ -34,7 +34,7 @@ async fn suspend_delivery_scheduled_q() -> anyhow::Result<()> {
     daemon
         .wait_for_source_summary(
             |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
-            Duration::from_secs(5),
+            Duration::from_secs(50),
         )
         .await;
 

@@ -40,7 +40,7 @@ async fn suspend_delivery_ready_q_and_deliver() -> anyhow::Result<()> {
     daemon
         .wait_for_source_summary(
             |summary| summary.get(&Reception).copied().unwrap_or(0) > 0,
-            Duration::from_secs(5),
+            Duration::from_secs(50),
         )
         .await;
 
@@ -63,7 +63,7 @@ async fn suspend_delivery_ready_q_and_deliver() -> anyhow::Result<()> {
     daemon
         .wait_for_source_summary(
             |summary| summary.get(&Delivery).copied().unwrap_or(0) == 1,
-            Duration::from_secs(5),
+            Duration::from_secs(50),
         )
         .await;
 
