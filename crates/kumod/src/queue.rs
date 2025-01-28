@@ -899,9 +899,12 @@ impl QueueStructure {
                 }
             }
             Self::SingletonTimerWheel(q) => {
+                // Ensure that the msg is visible in q before we add it to
+                // the timer wheel, as it is possible for it to tick and pop
+                // the message as soon as it is inserted into the wheel.
+                q.lock().insert(msg.clone());
                 match SINGLETON_WHEEL.lock().insert(msg.weak()) {
                     Ok(()) => {
-                        q.lock().insert(msg);
                         STARTED_SINGLETON_WHEEL.call_once(|| {
                             QMAINT_RUNTIME
                                 .spawn("singleton_wheel".to_string(), async move {
@@ -918,7 +921,12 @@ impl QueueStructure {
                             should_notify: false,
                         }
                     }
-                    Err(TimerError::Expired(_weak_msg)) => QueueInsertResult::Full(msg),
+                    Err(TimerError::Expired(_weak_msg)) => {
+                        // Message is actually due immediately.
+                        // Take it out of the local q and return it
+                        q.lock().remove(&msg);
+                        QueueInsertResult::Full(msg)
+                    }
                     Err(TimerError::NotFound) => unreachable!(),
                 }
             }
