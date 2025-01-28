@@ -662,35 +662,55 @@ impl Maildir {
     }
 
     fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
-        match path.metadata() {
-            Ok(meta) => {
-                if meta.is_dir() {
+        'retry: loop {
+            match path.metadata() {
+                Ok(meta) => {
+                    if meta.is_dir() {
+                        return Ok(());
+                    }
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotADirectory,
+                        format!(
+                            "{} already exists as non-directory {meta:?}",
+                            path.display()
+                        ),
+                    ));
+                }
+                Err(err) => {
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        return Err(err);
+                    }
+
+                    if let Some(parent) = path.parent() {
+                        self.create_dir_all(parent)?;
+                    }
+
+                    match std::fs::create_dir(path) {
+                        Err(err) => match err.kind() {
+                            std::io::ErrorKind::AlreadyExists => {
+                                // The file now exists, but we're not
+                                // sure what its type is: restart
+                                // the operation to find out.
+                                continue 'retry;
+                            }
+                            std::io::ErrorKind::IsADirectory => {
+                                // We lost a race to create it,
+                                // but the outcome is the one we wanted.
+                                return Ok(());
+                            }
+                            _ => {
+                                return Err(err);
+                            }
+                        },
+                        Ok(()) => {}
+                    }
+
+                    #[cfg(unix)]
+                    if let Some(mode) = self.dir_mode {
+                        chmod(path, mode)?;
+                    }
                     return Ok(());
                 }
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotADirectory,
-                    format!(
-                        "{} already exists as non-directory {meta:?}",
-                        path.display()
-                    ),
-                ));
-            }
-            Err(err) => {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    return Err(err);
-                }
-
-                if let Some(parent) = path.parent() {
-                    self.create_dir_all(parent)?;
-                }
-
-                std::fs::create_dir(path)?;
-
-                #[cfg(unix)]
-                if let Some(mode) = self.dir_mode {
-                    chmod(path, mode)?;
-                }
-                return Ok(());
             }
         }
     }
