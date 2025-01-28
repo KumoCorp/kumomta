@@ -26,7 +26,7 @@ pub use {openssl, tokio_rustls};
 
 const MAX_LINE_LEN: usize = 4096;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum ClientError {
     #[error("response is not UTF8")]
     Utf8(#[from] std::string::FromUtf8Error),
@@ -50,12 +50,23 @@ pub enum ClientError {
         commands: Vec<Command>,
         duration: Duration,
     },
+    #[error("Error {error} reading response to {command:?}")]
+    ReadError {
+        command: Option<Command>,
+        error: String,
+        partial: String,
+    },
+    #[error("Error {error} flushing send buffer")]
+    FlushError { error: String },
+    #[error("Error {error} writing {commands:?}")]
+    WriteError {
+        commands: Vec<Command>,
+        error: String,
+    },
     #[error("Timed Out sending message payload data")]
     TimeOutData,
     #[error("SSL Error: {0}")]
     SslErrorStack(#[from] openssl::error::ErrorStack),
-    #[error("SSL Error: {0}")]
-    SslError(#[from] openssl::ssl::Error),
     #[error("No usable DANE TLSA records for {hostname}: {tlsa:?}")]
     NoUsableDaneTlsa { hostname: String, tlsa: Vec<TLSA> },
 }
@@ -257,7 +268,11 @@ impl SmtpClient {
                             });
                             tracer.trace_event(SmtpClientTraceEvent::Closed);
                         }
-                        return Err(ClientError::NotConnected);
+                        return Err(ClientError::ReadError {
+                            command: cmd.cloned(),
+                            error: format!("{err:#}"),
+                            partial: String::from_utf8_lossy(&self.read_buffer).to_string(),
+                        });
                     }
                     Err(_) => {
                         self.socket.take();
@@ -274,14 +289,24 @@ impl SmtpClient {
                         });
                     }
                 },
-                None => return Err(ClientError::NotConnected),
+                None => {
+                    return Err(ClientError::ReadError {
+                        command: cmd.cloned(),
+                        error: "the socket was closed in response to an earlier issue".to_string(),
+                        partial: String::from_utf8_lossy(&self.read_buffer).to_string(),
+                    });
+                }
             };
             if size == 0 {
                 self.socket.take();
                 if let Some(tracer) = &self.tracer {
                     tracer.trace_event(SmtpClientTraceEvent::Closed);
                 }
-                return Err(ClientError::NotConnected);
+                return Err(ClientError::ReadError {
+                    command: cmd.cloned(),
+                    error: "Connection closed by peer".to_string(),
+                    partial: String::from_utf8_lossy(&self.read_buffer).to_string(),
+                });
             }
             if let Some(tracer) = &self.tracer {
                 tracer.lazy_trace(&ReadTracer {
@@ -307,7 +332,9 @@ impl SmtpClient {
                     });
                     tracer.trace_event(SmtpClientTraceEvent::Closed);
                 }
-                return Err(ClientError::NotConnected);
+                return Err(ClientError::FlushError {
+                    error: format!("{err:#}"),
+                });
             }
         }
 
@@ -343,15 +370,16 @@ impl SmtpClient {
     /// Wrapper around socket.write_all() that will emit trace diagnostics and synthesize
     /// a Close event to the tracer if a timeout or IO error occurs.
     /// If an error or timeout, occurs ensures that the socket will not be reused.
-    /// IO errors are mapped to ClientError::NotConnected.
-    async fn write_all_with_timeout<F>(
+    async fn write_all_with_timeout<F, G>(
         &mut self,
         timeout_duration: Duration,
         bytes: &[u8],
         make_timeout_err: F,
+        make_write_err: G,
     ) -> Result<(), ClientError>
     where
         F: FnOnce() -> ClientError,
+        G: FnOnce(String) -> ClientError,
     {
         match self.socket.as_mut() {
             Some(socket) => match timeout(timeout_duration, socket.write_all(bytes)).await {
@@ -365,7 +393,7 @@ impl SmtpClient {
                         });
                         tracer.trace_event(SmtpClientTraceEvent::Closed);
                     }
-                    Err(ClientError::NotConnected)
+                    Err(make_write_err(format!("{err:#}")))
                 }
                 Err(_) => {
                     self.socket.take();
@@ -379,7 +407,9 @@ impl SmtpClient {
                     Err(make_timeout_err())
                 }
             },
-            None => Err(ClientError::NotConnected),
+            None => Err(make_write_err(
+                "the socket was closed in response to an earlier issue".to_string(),
+            )),
         }
     }
 
@@ -406,12 +436,18 @@ impl SmtpClient {
                 }
             }
         }
-        self.write_all_with_timeout(total_timeout, all.as_bytes(), || {
-            ClientError::TimeOutRequest {
+        self.write_all_with_timeout(
+            total_timeout,
+            all.as_bytes(),
+            || ClientError::TimeOutRequest {
                 duration: total_timeout,
                 commands: commands.to_vec(),
-            }
-        })
+            },
+            |error| ClientError::WriteError {
+                error,
+                commands: commands.to_vec(),
+            },
+        )
         .await
     }
 
@@ -425,12 +461,18 @@ impl SmtpClient {
         }
 
         let timeout_duration = command.client_timeout_request(&self.timeouts);
-        self.write_all_with_timeout(timeout_duration, line.as_bytes(), || {
-            ClientError::TimeOutRequest {
+        self.write_all_with_timeout(
+            timeout_duration,
+            line.as_bytes(),
+            || ClientError::TimeOutRequest {
                 duration: timeout_duration,
                 commands: vec![command.clone()],
-            }
-        })
+            },
+            |error| ClientError::WriteError {
+                error,
+                commands: vec![command.clone()],
+            },
+        )
         .await
     }
 
@@ -441,8 +483,16 @@ impl SmtpClient {
             }
         }
         let timeout_duration = Command::Data.client_timeout_request(&self.timeouts);
-        self.write_all_with_timeout(timeout_duration, data, || ClientError::TimeOutData)
-            .await
+        self.write_all_with_timeout(
+            timeout_duration,
+            data,
+            || ClientError::TimeOutData,
+            |error| ClientError::WriteError {
+                error,
+                commands: vec![],
+            },
+        )
+        .await
     }
 
     /// Issue a series of commands, and return the responses to
@@ -469,10 +519,11 @@ impl SmtpClient {
         let pipeline = self.enable_pipelining && self.capabilities.contains_key("PIPELINING");
         if pipeline {
             if let Err(err) = self.write_pipeline_request(&commands).await {
-                results.push(Err(err.into()));
+                let err: ClientError = err.into();
+                results.push(Err(err.clone()));
                 while results.len() < commands.len() {
                     // Synthesize failures for the remaining commands
-                    results.push(Err(ClientError::NotConnected));
+                    results.push(Err(err.clone()));
                 }
                 return results;
             }
@@ -489,10 +540,11 @@ impl SmtpClient {
 
         for cmd in &commands {
             if let Err(err) = self.write_command_request(cmd).await {
-                results.push(Err(err.into()));
+                let err: ClientError = err.into();
+                results.push(Err(err.clone()));
                 while results.len() < commands.len() {
                     // Synthesize failures for the remaining commands
-                    results.push(Err(ClientError::NotConnected));
+                    results.push(Err(err.clone()));
                 }
                 return results;
             }
