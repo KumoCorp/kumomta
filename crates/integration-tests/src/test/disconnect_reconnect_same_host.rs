@@ -56,6 +56,10 @@ async fn disconnect_reconnect_same_host() -> anyhow::Result<()> {
         )
         .await;
 
+    daemon
+        .wait_for_maildir_count(2, Duration::from_secs(10))
+        .await;
+
     daemon.stop_both().await?;
 
     let delivery_summary = daemon.dump_logs()?;
