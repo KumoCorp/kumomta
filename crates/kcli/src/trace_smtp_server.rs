@@ -2,11 +2,13 @@ use crate::ColorMode;
 use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use clap::Parser;
+use futures::{SinkExt, StreamExt};
 use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Payload, TraceSmtpV1Request};
 use reqwest::Url;
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use tokio_tungstenite::tungstenite::{connect, Message};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 /// Trace incoming connections made to the SMTP service.
 ///
@@ -66,12 +68,14 @@ impl TraceSmtpServerCommand {
         let mut endpoint = endpoint.join("/api/admin/trace-smtp-server/v1")?;
         endpoint.set_scheme("ws").expect("ws to be valid scheme");
 
-        let (mut socket, _response) = connect(endpoint.to_string())?;
+        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
 
-        socket.send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
-            source_addr,
-            terse: self.terse,
-        })?))?;
+        socket
+            .send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
+                source_addr,
+                terse: self.terse,
+            })?))
+            .await?;
 
         struct ConnState {
             meta: serde_json::Value,
@@ -110,8 +114,8 @@ impl TraceSmtpServerCommand {
 
         let mut wanted_key = None;
 
-        loop {
-            let msg = socket.read()?;
+        while let Some(event) = socket.next().await {
+            let msg = event?;
             match msg {
                 Message::Text(s) => {
                     let event: TraceSmtpV1Event = serde_json::from_str(&s)?;
@@ -315,5 +319,6 @@ impl TraceSmtpServerCommand {
                 }
             }
         }
+        Ok(())
     }
 }

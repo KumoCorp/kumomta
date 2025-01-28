@@ -2,12 +2,14 @@ use crate::ColorMode;
 use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use clap::Parser;
+use futures::{SinkExt, StreamExt};
 use kumo_api_types::{TraceSmtpClientV1Event, TraceSmtpClientV1Payload, TraceSmtpClientV1Request};
 use reqwest::Url;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::IsTerminal;
-use tokio_tungstenite::tungstenite::{connect, Message};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 /// Trace outgoing sessions made by the SMTP service.
 ///
@@ -213,25 +215,27 @@ impl TraceSmtpClientCommand {
         let mut endpoint = endpoint.join("/api/admin/trace-smtp-client/v1")?;
         endpoint.set_scheme("ws").expect("ws to be valid scheme");
 
-        let (mut socket, _response) = connect(endpoint.to_string())?;
+        let (mut socket, _response) = connect_async(endpoint.to_string()).await?;
 
-        socket.send(Message::Text(serde_json::to_string(
-            &TraceSmtpClientV1Request {
-                domain: self.domain.clone(),
-                routing_domain: self.routing_domain.clone(),
-                campaign: self.campaign.clone(),
-                tenant: self.tenant.clone(),
-                egress_pool: self.egress_pool.clone(),
-                egress_source: self.egress_source.clone(),
-                mail_from: self.mail_from.clone(),
-                rcpt_to: self.rcpt_to.clone(),
-                mx_host: self.mx_host.clone(),
-                ready_queue: self.ready_queue.clone(),
-                source_addr,
-                mx_addr,
-                terse: self.terse,
-            },
-        )?))?;
+        socket
+            .send(Message::Text(serde_json::to_string(
+                &TraceSmtpClientV1Request {
+                    domain: self.domain.clone(),
+                    routing_domain: self.routing_domain.clone(),
+                    campaign: self.campaign.clone(),
+                    tenant: self.tenant.clone(),
+                    egress_pool: self.egress_pool.clone(),
+                    egress_source: self.egress_source.clone(),
+                    mail_from: self.mail_from.clone(),
+                    rcpt_to: self.rcpt_to.clone(),
+                    mx_host: self.mx_host.clone(),
+                    ready_queue: self.ready_queue.clone(),
+                    source_addr,
+                    mx_addr,
+                    terse: self.terse,
+                },
+            )?))
+            .await?;
 
         struct ConnState {
             meta: serde_json::Value,
@@ -268,8 +272,8 @@ impl TraceSmtpClientCommand {
 
         let mut wanted_key = None;
 
-        loop {
-            let msg = socket.read()?;
+        while let Some(event) = socket.next().await {
+            let msg = event?;
             match msg {
                 Message::Text(s) => {
                     let event: TraceSmtpClientV1Event = serde_json::from_str(&s)?;
@@ -418,5 +422,6 @@ impl TraceSmtpClientCommand {
                 }
             }
         }
+        Ok(())
     }
 }
