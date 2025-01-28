@@ -8,6 +8,7 @@ use reqwest::Url;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::IsTerminal;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -272,8 +273,16 @@ impl TraceSmtpClientCommand {
 
         let mut wanted_key = None;
 
-        while let Some(event) = socket.next().await {
-            let msg = event?;
+        let (tx, mut rx) = unbounded_channel();
+        tokio::spawn(async move {
+            while let Some(event) = socket.next().await {
+                let msg = event?;
+                tx.send(msg)?;
+            }
+            Ok::<(), anyhow::Error>(())
+        });
+
+        while let Some(msg) = rx.recv().await {
             match msg {
                 Message::Text(s) => {
                     let event: TraceSmtpClientV1Event = serde_json::from_str(&s)?;
