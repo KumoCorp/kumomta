@@ -12,6 +12,7 @@
 * Improved robustness of [kcli
   trace-smtp-server](../reference/kcli/trace-smtp-server.md) and [kcli
   trace-smtp-client](../reference/kcli/trace-smtp-client.md) on busy servers.
+* kafka client can now process non-UTF8 binary payloads. Thanks to @cai-n! #328
 
 ## Fixes
 
