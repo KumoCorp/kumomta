@@ -352,7 +352,7 @@ impl TraceSmtpClientCommand {
                             println!("[{key}] {delta} === bytes written={len}");
                         }
                         TraceSmtpClientV1Payload::Write(data) => {
-                            for (idx, line) in data.lines().enumerate() {
+                            for (idx, line) in data.trim_ascii_end().lines().enumerate() {
                                 if idx > 0 && self.terse {
                                     println!("[{key}] {delta} === bytes written={}", data.len());
                                     break;
