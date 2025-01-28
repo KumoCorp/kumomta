@@ -3986,6 +3986,7 @@ dependencies = [
  "mlua",
  "rdkafka",
  "serde",
+ "serde_bytes",
  "tokio",
 ]
 
