@@ -26,3 +26,5 @@
   on a connection that had previously been closed.
 * Potential cache thrashing issue with `remember_broken_tls` could lead to a larger
   number of connection attempts to sites with broken TLS.
+* The RFC3464 parser could fail to parse certain `Arrival-Date` headers. Thanks
+  to @cai-n!  #329
