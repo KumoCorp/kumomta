@@ -405,6 +405,13 @@ impl EgressPoolRoundRobin {
         }
     }
 
+    /// Helper to test whether we need to create a new state
+    /// to track either a changed pool name or set of sources
+    /// in the pool
+    pub fn equivalent(&self, pool: &EgressPool) -> bool {
+        self.name == pool.name && self.entries == pool.entries
+    }
+
     fn get_ready_queue_for_source(
         &self,
         queue_config: &ConfigHandle<QueueConfig>,

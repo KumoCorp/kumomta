@@ -1221,7 +1221,7 @@ impl Queue {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
                 match EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await {
                     Ok(pool) => {
-                        if self.rr.load().name != pool.name {
+                        if !self.rr.load().equivalent(&pool) {
                             self.rr.store(EgressPoolRoundRobin::new(&pool).into());
                         }
                     }

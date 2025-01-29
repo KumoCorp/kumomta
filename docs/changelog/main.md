@@ -34,3 +34,5 @@
   memoized load from a datasource), you would need to wait until the [maximum
   lua context age](../reference/kumo/set_max_lua_context_age.md) had expired
   for those changes to be reflected.
+* Changing the composition (sources) of an egress pool might not fully take
+  effect until the associated queues had aged out.
