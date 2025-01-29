@@ -18,8 +18,41 @@ throttle objects with the same name will increment and check the same underlying
 throttle; the *name* parameter defines the throttle.
 
 The *spec* parameter defines the permitted rate of the throttle, and has the
-form `quantity/period` where quantity is a number and period can be a measure
-of time.
+form:
+
+```
+[local:]quantity/period[,max_burst=burst]
+```
+
+where quantity is a number and period can be a measure of time.
+
+* The optional `local:` prefix will cause this throttle to always
+  use a node-local throttle, regardless of whether redis throttles
+  have been enabled.  {{since('2024.11.08-d383b033', inline=True)}}
+
+* The *quantity* must be an integer value that defines the limit
+  of operations that can be performed in the specified *period*.
+  Quantity can optionally use `,` or `_` as a digit separator
+  to help clarify large numbers.
+
+* The *period* may be one of:
+    * `day` or `d` to represent 1 day (`86400` seconds)
+    * `hour`, `hr` or `h` to represent 1 hour (`3600` seconds)
+    * `minute`, `min`, or `m` to represent 1 minute (`60` seconds)
+    * `seconds`, `sec`, or `s` to represent 1 second
+
+* The *period* may have an integer prefix to specify unusual
+  time periods, such as `30min` to represent a 30 minute period.
+  {{since('2025.01.23-7273d2bc', inline=True)}}
+
+* The optional *max_burst* term allows control over how quickly the throttle
+  can be consumed. If you don't specify *max_burst*, it is effectively equal to
+  the *quantity*.  If you have configured `6/m` as your throttle, and 6
+  requests are immediately ready, then all 6 of them can proceed at the start
+  of that one minute interval.  If you set `6/m,max_burst=1` then the rate at
+  which they can proceed will be 1 every 10 seconds (*interval* = *period* /
+  *quantity*, so: `60/6 == 10`) across that minute.  Larger burst values will
+  allow larger bursts across that time period. {{since('dev', inline=True)}}
 
 Examples of throttles:
 
@@ -27,10 +60,13 @@ Examples of throttles:
 "10/s" -- 10 per second
 "10/sec" -- 10 per second
 "10/second" -- 10 per second
+"local:10/second" -- 10 per second, always local regardless of redis config
 
 "50/m" -- 50 per minute
 "50/min" -- 50 per minute
 "50/minute" -- 50 per minute
+"50/minute" -- 50 per minute
+"60/minute,max_burst=1" -- 60 per minute, constrained to 1 per second
 
 "1,000/hr" -- 1000 per hour
 "1_000/h" -- 1000 per hour
@@ -39,12 +75,6 @@ Examples of throttles:
 "10_000/d" -- 10,000 per day
 "10,000/day" -- 10,000 per day
 ```
-
-{{since('2024.11.08-d383b033', indent=True)}}
-    You can use the literal prefix `"local:"` to explicitly use a
-    node-local throttle, even when you have enabled redis throttles,
-    so `"local:10,000/s"` defines a `10,000/s` throttle that is node-local
-    and that doesn't use redis to share the throttle state with other nodes.
 
 The returned throttle object has the following methods:
 

@@ -13,6 +13,10 @@
   trace-smtp-server](../reference/kcli/trace-smtp-server.md) and [kcli
   trace-smtp-client](../reference/kcli/trace-smtp-client.md) on busy servers.
 * kafka client can now process non-UTF8 binary payloads. Thanks to @cai-n! #328
+* Exposed the `max_burst` throttle parameter to the throttle parser. This
+  functionality was always present, it just wasn't configurable. See the
+  [kumo.make_throttle](../reference/kumo/make_throttle.md) docs for the revised
+  throttle specification.
 
 ## Fixes
 

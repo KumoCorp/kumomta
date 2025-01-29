@@ -87,6 +87,14 @@ pub struct ThrottleSpec {
     pub limit: u64,
     /// Period, in seconds
     pub period: u64,
+    /// Constrain how quickly the throttle can be consumed per
+    /// throttle interval (period / limit).
+    /// max_burst defaults to limit, allowing the entire throttle
+    /// to be used in an instant. Setting max_burst to 1 will
+    /// only allow 1 throttle bump per interval, spreading out
+    /// the utilization of the throttle more evenly over time.
+    /// Larger values allow more of the throttle to be used
+    /// per period.
     pub max_burst: Option<u64>,
     pub force_local: bool,
 }
@@ -150,12 +158,14 @@ impl ThrottleSpec {
                 "s"
             }
         };
-        if let Some(burst) = self.max_burst {
-            return Err(format!("cannot represent max_burst {burst} as string"));
-        }
+
+        let burst = match self.max_burst {
+            Some(b) => format!(",max_burst={b}"),
+            None => String::new(),
+        };
 
         Ok(format!(
-            "{}{}/{}{period}",
+            "{}{}/{}{period}{burst}",
             if self.force_local { "local:" } else { "" },
             self.limit,
             match &period_scale {
@@ -203,6 +213,21 @@ fn opt_digit_prefix(s: &str) -> Result<(u64, &str), String> {
     Err(format!("invalid period quantity {s}"))
 }
 
+/// Allow "1_000" and "1,000" for more readable config
+fn parse_separated_number(limit: &str) -> Result<u64, String> {
+    let value: String = limit
+        .chars()
+        .filter_map(|c| match c {
+            '_' | ',' => None,
+            c => Some(c),
+        })
+        .collect();
+
+    value
+        .parse::<u64>()
+        .map_err(|err| format!("invalid limit '{limit}': {err:#}"))
+}
+
 impl TryFrom<&str> for ThrottleSpec {
     type Error = String;
     fn try_from(s: &str) -> Result<Self, String> {
@@ -210,6 +235,15 @@ impl TryFrom<&str> for ThrottleSpec {
             Some(s) => (true, s),
             None => (false, s),
         };
+
+        let (s, max_burst) = match s.split_once(",max_burst=") {
+            Some((s, burst_spec)) => {
+                let burst = parse_separated_number(burst_spec)?;
+                (s, Some(burst))
+            }
+            None => (s, None),
+        };
+
         let (limit, period) = s
             .split_once("/")
             .ok_or_else(|| format!("expected 'limit/period', got {s}"))?;
@@ -225,17 +259,7 @@ impl TryFrom<&str> for ThrottleSpec {
         } * period_scale;
 
         // Allow "1_000/hr" and "1,000/hr" for more readable config
-        let limit: String = limit
-            .chars()
-            .filter_map(|c| match c {
-                '_' | ',' => None,
-                c => Some(c),
-            })
-            .collect();
-
-        let limit = limit
-            .parse::<u64>()
-            .map_err(|err| format!("invalid limit '{limit}': {err:#}"))?;
+        let limit = parse_separated_number(limit)?;
 
         if limit == 0 {
             return Err(format!(
@@ -246,7 +270,7 @@ impl TryFrom<&str> for ThrottleSpec {
         Ok(Self {
             limit,
             period,
-            max_burst: None,
+            max_burst,
             force_local,
         })
     }
@@ -540,6 +564,18 @@ mod test {
             ThrottleSpec::try_from("three/hour").unwrap_err(),
             "invalid limit 'three': invalid digit found in string".to_string()
         );
+
+        let burst = ThrottleSpec::try_from("50/day,max_burst=1").unwrap();
+        assert_eq!(
+            burst,
+            ThrottleSpec {
+                limit: 50,
+                period: 86400,
+                max_burst: Some(1),
+                force_local: false,
+            }
+        );
+        assert_eq!(burst.as_string().unwrap(), "50/d,max_burst=1");
     }
 
     #[test]
