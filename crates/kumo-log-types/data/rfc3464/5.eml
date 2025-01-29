@@ -1,0 +1,80 @@
+Received: by mx-by.bbox.fr (Postfix)
+	id EA6A213B; Wed, 29 Jan 2025 17:36:57 +0100 (CET)
+Date: Wed, 29 Jan 2025 17:36:57 +0100 (CET)
+From: MAILER-DAEMON@bbox.fr (Mail Delivery System)
+Subject: Mail revenu en erreur / Undelivered Mail Returned to Sender
+To: user@example.com
+Auto-Submitted: auto-replied
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status;
+	boundary="897DAC0.1738168617/mx-by.bbox.fr"
+Content-Transfer-Encoding: 8bit
+Message-Id: <20250129163657.EA6A213B@mx-by.bbox.fr>
+
+This is a MIME-encapsulated message.
+
+--897DAC0.1738168617/mx-by.bbox.fr
+Content-Description: Notification
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+This is the mail system at host mx-by.bbox.fr.
+
+Le message suivant n'a pu etre envoye a un ou plusieurs des
+destinataires pour la raison indiquee ci-dessous.
+
+Vous trouverez egalement une liste des principaux messages
+d'erreur.
+
+                   -- Postmaster
+
+  __//__
+
+I'm sorry to have to inform you that the message returned
+below could not be delivered to one or more destinations.
+
+                   --  Postmaster
+
+
+----- Aide / Help ------------------------------------------
+Messages d'erreur courants / Common error messages
+
+unknown user         Mauvaise adresse, utilisateur inconnu.
+                     Bad adress, the recipient doesn't exist.
+host not found       Le domaine de l'adresse n'existe pas.
+                     The domain part of the address doesn't exist.
+disc quota exceeded  La boite de votre correspondant est pleine.
+                     The recipient's mailbox is full.
+message size ...     Message trop gros pour ce destinataire.
+
+----- Message d'erreur / Failure reason --------------------
+
+
+<recipient@domain.com>: host lmtp.cs.dolmen.bouyguestelecom.fr[172.24.211.10]
+    said: 552 <recipient@domain.com> rejected: over quota (in reply to RCPT TO
+    command)
+
+--897DAC0.1738168617/mx-by.bbox.fr
+Content-Description: Delivery report
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; mx-by.bbox.fr
+X-Postfix-Queue-ID: 897DAC0
+X-Postfix-Sender: rfc822; user@example.com
+Arrival-Date: Wed, 29 Jan 2025 17:36:51 +0100 (CET)
+
+Final-Recipient: rfc822; recipient@domain.com
+Original-Recipient: rfc822;recipient@domain.com
+Action: failed
+Status: 5.0.0
+Remote-MTA: dns; lmtp.cs.dolmen.bouyguestelecom.fr
+Diagnostic-Code: smtp; 552 <recipient@domain.com> rejected: over quota
+
+--897DAC0.1738168617/mx-by.bbox.fr
+Content-Description: Undelivered Message Headers
+Content-Type: text/rfc822-headers
+Content-Transfer-Encoding: 8bit
+
+[original message goes here]
+
+--897DAC0.1738168617/mx-by.bbox.fr--
