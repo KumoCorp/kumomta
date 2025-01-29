@@ -540,7 +540,7 @@ Some(
 
     #[test]
     fn rfc3464_4() {
-        let result = Report::parse(include_bytes!("../data/rfc3464/3.eml")).unwrap();
+        let result = Report::parse(include_bytes!("../data/rfc3464/4.eml")).unwrap();
         k9::snapshot!(
             result,
             r#"
@@ -549,8 +549,8 @@ Some(
         per_message: PerMessageReportEntry {
             original_envelope_id: None,
             reporting_mta: RemoteMta {
-                mta_type: "mailbus",
-                name: "SYS30",
+                mta_type: "dns",
+                name: "sun2.nsfnet-relay.ac.uk",
             },
             dsn_gateway: None,
             received_from_mta: None,
@@ -560,16 +560,16 @@ Some(
         per_recipient: [
             PerRecipientReportEntry {
                 final_recipient: Recipient {
-                    recipient_type: "unknown",
-                    recipient: "nair_s",
+                    recipient_type: "rfc822",
+                    recipient: "thomas@de-montfort.ac.uk",
                 },
-                action: Failed,
+                action: Delayed,
                 status: ReportStatus {
-                    class: 5,
+                    class: 4,
                     subject: 0,
                     detail: 0,
                     comment: Some(
-                        "(unknown permanent failure)",
+                        "(unknown temporary failure)",
                     ),
                 },
                 original_recipient: None,
@@ -582,6 +582,82 @@ Some(
             },
         ],
         original_message: None,
+    },
+)
+"#
+        );
+    }
+
+    #[test]
+    fn rfc3464_5() {
+        let result = Report::parse(include_bytes!("../data/rfc3464/5.eml")).unwrap();
+        k9::snapshot!(
+            result,
+            r#"
+Some(
+    Report {
+        per_message: PerMessageReportEntry {
+            original_envelope_id: None,
+            reporting_mta: RemoteMta {
+                mta_type: "dns",
+                name: "mx-by.bbox.fr",
+            },
+            dsn_gateway: None,
+            received_from_mta: None,
+            arrival_date: Some(
+                2025-01-29T16:36:51Z,
+            ),
+            extensions: {
+                "x-postfix-queue-id": [
+                    "897DAC0",
+                ],
+                "x-postfix-sender": [
+                    "rfc822; user@example.com",
+                ],
+            },
+        },
+        per_recipient: [
+            PerRecipientReportEntry {
+                final_recipient: Recipient {
+                    recipient_type: "rfc822",
+                    recipient: "recipient@domain.com",
+                },
+                action: Failed,
+                status: ReportStatus {
+                    class: 5,
+                    subject: 0,
+                    detail: 0,
+                    comment: None,
+                },
+                original_recipient: Some(
+                    Recipient {
+                        recipient_type: "rfc822",
+                        recipient: "recipient@domain.com",
+                    },
+                ),
+                remote_mta: Some(
+                    RemoteMta {
+                        mta_type: "dns",
+                        name: "lmtp.cs.dolmen.bouyguestelecom.fr",
+                    },
+                ),
+                diagnostic_code: Some(
+                    DiagnosticCode {
+                        diagnostic_type: "smtp",
+                        diagnostic: "552 <recipient@domain.com> rejected: over quota",
+                    },
+                ),
+                last_attempt_date: None,
+                final_log_id: None,
+                will_retry_until: None,
+                extensions: {},
+            },
+        ],
+        original_message: Some(
+            "[original message goes here]
+
+",
+        ),
     },
 )
 "#
