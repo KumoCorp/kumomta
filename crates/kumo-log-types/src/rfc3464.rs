@@ -206,7 +206,8 @@ impl PerMessageReportEntry {
         let dsn_gateway = extract_single("dsn-gateway", &mut extensions)?;
         let received_from_mta = extract_single("received-from-mta", &mut extensions)?;
 
-        let arrival_date = extract_single("arrival-date", &mut extensions)?;
+        let arrival_date =
+            extract_single_conv::<DateTimeRfc2822, DateTime<Utc>>("arrival-date", &mut extensions)?;
 
         Ok(Self {
             original_envelope_id,
