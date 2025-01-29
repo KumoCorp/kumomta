@@ -67,6 +67,7 @@ Examples of throttles:
 "50/minute" -- 50 per minute
 "50/minute" -- 50 per minute
 "60/minute,max_burst=1" -- 60 per minute, constrained to 1 per second
+"20/30minute" -- 20 per 30 minute period
 
 "1,000/hr" -- 1000 per hour
 "1_000/h" -- 1000 per hour
