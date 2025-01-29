@@ -28,3 +28,9 @@
   number of connection attempts to sites with broken TLS.
 * The RFC3464 parser could fail to parse certain `Arrival-Date` headers. Thanks
   to @cai-n!  #329
+* The lua context pool would not invalidate entries when the [config
+  epoch](../reference/configuration.md#config-epoch) changed. This meant that
+  if you had config values encoded in the lua script itself (rather than via a
+  memoized load from a datasource), you would need to wait until the [maximum
+  lua context age](../reference/kumo/set_max_lua_context_age.md) had expired
+  for those changes to be reflected.

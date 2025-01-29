@@ -1,4 +1,4 @@
-use crate::{LuaConfig, LuaConfigInner};
+use crate::{get_current_epoch, LuaConfig, LuaConfigInner};
 use parking_lot::FairMutex as Mutex;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -58,8 +58,10 @@ impl Pool {
 
     pub fn expire(&mut self) {
         let len_before = self.pool.len();
+        let epoch = get_current_epoch();
         let max_age = Duration::from_secs(MAX_AGE.load(Ordering::Relaxed) as u64);
-        self.pool.retain(|inner| inner.created.elapsed() < max_age);
+        self.pool
+            .retain(|inner| inner.created.elapsed() < max_age && inner.epoch == epoch);
         let len_after = self.pool.len();
         let diff = len_before - len_after;
         if diff > 0 {
@@ -72,7 +74,7 @@ impl Pool {
         loop {
             let mut item = self.pool.pop_front()?;
             LUA_SPARE_COUNT.decrement(1.);
-            if item.created.elapsed() > max_age {
+            if item.created.elapsed() > max_age || item.epoch != get_current_epoch() {
                 continue;
             }
             item.use_count += 1;
@@ -81,6 +83,11 @@ impl Pool {
     }
 
     pub fn put(&mut self, config: LuaConfigInner) {
+        let epoch = get_current_epoch();
+        if config.epoch != epoch {
+            // Stale; let it drop
+            return;
+        }
         if self.pool.len() + 1 > MAX_SPARE.load(Ordering::Relaxed) {
             return;
         }

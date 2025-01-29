@@ -1,3 +1,4 @@
+use crate::epoch::{get_current_epoch, ConfigEpoch};
 use crate::pool::{pool_get, pool_put};
 pub use crate::pool::{set_gc_on_put, set_max_age, set_max_spare, set_max_use};
 use anyhow::Context;
@@ -72,6 +73,7 @@ struct LuaConfigInner {
     lua: Lua,
     created: Instant,
     use_count: usize,
+    epoch: ConfigEpoch,
 }
 
 impl Drop for LuaConfigInner {
@@ -126,6 +128,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
     LUA_LOAD_COUNT.increment(1);
     let lua = Lua::new();
     let created = Instant::now();
+    let epoch = get_current_epoch();
 
     {
         let globals = lua.globals();
@@ -177,6 +180,7 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
             lua,
             created,
             use_count: 1,
+            epoch,
         }),
     })
 }
