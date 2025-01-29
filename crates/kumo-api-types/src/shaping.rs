@@ -1219,22 +1219,16 @@ impl ProviderEntry {
             );
         }
         if let Some(rate) = &self.provider_max_message_rate {
-            match rate.as_string() {
-                Ok(rate) => {
-                    let mut limits = toml::Table::new();
-                    limits.insert(
-                        format!("shaping-provider-{}-{source}-rate", self.provider_name),
-                        rate.into(),
-                    );
-                    implied.insert(
-                        "additional_message_rate_throttles".to_string(),
-                        toml::Value::Table(limits),
-                    );
-                }
-                Err(err) => {
-                    tracing::error!("Error representing provider_max_message_rate: {err}");
-                }
-            }
+            let rate = rate.as_string();
+            let mut limits = toml::Table::new();
+            limits.insert(
+                format!("shaping-provider-{}-{source}-rate", self.provider_name),
+                rate.into(),
+            );
+            implied.insert(
+                "additional_message_rate_throttles".to_string(),
+                toml::Value::Table(limits),
+            );
         }
 
         toml_table_merge_from(target, &implied);

@@ -82,7 +82,7 @@ pub enum Error {
 }
 
 #[derive(Eq, PartialEq, Clone, Copy, Serialize, Deserialize, Hash)]
-#[serde(try_from = "String")]
+#[serde(try_from = "String", into = "String")]
 pub struct ThrottleSpec {
     pub limit: u64,
     /// Period, in seconds
@@ -129,24 +129,18 @@ impl ThrottleSpec {
 
 impl std::fmt::Debug for ThrottleSpec {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self.as_string() {
-            Ok(s) => write!(fmt, "{}", s),
-            Err(_) => Err(std::fmt::Error),
-        }
+        write!(fmt, "{}", self.as_string())
     }
 }
 
 impl std::fmt::Display for ThrottleSpec {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self.as_string() {
-            Ok(s) => write!(fmt, "{}", s),
-            Err(_) => Err(std::fmt::Error),
-        }
+        write!(fmt, "{}", self.as_string())
     }
 }
 
 impl ThrottleSpec {
-    pub fn as_string(&self) -> Result<String, String> {
+    pub fn as_string(&self) -> String {
         let mut period_scale = None;
         let period = match self.period {
             86400 => "d",
@@ -164,7 +158,7 @@ impl ThrottleSpec {
             None => String::new(),
         };
 
-        Ok(format!(
+        format!(
             "{}{}/{}{period}{burst}",
             if self.force_local { "local:" } else { "" },
             self.limit,
@@ -172,7 +166,13 @@ impl ThrottleSpec {
                 Some(scale) => scale.as_str(),
                 None => "",
             }
-        ))
+        )
+    }
+}
+
+impl From<ThrottleSpec> for String {
+    fn from(spec: ThrottleSpec) -> String {
+        spec.as_string()
     }
 }
 
@@ -519,8 +519,7 @@ mod test {
                 max_burst: None,
                 force_local: false,
             }
-            .as_string()
-            .unwrap(),
+            .as_string(),
             "100/h"
         );
         assert_eq!(
@@ -530,8 +529,7 @@ mod test {
                 max_burst: None,
                 force_local: true,
             }
-            .as_string()
-            .unwrap(),
+            .as_string(),
             "local:100/h"
         );
 
@@ -545,7 +543,7 @@ mod test {
                 force_local: true,
             }
         );
-        assert_eq!(weird_duration.as_string().unwrap(), "local:100/7380s");
+        assert_eq!(weird_duration.as_string(), "local:100/7380s");
 
         assert_eq!(
             ThrottleSpec::try_from("1_0,0/hour").unwrap(),
@@ -575,7 +573,7 @@ mod test {
                 force_local: false,
             }
         );
-        assert_eq!(burst.as_string().unwrap(), "50/d,max_burst=1");
+        assert_eq!(burst.as_string(), "50/d,max_burst=1");
     }
 
     #[test]
