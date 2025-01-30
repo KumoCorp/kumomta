@@ -1,6 +1,6 @@
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
 use crate::queue::{QueueConfig, ReadyQueueFull};
-use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
+use crate::ready_queue::{ReadyQueueHandle, ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::epoch::ConfigEpoch;
 use config::{CallbackSignature, LuaConfig};
@@ -548,38 +548,75 @@ impl EgressPoolSourceSelector {
             }
         }
 
-        Ok(match self.next_impl(&entries) {
-            Some((name, ready_queue_name)) => {
-                if let Some(ready_name) = &ready_queue_name {
-                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
+        loop {
+            match self.next_impl(&entries) {
+                Some((source_name, ready_queue_name)) => {
+                    match resolve_queue(
+                        ready_queue_name,
+                        queue_name,
+                        queue_config,
+                        &source_name,
+                        &self.name,
+                        epoch,
+                    )
+                    .await
                     {
-                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
-                        return Ok(SourceInsertResult::Inserted);
+                        Ok(site) => {
+                            if site.insert(msg.clone()).await.is_ok() {
+                                return Ok(SourceInsertResult::Inserted);
+                            }
+
+                            // If we get here, the queue was full.
+                            // Let's try to find another source that has room,
+                            // by going around again once we've filtered this
+                            // particular source out of the set
+                            entries.retain(|(entry, _)| entry.name != source_name);
+
+                            if entries.is_empty() {
+                                // If there are no more sources, then we just
+                                // report that the queue (whichever of the ones
+                                // that we tried) is full.
+                                return Err(ReadyQueueFull.into());
+                            }
+                        }
+                        Err(err) => {
+                            return Ok(SourceInsertResult::FailedResolve(format!("{err:#}")));
+                        }
                     }
                 }
-
-                match ReadyQueueManager::resolve_by_queue_name(
-                    queue_name,
-                    queue_config,
-                    &name,
-                    &self.name,
-                    epoch,
-                )
-                .await
-                {
-                    Ok(site) => {
-                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
-                        SourceInsertResult::Inserted
-                    }
-                    Err(err) => SourceInsertResult::FailedResolve(format!("{err:#}")),
+                None => {
+                    return Ok(match min_delay {
+                        Some(duration) => SourceInsertResult::Delay(duration),
+                        None => SourceInsertResult::NoSources,
+                    })
                 }
             }
-            None => match min_delay {
-                Some(duration) => SourceInsertResult::Delay(duration),
-                None => SourceInsertResult::NoSources,
-            },
-        })
+        }
     }
+}
+
+async fn resolve_queue(
+    ready_queue_name: Option<Arc<CachedReadyQueueName>>,
+    queue_name: &str,
+    queue_config: &ConfigHandle<QueueConfig>,
+    egress_source: &str,
+    egress_pool: &str,
+    epoch: ConfigEpoch,
+) -> anyhow::Result<ReadyQueueHandle> {
+    if let Some(ready_name) = &ready_queue_name {
+        if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
+            return Ok(site);
+        }
+    }
+
+    ReadyQueueManager::resolve_by_queue_name(
+        queue_name,
+        queue_config,
+        egress_source,
+        egress_pool,
+        epoch,
+    )
+    .await
 }
 
 #[cfg(test)]

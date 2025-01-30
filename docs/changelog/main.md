@@ -73,6 +73,10 @@
   [kumo.log_info](../reference/kumo/log_info.md), and
   [kumo.log_info](../reference/kumo/log_debug.md) functions for logging
   diagnostics from your policy scripts.
+* When performing source selection, if round robin would tell us to use a
+  source whose associated ready queue is full, we'll now try to use one of the
+  other available sources in that pool instead of immediately generating a
+  transient failure for that message.
 
 ## Fixes
 
