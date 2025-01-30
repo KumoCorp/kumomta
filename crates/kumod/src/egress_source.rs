@@ -367,20 +367,6 @@ struct IndexAndWeight {
 }
 
 #[derive(Debug, Clone)]
-enum SourceSelectorResult {
-    /// Use the source with this name
-    Source {
-        name: String,
-        ready_queue_name: Option<Arc<CachedReadyQueueName>>,
-    },
-    /// All pathways are suspended. The smallest time until one
-    /// of them is enabled is this delay
-    Delay(chrono::Duration),
-    /// No sources are configured, or all sources have zero weight
-    NoSources,
-}
-
-#[derive(Debug, Clone)]
 pub enum SourceInsertResult {
     /// We inserted it ok!
     Inserted,
@@ -523,47 +509,8 @@ impl EgressPoolSourceSelector {
         msg: Message,
         epoch: ConfigEpoch,
     ) -> anyhow::Result<SourceInsertResult> {
-        Ok(match self.select_source(queue_name, queue_config).await {
-            SourceSelectorResult::Source {
-                name,
-                ready_queue_name,
-            } => {
-                if let Some(ready_name) = &ready_queue_name {
-                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
-                    {
-                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
-                        return Ok(SourceInsertResult::Inserted);
-                    }
-                }
-
-                match ReadyQueueManager::resolve_by_queue_name(
-                    queue_name,
-                    queue_config,
-                    &name,
-                    &self.name,
-                    epoch,
-                )
-                .await
-                {
-                    Ok(site) => {
-                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
-                        SourceInsertResult::Inserted
-                    }
-                    Err(err) => SourceInsertResult::FailedResolve(format!("{err:#}")),
-                }
-            }
-            SourceSelectorResult::Delay(duration) => SourceInsertResult::Delay(duration),
-            SourceSelectorResult::NoSources => SourceInsertResult::NoSources,
-        })
-    }
-
-    async fn select_source(
-        &self,
-        queue_name: &str,
-        queue_config: &ConfigHandle<QueueConfig>,
-    ) -> SourceSelectorResult {
         if self.entries.is_empty() {
-            return SourceSelectorResult::NoSources;
+            return Ok(SourceInsertResult::NoSources);
         }
 
         let mut entries = vec![];
@@ -601,16 +548,37 @@ impl EgressPoolSourceSelector {
             }
         }
 
-        match self.next_impl(&entries) {
-            Some((name, ready_queue_name)) => SourceSelectorResult::Source {
-                name,
-                ready_queue_name,
-            },
+        Ok(match self.next_impl(&entries) {
+            Some((name, ready_queue_name)) => {
+                if let Some(ready_name) = &ready_queue_name {
+                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
+                    {
+                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
+                        return Ok(SourceInsertResult::Inserted);
+                    }
+                }
+
+                match ReadyQueueManager::resolve_by_queue_name(
+                    queue_name,
+                    queue_config,
+                    &name,
+                    &self.name,
+                    epoch,
+                )
+                .await
+                {
+                    Ok(site) => {
+                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
+                        SourceInsertResult::Inserted
+                    }
+                    Err(err) => SourceInsertResult::FailedResolve(format!("{err:#}")),
+                }
+            }
             None => match min_delay {
-                Some(duration) => SourceSelectorResult::Delay(duration),
-                None => SourceSelectorResult::NoSources,
+                Some(duration) => SourceInsertResult::Delay(duration),
+                None => SourceInsertResult::NoSources,
             },
-        }
+        })
     }
 }
 
