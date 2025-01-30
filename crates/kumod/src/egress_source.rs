@@ -1,13 +1,15 @@
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
-use crate::queue::QueueConfig;
+use crate::queue::{QueueConfig, ReadyQueueFull};
 use crate::ready_queue::{ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
+use config::epoch::ConfigEpoch;
 use config::{CallbackSignature, LuaConfig};
 use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_server_common::config_handle::ConfigHandle;
 use lruttl::declare_cache;
+use message::Message;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
 use prometheus::IntCounter;
@@ -365,12 +367,25 @@ struct IndexAndWeight {
 }
 
 #[derive(Debug, Clone)]
-pub enum SourceSelectorResult {
+enum SourceSelectorResult {
     /// Use the source with this name
     Source {
         name: String,
         ready_queue_name: Option<Arc<CachedReadyQueueName>>,
     },
+    /// All pathways are suspended. The smallest time until one
+    /// of them is enabled is this delay
+    Delay(chrono::Duration),
+    /// No sources are configured, or all sources have zero weight
+    NoSources,
+}
+
+#[derive(Debug, Clone)]
+pub enum SourceInsertResult {
+    /// We inserted it ok!
+    Inserted,
+    /// QueueManager failed to resolve the named queue
+    FailedResolve(String),
     /// All pathways are suspended. The smallest time until one
     /// of them is enabled is this delay
     Delay(chrono::Duration),
@@ -501,7 +516,48 @@ impl EgressPoolSourceSelector {
         }
     }
 
-    pub async fn select_source(
+    pub async fn select_and_insert(
+        &self,
+        queue_name: &str,
+        queue_config: &ConfigHandle<QueueConfig>,
+        msg: Message,
+        epoch: ConfigEpoch,
+    ) -> anyhow::Result<SourceInsertResult> {
+        Ok(match self.select_source(queue_name, queue_config).await {
+            SourceSelectorResult::Source {
+                name,
+                ready_queue_name,
+            } => {
+                if let Some(ready_name) = &ready_queue_name {
+                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
+                    {
+                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
+                        return Ok(SourceInsertResult::Inserted);
+                    }
+                }
+
+                match ReadyQueueManager::resolve_by_queue_name(
+                    queue_name,
+                    queue_config,
+                    &name,
+                    &self.name,
+                    epoch,
+                )
+                .await
+                {
+                    Ok(site) => {
+                        site.insert(msg).await.map_err(|_| ReadyQueueFull)?;
+                        SourceInsertResult::Inserted
+                    }
+                    Err(err) => SourceInsertResult::FailedResolve(format!("{err:#}")),
+                }
+            }
+            SourceSelectorResult::Delay(duration) => SourceInsertResult::Delay(duration),
+            SourceSelectorResult::NoSources => SourceInsertResult::NoSources,
+        })
+    }
+
+    async fn select_source(
         &self,
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,

@@ -1,4 +1,4 @@
-use crate::egress_source::{EgressPool, EgressPoolSourceSelector, SourceSelectorResult};
+use crate::egress_source::{EgressPool, EgressPoolSourceSelector, SourceInsertResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
@@ -773,7 +773,7 @@ mod test {
 
 #[derive(Error, Debug)]
 #[error("The Ready Queue is full")]
-struct ReadyQueueFull;
+pub struct ReadyQueueFull;
 
 type QueueHandle = Arc<Queue>;
 
@@ -2029,18 +2029,20 @@ impl Queue {
             | DeliveryProto::Lua { .. }
             | DeliveryProto::HttpInjectionGenerator => {
                 let source_selector = self.source_selector.load();
-                let (egress_source, ready_name) = match source_selector
-                    .select_source(&self.name, &self.queue_config)
-                    .await
+                match source_selector
+                    .select_and_insert(
+                        &self.name,
+                        &self.queue_config,
+                        msg.clone(),
+                        self.get_config_epoch(),
+                    )
+                    .await?
                 {
-                    SourceSelectorResult::Source {
-                        name,
-                        ready_queue_name,
-                    } => (name, ready_queue_name),
-                    SourceSelectorResult::Delay(_duration) => {
+                    SourceInsertResult::Inserted => Ok(()),
+                    SourceInsertResult::Delay(_duration) => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
+                            msg,
                             site: "",
                             peer_address: None,
                             response: Response {
@@ -2069,10 +2071,10 @@ impl Queue {
                         context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("all possible sources for {} are suspended", self.name);
                     }
-                    SourceSelectorResult::NoSources => {
+                    SourceInsertResult::NoSources => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
+                            msg,
                             site: "",
                             peer_address: None,
                             response: Response {
@@ -2101,36 +2103,10 @@ impl Queue {
                         context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
                     }
-                };
-
-                // Hot path: use cached source -> ready queue mapping
-                if let Some(ready_name) = &ready_name {
-                    if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name)
-                    {
-                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
-                    }
-                }
-
-                // Miss: compute and establish a new queue
-                match opt_timeout_at(
-                    deadline,
-                    Box::pin(ReadyQueueManager::resolve_by_queue_name(
-                        &self.name,
-                        &self.queue_config,
-                        &egress_source,
-                        &source_selector.name,
-                        self.get_config_epoch(),
-                    )),
-                )
-                .await
-                {
-                    Ok(site) => {
-                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
-                    }
-                    Err(err) => {
+                    SourceInsertResult::FailedResolve(err) => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
+                            msg,
                             site: "",
                             peer_address: None,
                             response: Response {
