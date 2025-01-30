@@ -1,6 +1,6 @@
 # reconnect_strategy
 
-{{since('dev')}}
+{{since('2025.01.29-833f82a8')}}
 
 Controls the behavior of the SMTP dispatcher when it encounters an error during
 message delivery.  It does **not** affect connection-time errors (such as connection

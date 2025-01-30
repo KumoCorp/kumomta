@@ -52,7 +52,7 @@ where quantity is a number and period can be a measure of time.
   of that one minute interval.  If you set `6/m,max_burst=1` then the rate at
   which they can proceed will be 1 every 10 seconds (*interval* = *period* /
   *quantity*, so: `60/6 == 10`) across that minute.  Larger burst values will
-  allow larger bursts across that time period. {{since('dev', inline=True)}}
+  allow larger bursts across that time period. {{since('2025.01.29-833f82a8', inline=True)}}
 
 Examples of throttles:
 
