@@ -680,6 +680,27 @@ impl ReadyQueue {
         &self.name
     }
 
+    pub fn make_reservation(&self) -> Option<FifoReservation> {
+        match self.ready.clone().reserve() {
+            Some(res) => Some(res),
+            None => {
+                self.metrics.ready_full.inc();
+                self.notify_maintainer.notify_one();
+                self.notify_dispatcher.notify_waiters();
+                None
+            }
+        }
+    }
+
+    pub async fn redeem_reservation(&self, msg: Message, reservation: FifoReservation) {
+        if low_memory() {
+            msg.save_and_shrink().await.ok();
+        }
+        reservation.redeem(msg);
+        self.notify_maintainer.notify_one();
+        self.notify_dispatcher.notify_waiters();
+    }
+
     pub async fn insert(&self, msg: Message) -> Result<(), Message> {
         let _timer = INSERT_LATENCY.start_timer();
         let action = match memory_status() {

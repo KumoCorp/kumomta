@@ -562,21 +562,27 @@ impl EgressPoolSourceSelector {
                     .await
                     {
                         Ok(site) => {
-                            if site.insert(msg.clone()).await.is_ok() {
-                                return Ok(SourceInsertResult::Inserted);
-                            }
+                            match site.make_reservation() {
+                                Some(reservation) => {
+                                    // TODO: we could check against warm-up throttles here
 
-                            // If we get here, the queue was full.
-                            // Let's try to find another source that has room,
-                            // by going around again once we've filtered this
-                            // particular source out of the set
-                            entries.retain(|(entry, _)| entry.name != source_name);
+                                    site.redeem_reservation(msg, reservation).await;
+                                    return Ok(SourceInsertResult::Inserted);
+                                }
+                                None => {
+                                    // If we get here, the queue was full.
+                                    // Let's try to find another source that has room,
+                                    // by going around again once we've filtered this
+                                    // particular source out of the set
+                                    entries.retain(|(entry, _)| entry.name != source_name);
 
-                            if entries.is_empty() {
-                                // If there are no more sources, then we just
-                                // report that the queue (whichever of the ones
-                                // that we tried) is full.
-                                return Err(ReadyQueueFull.into());
+                                    if entries.is_empty() {
+                                        // If there are no more sources, then we just
+                                        // report that the queue (whichever of the ones
+                                        // that we tried) is full.
+                                        return Err(ReadyQueueFull.into());
+                                    }
+                                }
                             }
                         }
                         Err(err) => {
