@@ -343,7 +343,7 @@ impl EgressPool {
 /// Maintains the state to manage Weighted Round Robin
 /// <http://kb.linuxvirtualserver.org/wiki/Weighted_Round-Robin_Scheduling>
 #[derive(Debug)]
-pub struct EgressPoolRoundRobin {
+pub struct EgressPoolSourceSelector {
     pub name: String,
     entries: Vec<EgressPoolEntry>,
 
@@ -365,7 +365,7 @@ struct IndexAndWeight {
 }
 
 #[derive(Debug, Clone)]
-pub enum RoundRobinResult {
+pub enum SourceSelectorResult {
     /// Use the source with this name
     Source {
         name: String,
@@ -378,7 +378,7 @@ pub enum RoundRobinResult {
     NoSources,
 }
 
-impl EgressPoolRoundRobin {
+impl EgressPoolSourceSelector {
     pub fn new(pool: &EgressPool) -> Self {
         let mut entries = vec![];
 
@@ -501,13 +501,13 @@ impl EgressPoolRoundRobin {
         }
     }
 
-    pub async fn next(
+    pub async fn select_source(
         &self,
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
-    ) -> RoundRobinResult {
+    ) -> SourceSelectorResult {
         if self.entries.is_empty() {
-            return RoundRobinResult::NoSources;
+            return SourceSelectorResult::NoSources;
         }
 
         let mut entries = vec![];
@@ -546,13 +546,13 @@ impl EgressPoolRoundRobin {
         }
 
         match self.next_impl(&entries) {
-            Some((name, ready_queue_name)) => RoundRobinResult::Source {
+            Some((name, ready_queue_name)) => SourceSelectorResult::Source {
                 name,
                 ready_queue_name,
             },
             None => match min_delay {
-                Some(duration) => RoundRobinResult::Delay(duration),
-                None => RoundRobinResult::NoSources,
+                Some(duration) => SourceSelectorResult::Delay(duration),
+                None => SourceSelectorResult::NoSources,
             },
         }
     }
@@ -584,7 +584,7 @@ mod test {
             ttl: default_ttl(),
         };
 
-        let rr = EgressPoolRoundRobin::new(&pool);
+        let rr = EgressPoolSourceSelector::new(&pool);
         let mut counts = HashMap::new();
 
         for _ in 0..100 {

@@ -1,4 +1,4 @@
-use crate::egress_source::{EgressPool, EgressPoolRoundRobin, RoundRobinResult};
+use crate::egress_source::{EgressPool, EgressPoolSourceSelector, SourceSelectorResult};
 use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
@@ -1052,7 +1052,7 @@ pub struct Queue {
     queue_config: ConfigHandle<QueueConfig>,
     metrics: OnceLock<ScheduledMetrics>,
     activity: Activity,
-    rr: ArcSwap<EgressPoolRoundRobin>,
+    source_selector: ArcSwap<EgressPoolSourceSelector>,
     next_config_refresh: FairMutex<Instant>,
     warned_strategy_change: AtomicBool,
     config_epoch: FairMutex<ConfigEpoch>,
@@ -1106,7 +1106,7 @@ impl Queue {
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
         config.put();
 
-        let rr = ArcSwap::new(EgressPoolRoundRobin::new(&pool).into());
+        let source_selector = ArcSwap::new(EgressPoolSourceSelector::new(&pool).into());
 
         let activity = Activity::get(format!("Queue {name}"))?;
         let strategy = queue_config.strategy;
@@ -1155,7 +1155,7 @@ impl Queue {
             notify_maintainer: Arc::new(Notify::new()),
             metrics: OnceLock::new(),
             activity,
-            rr,
+            source_selector,
             next_config_refresh,
             warned_strategy_change: AtomicBool::new(false),
             config_epoch: FairMutex::new(epoch),
@@ -1309,8 +1309,9 @@ impl Queue {
             if let Ok(queue_config) = Queue::call_get_queue_config(&self.name, &mut config).await {
                 match EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await {
                     Ok(pool) => {
-                        if !self.rr.load().equivalent(&pool) {
-                            self.rr.store(EgressPoolRoundRobin::new(&pool).into());
+                        if !self.source_selector.load().equivalent(&pool) {
+                            self.source_selector
+                                .store(EgressPoolSourceSelector::new(&pool).into());
                         }
                     }
                     Err(err) => {
@@ -2027,16 +2028,16 @@ impl Queue {
             DeliveryProto::Smtp { .. }
             | DeliveryProto::Lua { .. }
             | DeliveryProto::HttpInjectionGenerator => {
-                let rr = self.rr.load();
-                let (egress_source, ready_name) = match rr
-                    .next(&self.name, &self.queue_config)
+                let source_selector = self.source_selector.load();
+                let (egress_source, ready_name) = match source_selector
+                    .select_source(&self.name, &self.queue_config)
                     .await
                 {
-                    RoundRobinResult::Source {
+                    SourceSelectorResult::Source {
                         name,
                         ready_queue_name,
                     } => (name, ready_queue_name),
-                    RoundRobinResult::Delay(_duration) => {
+                    SourceSelectorResult::Delay(_duration) => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -2068,7 +2069,7 @@ impl Queue {
                         context.note(InsertReason::LoggedTransientFailure);
                         anyhow::bail!("all possible sources for {} are suspended", self.name);
                     }
-                    RoundRobinResult::NoSources => {
+                    SourceSelectorResult::NoSources => {
                         log_disposition(LogDisposition {
                             kind: RecordType::TransientFailure,
                             msg: msg.clone(),
@@ -2083,7 +2084,7 @@ impl Queue {
                                 }),
                                 content: format!(
                                     "no non-zero-weighted sources available for {}. {:?}",
-                                    self.name, self.rr,
+                                    self.name, self.source_selector,
                                 ),
                                 command: None,
                             },
@@ -2117,7 +2118,7 @@ impl Queue {
                         &self.name,
                         &self.queue_config,
                         &egress_source,
-                        &rr.name,
+                        &source_selector.name,
                         self.get_config_epoch(),
                     )),
                 )
