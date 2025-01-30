@@ -102,10 +102,39 @@ where
     READYQ_RUNTIME.spawn(name, fut)
 }
 
+/// Represents a reserved place in a ready queue.
+/// The reservation can be "redeemed" to infallibly
+/// insert a Message into that queue, or dropped to
+/// release the reservation.
+pub struct FifoReservation {
+    fifo: Arc<Fifo>,
+    redeemed: bool,
+}
+
+impl Drop for FifoReservation {
+    fn drop(&mut self) {
+        if !self.redeemed {
+            self.fifo.num_reserved.fetch_sub(1, Ordering::Relaxed);
+            self.fifo.count.dec();
+        }
+    }
+}
+
+impl FifoReservation {
+    /// Redeem the reservation and insert message into the associated Fifo
+    pub fn redeem(mut self, message: Message) {
+        self.redeemed = true;
+        let mut list = self.fifo.list.lock();
+        list.push_back(message);
+        self.fifo.num_reserved.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 pub struct Fifo {
     list: FairMutex<MessageList>,
     count: ReadyCountBundle,
     capacity: AtomicUsize,
+    num_reserved: AtomicUsize,
 }
 
 impl Fifo {
@@ -114,13 +143,36 @@ impl Fifo {
             count,
             list: FairMutex::new(MessageList::new()),
             capacity: AtomicUsize::new(capacity),
+            num_reserved: AtomicUsize::new(0),
         }
+    }
+
+    /// Attempt to reserve a place in the ready queue.
+    /// The reservation can be used to subsequently infallibly
+    /// insert into the fifo.
+    pub fn reserve(self: Arc<Self>) -> Option<FifoReservation> {
+        {
+            let list = self.list.lock();
+            if self.num_reserved.load(Ordering::Relaxed) + list.len() + 1
+                > self.capacity.load(Ordering::Relaxed)
+            {
+                return None;
+            }
+            self.num_reserved.fetch_add(1, Ordering::Relaxed);
+            self.count.inc();
+        }
+        Some(FifoReservation {
+            fifo: self,
+            redeemed: false,
+        })
     }
 
     pub fn push(&self, msg: Message) -> Result<(), Message> {
         {
             let mut list = self.list.lock();
-            if list.len() + 1 > self.capacity.load(Ordering::Relaxed) {
+            if self.num_reserved.load(Ordering::Relaxed) + list.len() + 1
+                > self.capacity.load(Ordering::Relaxed)
+            {
                 return Err(msg);
             }
             list.push_back(msg);
@@ -158,9 +210,10 @@ impl Fifo {
         }
 
         let mut list = self.list.lock();
+        let reserved = self.num_reserved.load(Ordering::Relaxed);
         self.capacity.store(capacity, Ordering::Relaxed);
 
-        while list.len() > capacity {
+        while reserved + list.len() > capacity {
             match list.pop_back() {
                 Some(msg) => {
                     excess.push_back(msg);
@@ -176,7 +229,8 @@ impl Fifo {
     }
 
     pub fn len(&self) -> usize {
-        self.list.lock().len()
+        let list = self.list.lock();
+        list.len() + self.num_reserved.load(Ordering::Relaxed)
     }
 }
 
