@@ -564,30 +564,35 @@ impl EgressPoolSourceSelector {
                         Ok(site) => {
                             match site.make_reservation() {
                                 Some(reservation) => {
-                                    // TODO: we could check against warm-up throttles here
+                                    if !is_source_selection_throttled(&site, &source_name).await? {
+                                        site.redeem_reservation(msg, reservation).await;
+                                        return Ok(SourceInsertResult::Inserted);
+                                    }
 
-                                    site.redeem_reservation(msg, reservation).await;
-                                    return Ok(SourceInsertResult::Inserted);
+                                    // Throttled; fall through.
                                 }
                                 None => {
-                                    // If we get here, the queue was full.
-                                    // Let's try to find another source that has room,
-                                    // by going around again once we've filtered this
-                                    // particular source out of the set
-                                    entries.retain(|(entry, _)| entry.name != source_name);
-
-                                    if entries.is_empty() {
-                                        // If there are no more sources, then we just
-                                        // report that the queue (whichever of the ones
-                                        // that we tried) is full.
-                                        return Err(ReadyQueueFull.into());
-                                    }
+                                    // Not usable; fall through.
                                 }
                             }
                         }
                         Err(err) => {
                             return Ok(SourceInsertResult::FailedResolve(format!("{err:#}")));
                         }
+                    };
+
+                    // If we get here, the selected source was not
+                    // eligible for use.
+                    // Let's try to find another source that has room,
+                    // by going around again once we've filtered this
+                    // particular source out of the set
+                    entries.retain(|(entry, _)| entry.name != source_name);
+
+                    if entries.is_empty() {
+                        // If there are no more sources, then we just
+                        // report that the queue (whichever of the ones
+                        // that we tried) is full.
+                        return Err(ReadyQueueFull.into());
                     }
                 }
                 None => {
@@ -599,6 +604,49 @@ impl EgressPoolSourceSelector {
             }
         }
     }
+}
+
+async fn is_source_selection_throttled(
+    site: &ReadyQueueHandle,
+    source_name: &str,
+) -> anyhow::Result<bool> {
+    let path_config = site.get_path_config().borrow();
+
+    let mut throttles = Vec::with_capacity(
+        if path_config.source_selection_rate.is_some() {
+            1
+        } else {
+            0
+        } + path_config.additional_source_selection_rates.len(),
+    );
+
+    let rate_name;
+
+    if let Some(throttle) = &path_config.source_selection_rate {
+        rate_name = format!(
+            "kumomta.source_selection_rate.{}.{source_name}",
+            site.name()
+        );
+        throttles.push((&rate_name, throttle));
+    }
+
+    for (key, throttle) in &path_config.additional_source_selection_rates {
+        throttles.push((key, throttle));
+    }
+
+    // Check throttles from smallest to largest so that we avoid
+    // taking up a slot from a larger one only to hit a smaller
+    // one and not do anything useful with the larger one
+    throttles
+        .sort_by_key(|(_, spec)| ((spec.limit as f64 / spec.period as f64) * 1_000_000.0) as u64);
+
+    for (key, throttle) in throttles {
+        let result = throttle.throttle(&key).await?;
+        if result.retry_after.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn resolve_queue(

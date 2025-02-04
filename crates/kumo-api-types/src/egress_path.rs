@@ -233,6 +233,12 @@ pub struct EgressPathConfig {
     pub additional_message_rate_throttles: OrderMap<String, ThrottleSpec>,
 
     #[serde(default)]
+    pub source_selection_rate: Option<ThrottleSpec>,
+
+    #[serde(default)]
+    pub additional_source_selection_rates: OrderMap<String, ThrottleSpec>,
+
+    #[serde(default)]
     pub max_connection_rate: Option<ThrottleSpec>,
 
     #[serde(default = "EgressPathConfig::default_max_deliveries_per_connection")]
@@ -344,6 +350,8 @@ impl Default for EgressPathConfig {
             refresh_strategy: ConfigRefreshStrategy::default(),
             additional_message_rate_throttles: OrderMap::default(),
             additional_connection_limits: OrderMap::default(),
+            source_selection_rate: None,
+            additional_source_selection_rates: OrderMap::default(),
             provider_name: None,
             remember_broken_tls: None,
             opportunistic_tls_reconnect_on_failed_handshake: false,

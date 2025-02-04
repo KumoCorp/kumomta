@@ -1246,6 +1246,21 @@ impl ProviderEntry {
             );
         }
 
+        if let Some(rate) = target.remove("provider_source_selection_rate") {
+            let mut limits = toml::Table::new();
+            limits.insert(
+                format!(
+                    "shaping-provider-{}-{source}-selection-rate",
+                    self.provider_name
+                ),
+                rate,
+            );
+            implied.insert(
+                "additional_source_selection_rates".to_string(),
+                toml::Value::Table(limits),
+            );
+        }
+
         toml_table_merge_from(target, &implied);
     }
 
@@ -1261,6 +1276,13 @@ impl ProviderEntry {
         let mut sources = OrderMap::new();
 
         for (source, params) in &self.sources {
+            let mut params = params.clone();
+            // I don't really like this remove call. The issue is that we don't
+            // have an alternative way to filter this out of the partial source
+            // definition, and this provider_ option is not valid in the
+            // EgressPathConfig struct itself; it is a shaping source-specific
+            // addition to help with setting up shared throttles across providers
+            params.remove("provider_source_selection_rate");
             sources.insert(
                 source.clone(),
                 EgressPathConfig::deserialize(params.clone()).with_context(|| {
@@ -1296,7 +1318,9 @@ fn toml_table_merge_from(tbl: &mut toml::Table, source: &toml::Table) {
     // is for creating broader scoped limits that cut across normal boundaries
     fn is_mergeable(name: &str) -> bool {
         match name {
-            "additional_connection_limits" | "additional_message_rate_throttles" => true,
+            "additional_connection_limits"
+            | "additional_message_rate_throttles"
+            | "additional_source_selection_rates" => true,
             _ => false,
         }
     }
@@ -1600,6 +1624,9 @@ match=[{MXSuffix=".olc.protection.outlook.com"},{DomainSuffix=".outlook.com"}]
 enable_tls = "Required"
 provider_connection_limit = 10
 provider_max_message_rate = "120/s"
+
+[provider."Office 365".sources."new-source"]
+provider_source_selection_rate = "500/d,max_burst=1"
         "#])
         .await;
 
@@ -1628,6 +1655,23 @@ provider_max_message_rate = "120/s"
             r#"
 {
     "shaping-provider-Office 365-invalid.source-rate": 120/s,
+}
+"#
+        );
+        assert!(resolved.params.source_selection_rate.is_none());
+        assert!(resolved.params.additional_source_selection_rates.is_empty());
+
+        let resolved = shaping
+            .get_egress_path_config("outlook.com", "new-source", "invalid.site")
+            .await
+            .finish()
+            .unwrap();
+        assert!(resolved.params.source_selection_rate.is_none());
+        k9::snapshot!(
+            resolved.params.additional_source_selection_rates,
+            r#"
+{
+    "shaping-provider-Office 365-new-source-selection-rate": 500/d,max_burst=1,
 }
 "#
         );
@@ -1898,6 +1942,8 @@ MergedEntry {
             100/s,
         ),
         additional_message_rate_throttles: {},
+        source_selection_rate: None,
+        additional_source_selection_rates: {},
         max_connection_rate: Some(
             100/m,
         ),
@@ -2040,6 +2086,8 @@ MergedEntry {
             100/s,
         ),
         additional_message_rate_throttles: {},
+        source_selection_rate: None,
+        additional_source_selection_rates: {},
         max_connection_rate: Some(
             100/m,
         ),
@@ -2097,6 +2145,8 @@ MergedEntry {
             allow_smtp_auth_plain_without_tls: false,
             max_message_rate: None,
             additional_message_rate_throttles: {},
+            source_selection_rate: None,
+            additional_source_selection_rates: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
             prohibited_hosts: {
@@ -2243,6 +2293,8 @@ MergedEntry {
             100/s,
         ),
         additional_message_rate_throttles: {},
+        source_selection_rate: None,
+        additional_source_selection_rates: {},
         max_connection_rate: Some(
             100/m,
         ),

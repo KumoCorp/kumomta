@@ -692,6 +692,10 @@ impl ReadyQueue {
         }
     }
 
+    pub fn get_path_config(&self) -> &ConfigHandle<EgressPathConfig> {
+        &self.path_config
+    }
+
     pub async fn redeem_reservation(&self, msg: Message, reservation: FifoReservation) {
         if low_memory() {
             msg.save_and_shrink().await.ok();
