@@ -65,7 +65,6 @@ plugins:
         - "build.sh"
         - "SUMMARY.md"
   - tags:
-      tags_file: tags.md
 
 extra_css:
   - style.css
