@@ -10,7 +10,7 @@ Vault helps you keep password and other secrets separated from running code to h
 
 The documentation [in the reference manual](https://docs.kumomta.com/reference/keysource/?h=hashi#hashicorp-vault) is straightforward, but does have some nuance.
 
-In the example shown there and below,we are storing the DKIM signing key as a file in vault so it can be called dynamically, but including the vault token in the script is not a particularly secure way of doing things. It is recommended to place the vault address and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.
+In the example shown there and below, we are storing the DKIM signing key as a file in vault so it can be called dynamically, but including the vault token in the script is not a particularly secure way of doing things. It is recommended to place the vault address and token in environment variables that are accessible to KumoMTA. In most cases, that will mean modifying the systemd unit service file.
 
 ```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {
