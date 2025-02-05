@@ -3696,6 +3696,7 @@ dependencies = [
  "config",
  "data-loader",
  "dns-resolver",
+ "duration-serde",
  "futures",
  "intrusive-collections",
  "k9",

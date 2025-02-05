@@ -16,6 +16,7 @@ chrono = {workspace=true, default-features=false, features=["serde", "clock"]}
 chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver", optional=true}
+duration-serde = {path="../duration-serde"}
 futures = {workspace=true}
 intrusive-collections.workspace = true
 kumo-chrono-helper = {path="../kumo-chrono-helper"}

@@ -107,13 +107,13 @@ pub struct SignerConfig {
     #[serde(default)]
     over_sign: bool,
 
-    #[serde(default = "SignerConfig::default_ttl")]
-    ttl: u64,
+    #[serde(default = "SignerConfig::default_ttl", with = "duration_serde")]
+    ttl: Duration,
 }
 
 impl SignerConfig {
-    fn default_ttl() -> u64 {
-        300
+    fn default_ttl() -> Duration {
+        Duration::from_secs(300)
     }
 
     fn configure_kumo_dkim(&self, key: DkimPrivateKey) -> anyhow::Result<kumo_dkim::Signer> {
@@ -220,7 +220,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let inner = Arc::new(CFSigner { signer });
 
-            let expiration = Instant::now() + Duration::from_secs(params.ttl);
+            let expiration = Instant::now() + params.ttl;
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
             signer_creation_timer.stop_and_record();
@@ -255,7 +255,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let inner = Arc::new(CFSigner { signer });
 
-            let expiration = Instant::now() + Duration::from_secs(params.ttl);
+            let expiration = Instant::now() + params.ttl;
             SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
 
             signer_creation_timer.stop_and_record();
