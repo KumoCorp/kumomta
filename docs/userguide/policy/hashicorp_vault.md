@@ -25,7 +25,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 
 To modify the systemd service file, use the built in edit command in systemctl. The [man page is here](https://man7.org/linux/man-pages/man1/systemctl.1.html), but Digital Ocean has an excellent [tutorial](https://www.digitalocean.com/community/tutorials/how-to-use-systemctl-to-manage-systemd-services-and-units) that explains it in plain english.
 
-The short version is that you can use `systemctl edit` to edit the file and add "Environment" values under the `[Service]` section so that those values will be available when the system service daemon starts KumoMTA. The example below modified the FULL service config. The --full option can be remove to modify a snippet instead of the full config.
+The short version is that you can use `systemctl edit` to edit the file and add "Environment" values under the `[Service]` section so that those values will be available when the system service daemon starts KumoMTA. The example below modified the FULL service config. The `--full` option can be remove to modify a snippet instead of the full config.
 
 ```bash
 sudo systemctl edit --full kumomta.service
