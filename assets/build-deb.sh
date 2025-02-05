@@ -77,6 +77,9 @@ if [ "\$1" = "configure" ]; then
     fi
 
     if [ -x "/usr/bin/deb-systemd-helper" ]; then
+      deb-systemd-helper unmask kumomta.service >/dev/null
+      deb-systemd-helper unmask kumo-tsa-daemon.service >/dev/null
+
       deb-systemd-helper enable kumomta.service >/dev/null
       deb-systemd-helper enable kumo-tsa-daemon.service >/dev/null
     fi
