@@ -2,11 +2,12 @@ use crate::header::DKIMHeaderBuilder;
 use crate::{canonicalization, hash, DKIMError, DkimPrivateKey, HeaderList, ParsedEmail, HEADER};
 use data_encoding::BASE64;
 use ed25519_dalek::Signer as _;
+use std::sync::Arc;
 
 /// Builder for the Signer
 pub struct SignerBuilder {
     signed_headers: Option<Vec<String>>,
-    private_key: Option<DkimPrivateKey>,
+    private_key: Option<Arc<DkimPrivateKey>>,
     selector: Option<String>,
     signing_domain: Option<String>,
     time: Option<chrono::DateTime<chrono::offset::Utc>>,
@@ -59,8 +60,8 @@ impl SignerBuilder {
     }
 
     /// Specify the private key used to sign the email
-    pub fn with_private_key(mut self, key: DkimPrivateKey) -> Self {
-        self.private_key = Some(key);
+    pub fn with_private_key<K: Into<Arc<DkimPrivateKey>>>(mut self, key: K) -> Self {
+        self.private_key = Some(key.into());
         self
     }
 
@@ -109,7 +110,7 @@ impl SignerBuilder {
         let private_key = self
             .private_key
             .ok_or(BuilderError("missing required private key"))?;
-        let hash_algo = match private_key {
+        let hash_algo = match &*private_key {
             DkimPrivateKey::OpenSSLRsa(_) => hash::HashAlgo::RsaSha256,
             DkimPrivateKey::Ed25519(_) => hash::HashAlgo::Ed25519Sha256,
         };
@@ -144,7 +145,7 @@ impl Default for SignerBuilder {
 
 pub struct Signer {
     signed_headers: HeaderList,
-    private_key: DkimPrivateKey,
+    private_key: Arc<DkimPrivateKey>,
     selector: String,
     signing_domain: String,
     header_canonicalization: canonicalization::Type,
@@ -174,7 +175,7 @@ impl Signer {
         let header_hash =
             self.compute_header_hash(email, effective_header_list, dkim_header_builder.clone())?;
 
-        let signature = match &self.private_key {
+        let signature = match &*self.private_key {
             DkimPrivateKey::Ed25519(signing_key) => {
                 signing_key.sign(&header_hash).to_bytes().into()
             }

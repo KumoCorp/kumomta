@@ -11,6 +11,9 @@
 * [memoize](../reference/kumo/memoize.md) now has an optional
   `invalidate_with_epoch` parameter that allows you to opt a specific cache
   into epoch-based invalidation.
+* DKIM signer has a separate supplemental cache for the parsed key data,
+  which helps to reduce latency for deployments where the same key data
+  is shared between multiple signing domains.
 
 ## Fixes
 

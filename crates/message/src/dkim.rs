@@ -13,6 +13,8 @@ use tokio::runtime::Runtime;
 
 static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("dkim_signer_cache", 1024));
+static KEY_CACHE: LazyLock<LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("dkim_key_cache", 1024));
 static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "dkim_signer_key_fetch",
@@ -59,6 +61,28 @@ static SIGNER_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
     prometheus::register_counter!(
         "dkim_signer_cache_lookup_count",
         "how many cache dkim signer requests occurred"
+    )
+    .unwrap()
+});
+
+static KEY_CACHE_HIT: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
+        "dkim_signer_key_cache_hit",
+        "how many cache dkim signer requests hit key cache"
+    )
+    .unwrap()
+});
+static KEY_CACHE_MISS: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
+        "dkim_signer_key_cache_miss",
+        "how many cache dkim signer requests miss key cache"
+    )
+    .unwrap()
+});
+static KEY_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
+    prometheus::register_counter!(
+        "dkim_signer_key_cache_lookup_count",
+        "how many cache dkim key requests occurred"
     )
     .unwrap()
 });
@@ -116,7 +140,7 @@ impl SignerConfig {
         Duration::from_secs(300)
     }
 
-    fn configure_kumo_dkim(&self, key: DkimPrivateKey) -> anyhow::Result<kumo_dkim::Signer> {
+    fn configure_kumo_dkim(&self, key: Arc<DkimPrivateKey>) -> anyhow::Result<kumo_dkim::Signer> {
         if self.atps.is_some() {
             anyhow::bail!("atps is not currently supported for RSA keys");
         }
@@ -173,6 +197,24 @@ impl Signer {
 
 impl LuaUserData for Signer {}
 
+async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
+    KEY_CACHE_LOOKUP.inc();
+    if let Some(pkey) = KEY_CACHE.get(key) {
+        KEY_CACHE_HIT.inc();
+        return Ok(pkey.clone());
+    }
+
+    KEY_CACHE_MISS.inc();
+    let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
+    let data = key.get().await?;
+
+    let pkey = Arc::new(DkimPrivateKey::rsa_key(&data)?);
+    key_fetch_timer.stop_and_record();
+
+    KEY_CACHE.insert(key.clone(), pkey.clone(), Instant::now() + ttl);
+    Ok(pkey)
+}
+
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let dkim_mod = get_or_create_sub_module(lua, "dkim")?;
     dkim_mod.set(
@@ -204,16 +246,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             SIGNER_CACHE_MISS.inc();
 
             let signer_creation_timer = SIGNER_CREATE.start_timer();
-            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
-            let data = params
-                .key
-                .get()
+
+            let key = cached_key_load(&params.key, params.ttl)
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let key = DkimPrivateKey::rsa_key(&data)
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
-            key_fetch_timer.stop_and_record();
 
             let signer = params
                 .configure_kumo_dkim(key)
@@ -239,16 +275,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             }
 
             let signer_creation_timer = SIGNER_CREATE.start_timer();
-            let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
-            let data = params
-                .key
-                .get()
+
+            let key = cached_key_load(&params.key, params.ttl)
                 .await
                 .map_err(|err| mlua::Error::external(format!("{:?}: {err:#}", params.key)))?;
-
-            let key = DkimPrivateKey::ed25519_key(&data)
-                .map_err(|err| mlua::Error::external(format!("{:?}: {err}", params.key)))?;
-            key_fetch_timer.stop_and_record();
 
             let signer = params
                 .configure_kumo_dkim(key)
