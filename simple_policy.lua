@@ -61,7 +61,7 @@ local queue_helper = queue_module:setup {
       default = {
         egress_pool = 'pool0',
         -- refresh_interval = '2 hours',
-        strategy = 'SingletonTimerWheel',
+        strategy = 'SingletonTimerWheelV2',
         retry_interval = '5m',
         -- reap_interval = '10s',
       },

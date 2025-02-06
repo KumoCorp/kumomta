@@ -22,6 +22,11 @@ async fn retry_schedule_singleton_wheel() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn retry_schedule_singleton_wheel_v2() -> anyhow::Result<()> {
+    retry_schedule_impl("SingletonTimerWheelV2", VALID_DOMAIN).await
+}
+
+#[tokio::test]
 async fn retry_schedule_nxdomain() -> anyhow::Result<()> {
     retry_schedule_impl("SingletonTimerWheel", NO_DOMAIN).await
 }

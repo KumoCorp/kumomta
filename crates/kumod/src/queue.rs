@@ -26,7 +26,8 @@ use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_runtime::{get_main_runtime, spawn, spawn_blocking_on, Runtime};
 use kumo_template::{context, TemplateEngine};
-use message::message::{QueueNameComponents, WeakMessage};
+use message::message::{MessageList, QueueNameComponents, WeakMessage};
+use message::timeq::TriTimeQ;
 use message::Message;
 use mlua::prelude::*;
 use mlua::UserDataMethods;
@@ -91,6 +92,9 @@ pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, String), ()
 
 pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =
     LazyLock::new(|| Arc::new(StdMutex::new(TimeQ::new())));
+
+pub static SINGLETON_WHEEL_V2: LazyLock<Arc<StdMutex<TriTimeQ>>> =
+    LazyLock::new(|| Arc::new(StdMutex::new(TriTimeQ::new(Duration::from_secs(3)))));
 
 static TOTAL_DELAY_GAUGE: LazyLock<IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
@@ -188,6 +192,7 @@ static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
 });
 
 static STARTED_SINGLETON_WHEEL: Once = Once::new();
+static STARTED_SINGLETON_WHEEL_V2: Once = Once::new();
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
 const ZERO_DURATION: Duration = Duration::from_secs(0);
 const ONE_SECOND: Duration = Duration::from_secs(1);
@@ -377,6 +382,7 @@ pub enum QueueStrategy {
     SkipList,
     #[default]
     SingletonTimerWheel,
+    SingletonTimerWheelV2,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
@@ -796,6 +802,7 @@ enum QueueStructure {
     TimerWheel(StdMutex<TimeQ<Message>>),
     SkipList(SkipSet<DelayedEntry>),
     SingletonTimerWheel(StdMutex<HashSet<Message>>),
+    SingletonTimerWheelV2(StdMutex<HashSet<Message>>),
 }
 
 impl QueueStructure {
@@ -806,6 +813,9 @@ impl QueueStructure {
             QueueStrategy::SingletonTimerWheel => {
                 Self::SingletonTimerWheel(StdMutex::new(HashSet::new()))
             }
+            QueueStrategy::SingletonTimerWheelV2 => {
+                Self::SingletonTimerWheelV2(StdMutex::new(HashSet::new()))
+            }
         }
     }
 
@@ -814,6 +824,9 @@ impl QueueStructure {
             Self::TimerWheel(_q) => {}
             Self::SkipList(_q) => {}
             Self::SingletonTimerWheel(q) => {
+                q.lock().shrink_to_fit();
+            }
+            Self::SingletonTimerWheelV2(q) => {
                 q.lock().shrink_to_fit();
             }
         }
@@ -844,6 +857,7 @@ impl QueueStructure {
                 (messages, sleep_duration)
             }
             Self::SingletonTimerWheel(_) => (vec![], None),
+            Self::SingletonTimerWheelV2(_) => (vec![], None),
         }
     }
 
@@ -858,6 +872,12 @@ impl QueueStructure {
                 msgs
             }
             Self::SingletonTimerWheel(q) => q.lock().drain().collect(),
+            Self::SingletonTimerWheelV2(q) => {
+                let mut wheel = SINGLETON_WHEEL_V2.lock();
+                let mut q = q.lock();
+                wheel.retain(|msg| !q.contains(&msg));
+                q.drain().collect()
+            }
         }
     }
 
@@ -866,6 +886,12 @@ impl QueueStructure {
             Self::TimerWheel(_) => vec![],
             Self::SkipList(_) => vec![],
             Self::SingletonTimerWheel(q) => q
+                .lock()
+                .iter()
+                .take(take.unwrap_or(usize::MAX))
+                .cloned()
+                .collect(),
+            Self::SingletonTimerWheelV2(q) => q
                 .lock()
                 .iter()
                 .take(take.unwrap_or(usize::MAX))
@@ -930,6 +956,33 @@ impl QueueStructure {
                     Err(TimerError::NotFound) => unreachable!(),
                 }
             }
+            Self::SingletonTimerWheelV2(q) => {
+                let mut wheel = SINGLETON_WHEEL_V2.lock();
+                match wheel.insert(msg.clone()) {
+                    Ok(()) => {
+                        STARTED_SINGLETON_WHEEL_V2.call_once(|| {
+                            QMAINT_RUNTIME
+                                .spawn("singleton_wheel_v2".to_string(), async move {
+                                    if let Err(err) = Queue::run_singleton_wheel_v2().await {
+                                        tracing::error!("run_singleton_wheel_v2: {err:#}");
+                                    }
+                                })
+                                .expect("failed to spawn singleton_wheel_v2");
+                        });
+                        q.lock().insert(msg);
+
+                        QueueInsertResult::Inserted {
+                            // We never notify for TimerWheel because we always tick
+                            // on a regular(ish) schedule
+                            should_notify: false,
+                        }
+                    }
+                    Err(msg) => {
+                        // Message is actually due immediately.
+                        QueueInsertResult::Full(msg)
+                    }
+                }
+            }
         }
     }
 
@@ -938,6 +991,7 @@ impl QueueStructure {
             Self::TimerWheel(q) => q.lock().len(),
             Self::SkipList(q) => q.len(),
             Self::SingletonTimerWheel(q) => q.lock().len(),
+            Self::SingletonTimerWheelV2(q) => q.lock().len(),
         }
     }
 
@@ -946,6 +1000,7 @@ impl QueueStructure {
             Self::TimerWheel(q) => q.lock().is_empty(),
             Self::SkipList(q) => q.is_empty(),
             Self::SingletonTimerWheel(q) => q.lock().is_empty(),
+            Self::SingletonTimerWheelV2(q) => q.lock().is_empty(),
         }
     }
 
@@ -958,6 +1013,7 @@ impl QueueStructure {
             Self::TimerWheel(_) => QueueStrategy::TimerWheel,
             Self::SkipList(_) => QueueStrategy::SkipList,
             Self::SingletonTimerWheel(_) => QueueStrategy::SingletonTimerWheel,
+            Self::SingletonTimerWheelV2(_) => QueueStrategy::SingletonTimerWheelV2,
         }
     }
 }
@@ -2191,6 +2247,99 @@ impl Queue {
 
     pub fn get_last_change(&self) -> Instant {
         *self.last_change.lock()
+    }
+
+    async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
+        let mut shutdown = ShutdownSubcription::get();
+
+        tracing::debug!("singleton_wheel_v2: starting up");
+
+        async fn reinsert_ready(
+            msg: Message,
+            to_shrink: &mut HashMap<String, QueueHandle>,
+        ) -> anyhow::Result<()> {
+            if !msg.is_meta_loaded() {
+                msg.load_meta().await?;
+            }
+            let queue_name = msg.get_queue_name()?;
+            // Use get_opt rather than resolve here. If the queue is not currently
+            // tracked in the QueueManager then this message cannot possibly belong
+            // to it. Using resolve would have the side effect of creating an empty
+            // queue for it, which will then age out later. It's a waste to do that,
+            // so we just check and skip.
+            let queue = QueueManager::get_opt(&queue_name)
+                .ok_or_else(|| anyhow::anyhow!("no scheduled queue"))?;
+
+            if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
+                // Note that this will cause the msg to be removed from the
+                // queue so the remove() check below will return false
+                queue.bounce_all(&b).await;
+            }
+
+            // Verify that the message is still in the queue
+            match &queue.queue {
+                QueueStructure::SingletonTimerWheelV2(q) => {
+                    fn remove(q: &StdMutex<HashSet<Message>>, msg: &Message) -> bool {
+                        q.lock().remove(msg)
+                    }
+
+                    if remove(q, &msg) {
+                        queue.metrics().sub(1);
+                        queue
+                            .insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                            .await?;
+                        if !to_shrink.contains_key(&queue_name) {
+                            to_shrink.insert(queue_name, queue);
+                        }
+                    }
+                }
+                _ => {
+                    anyhow::bail!("impossible queue strategy");
+                }
+            }
+
+            Ok(())
+        }
+
+        let mut to_shrink = HashMap::new();
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                    TOTAL_QMAINT_RUNS.inc();
+
+                    fn pop() -> (MessageList, usize) {
+                        let mut wheel = SINGLETON_WHEEL_V2.lock();
+
+                        let ready = wheel.pop();
+                        if !ready.is_empty() {
+                        tracing::debug!("singleton_wheel_v2: popped {} messages", ready.len());
+                        }
+
+                        (ready, wheel.len())
+                    }
+
+                    let mut reinserted = 0;
+                    let (msgs, len) = pop();
+                    for msg in msgs {
+                        reinserted += 1;
+                        if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+                            tracing::error!("singleton_wheel_v2: reinsert_ready: {err:#}");
+                        }
+                    }
+                    tracing::debug!("singleton_wheel_v2: done reinserting {reinserted}. total scheduled={len}");
+
+                    for (_queue_name, queue) in to_shrink.drain() {
+                        queue.queue.shrink();
+                    }
+                    to_shrink.shrink_to_fit();
+                }
+                _ = shutdown.shutting_down() => {
+                    tracing::info!("singleton_wheel: stopping");
+                    return Ok(());
+                }
+            }
+        }
     }
 
     async fn run_singleton_wheel() -> anyhow::Result<()> {

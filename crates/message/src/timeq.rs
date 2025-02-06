@@ -19,6 +19,7 @@ pub struct TimeQ<const SLOTS: usize = 4> {
 }
 
 pub type QuadTimeQ = TimeQ<4>;
+pub type TriTimeQ = TimeQ<3>;
 
 struct Bucket {
     lists: [LinkedList<MessageWithIdAdapter>; WHEEL_SIZE],
