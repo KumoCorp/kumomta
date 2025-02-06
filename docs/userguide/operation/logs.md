@@ -58,7 +58,7 @@ If you have not done so already, you will want to install `zstd` with a (`dnf`
 or) `apt install zstd`.  Below there is a sample of a decompressed received log:
 
 ```console
-$ zstdcat /var/log/kumomta/20230428-201424_recv`
+$ zstdcat /var/log/kumomta/20230428-201424_recv
 {"type":"Reception","id":"44d70f50e60111ed8162000d3afc4acf","sender":"noreply@example.com",
 "recipient":"recipient@example.com","queue":"example.com","site":"","size":27,
 "response":{"code":250,"enhanced_code":null,"content":"","command":null},
