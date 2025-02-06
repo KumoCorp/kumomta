@@ -35,3 +35,4 @@ tokio = {workspace=true, features=["sync"]}
 
 [dev-dependencies]
 k9 = {workspace=true}
+tokio = {workspace=true, features=["test-util"]}

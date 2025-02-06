@@ -92,14 +92,14 @@ struct MessageInner {
 }
 
 #[derive(Debug)]
-struct MessageWithId {
+pub(crate) struct MessageWithId {
     id: SpoolId,
     inner: Mutex<MessageInner>,
     link: LinkedListAtomicLink,
 }
 
 intrusive_adapter!(
-    MessageWithIdAdapter = Arc<MessageWithId>: MessageWithId { link: LinkedListAtomicLink }
+    pub(crate) MessageWithIdAdapter = Arc<MessageWithId>: MessageWithId { link: LinkedListAtomicLink }
 );
 
 /// A list of messages with an O(1) list overhead; no additional
@@ -109,6 +109,12 @@ intrusive_adapter!(
 pub struct MessageList {
     list: LinkedList<MessageWithIdAdapter>,
     len: usize,
+}
+
+impl Default for MessageList {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MessageList {
@@ -207,7 +213,7 @@ impl Iterator for MessageListIter {
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "impl", derive(mlua::FromLua))]
 pub struct Message {
-    msg_and_id: Arc<MessageWithId>,
+    pub(crate) msg_and_id: Arc<MessageWithId>,
 }
 
 impl PartialEq for Message {
