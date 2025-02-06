@@ -129,6 +129,7 @@ function mod:setup(data_files)
     name = 'sources_data',
     ttl = '5 minutes',
     capacity = 10,
+    invalidate_with_epoch = true,
   })
 
   mod.CONFIGURED = {

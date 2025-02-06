@@ -348,6 +348,7 @@ function mod:setup(dkim_data_files)
     name = 'dkim_signing_data',
     ttl = '5 minutes',
     capacity = 10,
+    invalidate_with_epoch = true,
   })
 
   local sign_message = function(msg)

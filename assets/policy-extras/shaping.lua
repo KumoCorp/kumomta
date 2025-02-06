@@ -396,6 +396,7 @@ function mod:setup_with_automation(options)
     name = 'shaping_data',
     ttl = options.cache_ttl or '1 minute',
     capacity = 1,
+    invalidate_with_epoch = true,
   })
 
   local file_names = {}

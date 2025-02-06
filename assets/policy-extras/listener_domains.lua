@@ -235,6 +235,7 @@ function mod:setup(data_files)
     name = 'listener_domains_data',
     ttl = '5 minutes',
     capacity = 10,
+    invalidate_with_epoch = true,
   })
 
   local function get_listener_domain(domain_name, listener, conn_meta)

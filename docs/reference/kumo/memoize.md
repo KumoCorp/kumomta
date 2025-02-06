@@ -80,6 +80,9 @@ The parameters it accepts are:
      * `capacity` - the total number of results to retain in the cache. When a new
        entry needs to be inserted, if the cache is at capacity, the eldest entry
        will be evicted to make space.
+     * `invalidate_with_epoch` - optional boolean that defaults to `false`.
+       If true, anything that bumps the config epoch (eg: config file changes,
+       TSA config overrides and so on) will invalidate the cache. {{since('dev', inline=True)}}
 
 In the example above calling:
 

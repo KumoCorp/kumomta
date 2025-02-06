@@ -8,6 +8,9 @@
   mins"`. Previously you could only use the integer number of seconds.
 * debian packages will now unmask kumod and tsa-daemon services as part
   of post installation.  Thanks to @cai-n! #331
+* [memoize](../reference/kumo/memoize.md) now has an optional
+  `invalidate_with_epoch` parameter that allows you to opt a specific cache
+  into epoch-based invalidation.
 
 ## Fixes
 

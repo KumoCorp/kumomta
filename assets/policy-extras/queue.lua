@@ -440,6 +440,7 @@ end
 local cached_resolve_provider = kumo.memoize(resolve_provider, {
   name = 'queue.lua_resolve_provider',
   ttl = '1 minute',
+  invalidate_with_epoch = true,
   capacity = 128,
 })
 

@@ -64,6 +64,8 @@ pub struct MemoizeParams {
     pub ttl: Duration,
     pub capacity: usize,
     pub name: String,
+    #[serde(default)]
+    pub invalidate_with_epoch: bool,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq)]
@@ -298,14 +300,18 @@ struct MemoizeCache {
 
 static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> = LazyLock::new(Mutex::default);
 
-type CacheKey = (ConfigEpoch, String);
+type CacheKey = (Option<ConfigEpoch>, String);
 
-fn get_cache_by_name(name: &str) -> Option<(Arc<LruCacheWithTtl<CacheKey, CacheEntry>>, Duration)> {
-    CACHES
-        .lock()
-        .unwrap()
-        .get(name)
-        .map(|item| (item.cache.clone(), item.params.ttl))
+fn get_cache_by_name(
+    name: &str,
+) -> Option<(Arc<LruCacheWithTtl<CacheKey, CacheEntry>>, Duration, bool)> {
+    CACHES.lock().unwrap().get(name).map(|item| {
+        (
+            item.cache.clone(),
+            item.params.ttl,
+            item.params.invalidate_with_epoch,
+        )
+    })
 }
 
 const REAP_EVERY: usize = 1024;
@@ -539,11 +545,17 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     // the epoch change and retrying their call through here,
                     // if it is important to not see a stale value.
                     let epoch_at_start = get_current_epoch();
-                    let key = (epoch_at_start, key);
 
-                    let (cache, ttl) = get_cache_by_name(&cache_name)
+                    let (cache, ttl, invalidate_with_epoch) = get_cache_by_name(&cache_name)
                         .ok_or_else(|| anyhow::anyhow!("cache is somehow undefined!?"))
                         .map_err(any_err)?;
+
+                    let epoch_key = if invalidate_with_epoch {
+                        Some(epoch_at_start)
+                    } else {
+                        None
+                    };
+                    let key = (epoch_key, key);
 
                     if let Some(value) = cache.get(&key) {
                         hit_counter.inc();
