@@ -139,10 +139,10 @@ than HTTP, such as AMQP or Kafka.
 
 It can be desirable for log events to be delivered to the destination
 system in a batch; the primary motivation for this is to amortize the
-cost of a database transaction on the remote system by handle more than
+cost of a database transaction on the remote system by handling more than
 one record per transaction.
 
-You can implementing batching by setting the `batch_size` parameter
+You can implement batching by setting the `batch_size` parameter
 to a value greater than 1. When you do this, the hook is run in a batch
 mode and it is expected to return a `connection` object that has
 a `send_batch` method rather than the `send` method shown in the example
