@@ -14,3 +14,6 @@
 
 ## Fixes
 
+* When using
+  [kumo.dkim.set_signing_threads](../reference/kumo.dkim/set_signing_threads.md),
+  some extraneous unused threads would be created.

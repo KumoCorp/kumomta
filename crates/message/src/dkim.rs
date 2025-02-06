@@ -180,6 +180,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |_lua, n: usize| {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .thread_name("dkimsign")
+                .worker_threads(1)
                 .max_blocking_threads(n)
                 .build()
                 .map_err(any_err)?;
