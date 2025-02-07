@@ -19,7 +19,7 @@ The log record is a JSON object with the following shape:
     // The envelope recipient
     "recipient": "user@recipient.example.com",
 
-    // Which named queue the message was associaed with
+    // Which named queue the message was associated with
     "queue": "campaign:tenant@domain",
 
     // Which MX site the message was being delivered to.
