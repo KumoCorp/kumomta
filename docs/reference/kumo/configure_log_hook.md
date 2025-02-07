@@ -1,7 +1,7 @@
 # `kumo.configure_log_hook {PARAMS}`
 
 Configures the lua logging hook. When enabled, each matching log event will
-cause cause new a [Message](../message/index.md) to be generated and have its body
+cause a new [Message](../message/index.md) to be generated and have its body
 assigned to the log record (or to its template expansion if you have configured
 that), and passed to the
 [should_enqueue_log_record](../events/should_enqueue_log_record.md) event.
