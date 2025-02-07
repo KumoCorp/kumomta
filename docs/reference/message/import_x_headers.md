@@ -1,7 +1,7 @@
 # `message:import_x_headers([NAMES])`
 
 When called with no parameters, iterates the headers of the message, and for
-each header with an `"X-"` prefix, the import the header into the message
+each header with an `"X-"` prefix, imports the header into the message
 metadata.
 
 When called with a list of header names, only those headers, if present in the
