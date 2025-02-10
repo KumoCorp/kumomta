@@ -5,6 +5,8 @@ One advantage of horizontal scaling in virtualized environments is that resource
 !!!Note
     Auto-scaling is a complicated subject that is not recommended except for those with extensive experience in autoscaling technologies. For most senders, the predictable daily sending patterns are adequate for scheduling scaling, with alerting when the cluster size is too small.
 
+The most common install approach for scaling clusters involves Docker. For examples on deploying more advanced docker architectures, see [https://github.com/KumoCorp/kumomta/tree/main/examples](https://github.com/KumoCorp/kumomta/tree/main/examples).
+
 While the exact implementation of a scaling cluster is up to the user and their tools of choice, KumoMTA offers several tools and APIs that can ease the process.
 
 ## Monitoring Node Availability

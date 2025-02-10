@@ -55,3 +55,4 @@ $ sudo docker run --rm -p 2025:25 \
     ghcr.io/kumocorp/kumomta:latest
 ```
 
+For examples on deploying more advanced docker architectures, see [https://github.com/KumoCorp/kumomta/tree/main/examples](https://github.com/KumoCorp/kumomta/tree/main/examples).
