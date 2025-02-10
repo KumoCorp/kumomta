@@ -20,3 +20,5 @@
 * When using
   [kumo.dkim.set_signing_threads](../reference/kumo.dkim/set_signing_threads.md),
   some extraneous unused threads would be created.
+* Using a display name with commas in the builder mode of the HTTP injection
+  API would produce an invalid mailbox header.

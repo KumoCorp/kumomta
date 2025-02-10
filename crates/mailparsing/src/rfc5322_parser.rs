@@ -1869,9 +1869,12 @@ fn test_qp_encode() {
 
 /// Quote input string `s`, using a backslash escape,
 /// any of the characters listed in needs_quote,
-/// or if the string contains an @ sign.
+/// or if the string contains an @ or comma.
 pub(crate) fn quote_string(s: &str, needs_quote: &str) -> String {
-    if s.chars().any(|c| needs_quote.contains(c)) || s.contains('@') {
+    const QUOTE_OVERALL: &str = "@,";
+    if s.chars()
+        .any(|c| needs_quote.contains(c) || QUOTE_OVERALL.contains(c))
+    {
         let mut result = String::with_capacity(s.len() + 4);
         result.push('"');
         for c in s.chars() {
@@ -1893,6 +1896,7 @@ fn test_quote_string() {
     let nq = "\\\"";
     k9::snapshot!(quote_string("hello", nq), "hello");
     k9::snapshot!(quote_string("hello there", nq), "hello there");
+    k9::snapshot!(quote_string("hello, there", nq), "\"hello, there\"");
     k9::snapshot!(
         quote_string("hello \"there\"", nq),
         r#""hello \\"there\\"""#
