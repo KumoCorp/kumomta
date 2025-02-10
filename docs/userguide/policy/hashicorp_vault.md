@@ -65,7 +65,7 @@ Save the file, then reload with the `sudo systemctl daemon-reload` command.
 
 ## Storing secrets for later use
 
-There are a number of ways to store secrets, and the method depends on how the vault was created. If configured via the Vault CLI, then aa V2 password can be stored as follows:
+There are a number of ways to store secrets, and the method depends on how the vault was created. If configured via the Vault CLI, then a V2 password can be stored as follows:
 
 ```bash
 vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
