@@ -106,5 +106,4 @@ the result of the request.
 
     The default timeout is `"1 minute"`.
 
-    You may pass a number specifying the number of seconds (fractional
-    numbers like `1.5` are accepted), or a string like "1 minute".
+    You may pass a duration string like `"1 minute"`.
