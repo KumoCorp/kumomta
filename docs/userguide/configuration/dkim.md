@@ -194,7 +194,7 @@ additional_signatures = ["MyESPName"]
 selector = "dkim1024"
 
 # The default set of headers to sign if otherwise unspecified
-# This reccommended set comes from section 5.4.1 of RFC 6376
+# This recommended set comes from section 5.4.1 of RFC 6376
 # See https://datatracker.ietf.org/doc/html/rfc6376#section-5.4
 headers = [
   "From", "Reply-To", "Subject", "Date", "To", "Cc",
