@@ -155,8 +155,8 @@ impl CacheValue {
 /// data--only a clone of the underlying Arc is required to return
 /// the value.
 ///
-/// This type implements __index, __newindex and __pairs metamethods
-/// which allow reading and iterating the table.
+/// This type implements __index, __newindex, __len, and __pairs
+/// metamethods which allow reading and iterating the table.
 ///
 /// Writing to the table via __newindex will "unshare" the table in
 /// a similar manner to the Cow type, creating a mutable copy of the top
@@ -216,6 +216,9 @@ impl UserData for MemoizedTable {
                 )),
             },
         );
+        methods.add_meta_method(MetaMethod::Len, move |_lua, this, ()| {
+            Ok(this.table().len())
+        });
 
         // Pairs iterates the keys of the table.
         // We use add_meta_function rather than add_meta_method here

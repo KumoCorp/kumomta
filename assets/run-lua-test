@@ -35,6 +35,8 @@ test_module 'policy-extras.queue'
 test_module 'policy-extras.sources'
 test_module 'policy-extras.typing'
 
+dofile "crates/mod-memoize/test.lua"
+
 end)
 EOT
 
