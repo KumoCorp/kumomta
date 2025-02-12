@@ -96,9 +96,31 @@ kumo.on('smtp_server_message_received', function(msg)
     selection = config.defers
   end
 
+
   if selection then
-    local choice = selection[math.random(#selection)]
-    kumo.reject(choice.code, choice.msg)
+    -- Check if selection is a regular table
+    if type(selection) == "table" then
+      local choice = selection[math.random(#selection)]
+      kumo.reject(choice.code, choice.msg)
+    else
+      -- Handle MemoizedTable: we will use pairs to iterate through the table
+      local count = 0
+      local selectionList = {}
+      
+      -- Iterate over the MemoizedTable
+      for _, item in pairs(selection) do
+        table.insert(selectionList, item)
+        count = count + 1
+      end
+      
+      -- Now we have a regular table (selectionList), and we can safely use math.random
+      if count > 0 then
+        local choice = selectionList[math.random(count)]
+        kumo.reject(choice.code, choice.msg)
+      else
+        print("Selection is empty or invalid")
+      end
+    end
   end
 
   -- Finally, accept and discard any messages that haven't
