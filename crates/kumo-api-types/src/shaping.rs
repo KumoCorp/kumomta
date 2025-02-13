@@ -283,23 +283,29 @@ impl ShapingInner {
             params.merge_from(default.clone());
         }
 
-        // Provider rules come next
-        for prov in self.by_provider.values() {
-            if prov.domain_matches(domain).await {
-                toml_table_merge_from(&mut params.params, &prov.params);
-                prov.apply_provider_params_to(egress_source, &mut params.params);
-            }
-        }
-
-        // Then Provider source rules
-        for prov in self.by_provider.values() {
-            if prov.sources.is_empty() {
-                continue;
-            }
-            if prov.domain_matches(domain).await {
-                if let Some(source) = prov.sources.get(egress_source) {
-                    toml_table_merge_from(&mut params.params, &source);
+        // Provider rules come next.
+        // They can only match valid domain names, so we'll
+        // skip processing them if we have something like our
+        // TSA http "domain name" here
+        let is_domain_name = dns_resolver::Name::from_str_relaxed(domain).is_ok();
+        if is_domain_name {
+            for prov in self.by_provider.values() {
+                if prov.domain_matches(domain).await {
+                    toml_table_merge_from(&mut params.params, &prov.params);
                     prov.apply_provider_params_to(egress_source, &mut params.params);
+                }
+            }
+
+            // Then Provider source rules
+            for prov in self.by_provider.values() {
+                if prov.sources.is_empty() {
+                    continue;
+                }
+                if prov.domain_matches(domain).await {
+                    if let Some(source) = prov.sources.get(egress_source) {
+                        toml_table_merge_from(&mut params.params, &source);
+                        prov.apply_provider_params_to(egress_source, &mut params.params);
+                    }
                 }
             }
         }

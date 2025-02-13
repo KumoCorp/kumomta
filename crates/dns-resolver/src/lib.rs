@@ -2,7 +2,7 @@ use arc_swap::ArcSwap;
 use hickory_resolver::error::ResolveResult;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
 use hickory_resolver::proto::rr::RecordType;
-use hickory_resolver::Name;
+pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_log_types::ResolvedAddress;
 use lruttl::LruCacheWithTtl;
