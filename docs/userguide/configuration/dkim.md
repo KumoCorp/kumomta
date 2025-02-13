@@ -182,7 +182,7 @@ at `/opt/kumomta/etc/dkim_data.toml` in this example.
 # If these are present, we'll use hashicorp vault instead
 # of reading from disk
 vault_mount = "secret"
-vault_path_prefix = "dkim/"
+vault_path_prefix = "dkim"
 
 # To do double or triple signing, add each additional
 # signature name to this list and see the `signature."MyESPName"`
