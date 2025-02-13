@@ -1130,7 +1130,12 @@ impl ProviderEntry {
         // Now we can consider DNS
         match MailExchanger::resolve(&domain).await {
             Err(err) => {
-                tracing::error!(
+                // Didn't resolve; could be legit, for example, could
+                // be an internal or fake name that is handled via
+                // smart host or custom routing, so we log what
+                // happened as a trace rather than polluting the
+                // logs about it
+                tracing::trace!(
                     "Error resolving MX for {domain}: {err:#}. \
                     Provider {} match rules will be ignored",
                     self.provider_name
