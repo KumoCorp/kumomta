@@ -1,5 +1,6 @@
 use parking_lot::Mutex;
 use prometheus::IntGaugeVec;
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -25,6 +26,13 @@ static NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
+static RUNTIMES: LazyLock<Mutex<HashMap<String, Runtime>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn get_named_runtime(name: &str) -> Option<Runtime> {
+    RUNTIMES.lock().get(name).cloned()
+}
+
 pub static MAIN_RUNTIME: Mutex<Option<tokio::runtime::Handle>> = Mutex::new(None);
 
 pub fn assign_main_runtime(handle: tokio::runtime::Handle) {
@@ -47,6 +55,7 @@ struct RuntimeInner {
     name_prefix: String,
 }
 
+#[derive(Clone)]
 pub struct Runtime {
     inner: Arc<RuntimeInner>,
 }
@@ -137,13 +146,22 @@ impl Runtime {
             })
             .build()?;
 
-        Ok(Self {
+        let runtime = Self {
             inner: Arc::new(RuntimeInner {
                 tokio_runtime,
                 n_threads,
                 name_prefix: name_prefix.to_string(),
             }),
-        })
+        };
+
+        let mut runtimes = RUNTIMES.lock();
+        if runtimes.contains_key(name_prefix) {
+            anyhow::bail!("thread pool runtime with name `{name_prefix}` already exists!");
+        }
+
+        runtimes.insert(name_prefix.to_string(), runtime.clone());
+
+        Ok(runtime)
     }
 
     pub fn handle(&self) -> &tokio::runtime::Handle {

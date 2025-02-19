@@ -5,6 +5,7 @@ use config::{
 use mlua::{Function, Lua, LuaSerdeExt, Value};
 use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::AtomicUsize;
 use tokio::task::LocalSet;
 
 pub mod config_handle;
@@ -328,6 +329,34 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             tracing::error!("Error while dispatching {event_name}: {err:#}");
                         }
                     })?;
+            }
+
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
+        "spawn_thread_pool",
+        lua.create_function(|lua, params: Value| {
+            #[derive(Deserialize, Debug)]
+            struct ThreadPoolParams {
+                name: String,
+                num_threads: usize,
+            }
+
+            let params: ThreadPoolParams = lua.from_value(params)?;
+            let num_threads = AtomicUsize::new(params.num_threads);
+
+            if !config::is_validating() {
+                // Create the runtime. We don't need to hold on
+                // to it here, as it will be kept alive in the
+                // runtimes map in that crate
+                let _runtime = kumo_server_runtime::Runtime::new(
+                    &params.name,
+                    |_| params.num_threads,
+                    &num_threads,
+                )
+                .map_err(any_err)?;
             }
 
             Ok(())
