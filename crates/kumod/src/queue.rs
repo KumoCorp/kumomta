@@ -1942,7 +1942,6 @@ impl Queue {
         match &self.queue_config.borrow().protocol {
             DeliveryProto::Smtp { .. }
             | DeliveryProto::Lua { .. }
-            | DeliveryProto::DeferredSmtpInjection
             | DeliveryProto::HttpInjectionGenerator => {
                 let rr = self.rr.load();
                 let (egress_source, ready_name) = match rr
@@ -2033,6 +2032,59 @@ impl Queue {
                     &self.queue_config,
                     &egress_source,
                     &rr.name,
+                    self.get_config_epoch(),
+                )
+                .await
+                {
+                    Ok(site) => {
+                        return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
+                    }
+                    Err(err) => {
+                        log_disposition(LogDisposition {
+                            kind: RecordType::TransientFailure,
+                            msg: msg.clone(),
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 451,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 4,
+                                    subject: 4,
+                                    detail: 4,
+                                }),
+                                content: format!("failed to resolve queue {}: {err:#}", self.name),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                            tls_info: None,
+                            source_address: None,
+                            provider: self.queue_config.borrow().provider_name.as_deref(),
+                            session_id: None,
+                        })
+                        .await;
+                        context.note(InsertReason::LoggedTransientFailure);
+                        anyhow::bail!("failed to resolve queue {}: {err:#}", self.name);
+                    }
+                }
+            }
+            DeliveryProto::DeferredSmtpInjection => {
+                if let Some(site) = ReadyQueueManager::get_by_name(
+                    "unspecified->deferred_smtp_inject.kumomta.internal@defersmtpinject",
+                ) {
+                    return site.insert(msg).await.map_err(|_| ReadyQueueFull.into());
+                }
+
+                let egress_source = "unspecified";
+                let egress_pool = "unspecified";
+
+                match ReadyQueueManager::resolve_by_queue_name(
+                    &self.name,
+                    &self.queue_config,
+                    egress_source,
+                    egress_pool,
                     self.get_config_epoch(),
                 )
                 .await
