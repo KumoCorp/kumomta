@@ -281,6 +281,10 @@ pub struct EgressPathConfig {
     /// or a timeout while talking to the peer.
     #[serde(default)]
     pub reconnect_strategy: ReconnectStrategy,
+
+    /// Which thread pool to use for processing the ready queue
+    #[serde(default)]
+    pub readyq_pool_name: Option<String>,
 }
 
 #[cfg(feature = "lua")]
@@ -328,6 +332,7 @@ impl Default for EgressPathConfig {
             opportunistic_tls_reconnect_on_failed_handshake: false,
             use_lmtp: false,
             reconnect_strategy: ReconnectStrategy::default(),
+            readyq_pool_name: None,
         }
     }
 }

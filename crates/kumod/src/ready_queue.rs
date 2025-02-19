@@ -25,7 +25,7 @@ use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes_async};
-use kumo_server_runtime::{spawn, Runtime};
+use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex as StdMutex;
@@ -33,6 +33,7 @@ use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -617,6 +618,32 @@ impl ReadyQueue {
         }
     }
 
+    fn readyq_spawn<FUT, N: AsRef<str>>(
+        &self,
+        name: N,
+        fut: FUT,
+    ) -> std::io::Result<JoinHandle<FUT::Output>>
+    where
+        FUT: Future + Send + 'static,
+        FUT::Output: Send,
+    {
+        if let Some(name) = &self.path_config.borrow().readyq_pool_name {
+            match get_named_runtime(name) {
+                Some(runtime) => {
+                    return runtime.spawn(name, fut);
+                }
+                None => {
+                    tracing::error!(
+                        "readyq {} configured to use readyq_pool_name={name} \
+                            but that thread pool is not defined",
+                        self.name
+                    );
+                }
+            }
+        }
+        READYQ_RUNTIME.spawn(name, fut)
+    }
+
     #[instrument(skip(self))]
     async fn shrink_ready_queue_due_to_low_mem(&self) {
         let mut count = 0;
@@ -641,21 +668,20 @@ impl ReadyQueue {
 
         if !reinsert.is_empty() {
             let activity = self.activity.clone();
-            READYQ_RUNTIME
-                .spawn("reinserting".to_string(), async move {
-                    for msg in reinsert {
-                        if let Err(err) = Dispatcher::reinsert_message(
-                            msg,
-                            InsertReason::ReadyQueueWasDelayedDueToLowMemory.into(),
-                        )
-                        .await
-                        {
-                            tracing::error!("error reinserting message: {err:#}");
-                        }
+            self.readyq_spawn("reinserting".to_string(), async move {
+                for msg in reinsert {
+                    if let Err(err) = Dispatcher::reinsert_message(
+                        msg,
+                        InsertReason::ReadyQueueWasDelayedDueToLowMemory.into(),
+                    )
+                    .await
+                    {
+                        tracing::error!("error reinserting message: {err:#}");
                     }
-                    drop(activity);
-                })
-                .expect("failed to spawn reinsertion");
+                }
+                drop(activity);
+            })
+            .expect("failed to spawn reinsertion");
         }
 
         tracing::error!(
@@ -670,21 +696,18 @@ impl ReadyQueue {
         let msgs = self.ready.take_list();
         if !msgs.is_empty() {
             let activity = self.activity.clone();
-            READYQ_RUNTIME
-                .spawn(
-                    format!("reinserting {} due to {reason}", self.name),
-                    async move {
-                        for msg in msgs {
-                            if let Err(err) =
-                                Dispatcher::reinsert_message(msg, context.clone()).await
-                            {
-                                tracing::error!("error reinserting message: {err:#}");
-                            }
+            self.readyq_spawn(
+                format!("reinserting {} due to {reason}", self.name),
+                async move {
+                    for msg in msgs {
+                        if let Err(err) = Dispatcher::reinsert_message(msg, context.clone()).await {
+                            tracing::error!("error reinserting message: {err:#}");
                         }
-                        drop(activity);
-                    },
-                )
-                .expect("failed to spawn reinsertion");
+                    }
+                    drop(activity);
+                },
+            )
+            .expect("failed to spawn reinsertion");
         }
     }
 
@@ -843,7 +866,7 @@ impl ReadyQueue {
             let states = self.states.clone();
 
             tracing::trace!("spawning client for {name}");
-            if let Ok(handle) = READYQ_RUNTIME.spawn(format!("smtp client {name}"), async move {
+            if let Ok(handle) = self.readyq_spawn(format!("smtp client {name}"), async move {
                 if let Err(err) = Dispatcher::run(
                     &name,
                     queue_name_for_config_change_purposes_only,
@@ -1028,50 +1051,49 @@ impl Drop for Dispatcher {
         let activity = self.activity.clone();
         let name = self.name.to_string();
         let notify_dispatcher = self.notify_dispatcher.clone();
-        READYQ_RUNTIME
-            .spawn("Dispatcher::drop".to_string(), async move {
-                let had_msgs = !msgs.is_empty();
+        self.readyq_spawn("Dispatcher::drop".to_string(), async move {
+            let had_msgs = !msgs.is_empty();
 
-                for msg in msgs {
-                    if activity.is_shutting_down() {
-                        Queue::save_if_needed_and_log(&msg).await;
-                    } else {
-                        let response = Response {
-                            code: 451,
-                            enhanced_code: Some(EnhancedStatusCode {
-                                class: 4,
-                                subject: 4,
-                                detail: 1,
-                            }),
-                            content: "KumoMTA internal: returning message to scheduled queue"
-                                .to_string(),
-                            command: None,
-                        };
+            for msg in msgs {
+                if activity.is_shutting_down() {
+                    Queue::save_if_needed_and_log(&msg).await;
+                } else {
+                    let response = Response {
+                        code: 451,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 1,
+                        }),
+                        content: "KumoMTA internal: returning message to scheduled queue"
+                            .to_string(),
+                        command: None,
+                    };
 
-                        if let Err(err) = QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::No,
-                            None,
-                            response,
-                            InsertReason::DispatcherDrop.into(),
-                        )
-                        .await
-                        {
-                            tracing::error!("error requeuing message on Drop: {err:#}");
-                        }
+                    if let Err(err) = QueueManager::requeue_message(
+                        msg,
+                        IncrementAttempts::No,
+                        None,
+                        response,
+                        InsertReason::DispatcherDrop.into(),
+                    )
+                    .await
+                    {
+                        tracing::error!("error requeuing message on Drop: {err:#}");
                     }
                 }
+            }
 
-                if !had_msgs {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    let ready_queue = ReadyQueueManager::get_by_name(&name);
-                    if let Some(q) = ready_queue {
-                        q.notify_maintainer.notify_one();
-                    }
-                    notify_dispatcher.notify_one();
+            if !had_msgs {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                let ready_queue = ReadyQueueManager::get_by_name(&name);
+                if let Some(q) = ready_queue {
+                    q.notify_maintainer.notify_one();
                 }
-            })
-            .ok();
+                notify_dispatcher.notify_one();
+            }
+        })
+        .ok();
     }
 }
 
@@ -1451,6 +1473,32 @@ impl Dispatcher {
         queue.insert(msg, context).await
     }
 
+    fn readyq_spawn<FUT, N: AsRef<str>>(
+        &self,
+        name: N,
+        fut: FUT,
+    ) -> std::io::Result<JoinHandle<FUT::Output>>
+    where
+        FUT: Future + Send + 'static,
+        FUT::Output: Send,
+    {
+        if let Some(name) = &self.path_config.borrow().readyq_pool_name {
+            match get_named_runtime(name) {
+                Some(runtime) => {
+                    return runtime.spawn(name, fut);
+                }
+                None => {
+                    tracing::error!(
+                        "readyq {} configured to use readyq_pool_name={name} \
+                            but that thread pool is not defined",
+                        self.name
+                    );
+                }
+            }
+        }
+        READYQ_RUNTIME.spawn(name, fut)
+    }
+
     /// Take the contents of the ready queue and reinsert them into
     /// the corresponding scheduled queue(s) for immediate reconsideration.
     /// This should cause the message(s) to be picked up by non-suspended
@@ -1467,18 +1515,17 @@ impl Dispatcher {
                 msgs.len()
             );
             let activity = self.activity.clone();
-            READYQ_RUNTIME
-                .spawn("reinserting".to_string(), async move {
-                    for msg in msgs {
-                        if let Err(err) = Self::reinsert_message(msg, context.clone()).await {
-                            if err.to_string() != "shutting down" {
-                                tracing::error!("error reinserting message: {err:#}");
-                            }
+            self.readyq_spawn("reinserting".to_string(), async move {
+                for msg in msgs {
+                    if let Err(err) = Self::reinsert_message(msg, context.clone()).await {
+                        if err.to_string() != "shutting down" {
+                            tracing::error!("error reinserting message: {err:#}");
                         }
                     }
-                    drop(activity);
-                })
-                .expect("failed to spawn reinsertion");
+                }
+                drop(activity);
+            })
+            .expect("failed to spawn reinsertion");
         }
     }
 
@@ -1498,34 +1545,33 @@ impl Dispatcher {
                 );
                 kumo_chrono_helper::MINUTE
             });
-            READYQ_RUNTIME
-                .spawn("requeue for throttle".to_string(), async move {
-                    let response = Response {
-                        code: 451,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 4,
-                            subject: 4,
-                            detail: 1,
-                        }),
-                        content: "KumoMTA internal: ready queue throttled".to_string(),
-                        command: None,
-                    };
-                    for msg in msgs {
-                        if let Err(err) = QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::No,
-                            Some(delay),
-                            response.clone(),
-                            context.clone(),
-                        )
-                        .await
-                        {
-                            tracing::error!("error requeuing message for throttle: {err:#}");
-                        }
+            self.readyq_spawn("requeue for throttle".to_string(), async move {
+                let response = Response {
+                    code: 451,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 4,
+                        subject: 4,
+                        detail: 1,
+                    }),
+                    content: "KumoMTA internal: ready queue throttled".to_string(),
+                    command: None,
+                };
+                for msg in msgs {
+                    if let Err(err) = QueueManager::requeue_message(
+                        msg,
+                        IncrementAttempts::No,
+                        Some(delay),
+                        response.clone(),
+                        context.clone(),
+                    )
+                    .await
+                    {
+                        tracing::error!("error requeuing message for throttle: {err:#}");
                     }
-                    drop(activity);
-                })
-                .expect("failed to spawn requeue");
+                }
+                drop(activity);
+            })
+            .expect("failed to spawn requeue");
         }
     }
 
