@@ -8,7 +8,8 @@ use kumo_server_lifecycle::LifeCycle;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock};
 
 pub static PRE_INIT_SIG: LazyLock<CallbackSignature<(), ()>> =
     LazyLock::new(|| CallbackSignature::new_with_multiple("pre_init"));
@@ -170,6 +171,7 @@ fn main() -> anyhow::Result<()> {
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard).context("setrlimit NOFILE")?;
 
     kumo_server_common::panic::register_panic_hook();
+    let next_id = Arc::new(AtomicUsize::new(0));
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -186,6 +188,13 @@ fn main() -> anyhow::Result<()> {
                 .and_then(|n| n.parse().ok())
                 .unwrap_or(1024),
         )
+        .thread_name_fn({
+            let next_id = next_id.clone();
+            move || {
+                let id = next_id.fetch_add(1, Ordering::SeqCst);
+                format!("main-{id}")
+            }
+        })
         .max_blocking_threads(
             std::env::var("KUMOD_MAX_BLOCKING_THREADS")
                 .ok()
