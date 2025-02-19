@@ -46,7 +46,7 @@ use uuid::Uuid;
 
 static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
     LazyLock::new(|| StdMutex::new(ReadyQueueManager::new()));
-pub static READYQ_RUNTIME: LazyLock<Runtime> =
+static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
     CallbackSignature<(String, String, String), EgressPathConfig>,
@@ -58,6 +58,32 @@ static READYQ_THREADS: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_readyq_threads(n: usize) {
     READYQ_THREADS.store(n, Ordering::SeqCst);
+}
+
+fn readyq_spawn<FUT, N: AsRef<str>>(
+    path_config: &ConfigHandle<EgressPathConfig>,
+    site_name: &str,
+    name: N,
+    fut: FUT,
+) -> std::io::Result<JoinHandle<FUT::Output>>
+where
+    FUT: Future + Send + 'static,
+    FUT::Output: Send,
+{
+    if let Some(name) = &path_config.borrow().readyq_pool_name {
+        match get_named_runtime(name) {
+            Some(runtime) => {
+                return runtime.spawn(name, fut);
+            }
+            None => {
+                tracing::error!(
+                    "readyq {site_name} configured to use readyq_pool_name={name} \
+                            but that thread pool is not defined",
+                );
+            }
+        }
+    }
+    READYQ_RUNTIME.spawn(name, fut)
 }
 
 pub struct Fifo {
@@ -627,21 +653,7 @@ impl ReadyQueue {
         FUT: Future + Send + 'static,
         FUT::Output: Send,
     {
-        if let Some(name) = &self.path_config.borrow().readyq_pool_name {
-            match get_named_runtime(name) {
-                Some(runtime) => {
-                    return runtime.spawn(name, fut);
-                }
-                None => {
-                    tracing::error!(
-                        "readyq {} configured to use readyq_pool_name={name} \
-                            but that thread pool is not defined",
-                        self.name
-                    );
-                }
-            }
-        }
-        READYQ_RUNTIME.spawn(name, fut)
+        readyq_spawn(&self.path_config, &self.name, name, fut)
     }
 
     #[instrument(skip(self))]
@@ -1482,21 +1494,7 @@ impl Dispatcher {
         FUT: Future + Send + 'static,
         FUT::Output: Send,
     {
-        if let Some(name) = &self.path_config.borrow().readyq_pool_name {
-            match get_named_runtime(name) {
-                Some(runtime) => {
-                    return runtime.spawn(name, fut);
-                }
-                None => {
-                    tracing::error!(
-                        "readyq {} configured to use readyq_pool_name={name} \
-                            but that thread pool is not defined",
-                        self.name
-                    );
-                }
-            }
-        }
-        READYQ_RUNTIME.spawn(name, fut)
+        readyq_spawn(&self.path_config, &self.name, name, fut)
     }
 
     /// Take the contents of the ready queue and reinsert them into
