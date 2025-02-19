@@ -46,13 +46,17 @@ pub fn set_localset_threads(n: usize) {
     LOCALSET_THREADS.store(n, Ordering::SeqCst);
 }
 
-pub struct Runtime {
+struct RuntimeInner {
     tokio_runtime: tokio::runtime::Runtime,
     n_threads: usize,
     name_prefix: &'static str,
 }
 
-impl Drop for Runtime {
+pub struct Runtime {
+    inner: Arc<RuntimeInner>,
+}
+
+impl Drop for RuntimeInner {
     fn drop(&mut self) {
         PARKED_THREADS.remove_label_values(&[self.name_prefix]).ok();
         NUM_THREADS.remove_label_values(&[self.name_prefix]).ok();
@@ -137,18 +141,20 @@ impl Runtime {
             .build()?;
 
         Ok(Self {
-            tokio_runtime,
-            n_threads,
-            name_prefix,
+            inner: Arc::new(RuntimeInner {
+                tokio_runtime,
+                n_threads,
+                name_prefix,
+            }),
         })
     }
 
     pub fn handle(&self) -> &tokio::runtime::Handle {
-        self.tokio_runtime.handle()
+        self.inner.tokio_runtime.handle()
     }
 
     pub fn get_num_threads(&self) -> usize {
-        self.n_threads
+        self.inner.n_threads
     }
 
     /// Spawn a future into this runtime
