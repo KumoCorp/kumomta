@@ -3224,6 +3224,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "kumo-server-memory",
+ "parking_lot",
  "prometheus",
  "tokio",
  "tracing",

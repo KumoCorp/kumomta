@@ -1,3 +1,4 @@
+use parking_lot::Mutex;
 use prometheus::IntGaugeVec;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,20 +25,14 @@ static NUM_THREADS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     .unwrap()
 });
 
-pub static MAIN_RUNTIME: std::sync::Mutex<Option<tokio::runtime::Handle>> =
-    std::sync::Mutex::new(None);
+pub static MAIN_RUNTIME: Mutex<Option<tokio::runtime::Handle>> = Mutex::new(None);
 
 pub fn assign_main_runtime(handle: tokio::runtime::Handle) {
-    MAIN_RUNTIME.lock().unwrap().replace(handle);
+    MAIN_RUNTIME.lock().replace(handle);
 }
 
 pub fn get_main_runtime() -> tokio::runtime::Handle {
-    MAIN_RUNTIME
-        .lock()
-        .unwrap()
-        .as_ref()
-        .map(|r| r.clone())
-        .unwrap()
+    MAIN_RUNTIME.lock().as_ref().map(|r| r.clone()).unwrap()
 }
 
 static LOCALSET_THREADS: AtomicUsize = AtomicUsize::new(0);
