@@ -29,6 +29,7 @@ use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
 use parking_lot::FairMutex as StdMutex;
+use prometheus::Histogram;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -51,6 +52,14 @@ static READYQ_RUNTIME: LazyLock<Runtime> =
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
     CallbackSignature<(String, String, String), EgressPathConfig>,
 > = LazyLock::new(|| CallbackSignature::new("get_egress_path_config"));
+
+static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
+        "ready_queue_insert_latency",
+        "latency of ReadyQueue::insert operations",
+    )
+    .unwrap()
+});
 
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const AGE_OUT_INTERVAL: Duration = Duration::from_secs(10 * 60);
@@ -604,6 +613,7 @@ impl ReadyQueue {
     }
 
     pub async fn insert(&self, msg: Message) -> Result<(), Message> {
+        let _timer = INSERT_LATENCY.start_timer();
         if low_memory() {
             msg.save_and_shrink().await.ok();
         }
