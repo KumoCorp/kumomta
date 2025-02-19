@@ -265,8 +265,15 @@ impl ClassifierWrapper {
 }
 
 pub async fn apply_classification(record: &mut JsonLogRecord) {
-    // No sense classifying receptions or deliveries as bounces, as they are not bounces!
-    if matches!(record.kind, RecordType::Reception | RecordType::Delivery) {
+    // No sense classifying rebinds, receptions or deliveries as bounces,
+    // as they are not bounces!
+    if matches!(
+        record.kind,
+        RecordType::Reception
+            | RecordType::Delivery
+            | RecordType::DeferredInjectionRebind
+            | RecordType::AdminRebind
+    ) {
         return;
     }
 
