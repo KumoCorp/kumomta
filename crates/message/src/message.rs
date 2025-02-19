@@ -544,6 +544,23 @@ impl Message {
         self.shrink()
     }
 
+    pub fn shrink_data(&self) -> anyhow::Result<bool> {
+        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut did_shrink = false;
+        if inner.flags.contains(MessageFlags::DATA_DIRTY) {
+            anyhow::bail!("Cannot shrink message: DATA_DIRTY");
+        }
+        if !inner.data.is_empty() {
+            DATA_COUNT.dec();
+            did_shrink = true;
+        }
+        if !inner.data.is_empty() {
+            inner.data = NO_DATA.clone();
+            did_shrink = true;
+        }
+        Ok(did_shrink)
+    }
+
     pub fn shrink(&self) -> anyhow::Result<bool> {
         let mut inner = self.msg_and_id.inner.lock().unwrap();
         let mut did_shrink = false;
@@ -1228,6 +1245,20 @@ impl UserData for Message {
         #[cfg(feature = "impl")]
         methods.add_async_method("dkim_sign", |_, this, signer: Signer| async move {
             Ok(this.dkim_sign(signer).await.map_err(any_err)?)
+        });
+
+        methods.add_async_method("shrink", |_, this, _: ()| async move {
+            if this.needs_save() {
+                this.save().await.map_err(any_err)?;
+            }
+            this.shrink().map_err(any_err)
+        });
+
+        methods.add_async_method("shrink_data", |_, this, _: ()| async move {
+            if this.needs_save() {
+                this.save().await.map_err(any_err)?;
+            }
+            this.shrink_data().map_err(any_err)
         });
 
         methods.add_method(

@@ -14,6 +14,8 @@
 * DKIM signer has a separate supplemental cache for the parsed key data,
   which helps to reduce latency for deployments where the same key data
   is shared between multiple signing domains.
+* New [msg:shrink()](../reference/message/shrink.md) and
+  [msg:shrink_data()](../reference/message/shrink_data.md) methods.
 
 ## Fixes
 
