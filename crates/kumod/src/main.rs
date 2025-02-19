@@ -173,8 +173,14 @@ fn main() -> anyhow::Result<()> {
     kumo_server_common::panic::register_panic_hook();
     let next_id = Arc::new(AtomicUsize::new(0));
 
+    let n_threads = match std::env::var("KUMOD_MAIN_THREADS") {
+        Ok(n) => n.parse()?,
+        Err(_) => std::thread::available_parallelism()?.get(),
+    };
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .worker_threads(n_threads)
         .on_thread_park(|| kumo_server_memory::purge_thread_cache())
         .event_interval(
             std::env::var("KUMOD_EVENT_INTERVAL")
