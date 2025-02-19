@@ -49,7 +49,7 @@ pub fn set_localset_threads(n: usize) {
 struct RuntimeInner {
     tokio_runtime: tokio::runtime::Runtime,
     n_threads: usize,
-    name_prefix: &'static str,
+    name_prefix: String,
 }
 
 pub struct Runtime {
@@ -58,14 +58,16 @@ pub struct Runtime {
 
 impl Drop for RuntimeInner {
     fn drop(&mut self) {
-        PARKED_THREADS.remove_label_values(&[self.name_prefix]).ok();
-        NUM_THREADS.remove_label_values(&[self.name_prefix]).ok();
+        PARKED_THREADS
+            .remove_label_values(&[&self.name_prefix])
+            .ok();
+        NUM_THREADS.remove_label_values(&[&self.name_prefix]).ok();
     }
 }
 
 impl Runtime {
     pub fn new<F>(
-        name_prefix: &'static str,
+        name_prefix: &str,
         default_size: F,
         configured_size: &AtomicUsize,
     ) -> anyhow::Result<Self>
@@ -144,7 +146,7 @@ impl Runtime {
             inner: Arc::new(RuntimeInner {
                 tokio_runtime,
                 n_threads,
-                name_prefix,
+                name_prefix: name_prefix.to_string(),
             }),
         })
     }
