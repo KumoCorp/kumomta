@@ -20,6 +20,8 @@
   See [the pycompat
   docs](https://docs.rs/minijinja-contrib/latest/minijinja_contrib/pycompat/fn.unknown_method_callback.html)
   for a list of the additional functions.
+* New [kumo.string.eval_template](../reference/string/eval_template.md)
+  function for expanding minijinja template strings.
 
 ## Fixes
 

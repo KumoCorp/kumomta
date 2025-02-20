@@ -97,5 +97,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |_, s: String| Ok(psl::suffix_str(&s).map(|s| s.to_string())))?,
     )?;
 
+    string_mod.set(
+        "eval_template",
+        lua.create_function(move |_, (name, template, context): (String, String, mlua::Value)| {
+            let engine = kumo_template::TemplateEngine::new();
+            engine.render(&name, &template, context).map_err(config::any_err)
+        })?
+    )?;
+
     Ok(())
 }

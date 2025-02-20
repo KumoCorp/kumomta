@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 config = {path="../config"}
+kumo-template = {path="../kumo-template"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 psl = {workspace=true}
