@@ -570,12 +570,12 @@ pub struct JemallocStats {
     /// `stats.active`
     /// Total number of bytes in active pages allocated by the application. This is a multiple of
     /// the page size, and greater than or equal to stats.allocated. This does not include
-    /// stats.arenas.<i>.pdirty, stats.arenas.<i>.pmuzzy, nor pages entirely devoted to allocator
+    /// `stats.arenas.<i>.pdirty`, `stats.arenas.<i>.pmuzzy`, nor pages entirely devoted to allocator
     /// metadata.
     pub active: NumBytes,
 
     /// stats.metadata (size_t) r- [--enable-stats]
-    /// Total number of bytes dedicated to metadata, which comprise base allocations used for bootstrap-sensitive allocator metadata structures (see stats.arenas.<i>.base) and internal allocations (see stats.arenas.<i>.internal). Transparent huge page (enabled with opt.metadata_thp) usage is not considered.
+    /// Total number of bytes dedicated to metadata, which comprise base allocations used for bootstrap-sensitive allocator metadata structures (see `stats.arenas.<i>.base`) and internal allocations (see `stats.arenas.<i>.internal`). Transparent huge page (enabled with opt.metadata_thp) usage is not considered.
     pub metadata: NumBytes,
 
     /// stats.resident (size_t) r- [--enable-stats]
