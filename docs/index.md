@@ -12,4 +12,3 @@ The documentation is organized into four sections:
 
 !!!note
     The Reference Manual will always contain the most current information on KumoMTA as it is updated with every commit. The User Guide is updated more periodically based on the Reference Manual. When using the User Guide we recommend always following its links to the Reference Manual to ensure you are up to date on any changes.
-    
