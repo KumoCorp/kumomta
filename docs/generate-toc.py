@@ -483,6 +483,7 @@ TOC = [
                 "Internal Rust API",
                 "rustapi",
             ),
+            Page("Tags", "tags.md"),
         ],
     ),
     Gen(
