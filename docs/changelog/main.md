@@ -16,6 +16,10 @@
   is shared between multiple signing domains.
 * New [msg:shrink()](../reference/message/shrink.md) and
   [msg:shrink_data()](../reference/message/shrink_data.md) methods.
+* Added various python compatibility functions to the minijinja template engine.
+  See [the pycompat
+  docs](https://docs.rs/minijinja-contrib/latest/minijinja_contrib/pycompat/fn.unknown_method_callback.html)
+  for a list of the additional functions.
 
 ## Fixes
 

@@ -11,6 +11,7 @@ pub struct TemplateEngine {
 impl TemplateEngine {
     pub fn new() -> Self {
         let mut env = Environment::new();
+        env.set_unknown_method_callback(minijinja_contrib::pycompat::unknown_method_callback);
         add_to_environment(&mut env);
         Self { env }
     }
