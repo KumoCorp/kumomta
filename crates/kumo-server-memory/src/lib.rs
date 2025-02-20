@@ -4,6 +4,7 @@
 //! is low.
 
 use crate::tracking::TrackingAllocator;
+use anyhow::Context;
 #[cfg(target_os = "linux")]
 use cgroups_rs::cgroup::{get_cgroups_relative_paths, Cgroup, UNIFIED_MOUNTPOINT};
 #[cfg(target_os = "linux")]
@@ -247,7 +248,7 @@ fn get_physical_memory() -> anyhow::Result<u64> {
 /// equal to the physical ram on the system, and a soft limit of 75%
 /// of whatever we've determined the hard limit to be.
 #[cfg(target_os = "linux")]
-pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
+fn get_usage_and_limit_impl() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     let mut limit = MemoryLimits::get_rlimits()?;
     let mut usage = MemoryUsage::get_linux_statm()?;
 
@@ -258,8 +259,8 @@ pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
         }
     }
 
-    let phys = get_physical_memory()?;
     if limit.hard_limit.is_none() {
+        let phys = get_physical_memory()?;
         limit.hard_limit.replace(phys);
     }
     if limit.soft_limit.is_none() {
@@ -270,7 +271,7 @@ pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
+fn get_usage_and_limit_impl() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
     Ok((
         MemoryUsage { bytes: 0 },
         MemoryLimits {
@@ -278,6 +279,52 @@ pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
             hard_limit: None,
         },
     ))
+}
+
+static USER_HARD_LIMIT: AtomicUsize = AtomicUsize::new(0);
+static USER_SOFT_LIMIT: AtomicUsize = AtomicUsize::new(0);
+static USER_LOW_THRESH: AtomicUsize = AtomicUsize::new(0);
+
+pub fn set_hard_limit(limit: usize) {
+    USER_HARD_LIMIT.store(limit, Ordering::Relaxed);
+}
+
+pub fn set_soft_limit(limit: usize) {
+    USER_HARD_LIMIT.store(limit, Ordering::Relaxed);
+}
+
+pub fn set_low_memory_thresh(limit: usize) {
+    USER_LOW_THRESH.store(limit, Ordering::Relaxed);
+}
+
+pub fn get_usage_and_limit() -> anyhow::Result<(MemoryUsage, MemoryLimits)> {
+    let (usage, mut limit) = get_usage_and_limit_impl()?;
+
+    if let Ok(value) = std::env::var("KUMOD_MEMORY_HARD_LIMIT") {
+        limit.hard_limit.replace(
+            value
+                .parse()
+                .context("failed to parse KUMOD_MEMORY_HARD_LIMIT env var")?,
+        );
+    }
+    if let Ok(value) = std::env::var("KUMOD_MEMORY_SOFT_LIMIT") {
+        limit.soft_limit.replace(
+            value
+                .parse()
+                .context("failed to parse KUMOD_MEMORY_SOFT_LIMIT env var")?,
+        );
+    }
+
+    let hard = USER_HARD_LIMIT.load(Ordering::Relaxed);
+    if hard > 0 {
+        limit.hard_limit.replace(hard as u64);
+    }
+    let soft = USER_SOFT_LIMIT.load(Ordering::Relaxed);
+    if soft > 0 {
+        limit.soft_limit.replace(soft as u64);
+    }
+
+    Ok((usage, limit))
 }
 
 /// To be called when a thread goes idle; it will flush cached
@@ -352,7 +399,10 @@ fn memory_thread() {
                 MEM_USAGE.set(usage as f64);
                 MEM_LIMIT.set(limit as f64);
 
-                let low_thresh = limit * 8 / 10;
+                let mut low_thresh = USER_LOW_THRESH.load(Ordering::Relaxed) as u64;
+                if low_thresh == 0 {
+                    low_thresh = limit * 8 / 10;
+                }
                 LOW_MEM.store(usage > low_thresh, Ordering::SeqCst);
 
                 if !is_ok && was_ok {

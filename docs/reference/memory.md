@@ -1,3 +1,8 @@
+---
+tags:
+ - memory
+---
+
 # Memory Management
 
 KumoMTA makes aggressive use of memory in the interest of performance,
@@ -27,6 +32,9 @@ which is derived from:
 * If running in a cgroup, the usage reported by that cgroup. Note that
   this may include memory used by other processes in that same cgroup.
 * The Resident Set Size (RSS) as reported in `/proc/self/statm`
+* The value configured via
+  [kumo.set_memory_soft_limit](kumo/set_memory_soft_limit.md), if any,
+  will always take precedence over the above.
 
 The current usage is published via the prometheus metrics endpoint
 as `memory_usage` and is reported in bytes.
@@ -69,7 +77,8 @@ are a couple of passive measures:
 
 * When the `memory_usage` is >= 80% of the `memory_limit`, messages moving into
   a ready queue, or being freshly inserted, will be subject to the same shrink
-  operation described above.
+  operation described above.  You may configure this value via
+  [kumo.set_memory_low_thresh](kumo/set_memory_low_thresh.md).
 
 ## Budgeting/Tuning Memory
 

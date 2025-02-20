@@ -99,10 +99,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     string_mod.set(
         "eval_template",
-        lua.create_function(move |_, (name, template, context): (String, String, mlua::Value)| {
-            let engine = kumo_template::TemplateEngine::new();
-            engine.render(&name, &template, context).map_err(config::any_err)
-        })?
+        lua.create_function(
+            move |_, (name, template, context): (String, String, mlua::Value)| {
+                let engine = kumo_template::TemplateEngine::new();
+                engine
+                    .render(&name, &template, context)
+                    .map_err(config::any_err)
+            },
+        )?,
     )?;
 
     Ok(())
