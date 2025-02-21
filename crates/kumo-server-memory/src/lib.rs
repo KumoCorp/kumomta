@@ -28,6 +28,13 @@ pub use tracking::{set_tracking_callstacks, tracking_stats};
 #[global_allocator]
 static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator::new(Jemalloc);
 
+static LOW_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
+    metrics::describe_counter!(
+        "memory_low_count",
+        "how many times the low memory threshold was exceeded"
+    );
+    metrics::counter!("memory_low_count")
+});
 static OVER_LIMIT_COUNT: LazyLock<metrics::Counter> = LazyLock::new(|| {
     metrics::describe_counter!(
         "memory_over_limit_count",
@@ -52,6 +59,13 @@ static MEM_COUNTED: LazyLock<metrics::Gauge> = LazyLock::new(|| {
         "number of bytes of used memory (allocated by Rust)"
     );
     metrics::gauge!("memory_usage_rust")
+});
+static LOW_MEM_THRESH: LazyLock<metrics::Gauge> = LazyLock::new(|| {
+    metrics::describe_gauge!(
+        "memory_low_thresh",
+        "low memory threshold measured in bytes"
+    );
+    metrics::gauge!("memory_low_thresh")
 });
 static SUBSCRIBER: LazyLock<Mutex<Option<Receiver<()>>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -290,7 +304,7 @@ pub fn set_hard_limit(limit: usize) {
 }
 
 pub fn set_soft_limit(limit: usize) {
-    USER_HARD_LIMIT.store(limit, Ordering::Relaxed);
+    USER_SOFT_LIMIT.store(limit, Ordering::Relaxed);
 }
 
 pub fn set_low_memory_thresh(limit: usize) {
@@ -377,6 +391,7 @@ fn dump_heap_profile() {
 /// and maintains global counters to track the memory state
 fn memory_thread() {
     let mut is_ok = true;
+    let mut is_low = false;
 
     let (tx, rx) = tokio::sync::watch::channel(());
     SUBSCRIBER.lock().unwrap().replace(rx);
@@ -403,7 +418,16 @@ fn memory_thread() {
                 if low_thresh == 0 {
                     low_thresh = limit * 8 / 10;
                 }
-                LOW_MEM.store(usage > low_thresh, Ordering::SeqCst);
+                LOW_MEM_THRESH.set(low_thresh as f64);
+
+                let was_low = is_low;
+                is_low = usage > low_thresh;
+                LOW_MEM.store(is_low, Ordering::SeqCst);
+
+                if !was_low && is_low {
+                    // Transition to low memory
+                    LOW_COUNT.increment(1);
+                }
 
                 if !is_ok && was_ok {
                     // Transition from OK -> !OK
