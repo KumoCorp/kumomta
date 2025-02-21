@@ -6,7 +6,7 @@ You can use `kcli rebind` for this; the following will flush `example.com` for a
 tenant/campaigns:
 
 ```console
-$ kcli rebind --domain example.com --always-flush
+$ kcli rebind --reason "Cleaning up a bad send" --domain example.com --always-flush
 ```
 
 `kcli rebind` re-evaluates the queue for messages in matching queues. In the
