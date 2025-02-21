@@ -128,6 +128,15 @@ pub fn find_rustls_cipher_suite(name: &str) -> Option<SupportedCipherSuite> {
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
+pub enum MemoryReductionPolicy {
+    #[default]
+    ShrinkDataAndMeta,
+    ShrinkData,
+    NoShrink,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "lua", derive(FromLua))]
 pub enum ConfigRefreshStrategy {
     #[default]
     Ttl,
@@ -285,6 +294,14 @@ pub struct EgressPathConfig {
     /// Which thread pool to use for processing the ready queue
     #[serde(default)]
     pub readyq_pool_name: Option<String>,
+
+    /// What to do to newly inserted messages when memory is low
+    #[serde(default)]
+    pub low_memory_reduction_policy: MemoryReductionPolicy,
+
+    /// What to do to newly inserted messages when memory is over the soft limit
+    #[serde(default)]
+    pub no_memory_reduction_policy: MemoryReductionPolicy,
 }
 
 #[cfg(feature = "lua")]
@@ -333,6 +350,8 @@ impl Default for EgressPathConfig {
             use_lmtp: false,
             reconnect_strategy: ReconnectStrategy::default(),
             readyq_pool_name: None,
+            low_memory_reduction_policy: MemoryReductionPolicy::default(),
+            no_memory_reduction_policy: MemoryReductionPolicy::default(),
         }
     }
 }

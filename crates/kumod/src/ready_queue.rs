@@ -21,10 +21,12 @@ use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
 use config::{load_config, CallbackSignature};
 use dns_resolver::MailExchanger;
-use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig};
+use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
-use kumo_server_memory::{get_headroom, low_memory, subscribe_to_memory_status_changes_async};
+use kumo_server_memory::{
+    get_headroom, memory_status, subscribe_to_memory_status_changes_async, MemoryStatus,
+};
 use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
@@ -614,8 +616,19 @@ impl ReadyQueue {
 
     pub async fn insert(&self, msg: Message) -> Result<(), Message> {
         let _timer = INSERT_LATENCY.start_timer();
-        if low_memory() {
-            msg.save_and_shrink().await.ok();
+        let action = match memory_status() {
+            MemoryStatus::LowMemory => self.path_config.borrow().low_memory_reduction_policy,
+            MemoryStatus::NoMemory => self.path_config.borrow().no_memory_reduction_policy,
+            MemoryStatus::Ok => MemoryReductionPolicy::NoShrink,
+        };
+        match action {
+            MemoryReductionPolicy::NoShrink => {}
+            MemoryReductionPolicy::ShrinkDataAndMeta => {
+                msg.save_and_shrink().await.ok();
+            }
+            MemoryReductionPolicy::ShrinkData => {
+                msg.save_and_shrink_data().await.ok();
+            }
         }
         match self.ready.push(msg) {
             Ok(()) => {

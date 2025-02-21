@@ -486,6 +486,24 @@ pub fn low_memory() -> bool {
     LOW_MEM.load(Ordering::SeqCst)
 }
 
+/// Indicates the overall memory status
+pub fn memory_status() -> MemoryStatus {
+    if get_headroom() == 0 {
+        MemoryStatus::NoMemory
+    } else if low_memory() {
+        MemoryStatus::LowMemory
+    } else {
+        MemoryStatus::Ok
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MemoryStatus {
+    Ok,
+    LowMemory,
+    NoMemory,
+}
+
 /// Returns a receiver that will notify when memory status
 /// changes from OK -> !OK or vice versa.
 pub fn subscribe_to_memory_status_changes() -> Option<Receiver<()>> {

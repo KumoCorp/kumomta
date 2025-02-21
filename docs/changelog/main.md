@@ -22,6 +22,10 @@
   for a list of the additional functions.
 * New [kumo.string.eval_template](../reference/string/eval_template.md)
   function for expanding minijinja template strings.
+* New [low_memory_reduction_policy](../reference/kumo/make_egress_path/low_memory_reduction_policy.md) and
+  [no_memory_reduction_policy](../reference/kumo/make_egress_path/no_memory_reduction_policy.md)
+  options give advanced control over memory vs. spool IO trade-offs when
+  available is memory low.
 
 ## Fixes
 

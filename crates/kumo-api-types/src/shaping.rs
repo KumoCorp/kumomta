@@ -1913,6 +1913,8 @@ MergedEntry {
         use_lmtp: false,
         reconnect_strategy: ConnectNextHost,
         readyq_pool_name: None,
+        low_memory_reduction_policy: ShrinkDataAndMeta,
+        no_memory_reduction_policy: ShrinkDataAndMeta,
     },
     sources: {},
     automation: [
@@ -2053,6 +2055,8 @@ MergedEntry {
         use_lmtp: false,
         reconnect_strategy: ConnectNextHost,
         readyq_pool_name: None,
+        low_memory_reduction_policy: ShrinkDataAndMeta,
+        no_memory_reduction_policy: ShrinkDataAndMeta,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2106,6 +2110,8 @@ MergedEntry {
             use_lmtp: false,
             reconnect_strategy: ConnectNextHost,
             readyq_pool_name: None,
+            low_memory_reduction_policy: ShrinkDataAndMeta,
+            no_memory_reduction_policy: ShrinkDataAndMeta,
         },
     },
     automation: [
@@ -2252,6 +2258,8 @@ MergedEntry {
         use_lmtp: false,
         reconnect_strategy: ConnectNextHost,
         readyq_pool_name: None,
+        low_memory_reduction_policy: ShrinkDataAndMeta,
+        no_memory_reduction_policy: ShrinkDataAndMeta,
     },
     sources: {},
     automation: [
