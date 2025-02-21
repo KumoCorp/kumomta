@@ -539,9 +539,16 @@ impl Message {
         &self.msg_and_id.id
     }
 
+    /// Save the data+meta if needed, then release both
     pub async fn save_and_shrink(&self) -> anyhow::Result<bool> {
         self.save().await?;
         self.shrink()
+    }
+
+    /// Save the data+meta if needed, then release just the data
+    pub async fn save_and_shrink_data(&self) -> anyhow::Result<bool> {
+        self.save().await?;
+        self.shrink_data()
     }
 
     pub fn shrink_data(&self) -> anyhow::Result<bool> {
