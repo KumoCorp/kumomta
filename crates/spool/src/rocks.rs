@@ -12,6 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock, Weak};
 use std::time::Duration;
 use tokio::runtime::Handle;
+use tokio::sync::Semaphore;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -54,6 +55,13 @@ pub struct RocksSpoolParams {
         default = "RocksSpoolParams::default_obsolete_files_period"
     )]
     pub obsolete_files_period: Duration,
+
+    #[serde(default)]
+    pub limit_concurrent_stores: Option<usize>,
+    #[serde(default)]
+    pub limit_concurrent_loads: Option<usize>,
+    #[serde(default)]
+    pub limit_concurrent_removes: Option<usize>,
 }
 
 impl Default for RocksSpoolParams {
@@ -71,6 +79,9 @@ impl Default for RocksSpoolParams {
             memtable_huge_page_size: None,
             log_file_time_to_roll: Self::default_log_file_time_to_roll(),
             obsolete_files_period: Self::default_obsolete_files_period(),
+            limit_concurrent_stores: None,
+            limit_concurrent_loads: None,
+            limit_concurrent_removes: None,
         }
     }
 }
@@ -150,6 +161,9 @@ impl Into<LogLevel> for LogLevelDef {
 pub struct RocksSpool {
     db: Arc<DB>,
     runtime: Handle,
+    limit_concurrent_stores: Option<Arc<Semaphore>>,
+    limit_concurrent_loads: Option<Arc<Semaphore>>,
+    limit_concurrent_removes: Option<Arc<Semaphore>>,
 }
 
 impl RocksSpool {
@@ -191,6 +205,16 @@ impl RocksSpool {
         opts.set_log_file_time_to_roll(p.log_file_time_to_roll.as_secs() as usize);
         opts.set_delete_obsolete_files_period_micros(p.obsolete_files_period.as_micros() as u64);
 
+        let limit_concurrent_stores = p
+            .limit_concurrent_stores
+            .map(|n| Arc::new(Semaphore::new(n)));
+        let limit_concurrent_loads = p
+            .limit_concurrent_loads
+            .map(|n| Arc::new(Semaphore::new(n)));
+        let limit_concurrent_removes = p
+            .limit_concurrent_removes
+            .map(|n| Arc::new(Semaphore::new(n)));
+
         let db = Arc::new(DB::open(&opts, path)?);
 
         {
@@ -198,21 +222,33 @@ impl RocksSpool {
             tokio::spawn(metrics_monitor(weak, format!("{}", path.display())));
         }
 
-        Ok(Self { db, runtime })
+        Ok(Self {
+            db,
+            runtime,
+            limit_concurrent_stores,
+            limit_concurrent_loads,
+            limit_concurrent_removes,
+        })
     }
 }
 
 #[async_trait]
 impl Spool for RocksSpool {
     async fn load(&self, id: SpoolId) -> anyhow::Result<Vec<u8>> {
+        let permit = match self.limit_concurrent_loads.clone() {
+            Some(s) => Some(s.acquire_owned().await?),
+            None => None,
+        };
         let db = self.db.clone();
         tokio::task::Builder::new()
             .name("rocksdb load")
             .spawn_blocking_on(
                 move || {
-                    Ok(db
+                    let result = db
                         .get(id.as_bytes())?
-                        .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?)
+                        .ok_or_else(|| anyhow::anyhow!("no such key {id}"))?;
+                    drop(permit);
+                    Ok(result)
                 },
                 &self.runtime,
             )?
@@ -234,6 +270,10 @@ impl Spool for RocksSpool {
         match self.db.write_opt(batch, &opts) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == ErrorKind::Incomplete => {
+                let permit = match self.limit_concurrent_stores.clone() {
+                    Some(s) => Some(s.acquire_owned().await?),
+                    None => None,
+                };
                 let db = self.db.clone();
                 tokio::task::Builder::new()
                     .name("rocksdb store")
@@ -242,7 +282,9 @@ impl Spool for RocksSpool {
                             opts.set_no_slowdown(false);
                             let mut batch = WriteBatch::default();
                             batch.put(id.as_bytes(), &*data);
-                            Ok(db.write_opt(batch, &opts)?)
+                            let result = db.write_opt(batch, &opts)?;
+                            drop(permit);
+                            Ok(result)
                         },
                         &self.runtime,
                     )?
@@ -261,6 +303,10 @@ impl Spool for RocksSpool {
         match self.db.write_opt(batch, &opts) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == ErrorKind::Incomplete => {
+                let permit = match self.limit_concurrent_removes.clone() {
+                    Some(s) => Some(s.acquire_owned().await?),
+                    None => None,
+                };
                 let db = self.db.clone();
                 tokio::task::Builder::new()
                     .name("rocksdb remove")
@@ -269,7 +315,9 @@ impl Spool for RocksSpool {
                             opts.set_no_slowdown(false);
                             let mut batch = WriteBatch::default();
                             batch.delete(id.as_bytes());
-                            Ok(db.write_opt(batch, &opts)?)
+                            let result = db.write_opt(batch, &opts)?;
+                            drop(permit);
+                            Ok(result)
                         },
                         &self.runtime,
                     )?
