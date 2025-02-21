@@ -21,7 +21,7 @@ Possible values for this option are:
 * `"ShrinkData"` - Both the message data and metadata will be saved
   (if modified since the prior save, or if the message has not yet been saved
   to spool), then just the message data will be released, freeing up that memory.
-  The metadata will be preserved.
+  The metadata will be preserved in memory.
 * `"NoShrink"` - do not save or free up any message memory.
 
 This setting allows you more control in the trade-off of memory usage against
@@ -33,6 +33,6 @@ exceeding limits and being targeted by the OOM killer if there is a burst
 in your workload.
 
 See also:
-* [low_memory_reduction_policy](low_memory_reduction_policy.md)
-* [Memory Management](../../memory.md)
+ * [low_memory_reduction_policy](low_memory_reduction_policy.md)
+ * [Memory Management](../../memory.md)
 
