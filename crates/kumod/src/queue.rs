@@ -20,7 +20,7 @@ use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
 use humantime::format_duration;
-use kumo_api_types::egress_path::ConfigRefreshStrategy;
+use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
 use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
@@ -42,7 +42,7 @@ use std::sync::{Arc, LazyLock, Once, OnceLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
-use timeq::{PopResult, TimeQ, TimerError};
+use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
 use tokio::sync::Notify;
 use tracing::instrument;
 
@@ -452,6 +452,17 @@ pub struct QueueConfig {
     /// routing_domain for this queue, will be used instead.
     #[serde(default)]
     pub provider_name: Option<String>,
+
+    #[serde(default)]
+    pub shrink_policy: Vec<QueueShrinkPolicy>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, FromLua)]
+#[serde(deny_unknown_fields)]
+pub struct QueueShrinkPolicy {
+    #[serde(with = "duration_serde")]
+    pub interval: Duration,
+    pub policy: MemoryReductionPolicy,
 }
 
 impl LuaUserData for QueueConfig {
@@ -475,6 +486,7 @@ impl Default for QueueConfig {
             timerwheel_tick_interval: None,
             refresh_strategy: ConfigRefreshStrategy::default(),
             provider_name: None,
+            shrink_policy: Default::default(),
         }
     }
 }
@@ -1683,17 +1695,55 @@ impl Queue {
     }
 
     #[instrument(skip(msg))]
-    pub async fn save_if_needed(msg: &Message) -> anyhow::Result<()> {
+    pub async fn save_if_needed(
+        msg: &Message,
+        queue_config: Option<&ConfigHandle<QueueConfig>>,
+    ) -> anyhow::Result<()> {
         tracing::trace!("save_if_needed {}", msg.id());
         if msg.needs_save() {
             msg.save().await?;
         }
-        msg.shrink()?;
+
+        match queue_config {
+            None => {
+                // By convention, we are shutting down and all we needed to do
+                // was the save
+            }
+            Some(queue_config) => {
+                let config = queue_config.borrow();
+                if config.shrink_policy.is_empty() {
+                    msg.shrink()?;
+                } else {
+                    let interval = msg.delay();
+
+                    let mut policy = MemoryReductionPolicy::ShrinkDataAndMeta;
+
+                    for entry in config.shrink_policy.iter() {
+                        if interval >= entry.interval {
+                            policy = entry.policy;
+                        }
+                    }
+
+                    match policy {
+                        MemoryReductionPolicy::ShrinkDataAndMeta => {
+                            msg.shrink()?;
+                        }
+                        MemoryReductionPolicy::ShrinkData => {
+                            msg.shrink_data()?;
+                        }
+                        MemoryReductionPolicy::NoShrink => {}
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
-    pub async fn save_if_needed_and_log(msg: &Message) {
-        if let Err(err) = Self::save_if_needed(msg).await {
+    pub async fn save_if_needed_and_log(
+        msg: &Message,
+        queue_config: Option<&ConfigHandle<QueueConfig>>,
+    ) {
+        if let Err(err) = Self::save_if_needed(msg, queue_config).await {
             let id = msg.id();
             tracing::error!("error saving {id}: {err:#}");
         }
@@ -1747,7 +1797,7 @@ impl Queue {
             .await;
         }
 
-        Self::save_if_needed(&msg).await
+        Self::save_if_needed(&msg, Some(&self.queue_config)).await
     }
 
     async fn check_message_rate_throttle(&self) -> anyhow::Result<Option<ThrottleResult>> {
@@ -2268,7 +2318,7 @@ impl Queue {
             }
 
             if self.activity.is_shutting_down() {
-                Self::save_if_needed_and_log(&msg).await;
+                Self::save_if_needed_and_log(&msg, None).await;
                 drop(msg);
                 return Ok(());
             }
@@ -2611,7 +2661,7 @@ async fn queue_meta_maintainer() -> anyhow::Result<()> {
         for name in names {
             if let Some(queue) = QueueManager::get_opt(&name) {
                 for msg in queue.drain_timeq() {
-                    Queue::save_if_needed_and_log(&msg).await;
+                    Queue::save_if_needed_and_log(&msg, None).await;
                 }
                 if queue.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
                     tracing::debug!(
@@ -2966,7 +3016,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
             if q.activity.is_shutting_down() {
                 for msg in q.drain_timeq() {
-                    Queue::save_if_needed_and_log(&msg).await;
+                    Queue::save_if_needed_and_log(&msg, None).await;
                     drop(msg);
                 }
 

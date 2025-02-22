@@ -780,7 +780,7 @@ impl ReadyQueue {
                 let activity = self.activity.clone();
                 spawn(format!("saving messages for {}", self.name), async move {
                     for msg in msgs {
-                        Queue::save_if_needed_and_log(&msg).await;
+                        Queue::save_if_needed_and_log(&msg, None).await;
                         drop(msg);
                     }
                     drop(activity);
@@ -1091,7 +1091,7 @@ impl Drop for Dispatcher {
 
             for msg in msgs {
                 if activity.is_shutting_down() {
-                    Queue::save_if_needed_and_log(&msg).await;
+                    Queue::save_if_needed_and_log(&msg, None).await;
                 } else {
                     let response = Response {
                         code: 451,
@@ -1791,7 +1791,7 @@ impl Dispatcher {
     ) -> anyhow::Result<bool> {
         if self.activity.is_shutting_down() {
             for msg in self.msgs.drain(..) {
-                Queue::save_if_needed_and_log(&msg).await;
+                Queue::save_if_needed_and_log(&msg, None).await;
             }
             return Ok(false);
         }

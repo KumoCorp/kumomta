@@ -684,6 +684,7 @@ default_tenant = 'mytenant'
 
 [queue.default]
 max_age = '24 hours'
+shrink_policy = [{interval="0s", policy="ShrinkData"}]
 
 [queue.'my.own.hostname']
 routing_domain = '[10.0.0.1]'
