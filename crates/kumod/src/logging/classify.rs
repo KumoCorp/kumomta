@@ -3,7 +3,7 @@ use bounce_classify::{
     BounceClass, BounceClassifier, BounceClassifierBuilder, PreDefinedBounceClass,
 };
 use config::epoch::{get_current_epoch, ConfigEpoch};
-use kumo_log_types::{JsonLogRecord, RecordType};
+use kumo_log_types::JsonLogRecord;
 use lru_cache::LruCache;
 use parking_lot::Mutex;
 use prometheus::Histogram;
@@ -265,15 +265,7 @@ impl ClassifierWrapper {
 }
 
 pub async fn apply_classification(record: &mut JsonLogRecord) {
-    // No sense classifying rebinds, receptions or deliveries as bounces,
-    // as they are not bounces!
-    if matches!(
-        record.kind,
-        RecordType::Reception
-            | RecordType::Delivery
-            | RecordType::DeferredInjectionRebind
-            | RecordType::AdminRebind
-    ) {
+    if !record.kind.is_bounce_classifiable() {
         return;
     }
 

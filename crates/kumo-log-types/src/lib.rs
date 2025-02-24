@@ -67,6 +67,31 @@ pub enum RecordType {
     Any,
 }
 
+impl RecordType {
+    /// Returns true if it makes sense to run the corresponding record
+    /// through the bounce classifier module.
+    /// The rule of thumb for that is if the response came from the
+    /// destination when attempting delivery, but we also include
+    /// administrative bounces and message expirations.
+    pub const fn is_bounce_classifiable(&self) -> bool {
+        match self {
+            Self::Any
+            | Self::Reception
+            | Self::Delivery
+            | Self::DeferredInjectionRebind
+            | Self::AdminRebind
+            | Self::Delayed => false,
+            Self::Bounce
+            | Self::TransientFailure
+            | Self::Expiration
+            | Self::AdminBounce
+            | Self::OOB
+            | Self::Feedback
+            | Self::Rejection => true,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonLogRecord {
     /// What kind of record this is
