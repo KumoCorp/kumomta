@@ -1,0 +1,1 @@
+searchState.loadedDescShard("duration_serde", 0, "Based on https://github.com/jean-airoldie/humantime-serde …\nA wrapper type which implements <code>Serialize</code> and <code>Deserialize</code> …\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.")

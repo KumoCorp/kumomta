@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"macro":["context"],"struct":["CompiledTemplates","Error","Template","TemplateEngine","Value"],"type":["TemplateList"]};
