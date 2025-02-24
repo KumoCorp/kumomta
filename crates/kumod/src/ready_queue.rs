@@ -113,11 +113,14 @@ impl Fifo {
     }
 
     pub fn push(&self, msg: Message) -> Result<(), Message> {
-        let mut list = self.list.lock();
-        if list.len() + 1 > self.capacity.load(Ordering::Relaxed) {
-            return Err(msg);
+        {
+            let mut list = self.list.lock();
+            if list.len() + 1 > self.capacity.load(Ordering::Relaxed) {
+                return Err(msg);
+            }
+            list.push_back(msg);
         }
-        list.push_back(msg);
+        // Increment the count after we've dropped the mutexguard on the list
         self.count.inc();
         Ok(())
     }
