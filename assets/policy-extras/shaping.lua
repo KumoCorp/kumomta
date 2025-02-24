@@ -366,6 +366,10 @@ local shaper = shaping:setup_with_automation {
     max_retry_interval = '20m',
   },
 
+  -- Optional back_pressure value to pass through to the internal
+  -- configure_log_hook call that is used for routing logs to TSA
+  back_pressure = 256000,
+
   -- optional; specify the validation options to use when loading
   -- the shaping data in the live service
   load_validation_options = {
@@ -471,6 +475,7 @@ function mod:setup_with_automation(options)
             enable = false,
           },
         },
+        back_pressure = options.back_pressure,
       }
     end
 

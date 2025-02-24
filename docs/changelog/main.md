@@ -34,6 +34,10 @@
 * New [shrink_policy](../reference/kumo/make_queue_config/shrink_policy.md)
   option to give advanced control over memory vs. spool IO trade-offs when
   messages are delayed.
+* Expose `back_pressure` option to `shaping:setup_with_automation` call. This
+  allows setting the underlying
+  [back_pressure](../reference/kumo/configure_log_hook.md) for the TSA log
+  hooks.
 
 ## Fixes
 

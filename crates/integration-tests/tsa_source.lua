@@ -15,6 +15,7 @@ local shaper = shaping:setup_with_automation {
   no_default_files = true,
   extra_files = { 'shaping.toml' },
   pre_filter = true,
+  back_pressure = 128000, -- just setting this to verify that the option is passed through
 }
 
 kumo.on('init', function()
