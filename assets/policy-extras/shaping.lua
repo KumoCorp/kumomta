@@ -550,22 +550,7 @@ function mod:setup_with_automation(options)
     load_shaping_data = cached_load_shaping_data,
 
     get_egress_path_config = get_egress_path_config,
-    should_enqueue_log_record = function(msg, hook_name)
-      -- deprecated: no longer needed as we register a should_enqueue_log_record
-      -- handler above.
-      -- This is preserved for backwards compatibility; when
-      -- called, it does nothing.
-      -- TODO: remove me after next release.
-      return
-    end,
     setup_publish = setup_publish,
-    get_queue_config = function(domain, tenant, campaign, routing_domain)
-      -- deprecated: no longer needed as we register a get_queue_config
-      -- handler above.
-      -- This is preserved for backwards compatibility; when
-      -- called, it does nothing.
-      -- TODO: remove me after next release.
-    end,
   }
 
   return mod.CONFIGURED

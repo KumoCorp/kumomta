@@ -1,6 +1,11 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* Removed deprecated `should_enqueue_log_record` and `get_queue_config` fields
+  from the `shaper` object returned from `shaping:setup_with_automation`.
+  These have had no effect for the past several stable releases, having been
+  made automatic. If you are referencing them in your policy, you can simply
+  remove the associated logic.
 
 ## Other Changes and Enhancements
 
