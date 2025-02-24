@@ -57,6 +57,17 @@ local function load_shaping_data(file_names, validation_options)
   return result
 end
 
+-- Log records that are not interesting to TSA or for automation
+-- purposes: these represent messages coming into the system,
+-- or movement through internal queues, rather than interactions
+-- with a destination system
+local UNINTERESTING_LOG_RECORD_TYPES = {
+  Reception = true,
+  AdminRebind = true,
+  DeferredInjectionRebind = true,
+  Delayed = true,
+}
+
 local function should_enq(publish, msg, hook_name, options)
   local params = publish[hook_name]
   if not params then
@@ -77,6 +88,10 @@ local function should_enq(publish, msg, hook_name, options)
       -- It's one of our log hooks; don't queue this one
       return false
     end
+  end
+
+  if UNINTERESTING_LOG_RECORD_TYPES[log_record.type] then
+    return false
   end
 
   if options.pre_filter then
