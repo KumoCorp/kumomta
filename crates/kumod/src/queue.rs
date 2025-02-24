@@ -31,7 +31,7 @@ use message::timeq::TriTimeQ;
 use message::Message;
 use mlua::prelude::*;
 use mlua::UserDataMethods;
-use parking_lot::FairMutex as StdMutex;
+use parking_lot::FairMutex;
 use prometheus::{Histogram, IntCounter, IntGauge};
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::{Deserialize, Serialize};
@@ -46,8 +46,8 @@ use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
 use tokio::sync::Notify;
 use tracing::instrument;
 
-static MANAGER: LazyLock<StdMutex<QueueManager>> =
-    LazyLock::new(|| StdMutex::new(QueueManager::new()));
+static MANAGER: LazyLock<FairMutex<QueueManager>> =
+    LazyLock::new(|| FairMutex::new(QueueManager::new()));
 static SCHEDULED_QUEUE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
         "scheduled_queue_count",
@@ -90,11 +90,11 @@ static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, 
 pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, String), ()>> =
     LazyLock::new(|| CallbackSignature::new_with_multiple("requeue_message"));
 
-pub static SINGLETON_WHEEL: LazyLock<Arc<StdMutex<TimeQ<WeakMessage>>>> =
-    LazyLock::new(|| Arc::new(StdMutex::new(TimeQ::new())));
+pub static SINGLETON_WHEEL: LazyLock<Arc<FairMutex<TimeQ<WeakMessage>>>> =
+    LazyLock::new(|| Arc::new(FairMutex::new(TimeQ::new())));
 
-pub static SINGLETON_WHEEL_V2: LazyLock<Arc<StdMutex<TriTimeQ>>> =
-    LazyLock::new(|| Arc::new(StdMutex::new(TriTimeQ::new(Duration::from_secs(3)))));
+pub static SINGLETON_WHEEL_V2: LazyLock<Arc<FairMutex<TriTimeQ>>> =
+    LazyLock::new(|| Arc::new(FairMutex::new(TriTimeQ::new(Duration::from_secs(3)))));
 
 static TOTAL_DELAY_GAUGE: LazyLock<IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
@@ -811,22 +811,22 @@ enum QueueInsertResult {
 }
 
 enum QueueStructure {
-    TimerWheel(StdMutex<TimeQ<Message>>),
+    TimerWheel(FairMutex<TimeQ<Message>>),
     SkipList(SkipSet<DelayedEntry>),
-    SingletonTimerWheel(StdMutex<HashSet<Message>>),
-    SingletonTimerWheelV2(StdMutex<HashSet<Message>>),
+    SingletonTimerWheel(FairMutex<HashSet<Message>>),
+    SingletonTimerWheelV2(FairMutex<HashSet<Message>>),
 }
 
 impl QueueStructure {
     fn new(strategy: QueueStrategy) -> Self {
         match strategy {
-            QueueStrategy::TimerWheel => Self::TimerWheel(StdMutex::new(TimeQ::new())),
+            QueueStrategy::TimerWheel => Self::TimerWheel(FairMutex::new(TimeQ::new())),
             QueueStrategy::SkipList => Self::SkipList(SkipSet::new()),
             QueueStrategy::SingletonTimerWheel => {
-                Self::SingletonTimerWheel(StdMutex::new(HashSet::new()))
+                Self::SingletonTimerWheel(FairMutex::new(HashSet::new()))
             }
             QueueStrategy::SingletonTimerWheelV2 => {
-                Self::SingletonTimerWheelV2(StdMutex::new(HashSet::new()))
+                Self::SingletonTimerWheelV2(FairMutex::new(HashSet::new()))
             }
         }
     }
@@ -1034,14 +1034,14 @@ pub struct Queue {
     name: Arc<String>,
     queue: QueueStructure,
     notify_maintainer: Arc<Notify>,
-    last_change: StdMutex<Instant>,
+    last_change: FairMutex<Instant>,
     queue_config: ConfigHandle<QueueConfig>,
     metrics: OnceLock<ScheduledMetrics>,
     activity: Activity,
     rr: ArcSwap<EgressPoolRoundRobin>,
-    next_config_refresh: StdMutex<Instant>,
+    next_config_refresh: FairMutex<Instant>,
     warned_strategy_change: AtomicBool,
-    config_epoch: StdMutex<ConfigEpoch>,
+    config_epoch: FairMutex<ConfigEpoch>,
     site_name: String,
 }
 
@@ -1094,7 +1094,7 @@ impl Queue {
 
         let activity = Activity::get(format!("Queue {name}"))?;
         let strategy = queue_config.strategy;
-        let next_config_refresh = StdMutex::new(Instant::now() + queue_config.refresh_interval);
+        let next_config_refresh = FairMutex::new(Instant::now() + queue_config.refresh_interval);
 
         let queue_config = ConfigHandle::new(queue_config);
         let site_name = match ReadyQueueManager::compute_queue_name(
@@ -1134,7 +1134,7 @@ impl Queue {
         let handle = Arc::new(Queue {
             name: name.clone(),
             queue: QueueStructure::new(strategy),
-            last_change: StdMutex::new(Instant::now()),
+            last_change: FairMutex::new(Instant::now()),
             queue_config,
             notify_maintainer: Arc::new(Notify::new()),
             metrics: OnceLock::new(),
@@ -1142,7 +1142,7 @@ impl Queue {
             rr,
             next_config_refresh,
             warned_strategy_change: AtomicBool::new(false),
-            config_epoch: StdMutex::new(epoch),
+            config_epoch: FairMutex::new(epoch),
             site_name,
         });
 
@@ -2381,7 +2381,7 @@ impl Queue {
             // Verify that the message is still in the queue
             match &queue.queue {
                 QueueStructure::SingletonTimerWheelV2(q) => {
-                    fn remove(q: &StdMutex<HashSet<Message>>, msg: &Message) -> bool {
+                    fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
                         q.lock().remove(msg)
                     }
 
@@ -2474,7 +2474,7 @@ impl Queue {
             // Verify that the message is still in the queue
             match &queue.queue {
                 QueueStructure::SingletonTimerWheel(q) => {
-                    fn remove(q: &StdMutex<HashSet<Message>>, msg: &Message) -> bool {
+                    fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
                         q.lock().remove(msg)
                     }
 

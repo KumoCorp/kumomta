@@ -30,7 +30,7 @@ use kumo_server_memory::{
 use kumo_server_runtime::{get_named_runtime, spawn, Runtime};
 use message::message::{MessageList, QueueNameComponents};
 use message::Message;
-use parking_lot::FairMutex as StdMutex;
+use parking_lot::FairMutex;
 use prometheus::Histogram;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
@@ -47,8 +47,8 @@ use tokio::task::JoinHandle;
 use tracing::instrument;
 use uuid::Uuid;
 
-static MANAGER: LazyLock<StdMutex<ReadyQueueManager>> =
-    LazyLock::new(|| StdMutex::new(ReadyQueueManager::new()));
+static MANAGER: LazyLock<FairMutex<ReadyQueueManager>> =
+    LazyLock::new(|| FairMutex::new(ReadyQueueManager::new()));
 static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
@@ -98,7 +98,7 @@ where
 }
 
 pub struct Fifo {
-    list: StdMutex<MessageList>,
+    list: FairMutex<MessageList>,
     count: ReadyCountBundle,
     capacity: AtomicUsize,
 }
@@ -107,7 +107,7 @@ impl Fifo {
     pub fn new(capacity: usize, count: ReadyCountBundle) -> Self {
         Self {
             count,
-            list: StdMutex::new(MessageList::new()),
+            list: FairMutex::new(MessageList::new()),
             capacity: AtomicUsize::new(capacity),
         }
     }
@@ -398,7 +398,7 @@ impl ReadyQueueManager {
                 mx,
                 notify_dispatcher,
                 notify_maintainer,
-                connections: StdMutex::new(vec![]),
+                connections: FairMutex::new(vec![]),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
                 egress_source,
@@ -406,9 +406,9 @@ impl ReadyQueueManager {
                 activity,
                 consecutive_connection_failures: Arc::new(AtomicUsize::new(0)),
                 egress_pool: egress_pool.to_string(),
-                next_config_refresh: StdMutex::new(next_config_refresh),
-                config_epoch: StdMutex::new(config_epoch),
-                states: Arc::new(StdMutex::new(ReadyQueueStates::default())),
+                next_config_refresh: FairMutex::new(next_config_refresh),
+                config_epoch: FairMutex::new(config_epoch),
+                states: Arc::new(FairMutex::new(ReadyQueueStates::default())),
             })
         });
         Ok(handle.clone())
@@ -599,7 +599,7 @@ pub struct ReadyQueue {
     mx: Option<Arc<MailExchanger>>,
     notify_maintainer: Arc<Notify>,
     notify_dispatcher: Arc<Notify>,
-    connections: StdMutex<Vec<JoinHandle<()>>>,
+    connections: FairMutex<Vec<JoinHandle<()>>>,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
@@ -607,9 +607,9 @@ pub struct ReadyQueue {
     queue_config: ConfigHandle<QueueConfig>,
     egress_pool: String,
     egress_source: EgressSource,
-    next_config_refresh: StdMutex<Instant>,
-    config_epoch: StdMutex<ConfigEpoch>,
-    pub states: Arc<StdMutex<ReadyQueueStates>>,
+    next_config_refresh: FairMutex<Instant>,
+    config_epoch: FairMutex<ConfigEpoch>,
+    pub states: Arc<FairMutex<ReadyQueueStates>>,
 }
 
 impl ReadyQueue {
@@ -1079,7 +1079,7 @@ pub struct Dispatcher {
     pub session_id: Uuid,
     leases: Vec<LimitLease>,
     batch_started: Option<tokio::time::Instant>,
-    pub states: Arc<StdMutex<ReadyQueueStates>>,
+    pub states: Arc<FairMutex<ReadyQueueStates>>,
 }
 
 impl Drop for Dispatcher {
@@ -1150,7 +1150,7 @@ impl Dispatcher {
         egress_source: EgressSource,
         egress_pool: String,
         leases: Vec<LimitLease>,
-        states: Arc<StdMutex<ReadyQueueStates>>,
+        states: Arc<FairMutex<ReadyQueueStates>>,
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
