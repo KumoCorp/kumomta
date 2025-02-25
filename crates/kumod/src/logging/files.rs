@@ -276,12 +276,43 @@ impl LogThreadState {
             }
 
             let name = file_key.log_dir.join(base_name);
+            // They might be trying to use multiple directories below
+            // the configured log_dir, so adjust our idea of its parent
+            // dir
+            let log_dir = name
+                .parent()
+                .expect("log_dir.join ensures we always have a parent");
 
-            let f = std::fs::OpenOptions::new()
+            let f = match std::fs::OpenOptions::new()
                 .append(true)
                 .create(true)
                 .open(&name)
-                .with_context(|| format!("open log file {name:?}"))?;
+            {
+                Ok(f) => f,
+                Err(err) => {
+                    if err.kind() == std::io::ErrorKind::NotFound {
+                        match std::fs::create_dir_all(&log_dir) {
+                            Ok(_) => {
+                                // Try opening it again now
+                                std::fs::OpenOptions::new()
+                                    .append(true)
+                                    .create(true)
+                                    .open(&name)
+                                    .with_context(|| format!("open log file {name:?}"))?
+                            }
+                            Err(dir_err) => {
+                                anyhow::bail!(
+                                    "open log file {name:?}: failed: {err:#?}. \
+                                    Additionally, attempting to create dir {} failed: {dir_err:#?}",
+                                    log_dir.display()
+                                );
+                            }
+                        }
+                    } else {
+                        anyhow::bail!("open log file {name:?}: failed: {err:#?}");
+                    }
+                }
+            };
 
             let mut file = OpenedFile {
                 file: Encoder::new(f, self.params.compression_level)

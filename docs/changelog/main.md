@@ -38,6 +38,8 @@
   allows setting the underlying
   [back_pressure](../reference/kumo/configure_log_hook.md) for the TSA log
   hooks.
+* local logger will now create sub-directories if they do not already exist
+  below the configured log directory.
 
 ## Fixes
 
