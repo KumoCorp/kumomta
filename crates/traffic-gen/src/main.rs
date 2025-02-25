@@ -8,6 +8,8 @@ use hdrhistogram::sync::Recorder;
 use hdrhistogram::Histogram;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use num_format::{Locale, ToFormattedString};
+use rand::distributions::WeightedIndex;
+use rand::prelude::*;
 use reqwest::{Client as HttpClient, Url};
 use rfc5321::*;
 use serde::Serialize;
@@ -26,7 +28,10 @@ const DOMAINS: &[&str] = &["aol.com", "gmail.com", "hotmail.com", "yahoo.com"];
 #[command(about = "SMTP traffic generator")]
 struct Opt {
     /// All generated mail will have this domain appended.
-    /// The default is an MX that routes to a loopback address.
+    /// The default is an MX that routes to a loopback address,
+    /// to avoid accidentally leaking traffic to the public internet.
+    /// Specify an empty string to use the domain names with
+    /// no additional suffix: `--domain-suffix ''`.
     #[arg(long, default_value = "mx-sink.wezfurlong.org")]
     domain_suffix: String,
 
@@ -59,10 +64,21 @@ struct Opt {
     #[arg(skip)]
     body_file_content: OnceLock<String>,
 
-    /// Include this domain in the list of domains for which mail
-    /// will be generated.
+    /// Instead of using the built-in list of domains, use the list you provide here.
+    /// You can specify domain multiple times.  Each domain will be used as an option
+    /// for the destination domain.  By default, each domain has an equal weight,
+    /// resulting in a uniform distribution over the supplied list of domain names.
+    ///
+    /// You can additionally specify the weight of the domain like this:
+    /// --domain gmail.com:75 --domain yahoo.com:10
+    ///
+    /// The weight will be used to adjust the random distribution so that larger
+    /// weights will have a larger proportion of the generated messages than
+    /// smaller weights.
+    ///
+    /// The default weight, if none was specified, is 1.
     #[arg(long)]
-    domain: Option<Vec<String>>,
+    domain: Vec<String>,
 
     /// Limit the sending rate to the specified rate
     #[arg(long, value_parser=ValueParser::new(parse_throttle))]
@@ -97,6 +113,9 @@ struct Opt {
     /// target
     #[arg(long)]
     keep_going: bool,
+
+    #[arg(skip)]
+    domain_weights: Option<Arc<WeightedIndex<f32>>>,
 }
 
 fn parse_throttle(arg: &str) -> Result<ThrottleSpec, String> {
@@ -237,12 +256,44 @@ impl Client {
 }
 
 impl Opt {
+    /// Compute both the domain and weights arrays, falling back to
+    /// the default list of domains if none were provided
+    fn compute_domain_weights(&mut self) {
+        let mut adjusted_domains = vec![];
+        let mut weights = vec![];
+
+        if self.domain.is_empty() {
+            for domain in DOMAINS.iter() {
+                adjusted_domains.push(domain.to_string());
+                weights.push(1.0);
+            }
+        } else {
+            for domain in self.domain.iter() {
+                if let Some((name, weight)) = domain.split_once(':') {
+                    adjusted_domains.push(name.to_string());
+                    weights.push(weight.parse().expect(
+                        "domain {domain}:{weight} is not a valid domain/weight pair. \
+                                    weight value must be a numeric weight",
+                    ));
+                } else {
+                    adjusted_domains.push(domain.to_string());
+                    weights.push(1.0);
+                }
+            }
+        }
+        self.domain_weights
+            .replace(Arc::new(WeightedIndex::new(&weights).unwrap()));
+        self.domain = adjusted_domains;
+    }
+
     fn pick_a_domain(&self) -> String {
-        let number: usize = rand::random();
-        let domain = match &self.domain {
-            Some(domains) => domains[number % domains.len()].as_str(),
-            None => DOMAINS[number % DOMAINS.len()],
-        };
+        let idx = self
+            .domain_weights
+            .as_ref()
+            .expect("compute_domain_weights to have been called")
+            .sample(&mut thread_rng());
+
+        let domain = self.domain[idx].as_str();
         if self.domain_suffix.is_empty() {
             return domain.to_string();
         }
@@ -479,8 +530,9 @@ impl Opt {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opts = Opt::parse();
+    let mut opts = Opt::parse();
     opts.load_body_file()?;
+    opts.compute_domain_weights();
 
     let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
     setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard)?;

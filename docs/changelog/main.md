@@ -40,6 +40,9 @@
   hooks.
 * local logger will now create sub-directories if they do not already exist
   below the configured log directory.
+* traffic-gen: you may now specify relative weights for the randomly generated destination
+  domains using eg: `--domain gmail.com:3 --domain outlook.com:1` to have gmail.com
+  be 3x more likely to be generated than outlook.com.
 
 ## Fixes
 
