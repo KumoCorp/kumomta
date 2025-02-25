@@ -697,8 +697,19 @@ impl ReadyQueue {
     }
 
     pub async fn redeem_reservation(&self, msg: Message, reservation: FifoReservation) {
-        if low_memory() {
-            msg.save_and_shrink().await.ok();
+        let action = match memory_status() {
+            MemoryStatus::LowMemory => self.path_config.borrow().low_memory_reduction_policy,
+            MemoryStatus::NoMemory => self.path_config.borrow().no_memory_reduction_policy,
+            MemoryStatus::Ok => MemoryReductionPolicy::NoShrink,
+        };
+        match action {
+            MemoryReductionPolicy::NoShrink => {}
+            MemoryReductionPolicy::ShrinkDataAndMeta => {
+                msg.save_and_shrink().await.ok();
+            }
+            MemoryReductionPolicy::ShrinkData => {
+                msg.save_and_shrink_data().await.ok();
+            }
         }
         reservation.redeem(msg);
         self.notify_maintainer.notify_one();
