@@ -217,6 +217,16 @@ fn main() -> anyhow::Result<()> {
 async fn perform_init(opts: Opt) -> anyhow::Result<()> {
     let nodeid = kumo_server_common::nodeid::NodeId::get();
     tracing::info!("NodeId is {nodeid}");
+    let num_cores = std::thread::available_parallelism()
+        .context("failed to get available_parallelism")?
+        .get();
+    tracing::info!("available_parallelism={num_cores}");
+    if num_cores < 4 {
+        tracing::error!(
+            "Running a production workload with fewer than 4 cores is not recommended. \
+            available_parallelism={num_cores}."
+        );
+    }
     let start_time = Utc::now();
 
     let mut config = config::load_config().await.context("load_config")?;
