@@ -103,24 +103,39 @@ fn mark_path_as_done(path: &PathBuf) -> std::io::Result<()> {
 }
 
 fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
-    for entry in std::fs::read_dir(dir).with_context(|| format!("reading dir {dir:?}"))? {
-        if let Ok(entry) = entry {
-            match entry.file_name().to_str() {
-                Some(name) if name.starts_with('.') => {
-                    continue;
-                }
-                None => continue,
-                Some(_name) => {
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_file() {
-                            mark_path_as_done(&entry.path()).ok();
+    match std::fs::read_dir(dir) {
+        Ok(d) => {
+            for entry in d {
+                if let Ok(entry) = entry {
+                    match entry.file_name().to_str() {
+                        Some(name) if name.starts_with('.') => {
+                            continue;
+                        }
+                        None => continue,
+                        Some(_name) => {
+                            if let Ok(file_type) = entry.file_type() {
+                                if file_type.is_file() {
+                                    mark_path_as_done(&entry.path()).ok();
+                                }
+                            }
                         }
                     }
                 }
             }
+            Ok(())
+        }
+        Err(err) => {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                // If there's no dir, there's nothing to mark done!
+                Ok(())
+            } else {
+                anyhow::bail!(
+                    "failed to mark existing logs as done in {}: {err:#}",
+                    dir.display()
+                );
+            }
         }
     }
-    Ok(())
 }
 
 pub struct LogThreadState {
