@@ -51,3 +51,6 @@
   some extraneous unused threads would be created.
 * Using a display name with commas in the builder mode of the HTTP injection
   API would produce an invalid mailbox header.
+* Potential stack overflow during spool enumeration when using
+  `max_message_rate` with local (non-redis) throttles together with custom lua delivery
+  handlers.

@@ -109,7 +109,7 @@ fn local_throttle(
         limit: rate_limit_result.limit as u64,
         remaining: rate_limit_result.remaining as u64,
         reset_after: Duration::from_secs(reset_after.max(0) as u64),
-        retry_after: if retry_after == -1 {
+        retry_after: if retry_after <= 0 {
             None
         } else {
             Some(Duration::from_secs(retry_after.max(0) as u64))
@@ -140,7 +140,7 @@ async fn redis_cell_throttle(
         limit: result[1] as u64,
         remaining: result[2] as u64,
         retry_after: match result[3] {
-            n if n < 0 => None,
+            n if n <= 0 => None,
             n => Some(Duration::from_secs(n as u64)),
         },
         reset_after: Duration::from_secs(result[4].max(0) as u64),
