@@ -12,14 +12,14 @@ addition, certain recipient domains include a sample of realistic
 error responses that have been observed to be produced by that domain
 in real production traffic.
 
-In addition to that probabalistic bounce behavior, you can explicitly
+In addition to that probabilistic bounce behavior, you can explicitly
 choose a class of response by varying the user portion of the recipient
 address:
 
 * if the user includes `tempfail` a `400 tempfail requested` response will be generated
 * if the user includes `permfail` a `500 permfail requested` response will be generated
 * If the user starts with `450-` then response will be `450 you said USER`.
-* If the user starts with `250-` then message will be accepted and discarded, ignoring the probabalistic bounce settings.
+* If the user starts with `250-` then message will be accepted and discarded, ignoring the probabilistic bounce settings.
 
 Use this to start the daemon and view the logs:
 
