@@ -4,7 +4,7 @@ This directory contains a docker compose file that will spawn kumod (the MTA
 process) in a *sink* configuration. The SMTP service will pretend to accept
 most mail and then simply discard it.  For the messages it doesn't accept, it
 will return a failure response based on the contents of the
-[policy/reponses.toml](policy/responses.toml) file.
+[policy/responses.toml](policy/responses.toml) file.
 
 That file encodes the chances of returning a bounce or a transient failure,
 with that chance being configurable based on the recipient domain. In
