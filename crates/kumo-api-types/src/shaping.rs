@@ -289,23 +289,27 @@ impl ShapingInner {
         // TSA http "domain name" here
         let is_domain_name = dns_resolver::Name::from_str_relaxed(domain).is_ok();
         if is_domain_name {
+            let mut prov_with_sources = vec![];
+
             for prov in self.by_provider.values() {
                 if prov.domain_matches(domain).await {
                     toml_table_merge_from(&mut params.params, &prov.params);
                     prov.apply_provider_params_to(egress_source, &mut params.params);
+
+                    if !prov.sources.is_empty() {
+                        // Remember this matching provider, so that we
+                        // can apply any source rules after we've applied
+                        // any/all base provider rules for this domain
+                        prov_with_sources.push(prov);
+                    }
                 }
             }
 
             // Then Provider source rules
-            for prov in self.by_provider.values() {
-                if prov.sources.is_empty() {
-                    continue;
-                }
-                if prov.domain_matches(domain).await {
-                    if let Some(source) = prov.sources.get(egress_source) {
-                        toml_table_merge_from(&mut params.params, &source);
-                        prov.apply_provider_params_to(egress_source, &mut params.params);
-                    }
+            for prov in prov_with_sources {
+                if let Some(source) = prov.sources.get(egress_source) {
+                    toml_table_merge_from(&mut params.params, &source);
+                    prov.apply_provider_params_to(egress_source, &mut params.params);
                 }
             }
         }
