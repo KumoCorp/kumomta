@@ -1,8 +1,8 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
 use dns_resolver::{
-    get_resolver, resolve_a_or_aaaa, set_mx_timeout, HickoryResolver, MailExchanger, TestResolver,
-    UnboundResolver,
+    get_resolver, resolve_a_or_aaaa, set_mx_negative_cache_ttl, set_mx_timeout, HickoryResolver,
+    MailExchanger, TestResolver, UnboundResolver,
 };
 use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
 use hickory_resolver::{Name, TokioAsyncResolver};
@@ -26,6 +26,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, duration: Value| {
             let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
             set_mx_timeout(duration.into_inner()).map_err(any_err)
+        })?,
+    )?;
+
+    dns_mod.set(
+        "set_mx_negative_cache_ttl",
+        lua.create_function(move |lua, duration: Value| {
+            let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
+            set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
         })?,
     )?;
 

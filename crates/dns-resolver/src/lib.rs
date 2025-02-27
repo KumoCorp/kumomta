@@ -28,7 +28,7 @@ pub use resolver::{ptr_host, DnsError, HickoryResolver, IpDisplay, Resolver, Tes
 static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
-static MX_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<MailExchanger>>> =
+static MX_CACHE: LazyLock<LruCacheWithTtl<Name, Result<Arc<MailExchanger>, String>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_mx", 64 * 1024));
 static IPV4_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ipv4", 1024));
@@ -37,7 +37,11 @@ static IPV6_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
 static IP_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ip", 1024));
 
+/// 5 seconds in ms
 static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
+
+/// 5 minutes in ms
+static MX_NEGATIVE_TTL: AtomicUsize = AtomicUsize::new(300 * 1000);
 
 static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
@@ -94,6 +98,19 @@ pub fn set_mx_timeout(duration: Duration) -> anyhow::Result<()> {
 
 pub fn get_mx_timeout() -> Duration {
     Duration::from_millis(MX_TIMEOUT_MS.load(Ordering::Relaxed) as u64)
+}
+
+pub fn set_mx_negative_cache_ttl(duration: Duration) -> anyhow::Result<()> {
+    let ms = duration
+        .as_millis()
+        .try_into()
+        .context("set_mx_negative_cache_ttl: duration is too large")?;
+    MX_NEGATIVE_TTL.store(ms, Ordering::Relaxed);
+    Ok(())
+}
+
+pub fn get_mx_negative_ttl() -> Duration {
+    Duration::from_millis(MX_NEGATIVE_TTL.load(Ordering::Relaxed) as u64)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -314,17 +331,27 @@ impl MailExchanger {
 
         if let Some(mx) = MX_CACHE.get(&name_fq).await {
             MX_CACHED.inc();
-            return Ok(mx);
+            return mx.map_err(|err| anyhow::anyhow!("{err}"));
         }
 
         let start = Instant::now();
         MX_QUERIES.inc();
         let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
             Ok((by_pref, expires)) => (by_pref, expires),
-            Err(err) => anyhow::bail!(
-                "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
-                elapsed = start.elapsed()
-            ),
+            Err(err) => {
+                let error = format!(
+                    "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                    elapsed = start.elapsed()
+                );
+                let _ = MX_CACHE
+                    .insert(
+                        name_fq,
+                        Err(error.clone()),
+                        Instant::now() + get_mx_negative_ttl(),
+                    )
+                    .await;
+                anyhow::bail!("{error}");
+            }
         };
 
         let mut hosts = vec![];
@@ -355,7 +382,7 @@ impl MailExchanger {
         };
 
         let mx = Arc::new(mx);
-        MX_CACHE.insert(name_fq, mx.clone(), expires).await;
+        let _ = MX_CACHE.insert(name_fq, Ok(mx.clone()), expires).await;
         Ok(mx)
     }
 

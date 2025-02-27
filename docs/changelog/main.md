@@ -48,6 +48,8 @@
   be 3x more likely to be generated than outlook.com.
 * New [kumo.dns.set_mx_timeout](../reference/kumo.dns/set_mx_timeout.md) option
   to configure a timeout for MX record resolution. #325
+* New [kumo.dns.set_mx_negative_cache_ttl](../reference/kumo.dns/set_mx_negative_cache_ttl.md)
+  option to configure the duration used for caching MX resolution errors.
 
 ## Fixes
 
