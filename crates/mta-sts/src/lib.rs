@@ -3,11 +3,11 @@ use futures::future::BoxFuture;
 use hickory_resolver::Name;
 use lruttl::LruCacheWithTtl;
 use policy::MtaStsPolicy;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
-static CACHE: LazyLock<Mutex<LruCacheWithTtl<Name, CachedPolicy>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("mta_sts_policy", 64 * 1024)));
+static CACHE: LazyLock<LruCacheWithTtl<Name, CachedPolicy>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("mta_sts_policy", 64 * 1024));
 
 pub mod dns;
 pub mod policy;
@@ -76,8 +76,8 @@ pub async fn get_policy_for_domain(policy_domain: &str) -> anyhow::Result<Arc<Mt
     get_policy_for_domain_impl(policy_domain, &**resolver, &Getter {}).await
 }
 
-fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
-    CACHE.lock().unwrap().get(&name).map(|p| p.clone())
+async fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
+    CACHE.get(&name).await
 }
 
 async fn get_policy_for_domain_impl(
@@ -87,7 +87,7 @@ async fn get_policy_for_domain_impl(
 ) -> anyhow::Result<Arc<MtaStsPolicy>> {
     let name = Name::from_str_relaxed(policy_domain)?.to_lowercase();
 
-    if let Some(cached) = cache_lookup(&name) {
+    if let Some(cached) = cache_lookup(&name).await {
         // Removal of the DNS record does not invalidate our
         // cached result, only updating it with a different id
         let still_valid = dns::resolve_dns_record(policy_domain, resolver)
@@ -106,14 +106,16 @@ async fn get_policy_for_domain_impl(
 
     let expires = Instant::now() + Duration::from_secs(policy.max_age);
 
-    CACHE.lock().unwrap().insert(
-        name,
-        CachedPolicy {
-            id: record.id,
-            policy: Arc::clone(&policy),
-        },
-        expires,
-    );
+    CACHE
+        .insert(
+            name,
+            CachedPolicy {
+                id: record.id,
+                policy: Arc::clone(&policy),
+            },
+            expires,
+        )
+        .await;
 
     Ok(policy)
 }

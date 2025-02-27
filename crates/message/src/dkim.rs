@@ -199,9 +199,9 @@ impl LuaUserData for Signer {}
 
 async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
     KEY_CACHE_LOOKUP.inc();
-    if let Some(pkey) = KEY_CACHE.get(key) {
+    if let Some(pkey) = KEY_CACHE.get(key).await {
         KEY_CACHE_HIT.inc();
-        return Ok(pkey.clone());
+        return Ok(pkey);
     }
 
     KEY_CACHE_MISS.inc();
@@ -211,7 +211,9 @@ async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<D
     let pkey = Arc::new(DkimPrivateKey::rsa_key(&data)?);
     key_fetch_timer.stop_and_record();
 
-    KEY_CACHE.insert(key.clone(), pkey.clone(), Instant::now() + ttl);
+    KEY_CACHE
+        .insert(key.clone(), pkey.clone(), Instant::now() + ttl)
+        .await;
     Ok(pkey)
 }
 
@@ -239,7 +241,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let params: SignerConfig = from_lua_value(&lua, params)?;
 
             SIGNER_CACHE_LOOKUP.inc();
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
+            if let Some(inner) = SIGNER_CACHE.get(&params).await {
                 SIGNER_CACHE_HIT.inc();
                 return Ok(Signer(inner));
             }
@@ -258,7 +260,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let inner = Arc::new(CFSigner { signer });
 
             let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
+            SIGNER_CACHE
+                .insert(params, Arc::clone(&inner), expiration)
+                .await;
 
             signer_creation_timer.stop_and_record();
             Ok(Signer(inner))
@@ -270,7 +274,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, params: Value| async move {
             let params: SignerConfig = from_lua_value(&lua, params)?;
 
-            if let Some(inner) = SIGNER_CACHE.get(&params) {
+            if let Some(inner) = SIGNER_CACHE.get(&params).await {
                 return Ok(Signer(inner));
             }
 
@@ -287,7 +291,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let inner = Arc::new(CFSigner { signer });
 
             let expiration = Instant::now() + params.ttl;
-            SIGNER_CACHE.insert(params, Arc::clone(&inner), expiration);
+            SIGNER_CACHE
+                .insert(params, Arc::clone(&inner), expiration)
+                .await;
 
             signer_creation_timer.stop_and_record();
             Ok(Signer(inner))

@@ -2,7 +2,6 @@
 use hickory_proto::rr::rdata::TLSA;
 use lruttl::LruCacheWithTtl;
 use openssl::ssl::SslOptions;
-use parking_lot::Mutex;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio_rustls::rustls::client::danger::ServerCertVerifier;
@@ -50,24 +49,26 @@ impl std::hash::Hash for RustlsCacheKey {
     }
 }
 
-static RUSTLS_CACHE: LazyLock<Mutex<LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("rfc5321_rustls_config", 32)));
+static RUSTLS_CACHE: LazyLock<LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("rfc5321_rustls_config", 32));
 
 impl RustlsCacheKey {
-    fn get(&self) -> Option<Arc<ClientConfig>> {
-        RUSTLS_CACHE.lock().get(self)
+    async fn get(&self) -> Option<Arc<ClientConfig>> {
+        RUSTLS_CACHE.get(self).await
     }
 
-    fn set(self, value: Arc<ClientConfig>) {
-        RUSTLS_CACHE.lock().insert(
-            self,
-            value,
-            // We allow the state to be cached for up to 15 minutes at
-            // a time so that we have an opportunity to reload the
-            // system certificates within a reasonable time frame
-            // as/when they are updated by the system.
-            Instant::now() + Duration::from_secs(15 * 60),
-        );
+    async fn set(self, value: Arc<ClientConfig>) {
+        RUSTLS_CACHE
+            .insert(
+                self,
+                value,
+                // We allow the state to be cached for up to 15 minutes at
+                // a time so that we have an opportunity to reload the
+                // system certificates within a reasonable time frame
+                // as/when they are updated by the system.
+                Instant::now() + Duration::from_secs(15 * 60),
+            )
+            .await;
     }
 }
 
@@ -90,13 +91,13 @@ impl TlsOptions {
     /// and not be something we want to do repeatedly in a hot code
     /// path.  The cache does unfortunately complicate some of the
     /// internals here.
-    pub fn build_tls_connector(&self) -> TlsConnector {
+    pub async fn build_tls_connector(&self) -> TlsConnector {
         let key = RustlsCacheKey {
             insecure: self.insecure,
             rustls_cipher_suites: self.rustls_cipher_suites.clone(),
         };
 
-        if let Some(config) = key.get() {
+        if let Some(config) = key.get().await {
             return TlsConnector::from(config);
         }
         let cipher_suites = if self.rustls_cipher_suites.is_empty() {
@@ -124,7 +125,7 @@ impl TlsOptions {
                 .with_custom_certificate_verifier(verifier)
                 .with_no_client_auth(),
         );
-        key.set(config.clone());
+        key.set(config.clone()).await;
 
         TlsConnector::from(config)
     }

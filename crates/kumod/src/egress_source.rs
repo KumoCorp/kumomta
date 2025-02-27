@@ -22,10 +22,10 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
-static SOURCES: LazyLock<Mutex<LruCacheWithTtl<String, EgressSource>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("egress_source_sources", 128)));
-static POOLS: LazyLock<Mutex<LruCacheWithTtl<String, EgressPool>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("egress_source_pools", 128)));
+static SOURCES: LazyLock<LruCacheWithTtl<String, EgressSource>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("egress_source_sources", 128));
+static POOLS: LazyLock<LruCacheWithTtl<String, EgressPool>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("egress_source_pools", 128));
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
@@ -71,8 +71,8 @@ impl LuaUserData for EgressSource {}
 
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
-        if let Some(source) = SOURCES.lock().get(name) {
-            return Ok(source.clone());
+        if let Some(source) = SOURCES.get(name).await {
+            return Ok(source);
         }
 
         let source: Self = if name == "unspecified" {
@@ -97,11 +97,13 @@ impl EgressSource {
                 .with_context(|| format!("get_egress_source '{name}'"))?
         };
 
-        SOURCES.lock().insert(
-            name.to_string(),
-            source.clone(),
-            Instant::now() + source.ttl,
-        );
+        SOURCES
+            .insert(
+                name.to_string(),
+                source.clone(),
+                Instant::now() + source.ttl,
+            )
+            .await;
 
         Ok(source)
     }
@@ -308,8 +310,8 @@ impl EgressPool {
     pub async fn resolve(name: Option<&str>, config: &mut LuaConfig) -> anyhow::Result<Self> {
         let name = name.unwrap_or("unspecified");
 
-        if let Some(pool) = POOLS.lock().get(name) {
-            return Ok(pool.clone());
+        if let Some(pool) = POOLS.get(name).await {
+            return Ok(pool);
         }
 
         let pool: Self = if name == "unspecified" {
@@ -338,8 +340,8 @@ impl EgressPool {
         }
 
         POOLS
-            .lock()
-            .insert(name.to_string(), pool.clone(), Instant::now() + pool.ttl);
+            .insert(name.to_string(), pool.clone(), Instant::now() + pool.ttl)
+            .await;
 
         Ok(pool)
     }

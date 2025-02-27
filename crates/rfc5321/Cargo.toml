@@ -25,7 +25,6 @@ libc = {workspace=true}
 lruttl = {path="../lruttl", optional=true}
 memchr = {workspace=true}
 openssl = {workspace=true, optional=true}
-parking_lot = {workspace=true}
 pest = {workspace=true}
 pest_derive = {workspace=true}
 rustls-platform-verifier = {workspace=true,optional=true}

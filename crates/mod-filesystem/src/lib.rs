@@ -58,7 +58,7 @@ async fn cached_glob(
         pattern: pattern.to_string(),
         path: path.clone(),
     };
-    if let Some(cached) = CACHE.get(&key) {
+    if let Some(cached) = CACHE.get(&key).await {
         return cached.map_err(mlua::Error::external);
     }
 
@@ -70,6 +70,7 @@ async fn cached_glob(
 
     CACHE
         .insert(key, result.clone(), Instant::now() + ttl)
+        .await
         .map_err(mlua::Error::external)
 }
 

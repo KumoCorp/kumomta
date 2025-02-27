@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 kumo-server-memory = {path="../kumo-server-memory"}
-lru-cache = {workspace=true}
+moka.workspace = true
 parking_lot = {workspace=true}
 tokio = {workspace=true, features=["sync"]}
 tracing = {workspace=true}

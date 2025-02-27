@@ -703,7 +703,7 @@ impl SmtpClient {
                 }
             } else {
                 tls_info.provider_name = "rustls".to_string();
-                let connector = options.build_tls_connector();
+                let connector = options.build_tls_connector().await;
                 let server_name = match IpAddr::from_str(self.hostname.as_str()) {
                     Ok(ip) => ServerName::IpAddress(ip.into()),
                     Err(_) => ServerName::try_from(self.hostname.clone())

@@ -432,7 +432,7 @@ impl SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
-        let broken_tls = self.has_broken_tls(&dispatcher.name);
+        let broken_tls = self.has_broken_tls(&dispatcher.name).await;
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
@@ -585,7 +585,8 @@ impl SmtpDispatcher {
                         we are in OpportunisticInsecure mode"
                         );
 
-                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                            .await;
 
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
@@ -613,7 +614,8 @@ impl SmtpDispatcher {
                 match client.ehlo_lhlo(&ehlo_name, path_config.use_lmtp).await {
                     Ok(_) => enabled,
                     Err(error) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                            .await;
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
                             anyhow::bail!(
@@ -652,7 +654,8 @@ impl SmtpDispatcher {
                     .await?
                 {
                     TlsStatus::FailedHandshake(handshake_error) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                            .await;
 
                         // Don't try too hard to send the quit here; the connection may
                         // be busted by the failed handshake and never succeed
@@ -690,7 +693,8 @@ impl SmtpDispatcher {
                 {
                     Ok(_) => true,
                     Err(err) => {
-                        self.remember_broken_tls(&dispatcher.name, &path_config);
+                        self.remember_broken_tls(&dispatcher.name, &path_config)
+                            .await;
                         if path_config.opportunistic_tls_reconnect_on_failed_handshake {
                             self.addresses.push(address);
                             anyhow::bail!(
@@ -742,7 +746,7 @@ impl SmtpDispatcher {
         Ok(())
     }
 
-    fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
+    async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
         let duration = match path_config.remember_broken_tls {
             Some(duration) => Some(duration),
             None if path_config.opportunistic_tls_reconnect_on_failed_handshake => {
@@ -752,16 +756,18 @@ impl SmtpDispatcher {
         };
         if let Some(duration) = duration {
             self.site_has_broken_tls = true;
-            BROKEN_TLS_BY_SITE.insert(
-                site_name.to_string(),
-                (),
-                std::time::Instant::now() + duration,
-            );
+            BROKEN_TLS_BY_SITE
+                .insert(
+                    site_name.to_string(),
+                    (),
+                    std::time::Instant::now() + duration,
+                )
+                .await;
         }
     }
 
-    fn has_broken_tls(&self, site_name: &str) -> bool {
-        self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
+    async fn has_broken_tls(&self, site_name: &str) -> bool {
+        self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).await.is_some()
     }
 
     async fn log_disposition(

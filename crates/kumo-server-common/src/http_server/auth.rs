@@ -7,11 +7,11 @@ use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
 use lruttl::LruCacheWithTtl;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-static AUTH_CACHE: LazyLock<Mutex<LruCacheWithTtl<AuthKind, Result<bool, String>>>> =
-    LazyLock::new(|| Mutex::new(LruCacheWithTtl::new_named("http_server_auth", 128)));
+static AUTH_CACHE: LazyLock<LruCacheWithTtl<AuthKind, Result<bool, String>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("http_server_auth", 128));
 
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference
@@ -69,21 +69,19 @@ impl AuthKind {
         }
     }
 
-    fn lookup_cache(&self) -> Option<Result<bool, String>> {
-        AUTH_CACHE.lock().unwrap().get(self).clone()
+    async fn lookup_cache(&self) -> Option<Result<bool, String>> {
+        AUTH_CACHE.get(self).await
     }
 
     pub async fn validate(&self) -> anyhow::Result<bool> {
-        match self.lookup_cache() {
+        match self.lookup_cache().await {
             Some(res) => res.map_err(|err| anyhow::anyhow!("{err}")),
             None => {
                 let res = self.validate_impl().await.map_err(|err| format!("{err:#}"));
 
-                let res = AUTH_CACHE.lock().unwrap().insert(
-                    self.clone(),
-                    res,
-                    Instant::now() + Duration::from_secs(60),
-                );
+                let res = AUTH_CACHE
+                    .insert(self.clone(), res, Instant::now() + Duration::from_secs(60))
+                    .await;
 
                 res.map_err(|err| anyhow::anyhow!("{err}"))
             }

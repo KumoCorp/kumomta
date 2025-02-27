@@ -560,7 +560,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     };
                     let key = (epoch_key, key);
 
-                    if let Some(value) = cache.get(&key) {
+                    if let Some(value) = cache.get(&key).await {
                         hit_counter.inc();
                         return Ok(value.to_value(&lua)?);
                     }
@@ -572,7 +572,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
                     // Check cache again in case we raced with someone else
                     // while waiting for the semaphore
-                    if let Some(value) = cache.get(&key) {
+                    if let Some(value) = cache.get(&key).await {
                         miss_other_counter.inc();
                         return Ok(value.to_value(&lua)?);
                     }
@@ -584,7 +584,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     let value = CacheEntry::from_multi_value(&lua, result.clone())?;
                     let return_value = value.to_value(&lua)?;
 
-                    cache.insert(key, value, Instant::now() + ttl);
+                    cache.insert(key, value, Instant::now() + ttl).await;
 
                     // Explicit release the semaphore to allow others to
                     // also consume the value

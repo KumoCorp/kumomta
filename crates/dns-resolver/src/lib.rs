@@ -12,7 +12,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex as StdMutex};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -28,14 +28,14 @@ pub use resolver::{ptr_host, DnsError, HickoryResolver, IpDisplay, Resolver, Tes
 static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
-static MX_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<MailExchanger>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_mx", 64 * 1024)));
-static IPV4_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ipv4", 1024)));
-static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ipv6", 1024)));
-static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
-    LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ip", 1024)));
+static MX_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<MailExchanger>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_mx", 64 * 1024));
+static IPV4_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ipv4", 1024));
+static IPV6_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ipv6", 1024));
+static IP_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
+    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ip", 1024));
 
 static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 
@@ -94,22 +94,6 @@ pub fn set_mx_timeout(duration: Duration) -> anyhow::Result<()> {
 
 pub fn get_mx_timeout() -> Duration {
     Duration::from_millis(MX_TIMEOUT_MS.load(Ordering::Relaxed) as u64)
-}
-
-fn mx_cache_get(name: &Name) -> Option<Arc<MailExchanger>> {
-    MX_CACHE.lock().unwrap().get(name).clone()
-}
-
-fn ip_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
-    IP_CACHE.lock().unwrap().get_with_expiry(ip)
-}
-
-fn ipv4_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
-    IPV4_CACHE.lock().unwrap().get_with_expiry(ip)
-}
-
-fn ipv6_cache_get(ip: &Name) -> Option<(Arc<Vec<IpAddr>>, Instant)> {
-    IPV6_CACHE.lock().unwrap().get_with_expiry(ip)
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -327,7 +311,8 @@ impl MailExchanger {
         }
 
         let name_fq = fully_qualify(domain_name)?;
-        if let Some(mx) = mx_cache_get(&name_fq) {
+
+        if let Some(mx) = MX_CACHE.get(&name_fq).await {
             MX_CACHED.inc();
             return Ok(mx);
         }
@@ -370,10 +355,7 @@ impl MailExchanger {
         };
 
         let mx = Arc::new(mx);
-        MX_CACHE
-            .lock()
-            .unwrap()
-            .insert(name_fq, mx.clone(), expires);
+        MX_CACHE.insert(name_fq, mx.clone(), expires).await;
         Ok(mx)
     }
 
@@ -507,7 +489,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 
 pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = ip_cache_get(&key_fq) {
+    if let Some(value) = IP_CACHE.get_with_expiry(&key_fq).await {
         return Ok(value);
     }
 
@@ -549,13 +531,13 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
     let addr = Arc::new(results);
     let exp = expires.take().unwrap_or_else(|| Instant::now());
 
-    IP_CACHE.lock().unwrap().insert(key_fq, addr.clone(), exp);
+    IP_CACHE.insert(key_fq, addr.clone(), exp).await;
     Ok((addr, exp))
 }
 
 pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = ipv4_cache_get(&key_fq) {
+    if let Some(value) = IPV4_CACHE.get_with_expiry(&key_fq).await {
         return Ok(value);
     }
 
@@ -567,16 +549,13 @@ pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV4_CACHE
-        .lock()
-        .unwrap()
-        .insert(key_fq, ips.clone(), expires);
+    IPV4_CACHE.insert(key_fq, ips.clone(), expires).await;
     Ok((ips, expires))
 }
 
 pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(value) = ipv6_cache_get(&key_fq) {
+    if let Some(value) = IPV6_CACHE.get_with_expiry(&key_fq).await {
         return Ok(value);
     }
 
@@ -588,10 +567,7 @@ pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV6_CACHE
-        .lock()
-        .unwrap()
-        .insert(key_fq, ips.clone(), expires);
+    IPV6_CACHE.insert(key_fq, ips.clone(), expires).await;
     Ok((ips, expires))
 }
 
