@@ -1146,7 +1146,10 @@ impl Queue {
             site_name,
         });
 
-        if !matches!(strategy, QueueStrategy::SingletonTimerWheel) {
+        if !matches!(
+            strategy,
+            QueueStrategy::SingletonTimerWheel | QueueStrategy::SingletonTimerWheelV2
+        ) {
             Self::spawn_queue_maintainer(&handle)?;
         }
 
