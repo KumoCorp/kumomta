@@ -77,7 +77,9 @@ max_age = '10 hours'
 max_age = '24 hours'
 
 # If you configure a domain for `relay_to = true` in the listener_domains
-# helper, you will need to configure a routing domain so that KumoMTA knows # where to relay the messages to internally, since an MX lookup will return # the IP for your KumoMTA instance:
+# helper, you will need to configure a routing domain so that KumoMTA knows
+# where to relay the messages to internally, since an MX lookup will return
+# the IP for your KumoMTA instance:
 [queue.'my.own.hostname']
 routing_domain = '[10.0.0.1]'
 
