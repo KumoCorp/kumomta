@@ -3956,6 +3956,7 @@ dependencies = [
  "anyhow",
  "config",
  "dns-resolver",
+ "duration-serde",
  "hickory-resolver",
  "libunbound",
  "mlua",

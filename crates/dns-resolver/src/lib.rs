@@ -1,3 +1,4 @@
+use anyhow::Context;
 use arc_swap::ArcSwap;
 use hickory_resolver::error::ResolveResult;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
@@ -10,8 +11,10 @@ use rand::prelude::SliceRandom;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex as StdMutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::time::timeout;
 
 mod resolver;
 #[cfg(feature = "unbound")]
@@ -33,6 +36,8 @@ static IPV6_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
     LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ipv6", 1024)));
 static IP_CACHE: LazyLock<StdMutex<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>>> =
     LazyLock::new(|| StdMutex::new(LruCacheWithTtl::new_named("dns_resolver_ip", 1024)));
+
+static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
 
 static MX_IN_PROGRESS: LazyLock<prometheus::IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
@@ -76,6 +81,19 @@ fn default_resolver() -> impl Resolver {
     return UnboundResolver::new().unwrap();
     #[cfg(not(feature = "default-unbound"))]
     return HickoryResolver::new().expect("Parsing /etc/resolv.conf failed");
+}
+
+pub fn set_mx_timeout(duration: Duration) -> anyhow::Result<()> {
+    let ms = duration
+        .as_millis()
+        .try_into()
+        .context("set_mx_timeout: duration is too large")?;
+    MX_TIMEOUT_MS.store(ms, Ordering::Relaxed);
+    Ok(())
+}
+
+pub fn get_mx_timeout() -> Duration {
+    Duration::from_millis(MX_TIMEOUT_MS.load(Ordering::Relaxed) as u64)
 }
 
 fn mx_cache_get(name: &Name) -> Option<Arc<MailExchanger>> {
@@ -432,10 +450,11 @@ struct ByPreference {
 }
 
 async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
-    let mx_lookup = RESOLVER
-        .load()
-        .resolve(domain_name.clone(), RecordType::MX)
-        .await?;
+    let mx_lookup = timeout(
+        get_mx_timeout(),
+        RESOLVER.load().resolve(domain_name.clone(), RecordType::MX),
+    )
+    .await??;
     let mx_records = mx_lookup.records;
 
     if mx_records.is_empty() {

@@ -10,6 +10,12 @@ use std::time::Duration;
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
 pub struct Wrap<T>(T);
 
+impl<T> Wrap<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
 pub fn serialize<T, S>(d: &T, s: S) -> Result<S::Ok, S::Error>
 where
     for<'a> Wrap<&'a T>: Serialize,

@@ -6,6 +6,9 @@
   These have had no effect for the past several stable releases, having been
   made automatic. If you are referencing them in your policy, you can simply
   remove the associated logic.
+* MX resolution now has a default timeout of 5 seconds. Read
+  [kumo.dns.set_mx_timeout](../reference/kumo.dns/set_mx_timeout.md) for more
+  information.
 
 ## Other Changes and Enhancements
 
@@ -43,6 +46,8 @@
 * traffic-gen: you may now specify relative weights for the randomly generated destination
   domains using eg: `--domain gmail.com:3 --domain outlook.com:1` to have gmail.com
   be 3x more likely to be generated than outlook.com.
+* New [kumo.dns.set_mx_timeout](../reference/kumo.dns/set_mx_timeout.md) option
+  to configure a timeout for MX record resolution. #325
 
 ## Fixes
 
