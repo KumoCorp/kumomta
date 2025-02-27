@@ -1146,11 +1146,13 @@ impl Queue {
             site_name,
         });
 
-        if !matches!(
-            strategy,
-            QueueStrategy::SingletonTimerWheel | QueueStrategy::SingletonTimerWheelV2
-        ) {
-            Self::spawn_queue_maintainer(&handle)?;
+        match strategy {
+            QueueStrategy::SingletonTimerWheel | QueueStrategy::SingletonTimerWheelV2 => {
+                // These use a global wheel maintainer
+            }
+            QueueStrategy::TimerWheel | QueueStrategy::SkipList => {
+                Self::spawn_queue_maintainer(&handle)?;
+            }
         }
 
         Ok(handle)
