@@ -133,6 +133,6 @@ The KumoMTA configuration is entirely written in [Lua](https://www.lua.org/home.
     {% endcall %}
 
     !!!note
-        These instructions assume that the keyfiles are already created and in place, along with the appropriate DNS records. See [the UserGuide](../userguide/configuration/dkim.md) for more information.
+        These instructions assume that the keyfiles are already created and in place, along with the appropriate DNS records. See [the User Guide](../userguide/configuration/dkim.md) for more information.
 
 You now have a basic and safe sending configuration that will allow you to move on to [Starting KumoMTA](./starting_kumomta.md).
