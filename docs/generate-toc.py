@@ -328,7 +328,10 @@ TOC = [
                         "Scaling Clusters Up and Down",
                         "userguide/clustering/scaling.md",
                     ),
-                    Page("Deploying KumoMTA on Kubernetes", "userguide/clustering/kubernetes.md"),
+                    Page(
+                        "Deploying KumoMTA on Kubernetes",
+                        "userguide/clustering/kubernetes.md",
+                    ),
                 ],
             ),
             Page(
