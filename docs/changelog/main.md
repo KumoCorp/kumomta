@@ -9,6 +9,15 @@
 * MX resolution now has a default timeout of 5 seconds. Read
   [kumo.dns.set_mx_timeout](../reference/kumo.dns/set_mx_timeout.md) for more
   information.
+* The HTTP client returned from `kumo.http.build_client` will now look for the
+  system CA-certificate bundle when making connections. **If no CA-certificate
+  bundle is present**, it will have no available trust store and will **not be
+  able to successfully establish TLS sessions**. Previously, we used a bundled
+  hard-coded, non-extensible, copy of the Mozilla CA certificate store. You
+  must therefore ensure that you install the `ca-certificates` package for your
+  system, or otherwise contrive to populate the system certificate store. Note
+  that this change is consistent with a similar change to the SMTP client in
+  the `2024.11.08-d383b033` release.
 
 ## Other Changes and Enhancements
 

@@ -148,7 +148,7 @@ rcgen = "0.13"
 rdkafka = "0.36"
 redis = {version="0.27", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
-reqwest = {version="0.12", default-features=false, features=["rustls-tls"]}
+reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
 ring = "0.17"
 rocksdb = {version="0.22", features=["jemalloc"]}
 rustls = "0.23"
