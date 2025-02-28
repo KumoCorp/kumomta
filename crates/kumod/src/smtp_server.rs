@@ -35,10 +35,11 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::timeout_at;
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, instrument, Level};
 use utoipa::ToSchema;
@@ -222,6 +223,12 @@ pub struct EsmtpListenerParams {
     )]
     pub client_timeout: Duration,
 
+    #[serde(
+        default = "EsmtpListenerParams::default_data_processing_timeout",
+        with = "duration_serde"
+    )]
+    pub data_processing_timeout: Duration,
+
     #[serde(skip)]
     tls_config: OnceLock<Arc<ServerConfig>>,
 
@@ -274,6 +281,10 @@ impl EsmtpListenerParams {
     }
 
     fn default_client_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
+
+    fn default_data_processing_timeout() -> Duration {
         Duration::from_secs(60)
     }
 
@@ -1616,6 +1627,9 @@ impl SmtpServer {
     }
 
     async fn process_data(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+        let start = Instant::now();
+        let deadline = start + self.params.data_processing_timeout;
+
         self.reception_count.inc();
         self.global_reception_count.inc();
         let state = self
@@ -1712,16 +1726,39 @@ impl SmtpServer {
             if self.params.deferred_queue {
                 message.set_meta("queue", DEFERRED_QUEUE_NAME)?;
             } else {
-                if let Err(rej) = self
-                    .call_callback_sig(&SMTP_SERVER_MSG_RX, (message.clone(), self.meta.clone()))
-                    .await?
+                match timeout_at(
+                    deadline.into(),
+                    self.call_callback_sig(
+                        &SMTP_SERVER_MSG_RX,
+                        (message.clone(), self.meta.clone()),
+                    ),
+                )
+                .await
                 {
-                    // Rejecting any one message from a batch in
-                    // smtp_server_message_received will reject the
-                    // entire batch
-                    self.write_response(rej.code, rej.message, Some("DATA".into()))
+                    Ok(Ok(Ok(_))) => {}
+                    Err(_) => {
+                        self.write_response(
+                            451,
+                            "4.4.5 data_processing_timeout exceeded",
+                            Some("DATA".into()),
+                        )
                         .await?;
-                    return Ok(());
+                        return Ok(());
+                    }
+                    Ok(Ok(Err(rej))) => {
+                        // Explicity kumo.reject'ed.
+                        // Rejecting any one message from a batch in
+                        // smtp_server_message_received will reject the
+                        // entire batch
+                        self.write_response(rej.code, rej.message, Some("DATA".into()))
+                            .await?;
+                        return Ok(());
+                    }
+                    Ok(Err(err)) => {
+                        // Let the technical difficulties handler deal with
+                        // the response for this
+                        return Err(err);
+                    }
                 }
             }
             accepted_messages.push(message);
@@ -1816,9 +1853,13 @@ impl SmtpServer {
 
         for (queue_name, msg) in messages {
             let id = *msg.id();
-            if let Err(err) =
-                QueueManager::insert_or_unwind(&queue_name, msg.clone(), self.params.deferred_spool)
-                    .await
+            if let Err(err) = QueueManager::insert_or_unwind(
+                &queue_name,
+                msg.clone(),
+                self.params.deferred_spool,
+                Some(deadline),
+            )
+            .await
             {
                 // Record the error message for later reporting
                 failed.push(format!("{id}: {err:#}"));

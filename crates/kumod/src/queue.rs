@@ -2706,6 +2706,28 @@ impl QueueManager {
         entry.insert(msg, context).await
     }
 
+    #[instrument(skip(msg))]
+    async fn insert_within_deadline(
+        name: &str,
+        msg: Message,
+        context: InsertContext,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<()> {
+        tracing::trace!("QueueManager::insert {context:?}");
+        let timer = RESOLVE_LATENCY.start_timer();
+        let entry = Self::resolve(name).await?;
+        timer.stop_and_record();
+
+        if let Some(deadline) = deadline {
+            if deadline <= Instant::now() {
+                anyhow::bail!("data processing deadline exceeded, stopping short of insertion");
+            }
+        }
+
+        let _timer = INSERT_LATENCY.start_timer();
+        entry.insert(msg, context).await
+    }
+
     /// Insert message into a queue named `name`, unwinding it in the case
     /// of error. Unwinding here means that:
     ///
@@ -2724,8 +2746,16 @@ impl QueueManager {
         name: &str,
         msg: Message,
         spool_was_deferred: bool,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
-        match Self::insert(name, msg.clone(), InsertReason::Received.into()).await {
+        match Self::insert_within_deadline(
+            name,
+            msg.clone(),
+            InsertReason::Received.into(),
+            deadline,
+        )
+        .await
+        {
             Ok(()) => Ok(()),
             Err(err) => {
                 // Well, this sucks. The likely cause is an error in the
