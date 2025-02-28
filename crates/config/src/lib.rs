@@ -472,7 +472,7 @@ pub fn any_err<E: std::fmt::Display>(err: E) -> mlua::Error {
     mlua::Error::external(format!("{err:#}"))
 }
 
-/// Provides implementations of __pairs and __index metamethods
+/// Provides implementations of __pairs, __index and __len metamethods
 /// for a type that is Serialize and UserData.
 /// Neither implementation is considered to be ideal, as we must
 /// first serialize the value into a json Value which is then either
@@ -509,6 +509,15 @@ where
         match value {
             Value::Table(t) => t.get(field),
             _ => Ok(Value::Nil),
+        }
+    });
+
+    methods.add_meta_method(MetaMethod::Len, move |lua, this, _: ()| {
+        let value = lua.to_value(this)?;
+        match value {
+            Value::Table(v) => v.len(),
+            Value::String(v) => Ok(v.as_bytes().len() as i64),
+            _ => Ok(0),
         }
     });
 }
