@@ -19,6 +19,7 @@ use chrono::{DateTime, Utc};
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{load_config, CallbackSignature, LuaConfig};
 use crossbeam_skiplist::SkipSet;
+use dashmap::DashMap;
 use humantime::format_duration;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, MemoryReductionPolicy};
 use kumo_prometheus::{counter_bundle, label_key, AtomicCounter, PruningCounterRegistry};
@@ -46,8 +47,7 @@ use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
 use tokio::sync::{Notify, Semaphore};
 use tracing::instrument;
 
-static MANAGER: LazyLock<FairMutex<QueueManager>> =
-    LazyLock::new(|| FairMutex::new(QueueManager::new()));
+static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
 static SCHEDULED_QUEUE_COUNT: LazyLock<IntGauge> = LazyLock::new(|| {
     prometheus::register_int_gauge!(
         "scheduled_queue_count",
@@ -1237,16 +1237,15 @@ impl Queue {
         if now >= idle_at + reap_after {
             // NOT using QueueManager::remove here because we need to
             // be atomic wrt. another resolve operation
-            let mut mgr = MANAGER.lock();
 
-            if !self.queue.is_empty() {
-                // Raced with an insert, cannot reap now
-                return false;
+            if MANAGER
+                .named
+                .remove_if(self.name.as_str(), |_key, _q| self.queue.is_empty())
+                .is_some()
+            {
+                tracing::debug!("idling out queue {}", self.name);
+                SCHEDULED_QUEUE_COUNT.dec();
             }
-
-            tracing::debug!("idling out queue {}", self.name);
-            mgr.named.remove(self.name.as_str());
-            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
 
             return true;
         }
@@ -2637,7 +2636,7 @@ enum InsertResult {
 }
 
 pub struct QueueManager {
-    named: HashMap<String, QueueSlot>,
+    named: DashMap<String, QueueSlot>,
 }
 
 enum QueueSlot {
@@ -2670,11 +2669,17 @@ async fn queue_meta_maintainer() -> anyhow::Result<()> {
                 for msg in queue.drain_timeq() {
                     Queue::save_if_needed_and_log(&msg, None).await;
                 }
+
                 if queue.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
-                    tracing::debug!(
-                        "{name}: there are no more queues and the scheduled queue is empty, reaping"
-                    );
-                    QueueManager::remove(&name);
+                    if MANAGER
+                        .named
+                        .remove_if(&name, |_key, _queue| {
+                            queue.queue.is_empty() && ReadyQueueManager::number_of_queues() == 0
+                        })
+                        .is_some()
+                    {
+                        tracing::debug!("{name}: there are no more queues and the scheduled queue is empty, reaping");
+                    }
                 }
             }
         }
@@ -2692,7 +2697,7 @@ impl QueueManager {
             })
             .expect("failed to spawn queue_config_maintainer");
         Self {
-            named: HashMap::new(),
+            named: DashMap::new(),
         }
     }
 
@@ -2918,24 +2923,39 @@ impl QueueManager {
     }
 
     fn resolve_lease(name: &str) -> anyhow::Result<SlotLease> {
-        let mut mgr = MANAGER.lock();
-        match mgr.named.get(name) {
-            Some(QueueSlot::Handle(handle)) => return Ok(SlotLease::Handle(handle.clone())),
-            Some(QueueSlot::Resolving(sema)) => return Ok(SlotLease::Resolving(sema.clone())),
-            Some(QueueSlot::Failed { error, expires }) => {
-                if *expires > Instant::now() {
-                    anyhow::bail!("{error}");
+        match MANAGER.named.get_mut(name) {
+            Some(mut item) => {
+                match item.value() {
+                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
+                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
+                    QueueSlot::Failed { error, expires } => {
+                        if *expires > Instant::now() {
+                            anyhow::bail!("{error}");
+                        }
+                        // Negative cache expired; can setup the slot for resolve
+                        let sema = Arc::new(Semaphore::new(1));
+                        *item.value_mut() = QueueSlot::Resolving(sema.clone());
+                        return Ok(SlotLease::Resolving(sema));
+                    }
                 }
-                // Negative cache expired; can setup the slot for resolve
             }
-            None => {}
+            None => {
+                let entry = MANAGER.named.entry(name.to_string()).or_insert_with(|| {
+                    SCHEDULED_QUEUE_COUNT.inc();
+                    QueueSlot::Resolving(Arc::new(Semaphore::new(1)))
+                });
+                match entry.value() {
+                    QueueSlot::Handle(handle) => return Ok(SlotLease::Handle(handle.clone())),
+                    QueueSlot::Resolving(sema) => return Ok(SlotLease::Resolving(sema.clone())),
+                    QueueSlot::Failed { error, .. } => {
+                        // We don't bother looking at expiry here: our first try
+                        // found nothing in the map, so if we see an entry now on
+                        // our second try then it must be new enough to be current.
+                        anyhow::bail!("{error}");
+                    }
+                }
+            }
         }
-        // Insert a Resolving slot
-        let sema = Arc::new(Semaphore::new(1));
-        mgr.named
-            .insert(name.to_string(), QueueSlot::Resolving(sema.clone()));
-        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
-        Ok(SlotLease::Resolving(sema))
     }
 
     /// Get the handle from the slot.
@@ -2947,11 +2967,12 @@ impl QueueManager {
     /// caching period we use: if there was a failure in the overlap, we
     /// want to propagate that same failure.
     fn get_slot(name: &str) -> anyhow::Result<Option<QueueHandle>> {
-        let mgr = MANAGER.lock();
-        match mgr.named.get(name) {
-            Some(QueueSlot::Handle(h)) => Ok(Some(h.clone())),
-            Some(QueueSlot::Resolving(_)) => Ok(None),
-            Some(QueueSlot::Failed { error, .. }) => anyhow::bail!("{error}"),
+        match MANAGER.named.get(name) {
+            Some(item) => match item.value() {
+                QueueSlot::Handle(h) => Ok(Some(h.clone())),
+                QueueSlot::Resolving(_) => Ok(None),
+                QueueSlot::Failed { error, .. } => anyhow::bail!("{error}"),
+            },
             None => Ok(None),
         }
     }
@@ -2999,28 +3020,37 @@ impl QueueManager {
                                     // Resolving entry and its associated Semaphore, which
                                     // will in turn cause all pending sema.acquire operations
                                     // to "fail" and wakeup so that they can attempt to re-acquire.
-                                    let mut mgr = MANAGER.lock();
                                     return match result {
                                         Ok(entry) => {
                                             // Success! move from Resolving -> Handle
-                                            mgr.named.insert(
-                                                name.to_string(),
-                                                QueueSlot::Handle(entry.clone()),
-                                            );
-                                            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+                                            if MANAGER
+                                                .named
+                                                .insert(
+                                                    name.to_string(),
+                                                    QueueSlot::Handle(entry.clone()),
+                                                )
+                                                .is_none()
+                                            {
+                                                SCHEDULED_QUEUE_COUNT.inc();
+                                            }
                                             Ok(entry)
                                         }
                                         Err(err) => {
                                             // Failed!
-                                            mgr.named.insert(
-                                                name.to_string(),
-                                                QueueSlot::Failed {
-                                                    error: format!("{err:#}"),
-                                                    expires: Instant::now()
-                                                        + Duration::from_secs(60),
-                                                },
-                                            );
-                                            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+                                            if MANAGER
+                                                .named
+                                                .insert(
+                                                    name.to_string(),
+                                                    QueueSlot::Failed {
+                                                        error: format!("{err:#}"),
+                                                        expires: Instant::now()
+                                                            + Duration::from_secs(60),
+                                                    },
+                                                )
+                                                .is_none()
+                                            {
+                                                SCHEDULED_QUEUE_COUNT.inc();
+                                            }
                                             Err(err)
                                         }
                                     };
@@ -3039,23 +3069,18 @@ impl QueueManager {
     }
 
     pub fn get_opt(name: &str) -> Option<QueueHandle> {
-        let mgr = MANAGER.lock();
-        match mgr.named.get(name)? {
+        match MANAGER.named.get(name)?.value() {
             QueueSlot::Handle(h) => Some(h.clone()),
             QueueSlot::Resolving(_) | QueueSlot::Failed { .. } => None,
         }
     }
 
     pub fn all_queue_names() -> Vec<String> {
-        let mgr = MANAGER.lock();
-        mgr.named.keys().map(|s| s.to_string()).collect()
-    }
-
-    /// Coupled with Queue::check_reap!
-    pub fn remove(name: &str) {
-        let mut mgr = MANAGER.lock();
-        mgr.named.remove(name);
-        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+        let mut names = vec![];
+        for item in MANAGER.named.iter() {
+            names.push(item.key().to_string());
+        }
+        names
     }
 }
 

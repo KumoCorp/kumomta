@@ -16,6 +16,7 @@ cidr-map = {path="../cidr-map"}
 clap = {workspace=true, features=["derive"]}
 crossbeam-skiplist = {workspace=true}
 config = {path="../config"}
+dashmap.workspace = true
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
