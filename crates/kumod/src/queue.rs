@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
 use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 use tracing::instrument;
 
 static MANAGER: LazyLock<FairMutex<QueueManager>> =
@@ -2642,13 +2642,15 @@ pub struct QueueManager {
 
 enum QueueSlot {
     Handle(QueueHandle),
-    Resolving(Arc<Notify>),
+    Resolving(Arc<Semaphore>),
+    // Negative caching
+    Failed { error: String, expires: Instant },
 }
 
+#[derive(Clone)]
 enum SlotLease {
     Handle(QueueHandle),
-    Resolving(Arc<Notify>),
-    MustCreate(Arc<Notify>),
+    Resolving(Arc<Semaphore>),
 }
 
 async fn queue_meta_maintainer() -> anyhow::Result<()> {
@@ -2915,20 +2917,42 @@ impl QueueManager {
             .await
     }
 
-    fn resolve_lease(name: &str) -> SlotLease {
+    fn resolve_lease(name: &str) -> anyhow::Result<SlotLease> {
         let mut mgr = MANAGER.lock();
         match mgr.named.get(name) {
-            Some(QueueSlot::Handle(e)) => SlotLease::Handle(Arc::clone(e)),
-            Some(QueueSlot::Resolving(notify)) => SlotLease::Resolving(notify.clone()),
-            None => {
-                // Insert a Resolving slot, so that other actors know to wait
-                let notify = Arc::new(Notify::new());
-                mgr.named
-                    .insert(name.to_string(), QueueSlot::Resolving(notify.clone()));
-                SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
-
-                SlotLease::MustCreate(notify)
+            Some(QueueSlot::Handle(handle)) => return Ok(SlotLease::Handle(handle.clone())),
+            Some(QueueSlot::Resolving(sema)) => return Ok(SlotLease::Resolving(sema.clone())),
+            Some(QueueSlot::Failed { error, expires }) => {
+                if *expires > Instant::now() {
+                    anyhow::bail!("{error}");
+                }
+                // Negative cache expired; can setup the slot for resolve
             }
+            None => {}
+        }
+        // Insert a Resolving slot
+        let sema = Arc::new(Semaphore::new(1));
+        mgr.named
+            .insert(name.to_string(), QueueSlot::Resolving(sema.clone()));
+        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+        Ok(SlotLease::Resolving(sema))
+    }
+
+    /// Get the handle from the slot.
+    /// Intended to be called by `resolve` only, as an implementation detail.
+    ///
+    /// Propagate a negatively cached error without considering its expiry:
+    /// the assumption is that we are being called as part of an overlapping
+    /// sequence of calls that implicitly must be within whatever negative
+    /// caching period we use: if there was a failure in the overlap, we
+    /// want to propagate that same failure.
+    fn get_slot(name: &str) -> anyhow::Result<Option<QueueHandle>> {
+        let mgr = MANAGER.lock();
+        match mgr.named.get(name) {
+            Some(QueueSlot::Handle(h)) => Ok(Some(h.clone())),
+            Some(QueueSlot::Resolving(_)) => Ok(None),
+            Some(QueueSlot::Failed { error, .. }) => anyhow::bail!("{error}"),
+            None => Ok(None),
         }
     }
 
@@ -2936,32 +2960,78 @@ impl QueueManager {
     /// returning a pre-existing handle if it is already known.
     #[instrument]
     pub async fn resolve(name: &str) -> anyhow::Result<QueueHandle> {
-        match Self::resolve_lease(name) {
-            SlotLease::Handle(e) => Ok(e),
-            SlotLease::Resolving(notify) => {
-                notify.notified().await;
-                Self::get_opt(name)
-                    .ok_or_else(|| anyhow::anyhow!("other actor failed to resolve {name}"))
-            }
-            SlotLease::MustCreate(notify) => {
-                let result = Queue::new(name.to_string()).await;
-                let mut mgr = MANAGER.lock();
-                // Wake up any other waiters, regardless of the outcome
-                notify.notify_waiters();
+        loop {
+            match Self::resolve_lease(name)? {
+                SlotLease::Handle(e) => return Ok(e),
+                SlotLease::Resolving(sema) => {
+                    match sema.acquire().await {
+                        Ok(_permit) => {
+                            // If we acquire the permit, we are responsible now for
+                            // driving the state of the SlotLease towards either
+                            // a resolution or a failure, as we have the only permit.
+                            //
+                            // We don't explicitly drop the permit here; in the
+                            // already-resolved case it will drop naturally when we return,
+                            // allowing other callers to proceed into their version of this
+                            // branch of code just like we're doing now.
+                            // This should be the fast path in the recently-created case.
+                            //
+                            // In the need-to-resolve case, the permit is also implicitly
+                            // dropped, but only after dropping the associated semaphore,
+                            // which has the effect of racing all waiters in another
+                            // iteration of this resolve loop.
 
-                match result {
-                    Ok(entry) => {
-                        // Success! move from Resolving -> Handle
-                        mgr.named
-                            .insert(name.to_string(), QueueSlot::Handle(entry.clone()));
-                        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
-                        Ok(entry)
-                    }
-                    Err(err) => {
-                        // Failed! remove the Resolving slot
-                        mgr.named.remove(name);
-                        SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
-                        Err(err)
+                            match Self::get_slot(name)? {
+                                Some(handle) => {
+                                    // Someone else fully resolved the entry.
+                                    return Ok(handle);
+                                }
+                                None => {
+                                    // The current state is Resolving and we're responsible
+                                    // to drive it forwards.
+
+                                    // Try to create the queue
+                                    let result = Queue::new(name.to_string()).await;
+
+                                    // Now update the state in the map.
+                                    // Both arms will replace the entry with either a success
+                                    // or failure entry, which will implicitly drop any
+                                    // Resolving entry and its associated Semaphore, which
+                                    // will in turn cause all pending sema.acquire operations
+                                    // to "fail" and wakeup so that they can attempt to re-acquire.
+                                    let mut mgr = MANAGER.lock();
+                                    return match result {
+                                        Ok(entry) => {
+                                            // Success! move from Resolving -> Handle
+                                            mgr.named.insert(
+                                                name.to_string(),
+                                                QueueSlot::Handle(entry.clone()),
+                                            );
+                                            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+                                            Ok(entry)
+                                        }
+                                        Err(err) => {
+                                            // Failed!
+                                            mgr.named.insert(
+                                                name.to_string(),
+                                                QueueSlot::Failed {
+                                                    error: format!("{err:#}"),
+                                                    expires: Instant::now()
+                                                        + Duration::from_secs(60),
+                                                },
+                                            );
+                                            SCHEDULED_QUEUE_COUNT.set(mgr.named.len() as i64);
+                                            Err(err)
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            // Semaphore was closed; perhaps it was cancelled or
+                            // otherwise failed. Let's retry the resolve.
+                            continue;
+                        }
                     }
                 }
             }
@@ -2972,7 +3042,7 @@ impl QueueManager {
         let mgr = MANAGER.lock();
         match mgr.named.get(name)? {
             QueueSlot::Handle(h) => Some(h.clone()),
-            QueueSlot::Resolving(_) => None,
+            QueueSlot::Resolving(_) | QueueSlot::Failed { .. } => None,
         }
     }
 
