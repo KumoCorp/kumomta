@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use flume::Sender;
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 pub mod local_disk;
 #[cfg(feature = "rocksdb")]
@@ -30,6 +31,7 @@ pub trait Spool: Send + Sync {
         id: SpoolId,
         data: Arc<Box<[u8]>>,
         force_sync: bool,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()>;
 
     /// Scan the contents of the spool, and emit a SpoolEntry for each item

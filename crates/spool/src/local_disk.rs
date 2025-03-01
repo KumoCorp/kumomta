@@ -8,6 +8,7 @@ use std::io::Write;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 use tempfile::NamedTempFile;
 use tokio::runtime::Handle;
 
@@ -98,6 +99,7 @@ impl Spool for LocalDiskSpool {
         id: SpoolId,
         data: Arc<Box<[u8]>>,
         force_sync: bool,
+        _deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         let path = self.compute_path(id);
         let new_dir = self.path.join("new");
@@ -300,6 +302,7 @@ mod test {
                     id,
                     Arc::new(format!("I am {i}").as_bytes().to_vec().into_boxed_slice()),
                     false,
+                    None,
                 )
                 .await?;
             ids.push(id);

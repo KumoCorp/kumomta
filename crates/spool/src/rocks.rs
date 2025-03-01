@@ -10,9 +10,10 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Arc, LazyLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tokio::sync::Semaphore;
+use tokio::time::timeout_at;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RocksSpoolParams {
@@ -260,6 +261,7 @@ impl Spool for RocksSpool {
         id: SpoolId,
         data: Arc<Box<[u8]>>,
         force_sync: bool,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         let mut opts = WriteOptions::default();
         opts.set_sync(force_sync);
@@ -270,9 +272,12 @@ impl Spool for RocksSpool {
         match self.db.write_opt(batch, &opts) {
             Ok(()) => Ok(()),
             Err(err) if err.kind() == ErrorKind::Incomplete => {
-                let permit = match self.limit_concurrent_stores.clone() {
-                    Some(s) => Some(s.acquire_owned().await?),
-                    None => None,
+                let permit = match (self.limit_concurrent_stores.clone(), deadline) {
+                    (Some(s), Some(deadline)) => {
+                        Some(timeout_at(deadline.into(), s.acquire_owned()).await??)
+                    }
+                    (Some(s), None) => Some(s.acquire_owned().await?),
+                    (None, _) => None,
                 };
                 let db = self.db.clone();
                 tokio::task::Builder::new()
@@ -441,6 +446,7 @@ mod test {
                     id,
                     Arc::new(format!("I am {i}").as_bytes().to_vec().into_boxed_slice()),
                     false,
+                    None,
                 )
                 .await?;
             ids.push(id);

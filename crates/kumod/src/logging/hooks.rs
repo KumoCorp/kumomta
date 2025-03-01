@@ -175,7 +175,7 @@ impl LogHookState {
             if enqueue {
                 let queue_name = msg.get_queue_name()?;
                 if !deferred_spool {
-                    msg.save().await?;
+                    msg.save(None).await?;
                 }
                 QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
             }

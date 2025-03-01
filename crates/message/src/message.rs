@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use timeq::TimerEntryWithDelay;
 
 bitflags::bitflags! {
@@ -477,15 +477,17 @@ impl Message {
             || inner.flags.contains(MessageFlags::DATA_DIRTY)
     }
 
-    pub async fn save(&self) -> anyhow::Result<()> {
+    pub async fn save(&self, deadline: Option<Instant>) -> anyhow::Result<()> {
         let _timer = SAVE_HIST.start_timer();
-        self.save_to(&**get_meta_spool(), &**get_data_spool()).await
+        self.save_to(&**get_meta_spool(), &**get_data_spool(), deadline)
+            .await
     }
 
     pub async fn save_to(
         &self,
         meta_spool: &(dyn Spool + Send + Sync),
         data_spool: &(dyn Spool + Send + Sync),
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         let force_sync = self
             .msg_and_id
@@ -498,7 +500,7 @@ impl Message {
         let data_fut = if let Some(data) = self.get_data_if_dirty() {
             anyhow::ensure!(!data.is_empty(), "message data must not be empty");
             data_spool
-                .store(self.msg_and_id.id, data, force_sync)
+                .store(self.msg_and_id.id, data, force_sync, deadline)
                 .map(|_| true)
                 .boxed()
         } else {
@@ -507,13 +509,18 @@ impl Message {
         let meta_fut = if let Some(meta) = self.get_meta_if_dirty() {
             let meta = Arc::new(serde_json::to_vec(&meta)?.into_boxed_slice());
             meta_spool
-                .store(self.msg_and_id.id, meta, force_sync)
+                .store(self.msg_and_id.id, meta, force_sync, deadline)
                 .map(|_| true)
                 .boxed()
         } else {
             futures::future::ready(false).boxed()
         };
 
+        // NOTE: if we have a deadline, it is tempting to want to use
+        // timeout_at here to enforce it, but the underlying spool
+        // futures are not guaranteed to be fully cancel safe, which
+        // is why we pass the deadline down to the save method to allow
+        // them to handle timeouts internally.
         let (data_res, meta_res) = tokio::join!(data_fut, meta_fut);
 
         if data_res {
@@ -541,13 +548,13 @@ impl Message {
 
     /// Save the data+meta if needed, then release both
     pub async fn save_and_shrink(&self) -> anyhow::Result<bool> {
-        self.save().await?;
+        self.save(None).await?;
         self.shrink()
     }
 
     /// Save the data+meta if needed, then release just the data
     pub async fn save_and_shrink_data(&self) -> anyhow::Result<bool> {
-        self.save().await?;
+        self.save(None).await?;
         self.shrink_data()
     }
 
@@ -1256,14 +1263,14 @@ impl UserData for Message {
 
         methods.add_async_method("shrink", |_, this, _: ()| async move {
             if this.needs_save() {
-                this.save().await.map_err(any_err)?;
+                this.save(None).await.map_err(any_err)?;
             }
             this.shrink().map_err(any_err)
         });
 
         methods.add_async_method("shrink_data", |_, this, _: ()| async move {
             if this.needs_save() {
-                this.save().await.map_err(any_err)?;
+                this.save(None).await.map_err(any_err)?;
             }
             this.shrink_data().map_err(any_err)
         });
@@ -1392,7 +1399,7 @@ impl UserData for Message {
         });
 
         methods.add_async_method("save", |_, this, ()| async move {
-            this.save().await.map_err(any_err)
+            this.save(None).await.map_err(any_err)
         });
 
         methods.add_method("set_force_sync", move |_, this, force: bool| {

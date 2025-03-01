@@ -561,7 +561,7 @@ async fn process_recipient<'a>(
         request.trace_headers.apply_supplemental(&message)?;
 
         if !request.deferred_spool {
-            message.save().await?;
+            message.save(None).await?;
         }
         log_disposition(LogDisposition {
             kind: RecordType::Reception,
@@ -617,7 +617,7 @@ async fn queue_deferred(
     message.set_meta("received_from", peer_address.to_string())?;
     message.set_meta("queue", GENERATOR_QUEUE_NAME)?;
     if !request.deferred_spool {
-        message.save().await?;
+        message.save(None).await?;
     }
     log_disposition(LogDisposition {
         kind: RecordType::Reception,

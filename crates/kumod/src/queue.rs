@@ -45,6 +45,7 @@ use thiserror::Error;
 use throttle::{ThrottleResult, ThrottleSpec};
 use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
 use tokio::sync::{Notify, Semaphore};
+use tokio::time::timeout_at;
 use tracing::instrument;
 
 static MANAGER: LazyLock<QueueManager> = LazyLock::new(|| QueueManager::new());
@@ -1391,7 +1392,7 @@ impl Queue {
         }
 
         if msg.needs_save() {
-            if let Err(err) = msg.save().await {
+            if let Err(err) = msg.save(None).await {
                 tracing::error!("failed to save msg after rebind: {err:#}");
             }
         }
@@ -1707,7 +1708,7 @@ impl Queue {
     ) -> anyhow::Result<()> {
         tracing::trace!("save_if_needed {}", msg.id());
         if msg.needs_save() {
-            msg.save().await?;
+            msg.save(None).await?;
         }
 
         match queue_config {
@@ -2725,15 +2726,19 @@ impl QueueManager {
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         tracing::trace!("QueueManager::insert {context:?}");
-        let timer = RESOLVE_LATENCY.start_timer();
-        let entry = Self::resolve(name).await?;
-        timer.stop_and_record();
 
-        if let Some(deadline) = deadline {
-            if deadline <= Instant::now() {
-                anyhow::bail!("data processing deadline exceeded, stopping short of insertion");
+        let timer = RESOLVE_LATENCY.start_timer();
+        let entry = if let Some(deadline) = deadline {
+            match timeout_at(deadline.into(), Self::resolve(name)).await {
+                Err(_) => {
+                    anyhow::bail!("data processing deadline exceeded, stopping short of insertion")
+                }
+                Ok(result) => result?,
             }
-        }
+        } else {
+            Self::resolve(name).await?
+        };
+        timer.stop_and_record();
 
         let _timer = INSERT_LATENCY.start_timer();
         entry.insert(msg, context).await

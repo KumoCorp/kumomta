@@ -1741,7 +1741,7 @@ impl SmtpServer {
                     Err(_) => {
                         self.write_response(
                             451,
-                            "4.4.5 data_processing_timeout exceeded",
+                            "4.4.5 data_processing_timeout exceeded (rx)",
                             Some("DATA".into()),
                         )
                         .await?;
@@ -1772,6 +1772,29 @@ impl SmtpServer {
         let mut messages = vec![];
         let mut was_arf_or_oob = false;
         let mut black_holed = false;
+
+        // pre-resolve any queues; there can be DNS and other async components
+        // to resolution that can cause this to take a non-trivial amount of time,
+        // so let's get that out of the way before we start writing to spool,
+        // to make it less complex to unwind if we exceed the allowed time.
+        for message in &accepted_messages {
+            let queue_name = message.get_queue_name()?;
+            match timeout_at(deadline.into(), QueueManager::resolve(&queue_name)).await {
+                Err(_) => {
+                    self.write_response(
+                        451,
+                        "4.4.5 data_processing_timeout exceeded (resolve)",
+                        Some("DATA".into()),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                Ok(Err(err)) => {
+                    anyhow::bail!("QueueManager::resolve({queue_name}) failed: {err:#}");
+                }
+                Ok(Ok(_handle)) => {}
+            }
+        }
 
         for message in accepted_messages {
             self.params.trace_headers.apply_supplemental(&message)?;
@@ -1807,7 +1830,23 @@ impl SmtpServer {
 
             if queue_name != "null" {
                 if relay_disposition.relay && !self.params.deferred_spool {
-                    message.save().await?;
+                    match message.save(Some(deadline)).await {
+                        Err(err) => {
+                            // FIXME: unwind rest of batch
+
+                            if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                                self.write_response(
+                                    451,
+                                    "4.4.5 data_processing_timeout exceeded (spool)",
+                                    Some("DATA".into()),
+                                )
+                                .await?;
+                                return Ok(());
+                            }
+                            return Err(err);
+                        }
+                        Ok(_) => {}
+                    }
                 }
             }
 
