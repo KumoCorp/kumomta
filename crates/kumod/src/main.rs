@@ -293,6 +293,8 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
             .context("start_spool")?;
     }
 
+    config.put();
+
     Ok(())
 }
 

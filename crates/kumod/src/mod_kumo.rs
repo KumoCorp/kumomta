@@ -159,6 +159,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 crate::queue::Queue::call_get_queue_config(&queue_name, &mut config)
                     .await
                     .map_err(any_err)?;
+            config.put();
             lua.to_value(&queue_config)
         })?,
     )?;

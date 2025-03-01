@@ -170,6 +170,7 @@ impl LogHookState {
             let enqueue: bool = lua_config
                 .async_call_callback(&SHOULD_ENQ_LOG_RECORD_SIG, (msg.clone(), name))
                 .await?;
+            lua_config.put();
 
             if enqueue {
                 let queue_name = msg.get_queue_name()?;

@@ -78,7 +78,10 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
 
                     let enqueue: bool =
                         match lua_config.async_call_callback(&log_sig, msg.clone()).await {
-                            Ok(b) => b,
+                            Ok(b) => {
+                                lua_config.put();
+                                b
+                            }
                             Err(err) => {
                                 tracing::error!(
                                     "error while calling {name} event for log filter: {err:#}"

@@ -51,22 +51,24 @@ impl AuthKind {
 
     async fn validate_impl(&self) -> anyhow::Result<bool> {
         let mut config = load_config().await?;
-        match self {
-            Self::TrustedIp(_) => Ok(true),
+        let result = match self {
+            Self::TrustedIp(_) => true,
             Self::Basic { user, password } => {
                 let sig = CallbackSignature::<(String, Option<String>), bool>::new(
                     "http_server_validate_auth_basic",
                 );
-                Ok(config
+                config
                     .async_call_callback(&sig, (user.to_string(), password.clone()))
-                    .await?)
+                    .await?
             }
             Self::Bearer { token } => {
                 let sig =
                     CallbackSignature::<String, bool>::new("http_server_validate_auth_bearer");
-                Ok(config.async_call_callback(&sig, token.to_string()).await?)
+                config.async_call_callback(&sig, token.to_string()).await?
             }
-        }
+        };
+        config.put();
+        Ok(result)
     }
 
     async fn lookup_cache(&self) -> Option<Result<bool, String>> {

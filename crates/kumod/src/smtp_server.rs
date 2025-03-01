@@ -635,6 +635,7 @@ impl SmtpServer {
 
         let value = match value {
             Ok(v) => {
+                config.put();
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
                     payload: SmtpServerTraceEventPayload::Callback {
@@ -1011,6 +1012,7 @@ impl SmtpServer {
         let name = sig.name();
         match config.async_call_callback(sig, args).await {
             Ok(r) => {
+                config.put();
                 SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                     conn_meta: self.meta.clone_inner(),
                     payload: SmtpServerTraceEventPayload::Callback {
@@ -2065,12 +2067,15 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             .async_call_callback(&DEFERRED_SMTP_SERVER_MSG_INJECT, (msg.clone(), meta))
             .await
         {
-            Ok(_) => Response {
-                code: 250,
-                enhanced_code: None,
-                content: "ok".to_string(),
-                command: None,
-            },
+            Ok(_) => {
+                config.put();
+                Response {
+                    code: 250,
+                    enhanced_code: None,
+                    content: "ok".to_string(),
+                    command: None,
+                }
+            }
             Err(err) => {
                 if let Some(rej) = RejectError::from_anyhow(&err) {
                     Response {

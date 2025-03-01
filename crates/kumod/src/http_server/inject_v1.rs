@@ -695,6 +695,8 @@ async fn inject_v1_impl(
             }
         }
     }
+    config.put();
+
     Ok(Json(InjectV1Response {
         success_count,
         fail_count,

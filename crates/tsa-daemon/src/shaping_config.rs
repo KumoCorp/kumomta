@@ -15,6 +15,7 @@ pub async fn load_shaping() -> anyhow::Result<Arc<Shaping>> {
         .async_call_callback_non_default(&sig, ())
         .await
         .context("in tsa_load_shaping_data event")?;
+    config.put();
     Ok(Arc::new(shaping))
 }
 

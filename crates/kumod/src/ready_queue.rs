@@ -322,6 +322,7 @@ impl ReadyQueueManager {
                 tracing::error!("Error while calling get_egress_path_config: {err:#}");
                 err
             })?;
+        config.put();
 
         Ok(ReadyQueueConfig {
             name,

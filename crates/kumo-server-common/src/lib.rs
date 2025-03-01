@@ -325,7 +325,11 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             config
                 .convert_args_and_call_callback(&sig, &self.args)
-                .await
+                .await?;
+
+            config.put();
+
+            Ok(())
         }
     }
 

@@ -1090,6 +1090,8 @@ impl Queue {
         let queue_config = Self::call_get_queue_config(&name, &mut config).await?;
 
         let pool = EgressPool::resolve(queue_config.egress_pool.as_deref(), &mut config).await?;
+        config.put();
+
         let rr = ArcSwap::new(EgressPoolRoundRobin::new(&pool).into());
 
         let activity = Activity::get(format!("Queue {name}"))?;
@@ -1916,6 +1918,8 @@ impl Queue {
         config
             .async_call_callback(&THROTTLE_INSERT_READY_SIG, msg.clone())
             .await?;
+        config.put();
+
         if let Some(due) = msg.get_due() {
             let now = Utc::now();
             if due > now {
@@ -2849,6 +2853,7 @@ impl QueueManager {
 
                 match result {
                     Ok(()) => {
+                        config.put();
                         let queue_name_after = msg.get_queue_name()?;
                         if queue_name != queue_name_after {
                             // We want to avoid the normal due-time adjustment

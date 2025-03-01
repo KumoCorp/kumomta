@@ -943,6 +943,9 @@ impl QueueDispatcher for SmtpDispatcher {
                         ),
                     )
                     .await;
+                if rewritten_code.is_ok() {
+                    config.put();
+                }
 
                 match rewritten_code {
                     Ok(Some(code)) if code != response.code => {

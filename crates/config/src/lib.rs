@@ -87,17 +87,10 @@ pub struct LuaConfig {
     inner: Option<LuaConfigInner>,
 }
 
-impl Drop for LuaConfig {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.take() {
-            pool_put(inner);
-        }
-    }
-}
-
 pub async fn set_policy_path(path: PathBuf) -> anyhow::Result<()> {
     POLICY_FILE.lock().replace(path);
-    load_config().await?;
+    let config = load_config().await?;
+    config.put();
     Ok(())
 }
 
@@ -220,6 +213,29 @@ impl LuaConfig {
                 Ok(func.call_async(args).await?)
             }
             _ => anyhow::bail!("{name} has not been registered"),
+        }
+    }
+
+    /// Explicitly put the config object back into its containing pool.
+    /// Ideally we'd do this automatically when the object is dropped,
+    /// but lua's garbage collection makes this problematic:
+    /// if a future whose graph contains an async lua call within
+    /// this config object is cancelled (eg: simply stopped without
+    /// calling it again), and the config object is not explicitly garbage
+    /// collected, any futures and data owned by any dependencies of
+    /// the cancelled future remain alive until the next gc run,
+    /// which can cause things like async locks and semaphores to
+    /// have a lifetime extended by the maximum age of the lua context.
+    ///
+    /// The combat this, consumers of LuaConfig should explicitly
+    /// call `config.put()` after successfully using the config
+    /// object.
+    ///
+    /// Or framing it another way: consumers must not call `config.put()`
+    /// if a transitive dep might have been cancelled.
+    pub fn put(mut self) {
+        if let Some(inner) = self.inner.take() {
+            pool_put(inner);
         }
     }
 

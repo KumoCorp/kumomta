@@ -74,6 +74,7 @@ async fn perform_init() -> anyhow::Result<()> {
         .async_call_callback(&tsa_init_sig, ())
         .await
         .context("in tsa_init event")?;
+    config.put();
 
     spawn_shaping_updater()?;
 
