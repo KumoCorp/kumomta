@@ -20,6 +20,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
 use config::{load_config, CallbackSignature};
+use dashmap::DashMap;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy};
 use kumo_server_common::config_handle::ConfigHandle;
@@ -34,7 +35,6 @@ use parking_lot::FairMutex;
 use prometheus::Histogram;
 use rfc5321::{EnhancedStatusCode, Response};
 use serde::Serialize;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,8 +47,7 @@ use tokio::task::JoinHandle;
 use tracing::instrument;
 use uuid::Uuid;
 
-static MANAGER: LazyLock<FairMutex<ReadyQueueManager>> =
-    LazyLock::new(|| FairMutex::new(ReadyQueueManager::new()));
+static MANAGER: LazyLock<ReadyQueueManager> = LazyLock::new(|| ReadyQueueManager::new());
 static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
 pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
@@ -202,7 +201,7 @@ pub struct ReadyQueueConfig {
 
 #[derive(Default)]
 pub struct ReadyQueueManager {
-    queues: HashMap<String, ReadyQueueHandle>,
+    queues: DashMap<String, ReadyQueueHandle>,
 }
 
 impl ReadyQueueManager {
@@ -218,11 +217,15 @@ impl ReadyQueueManager {
     }
 
     pub fn number_of_queues() -> usize {
-        MANAGER.lock().queues.len()
+        MANAGER.queues.len()
     }
 
     pub fn all_queues() -> Vec<ReadyQueueHandle> {
-        MANAGER.lock().queues.values().map(Arc::clone).collect()
+        let mut queues = vec![];
+        for item in MANAGER.queues.iter() {
+            queues.push(item.value().clone());
+        }
+        queues
     }
 
     pub async fn compute_queue_name(
@@ -334,8 +337,7 @@ impl ReadyQueueManager {
     }
 
     pub fn get_by_name(name: &str) -> Option<ReadyQueueHandle> {
-        let manager = MANAGER.lock();
-        manager.queues.get(name).cloned()
+        MANAGER.queues.get(name).map(|entry| entry.value().clone())
     }
 
     pub fn get_by_ready_queue_name(name: &ReadyQueueName) -> Option<ReadyQueueHandle> {
@@ -366,10 +368,9 @@ impl ReadyQueueManager {
             mx,
         } = Self::compute_config(queue_name, queue_config, egress_source).await?;
 
-        let mut manager = MANAGER.lock();
         let activity = Activity::get(format!("ReadyQueueHandle {name}"))?;
 
-        let handle = manager.queues.entry(name.clone()).or_insert_with(|| {
+        let handle = MANAGER.queues.entry(name.clone()).or_insert_with(|| {
             let notify_maintainer = Arc::new(Notify::new());
             Self::spawn_maintainer(&name, notify_maintainer.clone())
                 .expect("failed to spawn maintainer");
@@ -555,11 +556,12 @@ impl ReadyQueueManager {
             };
 
             if queue.reapable(&last_notify, &suspend) {
-                let mut mgr = MANAGER.lock();
-                if queue.reapable(&last_notify, &suspend) {
+                if MANAGER
+                    .queues
+                    .remove_if(&name, |_k, _q| queue.reapable(&last_notify, &suspend))
+                    .is_some()
+                {
                     tracing::debug!("reaping site {name}");
-                    mgr.queues.remove(&name);
-                    drop(mgr);
 
                     queue
                         .reinsert_ready_queue("reap", InsertReason::ReadyQueueWasReaped.into())
