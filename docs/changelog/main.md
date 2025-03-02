@@ -1,6 +1,11 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* New
+  [data_processing_timeout](../reference/kumo/start_esmtp_listener/data_processing_timeout.md)
+  sets a default time limit of 1 minute for processing the DATA phase during
+  SMTP reception.  If this limit is too short for your workflow, you will
+  need to configure a larger value in your `start_esmtp_listener` setup.
 * Removed deprecated `should_enqueue_log_record` and `get_queue_config` fields
   from the `shaper` object returned from `shaping:setup_with_automation`.
   These have had no effect for the past several stable releases, having been
