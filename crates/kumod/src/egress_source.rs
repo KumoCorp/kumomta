@@ -7,7 +7,7 @@ use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_server_common::config_handle::ConfigHandle;
-use lruttl::LruCacheWithTtl;
+use lruttl::{ItemTtl, LruCacheWithTtl};
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
 use prometheus::IntCounter;
@@ -69,43 +69,40 @@ pub struct EgressSource {
 
 impl LuaUserData for EgressSource {}
 
+impl ItemTtl for EgressSource {
+    fn get_ttl(&self) -> Duration {
+        self.ttl
+    }
+}
+
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
-        if let Some(source) = SOURCES.get(name).await {
-            return Ok(source);
-        }
-
-        let source: Self = if name == "unspecified" {
-            Self {
-                name: name.to_string(),
-                ehlo_domain: None,
-                ttl: default_ttl(),
-                ha_proxy_server: None,
-                ha_proxy_source_address: None,
-                remote_port: None,
-                socks5_proxy_server: None,
-                socks5_proxy_source_address: None,
-                socks5_proxy_username: None,
-                socks5_proxy_password: None,
-                source_address: None,
-            }
-        } else {
-            let sig = CallbackSignature::<String, EgressSource>::new("get_egress_source");
-            config
-                .async_call_callback_non_default(&sig, name.to_string())
-                .await
-                .with_context(|| format!("get_egress_source '{name}'"))?
-        };
-
         SOURCES
-            .insert(
-                name.to_string(),
-                source.clone(),
-                Instant::now() + source.ttl,
-            )
-            .await;
-
-        Ok(source)
+            .get_or_try_insert_embedded_ttl(name.to_string(), async {
+                if name == "unspecified" {
+                    Ok(EgressSource {
+                        name: name.to_string(),
+                        ehlo_domain: None,
+                        ttl: default_ttl(),
+                        ha_proxy_server: None,
+                        ha_proxy_source_address: None,
+                        remote_port: None,
+                        socks5_proxy_server: None,
+                        socks5_proxy_source_address: None,
+                        socks5_proxy_username: None,
+                        socks5_proxy_password: None,
+                        source_address: None,
+                    })
+                } else {
+                    let sig = CallbackSignature::<String, EgressSource>::new("get_egress_source");
+                    config
+                        .async_call_callback_non_default(&sig, name.to_string())
+                        .await
+                        .with_context(|| format!("get_egress_source '{name}'"))
+                }
+            })
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:#}"))
     }
 
     fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
@@ -306,31 +303,40 @@ pub struct EgressPool {
 
 impl LuaUserData for EgressPool {}
 
+impl ItemTtl for EgressPool {
+    fn get_ttl(&self) -> Duration {
+        self.ttl
+    }
+}
+
 impl EgressPool {
     pub async fn resolve(name: Option<&str>, config: &mut LuaConfig) -> anyhow::Result<Self> {
         let name = name.unwrap_or("unspecified");
 
-        if let Some(pool) = POOLS.get(name).await {
-            return Ok(pool);
-        }
+        let pool = POOLS
+            .get_or_try_insert_embedded_ttl(name.to_string(), async {
+                let pool = if name == "unspecified" {
+                    EgressPool {
+                        name: "unspecified".to_string(),
+                        entries: vec![EgressPoolEntry {
+                            name: "unspecified".to_string(),
+                            weight: 1,
+                        }],
+                        ttl: default_ttl(),
+                    }
+                } else {
+                    let sig = CallbackSignature::<String, EgressPool>::new("get_egress_pool");
 
-        let pool: Self = if name == "unspecified" {
-            Self {
-                name: "unspecified".to_string(),
-                entries: vec![EgressPoolEntry {
-                    name: "unspecified".to_string(),
-                    weight: 1,
-                }],
-                ttl: default_ttl(),
-            }
-        } else {
-            let sig = CallbackSignature::<String, EgressPool>::new("get_egress_pool");
+                    config
+                        .async_call_callback_non_default(&sig, name.to_string())
+                        .await
+                        .with_context(|| format!("resolving egress pool '{name}'"))?
+                };
 
-            config
-                .async_call_callback_non_default(&sig, name.to_string())
-                .await
-                .with_context(|| format!("resolving egress pool '{name}'"))?
-        };
+                Ok(pool)
+            })
+            .await
+            .map_err(|err: Arc<anyhow::Error>| anyhow::anyhow!("{err:#}"))?;
 
         // Validate each of the sources
         for entry in &pool.entries {
@@ -338,11 +344,6 @@ impl EgressPool {
                 .await
                 .with_context(|| format!("resolving egress pool '{name}'"))?;
         }
-
-        POOLS
-            .insert(name.to_string(), pool.clone(), Instant::now() + pool.ttl)
-            .await;
-
         Ok(pool)
     }
 }

@@ -119,6 +119,10 @@ impl<K: Send, V: Send + Sync> Expiry<K, Item<V>> for PerItemExpiry<K, V> {
     }
 }
 
+pub trait ItemTtl {
+    fn get_ttl(&self) -> Duration;
+}
+
 pub struct LruCacheWithTtl<K: Clone + Hash + Eq, V: Clone + Send + Sync> {
     inner: Arc<Inner<K, V>>,
 }
@@ -274,5 +278,31 @@ impl<
             .await?;
         let is_fresh = entry.is_fresh();
         Ok((is_fresh, entry.value().item.clone()))
+    }
+}
+
+impl<
+        K: Clone + Hash + Eq + Send + Sync + std::fmt::Debug + 'static,
+        V: Clone + Send + Sync + ItemTtl + 'static,
+    > LruCacheWithTtl<K, V>
+{
+    pub async fn get_or_try_insert_embedded_ttl<E: Send + Sync + 'static>(
+        &self,
+        name: K,
+        fut: impl Future<Output = Result<V, E>>,
+    ) -> Result<V, Arc<E>> {
+        let item = self
+            .inner
+            .cache
+            .try_get_with(name, async move {
+                let item = fut.await?;
+                let ttl = item.get_ttl();
+                Ok(Item {
+                    item,
+                    expiration: Instant::now() + ttl,
+                })
+            })
+            .await?;
+        Ok(item.item)
     }
 }
