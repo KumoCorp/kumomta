@@ -9,7 +9,7 @@ use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};
 use tokio_rustls::TlsConnector;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct RustlsCacheKey {
     insecure: bool,
     rustls_cipher_suites: Vec<SupportedCipherSuite>,

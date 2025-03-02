@@ -1,5 +1,6 @@
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use config::{any_err, from_lua_value, get_or_create_module, serialize_options};
+use dashmap::DashMap;
 use lruttl::LruCacheWithTtl;
 use mlua::{
     FromLua, Function, IntoLua, Lua, LuaSerdeExt, MetaMethod, MultiValue, UserData,
@@ -8,9 +9,8 @@ use mlua::{
 use prometheus::CounterVec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, Instant};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 /// Memoized is a helper type that allows native Rust types to be captured
 /// in memoization caches.
@@ -301,14 +301,14 @@ struct MemoizeCache {
     cache: Arc<LruCacheWithTtl<CacheKey, CacheEntry>>,
 }
 
-static CACHES: LazyLock<Mutex<HashMap<String, MemoizeCache>>> = LazyLock::new(Mutex::default);
+static CACHES: LazyLock<DashMap<String, MemoizeCache>> = LazyLock::new(DashMap::new);
 
 type CacheKey = (Option<ConfigEpoch>, String);
 
 fn get_cache_by_name(
     name: &str,
 ) -> Option<(Arc<LruCacheWithTtl<CacheKey, CacheEntry>>, Duration, bool)> {
-    CACHES.lock().unwrap().get(name).map(|item| {
+    CACHES.get(name).map(|item| {
         (
             item.cache.clone(),
             item.params.ttl,
@@ -317,86 +317,6 @@ fn get_cache_by_name(
     })
 }
 
-const REAP_EVERY: usize = 1024;
-
-struct SemaphoreManager {
-    map: HashMap<String, Arc<Semaphore>>,
-    counter: usize,
-}
-
-impl SemaphoreManager {
-    fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-            counter: 0,
-        }
-    }
-
-    /// Prune any unreferenced/unusable entries
-    fn expire(&mut self) {
-        self.map.retain(|_, item| {
-            match item.try_acquire() {
-                Ok(_) => {
-                    // No one is currently using this one, so we can reap it
-                    false
-                }
-                Err(TryAcquireError::Closed) => {
-                    // It is not usable, so reap it
-                    false
-                }
-                Err(TryAcquireError::NoPermits) => {
-                    // In-use, so we must keep it
-                    true
-                }
-            }
-        });
-    }
-
-    fn resolve_semaphore(&mut self, name: String) -> Arc<Semaphore> {
-        if let Some(s) = self.map.get(&name) {
-            if !s.is_closed() {
-                return s.clone();
-            }
-        }
-
-        // To avoid excessive growth (keep in mind that `name` is composed
-        // from a cache key which is effectively part of an unbounded,
-        // unknowable key space), we occasionally prune out any
-        // idle semaphores. We don't do this on every "miss"
-        // as the expiration operation is `O(N)` and we'd like
-        // to avoid situations where an abusive client can trigger
-        // excessive CPU work when running through here.
-        // That said, we expect the caller to be responsible for
-        // constraining overall concurrency of calls into memoize,
-        // as we can't reasonably perform that from this module
-        // because we simply do not have enough context to make
-        // that work appropriately in every situation.
-        // So, this expiration operation is more about keeping the
-        // memory overhead reasonably constrained.
-
-        self.counter += 1;
-        if self.counter >= REAP_EVERY {
-            self.expire();
-            self.counter = 0;
-        }
-
-        let semaphore = Arc::new(Semaphore::new(1));
-        self.map.insert(name, semaphore.clone());
-        semaphore
-    }
-}
-
-static SEMAPHORES: LazyLock<Mutex<SemaphoreManager>> =
-    LazyLock::new(|| Mutex::new(SemaphoreManager::new()));
-
-static ACQUIRE_BLOCKED: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
-        "memoize_semaphore_acquire_blocked_count",
-        "how many times memoize for a specific cache is blocked for concurrent callers",
-        &["cache_name"]
-    )
-    .unwrap()
-});
 static CACHE_LOOKUP: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_lookup_count",
@@ -421,14 +341,6 @@ static CACHE_MISS: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static CACHE_MISS_OTHER: LazyLock<CounterVec> = LazyLock::new(|| {
-    prometheus::register_counter_vec!(
-        "memoize_cache_miss_satisfied_by_other_count",
-        "how many times a memoize cache lookup was a miss, but was satisfied while waiting for concurrent callers",
-        &["cache_name"]
-    )
-    .unwrap()
-});
 static CACHE_POPULATED: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(
         "memoize_cache_populated_count",
@@ -437,31 +349,6 @@ static CACHE_POPULATED: LazyLock<CounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
-
-/// acquire a semaphore permit for a specific cache and cache key combination.
-/// This function will await until the caller is the only caller to hold
-/// the semaphore permit.
-/// This is used to constrain concurrency of workers on a cache miss
-/// and avoid/minimize the thundering herd problem.
-async fn acquire_semaphore(
-    cache_name: &str,
-    key: &CacheKey,
-) -> anyhow::Result<OwnedSemaphorePermit> {
-    let computed_key = format!("{cache_name}_@_{key:?}");
-    let semaphore = SEMAPHORES.lock().unwrap().resolve_semaphore(computed_key);
-    match semaphore.clone().try_acquire_owned() {
-        Ok(permit) => Ok(permit),
-        Err(TryAcquireError::NoPermits) => {
-            ACQUIRE_BLOCKED
-                .get_metric_with_label_values(&[cache_name])?
-                .inc();
-            Ok(semaphore.acquire_owned().await?)
-        }
-        Err(TryAcquireError::Closed) => {
-            anyhow::bail!("semaphore for {cache_name} {key:?} is closed!?");
-        }
-    }
-}
 
 fn multi_value_to_json_value(lua: &Lua, multi: MultiValue) -> mlua::Result<serde_json::Value> {
     let mut values = multi.into_vec();
@@ -488,23 +375,22 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let cache_name = params.name.to_string();
 
-            let mut caches = CACHES.lock().unwrap();
-            let replace = match caches.get_mut(&params.name) {
-                Some(existing) => existing.params != params,
-                None => true,
-            };
-            if replace {
-                caches.insert(
-                    cache_name.to_string(),
-                    MemoizeCache {
-                        params: params.clone(),
-                        cache: Arc::new(LruCacheWithTtl::new_named(
-                            cache_name.clone(),
-                            params.capacity,
-                        )),
-                    },
-                );
-            }
+            CACHES.remove_if(&params.name, |_k, item| {
+                let changed = item.params != params;
+                if changed {
+                    tracing::trace!("memoize parameters changed, replacing old cache {params:?}");
+                }
+                changed
+            });
+            CACHES
+                .entry(cache_name.to_string())
+                .or_insert_with(|| MemoizeCache {
+                    params: params.clone(),
+                    cache: Arc::new(LruCacheWithTtl::new_named(
+                        cache_name.clone(),
+                        params.capacity,
+                    )),
+                });
 
             let lookup_counter = CACHE_LOOKUP
                 .get_metric_with_label_values(&[&cache_name])
@@ -513,9 +399,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .get_metric_with_label_values(&[&cache_name])
                 .map_err(any_err)?;
             let miss_counter = CACHE_MISS
-                .get_metric_with_label_values(&[&cache_name])
-                .map_err(any_err)?;
-            let miss_other_counter = CACHE_MISS_OTHER
                 .get_metric_with_label_values(&[&cache_name])
                 .map_err(any_err)?;
             let populate_counter = CACHE_POPULATED
@@ -530,7 +413,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 let lookup_counter = lookup_counter.clone();
                 let hit_counter = hit_counter.clone();
                 let miss_counter = miss_counter.clone();
-                let miss_other_counter = miss_other_counter.clone();
                 let populate_counter = populate_counter.clone();
                 async move {
                     lookup_counter.inc();
@@ -560,37 +442,29 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     };
                     let key = (epoch_key, key);
 
-                    if let Some(value) = cache.get(&key).await {
-                        hit_counter.inc();
-                        return Ok(value.to_value(&lua)?);
+                    let value_result = cache
+                        .get_or_try_insert_with_freshness_status(&key, ttl, async {
+                            tracing::trace!("populate {key:?}");
+                            populate_counter.inc();
+                            let result: MultiValue = (func?).call_async(params).await?;
+                            CacheEntry::from_multi_value(&lua, result.clone())
+                        })
+                        .await;
+
+                    match value_result {
+                        Ok((is_fresh, value)) => {
+                            if is_fresh {
+                                miss_counter.inc();
+                            } else {
+                                hit_counter.inc();
+                            }
+                            value.to_value(&lua)
+                        }
+                        Err(err) => {
+                            tracing::error!("{cache_name} {key:?} failed: {err:#}");
+                            Err(mlua::Error::external(format!("{err:#}")))
+                        }
                     }
-                    miss_counter.inc();
-
-                    let permit = acquire_semaphore(&cache_name, &key)
-                        .await
-                        .map_err(any_err)?;
-
-                    // Check cache again in case we raced with someone else
-                    // while waiting for the semaphore
-                    if let Some(value) = cache.get(&key).await {
-                        miss_other_counter.inc();
-                        return Ok(value.to_value(&lua)?);
-                    }
-
-                    populate_counter.inc();
-
-                    let result: MultiValue = (func?).call_async(params).await?;
-
-                    let value = CacheEntry::from_multi_value(&lua, result.clone())?;
-                    let return_value = value.to_value(&lua)?;
-
-                    cache.insert(key, value, Instant::now() + ttl).await;
-
-                    // Explicit release the semaphore to allow others to
-                    // also consume the value
-                    drop(permit);
-
-                    Ok(return_value)
                 }
             })
         })?,
@@ -605,8 +479,8 @@ mod test {
     use mlua::UserDataMethods;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    #[test]
-    fn test_memoize() {
+    #[tokio::test]
+    async fn test_memoize() {
         let lua = Lua::new();
         register(&lua).unwrap();
 
@@ -638,14 +512,15 @@ mod test {
             return cached_do_thing() + cached_do_thing() + cached_do_thing()
         "#,
             )
-            .eval()
+            .eval_async()
+            .await
             .unwrap();
 
         assert_eq!(result, 0);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
 
         // And confirm that expiry works
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         let result: usize = lua
             .load(
@@ -660,8 +535,8 @@ mod test {
         assert_eq!(call_count.load(Ordering::SeqCst), 2);
     }
 
-    #[test]
-    fn test_memoize_rust() {
+    #[tokio::test]
+    async fn test_memoize_rust() {
         let lua = Lua::new();
         register(&lua).unwrap();
 

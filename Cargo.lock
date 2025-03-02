@@ -4072,6 +4072,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "dashmap",
  "duration-serde",
  "lruttl",
  "mlua",
@@ -4079,6 +4080,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

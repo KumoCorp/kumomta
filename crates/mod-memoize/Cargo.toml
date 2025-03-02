@@ -6,9 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = {workspace=true}
 config = {path="../config"}
+dashmap.workspace = true
 duration-serde = {path="../duration-serde"}
 lruttl = {path="../lruttl"}
 tokio = {workspace=true, features=["sync"]}
+tracing.workspace = true
 prometheus = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
 serde = {workspace=true}

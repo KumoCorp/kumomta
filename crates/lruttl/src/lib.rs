@@ -1,5 +1,6 @@
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use moka::future::Cache;
+use moka::policy::EvictionPolicy;
 use moka::Expiry;
 use parking_lot::Mutex;
 use std::borrow::Borrow;
@@ -122,8 +123,10 @@ pub struct LruCacheWithTtl<K: Clone + Hash + Eq, V: Clone + Send + Sync> {
     inner: Arc<Inner<K, V>>,
 }
 
-impl<K: Clone + Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'static>
-    LruCacheWithTtl<K, V>
+impl<
+        K: Clone + Hash + Eq + Send + Sync + std::fmt::Debug + 'static,
+        V: Clone + Send + Sync + 'static,
+    > LruCacheWithTtl<K, V>
 {
     #[deprecated = "use new_named instead"]
     pub fn new(capacity: usize) -> Self {
@@ -135,6 +138,13 @@ impl<K: Clone + Hash + Eq + Send + Sync + 'static, V: Clone + Send + Sync + 'sta
 
         let cache = Cache::builder()
             .name(&name)
+            .eviction_policy(EvictionPolicy::lru())
+            .eviction_listener({
+                let name = name.clone();
+                move |k, _v, reason| {
+                    tracing::trace!("evicting {name} {k:?} {reason:?}");
+                }
+            })
             .max_capacity(capacity as u64)
             .expire_after(PerItemExpiry {
                 marker: PhantomData,

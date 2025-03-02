@@ -87,7 +87,7 @@ static KEY_CACHE_LOOKUP: LazyLock<Counter> = LazyLock::new(|| {
     .unwrap()
 });
 
-#[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
+#[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Canon {
     Relaxed,
     Simple,
@@ -99,13 +99,13 @@ impl Default for Canon {
     }
 }
 
-#[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone)]
+#[derive(Deserialize, Hash, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum HashAlgo {
     Sha1,
     Sha256,
 }
 
-#[derive(Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct SignerConfig {
     domain: String,
     selector: String,
