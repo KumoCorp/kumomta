@@ -7,7 +7,7 @@ use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_server_common::config_handle::ConfigHandle;
-use lruttl::{ItemTtl, LruCacheWithTtl};
+use lruttl::LruCacheWithTtl;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
 use prometheus::IntCounter;
@@ -69,16 +69,10 @@ pub struct EgressSource {
 
 impl LuaUserData for EgressSource {}
 
-impl ItemTtl for EgressSource {
-    fn get_ttl(&self) -> Duration {
-        self.ttl
-    }
-}
-
 impl EgressSource {
     pub async fn resolve(name: &str, config: &mut LuaConfig) -> anyhow::Result<Self> {
         SOURCES
-            .get_or_try_insert_embedded_ttl(name.to_string(), async {
+            .get_or_try_insert(&name.to_string(), |source| source.ttl, async {
                 if name == "unspecified" {
                     Ok(EgressSource {
                         name: name.to_string(),
@@ -103,6 +97,7 @@ impl EgressSource {
             })
             .await
             .map_err(|err| anyhow::anyhow!("{err:#}"))
+            .map(|lookup| lookup.item)
     }
 
     fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
@@ -303,18 +298,12 @@ pub struct EgressPool {
 
 impl LuaUserData for EgressPool {}
 
-impl ItemTtl for EgressPool {
-    fn get_ttl(&self) -> Duration {
-        self.ttl
-    }
-}
-
 impl EgressPool {
     pub async fn resolve(name: Option<&str>, config: &mut LuaConfig) -> anyhow::Result<Self> {
         let name = name.unwrap_or("unspecified");
 
         let pool = POOLS
-            .get_or_try_insert_embedded_ttl(name.to_string(), async {
+            .get_or_try_insert(&name.to_string(), |pool| pool.ttl, async {
                 let pool = if name == "unspecified" {
                     EgressPool {
                         name: "unspecified".to_string(),
@@ -336,7 +325,8 @@ impl EgressPool {
                 Ok(pool)
             })
             .await
-            .map_err(|err: Arc<anyhow::Error>| anyhow::anyhow!("{err:#}"))?;
+            .map_err(|err: Arc<anyhow::Error>| anyhow::anyhow!("{err:#}"))?
+            .item;
 
         // Validate each of the sources
         for entry in &pool.entries {

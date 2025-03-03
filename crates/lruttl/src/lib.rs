@@ -119,8 +119,14 @@ impl<K: Send, V: Send + Sync> Expiry<K, Item<V>> for PerItemExpiry<K, V> {
     }
 }
 
-pub trait ItemTtl {
-    fn get_ttl(&self) -> Duration;
+pub struct ItemLookup<V> {
+    /// A copy of the item
+    pub item: V,
+    /// If true, the get_or_try_insert operation populated the entry;
+    /// the operation was a cache miss
+    pub is_fresh: bool,
+    /// The instant at which this entry will expire
+    pub expiration: Instant,
 }
 
 pub struct LruCacheWithTtl<K: Clone + Hash + Eq, V: Clone + Send + Sync> {
@@ -178,13 +184,17 @@ impl<
         num_entries as usize
     }
 
-    pub async fn get_with_expiry<Q: ?Sized>(&self, name: &Q) -> Option<(V, Instant)>
+    pub async fn lookup<Q: ?Sized>(&self, name: &Q) -> Option<ItemLookup<V>>
     where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
         let entry = self.inner.cache.get(name).await?;
-        Some((entry.item.clone(), entry.expiration))
+        Some(ItemLookup {
+            item: entry.item.clone(),
+            expiration: entry.expiration,
+            is_fresh: false,
+        })
     }
 
     pub async fn get<Q: ?Sized>(&self, name: &Q) -> Option<V>
@@ -192,8 +202,7 @@ impl<
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        let entry = self.inner.cache.get(name).await?;
-        entry.item.clone().into()
+        self.lookup(name).await.map(|lookup| lookup.item)
     }
 
     pub async fn insert(&self, name: K, item: V, expiration: Instant) -> V {
@@ -213,63 +222,21 @@ impl<
     /// Get an existing item, but if that item doesn't already exist,
     /// execute the future `fut` to provide a value that will be inserted and then
     /// returned.  This is done atomically wrt. other callers.
-    pub async fn get_or_insert(&self, name: K, ttl: Duration, fut: impl Future<Output = V>) -> V {
-        let item = self
-            .inner
-            .cache
-            .get_with(name, async move {
-                let item = fut.await;
-                Item {
-                    item,
-                    expiration: Instant::now() + ttl,
-                }
-            })
-            .await;
-        item.item
-    }
-
-    /// Get an existing item, but if that item doesn't already exist,
-    /// execute the future `fut` to provide a value that will be inserted and then
-    /// returned.  This is done atomically wrt. other callers.
-    /// This variant allows the future to be fallible.
-    pub async fn get_or_try_insert<E: Send + Sync + 'static>(
-        &self,
-        name: K,
-        ttl: Duration,
-        fut: impl Future<Output = Result<V, E>>,
-    ) -> Result<V, Arc<E>> {
-        let item = self
-            .inner
-            .cache
-            .try_get_with(name, async move {
-                let item = fut.await?;
-                Ok(Item {
-                    item,
-                    expiration: Instant::now() + ttl,
-                })
-            })
-            .await?;
-        Ok(item.item)
-    }
-
-    /// Get an existing item, but if that item doesn't already exist,
-    /// execute the future `fut` to provide a value that will be inserted and then
-    /// returned.  This is done atomically wrt. other callers.
-    /// This variant allows the future to be fallible, as well as returns a freshness
-    /// flag that can be used to update cache metrics.
-    /// if the freshness flag is true, it was a cache miss.
-    pub async fn get_or_try_insert_with_freshness_status<E: Send + Sync + 'static>(
+    /// The TTL parameter is a function that can extract the TTL from the value type,
+    /// or just return a constant TTL.
+    pub async fn get_or_try_insert<E: Send + Sync + 'static, TTL: FnOnce(&V) -> Duration>(
         &self,
         name: &K,
-        ttl: Duration,
+        ttl: TTL,
         fut: impl Future<Output = Result<V, E>>,
-    ) -> Result<(bool, V), Arc<E>> {
+    ) -> Result<ItemLookup<V>, Arc<E>> {
         let entry = self
             .inner
             .cache
             .entry_by_ref(name)
             .or_try_insert_with(async move {
                 let item = fut.await?;
+                let ttl = (ttl)(&item);
                 Ok(Item {
                     item,
                     expiration: Instant::now() + ttl,
@@ -277,32 +244,12 @@ impl<
             })
             .await?;
         let is_fresh = entry.is_fresh();
-        Ok((is_fresh, entry.value().item.clone()))
-    }
-}
+        let item = entry.value();
 
-impl<
-        K: Clone + Hash + Eq + Send + Sync + std::fmt::Debug + 'static,
-        V: Clone + Send + Sync + ItemTtl + 'static,
-    > LruCacheWithTtl<K, V>
-{
-    pub async fn get_or_try_insert_embedded_ttl<E: Send + Sync + 'static>(
-        &self,
-        name: K,
-        fut: impl Future<Output = Result<V, E>>,
-    ) -> Result<V, Arc<E>> {
-        let item = self
-            .inner
-            .cache
-            .try_get_with(name, async move {
-                let item = fut.await?;
-                let ttl = item.get_ttl();
-                Ok(Item {
-                    item,
-                    expiration: Instant::now() + ttl,
-                })
-            })
-            .await?;
-        Ok(item.item)
+        Ok(ItemLookup {
+            is_fresh,
+            item: item.item.clone(),
+            expiration: item.expiration,
+        })
     }
 }

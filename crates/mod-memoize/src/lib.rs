@@ -443,7 +443,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     let key = (epoch_key, key);
 
                     let value_result = cache
-                        .get_or_try_insert_with_freshness_status(&key, ttl, async {
+                        .get_or_try_insert(&key, |_| ttl, async {
                             tracing::trace!("populate {key:?}");
                             populate_counter.inc();
                             let result: MultiValue = (func?).call_async(params).await?;
@@ -452,13 +452,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         .await;
 
                     match value_result {
-                        Ok((is_fresh, value)) => {
-                            if is_fresh {
+                        Ok(lookup) => {
+                            if lookup.is_fresh {
                                 miss_counter.inc();
                             } else {
                                 hit_counter.inc();
                             }
-                            value.to_value(&lua)
+                            lookup.item.to_value(&lua)
                         }
                         Err(err) => {
                             tracing::error!("{cache_name} {key:?} failed: {err:#}");
