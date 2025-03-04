@@ -143,6 +143,7 @@ impl Default for SignerBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct Signer {
     signed_headers: HeaderList,
     private_key: Arc<DkimPrivateKey>,

@@ -98,6 +98,12 @@ pub enum CacheValue {
     Memoized(Memoized),
 }
 
+impl std::fmt::Debug for CacheValue {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_struct("CacheValue").finish()
+    }
+}
+
 impl FromLua for CacheValue {
     fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
         match value {
@@ -255,7 +261,7 @@ impl UserData for MemoizedTable {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CacheEntry {
     Null,
     Single(CacheValue),

@@ -347,7 +347,7 @@ impl MailExchanger {
                     .insert(
                         name_fq,
                         Err(error.clone()),
-                        Instant::now() + get_mx_negative_ttl(),
+                        tokio::time::Instant::now() + get_mx_negative_ttl(),
                     )
                     .await;
                 anyhow::bail!("{error}");
@@ -382,7 +382,9 @@ impl MailExchanger {
         };
 
         let mx = Arc::new(mx);
-        let _ = MX_CACHE.insert(name_fq, Ok(mx.clone()), expires).await;
+        let _ = MX_CACHE
+            .insert(name_fq, Ok(mx.clone()), expires.into())
+            .await;
         Ok(mx)
     }
 
@@ -517,7 +519,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
     if let Some(lookup) = IP_CACHE.lookup(&key_fq).await {
-        return Ok((lookup.item, lookup.expiration));
+        return Ok((lookup.item, lookup.expiration.into()));
     }
 
     let (v4, v6) = tokio::join!(ipv4_lookup(key), ipv6_lookup(key));
@@ -558,14 +560,14 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
     let addr = Arc::new(results);
     let exp = expires.take().unwrap_or_else(|| Instant::now());
 
-    IP_CACHE.insert(key_fq, addr.clone(), exp).await;
+    IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
     Ok((addr, exp))
 }
 
 pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
     if let Some(lookup) = IPV4_CACHE.lookup(&key_fq).await {
-        return Ok((lookup.item, lookup.expiration));
+        return Ok((lookup.item, lookup.expiration.into()));
     }
 
     let answer = RESOLVER
@@ -576,14 +578,14 @@ pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV4_CACHE.insert(key_fq, ips.clone(), expires).await;
+    IPV4_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
     Ok((ips, expires))
 }
 
 pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
     if let Some(lookup) = IPV6_CACHE.lookup(&key_fq).await {
-        return Ok((lookup.item, lookup.expiration));
+        return Ok((lookup.item, lookup.expiration.into()));
     }
 
     let answer = RESOLVER
@@ -594,7 +596,7 @@ pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
     let ips = Arc::new(ips);
     let expires = answer.expires;
-    IPV6_CACHE.insert(key_fq, ips.clone(), expires).await;
+    IPV6_CACHE.insert(key_fq, ips.clone(), expires.into()).await;
     Ok((ips, expires))
 }
 

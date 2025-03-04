@@ -12,7 +12,7 @@ static CACHE: LazyLock<LruCacheWithTtl<Name, CachedPolicy>> =
 pub mod dns;
 pub mod policy;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct CachedPolicy {
     pub id: String,
     pub policy: Arc<MtaStsPolicy>,
@@ -113,7 +113,7 @@ async fn get_policy_for_domain_impl(
                 id: record.id,
                 policy: Arc::clone(&policy),
             },
-            expires,
+            expires.into(),
         )
         .await;
 

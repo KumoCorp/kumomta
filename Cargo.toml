@@ -125,7 +125,6 @@ metrics-tracing-context = "0.17"
 minijinja = {version="2.7.0",features=["loader", "builtins", "json", "loop_controls"]}
 minijinja-contrib = {version="2.7.0",features=["datetime", "pycompat", "rand", "textwrap", "unicode_wordwrap", "wordcount", "timezone"]}
 mlua = "0.10"
-moka = {version="0.12", features=["future"]}
 nix = "0.28"
 nom = "7.1.0"
 nom_locate = "4.1"
@@ -170,6 +169,7 @@ sqlite = "0.36"
 strum = { version = "0.26", features = ["derive"] }
 tabout = "0.3"
 tempfile = "3.10"
+test-log = {version="0.2", features = ["trace"]}
 testcontainers-modules = { version = "0.11", default-features = false }
 textwrap = "0.16"
 thiserror = "1"

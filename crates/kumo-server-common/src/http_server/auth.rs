@@ -8,7 +8,7 @@ use config::{load_config, CallbackSignature};
 use lruttl::LruCacheWithTtl;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 static AUTH_CACHE: LazyLock<LruCacheWithTtl<AuthKind, Result<bool, String>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("http_server_auth", 128));

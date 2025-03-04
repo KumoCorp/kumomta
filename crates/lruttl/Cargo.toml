@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow.workspace = true
+dashmap.workspace = true
 kumo-server-memory = {path="../kumo-server-memory"}
-moka.workspace = true
 parking_lot = {workspace=true}
+prometheus.workspace = true
+rand.workspace = true
 tokio = {workspace=true, features=["sync"]}
 tracing = {workspace=true}
+
+[dev-dependencies]
+tokio = {workspace=true, features=["test-util"]}
+test-log.workspace = true

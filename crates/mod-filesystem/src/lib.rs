@@ -3,7 +3,7 @@ use config::get_or_create_module;
 use lruttl::LruCacheWithTtl;
 use mlua::Lua;
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 
 const GLOB_CACHE_CAPACITY: usize = 32;
 const DEFAULT_CACHE_TTL: f32 = 60.;

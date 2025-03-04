@@ -117,6 +117,7 @@ pub(crate) fn compute_body_hash<'a>(
 }
 
 /// Holds a list of header names, normalized to lower case
+#[derive(Debug)]
 pub(crate) enum HeaderList {
     /// A list of possibly duplicated header names
     MaybeMultiple(Vec<String>),

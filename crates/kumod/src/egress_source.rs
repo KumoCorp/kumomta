@@ -322,7 +322,7 @@ impl EgressPool {
                         .with_context(|| format!("resolving egress pool '{name}'"))?
                 };
 
-                Ok(pool)
+                Ok::<_, anyhow::Error>(pool)
             })
             .await
             .map_err(|err: Arc<anyhow::Error>| anyhow::anyhow!("{err:#}"))?

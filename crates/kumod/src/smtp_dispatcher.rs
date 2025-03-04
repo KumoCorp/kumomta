@@ -760,7 +760,7 @@ impl SmtpDispatcher {
                 .insert(
                     site_name.to_string(),
                     (),
-                    std::time::Instant::now() + duration,
+                    tokio::time::Instant::now() + duration,
                 )
                 .await;
         }

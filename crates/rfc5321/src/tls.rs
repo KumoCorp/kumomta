@@ -3,7 +3,7 @@ use hickory_proto::rr::rdata::TLSA;
 use lruttl::LruCacheWithTtl;
 use openssl::ssl::SslOptions;
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, Instant};
+use tokio::time::{Duration, Instant};
 use tokio_rustls::rustls::client::danger::ServerCertVerifier;
 use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
 use tokio_rustls::rustls::{ClientConfig, SupportedCipherSuite};

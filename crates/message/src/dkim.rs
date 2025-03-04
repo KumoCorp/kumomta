@@ -8,8 +8,8 @@ use mlua::{Lua, Value};
 use prometheus::{Counter, Histogram};
 use serde::Deserialize;
 use std::sync::{Arc, LazyLock, OnceLock};
-use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
+use tokio::time::{Duration, Instant};
 
 static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
     LazyLock::new(|| LruCacheWithTtl::new_named("dkim_signer_cache", 1024));
@@ -302,6 +302,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct CFSigner {
     signer: kumo_dkim::Signer,
 }
