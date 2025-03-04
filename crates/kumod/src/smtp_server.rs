@@ -285,7 +285,7 @@ impl EsmtpListenerParams {
     }
 
     fn default_data_processing_timeout() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_secs(300)
     }
 
     fn default_line_length_hard_limit() -> usize {

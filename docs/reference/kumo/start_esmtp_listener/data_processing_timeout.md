@@ -7,7 +7,7 @@ for processing the DATA portion of an SMTP transaction.  This
 time period covers internal processing of the DATA once it
 has been received.
 
-The default for this is `"1 minute"`.
+The default for this is `"5 minutes"`.
 
 !!! note
     The behavior of this option is probably not quite what you might expect, so
@@ -47,8 +47,8 @@ failed during reception.
 
 ```lua
 kumo.start_esmtp_listener {
-  -- The default is 1 minute
-  data_processing_timeout = '1 minute',
+  -- The default is 5 minutes
+  data_processing_timeout = '5 minutes',
 }
 ```
 
