@@ -1599,7 +1599,7 @@ impl Queue {
         if increment_attempts == IncrementAttempts::Yes {
             match self.increment_attempts_and_update_delay(msg).await? {
                 Some(msg) => {
-                    return self.insert(msg, context).await;
+                    return self.insert(msg, context, None).await;
                 }
                 None => {
                     // It was expired and removed from the spool
@@ -1649,7 +1649,7 @@ impl Queue {
             }
         }
 
-        self.insert(msg, context).await?;
+        self.insert(msg, context, None).await?;
 
         Ok(())
     }
@@ -1809,9 +1809,8 @@ impl Queue {
 
     async fn check_message_rate_throttle(&self) -> anyhow::Result<Option<ThrottleResult>> {
         if let Some(throttle) = &self.queue_config.borrow().max_message_rate {
-            let result = throttle
-                .throttle(format!("schedq-{}-message-rate", self.name))
-                .await?;
+            let result =
+                Box::pin(throttle.throttle(format!("schedq-{}-message-rate", self.name))).await?;
             Ok(Some(result))
         } else {
             Ok(None)
@@ -1831,7 +1830,12 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn insert_ready(&self, msg: Message, mut context: InsertContext) -> anyhow::Result<()> {
+    async fn insert_ready(
+        &self,
+        msg: Message,
+        mut context: InsertContext,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<()> {
         // Don't promote to ready queue while suspended
         if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
             let remaining = suspend.get_duration();
@@ -1880,7 +1884,7 @@ impl Queue {
             return Ok(());
         }
 
-        if let Some(result) = self.check_message_rate_throttle().await? {
+        if let Some(result) = opt_timeout_at(deadline, self.check_message_rate_throttle()).await? {
             if let Some(delay) = result.retry_after {
                 tracing::trace!("{} throttled message rate, delay={delay:?}", self.name);
                 // We're not using jitter here because the throttle should
@@ -1915,11 +1919,15 @@ impl Queue {
             }
         }
 
-        let mut config = load_config().await?;
-        config
-            .async_call_callback(&THROTTLE_INSERT_READY_SIG, msg.clone())
-            .await?;
-        config.put();
+        opt_timeout_at(deadline, async {
+            let mut config = load_config().await?;
+            config
+                .async_call_callback(&THROTTLE_INSERT_READY_SIG, msg.clone())
+                .await?;
+            config.put();
+            Ok(())
+        })
+        .await?;
 
         if let Some(due) = msg.get_due() {
             let now = Utc::now();
@@ -1954,7 +1962,10 @@ impl Queue {
             }
         }
 
-        if let Err(err) = self.insert_ready_impl(msg.clone(), &mut context).await {
+        if let Err(err) = self
+            .insert_ready_impl(msg.clone(), &mut context, deadline)
+            .await
+        {
             tracing::debug!("insert_ready: {err:#}");
 
             if err.downcast_ref::<ReadyQueueFull>().is_none() {
@@ -1995,6 +2006,7 @@ impl Queue {
         &self,
         msg: Message,
         context: &mut InsertContext,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
         tracing::trace!("insert_ready {}", msg.id());
 
@@ -2086,12 +2098,15 @@ impl Queue {
                 }
 
                 // Miss: compute and establish a new queue
-                match ReadyQueueManager::resolve_by_queue_name(
-                    &self.name,
-                    &self.queue_config,
-                    &egress_source,
-                    &rr.name,
-                    self.get_config_epoch(),
+                match opt_timeout_at(
+                    deadline,
+                    Box::pin(ReadyQueueManager::resolve_by_queue_name(
+                        &self.name,
+                        &self.queue_config,
+                        &egress_source,
+                        &rr.name,
+                        self.get_config_epoch(),
+                    )),
                 )
                 .await
                 {
@@ -2139,12 +2154,15 @@ impl Queue {
                 let egress_source = "unspecified";
                 let egress_pool = "unspecified";
 
-                match ReadyQueueManager::resolve_by_queue_name(
-                    &self.name,
-                    &self.queue_config,
-                    egress_source,
-                    egress_pool,
-                    self.get_config_epoch(),
+                match opt_timeout_at(
+                    deadline,
+                    ReadyQueueManager::resolve_by_queue_name(
+                        &self.name,
+                        &self.queue_config,
+                        egress_source,
+                        egress_pool,
+                        self.get_config_epoch(),
+                    ),
                 )
                 .await
                 {
@@ -2198,7 +2216,7 @@ impl Queue {
                 dir_mode,
                 file_mode,
             } => {
-                msg.load_data_if_needed().await?;
+                opt_timeout_at(deadline, msg.load_data_if_needed()).await?;
 
                 let engine = TemplateEngine::new();
                 let queue_name = msg.get_queue_name()?;
@@ -2314,7 +2332,12 @@ impl Queue {
     /// Insert a newly received, or freshly loaded from spool, message
     /// into this queue
     #[instrument(fields(self.name), skip(self, msg))]
-    pub async fn insert(&self, msg: Message, context: InsertContext) -> anyhow::Result<()> {
+    pub async fn insert(
+        &self,
+        msg: Message,
+        context: InsertContext,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<()> {
         loop {
             *self.last_change.lock() = Instant::now();
 
@@ -2335,7 +2358,7 @@ impl Queue {
             match self.insert_delayed(msg.clone(), context.clone()).await? {
                 InsertResult::Delayed => return Ok(()),
                 InsertResult::Ready(msg) => {
-                    self.insert_ready(msg.clone(), context).await?;
+                    self.insert_ready(msg.clone(), context, deadline).await?;
                     return Ok(());
                 }
             }
@@ -2397,7 +2420,7 @@ impl Queue {
                     if remove(q, &msg) {
                         queue.metrics().sub(1);
                         queue
-                            .insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                            .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                             .await?;
                         if !to_shrink.contains_key(&queue_name) {
                             to_shrink.insert(queue_name, queue);
@@ -2490,7 +2513,7 @@ impl Queue {
                     if remove(q, &msg) {
                         queue.metrics().sub(1);
                         queue
-                            .insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                            .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                             .await?;
                         if !to_shrink.contains_key(&queue_name) {
                             to_shrink.insert(queue_name, queue);
@@ -2715,7 +2738,7 @@ impl QueueManager {
         timer.stop_and_record();
 
         let _timer = INSERT_LATENCY.start_timer();
-        entry.insert(msg, context).await
+        entry.insert(msg, context, None).await
     }
 
     #[instrument(skip(msg))]
@@ -2728,20 +2751,11 @@ impl QueueManager {
         tracing::trace!("QueueManager::insert {context:?}");
 
         let timer = RESOLVE_LATENCY.start_timer();
-        let entry = if let Some(deadline) = deadline {
-            match timeout_at(deadline.into(), Self::resolve(name)).await {
-                Err(_) => {
-                    anyhow::bail!("data processing deadline exceeded, stopping short of insertion")
-                }
-                Ok(result) => result?,
-            }
-        } else {
-            Self::resolve(name).await?
-        };
+        let entry = opt_timeout_at(deadline, Self::resolve(name)).await?;
         timer.stop_and_record();
 
         let _timer = INSERT_LATENCY.start_timer();
-        entry.insert(msg, context).await
+        entry.insert(msg, context, deadline).await
     }
 
     /// Insert message into a queue named `name`, unwinding it in the case
@@ -2764,12 +2778,12 @@ impl QueueManager {
         spool_was_deferred: bool,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
-        match Self::insert_within_deadline(
+        match Box::pin(Self::insert_within_deadline(
             name,
             msg.clone(),
             InsertReason::Received.into(),
             deadline,
-        )
+        ))
         .await
         {
             Ok(()) => Ok(()),
@@ -3200,7 +3214,7 @@ async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                 wait_for_message_batch(&messages).await;
 
                 for msg in messages {
-                    q.insert_ready(msg, InsertReason::DueTimeWasReached.into())
+                    q.insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                         .await?;
                 }
             }
@@ -3226,5 +3240,16 @@ impl QueueState {
             context: context.into(),
             since: Utc::now(),
         }
+    }
+}
+
+#[inline]
+async fn opt_timeout_at<T>(
+    deadline: Option<Instant>,
+    fut: impl std::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    match deadline {
+        Some(expires) => timeout_at(expires.into(), fut).await?,
+        None => fut.await,
     }
 }

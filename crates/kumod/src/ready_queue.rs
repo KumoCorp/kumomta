@@ -1511,7 +1511,7 @@ impl Dispatcher {
         }
         let queue_name = msg.get_queue_name()?;
         let queue = QueueManager::resolve(&queue_name).await?;
-        queue.insert(msg, context).await
+        queue.insert(msg, context, None).await
     }
 
     fn readyq_spawn<FUT, N: AsRef<str>>(

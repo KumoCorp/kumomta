@@ -403,7 +403,7 @@ impl EsmtpListenerParams {
                             format!("SmtpServer {peer_address:?}"),
                             async move {
                                 if let Err(err) =
-                                    SmtpServer::run(socket, my_address, peer_address, params).await
+                                    Box::pin(SmtpServer::run(socket, my_address, peer_address, params)).await
                                     {
                                         tracing::error!("SmtpServer::run: {err:#}");
                                 }
@@ -1609,7 +1609,7 @@ impl SmtpServer {
                     read_data_timer.stop_and_record();
 
                     let _process_data_timer = PROCESS_DATA_LATENCY.start_timer();
-                    self.process_data(data).await?;
+                    Box::pin(self.process_data(data)).await?;
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
@@ -1730,10 +1730,10 @@ impl SmtpServer {
             } else {
                 match timeout_at(
                     deadline.into(),
-                    self.call_callback_sig(
+                    Box::pin(self.call_callback_sig(
                         &SMTP_SERVER_MSG_RX,
                         (message.clone(), self.meta.clone()),
-                    ),
+                    )),
                 )
                 .await
                 {
@@ -1891,6 +1891,7 @@ impl SmtpServer {
 
         let relayed_any = !messages.is_empty();
         let mut failed = vec![];
+        let mut expired_count = 0;
 
         for (queue_name, msg) in messages {
             let id = *msg.id();
@@ -1914,6 +1915,10 @@ impl SmtpServer {
                     },
                     when: Utc::now(),
                 });
+
+                if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                    expired_count += 1;
+                }
             }
         }
 
@@ -1922,6 +1927,18 @@ impl SmtpServer {
                 .await?;
         } else if !failed.is_empty() && failed.len() == ids.len() {
             // All potentials failed, report error.
+
+            if expired_count == failed.len() {
+                // They were all timeout errors
+                self.write_response(
+                    451,
+                    "4.4.5 data_processing_timeout exceeded (insert)",
+                    Some("DATA".into()),
+                )
+                .await?;
+                return Ok(());
+            }
+
             // This will map to a 421 and get traced and logged appropriately
             anyhow::bail!(
                 "QueueManager::insert failed for {} messages: {}",

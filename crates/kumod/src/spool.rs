@@ -374,7 +374,7 @@ impl SpoolManager {
                                     }
 
                                     if let Err(err) = queue
-                                        .insert(msg.clone(), InsertReason::Enumerated.into())
+                                        .insert(msg.clone(), InsertReason::Enumerated.into(), None)
                                         .await
                                     {
                                         tracing::error!(
