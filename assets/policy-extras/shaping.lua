@@ -296,8 +296,10 @@ local function process_tsa_events(url)
         apply_sched_q_bounce(data.SchedQBounce)
       else
         print(
-          'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
-          kumo.serde.json_encode(data)
+          string.format(
+            'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
+            kumo.serde.json_encode(data)
+          )
         )
       end
     end
@@ -307,9 +309,11 @@ local function process_tsa_events(url)
     local endpoint = string.format('%s/subscribe_suspension_v1', ws_url)
 
     print(
-      "NOTE: Your TSA daemon doesn't support %s, falling back to %s. Please upgrade and restart your TSA daemon to enable full functionality!",
-      event_endpoint,
-      endpoint
+      string.format(
+        "NOTE: Your TSA daemon doesn't support %s, falling back to %s. Please upgrade and restart your TSA daemon to enable full functionality!",
+        event_endpoint,
+        endpoint
+      )
     )
 
     local stream, response = kumo.http.connect_websocket(endpoint)

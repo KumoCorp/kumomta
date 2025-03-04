@@ -77,3 +77,4 @@
 * Potential stack overflow during spool enumeration when using
   `max_message_rate` with local (non-redis) throttles together with custom lua delivery
   handlers.
+* Missing `string.format` in kumod/tsa-daemon version mismatch error report. #351
