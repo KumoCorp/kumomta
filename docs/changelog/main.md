@@ -64,6 +64,8 @@
   to configure a timeout for MX record resolution. #325
 * New [kumo.dns.set_mx_negative_cache_ttl](../reference/kumo.dns/set_mx_negative_cache_ttl.md)
   option to configure the duration used for caching MX resolution errors.
+* New `lruttl` cache implementation exposes more internal cache metrics to
+  prometheus with the `lruttl_` prefix.
 
 ## Fixes
 
