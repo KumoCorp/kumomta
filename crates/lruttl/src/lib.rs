@@ -22,7 +22,7 @@ static CACHES: LazyLock<Mutex<Vec<Weak<dyn CachePurger + Send + Sync>>>> =
 struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     name: String,
     tick: AtomicUsize,
-    capacity: usize,
+    capacity: AtomicUsize,
     cache: DashMap<K, Item<V>>,
     lru_samples: AtomicUsize,
     lookup_counter: IntCounter,
@@ -60,12 +60,191 @@ impl<
         self.size_gauge.set(self.cache.len() as i64);
         num_entries
     }
+
+    /// Evict up to target entries.
+    ///
+    /// We use a probablistic approach to the LRU, because
+    /// it is challenging to safely thread the classic doubly-linked-list
+    /// through dashmap.
+    ///
+    /// target is bounded to half of number of selected samples, in
+    /// order to ensure that we don't randomly pick the newest element
+    /// from the set when under pressure.
+    ///
+    /// Redis uses a similar technique for its LRU as described
+    /// in <https://redis.io/docs/latest/develop/reference/eviction/#apx-lru>
+    /// which suggests that sampling 10 keys at random to them compare
+    /// their recency yields a reasonably close approximation to the
+    /// 100% precise LRU.
+    ///
+    /// Since we also support TTLs, we'll just go ahead and remove
+    /// any expired keys that show up in the sampled set.
+    pub fn evict_some(&self, target: usize) -> usize {
+        let now = Instant::now();
+
+        // Approximate (since it could change immediately after reading)
+        // cache size
+        let cache_size = self.cache.len();
+        // How many keys to sample
+        let num_samples = self.lru_samples.load(Ordering::Relaxed).min(cache_size);
+
+        // a list of keys which have expired
+        let mut expired_keys = vec![];
+        // a random selection of up to num_samples (key, tick) tuples
+        let mut samples = vec![];
+
+        // Pick some random keys.
+        // The rand crate has some helpers for working with iterators,
+        // but they appear to copy many elements into an internal buffer
+        // in order to make a selection, and we want to avoid directly
+        // considering every possible element because some users have
+        // very large capacity caches.
+        //
+        // The approach taken here is to produce a random list of iterator
+        // offsets so that we can skim across the iterator in a single
+        // pass and pull out a random selection of elements.
+        // The sample function provides a randomized list of indices that
+        // we can use for this; we need to sort it first, but the cost
+        // should be reasonably low as num_samples should be ~10 or so
+        // in the most common configuration.
+        {
+            let mut rng = rand::thread_rng();
+            let mut indices =
+                rand::seq::index::sample(&mut rng, cache_size, num_samples).into_vec();
+            indices.sort();
+            let mut iter = self.cache.iter();
+            let mut current_idx = 0;
+
+            /// Advance an iterator by skip_amount.
+            /// Ideally we'd use Iterator::advance_by for this, but at the
+            /// time of writing that method is nightly only.
+            /// Note that it also uses next() internally anyway
+            fn advance_by(iter: &mut impl Iterator, skip_amount: usize) {
+                for _ in 0..skip_amount {
+                    if iter.next().is_none() {
+                        return;
+                    }
+                }
+            }
+
+            for idx in indices {
+                // idx is the index we want to be on; we'll need to skip ahead
+                // by some number of slots based on the current one. skip_amount
+                // is that number.
+                let skip_amount = idx - current_idx;
+                advance_by(&mut iter, skip_amount);
+
+                match iter.next() {
+                    Some(map_entry) => {
+                        current_idx = idx + 1;
+                        let item = map_entry.value();
+                        match &item.item {
+                            ItemState::Pending(_) => {
+                                // Cannot evict a pending lookup
+                            }
+                            ItemState::Present(_) | ItemState::Failed(_) => {
+                                if now >= item.expiration {
+                                    expired_keys.push(map_entry.key().clone());
+                                } else {
+                                    let last_tick = item.last_tick.load(Ordering::Relaxed);
+                                    samples.push((map_entry.key().clone(), last_tick));
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut num_removed = 0;
+        for key in expired_keys {
+            // Sanity check that it is still expired before removing it,
+            // because it would be a shame to remove it if another actor
+            // has just updated it
+            let removed = self
+                .cache
+                .remove_if(&key, |_k, entry| now >= entry.expiration)
+                .is_some();
+            if removed {
+                tracing::trace!("{} expired {key:?}", self.name);
+                num_removed += 1;
+                self.expire_counter.inc();
+            }
+        }
+
+        // Since we're picking random elements, we want to ensure that
+        // we never pick the newest element from the set to evict because
+        // that is likely the wrong choice. We need enough samples to
+        // know that the lowest number we picked is representative
+        // of the eldest element in the map overall.
+        // We limit ourselves to half of the number of selected samples.
+        let target = target.min(samples.len() / 2).max(1);
+
+        // If we met our target, skip the extra work below
+        if num_removed >= target {
+            self.size_gauge.set(self.cache.len() as i64);
+            tracing::trace!("{} expired {num_removed} of target {target}", self.name);
+            return num_removed;
+        }
+
+        // Sort by ascending tick, which is equivalent to having the
+        // LRU within that set towards the front of the vec
+        samples.sort_by(|(_ka, tick_a), (_kb, tick_b)| tick_a.cmp(&tick_b));
+
+        for (key, tick) in samples {
+            // Sanity check that the tick value is the same as we expect.
+            // If it has changed since we sampled it, then that element
+            // is no longer a good candidate for LRU eviction.
+            if self
+                .cache
+                .remove_if(&key, |_k, item| {
+                    item.last_tick.load(Ordering::Relaxed) == tick
+                })
+                .is_some()
+            {
+                tracing::debug!("{} evicted {key:?}", self.name);
+                num_removed += 1;
+                self.evict_counter.inc();
+                self.size_gauge.set(self.cache.len() as i64);
+                if num_removed >= target {
+                    return num_removed;
+                }
+            }
+        }
+
+        if num_removed == 0 {
+            tracing::warn!(
+                "{} did not find anything to evict, target was {target}",
+                self.name
+            );
+        }
+
+        tracing::trace!("{} removed {num_removed} of target {target}", self.name);
+
+        num_removed
+    }
+
+    /// Potentially make some progress to get back under
+    /// budget on the cache capacity
+    pub fn maybe_evict(&self) -> usize {
+        let cache_size = self.cache.len();
+        let capacity = self.capacity.load(Ordering::Relaxed);
+        if cache_size > capacity {
+            self.evict_some(cache_size - capacity)
+        } else {
+            0
+        }
+    }
 }
 
 trait CachePurger {
     fn name(&self) -> &str;
     fn purge(&self) -> usize;
     fn process_expirations(&self) -> usize;
+    fn update_capacity(&self, capacity: usize);
 }
 
 impl<
@@ -111,7 +290,17 @@ impl<
                 self.size_gauge.set(self.cache.len() as i64);
             }
         }
-        num_removed
+
+        num_removed + self.maybe_evict()
+    }
+
+    fn update_capacity(&self, capacity: usize) {
+        self.capacity.store(capacity, Ordering::Relaxed);
+        // Bring it within capacity.
+        // At the time of writing this is a bit half-hearted,
+        // but we'll eventually trim down via ongoing process_expirations()
+        // calls
+        self.process_expirations();
     }
 }
 
@@ -205,6 +394,21 @@ static PREDEFINED_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(vivify_
 
 pub fn is_name_available(name: &str) -> bool {
     !PREDEFINED_NAMES.contains(name)
+}
+
+/// Update the capacity value for a pre-defined cache
+pub fn set_cache_capacity(name: &str, capacity: usize) -> bool {
+    if !PREDEFINED_NAMES.contains(name) {
+        return false;
+    }
+    let caches = all_caches();
+    match caches.iter().find(|p| p.name() == name) {
+        Some(p) => {
+            p.update_capacity(capacity);
+            true
+        }
+        None => false,
+    }
 }
 
 pub fn spawn_memory_monitor() {
@@ -319,7 +523,7 @@ impl<
             name,
             cache,
             tick: AtomicUsize::new(0),
-            capacity,
+            capacity: AtomicUsize::new(capacity),
             lru_samples: AtomicUsize::new(10),
             lookup_counter,
             evict_counter,
@@ -359,193 +563,6 @@ impl<
     fn update_tick(&self, item: &Item<V>) {
         let v = self.inc_tick();
         item.last_tick.store(v, Ordering::Relaxed);
-    }
-
-    /// Evict up to target entries.
-    ///
-    /// We use a probablistic approach to the LRU, because
-    /// it is challenging to safely thread the classic doubly-linked-list
-    /// through dashmap.
-    ///
-    /// target is bounded to half of number of selected samples, in
-    /// order to ensure that we don't randomly pick the newest element
-    /// from the set when under pressure.
-    ///
-    /// Redis uses a similar technique for its LRU as described
-    /// in <https://redis.io/docs/latest/develop/reference/eviction/#apx-lru>
-    /// which suggests that sampling 10 keys at random to them compare
-    /// their recency yields a reasonably close approximation to the
-    /// 100% precise LRU.
-    ///
-    /// Since we also support TTLs, we'll just go ahead and remove
-    /// any expired keys that show up in the sampled set.
-    fn evict_some(&self, target: usize) -> bool {
-        let now = Instant::now();
-
-        // Approximate (since it could change immediately after reading)
-        // cache size
-        let cache_size = self.inner.cache.len();
-        // How many keys to sample
-        let num_samples = self
-            .inner
-            .lru_samples
-            .load(Ordering::Relaxed)
-            .min(cache_size);
-
-        // a list of keys which have expired
-        let mut expired_keys = vec![];
-        // a random selection of up to num_samples (key, tick) tuples
-        let mut samples = vec![];
-
-        // Pick some random keys.
-        // The rand crate has some helpers for working with iterators,
-        // but they appear to copy many elements into an internal buffer
-        // in order to make a selection, and we want to avoid directly
-        // considering every possible element because some users have
-        // very large capacity caches.
-        //
-        // The approach taken here is to produce a random list of iterator
-        // offsets so that we can skim across the iterator in a single
-        // pass and pull out a random selection of elements.
-        // The sample function provides a randomized list of indices that
-        // we can use for this; we need to sort it first, but the cost
-        // should be reasonably low as num_samples should be ~10 or so
-        // in the most common configuration.
-        {
-            let mut rng = rand::thread_rng();
-            let mut indices =
-                rand::seq::index::sample(&mut rng, cache_size, num_samples).into_vec();
-            indices.sort();
-            let mut iter = self.inner.cache.iter();
-            let mut current_idx = 0;
-
-            /// Advance an iterator by skip_amount.
-            /// Ideally we'd use Iterator::advance_by for this, but at the
-            /// time of writing that method is nightly only.
-            /// Note that it also uses next() internally anyway
-            fn advance_by(iter: &mut impl Iterator, skip_amount: usize) {
-                for _ in 0..skip_amount {
-                    if iter.next().is_none() {
-                        return;
-                    }
-                }
-            }
-
-            for idx in indices {
-                // idx is the index we want to be on; we'll need to skip ahead
-                // by some number of slots based on the current one. skip_amount
-                // is that number.
-                let skip_amount = idx - current_idx;
-                advance_by(&mut iter, skip_amount);
-
-                match iter.next() {
-                    Some(map_entry) => {
-                        current_idx = idx + 1;
-                        let item = map_entry.value();
-                        match &item.item {
-                            ItemState::Pending(_) => {
-                                // Cannot evict a pending lookup
-                            }
-                            ItemState::Present(_) | ItemState::Failed(_) => {
-                                if now >= item.expiration {
-                                    expired_keys.push(map_entry.key().clone());
-                                } else {
-                                    let last_tick = item.last_tick.load(Ordering::Relaxed);
-                                    samples.push((map_entry.key().clone(), last_tick));
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        break;
-                    }
-                }
-            }
-        }
-
-        let mut num_removed = 0;
-        for key in expired_keys {
-            // Sanity check that it is still expired before removing it,
-            // because it would be a shame to remove it if another actor
-            // has just updated it
-            let removed = self
-                .inner
-                .cache
-                .remove_if(&key, |_k, entry| now >= entry.expiration)
-                .is_some();
-            if removed {
-                tracing::trace!("{} expired {key:?}", self.inner.name);
-                num_removed += 1;
-                self.inner.expire_counter.inc();
-            }
-        }
-
-        // Since we're picking random elements, we want to ensure that
-        // we never pick the newest element from the set to evict because
-        // that is likely the wrong choice. We need enough samples to
-        // know that the lowest number we picked is representative
-        // of the eldest element in the map overall.
-        // We limit ourselves to half of the number of selected samples.
-        let target = target.min(samples.len() / 2).max(1);
-
-        // If we met our target, skip the extra work below
-        if num_removed >= target {
-            self.inner.size_gauge.set(self.inner.cache.len() as i64);
-            tracing::trace!(
-                "{} expired {num_removed} of target {target}",
-                self.inner.name
-            );
-            return true;
-        }
-
-        // Sort by ascending tick, which is equivalent to having the
-        // LRU within that set towards the front of the vec
-        samples.sort_by(|(_ka, tick_a), (_kb, tick_b)| tick_a.cmp(&tick_b));
-
-        for (key, tick) in samples {
-            // Sanity check that the tick value is the same as we expect.
-            // If it has changed since we sampled it, then that element
-            // is no longer a good candidate for LRU eviction.
-            if self
-                .inner
-                .cache
-                .remove_if(&key, |_k, item| {
-                    item.last_tick.load(Ordering::Relaxed) == tick
-                })
-                .is_some()
-            {
-                tracing::debug!("{} evicted {key:?}", self.inner.name);
-                num_removed += 1;
-                self.inner.evict_counter.inc();
-                self.inner.size_gauge.set(self.inner.cache.len() as i64);
-                if num_removed >= target {
-                    return true;
-                }
-            }
-        }
-
-        if num_removed == 0 {
-            tracing::warn!(
-                "{} did not find anything to evict, target was {target}",
-                self.inner.name
-            );
-        }
-
-        tracing::trace!(
-            "{} removed {num_removed} of target {target}",
-            self.inner.name
-        );
-
-        num_removed > 0
-    }
-
-    /// Potentially make some progress to get back under
-    /// budget on the cache capacity
-    fn maybe_evict(&self) {
-        let cache_size = self.inner.cache.len();
-        if cache_size > self.inner.capacity {
-            self.evict_some(cache_size - self.inner.capacity);
-        }
     }
 
     pub async fn lookup<Q: ?Sized>(&self, name: &Q) -> Option<ItemLookup<V>>
@@ -617,7 +634,7 @@ impl<
 
         self.inner.insert_counter.inc();
         self.inner.size_gauge.set(self.inner.cache.len() as i64);
-        self.maybe_evict();
+        self.inner.maybe_evict();
 
         item
     }
@@ -651,7 +668,7 @@ impl<
 
         if is_new {
             self.inner.size_gauge.set(self.inner.cache.len() as i64);
-            self.maybe_evict();
+            self.inner.maybe_evict();
         }
 
         result
@@ -797,7 +814,7 @@ impl<
                                 );
                                 // Wake everybody up
                                 permit.semaphore().close();
-                                self.maybe_evict();
+                                self.inner.maybe_evict();
 
                                 return return_value;
                             }

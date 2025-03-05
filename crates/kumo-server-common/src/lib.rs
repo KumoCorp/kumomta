@@ -204,6 +204,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_lruttl_cache_capacity",
+        lua.create_function(move |_, (name, capacity): (String, usize)| {
+            if lruttl::set_cache_capacity(&name, capacity) {
+                Ok(())
+            } else {
+                Err(mlua::Error::external(format!(
+                    "could not set capacity for cache {name} \
+                    as that is not a pre-defined lruttl cache name"
+                )))
+            }
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_config_monitor_globs",
         lua.create_function(move |_, globs: Vec<String>| {
             config::epoch::set_globs(globs).map_err(any_err)?;

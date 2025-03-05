@@ -66,6 +66,8 @@
   option to configure the duration used for caching MX resolution errors.
 * New `lruttl` cache implementation exposes more internal cache metrics to
   prometheus with the `lruttl_` prefix.
+* New [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md)
+  function to configure internal cache sizes.
 
 ## Fixes
 
