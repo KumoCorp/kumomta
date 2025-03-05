@@ -1,13 +1,13 @@
 use dns_resolver::Resolver;
 use futures::future::BoxFuture;
 use hickory_resolver::Name;
-use lruttl::LruCacheWithTtl;
 use policy::MtaStsPolicy;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-static CACHE: LazyLock<LruCacheWithTtl<Name, CachedPolicy>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("mta_sts_policy", 64 * 1024));
+lruttl::declare_cache! {
+static CACHE: LruCacheWithTtl<Name, CachedPolicy>::new("mta_sts_policy", 64 * 1024);
+}
 
 pub mod dns;
 pub mod policy;

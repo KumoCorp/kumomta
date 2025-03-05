@@ -15,7 +15,6 @@ use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
 use kumo_server_lifecycle::ShutdownSubcription;
 use kumo_server_runtime::spawn;
-use lruttl::LruCacheWithTtl;
 use message::message::QueueNameComponents;
 use message::Message;
 use mta_sts::policy::PolicyMode;
@@ -25,12 +24,13 @@ use rfc5321::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::net::UnixStream;
 use tracing::Level;
 
-static BROKEN_TLS_BY_SITE: LazyLock<LruCacheWithTtl<String, ()>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("smtp_dispatcher_broken_tls", 64 * 1024));
+lruttl::declare_cache! {
+static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {

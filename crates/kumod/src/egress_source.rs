@@ -7,7 +7,7 @@ use data_loader::KeySource;
 use gcd::Gcd;
 use kumo_log_types::MaybeProxiedSourceAddress;
 use kumo_server_common::config_handle::ConfigHandle;
-use lruttl::LruCacheWithTtl;
+use lruttl::declare_cache;
 use mlua::prelude::LuaUserData;
 use parking_lot::FairMutex as Mutex;
 use prometheus::IntCounter;
@@ -22,10 +22,12 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
-static SOURCES: LazyLock<LruCacheWithTtl<String, EgressSource>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("egress_source_sources", 128));
-static POOLS: LazyLock<LruCacheWithTtl<String, EgressPool>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("egress_source_pools", 128));
+declare_cache! {
+static SOURCES: LruCacheWithTtl<String, EgressSource>::new("egress_source_sources", 128);
+}
+declare_cache! {
+static POOLS: LruCacheWithTtl<String, EgressPool>::new("egress_source_pools", 128);
+}
 
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq, mlua::FromLua)]
 #[serde(deny_unknown_fields)]

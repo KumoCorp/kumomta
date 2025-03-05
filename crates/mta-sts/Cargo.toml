@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 futures = {workspace=true}
+linkme.workspace = true
 lruttl = {path="../lruttl"}
 reqwest = {workspace=true, default-features=false, features=["json", "rustls-tls"]}
 hickory-resolver = {workspace=true}

@@ -1,8 +1,7 @@
 #![cfg(feature = "client")]
 use hickory_proto::rr::rdata::TLSA;
-use lruttl::LruCacheWithTtl;
 use openssl::ssl::SslOptions;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 use tokio_rustls::rustls::client::danger::ServerCertVerifier;
 use tokio_rustls::rustls::crypto::{aws_lc_rs as provider, CryptoProvider};
@@ -49,8 +48,9 @@ impl std::hash::Hash for RustlsCacheKey {
     }
 }
 
-static RUSTLS_CACHE: LazyLock<LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("rfc5321_rustls_config", 32));
+lruttl::declare_cache! {
+static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("rfc5321_rustls_config", 32);
+}
 
 impl RustlsCacheKey {
     async fn get(&self) -> Option<Arc<ClientConfig>> {

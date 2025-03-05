@@ -7,7 +7,9 @@ edition = "2021"
 anyhow.workspace = true
 dashmap.workspace = true
 kumo-server-memory = {path="../kumo-server-memory"}
+linkme.workspace = true
 parking_lot = {workspace=true}
+paste.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 tokio = {workspace=true, features=["sync"]}

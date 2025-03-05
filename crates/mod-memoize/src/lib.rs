@@ -381,6 +381,15 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
             let cache_name = params.name.to_string();
 
+            if !lruttl::is_name_available(&cache_name) {
+                return Err(mlua::Error::external(format!(
+                    "cannot use name `{cache_name}` for a memoize cache, \
+                    as it collides with a built-in cache. \
+                    Suggestion: prefix your cache name with `user.` to \
+                    avoid conflicts with current and future caches."
+                )));
+            }
+
             CACHES.remove_if(&params.name, |_k, item| {
                 let changed = item.params != params;
                 if changed {
@@ -392,10 +401,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .entry(cache_name.to_string())
                 .or_insert_with(|| MemoizeCache {
                     params: params.clone(),
-                    cache: Arc::new(LruCacheWithTtl::new_named(
-                        cache_name.clone(),
-                        params.capacity,
-                    )),
+                    cache: Arc::new(LruCacheWithTtl::new(cache_name.clone(), params.capacity)),
                 });
 
             let lookup_counter = CACHE_LOOKUP

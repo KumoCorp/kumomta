@@ -37,6 +37,7 @@ kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 kumo-spf = {path="../kumo-spf"}
 kumo-template = {path="../kumo-template"}
+linkme.workspace = true
 lru-cache = {workspace=true}
 lruttl = {path="../lruttl"}
 maildir = {path="../maildir"}

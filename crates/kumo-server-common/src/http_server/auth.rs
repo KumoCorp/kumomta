@@ -5,13 +5,12 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use config::{load_config, CallbackSignature};
-use lruttl::LruCacheWithTtl;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::LazyLock;
 use tokio::time::{Duration, Instant};
 
-static AUTH_CACHE: LazyLock<LruCacheWithTtl<AuthKind, Result<bool, String>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("http_server_auth", 128));
+lruttl::declare_cache! {
+static AUTH_CACHE: LruCacheWithTtl<AuthKind, Result<bool, String>>::new("http_server_auth", 128);
+}
 
 /// Represents some authenticated identity.
 /// Use this as an extractor parameter when you need to reference

@@ -2,7 +2,7 @@ use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_sub_module};
 use data_loader::KeySource;
 use kumo_dkim::DkimPrivateKey;
-use lruttl::LruCacheWithTtl;
+use lruttl::declare_cache;
 use mlua::prelude::LuaUserData;
 use mlua::{Lua, Value};
 use prometheus::{Counter, Histogram};
@@ -11,10 +11,13 @@ use std::sync::{Arc, LazyLock, OnceLock};
 use tokio::runtime::Runtime;
 use tokio::time::{Duration, Instant};
 
-static SIGNER_CACHE: LazyLock<LruCacheWithTtl<SignerConfig, Arc<CFSigner>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dkim_signer_cache", 1024));
-static KEY_CACHE: LazyLock<LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dkim_key_cache", 1024));
+declare_cache! {
+static SIGNER_CACHE: LruCacheWithTtl<SignerConfig, Arc<CFSigner>>::new("dkim_signer_cache", 1024);
+}
+declare_cache! {
+static KEY_CACHE: LruCacheWithTtl<KeySource, Arc<DkimPrivateKey>>::new("dkim_key_cache", 1024);
+}
+
 static SIGNER_KEY_FETCH: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "dkim_signer_key_fetch",

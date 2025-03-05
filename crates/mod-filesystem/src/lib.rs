@@ -1,8 +1,6 @@
 use anyhow::anyhow;
 use config::get_or_create_module;
-use lruttl::LruCacheWithTtl;
 use mlua::Lua;
-use std::sync::{Arc, LazyLock};
 use tokio::time::{Duration, Instant};
 
 const GLOB_CACHE_CAPACITY: usize = 32;
@@ -14,14 +12,8 @@ struct GlobKey {
     path: Option<String>,
 }
 
-static CACHE: LazyLock<Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>>> =
-    LazyLock::new(|| make_cache());
-
-fn make_cache() -> Arc<LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>> {
-    Arc::new(LruCacheWithTtl::new_named(
-        "mod_filesystem_glob_cache",
-        GLOB_CACHE_CAPACITY,
-    ))
+lruttl::declare_cache! {
+static CACHE: LruCacheWithTtl<GlobKey, Result<Vec<String>, String>>::new("mod_filesystem_glob_cache", GLOB_CACHE_CAPACITY);
 }
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {

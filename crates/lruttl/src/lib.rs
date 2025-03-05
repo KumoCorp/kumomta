@@ -3,6 +3,7 @@ use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use parking_lot::Mutex;
 use prometheus::{IntCounter, IntCounterVec, IntGauge, IntGaugeVec};
 use std::borrow::Borrow;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
@@ -10,6 +11,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration, Instant};
+pub use {linkme, paste};
 
 static CACHE_LOOKUP: LazyLock<IntCounterVec> = LazyLock::new(|| {
     prometheus::register_int_counter_vec!(
@@ -169,18 +171,21 @@ impl<
     }
 }
 
+fn all_caches() -> Vec<Arc<dyn CachePurger + Send + Sync>> {
+    let mut result = vec![];
+    let mut caches = CACHES.lock();
+    caches.retain(|entry| match entry.upgrade() {
+        Some(purger) => {
+            result.push(purger);
+            true
+        }
+        None => false,
+    });
+    result
+}
+
 pub fn purge_all_caches() {
-    let mut purgers = vec![];
-    {
-        let mut caches = CACHES.lock();
-        caches.retain(|entry| match entry.upgrade() {
-            Some(purger) => {
-                purgers.push(purger);
-                true
-            }
-            None => false,
-        })
-    }
+    let purgers = all_caches();
 
     tracing::error!("purging {} caches", purgers.len());
     for purger in purgers {
@@ -193,28 +198,73 @@ pub fn purge_all_caches() {
 async fn prune_expired_caches() {
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-        let mut purgers = vec![];
-        {
-            let mut caches = CACHES.lock();
-            caches.retain(|entry| match entry.upgrade() {
-                Some(purger) => {
-                    purgers.push(purger);
-                    true
-                }
-                None => false,
-            });
+        let purgers = all_caches();
 
-            for p in purgers {
-                let n = p.process_expirations();
-                if n > 0 {
-                    tracing::debug!("expired {n} entries from cache {}", p.name());
-                }
+        for p in purgers {
+            let n = p.process_expirations();
+            if n > 0 {
+                tracing::debug!("expired {n} entries from cache {}", p.name());
             }
         }
     }
 }
 
+#[linkme::distributed_slice]
+pub static LRUTTL_VIVIFY: [fn() -> &'static str];
+
+/// Declare a cache as a static, and link it into the list of possible
+/// pre-defined caches.
+///
+/// Due to a limitation in implementation details, you must also add
+/// `linkme.workspace = true` to the manifest of the crate where you
+/// use this macro.
+#[macro_export]
+macro_rules! declare_cache {
+    ($vis:vis
+        static $sym:ident:
+        LruCacheWithTtl<$key:ty, $value:ty>::new($name:expr, $capacity:expr);
+    ) => {
+        $vis static $sym: ::std::sync::LazyLock<$crate::LruCacheWithTtl<$key, $value>> =
+            ::std::sync::LazyLock::new(
+                || $crate::LruCacheWithTtl::new($name, $capacity));
+
+        // Link into LRUTTL_VIVIFY
+        $crate::paste::paste! {
+            #[linkme::distributed_slice($crate::LRUTTL_VIVIFY)]
+            static [<VIVIFY_ $sym>]: fn() -> &'static str = || {
+                ::std::sync::LazyLock::force(&$sym);
+                $name
+            };
+        }
+    };
+}
+
+/// Ensure that all caches declared via declare_cache!
+/// have been instantiated and returns the set of names.
+fn vivify() {
+    LazyLock::force(&PREDEFINED_NAMES);
+}
+
+fn vivify_impl() -> HashSet<&'static str> {
+    let mut set = HashSet::new();
+
+    for vivify_func in LRUTTL_VIVIFY {
+        let name = vivify_func();
+        assert!(!set.contains(name), "duplicate cache name {name}");
+        set.insert(name);
+    }
+
+    set
+}
+
+static PREDEFINED_NAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(vivify_impl);
+
+pub fn is_name_available(name: &str) -> bool {
+    !PREDEFINED_NAMES.contains(name)
+}
+
 pub fn spawn_memory_monitor() {
+    vivify();
     tokio::spawn(purge_caches_on_memory_shortage());
     tokio::spawn(prune_expired_caches());
 }
@@ -286,12 +336,7 @@ impl<
         V: Clone + Debug + Send + Sync + 'static,
     > LruCacheWithTtl<K, V>
 {
-    #[deprecated = "use new_named instead"]
-    pub fn new(capacity: usize) -> Self {
-        Self::new_named("<anonymous>", capacity)
-    }
-
-    pub fn new_named<S: Into<String>>(name: S, capacity: usize) -> Self {
+    pub fn new<S: Into<String>>(name: S, capacity: usize) -> Self {
         let name = name.into();
         let cache = DashMap::new();
 
@@ -846,7 +891,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn test_capacity() {
-        let cache = LruCacheWithTtl::new_named("test_capacity", 40);
+        let cache = LruCacheWithTtl::new("test_capacity", 40);
 
         let expiration = Instant::now() + Duration::from_secs(60);
         for i in 0..100 {
@@ -858,7 +903,7 @@ mod test {
 
     #[test(tokio::test)]
     async fn test_expiration() {
-        let cache = LruCacheWithTtl::new_named("test_expiration", 1);
+        let cache = LruCacheWithTtl::new("test_expiration", 1);
 
         tokio::time::pause();
         let expiration = Instant::now() + Duration::from_secs(1);

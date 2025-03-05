@@ -9,4 +9,5 @@ anyhow = {workspace=true}
 config = { path = "../config" }
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 tokio = {workspace=true}
+linkme.workspace = true
 lruttl = {path="../lruttl"}

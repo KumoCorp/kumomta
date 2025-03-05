@@ -6,7 +6,7 @@ use hickory_resolver::proto::rr::RecordType;
 pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_log_types::ResolvedAddress;
-use lruttl::LruCacheWithTtl;
+use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -28,14 +28,18 @@ pub use resolver::{ptr_host, DnsError, HickoryResolver, IpDisplay, Resolver, Tes
 static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
-static MX_CACHE: LazyLock<LruCacheWithTtl<Name, Result<Arc<MailExchanger>, String>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_mx", 64 * 1024));
-static IPV4_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ipv4", 1024));
-static IPV6_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ipv6", 1024));
-static IP_CACHE: LazyLock<LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>> =
-    LazyLock::new(|| LruCacheWithTtl::new_named("dns_resolver_ip", 1024));
+declare_cache! {
+static MX_CACHE: LruCacheWithTtl<Name, Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
+}
+declare_cache! {
+static IPV4_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv4", 1024);
+}
+declare_cache! {
+static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv6", 1024);
+}
+declare_cache! {
+static IP_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
+}
 
 /// 5 seconds in ms
 static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);

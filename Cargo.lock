@@ -1614,6 +1614,7 @@ dependencies = [
  "kumo-address",
  "kumo-log-types",
  "libunbound",
+ "linkme",
  "lruttl",
  "prometheus",
  "rand 0.8.5",
@@ -3166,6 +3167,7 @@ dependencies = [
  "kumo-server-memory",
  "kumo-server-runtime",
  "libc",
+ "linkme",
  "lruttl",
  "metrics",
  "metrics-prometheus",
@@ -3313,6 +3315,7 @@ dependencies = [
  "kumo-server-runtime",
  "kumo-spf",
  "kumo-template",
+ "linkme",
  "lru-cache",
  "lruttl",
  "maildir",
@@ -3495,6 +3498,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
+name = "linkme"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22d227772b5999ddc0690e733f734f95ca05387e329c4084fe65678c51198ffe"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71a98813fa0073a317ed6a8055dcd4722a49d9b862af828ee68449adb799b6be"
+dependencies = [
+ "proc-macro2 1.0.93",
+ "quote 1.0.38",
+ "syn 2.0.98",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3569,7 +3592,9 @@ dependencies = [
  "anyhow",
  "dashmap",
  "kumo-server-memory",
+ "linkme",
  "parking_lot",
+ "paste",
  "prometheus",
  "rand 0.8.5",
  "test-log",
@@ -3752,6 +3777,7 @@ dependencies = [
  "kumo-chrono-helper",
  "kumo-dkim",
  "kumo-log-types",
+ "linkme",
  "lruttl",
  "mailparsing",
  "mlua",
@@ -4006,6 +4032,7 @@ dependencies = [
  "anyhow",
  "config",
  "filenamegen",
+ "linkme",
  "lruttl",
  "mlua",
  "tokio",
@@ -4157,6 +4184,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "k9",
+ "linkme",
  "lruttl",
  "reqwest",
  "tokio",
@@ -5500,6 +5528,7 @@ dependencies = [
  "hickory-proto",
  "idna",
  "libc",
+ "linkme",
  "lruttl",
  "memchr",
  "openssl",

@@ -21,6 +21,7 @@ futures = {workspace=true}
 intrusive-collections.workspace = true
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
+linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}
