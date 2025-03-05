@@ -37,6 +37,31 @@ struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     size_gauge: IntGauge,
 }
 
+impl<
+        K: Clone + Debug + Send + Sync + Hash + Eq + 'static,
+        V: Clone + Debug + Send + Sync + 'static,
+    > Inner<K, V>
+{
+    pub fn clear(&self) -> usize {
+        let num_entries = self.cache.len();
+
+        // We don't simply clear all elements here, as any pending
+        // items will be trying to wait to coordinate; we need
+        // to aggressively close the semaphore and wake them all up
+        // before we remove those entries.
+        self.cache.retain(|_k, item| {
+            if let ItemState::Pending(sema) = &item.item {
+                // Force everyone to wakeup and error out
+                sema.close();
+            }
+            false
+        });
+
+        self.size_gauge.set(self.cache.len() as i64);
+        num_entries
+    }
+}
+
 trait CachePurger {
     fn name(&self) -> &str;
     fn purge(&self) -> usize;
@@ -52,10 +77,7 @@ impl<
         &self.name
     }
     fn purge(&self) -> usize {
-        let num_entries = self.cache.len();
-        self.cache.clear();
-        self.size_gauge.set(self.cache.len() as i64);
-        num_entries
+        self.clear()
     }
     fn process_expirations(&self) -> usize {
         let now = Instant::now();
@@ -327,10 +349,7 @@ impl<
     }
 
     pub fn clear(&self) -> usize {
-        let num_entries = self.inner.cache.len();
-        self.inner.cache.clear();
-        self.inner.size_gauge.set(self.inner.cache.len() as i64);
-        num_entries
+        self.inner.clear()
     }
 
     fn inc_tick(&self) -> usize {
