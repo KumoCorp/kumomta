@@ -2,7 +2,7 @@ use crate::logging::files::LogFileParams;
 use crate::logging::{LogCommand, LogRecordParams, LOGGING_RUNTIME};
 use crate::queue::{InsertReason, QueueManager};
 use anyhow::Context;
-use config::{load_config, CallbackSignature};
+use config::{declare_event, load_config};
 use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_template::{Template, TemplateEngine};
@@ -14,8 +14,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::{Semaphore, TryAcquireError};
 
-pub static SHOULD_ENQ_LOG_RECORD_SIG: LazyLock<CallbackSignature<(Message, String), bool>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("should_enqueue_log_record"));
+declare_event! {
+pub static SHOULD_ENQ_LOG_RECORD_SIG: Multiple(
+    "should_enqueue_log_record",
+    message: Message,
+    hook_name: String,
+) -> bool;
+}
 
 static HOOK_BACKLOG_COUNT: LazyLock<CounterVec> = LazyLock::new(|| {
     prometheus::register_counter_vec!(

@@ -1,7 +1,9 @@
+#![recursion_limit = "256"]
+
 use anyhow::Context;
 use chrono::Utc;
 use clap::Parser;
-use config::CallbackSignature;
+use config::{declare_event, CallbackSignature};
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
@@ -9,12 +11,14 @@ use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-pub static PRE_INIT_SIG: LazyLock<CallbackSignature<(), ()>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("pre_init"));
-pub static VALIDATE_SIG: LazyLock<CallbackSignature<(), ()>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("validate_config"));
+declare_event! {
+pub static PRE_INIT_SIG: Multiple("pre_init") -> ();
+}
+declare_event! {
+pub static VALIDATE_SIG: Multiple("validate_config") -> ();
+}
 
 mod accounting;
 mod delivery_metrics;

@@ -19,7 +19,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
-use config::{load_config, CallbackSignature};
+use config::{declare_event, load_config};
 use dashmap::DashMap;
 use dns_resolver::MailExchanger;
 use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy};
@@ -50,9 +50,15 @@ use uuid::Uuid;
 static MANAGER: LazyLock<ReadyQueueManager> = LazyLock::new(|| ReadyQueueManager::new());
 static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
-pub static GET_EGRESS_PATH_CONFIG_SIG: LazyLock<
-    CallbackSignature<(String, String, String), EgressPathConfig>,
-> = LazyLock::new(|| CallbackSignature::new("get_egress_path_config"));
+
+declare_event! {
+pub static GET_EGRESS_PATH_CONFIG_SIG: Single(
+    "get_egress_path_config",
+    routing_domain: String,
+    egress_source: String,
+    site_name: String
+) -> EgressPathConfig;
+}
 
 static INSERT_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(

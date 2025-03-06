@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
 use cidr_map::CidrSet;
-use config::{any_err, load_config, serialize_options, CallbackSignature};
+use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
 use kumo_log_types::ResolvedAddress;
@@ -47,12 +47,21 @@ use uuid::Uuid;
 
 pub const DEFERRED_QUEUE_NAME: &str = "deferred_smtp_inject.kumomta.internal";
 
-static SMTP_SERVER_MSG_RX: LazyLock<CallbackSignature<(Message, ConnectionMetaData), ()>> =
-    LazyLock::new(|| CallbackSignature::new("smtp_server_message_received"));
+declare_event! {
+static SMTP_SERVER_MSG_RX: Single(
+    "smtp_server_message_received",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> ();
+}
 
-static DEFERRED_SMTP_SERVER_MSG_INJECT: LazyLock<
-    CallbackSignature<(Message, ConnectionMetaData), ()>,
-> = LazyLock::new(|| CallbackSignature::new("smtp_server_message_deferred_inject"));
+declare_event! {
+static DEFERRED_SMTP_SERVER_MSG_INJECT: Single(
+    "smtp_server_message_deferred_inject",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> ();
+}
 
 static CRLF: LazyLock<Finder> = LazyLock::new(|| Finder::new("\r\n"));
 static TXN_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {

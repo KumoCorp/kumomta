@@ -17,7 +17,7 @@ use anyhow::Context;
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use config::epoch::{get_current_epoch, ConfigEpoch};
-use config::{load_config, CallbackSignature, LuaConfig};
+use config::{declare_event, load_config, LuaConfig};
 use crossbeam_skiplist::SkipSet;
 use dashmap::DashMap;
 use humantime::format_duration;
@@ -73,23 +73,36 @@ static TOTAL_QMAINT_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
 
 pub static QMAINT_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("qmaint", |cpus| cpus / 4, &QMAINT_THREADS).unwrap());
-pub static GET_Q_CONFIG_SIG: LazyLock<
-    CallbackSignature<
-        (
-            &'static str,
-            Option<&'static str>,
-            Option<&'static str>,
-            Option<&'static str>,
-        ),
-        QueueConfig,
-    >,
-> = LazyLock::new(|| CallbackSignature::new_with_multiple("get_queue_config"));
-pub static THROTTLE_INSERT_READY_SIG: LazyLock<CallbackSignature<Message, ()>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("throttle_insert_ready_queue"));
-static REBIND_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, HashMap<String, String>), ()>> =
-    LazyLock::new(|| CallbackSignature::new("rebind_message"));
-pub static REQUEUE_MESSAGE_SIG: LazyLock<CallbackSignature<(Message, String), ()>> =
-    LazyLock::new(|| CallbackSignature::new_with_multiple("requeue_message"));
+
+declare_event! {
+pub static GET_Q_CONFIG_SIG: Multiple(
+        "get_queue_config",
+        domain: &'static str,
+        tenant: Option<&'static str>,
+        campaign: Option<&'static str>,
+        routing_domain: Option<&'static str>,
+    ) -> QueueConfig;
+}
+declare_event! {
+pub static THROTTLE_INSERT_READY_SIG: Multiple(
+    "throttle_insert_ready_queue",
+    message: Message,
+) -> ();
+}
+declare_event! {
+static REBIND_MESSAGE_SIG: Single(
+    "rebind_message",
+    message: Message,
+    rebind_request_data: HashMap<String, String>,
+) -> ();
+}
+declare_event! {
+pub static REQUEUE_MESSAGE_SIG: Multiple(
+    "requeue_message",
+    message: Message,
+    response: String
+) -> ();
+}
 
 pub static SINGLETON_WHEEL: LazyLock<Arc<FairMutex<TimeQ<WeakMessage>>>> =
     LazyLock::new(|| Arc::new(FairMutex::new(TimeQ::new())));

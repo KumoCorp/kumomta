@@ -7,13 +7,14 @@ use mlua::{
     UserData, UserDataMethods, Value,
 };
 use parking_lot::FairMutex as Mutex;
+pub use paste;
 use prometheus::{CounterVec, HistogramTimer, HistogramVec};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Once};
 use std::time::Instant;
 
 pub mod epoch;
@@ -147,6 +148,8 @@ pub async fn load_config() -> anyhow::Result<LuaConfig> {
 
         package.set("path", path_array.join(";"))?;
     }
+
+    register_declared_events();
 
     for func in get_funcs() {
         (func)(&lua)?;
@@ -640,6 +643,79 @@ where
     marker: std::marker::PhantomData<(A, R)>,
     allow_multiple: bool,
     name: Cow<'static, str>,
+}
+
+#[linkme::distributed_slice]
+pub static CALLBACK_SIGNATURES: [fn()];
+
+/// Helper for declaring a named event handler callback signature.
+///
+/// Usage looks like:
+///
+/// ```rust,ignore
+/// declare_event! {
+/// pub static GET_Q_CONFIG_SIG: Multiple(
+///         "get_queue_config",
+///         domain: &'static str,
+///         tenant: Option<&'static str>,
+///         campaign: Option<&'static str>,
+///         routing_domain: Option<&'static str>,
+///     ) -> QueueConfig;
+/// }
+/// ```
+///
+/// A handler can be either `Single` or `Multiple`, indicating whether
+/// only a single registration or multiple registrations are permitted.
+/// The string literal is the name of the event, followed by a fn-style
+/// parameter list which names each parameter in sequence, followed by
+/// the return value.  The names are not currently used in any way,
+/// but enhance the readability of the code.
+///
+/// In addition to declaring the signature in a global, some glue
+/// is generated that will register the signature appropriately
+/// so that lua knows whether it is single or multiple and can
+/// act appropriately when `kumo.on` is called.
+#[macro_export]
+macro_rules! declare_event {
+    ($vis:vis static $sym:ident: Multiple($name:literal $(,)? $($param_name:ident: $args:ty),* $(,)? ) -> $ret:ty;) => {
+        $vis static $sym: ::std::sync::LazyLock<
+            $crate::CallbackSignature<($($args),*), $ret>> =
+                ::std::sync::LazyLock::new(|| $crate::CallbackSignature::new_with_multiple($name));
+
+        $crate::paste::paste! {
+            #[linkme::distributed_slice($crate::CALLBACK_SIGNATURES)]
+            static [<CALLBACK_SIG_REGISTER_ $sym>]: fn() = || {
+                $sym.register();
+            };
+        }
+    };
+    ($vis:vis static $sym:ident: Single($name:literal $(,)? $($param_name:ident: $args:ty),* $(,)? ) -> $ret:ty;) => {
+        $vis static $sym: ::std::sync::LazyLock<
+            $crate::CallbackSignature<($($args),*), $ret>> =
+                ::std::sync::LazyLock::new(|| $crate::CallbackSignature::new($name));
+
+        $crate::paste::paste! {
+            #[linkme::distributed_slice($crate::CALLBACK_SIGNATURES)]
+            static [<CALLBACK_SIG_REGISTER_ $sym>]: fn() = || {
+                $sym.register();
+            };
+        }
+    };
+}
+
+/// For each event handler CallbackSignature that was declared via
+/// `declare_event!`, call its `.register()` method to register
+/// it so that `kumo.on` can give appropriate messaging if misused,
+/// and so that runtime dispatch will work correctly.
+///
+/// This should be called once, prior to running any lua code.
+fn register_declared_events() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        for reg_func in CALLBACK_SIGNATURES {
+            reg_func();
+        }
+    });
 }
 
 impl<A, R> CallbackSignature<A, R>

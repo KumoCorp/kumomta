@@ -16,12 +16,6 @@ use throttle::ThrottleSpec;
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
     let kumo_mod = get_or_create_module(lua, "kumo")?;
 
-    crate::queue::GET_Q_CONFIG_SIG.register();
-    crate::queue::THROTTLE_INSERT_READY_SIG.register();
-    crate::logging::hooks::SHOULD_ENQ_LOG_RECORD_SIG.register();
-    crate::PRE_INIT_SIG.register();
-    crate::VALIDATE_SIG.register();
-    crate::queue::REQUEUE_MESSAGE_SIG.register();
     crate::http_server::admin_suspend_ready_q_v1::register(lua)?;
     crate::http_server::admin_suspend_v1::register(lua)?;
     crate::http_server::admin_bounce_v1::register(lua)?;

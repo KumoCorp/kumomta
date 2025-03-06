@@ -7,9 +7,11 @@ edition = "2021"
 anyhow = {workspace=true}
 data-encoding = {workspace=true}
 filenamegen = {workspace=true}
+linkme.workspace = true
 metrics = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 parking_lot = {workspace=true}
+paste.workspace = true
 prometheus = {workspace=true}
 rand = {workspace=true}
 serde = {workspace=true}
