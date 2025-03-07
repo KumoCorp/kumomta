@@ -25,6 +25,10 @@ impl Record {
 
         let mut new = Self::default();
         while let Some(t) = tokens.next() {
+            if t.is_empty() {
+                return Err(format!("invalid empty token"));
+            }
+
             if let Ok(directive) = Directive::parse(t) {
                 if new.redirect.is_some() || new.explanation.is_some() {
                     return Err("directive after modifier".to_owned());
@@ -684,6 +688,7 @@ mod test {
             Record::parse("v=spf1 -exists:%{ir").unwrap_err(),
             r#"invalid token '-exists:%{ir'"#
         );
+        k9::snapshot!(Record::parse("v=spf1 ").unwrap_err(), "invalid empty token");
 
         k9::snapshot!(
             parse("v=spf1 mx -all exp=explain._spf.%{d}"),
