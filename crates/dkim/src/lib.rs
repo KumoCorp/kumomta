@@ -152,7 +152,7 @@ async fn verify_email_header<'a>(
     dkim_header: &'a DKIMHeader,
     email: &'a ParsedEmail<'a>,
 ) -> Result<(), DKIMError> {
-    let public_key = public_key::retrieve_public_key(
+    let public_keys = public_key::retrieve_public_keys(
         resolver,
         dkim_header.get_required_tag("d"),
         dkim_header.get_required_tag("s"),
@@ -194,11 +194,26 @@ async fn verify_email_header<'a>(
         .map_err(|err| {
             DKIMError::SignatureSyntaxError(format!("failed to decode signature: {}", err))
         })?;
-    if !verify_signature(hash_algo, &computed_headers_hash, &signature, public_key)? {
-        return Err(DKIMError::SignatureDidNotVerify);
+
+    let mut errors = vec![];
+    for public_key in public_keys {
+        match verify_signature(hash_algo, &computed_headers_hash, &signature, public_key) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(err) => {
+                errors.push(err);
+            }
+        }
     }
 
-    Ok(())
+    if let Some(err) = errors.pop() {
+        // Something definitely failed
+        return Err(err);
+    }
+
+    // There were no errors and all keys returned false from verify_signature().
+    // That means that the signature is not verified.
+    Err(DKIMError::SignatureDidNotVerify)
 }
 
 /// Run the DKIM verification on the email providing an existing resolver
@@ -328,11 +343,6 @@ mod tests {
     use super::*;
     use dns_resolver::TestResolver;
 
-    const DKIM_BRISBANE: (&str, &str) = (
-        "brisbane._domainkey.football.example.com",
-        "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
-    );
-
     const NEW_ENGLAND_DKIM: (&str, &str) = (
         "newengland._domainkey.example.com",
         "v=DKIM1; p=MIGJAoGBALVI635dLK4cJJAH3Lx6upo3X/Lm1tQz3mezcWTA3BUBnyIsdnRf57aD5BtNmhPrYYDlWlzw3UgnKisIxktkk5+iMQMlFtAS10JB8L3YadXNJY+JBcbeSi5TgJe4WFzNgW95FWDAuSTRXSWZfA/8xjflbTLDx0euFZOM7C4T0GwLAgMBAAE=",
@@ -453,8 +463,13 @@ Joe."#
             .unwrap()
             .get_raw_value();
 
-        let resolver =
-            TestResolver::default().with_txt(DKIM_BRISBANE.0, DKIM_BRISBANE.1.to_owned());
+        const DKIM_BRISBANE: &str = r#"
+$ORIGIN brisbane._domainkey.football.example.com
+@     300 TXT "v=DKIM1; p=MIGJAoGBALVI635dLK4cJJAH3Lx6upo3X/Lm1tQz3mezcWTA3BUBnyIsdnRf57aD5BtNmhPrYYDlWlzw3UgnKisIxktkk5+iMQMlFtAS10JB8L3YadXNJY+JBcbeSi5TgJe4WFzNgW95FWDAuSTRXSWZfA/8xjflbTLDx0euFZOM7C4T0GwLAgMBAAE="
+          TXT "v=DKIM1; k=ed25519; p=11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+"#;
+
+        let resolver = TestResolver::default().with_zone(DKIM_BRISBANE);
 
         verify_email_header(
             &resolver,

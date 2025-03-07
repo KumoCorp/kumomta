@@ -86,3 +86,6 @@
   handlers.
 * Missing `string.format` in kumod/tsa-daemon version mismatch error report. #351
 * Failed to parse SPF records when the TXT record contained non-SPF records
+* DKIM validation now attempts to verify a signature using each DKIM record
+  found in DNS, rather than just the first one, which improves support for
+  domains that publish multiple records for key rotation purposes.

@@ -91,11 +91,11 @@ fn parse_single_key(txt: &str) -> Result<DkimPublicKey, DKIMError> {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.2
-pub(crate) async fn retrieve_public_key(
+pub(crate) async fn retrieve_public_keys(
     resolver: &dyn Resolver,
     domain: &str,
     subdomain: &str,
-) -> Result<DkimPublicKey, DKIMError> {
+) -> Result<Vec<DkimPublicKey>, DKIMError> {
     let dns_name = format!("{}.{}.{}", subdomain, DNS_NAMESPACE, domain);
     let answer = resolver.resolve_txt(&dns_name).await?;
     if answer.records.is_empty() {
@@ -104,11 +104,36 @@ pub(crate) async fn retrieve_public_key(
         )));
     }
 
-    // TODO: Return multiple keys for when verifiying the signatures. During key
+    // Return multiple keys for when verifiying the signatures. During key
     // rotation they are often multiple keys to consider.
     let txt = answer.as_txt();
-    let first = txt.first().ok_or(DKIMError::NoKeyForSignature)?;
-    parse_single_key(first)
+    let mut errors = vec![];
+    let mut keys = vec![];
+    for record in txt {
+        match parse_single_key(&record) {
+            Ok(key) => {
+                keys.push(key);
+            }
+            Err(err) => {
+                errors.push(err);
+            }
+        }
+    }
+
+    if !keys.is_empty() {
+        Ok(keys)
+    } else if errors.len() == 1 {
+        Err(errors.pop().unwrap())
+    } else {
+        let mut reasons = vec![];
+        for err in errors {
+            reasons.push(format!("{err:?}"));
+        }
+        Err(DKIMError::KeyUnavailable(format!(
+            "Error(s) parsing DKIM records: {}",
+            reasons.join(", ")
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -124,7 +149,7 @@ mod tests {
                 "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6gmVDBSBJ0l1/33uAF0gwIsrjQV6nnYjL9DMX6+ez4NNJ2um0InYy128Rd+OlIhmdSld6g3tj3O6R+BwsYsQgU8RWE8VJaRybvPw2P3Asgms4uPrFWHSFiWMPH0P9i/oPwnUO9jZKHiz4+MzFC3bG8BacX7YIxCuWnDU8XNmNsRaLmrv9CHX4/3GHyoHSmDA1ETtyz9JHRCOC8ho8C7b4f2Auwedlau9Lid9LGBhozhgRFhrFwFMe93y34MO1clPbY6HwxpudKWBkMQCTlmXVRnkKxHlJ+fYCyC2jjpCIbGWj2oLxBtFOASWMESR4biW0ph2bsZXslcUSPMTVTkFxQIDAQAB".to_owned(),
             );
 
-        retrieve_public_key(&resolver, "cloudflare.com", "dkim")
+        retrieve_public_keys(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap();
     }
@@ -136,7 +161,7 @@ mod tests {
             "v=DKIM6; p=key".to_owned(),
         );
 
-        let key = retrieve_public_key(&resolver, "cloudflare.com", "dkim")
+        let key = retrieve_public_keys(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::KeyIncompatibleVersion);
@@ -149,7 +174,7 @@ mod tests {
             "v=DKIM1; p=key; k=foo".to_owned(),
         );
 
-        let key = retrieve_public_key(&resolver, "cloudflare.com", "dkim")
+        let key = retrieve_public_keys(&resolver, "cloudflare.com", "dkim")
             .await
             .unwrap_err();
         assert_eq!(key, DKIMError::InappropriateKeyAlgorithm);
