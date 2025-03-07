@@ -68,6 +68,11 @@
   prometheus with the `lruttl_` prefix.
 * New [kumo.set_lruttl_cache_capacity](../reference/kumo/set_lruttl_cache_capacity.md)
   function to configure internal cache sizes.
+* New [kumo.log_error](../reference/kumo/log_error.md),
+  [kumo.log_warn](../reference/kumo/log_warn.md),
+  [kumo.log_info](../reference/kumo/log_info.md), and
+  [kumo.log_info](../reference/kumo/log_debug.md) functions for logging
+  diagnostics from your policy scripts.
 
 ## Fixes
 

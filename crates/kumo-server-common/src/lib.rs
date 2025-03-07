@@ -2,7 +2,7 @@ use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
     CallbackSignature,
 };
-use mlua::{Function, Lua, LuaSerdeExt, Value};
+use mlua::{Function, Lua, LuaSerdeExt, Value, Variadic};
 use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
@@ -168,6 +168,93 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         "set_diagnostic_log_filter",
         lua.create_function(move |_, filter: String| {
             diagnostic_logging::set_diagnostic_log_filter(&filter).map_err(any_err)
+        })?,
+    )?;
+
+    fn variadic_to_string(args: Variadic<Value>) -> String {
+        let mut output = String::new();
+        for (idx, item) in args.into_iter().enumerate() {
+            if idx > 0 {
+                output.push(' ');
+            }
+
+            match item {
+                Value::String(s) => match s.to_str() {
+                    Ok(s) => output.push_str(&s),
+                    Err(_) => {
+                        let item = s.to_string_lossy();
+                        output.push_str(&item);
+                    }
+                },
+                item @ _ => match item.to_string() {
+                    Ok(s) => output.push_str(&s),
+                    Err(_) => output.push_str(&format!("{item:?}")),
+                },
+            }
+        }
+        output
+    }
+
+    fn get_caller(lua: &Lua) -> String {
+        match lua.inspect_stack(1) {
+            Some(info) => {
+                let source = info.source();
+                let file_name = source
+                    .short_src
+                    .as_ref()
+                    .map(|b| b.to_string())
+                    .unwrap_or_else(String::new);
+                // Lua returns the somewhat obnoxious `[string "source.lua"]`
+                // Let's fix that up to be a bit nicer
+                let file_name = match file_name.strip_prefix("[string \"") {
+                    Some(name) => name.strip_suffix("\"]").unwrap_or(name),
+                    None => &file_name,
+                };
+
+                format!("{file_name}:{}", info.curr_line())
+            }
+            None => "?".to_string(),
+        }
+    }
+
+    kumo_mod.set(
+        "log_error",
+        lua.create_function(move |lua, args: Variadic<Value>| {
+            if tracing::event_enabled!(target: "lua", tracing::Level::ERROR) {
+                let src = get_caller(lua);
+                tracing::error!(target: "lua", "{src}: {}", variadic_to_string(args));
+            }
+            Ok(())
+        })?,
+    )?;
+    kumo_mod.set(
+        "log_info",
+        lua.create_function(move |lua, args: Variadic<Value>| {
+            if tracing::event_enabled!(target: "lua", tracing::Level::INFO) {
+                let src = get_caller(lua);
+                tracing::info!(target: "lua", "{src}: {}", variadic_to_string(args));
+            }
+            Ok(())
+        })?,
+    )?;
+    kumo_mod.set(
+        "log_warn",
+        lua.create_function(move |lua, args: Variadic<Value>| {
+            if tracing::event_enabled!(target: "lua", tracing::Level::WARN) {
+                let src = get_caller(lua);
+                tracing::warn!(target: "lua", "{src}: {}", variadic_to_string(args));
+            }
+            Ok(())
+        })?,
+    )?;
+    kumo_mod.set(
+        "log_debug",
+        lua.create_function(move |lua, args: Variadic<Value>| {
+            if tracing::event_enabled!(target: "lua", tracing::Level::DEBUG) {
+                let src = get_caller(lua);
+                tracing::debug!(target: "lua", "{src}: {}", variadic_to_string(args));
+            }
+            Ok(())
         })?,
     )?;
 

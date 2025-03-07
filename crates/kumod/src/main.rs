@@ -312,9 +312,9 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
             diag_format: opts.diag_format,
             filter_env_var: "KUMOD_LOG",
             default_filter: if opts.validate || opts.script {
-                ""
+                "error"
             } else {
-                "kumod=info,config=info,kumo_server_common=info,kumo_server_runtime=info,lruttl=info,mod_memoize=info,spool=info"
+                "kumod=info,config=info,kumo_server_common=info,kumo_server_runtime=info,lruttl=info,mod_memoize=info,spool=info,lua=info"
             },
         },
         lua_funcs: &[
@@ -338,8 +338,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     )
     .await;
 
-    if let Err(err) = crate::accounting::ACCT.flush() {
-        tracing::error!("error flushing ACCT: {err:#}");
+    if !opts.validate && !opts.script {
+        if let Err(err) = crate::accounting::ACCT.flush() {
+            tracing::error!("error flushing ACCT: {err:#}");
+        }
     }
 
     if let Err(err) = crate::spool::SpoolManager::shutdown().await {

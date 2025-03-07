@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+ - debugging
+---
 # `kumo.set_diagnostic_log_filter(FILTER)`
 
 Changes the filtering configuration for the diagnostic log.
