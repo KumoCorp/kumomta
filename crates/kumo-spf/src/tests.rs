@@ -152,6 +152,61 @@ async fn ip4() {
     );
 }
 
+// Ensure that a split spf record is joined and parsed correctly
+// <https://datatracker.ietf.org/doc/html/rfc7208#section-3.3>
+#[tokio::test]
+async fn txt_record_joining() {
+    let resolver = TestResolver::default().with_zone(
+        r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
+$ORIGIN example.com.
+@       600 TXT "v=spf1 " "?all"
+            TXT "something else"
+"#,
+    );
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
+    k9::snapshot!(
+        result,
+        r#"
+SpfResult {
+    disposition: Neutral,
+    context: "matched '?all' directive",
+}
+"#
+    );
+}
+
+// Ensure that we see the SPF record out of a collection of misc other TXT records
+#[tokio::test]
+async fn test_yahoo() {
+    let resolver = TestResolver::default()
+        .with_txt_multiple(
+            "yahoo.com",
+            vec![
+                "facebook-domain-verification=gysqrcd69g0ej34f4jfn0huivkym1p".to_string(),
+                "v=spf1 redirect=_spf.mail.yahoo.com".to_string(),
+            ],
+        )
+        .with_txt(
+            "_spf.mail.yahoo.com",
+            "v=spf1 ptr:yahoo.com ptr:yahoo.net ?all".to_string(),
+        );
+    let ctx = SpfContext::new(
+        "sender@yahoo.com",
+        "yahoo.com",
+        Ipv4Addr::from([192, 0, 2, 65]).into(),
+    )
+    .unwrap();
+    k9::snapshot!(
+        ctx.check(&resolver, true).await,
+        r#"
+SpfResult {
+    disposition: Neutral,
+    context: "matched '?all' directive",
+}
+"#
+    );
+}
+
 /// https://www.rfc-editor.org/rfc/rfc7208#appendix-A.1
 #[tokio::test]
 async fn ptr() {

@@ -89,9 +89,11 @@ impl Answer {
         let mut result = vec![];
         for r in &self.records {
             if let Some(txt) = r.as_txt() {
+                let mut joined = String::new();
                 for t in txt.iter() {
-                    result.push(String::from_utf8_lossy(t).to_string());
+                    joined.push_str(&String::from_utf8_lossy(t));
                 }
+                result.push(joined);
             }
         }
         result
@@ -153,7 +155,12 @@ impl TestResolver {
         self
     }
 
-    pub fn with_txt(mut self, domain: &str, value: String) -> Self {
+    pub fn with_txt(self, domain: &str, value: String) -> Self {
+        self.with_txt_multiple(domain, vec![value])
+    }
+
+    /// Add multiple separate TXT records for the specified domain
+    pub fn with_txt_multiple(mut self, domain: &str, value: Vec<String>) -> Self {
         let fqdn = format!("{}.", domain);
         let authority = Name::from_str(&fqdn).unwrap();
         let key = RrKey {
@@ -162,7 +169,9 @@ impl TestResolver {
         };
 
         let mut records = RecordSet::new(&authority, RecordType::TXT, 0);
-        records.add_rdata(RData::TXT(TXT::new(vec![value])));
+        for item in value {
+            records.add_rdata(RData::TXT(TXT::new(vec![item])));
+        }
         self.records
             .entry(authority)
             .or_insert_with(BTreeMap::new)

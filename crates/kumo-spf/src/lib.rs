@@ -208,7 +208,7 @@ impl<'a> SpfContext<'a> {
                         },
                     }
                 }
-                false => answer.as_txt().join(""),
+                false => answer.as_txt(),
             },
             Err(err) => {
                 return SpfResult {
@@ -221,14 +221,23 @@ impl<'a> SpfContext<'a> {
             }
         };
 
-        match Record::parse(&initial_txt) {
-            Ok(record) => record.evaluate(self, resolver).await,
-            Err(err) => {
-                return SpfResult {
-                    disposition: SpfDisposition::PermError,
-                    context: format!("failed to parse spf record: {err}"),
+        // TXT records can contain all sorts of stuff, let's walk through
+        // the set that we retrieved and take the first one that parses
+        let mut failures = vec![];
+
+        for txt in initial_txt {
+            match Record::parse(&txt) {
+                Ok(record) => return record.evaluate(self, resolver).await,
+                Err(err) => {
+                    failures.push(format!("'{txt}': {err}"));
                 }
             }
+        }
+
+        // If we get here, none of the SPF records were any good
+        SpfResult {
+            disposition: SpfDisposition::PermError,
+            context: format!("failed to parse spf record: {}", failures.join(", ")),
         }
     }
 
