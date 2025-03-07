@@ -150,7 +150,7 @@ rdkafka = "0.36"
 redis = {version="0.29", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
 reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
-ring = "0.17"
+ring = "=0.17.12" # pinned due to https://github.com/briansmith/ring/issues/2462
 rocksdb = {version="0.22", features=["jemalloc"]}
 rustls = "0.23"
 rustls-platform-verifier = "0.4"
