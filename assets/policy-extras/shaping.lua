@@ -47,11 +47,11 @@ local function load_shaping_data(file_names, validation_options)
   local result = kumo.shaping.load(file_names, validation_options)
   local errors = result:get_errors()
   for _, err in ipairs(errors) do
-    print(err)
+    kumo.log_error(err)
   end
   local warnings = result:get_warnings()
   for _, warn in ipairs(warnings) do
-    print(warn)
+    kumo.log_warn(warn)
   end
   -- print('Computed', kumo.json_encode_pretty(result))
   return result
@@ -240,19 +240,19 @@ end
 
 kumo.on('kumo.tsa.config.monitor', function(args)
   local last_hash = ''
-  print 'TSA config monitor running'
+  kumo.log_info 'TSA config monitor running'
   while true do
     local status, err = pcall(function()
       local shaping = mod.CONFIGURED.load_shaping_data()
       local hash = shaping:hash()
       if last_hash ~= hash then
-        print 'TSA config changed'
+        kumo.log_info 'TSA config changed'
         last_hash = hash
         kumo.bump_config_epoch()
       end
     end)
     if not status then
-      print('TSA Error, will retry in 30 seconds', status, err)
+      kumo.log_error('TSA Error, will retry in 30 seconds', status, err)
     end
     -- load_shaping_data is a memoized function that will return
     -- a cached reference to the shaping data, but if TSA is producing
@@ -295,7 +295,7 @@ local function process_tsa_events(url)
       elseif data.SchedQBounce then
         apply_sched_q_bounce(data.SchedQBounce)
       else
-        print(
+        kumo.log_error(
           string.format(
             'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
             kumo.serde.json_encode(data)
@@ -308,7 +308,7 @@ local function process_tsa_events(url)
     -- Fall back to the legacy endpoint
     local endpoint = string.format('%s/subscribe_suspension_v1', ws_url)
 
-    print(
+    kumo.log_warn(
       string.format(
         "NOTE: Your TSA daemon doesn't support %s, falling back to %s. Please upgrade and restart your TSA daemon to enable full functionality!",
         event_endpoint,
@@ -349,7 +349,7 @@ kumo.on('kumo.tsa.suspension.subscriber', function(args)
   -- then we'll try again after a short sleep
   while true do
     local status, err = pcall(process_tsa_events, url)
-    print('TSA Error, will retry in 30 seconds', status, err)
+    kumo.log_error('TSA Error, will retry in 30 seconds', status, err)
     kumo.sleep(30)
   end
 end)
