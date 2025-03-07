@@ -551,9 +551,9 @@ dependencies = [
 
 [[package]]
 name = "backon"
-version = "1.3.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5289ec98f68f28dd809fd601059e6aa908bb8f6108620930828283d4ee23d7"
+checksum = "49fef586913a57ff189f25c9b3d034356a5bf6b3fa9a7f067588fe1698ba1f5d"
 dependencies = [
  "fastrand 2.3.0",
 ]
@@ -5341,26 +5341,25 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.27.6"
+version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09d8f99a4090c89cc489a94833c901ead69bfbf3877b4867d5482e321ee875bc"
+checksum = "8034fb926579ff49d3fe58d288d5dcb580bf11e9bccd33224b45adebf0fd0c23"
 dependencies = [
  "arc-swap",
- "async-trait",
  "backon",
  "bytes",
  "combine",
  "crc16",
- "futures",
+ "futures-channel",
+ "futures-sink",
  "futures-util",
- "itertools 0.13.0",
  "itoa",
  "log",
  "native-tls",
  "num-bigint 0.4.6",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand 0.9.0",
  "ryu",
  "sha1_smol",
  "socket2 0.5.8",
