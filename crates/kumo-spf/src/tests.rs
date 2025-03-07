@@ -175,6 +175,26 @@ SpfResult {
     );
 }
 
+#[tokio::test]
+async fn txt_but_no_spf() {
+    let resolver = TestResolver::default().with_zone(
+        r#"; https://datatracker.ietf.org/doc/html/rfc7208#section-3.3
+$ORIGIN example.com.
+@       600 TXT "not spf"
+"#,
+    );
+    let result = evaluate_ip(Ipv4Addr::from([192, 0, 2, 65]), &resolver).await;
+    k9::snapshot!(
+        result,
+        r#"
+SpfResult {
+    disposition: None,
+    context: "no SPF records found for example.com",
+}
+"#
+    );
+}
+
 // Ensure that we see the SPF record out of a collection of misc other TXT records
 #[tokio::test]
 async fn test_yahoo() {

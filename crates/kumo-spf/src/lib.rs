@@ -223,21 +223,26 @@ impl<'a> SpfContext<'a> {
 
         // TXT records can contain all sorts of stuff, let's walk through
         // the set that we retrieved and take the first one that parses
-        let mut failures = vec![];
-
         for txt in initial_txt {
-            match Record::parse(&txt) {
-                Ok(record) => return record.evaluate(self, resolver).await,
-                Err(err) => {
-                    failures.push(format!("'{txt}': {err}"));
+            // a little bit of a layering violation: we need to know
+            // whether we had an SPF record candidate or not to be
+            // able to return an appropriate disposition if they have
+            // TXT records but no SPF records.
+            if txt.starts_with("v=spf1 ") {
+                match Record::parse(&txt) {
+                    Ok(record) => return record.evaluate(self, resolver).await,
+                    Err(err) => {
+                        return SpfResult {
+                            disposition: SpfDisposition::PermError,
+                            context: format!("failed to parse spf record: {err}"),
+                        };
+                    }
                 }
             }
         }
-
-        // If we get here, none of the SPF records were any good
         SpfResult {
-            disposition: SpfDisposition::PermError,
-            context: format!("failed to parse spf record: {}", failures.join(", ")),
+            disposition: SpfDisposition::None,
+            context: format!("no SPF records found for {}", &self.domain),
         }
     }
 
