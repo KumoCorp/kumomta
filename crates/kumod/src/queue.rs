@@ -2035,6 +2035,7 @@ impl Queue {
                         &self.queue_config,
                         msg.clone(),
                         self.get_config_epoch(),
+                        deadline,
                     )
                     .await?
                 {
@@ -3234,7 +3235,7 @@ impl QueueState {
 }
 
 #[inline]
-async fn opt_timeout_at<T>(
+pub async fn opt_timeout_at<T>(
     deadline: Option<Instant>,
     fut: impl std::future::Future<Output = anyhow::Result<T>>,
 ) -> anyhow::Result<T> {

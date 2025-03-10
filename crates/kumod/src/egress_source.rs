@@ -1,5 +1,5 @@
 use crate::http_server::admin_suspend_ready_q_v1::AdminSuspendReadyQEntry;
-use crate::queue::{QueueConfig, ReadyQueueFull};
+use crate::queue::{opt_timeout_at, QueueConfig, ReadyQueueFull};
 use crate::ready_queue::{ReadyQueueHandle, ReadyQueueManager, ReadyQueueName};
 use anyhow::Context;
 use config::epoch::ConfigEpoch;
@@ -426,6 +426,7 @@ impl EgressPoolSourceSelector {
 
     async fn compute_ready_queue_name(
         &self,
+        deadline: Option<Instant>,
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
         source: &str,
@@ -436,7 +437,11 @@ impl EgressPoolSourceSelector {
 
         let generation = queue_config.generation();
 
-        let name = ReadyQueueManager::compute_queue_name(queue_name, queue_config, source).await?;
+        let name = opt_timeout_at(
+            deadline,
+            ReadyQueueManager::compute_queue_name(queue_name, queue_config, source),
+        )
+        .await?;
 
         let cached = Arc::new(CachedReadyQueueName { name, generation });
 
@@ -508,6 +513,7 @@ impl EgressPoolSourceSelector {
         queue_config: &ConfigHandle<QueueConfig>,
         msg: Message,
         epoch: ConfigEpoch,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<SourceInsertResult> {
         if self.entries.is_empty() {
             return Ok(SourceInsertResult::NoSources);
@@ -519,7 +525,7 @@ impl EgressPoolSourceSelector {
         // filter to non-suspended pathways
         for entry in &self.entries {
             match self
-                .compute_ready_queue_name(queue_name, queue_config, &entry.name)
+                .compute_ready_queue_name(deadline, queue_name, queue_config, &entry.name)
                 .await
             {
                 Ok(ready_name) => {
@@ -558,13 +564,16 @@ impl EgressPoolSourceSelector {
                         &source_name,
                         &self.name,
                         epoch,
+                        deadline,
                     )
                     .await
                     {
                         Ok(site) => {
                             match site.make_reservation() {
                                 Some(reservation) => {
-                                    if !is_source_selection_throttled(&site, &source_name).await? {
+                                    if !is_source_selection_throttled(deadline, &site, &source_name)
+                                        .await?
+                                    {
                                         site.redeem_reservation(msg, reservation).await;
                                         return Ok(SourceInsertResult::Inserted);
                                     }
@@ -607,6 +616,7 @@ impl EgressPoolSourceSelector {
 }
 
 async fn is_source_selection_throttled(
+    deadline: Option<Instant>,
     site: &ReadyQueueHandle,
     source_name: &str,
 ) -> anyhow::Result<bool> {
@@ -634,19 +644,30 @@ async fn is_source_selection_throttled(
         throttles.push((key, throttle));
     }
 
-    // Check throttles from smallest to largest so that we avoid
-    // taking up a slot from a larger one only to hit a smaller
-    // one and not do anything useful with the larger one
-    throttles
-        .sort_by_key(|(_, spec)| ((spec.limit as f64 / spec.period as f64) * 1_000_000.0) as u64);
-
-    for (key, throttle) in throttles {
-        let result = throttle.throttle(&key).await?;
-        if result.retry_after.is_some() {
-            return Ok(true);
-        }
+    if throttles.is_empty() {
+        return Ok(false);
     }
-    Ok(false)
+
+    Box::pin(async move {
+        // Check throttles from smallest to largest so that we avoid
+        // taking up a slot from a larger one only to hit a smaller
+        // one and not do anything useful with the larger one
+        throttles.sort_by_key(|(_, spec)| {
+            ((spec.limit as f64 / spec.period as f64) * 1_000_000.0) as u64
+        });
+
+        opt_timeout_at(deadline, async {
+            for (key, throttle) in throttles {
+                let result = throttle.throttle(&key).await?;
+                if result.retry_after.is_some() {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .await
+    })
+    .await
 }
 
 async fn resolve_queue(
@@ -656,6 +677,7 @@ async fn resolve_queue(
     egress_source: &str,
     egress_pool: &str,
     epoch: ConfigEpoch,
+    deadline: Option<Instant>,
 ) -> anyhow::Result<ReadyQueueHandle> {
     if let Some(ready_name) = &ready_queue_name {
         if let Some(site) = ReadyQueueManager::get_by_ready_queue_name(&ready_name.name) {
@@ -663,12 +685,15 @@ async fn resolve_queue(
         }
     }
 
-    ReadyQueueManager::resolve_by_queue_name(
-        queue_name,
-        queue_config,
-        egress_source,
-        egress_pool,
-        epoch,
+    opt_timeout_at(
+        deadline,
+        ReadyQueueManager::resolve_by_queue_name(
+            queue_name,
+            queue_config,
+            egress_source,
+            egress_pool,
+            epoch,
+        ),
     )
     .await
 }
