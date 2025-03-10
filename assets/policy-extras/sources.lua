@@ -20,7 +20,7 @@ local function is_egress_source_option(name, value)
   local status, err = pcall(kumo.make_egress_source, p)
   if not status then
     local err = typing.extract_deserialize_error(err)
-    if tostring(err):find 'invalid type' then
+    if tostring(err):find 'invalid' then
       return false, err
     end
     return false, nil
@@ -238,6 +238,17 @@ weight = 2
 weight = 1
   ]]
   load_data { data }
+
+  local status, data_or_error = pcall(load_data, {
+    kumo.serde.toml_parse [[
+[source."ip"]
+socks5_proxy_server = "not.an.ip.address:5000"
+[pool."a"]
+[pool."a"."ip"]
+  ]],
+  })
+  assert(not status)
+  assert(data_or_error:find 'invalid socket address syntax')
 end
 
 return mod
