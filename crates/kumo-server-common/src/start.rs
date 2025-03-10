@@ -40,7 +40,7 @@ impl<'a> StartConfig<'a> {
 
         config::set_policy_path(self.policy.to_path_buf())
             .await
-            .with_context(|| format!("Failed to parse policy file {:?}", self.policy))?;
+            .with_context(|| format!("Error evaluating policy file {:?}", self.policy))?;
 
         let mut life_cycle = LifeCycle::new();
 
