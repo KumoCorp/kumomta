@@ -246,10 +246,32 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
     protocol = protocol,
     retry_interval = os.getenv 'KUMOD_RETRY_INTERVAL',
     strategy = os.getenv 'KUMOD_QUEUE_STRATEGY',
+    egress_pool = os.getenv 'KUMOD_POOL_NAME',
   }
 end)
 
-kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
+kumo.on('get_egress_pool', function(pool_name)
+  if pool_name == 'warming' then
+    -- coupled with source_selection_rate_pool.rs
+    return kumo.make_egress_pool {
+      name = pool_name,
+      entries = {
+        { name = 'warming_a' },
+        { name = 'warming_b' },
+      },
+    }
+  end
+
+  error('integration-tests/source.lua: unhandled pool ' .. pool_name)
+end)
+
+kumo.on('get_egress_source', function(source_name)
+  return kumo.make_egress_source {
+    name = source_name,
+  }
+end)
+
+kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
   -- Allow sending to a sink
   local params = {
     enable_tls = os.getenv 'KUMOD_ENABLE_TLS' or 'OpportunisticInsecure',
@@ -260,7 +282,20 @@ kumo.on('get_egress_path_config', function(domain, _source_name, _site_name)
     opportunistic_tls_reconnect_on_failed_handshake = (
       (os.getenv 'KUMOD_OPPORTUNISTIC_TLS_RECONNECT') and true
     ) or false,
+    source_selection_rate = os.getenv 'KUMOD_SOURCE_SELECTION_RATE',
   }
+
+  -- See if there is a source-specific rate exported to us via the environment.
+  -- We assign this using additional_source_selection_rates regardless of
+  -- whether we have a more generate rate specified above so that we can
+  -- excercise the additional_source_selection_rates collection logic in the core.
+  local source_rate_name = 'KUMOD_SOURCE_SELECTION_RATE_'
+    .. source_name:upper()
+  local source_rate = os.getenv(source_rate_name)
+  if source_rate then
+    params.additional_source_selection_rates =
+      { [source_rate_name] = source_rate }
+  end
 
   local username = os.getenv 'KUMOD_SMTP_AUTH_USERNAME'
   local password = os.getenv 'KUMOD_SMTP_AUTH_PASSWORD'

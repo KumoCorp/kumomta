@@ -16,6 +16,8 @@ mod rebind;
 mod rebind_event_defined;
 mod rebind_event_missing;
 mod retry_schedule;
+mod source_selection_rate;
+mod source_selection_rate_pool;
 mod spf_basic;
 mod suspend_delivery_ready_q;
 mod suspend_delivery_ready_q_and_deliver;

@@ -2054,12 +2054,12 @@ impl Queue {
                                     detail: 4,
                                 }),
                                 content: format!(
-                                    "all possible sources for {} are suspended",
-                                    self.name
+                                    "KumoMTA internal: no sources for {} pool=`{}` are eligible for selection at this time",
+                                    self.name, source_selector.name
                                 ),
                                 command: None,
                             },
-                            egress_pool: None,
+                            egress_pool: Some(&source_selector.name),
                             egress_source: None,
                             relay_disposition: None,
                             delivery_protocol: None,
@@ -2070,7 +2070,11 @@ impl Queue {
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
-                        anyhow::bail!("all possible sources for {} are suspended", self.name);
+                        anyhow::bail!(
+                            "no sources for {} pool=`{}` are eligible for selection at this time",
+                            self.name,
+                            source_selector.name
+                        );
                     }
                     SourceInsertResult::NoSources => {
                         log_disposition(LogDisposition {
@@ -2086,12 +2090,12 @@ impl Queue {
                                     detail: 4,
                                 }),
                                 content: format!(
-                                    "no non-zero-weighted sources available for {}. {:?}",
-                                    self.name, self.source_selector,
+                                    "KumoMTA internal: no sources available for {} pool=`{}`",
+                                    self.name, source_selector.name,
                                 ),
                                 command: None,
                             },
-                            egress_pool: None,
+                            egress_pool: Some(&source_selector.name),
                             egress_source: None,
                             relay_disposition: None,
                             delivery_protocol: None,
@@ -2102,7 +2106,11 @@ impl Queue {
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
-                        anyhow::bail!("no non-zero-weighted sources available for {}", self.name);
+                        anyhow::bail!(
+                            "no sources available for {} pool=`{}`",
+                            self.name,
+                            source_selector.name
+                        );
                     }
                     SourceInsertResult::FailedResolve(err) => {
                         log_disposition(LogDisposition {

@@ -521,6 +521,7 @@ impl EgressPoolSourceSelector {
 
         let mut entries = vec![];
         let mut min_delay = None;
+        let mut is_full = false;
 
         // filter to non-suspended pathways
         for entry in &self.entries {
@@ -571,17 +572,31 @@ impl EgressPoolSourceSelector {
                         Ok(site) => {
                             match site.make_reservation() {
                                 Some(reservation) => {
-                                    if !is_source_selection_throttled(deadline, &site, &source_name)
-                                        .await?
+                                    match get_source_selection_throttle_delay(
+                                        deadline,
+                                        &site,
+                                        &source_name,
+                                    )
+                                    .await?
                                     {
-                                        site.redeem_reservation(msg, reservation).await;
-                                        return Ok(SourceInsertResult::Inserted);
-                                    }
+                                        None => {
+                                            site.redeem_reservation(msg, reservation).await;
+                                            return Ok(SourceInsertResult::Inserted);
+                                        }
+                                        Some(delay) => {
+                                            // Throttled; revise min delay to match throttle
+                                            if let Ok(delay) = chrono::Duration::from_std(delay) {
+                                                min_delay
+                                                    .replace(min_delay.unwrap_or(delay).min(delay));
+                                            }
 
-                                    // Throttled; fall through.
+                                            // fall through
+                                        }
+                                    }
                                 }
                                 None => {
-                                    // Not usable; fall through.
+                                    // Not usable; it is too full fall through.
+                                    is_full = true;
                                 }
                             }
                         }
@@ -596,30 +611,37 @@ impl EgressPoolSourceSelector {
                     // by going around again once we've filtered this
                     // particular source out of the set
                     entries.retain(|(entry, _)| entry.name != source_name);
-
-                    if entries.is_empty() {
-                        // If there are no more sources, then we just
-                        // report that the queue (whichever of the ones
-                        // that we tried) is full.
-                        return Err(ReadyQueueFull.into());
-                    }
                 }
                 None => {
-                    return Ok(match min_delay {
-                        Some(duration) => SourceInsertResult::Delay(duration),
-                        None => SourceInsertResult::NoSources,
-                    })
+                    // There are no more sources left to consider.
+                    //
+                    // If we definitively hit a full queue as one
+                    // of the candidates, let's return that we are
+                    // full
+                    return if is_full {
+                        Err(ReadyQueueFull.into())
+                    } else {
+                        // If we got a delay value, it means that at least one
+                        // of the candidates was either suspended until that duration,
+                        // or was subject to a source_selection_rate with a duration.
+                        // Let our response reflect that delay.
+                        Ok(match min_delay {
+                            Some(duration) => SourceInsertResult::Delay(duration),
+                            None => SourceInsertResult::NoSources,
+                        })
+                    };
                 }
             }
         }
     }
 }
 
-async fn is_source_selection_throttled(
+/// If selection is throttled, return Some(delay)
+async fn get_source_selection_throttle_delay(
     deadline: Option<Instant>,
     site: &ReadyQueueHandle,
     source_name: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<Option<Duration>> {
     let path_config = site.get_path_config().borrow();
 
     let mut throttles = Vec::with_capacity(
@@ -645,7 +667,7 @@ async fn is_source_selection_throttled(
     }
 
     if throttles.is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
 
     Box::pin(async move {
@@ -659,11 +681,11 @@ async fn is_source_selection_throttled(
         opt_timeout_at(deadline, async {
             for (key, throttle) in throttles {
                 let result = throttle.throttle(&key).await?;
-                if result.retry_after.is_some() {
-                    return Ok(true);
+                if let Some(delay) = result.retry_after {
+                    return Ok(Some(delay));
                 }
             }
-            Ok(false)
+            Ok(None)
         })
         .await
     })
