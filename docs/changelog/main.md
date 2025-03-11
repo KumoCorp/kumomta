@@ -77,6 +77,12 @@
   source whose associated ready queue is full, we'll now try to use one of the
   other available sources in that pool instead of immediately generating a
   transient failure for that message.
+* New
+  [source_selection_rate](../reference/kumo/make_egress_path/source_selection_rate.md),
+  [additional_source_selection_rates](../reference/kumo/make_egress_path/additional_source_selection_rates.md)
+  and a provider-specific `provider_source_selection_rate` options to adjust
+  the source selection algorithm to enable explicit configuration of IP-warmup
+  on a per-source basis.
 
 ## Fixes
 
