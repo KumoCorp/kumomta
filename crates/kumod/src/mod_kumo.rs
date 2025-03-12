@@ -9,6 +9,7 @@ use kumo_server_lifecycle::ShutdownSubcription;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
+use num_format::{Locale, ToFormattedString};
 use spool::SpoolId;
 use std::sync::Arc;
 use throttle::ThrottleSpec;
@@ -225,11 +226,98 @@ struct UserThrottle {
     spec: ThrottleSpec,
 }
 
+fn explain_throttle(spec: &ThrottleSpec) -> String {
+    let burst = spec.burst();
+    let interval = spec.interval();
+
+    let spec_rate = spec.limit as f64 / spec.period as f64;
+    let burst_rate = burst as f64 / interval.as_secs_f64();
+
+    fn number(n: f64) -> String {
+        if n < 1.0 {
+            format!("{n:.3}")
+        } else {
+            format!("{}", (n.ceil() as usize).to_formatted_string(&Locale::en))
+        }
+    }
+
+    fn rates(rate: f64) -> String {
+        let per_second = rate;
+        let per_minute = per_second * 60.0;
+        let per_hour = per_minute * 60.0;
+        let per_day = per_hour * 24.0;
+
+        let per_second = number(per_second);
+        let per_minute = number(per_minute);
+        let per_hour = number(per_hour);
+        let per_day = number(per_day);
+
+        format!("{per_second}/s, {per_minute}/m, {per_hour}/h, {per_day}/d")
+    }
+
+    let mut result = spec.to_string();
+
+    if spec.max_burst.is_none() {
+        result.push_str("\nimplied burst rate ");
+    } else {
+        result.push_str("\nexplicit burst rate ");
+    }
+    result.push_str(&format!(
+        "{burst} every {}, or: {} in that period.\n",
+        humantime::format_duration(interval),
+        rates(burst_rate)
+    ));
+
+    result.push_str(&format!("overall rate {}", rates(spec_rate)));
+    result
+}
+
+#[cfg(test)]
+#[test]
+fn test_explain_throttle() {
+    k9::snapshot!(
+        explain_throttle(&ThrottleSpec::try_from("100/h").unwrap()),
+        "
+100/h
+implied burst rate 100 every 36s, or: 3/s, 167/m, 10,000/h, 240,000/d in that period.
+overall rate 0.028/s, 2/m, 100/h, 2,400/d
+"
+    );
+    k9::snapshot!(
+        explain_throttle(&ThrottleSpec::try_from("500/d").unwrap()),
+        "
+500/d
+implied burst rate 500 every 2m 52s 800ms, or: 3/s, 174/m, 10,417/h, 250,000/d in that period.
+overall rate 0.006/s, 0.347/m, 21/h, 500/d
+"
+    );
+    k9::snapshot!(
+        explain_throttle(&ThrottleSpec::try_from("500/d,max_burst=1").unwrap()),
+        "
+500/d,max_burst=1
+explicit burst rate 1 every 2m 52s 800ms, or: 0.006/s, 0.347/m, 21/h, 500/d in that period.
+overall rate 0.006/s, 0.347/m, 21/h, 500/d
+"
+    );
+    k9::snapshot!(
+        explain_throttle(&ThrottleSpec::try_from("500/d,max_burst=10").unwrap()),
+        "
+500/d,max_burst=10
+explicit burst rate 10 every 2m 52s 800ms, or: 0.058/s, 4/m, 209/h, 5,000/d in that period.
+overall rate 0.006/s, 0.347/m, 21/h, 500/d
+"
+    );
+}
+
 impl LuaUserData for UserThrottle {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method("throttle", |lua, this, ()| async move {
             let result = this.spec.throttle(&this.name).await.map_err(any_err)?;
             lua.to_value(&result)
+        });
+
+        methods.add_method("explain", move |_, this, ()| {
+            Ok(explain_throttle(&this.spec))
         });
 
         methods.add_async_method(

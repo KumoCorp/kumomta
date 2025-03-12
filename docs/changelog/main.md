@@ -83,6 +83,9 @@
   and a provider-specific `provider_source_selection_rate` options to adjust
   the source selection algorithm to enable explicit configuration of IP-warmup
   on a per-source basis.
+* New `/opt/kumomta/sbin/explain-throttle` utility that can be used to show
+  what effect `max_burst` has on a throttle spec. Usage is `explain-throttle 100/hr,max_burst=2`
+  and it will emit its explanation to stdout.
 
 ## Fixes
 

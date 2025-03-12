@@ -3333,6 +3333,7 @@ dependencies = [
  "mlua",
  "mta-sts",
  "nix 0.28.0",
+ "num-format",
  "parking_lot",
  "ppp",
  "prometheus",

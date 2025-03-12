@@ -125,6 +125,16 @@ impl ThrottleSpec {
         )
         .await
     }
+
+    /// Returns the effective burst value for this throttle spec
+    pub fn burst(&self) -> u64 {
+        self.max_burst.unwrap_or(self.limit)
+    }
+
+    /// Returns the throttle interval over which the burst applies
+    pub fn interval(&self) -> Duration {
+        Duration::from_secs_f64(self.period as f64 / self.limit.max(1) as f64)
+    }
 }
 
 impl std::fmt::Debug for ThrottleSpec {
@@ -574,6 +584,8 @@ mod test {
             }
         );
         assert_eq!(burst.as_string(), "50/d,max_burst=1");
+        assert_eq!(burst.burst(), 1);
+        assert_eq!(format!("{:?}", burst.interval()), "1728s");
     }
 
     #[test]

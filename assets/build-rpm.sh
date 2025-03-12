@@ -129,6 +129,7 @@ install -Dm644 ./assets/kumo-tsa-daemon.service -t %{buildroot}/usr/lib/systemd/
 /opt/kumomta/sbin/tsa-daemon
 /opt/kumomta/sbin/validate-shaping
 /opt/kumomta/sbin/accounting.sh
+/opt/kumomta/sbin/explain-throttle
 /opt/kumomta/share/bounce_classifier/*.toml
 /opt/kumomta/share/minimal-init.lua
 /opt/kumomta/share/minimal-tsa_init.lua

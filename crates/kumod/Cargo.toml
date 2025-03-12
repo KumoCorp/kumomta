@@ -48,6 +48,7 @@ metrics = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 mta-sts = {path="../mta-sts"}
 nix = {workspace=true, features=["resource", "user"]}
+num-format.workspace = true
 parking_lot = {workspace=true}
 ppp = {workspace=true}
 prometheus = {workspace=true}

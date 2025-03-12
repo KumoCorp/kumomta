@@ -1,0 +1,57 @@
+#!/bin/sh
+CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
+POLICY_PATH=${POLICY_PATH:-/opt/kumomta/etc/policy/init.lua}
+
+KUMOD=${KUMOD:-kumod}
+
+if ! test -x ${KUMOD} ; then
+  for candidate in /opt/kumomta/sbin/kumod "${CARGO_TARGET_DIR}/release/kumod" "${CARGO_TARGET_DIR}/debug/kumod" ; do
+    if test -x "${candidate}" ; then
+      KUMOD="${candidate}"
+      break;
+    fi
+  done
+
+  if ! test -x "${KUMOD}" ; then
+    echo "Couldn't find kumod"
+    exit 1
+  fi
+fi
+
+script=$(mktemp)
+trap "rm -f -- '$script'" EXIT
+cat >${script} <<-EOT
+local kumo = require 'kumo'
+dofile "${POLICY_PATH}"
+
+kumo.on('main', function(throttle_spec)
+  if not throttle_spec then
+    print [[
+Usage: explain-throttle THROTTLESPEC
+
+Shows the burst and effective rates of a throttle spec.
+
+Example:
+
+    $ explain-throttle 100/s,max_burst=2
+
+]]
+  else
+    local throttle = kumo.make_throttle("example", throttle_spec)
+    print(throttle:explain())
+  end
+end)
+EOT
+
+is_user_root () { [ "${EUID:-$(id -u)}" -eq 0 ]; }
+
+RUN_AS_USER=""
+if is_user_root ; then
+  chmod a+rx $script
+  RUN_AS_USER="--user kumod"
+fi
+
+${KUMOD} $RUN_AS_USER --policy $script --script -- "$@"
+
+
+
