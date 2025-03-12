@@ -497,16 +497,14 @@ impl InjectV1Request {
     }
 }
 
-async fn process_recipient<'a>(
-    config: &mut LuaConfig,
+fn make_message<'a>(
     sender: &EnvelopeAddress,
     peer_address: IpAddr,
     recip: &Recipient,
     request: &'a InjectV1Request,
     compiled: &Compiled<'a>,
     auth: &AuthKind,
-) -> anyhow::Result<()> {
-    MSGS_RECVD.inc();
+) -> anyhow::Result<Message> {
     let recip_addr = EnvelopeAddress::parse(&recip.email)
         .with_context(|| format!("recipient email {}", recip.email))?;
 
@@ -549,6 +547,21 @@ async fn process_recipient<'a>(
     message.set_meta("http_auth", auth.summarize())?;
     message.set_meta("reception_protocol", "HTTP")?;
     message.set_meta("received_from", peer_address.to_string())?;
+    Ok(message)
+}
+
+async fn process_recipient<'a>(
+    config: &mut LuaConfig,
+    sender: &EnvelopeAddress,
+    peer_address: IpAddr,
+    recip: &Recipient,
+    request: &'a InjectV1Request,
+    compiled: &Compiled<'a>,
+    auth: &AuthKind,
+) -> anyhow::Result<()> {
+    MSGS_RECVD.inc();
+
+    let message = make_message(sender, peer_address, recip, request, compiled, auth)?;
 
     // call callback to assign to queue
     let sig = CallbackSignature::<message::Message, ()>::new("http_message_generated");
@@ -705,6 +718,23 @@ async fn inject_v1_impl(
     }))
 }
 
+fn build_from_v1_injection_request(
+    auth: AuthKind,
+    sender: EnvelopeAddress,
+    peer_address: IpAddr,
+    mut request: InjectV1Request,
+) -> anyhow::Result<Vec<Message>> {
+    request.normalize()?;
+    let compiled = request.compile()?;
+    let mut result = vec![];
+    for recip in &request.recipients {
+        let msg = make_message(&sender, peer_address, recip, &request, &compiled, &auth)?;
+        result.push(msg);
+    }
+
+    Ok(result)
+}
+
 pub fn make_generate_queue_config() -> anyhow::Result<QueueConfig> {
     Ok(QueueConfig {
         protocol: DeliveryProto::HttpInjectionGenerator,
@@ -729,6 +759,20 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .map_err(|err| any_err(err.0))?;
 
             lua.to_value(&result.0)
+        })?,
+    )?;
+
+    module.set(
+        "build_v1",
+        lua.create_function(move |lua, request: mlua::Value| {
+            let request: InjectV1Request = lua.from_value(request)?;
+            let sender = EnvelopeAddress::parse(&request.envelope_sender)
+                .context("envelope_sender")
+                .map_err(any_err)?;
+            let my_ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+            build_from_v1_injection_request(AuthKind::TrustedIp(my_ip), sender, my_ip, request)
+                .map_err(any_err)
         })?,
     )?;
 
