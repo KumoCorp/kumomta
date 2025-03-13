@@ -335,6 +335,13 @@ TOC = [
                 ],
             ),
             Page(
+                "Performance",
+                "userguide/performance/index.md",
+                children=[
+                    Page("Aggregating Event Data", "userguide/performance/messageflow.md"),
+                ],
+            ),
+            Page(
                 "Integrations",
                 "userguide/integrations/index.md",
                 children=[
