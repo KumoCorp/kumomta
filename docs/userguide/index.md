@@ -18,4 +18,5 @@ The user guide is structured in the typical order a user would need in the proce
 * [Operation](./operation/starting.md) - Information on how to manage and interact with a KumoMTA server.
 * [Policy](./policy/index.md) - A deeper dive into the policy capabilities of KumoMTA and how to implement advanced use cases.
 * [Clustering](./clustering/index.md) - Information related to deploying KumoMTA in a multi-node cluster environment.
+* [Performance](./performance/index.md) - A description of KumoMTA performance and how to tune for specific use cases.
 * [Integrations](./integrations/index.md) - Information on how to integrate KumoMTA with external tools and platforms.

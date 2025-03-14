@@ -262,7 +262,6 @@ TOC = [
                     ),
                     Page("Viewing Logs", "userguide/operation/logs.md"),
                     Page("Canceling Queued Messages", "userguide/operation/cancel.md"),
-                    Page("Performance Tuning", "userguide/operation/performance.md"),
                     Page(
                         "Additional Utilities",
                         "userguide/operation/command-line-index.md",
@@ -338,7 +337,9 @@ TOC = [
                 "Performance",
                 "userguide/performance/index.md",
                 children=[
-                    Page("Aggregating Event Data", "userguide/performance/messageflow.md"),
+                    Page("Linux Tuning", "userguide/performance/linuxtuning.md"),
+                    Page("Performance Testing", "userguide/performance/testing.md"),
+                    Page("Understanding KumoMTA Message Flows", "userguide/performance/messageflow.md"),
                 ],
             ),
             Page(
