@@ -236,7 +236,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
             Ok(addr) => {
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
-                    addr,
+                    addr: addr.into(),
                 }]);
             }
             Err(err) => {
@@ -248,7 +248,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
         if let Ok(addr) = domain_name.parse::<HostAddress>() {
             return Ok(vec![ResolvedAddress {
                 name: domain_name.to_string(),
-                addr,
+                addr: addr.into(),
             }]);
         }
     }

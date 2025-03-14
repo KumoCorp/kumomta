@@ -14,7 +14,7 @@ use crate::queue::{
     DeliveryProto, IncrementAttempts, InsertContext, InsertReason, Queue, QueueConfig,
     QueueManager, QueueState,
 };
-use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
+use crate::smtp_dispatcher::{OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
 use crate::spool::SpoolManager;
 use anyhow::Context;
@@ -322,14 +322,7 @@ impl ReadyQueueManager {
                 } else {
                     let mut mx_list = vec![];
                     for a in smtp.mx_list.iter() {
-                        match a {
-                            MxListEntry::Name(a) => {
-                                mx_list.push(a.to_string());
-                            }
-                            MxListEntry::Resolved(addr) => {
-                                mx_list.push(addr.addr.to_string());
-                            }
-                        }
+                        mx_list.push(a.label());
                     }
                     format!("mx_list:{}", mx_list.join(","))
                 }
