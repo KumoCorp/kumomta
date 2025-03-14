@@ -14,6 +14,7 @@ use cidr_map::CidrSet;
 use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
+use derive_where::derive_where;
 use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
@@ -515,10 +516,11 @@ pub struct SmtpServer {
     domains: HashMap<String, Option<EsmtpDomain>>,
 }
 
-#[derive(Debug)]
+#[derive_where(Debug)]
 struct TransactionState {
     sender: EnvelopeAddress,
     recipients: Vec<EnvelopeAddress>,
+    #[derive_where(skip)]
     _timer: HistogramTimer,
 }
 

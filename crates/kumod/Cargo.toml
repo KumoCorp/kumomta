@@ -19,6 +19,7 @@ config = {path="../config"}
 dashmap.workspace = true
 data-encoding = {workspace=true}
 data-loader = {path="../data-loader"}
+derive-where.workspace = true
 dns-resolver = {path="../dns-resolver", features=["unbound"]}
 duration-serde = {path="../duration-serde"}
 flume = {workspace=true}
