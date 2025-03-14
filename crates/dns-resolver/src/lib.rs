@@ -5,6 +5,7 @@ use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::proto::ProtoError;
 pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
+use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
@@ -201,6 +202,90 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
     Ok(result)
 }
 
+/// If the provided parameter ends with `:PORT` and `PORT` is a valid u16,
+/// then crack apart and return the LABEL and PORT number portions.
+/// Otherwise, returns None
+pub fn has_colon_port(a: &str) -> Option<(&str, u16)> {
+    let (label, maybe_port) = a.rsplit_once(':')?;
+    let port = maybe_port.parse::<u16>().ok()?;
+    Some((label, port))
+}
+
+/// Helper to reason about a domain name string.
+/// It can either be name that needs to be resolved, or some kind
+/// of IP literal.
+/// We also allow for an optional port number to be present in
+/// the domain name string.
+pub enum DomainClassification {
+    /// A DNS Name pending resolution, plus an optional port number
+    Domain(Name, Option<u16>),
+    /// A literal IP address (no port), or socket address (with port)
+    Literal(HostOrSocketAddress),
+}
+
+impl DomainClassification {
+    pub fn classify(domain_name: &str) -> anyhow::Result<Self> {
+        let (domain_name, opt_port) = match has_colon_port(domain_name) {
+            Some((domain_name, port)) => (domain_name, Some(port)),
+            None => (domain_name, None),
+        };
+
+        if domain_name.starts_with('[') {
+            if !domain_name.ends_with(']') {
+                anyhow::bail!(
+                    "domain_name `{domain_name}` is a malformed literal \
+                     domain with no trailing `]`"
+                );
+            }
+
+            let lowered = domain_name.to_ascii_lowercase();
+            let literal = &lowered[1..lowered.len() - 1];
+
+            if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
+                match v6_literal.parse::<Ipv6Addr>() {
+                    Ok(addr) => {
+                        let mut host_addr: HostOrSocketAddress = addr.into();
+                        if let Some(port) = opt_port {
+                            host_addr.set_port(port);
+                        }
+                        return Ok(Self::Literal(host_addr));
+                    }
+                    Err(err) => {
+                        anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
+                    }
+                }
+            }
+
+            // Try to interpret the literal as either an IPv4 or IPv6 address.
+            // Note that RFC5321 doesn't actually permit using an untagged
+            // IPv6 address, so this is non-conforming behavior.
+            match literal.parse::<IpAddr>() {
+                Ok(ip_addr) => {
+                    let mut host_addr: HostOrSocketAddress = ip_addr.into();
+                    if let Some(port) = opt_port {
+                        host_addr.set_port(port);
+                    }
+                    return Ok(Self::Literal(host_addr));
+                }
+                Err(err) => {
+                    anyhow::bail!("invalid address: `{literal}`: {err:#}");
+                }
+            }
+        }
+
+        let name_fq = fully_qualify(domain_name)?;
+        Ok(Self::Domain(name_fq, opt_port))
+    }
+
+    pub fn has_port(&self) -> bool {
+        match self {
+            Self::Domain(_, Some(_)) => true,
+            Self::Domain(_, None) => false,
+            Self::Literal(addr) => addr.port().is_some(),
+        }
+    }
+}
+
 pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
     if domain_name.starts_with('[') {
         // It's a literal address, no DNS lookup necessary
@@ -282,66 +367,32 @@ impl MailExchanger {
     }
 
     async fn resolve_impl(domain_name: &str) -> anyhow::Result<Arc<Self>> {
-        if domain_name.starts_with('[') {
-            // It's a literal address, no DNS lookup necessary
-
-            if !domain_name.ends_with(']') {
-                anyhow::bail!(
-                    "domain_name `{domain_name}` is a malformed literal \
-                     domain with no trailing `]`"
-                );
-            }
-
-            let lowered = domain_name.to_ascii_lowercase();
-            let literal = &lowered[1..lowered.len() - 1];
-
-            if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
-                match v6_literal.parse::<Ipv6Addr>() {
-                    Ok(addr) => {
-                        let mut by_pref = BTreeMap::new();
-                        by_pref.insert(1, vec![addr.to_string()]);
-                        return Ok(Arc::new(Self {
-                            domain_name: domain_name.to_string(),
-                            hosts: vec![addr.to_string()],
-                            site_name: addr.to_string(),
-                            by_pref,
-                            is_domain_literal: true,
-                            is_secure: false,
-                            is_mx: false,
-                            expires: None,
-                        }));
-                    }
-                    Err(err) => {
-                        anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
-                    }
+        let (name_fq, opt_port) = match DomainClassification::classify(domain_name)? {
+            DomainClassification::Literal(addr) => {
+                if addr.port().is_some() {
+                    anyhow::bail!("MailExchanger::resolve does not allow port numbers (domain_name={domain_name})");
                 }
+                let mut by_pref = BTreeMap::new();
+                by_pref.insert(1, vec![addr.to_string()]);
+                return Ok(Arc::new(Self {
+                    domain_name: domain_name.to_string(),
+                    hosts: vec![addr.to_string()],
+                    site_name: addr.to_string(),
+                    by_pref,
+                    is_domain_literal: true,
+                    is_secure: false,
+                    is_mx: false,
+                    expires: None,
+                }));
             }
+            DomainClassification::Domain(name_fq, opt_port) => (name_fq, opt_port),
+        };
 
-            // Try to interpret the literal as either an IPv4 or IPv6 address.
-            // Note that RFC5321 doesn't actually permit using an untagged
-            // IPv6 address, so this is non-conforming behavior.
-            match literal.parse::<IpAddr>() {
-                Ok(addr) => {
-                    let mut by_pref = BTreeMap::new();
-                    by_pref.insert(1, vec![addr.to_string()]);
-                    return Ok(Arc::new(Self {
-                        domain_name: domain_name.to_string(),
-                        hosts: vec![addr.to_string()],
-                        site_name: addr.to_string(),
-                        by_pref,
-                        is_domain_literal: true,
-                        is_secure: false,
-                        is_mx: false,
-                        expires: None,
-                    }));
-                }
-                Err(err) => {
-                    anyhow::bail!("invalid address: `{literal}`: {err:#}");
-                }
-            }
+        if opt_port.is_some() {
+            anyhow::bail!(
+                "MailExchanger::resolve does not allow port numbers (domain_name={domain_name})"
+            );
         }
-
-        let name_fq = fully_qualify(domain_name)?;
 
         let lookup_result = MX_CACHE
             .get_or_try_insert(

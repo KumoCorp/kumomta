@@ -10,7 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
-use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
@@ -48,15 +48,6 @@ pub enum MxListEntry {
 
     /// A pre-resolved name and IP address
     Resolved(ResolvedAddress),
-}
-
-/// If the provided parameter ends with `:PORT` and `PORT` is a valid u16,
-/// then crack apart and return the LABEL and PORT number portions.
-/// Otherwise, returns None
-fn has_colon_port(a: &str) -> Option<(&str, u16)> {
-    let (label, maybe_port) = a.rsplit_once(':')?;
-    let port = maybe_port.parse::<u16>().ok()?;
-    Some((label, port))
 }
 
 impl MxListEntry {

@@ -1,4 +1,5 @@
 use config::any_err;
+use dns_resolver::DomainClassification;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
 use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
@@ -17,6 +18,20 @@ impl EnvelopeAddress {
             let fields: Vec<&str> = text.split('@').collect();
             anyhow::ensure!(fields.len() == 2, "expected user@domain");
             // TODO: stronger validation of local part and domain
+
+            // Ensure that there are no port numbers in the domain portion.
+            // These are no allowed by SMTP. We don't allow them during
+            // RCPT TO in the incoming SMTP, but it is possible for
+            // addresses to be constructed in a few other code paths,
+            // so it is prudent to explicitly validate that here
+            let domain = &fields[1];
+            let classified = DomainClassification::classify(domain)?;
+            if classified.has_port() {
+                anyhow::bail!(
+                    "EnvelopeAddress does not allow port numbers in the domain ({domain})"
+                );
+            }
+
             Ok(Self(text.to_string()))
         }
     }
@@ -279,4 +294,17 @@ impl UserData for HeaderAddress {
 pub struct AddressGroup {
     pub name: Option<String>,
     pub addresses: Vec<HeaderAddress>,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn no_ports_in_domain() {
+        k9::snapshot!(
+            EnvelopeAddress::parse("user@example.com:2025").unwrap_err(),
+            "EnvelopeAddress does not allow port numbers in the domain (example.com:2025)"
+        );
+    }
 }
