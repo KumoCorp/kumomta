@@ -3930,6 +3930,7 @@ dependencies = [
  "futures",
  "intrusive-collections",
  "k9",
+ "kumo-address",
  "kumo-chrono-helper",
  "kumo-dkim",
  "kumo-log-types",
