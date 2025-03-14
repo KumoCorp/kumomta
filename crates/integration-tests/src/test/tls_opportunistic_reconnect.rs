@@ -35,7 +35,7 @@ async fn tls_opportunistic_reconnect() -> anyhow::Result<()> {
     daemon.stop_both().await?;
     println!("Stopped!");
 
-    let records = daemon.source.collect_logs()?;
+    let records = daemon.source.collect_logs().await?;
     println!("{records:#?}");
     let delivery = records
         .iter()
@@ -51,7 +51,7 @@ async fn tls_opportunistic_reconnect() -> anyhow::Result<()> {
         "tls should not have been used"
     );
 
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

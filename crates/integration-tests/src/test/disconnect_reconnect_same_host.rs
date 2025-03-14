@@ -62,7 +62,7 @@ async fn disconnect_reconnect_same_host() -> anyhow::Result<()> {
 
     daemon.stop_both().await?;
 
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

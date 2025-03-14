@@ -29,7 +29,7 @@ async fn disconnect_in_mail_from() -> anyhow::Result<()> {
 
     daemon.stop_both().await?;
 
-    let logs = daemon.source.collect_logs()?;
+    let logs = daemon.source.collect_logs().await?;
     k9::snapshot!(
         logs.last().unwrap().response.clone(),
         r#"
@@ -45,7 +45,7 @@ Response {
 "#
     );
 
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

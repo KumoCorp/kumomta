@@ -84,7 +84,7 @@ Rejected(
     daemon.stop_both().await.context("stop_both")?;
     println!("Stopped!");
 
-    let delivery_summary = daemon.dump_logs().context("dump_logs")?;
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
     k9::snapshot!(
         delivery_summary,
         "

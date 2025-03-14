@@ -44,7 +44,7 @@ async fn source_selection_rate_pool() -> anyhow::Result<()> {
     daemon.stop_both().await.context("stop_both")?;
     println!("Stopped!");
 
-    let records = daemon.source.collect_logs()?;
+    let records = daemon.source.collect_logs().await?;
     let mut receptions = 0;
     let mut delivery_a = 0;
     let mut delivery_b = 0;

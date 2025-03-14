@@ -17,7 +17,7 @@ async fn retry_schedule_skiplist() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn retry_schedule_singleton_wheel() -> anyhow::Result<()> {
+async fn retry_schedule_singleton_wheel_v1() -> anyhow::Result<()> {
     retry_schedule_impl("SingletonTimerWheel", VALID_DOMAIN).await
 }
 
@@ -60,7 +60,7 @@ async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()>
     daemon.stop_both().await?;
     println!("Stopped!");
 
-    let records = daemon.source.collect_logs()?;
+    let records = daemon.source.collect_logs().await?;
     let event_times: Vec<_> = records
         .iter()
         .filter_map(|record| match record.kind {

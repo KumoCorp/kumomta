@@ -35,7 +35,7 @@ async fn end_to_end() -> anyhow::Result<()> {
 
     daemon.source.check_for_x_and_y_headers_in_logs()?;
 
-    let delivery_summary = daemon.dump_logs().context("dump_logs")?;
+    let delivery_summary = daemon.dump_logs().await.context("dump_logs")?;
     k9::snapshot!(
         delivery_summary,
         "

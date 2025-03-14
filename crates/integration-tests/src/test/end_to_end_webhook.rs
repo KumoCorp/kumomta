@@ -38,7 +38,7 @@ async fn end_to_end_with_webhook() -> anyhow::Result<()> {
     daemon.stop().await?;
     println!("Stopped!");
 
-    let delivery_summary = daemon.with_maildir.dump_logs()?;
+    let delivery_summary = daemon.with_maildir.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

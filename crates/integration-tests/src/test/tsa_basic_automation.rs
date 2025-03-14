@@ -31,7 +31,7 @@ async fn tsa_basic_automation() -> anyhow::Result<()> {
         )
         .await;
 
-    let delivery_summary = daemon.with_maildir.dump_logs()?;
+    let delivery_summary = daemon.with_maildir.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

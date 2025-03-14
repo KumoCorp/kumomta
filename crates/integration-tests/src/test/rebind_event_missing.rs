@@ -50,7 +50,7 @@ async fn rebind_event_missing() -> anyhow::Result<()> {
         .await;
 
     daemon.stop_both().await?;
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     assert!(
         delivery_summary
             .source_counts

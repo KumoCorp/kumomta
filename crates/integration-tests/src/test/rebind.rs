@@ -58,7 +58,7 @@ async fn rebind_impl(strategy: &str) -> anyhow::Result<()> {
         .await;
 
     daemon.stop_both().await?;
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

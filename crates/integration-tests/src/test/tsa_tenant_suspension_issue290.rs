@@ -76,7 +76,7 @@ async fn tsa_tenant_suspension_issue290() -> anyhow::Result<()> {
         )
         .await;
 
-    let delivery_summary = daemon.with_maildir.dump_logs()?;
+    let delivery_summary = daemon.with_maildir.dump_logs().await?;
     // Note that the 2 rejections here are from the original message;
     // the first is the policy rejection, the second is a rejection
     // logged about DATA requiring a transaction that is triggered because

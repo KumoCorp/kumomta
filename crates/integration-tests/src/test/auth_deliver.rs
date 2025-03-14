@@ -27,7 +27,7 @@ async fn auth_deliver() -> anyhow::Result<()> {
     daemon.stop_both().await?;
     println!("Stopped!");
 
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

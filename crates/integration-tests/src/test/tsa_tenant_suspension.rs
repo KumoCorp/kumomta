@@ -30,7 +30,7 @@ async fn tsa_tenant_suspension() -> anyhow::Result<()> {
         )
         .await;
 
-    let delivery_summary = daemon.with_maildir.dump_logs()?;
+    let delivery_summary = daemon.with_maildir.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

@@ -48,7 +48,7 @@ async fn spf_basic() -> anyhow::Result<()> {
     daemon.stop().await?;
     println!("Stopped!");
 
-    let delivery_summary = daemon.dump_logs()?;
+    let delivery_summary = daemon.dump_logs().await?;
     k9::snapshot!(
         delivery_summary,
         "

@@ -222,7 +222,7 @@ impl DaemonWithMaildir {
         tokio::select! {
             _ = async {
                 loop {
-                    if let Ok(summary) = self.source.dump_logs() {
+                    if let Ok(summary) = self.source.summarize_logs().await {
                         let done = (func)(&summary);
                         if done {
                             return true;
@@ -244,11 +244,11 @@ impl DaemonWithMaildir {
         Ok(())
     }
 
-    pub fn dump_logs(&self) -> anyhow::Result<DeliverySummary> {
+    pub async fn dump_logs(&self) -> anyhow::Result<DeliverySummary> {
         eprintln!("source logs:");
-        let source_counts = self.source.dump_logs()?;
+        let source_counts = self.source.dump_logs().await?;
         eprintln!("sink logs:");
-        let sink_counts = self.sink.dump_logs()?;
+        let sink_counts = self.sink.dump_logs().await?;
         Ok(DeliverySummary {
             source_counts,
             sink_counts,
@@ -459,68 +459,87 @@ impl KumoDaemon {
         Ok(())
     }
 
-    pub fn collect_logs(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
-        let dir = self.dir.path().join("logs");
-        let mut records = vec![];
-
-        fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
-            let f = std::fs::File::open(&path).with_context(|| format!("open {path:?}"))?;
-            let data = zstd::stream::decode_all(f)
-                .with_context(|| format!("decoding zstd from {path:?}"))?;
-            let text = String::from_utf8(data)?;
-            Ok(text)
-        }
-
-        fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
-            let mut error = None;
-            for _ in 0..10 {
-                match read_zstd_file(&path) {
-                    Ok(t) => {
-                        return Ok(t);
-                    }
-                    Err(err) => {
-                        eprintln!("Error reading {path:?}: {err:#}");
-                        error.replace(err);
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                    }
-                }
-            }
-            anyhow::bail!("Failed: {error:?}");
-        }
-
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                let text = read_zstd_file_with_retry(&entry.path())?;
-                for line in text.lines() {
-                    let record: JsonLogRecord = serde_json::from_str(&line)?;
-                    records.push(record);
-                }
-            }
-        }
-
-        records.sort_by(|a, b| {
-            use std::cmp::Ordering;
-            match a.timestamp.cmp(&b.timestamp) {
-                Ordering::Equal => match a.id.cmp(&b.id) {
-                    Ordering::Equal => a.kind.cmp(&b.kind),
-                    r => r,
-                },
-                r => r,
-            }
-        });
+    pub async fn collect_logs(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
+        let records = self.collect_logs_impl().await?;
 
         // and print it in the sorted order for easier understanding
+        eprintln!("--- collect_logs begin");
         for r in &records {
             eprintln!("{}", serde_json::to_string(r).unwrap());
         }
+        eprintln!("--- end of logs");
 
         Ok(records)
     }
 
-    pub fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
+    pub async fn collect_logs_impl(&self) -> anyhow::Result<Vec<JsonLogRecord>> {
+        let dir = self.dir.path().join("logs");
+        tokio::task::spawn_blocking(move || {
+            let mut records = vec![];
+
+            fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
+                let f = std::fs::File::open(&path).with_context(|| format!("open {path:?}"))?;
+                let data = zstd::stream::decode_all(f)
+                    .with_context(|| format!("decoding zstd from {path:?}"))?;
+                let text = String::from_utf8(data)?;
+                Ok(text)
+            }
+
+            fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
+                let mut error = None;
+                for _ in 0..10 {
+                    match read_zstd_file(&path) {
+                        Ok(t) => {
+                            return Ok(t);
+                        }
+                        Err(err) => {
+                            eprintln!("collect_logs: Error reading {path:?}: {err:#}");
+                            error.replace(err);
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
+                    }
+                }
+                anyhow::bail!("Failed: {error:?}");
+            }
+
+            for entry in std::fs::read_dir(&dir)? {
+                let entry = entry?;
+                if entry.file_type()?.is_file() {
+                    let text = read_zstd_file_with_retry(&entry.path())?;
+                    for line in text.lines() {
+                        let record: JsonLogRecord = serde_json::from_str(&line)?;
+                        records.push(record);
+                    }
+                }
+            }
+
+            records.sort_by(|a, b| {
+                use std::cmp::Ordering;
+                match a.timestamp.cmp(&b.timestamp) {
+                    Ordering::Equal => match a.id.cmp(&b.id) {
+                        Ordering::Equal => a.kind.cmp(&b.kind),
+                        r => r,
+                    },
+                    r => r,
+                }
+            });
+
+            Ok(records)
+        })
+        .await?
+    }
+
+    pub async fn dump_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
         let mut counts = BTreeMap::new();
-        for record in self.collect_logs()? {
+        for record in self.collect_logs().await? {
+            *counts.entry(record.kind).or_default() += 1;
+        }
+        Ok(counts)
+    }
+
+    pub async fn summarize_logs(&self) -> anyhow::Result<BTreeMap<RecordType, usize>> {
+        let mut counts = BTreeMap::new();
+        for record in self.collect_logs_impl().await? {
             *counts.entry(record.kind).or_default() += 1;
         }
         Ok(counts)
