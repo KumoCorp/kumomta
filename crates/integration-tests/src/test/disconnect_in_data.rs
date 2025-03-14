@@ -1,5 +1,6 @@
 use crate::kumod::{DaemonWithMaildir, MailGenParams};
 use kumo_log_types::RecordType::{Delivery, TransientFailure};
+use kumo_log_types::ResolvedAddress;
 use std::time::Duration;
 
 #[tokio::test]
@@ -132,27 +133,19 @@ Response {
 "#
     );
 
-    k9::snapshot!(
-        &tf.peer_address,
-        r#"
-Some(
-    ResolvedAddress {
-        name: "localhost-2",
-        addr: 127.0.0.1,
-    },
-)
-"#
+    assert_eq!(
+        tf.peer_address,
+        Some(ResolvedAddress {
+            name: "localhost-2".to_string(),
+            addr: daemon.sink.listener("smtp").into(),
+        })
     );
-    k9::snapshot!(
-        &delivery.peer_address,
-        r#"
-Some(
-    ResolvedAddress {
-        name: "localhost-1",
-        addr: 127.0.0.1,
-    },
-)
-"#
+    assert_eq!(
+        delivery.peer_address,
+        Some(ResolvedAddress {
+            name: "localhost-1".to_string(),
+            addr: daemon.sink.listener("smtp").into(),
+        })
     );
 
     Ok(())

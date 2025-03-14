@@ -217,7 +217,8 @@ kumo.on('smtp_server_message_received', function(msg)
   kumo.log_info('schedule result', kumo.serde.json_encode(result))
 end)
 
-kumo.on('get_queue_config', function(domain, _tenant, _campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign)
+  kumo.log_warn('get_queue_config', domain, tenant, campaign)
   if domain == 'webhook' then
     return kumo.make_queue_config {
       protocol = {
@@ -231,7 +232,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   local protocol = {
     -- Redirect traffic to the sink
     smtp = {
-      mx_list = { 'localhost' },
+      mx_list = { 'localhost:' .. SINK_PORT },
     },
   }
 
@@ -240,8 +241,8 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
       -- Redirect traffic to the sink, but with two hosts in the connection plan
       smtp = {
         mx_list = {
-          { name = 'localhost-1', addr = '127.0.0.1' },
-          { name = 'localhost-2', addr = '127.0.0.1' },
+          { name = 'localhost-1', addr = '127.0.0.1:' .. SINK_PORT },
+          { name = 'localhost-2', addr = '127.0.0.1:' .. SINK_PORT },
         },
       },
     }
@@ -292,7 +293,6 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     enable_tls = os.getenv 'KUMOD_ENABLE_TLS' or 'OpportunisticInsecure',
     reconnect_strategy = os.getenv 'KUMOD_RECONNECT_STRATEGY'
       or 'ConnectNextHost',
-    smtp_port = SINK_PORT,
     prohibited_hosts = {},
     opportunistic_tls_reconnect_on_failed_handshake = (
       (os.getenv 'KUMOD_OPPORTUNISTIC_TLS_RECONNECT') and true
@@ -349,7 +349,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     params.connection_limit = 1
   end
 
-  print('get_egress_path_config *******************', domain)
+  kumo.log_warn('get_egress_path_config *******************', domain)
 
   return kumo.make_egress_path(params)
 end)

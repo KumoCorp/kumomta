@@ -8,6 +8,9 @@
    option to more aggressively retry failures that are either transport errors
    (eg: timeout) or are not definitively associated with the message (eg:
    response to commands in between transactions).
+ * You may now specify outbound SMTP port numbers when configuring
+   [make_queue_config().protocol](../reference/kumo/make_queue_config/protocol.md)
+   with an `mx_list`.
 
 ## Fixes
 

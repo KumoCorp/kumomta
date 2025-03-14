@@ -7,12 +7,13 @@ use std::time::Duration;
 async fn suspend_delivery_ready_q() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start().await?;
     let mut client = daemon.smtp_client().await?;
+    let sink_port = daemon.sink.listener("smtp").port();
 
     let status: SuspendV1Response = daemon
         .kcli_json([
             "suspend-ready-q",
             "--name",
-            "unspecified->mx_list:localhost@smtp_client",
+            &format!("unspecified->mx_list:localhost:{sink_port}@smtp_client"),
             "--reason",
             "testing",
         ])
