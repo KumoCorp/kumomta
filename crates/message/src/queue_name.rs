@@ -87,6 +87,87 @@ mod test {
     }
 
     #[test]
+    fn test_routing_domain_with_port() {
+        k9::snapshot!(
+            QueueNameComponents::parse("foo.com:2025"),
+            r#"
+QueueNameComponents {
+    campaign: None,
+    tenant: None,
+    domain: "foo.com:2025",
+    routing_domain: None,
+}
+"#
+        );
+
+        k9::snapshot!(
+            QueueNameComponents::parse("foo.com!routing.com:2025"),
+            r#"
+QueueNameComponents {
+    campaign: None,
+    tenant: None,
+    domain: "foo.com",
+    routing_domain: Some(
+        "routing.com:2025",
+    ),
+}
+"#
+        );
+
+        k9::snapshot!(
+            QueueNameComponents::parse("tenant@foo.com!routing.com:2025"),
+            r#"
+QueueNameComponents {
+    campaign: None,
+    tenant: Some(
+        "tenant",
+    ),
+    domain: "foo.com",
+    routing_domain: Some(
+        "routing.com:2025",
+    ),
+}
+"#
+        );
+
+        k9::snapshot!(
+            QueueNameComponents::parse("campaign:@foo.com!routing.com:2025"),
+            r#"
+QueueNameComponents {
+    campaign: Some(
+        "campaign",
+    ),
+    tenant: Some(
+        "",
+    ),
+    domain: "foo.com",
+    routing_domain: Some(
+        "routing.com:2025",
+    ),
+}
+"#
+        );
+
+        k9::snapshot!(
+            QueueNameComponents::parse("campaign:tenant@foo.com!routing.com:2025"),
+            r#"
+QueueNameComponents {
+    campaign: Some(
+        "campaign",
+    ),
+    tenant: Some(
+        "tenant",
+    ),
+    domain: "foo.com",
+    routing_domain: Some(
+        "routing.com:2025",
+    ),
+}
+"#
+        );
+    }
+
+    #[test]
     fn test_queue_name() {
         k9::snapshot!(
             QueueNameComponents::parse("foo.com"),
