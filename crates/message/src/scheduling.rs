@@ -173,6 +173,12 @@ impl<'de> Deserialize<'de> for Scheduling {
                 // and we must report it.
                 let restriction = match (self.days_of_week, self.timezone, self.start, self.end) {
                     (Some(days_of_week), Some(timezone), Some(start), Some(end)) => {
+                        if start > end {
+                            return Err(M::Error::custom(format!(
+                                "'start' must be before 'end' and define a time window \
+                                 within a given day. start={start:?}, end={end:?}"
+                            )));
+                        }
                         Some(ScheduleRestriction {
                             days_of_week,
                             timezone,
@@ -545,5 +551,13 @@ mod test {
         let adjusted = sched.adjust_for_schedule(now).with_timezone(&phoenix);
         // Expected to round into Friday, later that week
         k9::assert_equal!(adjusted.to_string(), "2023-03-31 09:00:00 MST");
+    }
+
+    #[test]
+    fn start_after_end() {
+        k9::snapshot!(serde_json::from_str::<Scheduling>(
+            r#"{"dow":"Mon,Tue,Wed,Thu,Fri,Sat,Sun","tz":"Etc/UTC","end":"20:57:49","start":"21:10:49", "first_attempt":"2025-03-14T21:10:49Z"}"#,
+        )
+        .unwrap_err(), r#"Error("'start' must be before 'end' and define a time window within a given day. start=21:10:49, end=20:57:49", line: 1, column: 128)"#);
     }
 }
