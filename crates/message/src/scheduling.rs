@@ -77,12 +77,142 @@ impl ScheduleRestriction {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy)]
+#[derive(Debug, Serialize, Clone, PartialEq, Copy)]
 pub struct Scheduling {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ScheduleRestriction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_attempt: Option<DateTime<FixedOffset>>,
+}
+
+/// serde usually does a great job, but for the case of an optional
+/// flattened value, it will silently swallow any errors that should
+/// have been raised from parsing the fields it contained, and convert
+/// that to a None value.
+/// That's very undesirable, and unfortunately for us, it means having
+/// to manually implement Deserialize, so that is what this big chunk
+/// of code is.
+impl<'de> Deserialize<'de> for Scheduling {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as serde::Deserializer<'de>>::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        /// Our visitor; we'll collect an optional value for
+        /// each possible field here
+        #[derive(Default)]
+        struct V {
+            // Note that this is serialized as "dow"
+            days_of_week: Option<DaysOfWeek>,
+            // Note that this is serialized as "tz"
+            timezone: Option<Tz>,
+            start: Option<NaiveTime>,
+            end: Option<NaiveTime>,
+            first_attempt: Option<DateTime<FixedOffset>>,
+        }
+
+        fn do_value<'de, T: Deserialize<'de>, M: serde::de::MapAccess<'de>>(
+            map: &mut M,
+            label: &str,
+            target: &mut Option<T>,
+        ) -> Result<(), M::Error> {
+            match map.next_value() {
+                Err(err) => {
+                    return Err(M::Error::custom(format!("{label}: {err:#}")));
+                }
+                Ok(v) => {
+                    target.replace(v);
+                    Ok(())
+                }
+            }
+        }
+
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = Scheduling;
+
+            fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+                fmt.write_str("a map containing the Scheduling spec")
+            }
+
+            fn visit_map<M>(mut self, mut map: M) -> Result<Scheduling, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                // We must iterate borrowed keys here for broader compatibility.
+                // Even though retrieving the keys as `&str` functions directly
+                // here in the unit tests for this module, it will fail at
+                // runtime when processing lua values, as lua uses Cow<_,str>.
+                use std::borrow::Cow;
+
+                while let Some(k) = map.next_key::<Cow<'_, str>>()? {
+                    match k.as_ref() {
+                        "dow" => {
+                            do_value(&mut map, "dow", &mut self.days_of_week)?;
+                        }
+                        "tz" => {
+                            do_value(&mut map, "tz", &mut self.timezone)?;
+                        }
+                        "start" => {
+                            do_value(&mut map, "start", &mut self.start)?;
+                        }
+                        "end" => {
+                            do_value(&mut map, "end", &mut self.end)?;
+                        }
+                        "first_attempt" => {
+                            do_value(&mut map, "first_attempt", &mut self.first_attempt)?;
+                        }
+                        _ => {
+                            return Err(M::Error::custom(format!("invalid field name {k}")));
+                        }
+                    }
+                }
+
+                // We require all of the fields of the restriction to be present,
+                // or none of them. If only some are present, that is an error,
+                // and we must report it.
+                let restriction = match (self.days_of_week, self.timezone, self.start, self.end) {
+                    (Some(days_of_week), Some(timezone), Some(start), Some(end)) => {
+                        Some(ScheduleRestriction {
+                            days_of_week,
+                            timezone,
+                            start,
+                            end,
+                        })
+                    }
+                    (None, None, None, None) => None,
+                    (days_of_week, timezone, start, end) => {
+                        let mut missing = vec![];
+                        if days_of_week.is_none() {
+                            missing.push("dow");
+                        }
+                        if timezone.is_none() {
+                            missing.push("tz");
+                        }
+                        if start.is_none() {
+                            missing.push("start");
+                        }
+                        if end.is_none() {
+                            missing.push("end");
+                        }
+                        let is_are = if missing.len() == 1 { "is" } else { "are" };
+                        return Err(M::Error::custom(format!(
+                            "scheduling restrictions requires all restriction \
+                                    fields to be present. {} {is_are} missing",
+                            missing.join(", ")
+                        )));
+                    }
+                };
+
+                Ok(Scheduling {
+                    restriction,
+                    first_attempt: self.first_attempt,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(V::default())
+    }
 }
 
 impl Scheduling {
@@ -290,6 +420,31 @@ mod test {
     }
 
     #[test]
+    fn schedule_bogus_date() {
+        k9::snapshot!(
+            serde_json::from_str::<Scheduling>(r#"{"first_attempt":"09:00:00"}"#,).unwrap_err(),
+            r#"Error("first_attempt: input contains invalid characters", line: 1, column: 27)"#
+        );
+    }
+
+    #[test]
+    fn schedule_parse_missing_parts() {
+        k9::snapshot!(
+            serde_json::from_str::<Scheduling>(
+                r#"{"tz":"America/Phoenix","end":"17:00:00","start":"09:00:00"}"#,
+            )
+            .unwrap_err(),
+            r#"Error("scheduling restrictions requires all restriction fields to be present. dow is missing", line: 1, column: 60)"#
+        );
+
+        k9::snapshot!(
+            serde_json::from_str::<Scheduling>(r#"{"tz":"America/Phoenix","start":"09:00:00"}"#,)
+                .unwrap_err(),
+            r#"Error("scheduling restrictions requires all restriction fields to be present. dow, end are missing", line: 1, column: 43)"#
+        );
+    }
+
+    #[test]
     fn schedule_parse_restriction_and_start() {
         let sched = Scheduling {
             restriction: Some(ScheduleRestriction {
@@ -309,6 +464,11 @@ mod test {
 
         let round_trip: Scheduling = serde_json::from_str(&serialized).unwrap();
         k9::assert_equal!(sched, round_trip);
+
+        let _: Scheduling = serde_json::from_str(
+            r#"{"dow":"Mon","tz":"America/Phoenix","end":"17:00:00","start":"09:00:00"}"#,
+        )
+        .unwrap();
     }
 
     #[test]

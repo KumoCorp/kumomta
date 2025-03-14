@@ -102,3 +102,5 @@
 * DKIM validation now attempts to verify a signature using each DKIM record
   found in DNS, rather than just the first one, which improves support for
   domains that publish multiple records for key rotation purposes.
+* Invalid fields for [message:set_scheduling](../reference/message/set_scheduling.md)
+  were silently ignored, leaving the scheduling restrictions silently unset.
