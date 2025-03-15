@@ -216,7 +216,7 @@ impl<
         }
 
         if num_removed == 0 {
-            tracing::warn!(
+            tracing::debug!(
                 "{} did not find anything to evict, target was {target}",
                 self.name
             );
@@ -691,148 +691,143 @@ impl<
         }
 
         // Note: the lookup call increments lookup_counter and miss_counter
-
-        match self.clone_item_state(name) {
-            (ItemState::Present(item), expiration) => {
-                return Ok(ItemLookup {
-                    item,
-                    expiration,
-                    is_fresh: false,
-                });
-            }
-            (ItemState::Failed(error), _) => {
-                return Err(error);
-            }
-            (ItemState::Pending(sema), _) => {
-                /// A little helper to ensure that we decrement the count
-                /// when we unwind, in the case that this future is cancelled
-                /// or abandoned prior to completion
-                struct DecOnDrop(IntGauge);
-                impl DecOnDrop {
-                    /// Increment on acquire, decrement on drop
-                    fn new(g: IntGauge) -> Self {
-                        g.inc();
-                        Self(g)
-                    }
+        'retry: loop {
+            match self.clone_item_state(name) {
+                (ItemState::Present(item), expiration) => {
+                    return Ok(ItemLookup {
+                        item,
+                        expiration,
+                        is_fresh: false,
+                    });
                 }
-                impl Drop for DecOnDrop {
-                    fn drop(&mut self) {
-                        self.0.dec();
-                    }
+                (ItemState::Failed(error), _) => {
+                    return Err(error);
                 }
-
-                let wait_count = DecOnDrop::new(self.inner.wait_gauge.clone());
-                let wait_result =
-                    match timeout(Duration::from_secs(120), sema.acquire_owned()).await {
-                        Err(_) => {
-                            self.inner.error_counter.inc();
-                            tracing::error!(
-                                "{} semaphore acquire for {name:?} timed out",
-                                self.inner.name
-                            );
-                            return Err(Arc::new(anyhow::anyhow!(
-                                "{} lookup for {name:?} \
-                                            timed out on semaphore acquire",
-                                self.inner.name
-                            )));
+                (ItemState::Pending(sema), _) => {
+                    /// A little helper to ensure that we decrement the count
+                    /// when we unwind, in the case that this future is cancelled
+                    /// or abandoned prior to completion
+                    struct DecOnDrop(IntGauge);
+                    impl DecOnDrop {
+                        /// Increment on acquire, decrement on drop
+                        fn new(g: IntGauge) -> Self {
+                            g.inc();
+                            Self(g)
                         }
-                        Ok(r) => r,
-                    };
-
-                drop(wait_count);
-
-                // While we slept, someone else may have satisfied
-                // the lookup; check it
-                match self.clone_item_state(name) {
-                    (ItemState::Present(item), expiration) => {
-                        return Ok(ItemLookup {
-                            item,
-                            expiration,
-                            is_fresh: false,
-                        });
                     }
-                    (ItemState::Failed(error), _) => {
-                        self.inner.hit_counter.inc();
-                        return Err(error);
+                    impl Drop for DecOnDrop {
+                        fn drop(&mut self) {
+                            self.0.dec();
+                        }
                     }
-                    (ItemState::Pending(current_sema), _) => {
-                        // It's still outstanding
-                        match wait_result {
-                            Ok(permit) => {
-                                // We're responsible for resolving it
 
-                                if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
-                                    self.inner.error_counter.inc();
-                                    tracing::error!(
-                                        "{} mismatched semaphores for {name:?}",
-                                        self.inner.name
-                                    );
-
-                                    // sema is the one we started with, and
-                                    // we own the permit for it. Both us and
-                                    // anyone else waiting for this is going
-                                    // to be let down by this situation.
-                                    permit.semaphore().close();
-                                    return Err(Arc::new(anyhow::anyhow!(
-                                        "{} lookup for {name:?} \
-                                            but have mismatched semaphores",
-                                        self.inner.name
-                                    )));
-                                }
-
-                                self.inner.populate_counter.inc();
-                                let mut ttl = Duration::from_secs(60);
-                                let future_result = fut.await;
-                                let now = Instant::now();
-
-                                let (item_result, return_value) = match future_result {
-                                    Ok(item) => {
-                                        ttl = ttl_func(&item);
-                                        (
-                                            ItemState::Present(item.clone()),
-                                            Ok(ItemLookup {
-                                                item,
-                                                expiration: now + ttl,
-                                                is_fresh: true,
-                                            }),
-                                        )
-                                    }
-                                    Err(err) => {
-                                        self.inner.error_counter.inc();
-                                        let err = Arc::new(err.into());
-                                        (ItemState::Failed(err.clone()), Err(err))
-                                    }
-                                };
-
-                                self.inner.cache.insert(
-                                    name.clone(),
-                                    Item {
-                                        item: item_result,
-                                        expiration: Instant::now() + ttl,
-                                        last_tick: self.inc_tick().into(),
-                                    },
-                                );
-                                // Wake everybody up
-                                permit.semaphore().close();
-                                self.inner.maybe_evict();
-
-                                return return_value;
-                            }
+                    let wait_count = DecOnDrop::new(self.inner.wait_gauge.clone());
+                    let wait_result =
+                        match timeout(Duration::from_secs(120), sema.acquire_owned()).await {
                             Err(_) => {
                                 self.inner.error_counter.inc();
-
-                                // semaphore was closed, but the status is
-                                // still somehow pending
                                 tracing::error!(
-                                    "{} lookup for {name:?} woke up semas \
-                                    but is still marked pending",
+                                    "{} semaphore acquire for {name:?} timed out",
                                     self.inner.name
                                 );
                                 return Err(Arc::new(anyhow::anyhow!(
                                     "{} lookup for {name:?} \
-                                            sema was closed but state is still pending",
+                                            timed out on semaphore acquire",
                                     self.inner.name
                                 )));
+                            }
+                            Ok(r) => r,
+                        };
+
+                    drop(wait_count);
+
+                    // While we slept, someone else may have satisfied
+                    // the lookup; check it
+                    match self.clone_item_state(name) {
+                        (ItemState::Present(item), expiration) => {
+                            return Ok(ItemLookup {
+                                item,
+                                expiration,
+                                is_fresh: false,
+                            });
+                        }
+                        (ItemState::Failed(error), _) => {
+                            self.inner.hit_counter.inc();
+                            return Err(error);
+                        }
+                        (ItemState::Pending(current_sema), _) => {
+                            // It's still outstanding
+                            match wait_result {
+                                Ok(permit) => {
+                                    // We're responsible for resolving it
+
+                                    if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
+                                        self.inner.error_counter.inc();
+                                        tracing::warn!(
+                                            "{} mismatched semaphores for {name:?}, \
+                                            will restart cache resolve.",
+                                            self.inner.name
+                                        );
+
+                                        // sema is the one we started with, and
+                                        // we own the permit for it. Both us and
+                                        // anyone else waiting for this is going
+                                        // to be let down by this situation.
+                                        permit.semaphore().close();
+                                        continue 'retry;
+                                    }
+
+                                    self.inner.populate_counter.inc();
+                                    let mut ttl = Duration::from_secs(60);
+                                    let future_result = fut.await;
+                                    let now = Instant::now();
+
+                                    let (item_result, return_value) = match future_result {
+                                        Ok(item) => {
+                                            ttl = ttl_func(&item);
+                                            (
+                                                ItemState::Present(item.clone()),
+                                                Ok(ItemLookup {
+                                                    item,
+                                                    expiration: now + ttl,
+                                                    is_fresh: true,
+                                                }),
+                                            )
+                                        }
+                                        Err(err) => {
+                                            self.inner.error_counter.inc();
+                                            let err = Arc::new(err.into());
+                                            (ItemState::Failed(err.clone()), Err(err))
+                                        }
+                                    };
+
+                                    self.inner.cache.insert(
+                                        name.clone(),
+                                        Item {
+                                            item: item_result,
+                                            expiration: Instant::now() + ttl,
+                                            last_tick: self.inc_tick().into(),
+                                        },
+                                    );
+                                    // Wake everybody up
+                                    permit.semaphore().close();
+                                    self.inner.maybe_evict();
+
+                                    return return_value;
+                                }
+                                Err(_) => {
+                                    self.inner.error_counter.inc();
+
+                                    // semaphore was closed, but the status is
+                                    // still somehow pending
+                                    tracing::warn!(
+                                        "{} lookup for {name:?} woke up semas \
+                                        but is still marked pending, \
+                                        will restart cache lookup",
+                                        self.inner.name
+                                    );
+                                    continue 'retry;
+                                }
                             }
                         }
                     }
@@ -870,5 +865,64 @@ mod test {
         cache.get(&0).await.expect("still in cache");
         tokio::time::advance(Duration::from_secs(2)).await;
         assert!(cache.get(&0).await.is_none(), "evicted due to ttl");
+    }
+
+    #[test(tokio::test)]
+    async fn test_over_capacity_slow_resolve() {
+        let cache = Arc::new(LruCacheWithTtl::<String, u64>::new(
+            "test_over_capacity_slow_resolve",
+            1,
+        ));
+
+        let mut foos = vec![];
+        for idx in 0..2 {
+            let cache = cache.clone();
+            foos.push(tokio::spawn(async move {
+                eprintln!("spawned task {idx} is running");
+                cache
+                    .get_or_try_insert(&"foo".to_string(), |_| Duration::from_secs(86400), async {
+                        if idx == 0 {
+                            eprintln!("foo {idx} getter sleeping");
+                            tokio::time::sleep(Duration::from_secs(300)).await;
+                        }
+                        eprintln!("foo {idx} getter done");
+                        Ok::<_, anyhow::Error>(idx)
+                    })
+                    .await
+            }));
+        }
+
+        tokio::task::yield_now().await;
+
+        eprintln!("calling again with immediate getter");
+        let result = cache
+            .get_or_try_insert(&"bar".to_string(), |_| Duration::from_secs(60), async {
+                eprintln!("bar immediate getter running");
+                Ok::<_, anyhow::Error>(42)
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result.item, 42);
+        assert_eq!(cache.inner.cache.len(), 1);
+
+        eprintln!("aborting first one");
+        foos.remove(0).abort();
+
+        eprintln!("try new key");
+        let result = cache
+            .get_or_try_insert(&"baz".to_string(), |_| Duration::from_secs(60), async {
+                eprintln!("baz immediate getter running");
+                Ok::<_, anyhow::Error>(32)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.item, 32);
+        assert_eq!(cache.inner.cache.len(), 1);
+
+        eprintln!("waiting second one");
+        assert_eq!(1, foos.pop().unwrap().await.unwrap().unwrap().item);
+
+        assert_eq!(cache.inner.cache.len(), 1);
     }
 }
