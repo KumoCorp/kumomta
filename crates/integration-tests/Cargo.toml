@@ -16,6 +16,7 @@ lapin.workspace = true
 lipsum = {workspace=true}
 maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
+message = {path="../message"}
 nix = {workspace=true, features=["signal", "user"]}
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}

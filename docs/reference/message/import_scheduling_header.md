@@ -5,6 +5,16 @@ the [message:set_scheduling()](set_scheduling.md) parameters. If successful, it
 will call [message:set_scheduling()](set_scheduling.md) with that value, and if
 *REMOVE* is set to true, will remove the header from the message.
 
+The return value of `message:import_scheduling_header` is:
+
+* A lua table representation of the scheduling parameters, or nil if the specified header was not present. {{since('dev', inline=True)}}
+* `nil` in prior versions of KumoMTA.
+
+If the header is present, but has invalid contents the behavior will be:
+
+* An error will be raised explaining the issue. {{since('dev', inline=True)}}
+* No error indication will be given and no errors will be logged in prior versions of KumoMTA.
+
 For example, given this message:
 
 ```
@@ -20,6 +30,6 @@ constraints:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-  msg:import_scheduling_header 'X-Schedule'
+  msg:import_scheduling_header('X-Schedule', true)
 end)
 ```

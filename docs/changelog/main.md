@@ -23,6 +23,11 @@
   system, or otherwise contrive to populate the system certificate store. Note
   that this change is consistent with a similar change to the SMTP client in
   the `2024.11.08-d383b033` release.
+* [message:import_scheduling_header()](../reference/message/import_scheduling_header.md)
+  will now produce errors for invalid scheduling headers instead of its
+  previous erroneous behavior of silently ignoring errors. If you relied upon
+  the prior behavior, you can use the lua `pcall` function to catch and ignore
+  those errors.
 
 ## Other Changes and Enhancements
 

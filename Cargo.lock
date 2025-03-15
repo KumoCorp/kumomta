@@ -2797,6 +2797,7 @@ dependencies = [
  "lipsum",
  "maildir",
  "mailparsing",
+ "message",
  "nix 0.28.0",
  "rfc5321",
  "serde",

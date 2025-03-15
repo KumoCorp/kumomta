@@ -505,6 +505,10 @@ impl Default for QueueConfig {
     }
 }
 
+/// The largest seconds value that can be passed to chrono::Duration::try_seconds
+/// before it returns None.
+const MAX_CHRONO_SECONDS: i64 = i64::MAX / 1_000;
+
 impl QueueConfig {
     fn default_retry_interval() -> Duration {
         Duration::from_secs(60 * 20) // 20 minutes
@@ -548,9 +552,22 @@ impl QueueConfig {
             Some(limit) => delay.min(limit),
         };
 
-        chrono::Duration::try_seconds(delay as i64).unwrap_or_else(chrono::Duration::zero)
+        chrono::Duration::try_seconds((delay as i64).min(MAX_CHRONO_SECONDS))
+            .expect("seconds to always be <= MAX_CHRONO_SECONDS")
     }
 
+    /// Compute the delay from the current point in time until
+    /// the next due time for a hypothetical message whose
+    /// num_attempts and age (the duration
+    /// since it was created, until the current point in time
+    /// when this function is being called) are given.
+    ///
+    /// age therefore implies the `now` value.
+    ///
+    /// Returns Some(delay) if the delay from now is within the
+    /// max_age defined by the queue config, or None if the
+    /// overall delay (since creation of the message) exceeds
+    /// the allowed max_age.
     pub fn compute_delay_based_on_age(
         &self,
         num_attempts: u16,
@@ -561,20 +578,57 @@ impl QueueConfig {
             return None;
         }
 
+        // Compute the delay from the creation time of the message
+        // based on the number of attempts
         let overall_delay: i64 = (1..num_attempts)
             .into_iter()
             .map(|i| self.delay_for_attempt(i).num_seconds())
             .sum();
-        let overall_delay = chrono::Duration::try_seconds(overall_delay)?;
+        let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))
+            .expect("seconds to always be <= MAX_CHRONO_SECONDS");
 
         if overall_delay >= max_age {
+            // It would be outside the permitted age
             None
-        } else if overall_delay <= age {
-            // Ready now
-            Some(chrono::Duration::zero())
         } else {
-            Some(overall_delay - age)
+            Some(
+                // adjust to be relative to the `now` time implied by `age`,
+                // and ensure that it cannot be negative
+                overall_delay
+                    .checked_sub(&age)
+                    .unwrap_or_else(chrono::Duration::zero)
+                    .max(chrono::Duration::zero()),
+            )
         }
+    }
+
+    /// Compute the delay from the current point in time until
+    /// the next due time for a hypothetical message whose
+    /// num_attempts and age (the duration
+    /// since it was created, until the current point in time
+    /// when this function is being called) are given.
+    ///
+    /// age therefore implies the `now` value.
+    ///
+    /// This function does not care about max_age.
+    pub fn compute_delay_based_on_age_ignoring_max_age(
+        &self,
+        num_attempts: u16,
+        age: chrono::Duration,
+    ) -> chrono::Duration {
+        let overall_delay: i64 = (1..num_attempts)
+            .into_iter()
+            .map(|i| self.delay_for_attempt(i).num_seconds())
+            .sum();
+        let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))
+            .expect("seconds to always be <= MAX_SECONDS");
+
+        // adjust to be relative to the `now` time implied by `age`,
+        // and ensure that it cannot be negative
+        overall_delay
+            .checked_sub(&age)
+            .unwrap_or_else(chrono::Duration::zero)
+            .max(chrono::Duration::zero())
     }
 }
 
@@ -1556,47 +1610,113 @@ impl Queue {
         let jitter = (rand::random::<f32>() * jitter_magnitude) - (jitter_magnitude / 2.0);
         let delay = kumo_chrono_helper::seconds(delay.num_seconds() + jitter as i64)?;
 
-        let now = Utc::now();
-        let max_age = self.queue_config.borrow().get_max_age();
-        let age = msg.age(now);
-        let delayed_age = age + delay;
-        if delayed_age > max_age {
-            let delayed_age = format_duration(delayed_age.to_std().unwrap_or(Duration::ZERO));
-            let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
-            tracing::debug!("expiring {id} {delayed_age} > {max_age}");
-            log_disposition(LogDisposition {
-                kind: RecordType::Expiration,
-                msg,
-                site: "",
-                peer_address: None,
-                response: Response {
-                    code: 551,
-                    enhanced_code: Some(EnhancedStatusCode {
-                        class: 5,
-                        subject: 4,
-                        detail: 7,
-                    }),
-                    content: format!(
-                        "Next delivery time would be {delayed_age} \
+        match msg.get_scheduling().and_then(|sched| sched.expires) {
+            Some(expires) => {
+                // Per-message expiry
+                match msg.delay_by(delay).await? {
+                    Some(next_due) => {
+                        if next_due >= expires {
+                            tracing::debug!(
+                                "expiring {id} {next_due} > scheduled expiry {expires}"
+                            );
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Expiration,
+                                msg,
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 551,
+                                    enhanced_code: Some(EnhancedStatusCode {
+                                        class: 5,
+                                        subject: 4,
+                                        detail: 7,
+                                    }),
+                                    content: format!(
+                                        "Next delivery time would be at {next_due} \
+                                        which exceeds the expiry time {expires} \
+                                        configured via set_scheduling"
+                                    ),
+                                    command: None,
+                                },
+                                egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
+                                egress_source: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                                tls_info: None,
+                                source_address: None,
+                                provider: self.queue_config.borrow().provider_name.as_deref(),
+                                session_id: None,
+                            })
+                            .await;
+                            SpoolManager::remove_from_spool(id).await?;
+                            return Ok(None);
+                        }
+                        tracing::trace!(
+                            "increment_attempts_and_update_delay: delaying {id} \
+                            by {delay} (num_attempts={num_attempts}), next_due={next_due:?}"
+                        );
+                    }
+                    None => {
+                        // Due immediately; cannot be an expiry.
+                        // I really wouldn't expect to hit this ever; seems impossible!
+                        tracing::trace!(
+                            "increment_attempts_and_update_delay: delaying {id} \
+                            by {delay} (num_attempts={num_attempts}), next_due=immediately"
+                        );
+                    }
+                }
+            }
+            None => {
+                // Regular queue based expiry
+
+                let now = Utc::now();
+                let max_age = self.queue_config.borrow().get_max_age();
+                let age = msg.age(now);
+                let delayed_age = age + delay;
+                if delayed_age > max_age {
+                    let delayed_age =
+                        format_duration(delayed_age.to_std().unwrap_or(Duration::ZERO));
+                    let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
+                    tracing::debug!("expiring {id} {delayed_age} > {max_age}");
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Expiration,
+                        msg,
+                        site: "",
+                        peer_address: None,
+                        response: Response {
+                            code: 551,
+                            enhanced_code: Some(EnhancedStatusCode {
+                                class: 5,
+                                subject: 4,
+                                detail: 7,
+                            }),
+                            content: format!(
+                                "Next delivery time would be {delayed_age} \
                         after creation, which exceeds max_age={max_age}"
-                    ),
-                    command: None,
-                },
-                egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
-                egress_source: None,
-                relay_disposition: None,
-                delivery_protocol: None,
-                tls_info: None,
-                source_address: None,
-                provider: self.queue_config.borrow().provider_name.as_deref(),
-                session_id: None,
-            })
-            .await;
-            SpoolManager::remove_from_spool(id).await?;
-            return Ok(None);
+                            ),
+                            command: None,
+                        },
+                        egress_pool: self.queue_config.borrow().egress_pool.as_deref(),
+                        egress_source: None,
+                        relay_disposition: None,
+                        delivery_protocol: None,
+                        tls_info: None,
+                        source_address: None,
+                        provider: self.queue_config.borrow().provider_name.as_deref(),
+                        session_id: None,
+                    })
+                    .await;
+                    SpoolManager::remove_from_spool(id).await?;
+                    return Ok(None);
+                }
+                let next_due = msg.delay_by(delay).await?;
+                tracing::trace!(
+                    "increment_attempts_and_update_delay: delaying {id} \
+                    by {delay} (num_attempts={num_attempts}), next_due={next_due:?}"
+                );
+            }
         }
-        tracing::trace!("increment_attempts_and_update_delay: delaying {id} by {delay} (num_attempts={num_attempts})");
-        msg.delay_by(delay).await?;
+
         Ok(Some(msg))
     }
 

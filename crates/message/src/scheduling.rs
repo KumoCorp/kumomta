@@ -83,6 +83,8 @@ pub struct Scheduling {
     pub restriction: Option<ScheduleRestriction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_attempt: Option<DateTime<FixedOffset>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires: Option<DateTime<FixedOffset>>,
 }
 
 /// serde usually does a great job, but for the case of an optional
@@ -110,6 +112,7 @@ impl<'de> Deserialize<'de> for Scheduling {
             start: Option<NaiveTime>,
             end: Option<NaiveTime>,
             first_attempt: Option<DateTime<FixedOffset>>,
+            expires: Option<DateTime<FixedOffset>>,
         }
 
         fn do_value<'de, T: Deserialize<'de>, M: serde::de::MapAccess<'de>>(
@@ -162,6 +165,9 @@ impl<'de> Deserialize<'de> for Scheduling {
                         "first_attempt" => {
                             do_value(&mut map, "first_attempt", &mut self.first_attempt)?;
                         }
+                        "expires" => {
+                            do_value(&mut map, "expires", &mut self.expires)?;
+                        }
                         _ => {
                             return Err(M::Error::custom(format!("invalid field name {k}")));
                         }
@@ -213,6 +219,7 @@ impl<'de> Deserialize<'de> for Scheduling {
                 Ok(Scheduling {
                     restriction,
                     first_attempt: self.first_attempt,
+                    expires: self.expires,
                 })
             }
         }
@@ -413,6 +420,7 @@ mod test {
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
             first_attempt: None,
+            expires: None,
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
@@ -460,6 +468,7 @@ mod test {
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
             first_attempt: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
+            expires: None,
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
@@ -482,6 +491,7 @@ mod test {
         let sched = Scheduling {
             restriction: None,
             first_attempt: DateTime::parse_from_rfc3339("1996-12-19T16:39:57-08:00").ok(),
+            expires: None,
         };
 
         let serialized = serde_json::to_string(&sched).unwrap();
@@ -499,6 +509,7 @@ mod test {
         let sched = Scheduling {
             restriction: None,
             first_attempt: DateTime::parse_from_rfc3339("2023-03-20T16:39:57-08:00").ok(),
+            expires: None,
         };
 
         let now: DateTime<Utc> = DateTime::parse_from_rfc3339("2023-03-20T08:00:00-08:00")
@@ -518,6 +529,7 @@ mod test {
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
             first_attempt: None,
+            expires: None,
         };
 
         // This is a Tuesday
@@ -541,6 +553,7 @@ mod test {
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
             first_attempt: None,
+            expires: None,
         };
 
         // This is a Monday, but after hours

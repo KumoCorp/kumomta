@@ -11,6 +11,7 @@ There are two separate groups of scheduling constraint:
 
 * Deferred initial delivery, using the `first_attempt` field
 * Constrained time/day of week delivery using the `dow`, `tz`, `start` and `end` fields.
+* Custom expiration time, using the `expires` field. {{since('dev', inline=True)}}.
 
 When using constrained time of delivery, all four of the associated fields must be
 specified.  If not using constrained time of delivery, all four of the associated
@@ -21,6 +22,11 @@ a simple way: the target time is computed as normal, and if that time does not
 fall within the constrained delivery window, the scheduled time will be moved
 to the next following date/time at which delivery will be acceptable. In
 practice, that will be the `start` time on the follow appropriate `dow`.
+
+The return value of `message:set_scheduling` is:
+
+* A lua table representation of the scheduling parameters. {{since('dev', inline=True)}}
+* `nil` in prior versions of KumoMTA.
 
 Just setting the `first_attempt`:
 
@@ -60,6 +66,23 @@ Optional String.
 If present, must be an [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)
 date/time string which specifies the earliest time at which the message will be
 scheduled for delivery.
+
+## expires
+
+{{since('dev')}}
+
+Optional String.
+
+If present, must be an [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)
+date/time string which specifies the time at which the message will be expired
+from the spool. When the message is (re)inserted into the scheduled queue, if
+the next due time that is computed would be equal or later than the `expires`
+time, the message will be expired, removed from spool, and an `Expiration`
+record logged.
+
+If you do not specify an `expires` field, the
+[max_age](../kumo/make_queue_config/max_age.md) for the containing queue will
+be used as normal.
 
 ## dow
 

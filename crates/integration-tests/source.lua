@@ -212,7 +212,10 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   }
 end)
 
-kumo.on('smtp_server_message_received', function(msg) end)
+kumo.on('smtp_server_message_received', function(msg)
+  local result = msg:import_scheduling_header 'X-Schedule'
+  kumo.log_info('schedule result', kumo.serde.json_encode(result))
+end)
 
 kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   if domain == 'webhook' then

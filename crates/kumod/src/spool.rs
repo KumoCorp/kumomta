@@ -1,5 +1,5 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
-use crate::queue::{InsertReason, QueueManager};
+use crate::queue::{InsertReason, Queue, QueueManager};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
@@ -275,6 +275,120 @@ impl SpoolManager {
         Ok(())
     }
 
+    /// Updates the next due time on msg, performing expiry if that due
+    /// time is outside of either the per-message expiration configured
+    /// via set_scheduling, or the max_age configured on the queue.
+    /// If per-message expiration is configured, max_age is ignored.
+    ///
+    /// Returns Some(msg) if the message should be inserted into
+    /// the queues, or None if the message was expired.
+    async fn update_next_due(
+        &self,
+        id: SpoolId,
+        msg: Message,
+        queue: &Arc<Queue>,
+        now: chrono::DateTime<Utc>,
+    ) -> anyhow::Result<Option<Message>> {
+        let queue_config = queue.get_config();
+        let max_age = queue_config.borrow().get_max_age();
+        let age = msg.age(now);
+        let num_attempts = queue_config.borrow().infer_num_attempts(age);
+        msg.set_num_attempts(num_attempts);
+
+        match msg.get_scheduling().and_then(|sched| sched.expires) {
+            Some(expires) => {
+                // Per-message expiry
+                let delay = queue_config
+                    .borrow()
+                    .compute_delay_based_on_age_ignoring_max_age(num_attempts, age);
+                if let Some(next_due) = msg.delay_by(delay).await? {
+                    if next_due >= expires {
+                        tracing::debug!("expiring {id} {next_due} > scheduled expiry {expires}");
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Expiration,
+                            msg,
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 551,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 5,
+                                    subject: 4,
+                                    detail: 7,
+                                }),
+                                content: format!(
+                                    "Next delivery time would be at {next_due} \
+                                    which exceeds the expiry time {expires} \
+                                    configured via set_scheduling"
+                                ),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                            tls_info: None,
+                            source_address: None,
+                            provider: None,
+                            session_id: None,
+                        })
+                        .await;
+                        self.remove_from_spool_impl(id).await?;
+                        return Ok(None);
+                    }
+                }
+            }
+            None => {
+                // Regular queue based expiry
+                match queue_config
+                    .borrow()
+                    .compute_delay_based_on_age(num_attempts, age)
+                {
+                    None => {
+                        let age = format_duration(age.to_std().unwrap_or(Duration::ZERO));
+                        let max_age = format_duration(max_age.to_std().unwrap_or(Duration::ZERO));
+                        tracing::debug!("expiring {id} {age} > {max_age}");
+                        log_disposition(LogDisposition {
+                            kind: RecordType::Expiration,
+                            msg,
+                            site: "",
+                            peer_address: None,
+                            response: Response {
+                                code: 551,
+                                enhanced_code: Some(EnhancedStatusCode {
+                                    class: 5,
+                                    subject: 4,
+                                    detail: 7,
+                                }),
+                                content: format!(
+                                    "Next delivery time would be {age} \
+                                    after creation, which exceeds max_age={max_age}"
+                                ),
+                                command: None,
+                            },
+                            egress_pool: None,
+                            egress_source: None,
+                            relay_disposition: None,
+                            delivery_protocol: None,
+                            tls_info: None,
+                            source_address: None,
+                            provider: None,
+                            session_id: None,
+                        })
+                        .await;
+                        self.remove_from_spool_impl(id).await?;
+                        return Ok(None);
+                    }
+                    Some(delay) => {
+                        msg.delay_by(delay).await?;
+                    }
+                }
+            }
+        }
+
+        Ok(Some(msg))
+    }
+
     async fn spool_in_thread(
         &self,
         rx: flume::Receiver<SpoolEntry>,
@@ -318,60 +432,12 @@ impl SpoolManager {
                                     failed_spool_in.fetch_add(1, Ordering::SeqCst);
                                 }
                                 Ok(queue) => {
-                                    let queue_config = queue.get_config();
-                                    let max_age = queue_config.borrow().get_max_age();
-                                    let age = msg.age(now);
-                                    let num_attempts =
-                                        queue_config.borrow().infer_num_attempts(age);
-                                    msg.set_num_attempts(num_attempts);
-
-                                    match queue_config
-                                        .borrow()
-                                        .compute_delay_based_on_age(num_attempts, age)
-                                    {
-                                        None => {
-                                            let age = format_duration(
-                                                age.to_std().unwrap_or(Duration::ZERO),
-                                            );
-                                            let max_age = format_duration(
-                                                max_age.to_std().unwrap_or(Duration::ZERO),
-                                            );
-                                            tracing::debug!("expiring {id} {age} > {max_age}");
-                                            log_disposition(LogDisposition {
-                                                kind: RecordType::Expiration,
-                                                msg,
-                                                site: "",
-                                                peer_address: None,
-                                                response: Response {
-                                                    code: 551,
-                                                    enhanced_code: Some(EnhancedStatusCode {
-                                                        class: 5,
-                                                        subject: 4,
-                                                        detail: 7,
-                                                    }),
-                                                    content: format!(
-                                                        "Next delivery time would be {age} \
-                                                        after creation, which exceeds max_age={max_age}"
-                                                    ),
-                                                    command: None,
-                                                },
-                                                egress_pool,
-                                                egress_source,
-                                                relay_disposition: None,
-                                                delivery_protocol: None,
-                                                tls_info: None,
-                                                source_address: None,
-                                                provider: None,
-                                                session_id: None,
-                                            })
-                                            .await;
-                                            self.remove_from_spool_impl(id).await?;
-                                            continue;
-                                        }
-                                        Some(delay) => {
-                                            msg.delay_by(delay).await?;
-                                        }
-                                    }
+                                    let Some(msg) =
+                                        self.update_next_due(id, msg, &queue, now).await?
+                                    else {
+                                        // Expired
+                                        continue;
+                                    };
 
                                     if let Err(err) = queue
                                         .insert(msg.clone(), InsertReason::Enumerated.into(), None)

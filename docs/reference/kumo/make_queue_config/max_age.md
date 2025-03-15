@@ -12,4 +12,8 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
 end)
 ```
 
-
+!!! note
+    If you are using [message:set_scheduling()](../../message/set_scheduling.md)
+    to configure a custom `expires` timestamp on a per-message basis, then
+    `max_age` will be ignored for those messages and only your `expires` timestamp
+    will be considered for expiration.

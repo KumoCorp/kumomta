@@ -356,7 +356,10 @@ impl Message {
         inner.num_attempts += 1;
     }
 
-    pub fn set_scheduling(&self, scheduling: Option<Scheduling>) -> anyhow::Result<()> {
+    pub fn set_scheduling(
+        &self,
+        scheduling: Option<Scheduling>,
+    ) -> anyhow::Result<Option<Scheduling>> {
         let mut inner = self.msg_and_id.inner.lock().unwrap();
         match &mut inner.metadata {
             None => anyhow::bail!("metadata must be loaded first"),
@@ -369,7 +372,7 @@ impl Message {
                     let due = inner.due.unwrap_or_else(|| Utc::now());
                     inner.due = Some(sched.adjust_for_schedule(due));
                 }
-                Ok(())
+                Ok(scheduling)
             }
         }
     }
@@ -387,33 +390,42 @@ impl Message {
         inner.due
     }
 
-    pub async fn delay_with_jitter(&self, limit: i64) -> anyhow::Result<()> {
+    pub async fn delay_with_jitter(&self, limit: i64) -> anyhow::Result<Option<DateTime<Utc>>> {
         let scale = rand::random::<f32>();
         let value = (scale * limit as f32) as i64;
         self.delay_by(seconds(value)?).await
     }
 
-    pub async fn delay_by(&self, duration: chrono::Duration) -> anyhow::Result<()> {
+    pub async fn delay_by(
+        &self,
+        duration: chrono::Duration,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
         let due = Utc::now() + duration;
         self.set_due(Some(due)).await
     }
 
     /// Delay by requested duration, and add up to 1 minute of jitter
-    pub async fn delay_by_and_jitter(&self, duration: chrono::Duration) -> anyhow::Result<()> {
+    pub async fn delay_by_and_jitter(
+        &self,
+        duration: chrono::Duration,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
         let scale = rand::random::<f32>();
         let value = (scale * 60.) as i64;
         let due = Utc::now() + duration + seconds(value)?;
         self.set_due(Some(due)).await
     }
 
-    pub async fn set_due(&self, due: Option<DateTime<Utc>>) -> anyhow::Result<()> {
+    pub async fn set_due(
+        &self,
+        due: Option<DateTime<Utc>>,
+    ) -> anyhow::Result<Option<DateTime<Utc>>> {
         let due = {
             let mut inner = self.msg_and_id.inner.lock().unwrap();
 
             if !inner.flags.contains(MessageFlags::SCHEDULED) {
                 // This is the simple, fast-path, common case
                 inner.due = due;
-                return Ok(());
+                return Ok(inner.due);
             }
 
             let due = due.unwrap_or_else(|| Utc::now());
@@ -423,7 +435,7 @@ impl Message {
                     Some(sched) => Some(sched.adjust_for_schedule(due)),
                     None => Some(due),
                 };
-                return Ok(());
+                return Ok(inner.due);
             }
 
             // We'll need to load the metadata to correctly
@@ -441,7 +453,7 @@ impl Message {
                         Some(sched) => Some(sched.adjust_for_schedule(due)),
                         None => Some(due),
                     };
-                    Ok(())
+                    Ok(inner.due)
                 }
                 None => anyhow::bail!("loaded metadata, but metadata is not set!?"),
             }
@@ -1007,19 +1019,25 @@ impl Message {
         Ok(())
     }
 
-    pub fn import_scheduling_header(&self, header_name: &str, remove: bool) -> anyhow::Result<()> {
+    pub fn import_scheduling_header(
+        &self,
+        header_name: &str,
+        remove: bool,
+    ) -> anyhow::Result<Option<Scheduling>> {
         if let Some(value) = self.get_first_named_header_value(header_name)? {
             let sched: Scheduling = serde_json::from_str(&value).with_context(|| {
                 format!("{value} from header {header_name} is not a valid Scheduling header")
             })?;
-            self.set_scheduling(Some(sched))?;
+            let result = self.set_scheduling(Some(sched))?;
 
             if remove {
                 self.remove_all_named_headers(header_name)?;
             }
-        }
 
-        Ok(())
+            Ok(result)
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn append_text_plain(&self, content: &str) -> anyhow::Result<bool> {
@@ -1227,7 +1245,8 @@ impl UserData for Message {
 
         methods.add_async_method("set_due", move |lua, this, due: mlua::Value| async move {
             let due: Option<DateTime<Utc>> = lua.from_value(due)?;
-            this.set_due(due).await.map_err(any_err)
+            let revised_due = this.set_due(due).await.map_err(any_err)?;
+            lua.to_value(&revised_due)
         });
 
         methods.add_method("set_sender", move |lua, this, value: mlua::Value| {
@@ -1370,16 +1389,18 @@ impl UserData for Message {
 
         methods.add_method(
             "import_scheduling_header",
-            move |_, this, (header_name, remove): (String, bool)| {
-                Ok(this
+            move |lua, this, (header_name, remove): (String, bool)| {
+                let opt_schedule = this
                     .import_scheduling_header(&header_name, remove)
-                    .map_err(any_err)?)
+                    .map_err(any_err)?;
+                lua.to_value(&opt_schedule)
             },
         );
 
         methods.add_method("set_scheduling", move |lua, this, params: mlua::Value| {
             let sched: Option<Scheduling> = from_lua_value(lua, params)?;
-            Ok(this.set_scheduling(sched).map_err(any_err)?)
+            let opt_schedule = this.set_scheduling(sched).map_err(any_err)?;
+            lua.to_value(&opt_schedule)
         });
 
         methods.add_method("parse_rfc3464", move |lua, this, _: ()| {
@@ -1928,6 +1949,7 @@ Body\r
         msg.set_scheduling(Some(Scheduling {
             restriction: None,
             first_attempt: Some((now + one_day).into()),
+            expires: None,
         }))?;
 
         let due = msg.get_due().expect("due to now be set");
