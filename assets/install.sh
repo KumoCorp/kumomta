@@ -22,7 +22,7 @@ install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/tailer -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/toml2jsonc -t ${PREFIX}/sbin
 install -Dsm755 ${CARGO_TARGET_DIR}/${TRIPLE}release/tls-probe -t ${PREFIX}/sbin
 install -Dm755 assets/accounting.sh -t ${PREFIX}/sbin
-install -Dm755 assets/exaplain-throttle -t ${PREFIX}/sbin
+install -Dm755 assets/explain-throttle -t ${PREFIX}/sbin
 install -Dm755 assets/resolve-site-name -t ${PREFIX}/sbin
 install -Dm755 assets/resolve-queue-config -t ${PREFIX}/sbin
 install -Dm755 assets/resolve-shaping-domain -t ${PREFIX}/sbin
