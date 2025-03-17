@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 #RUN groupadd --system --gid 1000 kumod && useradd --system --gid kumod --uid 1000 kumod
 COPY kumo*.deb /tmp/kumomta.deb
 COPY docker/kumod/docker-runner.sh /opt/kumomta/sbin/docker-runner.sh
-RUN apt update && apt install -y /tmp/kumo*.deb && rm -rf /var/lib/apt/lists/* /tmp/*.deb
+RUN apt update && apt install -y /tmp/kumo*.deb ca-certificates && rm -rf /var/lib/apt/lists/* /tmp/*.deb
 EXPOSE 25/tcp
 EXPOSE 587/tcp
 EXPOSE 465/tcp
