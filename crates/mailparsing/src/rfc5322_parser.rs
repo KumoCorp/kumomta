@@ -320,10 +320,10 @@ fn phrase(input: Span) -> IResult<Span, String> {
         tuple((
             alt((encoded_word, word)),
             many0(alt((
+                map(cfws, |_| None),
                 map(encoded_word, Option::Some),
                 map(word, Option::Some),
                 map(char('.'), |dot| Some(dot.to_string())),
-                map(cfws, |_| None),
             ))),
         )),
     )(input)?;

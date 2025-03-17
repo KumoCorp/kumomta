@@ -109,3 +109,6 @@
   domains that publish multiple records for key rotation purposes.
 * Invalid fields for [message:set_scheduling](../reference/message/set_scheduling.md)
   were silently ignored, leaving the scheduling restrictions silently unset.
+* long rfc2047 encoded mailbox headers (`From`, `To`) might misinterpret
+  encoded words in the display name, leading to `msg:check_fix_conformance`
+  rebuilding that header incorrectly.
