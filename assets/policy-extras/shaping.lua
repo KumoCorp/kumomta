@@ -384,6 +384,7 @@ local shaper = shaping:setup_with_automation {
         provider_overlap = 'Ignore',
         remote_load = 'Ignore',
         skip_remote = false,
+        http_timeout = '5s', -- the timeout for requests to tsa daemon
   },
 
   -- optional; specify the validation options to use in --validate

@@ -510,6 +510,7 @@ impl Collector {
 
 #[cfg(feature = "lua")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde_as]
 #[serde(deny_unknown_fields)]
 pub struct ShapingMergeOptions {
     #[serde(default)]
@@ -526,6 +527,8 @@ pub struct ShapingMergeOptions {
     pub remote_load: CheckLevel,
     #[serde(default)]
     pub local_load: CheckLevel,
+    #[serde(with = "duration_serde")]
+    pub http_timeout: Option<Duration>,
 }
 
 #[cfg(feature = "lua")]
@@ -539,6 +542,7 @@ impl Default for ShapingMergeOptions {
             skip_remote: false,
             remote_load: CheckLevel::Ignore,
             local_load: CheckLevel::Error,
+            http_timeout: None,
         }
     }
 }
@@ -565,8 +569,12 @@ impl Shaping {
                 // we allow the http request to fail.
                 // We'll log the error message but consider it to be an empty map
 
-                async fn http_get(url: &str) -> anyhow::Result<String> {
-                    reqwest::get(url)
+                async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
+                    reqwest::Client::builder()
+                        .timeout(timeout)
+                        .build()?
+                        .get(url)
+                        .send()
                         .await
                         .with_context(|| format!("making HTTP request to {url}"))?
                         .text()
@@ -574,7 +582,9 @@ impl Shaping {
                         .with_context(|| format!("reading text from {url}"))
                 }
 
-                match http_get(path).await {
+                let timeout = options.http_timeout.unwrap_or(Duration::from_secs(5));
+
+                match http_get(path, timeout).await {
                     Ok(s) => (s, options.remote_load),
                     Err(err) => {
                         tracing::error!("{err:#}. Ignoring this shaping source for now");

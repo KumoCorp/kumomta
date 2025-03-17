@@ -82,6 +82,7 @@ async fn main() {
         skip_remote: opts.skip_remote,
         remote_load: opts.remote_load,
         local_load: opts.local_load,
+        http_timeout: None,
     };
 
     let memory_start = counted_usage();

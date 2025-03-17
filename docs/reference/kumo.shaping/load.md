@@ -62,6 +62,10 @@ The options parameter allows for the following fields:
 * `skip_remote` - a boolean to indicate whether to skip loading remote shaping
   files.  The default is `false`, and the shaper will load remote shaping files.
 
+* `http_timeout` - an optional duration string specifying the timeout to
+  use for http requests made to fetch shaping data.  The default value if
+  unspecified is `5s`. {{since('dev', inline=True)}}
+
 ## Shaping Data Format
 
 If a given path ends with `.toml`, it will be interpreted as TOML. Otherwise, it will

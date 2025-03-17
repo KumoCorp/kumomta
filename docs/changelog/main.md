@@ -91,6 +91,10 @@
 * New `/opt/kumomta/sbin/explain-throttle` utility that can be used to show
   what effect `max_burst` has on a throttle spec. Usage is `explain-throttle 100/hr,max_burst=2`
   and it will emit its explanation to stdout.
+* There is now a default `5s` timeout for retrieving shaping data from
+  the TSA daemon.  Previously, there was no timeout.  You can set a different
+  value through the `load_validation_options` parameter in the shaping
+  helper, or through the second parameter to [kumo.shaping.load](../reference/kumo.shaping/load.md).
 
 ## Fixes
 
