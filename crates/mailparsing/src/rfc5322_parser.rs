@@ -1782,7 +1782,7 @@ static HEX_CHARS: &[u8] = &[
 pub(crate) fn qp_encode(s: &str) -> String {
     let prefix = b"=?UTF-8?q?";
     let suffix = b"?=";
-    let limit = 74 - (prefix.len() + suffix.len());
+    let limit = 72 - (prefix.len() + suffix.len());
 
     let mut result = Vec::with_capacity(s.len());
 
@@ -1861,8 +1861,8 @@ fn test_qp_encode() {
     k9::snapshot!(
         encoded,
         r#"
-=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_lo?=\r
-\t=?UTF-8?q?nger_than_this,_and_that_should_get_wrapped_by_the_encoder?=
+=?UTF-8?q?hello,_I_am_a_line_that_is_this_long,_or_maybe_a_little_bit_?=\r
+\t=?UTF-8?q?longer_than_this,_and_that_should_get_wrapped_by_the_encoder?=
 "#
     );
 }
