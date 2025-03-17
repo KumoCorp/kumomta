@@ -1,6 +1,13 @@
 # enable_tls
 
 Controls whether and how TLS will be used when connecting to the destination.
+
+!!! note
+    This setting is overriden by [enable_mta_sts](enable_mta_sts.md) and/or
+    [enable_dane](enable_dane.md) when either of those options are enabled and
+    an MTA-STS or DANE policy (respectively) is published by the destination
+    site.
+
 Possible values are:
 
 * `"Opportunistic"` - use TLS if advertised by the `EHLO` response. If the peer
