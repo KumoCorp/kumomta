@@ -95,6 +95,9 @@
   the TSA daemon.  Previously, there was no timeout.  You can set a different
   value through the `load_validation_options` parameter in the shaping
   helper, or through the second parameter to [kumo.shaping.load](../reference/kumo.shaping/load.md).
+* websocket clients created via
+  [kumo.http.connect_websocket](../reference/kumo.http/connect_websocket.md)
+  now have a `recv_batch` method to aid in batch processing.
 
 ## Fixes
 

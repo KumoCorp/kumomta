@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
 // Client ----
@@ -406,6 +407,52 @@ impl LuaUserData for WebSocketStream {
                     unreachable!()
                 }
             })
+        });
+
+        methods.add_async_method("recv_batch", |lua, this, duration| async move {
+            let duration = match duration {
+                Value::Number(n) => std::time::Duration::from_secs_f64(n),
+                Value::String(s) => {
+                    let s = s.to_str()?;
+                    humantime::parse_duration(&s).map_err(any_err)?
+                }
+                _ => {
+                    return Err(mlua::Error::external("invalid timeout duration"));
+                }
+            };
+            let deadline = Instant::now() + duration;
+            let mut messages = vec![];
+            while let Ok(maybe_msg) = tokio::time::timeout_at(deadline, async {
+                let mut stream = this.stream.lock().await;
+                stream.next().await
+            })
+            .await
+            {
+                let msg = match maybe_msg {
+                    Some(msg) => msg.map_err(any_err)?,
+                    None => {
+                        if messages.is_empty() {
+                            return Err(mlua::Error::external("websocket closed"));
+                        }
+                        break;
+                    }
+                };
+                match msg {
+                    Message::Text(s) => messages.push(lua.create_string(&s)?),
+                    Message::Close(_close_frame) => {
+                        if messages.is_empty() {
+                            return Err(mlua::Error::external("websocket closed"));
+                        }
+                        break;
+                    }
+                    Message::Pong(s) | Message::Binary(s) => messages.push(lua.create_string(&s)?),
+                    Message::Ping(_) | Message::Frame(_) => {
+                        unreachable!()
+                    }
+                }
+            }
+
+            Ok(messages)
         });
     }
 }

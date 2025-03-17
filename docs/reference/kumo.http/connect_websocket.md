@@ -49,3 +49,20 @@ The returned stream object has the following methods:
 
 Waits for and then returns the next packet sent by the server.
 The returned data is a string.
+
+### client:recv_batch(duration)
+
+{{since('dev')}}
+
+Waits for up to `duration` (which can either be a number of seconds, or a
+duration string like `10s`) and collects however many messages are sent by the
+peer into a batch, which is returned as an array style table.
+
+If the socket disconnects and no messages have been received, an error is raised.
+
+Otherwise, the messages received so far will be returned.
+
+If no messages are returned within the specified duration, the return value
+will be an empty table.
+
+

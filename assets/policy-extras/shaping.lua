@@ -165,76 +165,79 @@ local function get_queue_cfg(options, publish, domain, tenant, campaign)
   end
 end
 
-local function apply_ready_q_suspension(item)
+local function apply_ready_q_suspension(items)
   local current_suspensions = kumo.api.admin.suspend_ready_q.list()
-  local seen = false
-  local reason =
-    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
-
-  -- avoid conflating/overriding existing entries
+  local existing = {}
   for _, v in ipairs(current_suspensions) do
-    if v.reason == reason then
-      seen = true
-      break
-    end
+    existing[v.reason] = true
   end
 
-  if not seen then
-    kumo.api.admin.suspend_ready_q.suspend {
-      name = item.site_name,
-      reason = reason,
-      expires = item.expires,
-    }
+  for _, item in ipairs(items) do
+    local seen = false
+    local reason =
+      string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+    if not existing[reason] then
+      kumo.api.admin.suspend_ready_q.suspend {
+        name = item.site_name,
+        reason = reason,
+        expires = item.expires,
+      }
+
+      existing[reason] = true
+    end
   end
 end
 
-local function apply_sched_q_suspension(item)
+local function apply_sched_q_suspension(items)
   local current_suspensions = kumo.api.admin.suspend.list()
-  local seen = false
-  local reason =
-    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
-
-  -- avoid conflating/overriding existing entries
+  local existing = {}
   for _, v in ipairs(current_suspensions) do
-    if v.reason == reason then
-      seen = true
-      break
-    end
+    existing[v.reason] = true
   end
 
-  if not seen then
-    kumo.api.admin.suspend.suspend {
-      campaign = item.campaign,
-      domain = item.domain,
-      tenant = item.tenant,
-      reason = reason,
-      expires = item.expires,
-    }
+  for _, item in ipairs(items) do
+    local seen = false
+    local reason =
+      string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+    if not existing[reason] then
+      kumo.api.admin.suspend.suspend {
+        campaign = item.campaign,
+        domain = item.domain,
+        tenant = item.tenant,
+        reason = reason,
+        expires = item.expires,
+      }
+
+      existing[reason] = true
+    end
   end
 end
 
-local function apply_sched_q_bounce(item)
+local function apply_sched_q_bounce(items)
   local current_suspensions = kumo.api.admin.bounce.list()
-  local seen = false
-  local reason =
-    string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
-
-  -- avoid conflating/overriding existing entries
+  local existing = {}
   for _, v in ipairs(current_suspensions) do
-    if v.reason == reason then
-      seen = true
-      break
-    end
+    existing[v.reason] = true
   end
 
-  if not seen then
-    kumo.api.admin.bounce.bounce {
-      campaign = item.campaign,
-      domain = item.domain,
-      tenant = item.tenant,
-      reason = reason,
-      expires = item.expires,
-    }
+  for _, item in ipairs(items) do
+    local seen = false
+    local reason =
+      string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
+
+    if not existing[reason] then
+      kumo.api.admin.bounce.bounce {
+        campaign = item.campaign,
+        domain = item.domain,
+        tenant = item.tenant,
+        reason = reason,
+        expires = item.expires,
+      }
+
+      existing[reason] = true
+    end
   end
 end
 
@@ -287,21 +290,30 @@ local function process_tsa_events(url)
     -- suspensions, and then will later deliver any subsequently
     -- generated suspension events in realtime.
     while true do
-      local data = kumo.json_parse(err_or_stream:recv())
-      if data.ReadyQSuspension then
-        apply_ready_q_suspension(data.ReadyQSuspension)
-      elseif data.SchedQSuspension then
-        apply_sched_q_suspension(data.SchedQSuspension)
-      elseif data.SchedQBounce then
-        apply_sched_q_bounce(data.SchedQBounce)
-      else
-        kumo.log_error(
-          string.format(
-            'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
-            kumo.serde.json_encode(data)
+      local batch = err_or_stream:recv_batch '3s'
+      local ready_q_sus = {}
+      local sched_q_sus = {}
+      local sched_q_bounce = {}
+      for _, item in ipairs(batch) do
+        local data = kumo.json_parse(item)
+        if data.ReadyQSuspension then
+          table.insert(ready_q_sus, data.ReadyQSuspension)
+        elseif data.SchedQSuspension then
+          table.insert(sched_q_sus, data.SchedQSuspension)
+        elseif data.SchedQBounce then
+          table.insert(sched_q_bounce, data.SchedQBounce)
+        else
+          kumo.log_error(
+            string.format(
+              'Received unsupported record type %s from TSA. Do you need to upgrade kumod on this instance?',
+              kumo.serde.json_encode(data)
+            )
           )
-        )
+        end
       end
+      apply_ready_q_suspension(ready_q_sus)
+      apply_sched_q_suspension(sched_q_sus)
+      apply_sched_q_bounce(sched_q_bounce)
     end
   elseif tostring(err_or_stream):find 'HTTP error: 404 Not Found' then
     -- Daemon is up, but the endpoint is not supported.
@@ -325,9 +337,9 @@ local function process_tsa_events(url)
     while true do
       local data = kumo.json_parse(stream:recv())
       if data.ReadyQ then
-        apply_ready_q_suspension(data.ReadyQ)
+        apply_ready_q_suspension { data.ReadyQ }
       elseif data.SchedQ then
-        apply_sched_q_suspension(data.SchedQ)
+        apply_sched_q_suspension { data.SchedQ }
       end
     end
   else
