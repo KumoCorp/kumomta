@@ -1,5 +1,3 @@
----
-version: "3"
 services:
   kumod:
     container_name: kumod

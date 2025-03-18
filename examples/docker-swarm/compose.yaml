@@ -1,5 +1,3 @@
----
-version: "3.8"
 services:
   kumod:
     # use the latest build from `main`
