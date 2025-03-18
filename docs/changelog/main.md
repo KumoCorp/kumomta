@@ -127,3 +127,5 @@
   by just the rule hash instead of the full set of fields, resulting in
   under-reporting the full set of bounces and subscriptions when initially
   connecting via websocket.
+* tsa-daemon: when busy, could report `channel lagged by NUMBER` and drop the
+  websocket connection, causing the MTA to need to reconnect and re-sync.
