@@ -1,3 +1,4 @@
+use crate::http_server::queue_name_multi_index::{Criteria, GetCriteria, QueueNameMultiIndexMap};
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
 use axum::extract::Json;
@@ -17,43 +18,38 @@ use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use uuid::Uuid;
 
-static ENTRIES: LazyLock<Mutex<Vec<AdminBounceEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static ENTRIES: LazyLock<Mutex<QueueNameMultiIndexMap<AdminBounceEntry>>> =
+    LazyLock::new(|| Mutex::new(QueueNameMultiIndexMap::new()));
 
 #[derive(Clone, Debug)]
 pub struct AdminBounceEntry {
     pub id: Uuid,
-    pub campaign: Option<String>,
-    pub tenant: Option<String>,
-    pub domain: Option<String>,
-    pub routing_domain: Option<String>,
+    pub criteria: Criteria,
     pub reason: String,
     pub suppress_logging: bool,
     pub expires: Instant,
     pub bounced: Arc<Mutex<HashMap<String, usize>>>,
 }
 
-fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bool {
-    match (current_thing, wanted_thing) {
-        (Some(a), Some(b)) => a == b,
-        (None, Some(_)) => {
-            // Needs to match a specific thing and there is none
-            false
-        }
-        (_, None) => {
-            // No specific campaign required
-            true
-        }
+impl GetCriteria for AdminBounceEntry {
+    fn get_id(&self) -> &Uuid {
+        &self.id
+    }
+
+    fn get_criteria(&self) -> &Criteria {
+        &self.criteria
+    }
+
+    fn get_expires(&self) -> Instant {
+        self.expires
     }
 }
 
 impl AdminBounceEntry {
     pub fn get_all() -> Vec<Self> {
         let mut entries = ENTRIES.lock();
-        if !entries.is_empty() {
-            let now = Instant::now();
-            entries.retain(|ent| ent.expires > now);
-        }
-        entries.clone()
+        entries.prune_expired();
+        entries.get_all()
     }
 
     pub fn get_all_v1() -> Vec<BounceV1ListEntry> {
@@ -68,10 +64,10 @@ impl AdminBounceEntry {
                     .checked_duration_since(now)
                     .map(|duration| BounceV1ListEntry {
                         id: entry.id,
-                        campaign: entry.campaign,
-                        tenant: entry.tenant,
-                        domain: entry.domain,
-                        routing_domain: entry.routing_domain,
+                        campaign: entry.criteria.campaign,
+                        tenant: entry.criteria.tenant,
+                        domain: entry.criteria.domain,
+                        routing_domain: entry.criteria.routing_domain,
                         reason: entry.reason,
                         bounced,
                         total_bounced,
@@ -83,77 +79,35 @@ impl AdminBounceEntry {
 
     pub fn remove_by_id(id: &Uuid) -> bool {
         let mut entries = ENTRIES.lock();
-        let len_before = entries.len();
-        entries.retain(|e| e.id != *id);
-        len_before != entries.len()
+        entries.remove_by_id(id).is_some()
     }
 
     pub fn add(entry: Self) {
         let mut entries = ENTRIES.lock();
-        let now = Instant::now();
         // Age out expired entries, and replace any entries with the
         // same criteria; this allows updating the reason with a newer
         // version of the bounce info.
-        entries.retain(|ent| {
-            ent.expires > now
-                && !(ent.campaign == entry.campaign
-                    && ent.tenant == entry.tenant
-                    && ent.domain == entry.domain
-                    && ent.routing_domain == entry.routing_domain)
-        });
-
-        entries.push(entry);
-    }
-
-    pub fn matches(
-        &self,
-        campaign: Option<&str>,
-        tenant: Option<&str>,
-        domain: Option<&str>,
-        routing_domain: Option<&str>,
-    ) -> bool {
-        if !match_criteria(campaign, self.campaign.as_deref()) {
-            return false;
-        }
-        if !match_criteria(tenant, self.tenant.as_deref()) {
-            return false;
-        }
-        if !match_criteria(domain, self.domain.as_deref()) {
-            return false;
-        }
-        if !match_criteria(routing_domain, self.routing_domain.as_deref()) {
-            return false;
-        }
-        true
-    }
-
-    pub fn get_matching(
-        campaign: Option<&str>,
-        tenant: Option<&str>,
-        domain: Option<&str>,
-        routing_domain: Option<&str>,
-    ) -> Vec<Self> {
-        let mut entries = Self::get_all();
-        entries.retain(|ent| ent.matches(campaign, tenant, domain, routing_domain));
-        entries
+        entries.maybe_prune();
+        entries.insert(entry);
     }
 
     pub fn get_for_queue_name(queue_name: &str) -> Option<Self> {
         let components = QueueNameComponents::parse(queue_name);
-        let mut entries = Self::get_matching(
+        let mut entries = ENTRIES.lock();
+        entries.maybe_prune();
+        entries.get_matching(
             components.campaign,
             components.tenant,
             Some(components.domain),
             components.routing_domain,
-        );
-        entries.pop()
+        )
     }
 
     pub async fn list_matching_queues(&self) -> Vec<String> {
         let mut names = QueueManager::all_queue_names();
         names.retain(|queue_name| {
             let components = QueueNameComponents::parse(queue_name);
-            self.matches(
+            self.criteria.matches(
                 components.campaign,
                 components.tenant,
                 Some(components.domain),
@@ -230,10 +184,12 @@ pub async fn bounce_v1(
     let id = Uuid::new_v4();
     let entry = AdminBounceEntry {
         id,
-        campaign: request.campaign,
-        tenant: request.tenant,
-        domain: request.domain,
-        routing_domain: request.routing_domain,
+        criteria: Criteria {
+            campaign: request.campaign,
+            tenant: request.tenant,
+            domain: request.domain,
+            routing_domain: request.routing_domain,
+        },
         reason: request.reason,
         suppress_logging: request.suppress_logging,
         expires: Instant::now() + duration,
@@ -323,12 +279,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let id = Uuid::new_v4();
             let entry = AdminBounceEntry {
                 id,
-                campaign: request.campaign,
-                tenant: request.tenant,
-                domain: request.domain,
+                criteria: Criteria {
+                    campaign: request.campaign,
+                    tenant: request.tenant,
+                    domain: request.domain,
+                    routing_domain: request.routing_domain,
+                },
                 reason: request.reason,
                 expires: Instant::now() + duration,
-                routing_domain: request.routing_domain,
                 suppress_logging: false,
                 bounced: Arc::new(Mutex::new(HashMap::new())),
             };

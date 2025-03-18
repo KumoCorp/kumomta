@@ -31,6 +31,9 @@ test: build test-lua
 	./docs/update-openapi.sh
 	cargo nextest run --no-fail-fast
 
+test-kumod:
+	cargo nextest run --no-fail-fast -p kumod
+
 fmt:
 	cargo +nightly fmt
 	stylua --config-path stylua.toml .

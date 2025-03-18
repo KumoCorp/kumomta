@@ -1,3 +1,4 @@
+use crate::http_server::queue_name_multi_index::{Criteria, GetCriteria, QueueNameMultiIndexMap};
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -14,16 +15,29 @@ use std::sync::LazyLock;
 use std::time::Instant;
 use uuid::Uuid;
 
-static ENTRIES: LazyLock<Mutex<Vec<AdminSuspendEntry>>> = LazyLock::new(|| Mutex::new(vec![]));
+static ENTRIES: LazyLock<Mutex<QueueNameMultiIndexMap<AdminSuspendEntry>>> =
+    LazyLock::new(|| Mutex::new(QueueNameMultiIndexMap::new()));
 
 #[derive(Clone, Debug)]
 pub struct AdminSuspendEntry {
     pub id: Uuid,
-    pub campaign: Option<String>,
-    pub tenant: Option<String>,
-    pub domain: Option<String>,
+    pub criteria: Criteria,
     pub reason: String,
     pub expires: Instant,
+}
+
+impl GetCriteria for AdminSuspendEntry {
+    fn get_id(&self) -> &Uuid {
+        &self.id
+    }
+
+    fn get_criteria(&self) -> &Criteria {
+        &self.criteria
+    }
+
+    fn get_expires(&self) -> Instant {
+        self.expires
+    }
 }
 
 impl AdminSuspendEntry {
@@ -33,28 +47,11 @@ impl AdminSuspendEntry {
     }
 }
 
-fn match_criteria(current_thing: Option<&str>, wanted_thing: Option<&str>) -> bool {
-    match (current_thing, wanted_thing) {
-        (Some(a), Some(b)) => a == b,
-        (None, Some(_)) => {
-            // Needs to match a specific thing and there is none
-            false
-        }
-        (_, None) => {
-            // No specific campaign required
-            true
-        }
-    }
-}
-
 impl AdminSuspendEntry {
     pub fn get_all() -> Vec<Self> {
         let mut entries = ENTRIES.lock();
-        if !entries.is_empty() {
-            let now = Instant::now();
-            entries.retain(|ent| ent.expires > now);
-        }
-        entries.clone()
+        entries.prune_expired();
+        entries.get_all()
     }
 
     pub fn get_all_v1() -> Vec<SuspendV1ListEntry> {
@@ -67,9 +64,9 @@ impl AdminSuspendEntry {
                     .checked_duration_since(now)
                     .map(|duration| SuspendV1ListEntry {
                         id: entry.id,
-                        campaign: entry.campaign,
-                        tenant: entry.tenant,
-                        domain: entry.domain,
+                        campaign: entry.criteria.campaign,
+                        tenant: entry.criteria.tenant,
+                        domain: entry.criteria.domain,
                         reason: entry.reason,
                         duration,
                     })
@@ -79,63 +76,28 @@ impl AdminSuspendEntry {
 
     pub fn remove_by_id(id: &Uuid) -> bool {
         let mut entries = ENTRIES.lock();
-        let len_before = entries.len();
-        entries.retain(|e| e.id != *id);
-        len_before != entries.len()
+        entries.remove_by_id(id).is_some()
     }
 
     pub fn add(entry: Self) {
         let mut entries = ENTRIES.lock();
-        let now = Instant::now();
         // Age out expired entries, and replace any entries with the
         // same criteria; this allows updating the reason with a newer
         // version of the suspend info.
-        entries.retain(|ent| {
-            ent.expires > now
-                && !(ent.campaign == entry.campaign
-                    && ent.tenant == entry.tenant
-                    && ent.domain == entry.domain)
-        });
-
-        entries.push(entry);
-    }
-
-    pub fn matches(
-        &self,
-        campaign: Option<&str>,
-        tenant: Option<&str>,
-        domain: Option<&str>,
-    ) -> bool {
-        if !match_criteria(campaign, self.campaign.as_deref()) {
-            return false;
-        }
-        if !match_criteria(tenant, self.tenant.as_deref()) {
-            return false;
-        }
-        if !match_criteria(domain, self.domain.as_deref()) {
-            return false;
-        }
-        true
-    }
-
-    pub fn get_matching(
-        campaign: Option<&str>,
-        tenant: Option<&str>,
-        domain: Option<&str>,
-    ) -> Vec<Self> {
-        let mut entries = Self::get_all();
-        entries.retain(|ent| ent.matches(campaign, tenant, domain));
-        entries
+        entries.maybe_prune();
+        entries.insert(entry);
     }
 
     pub fn get_for_queue_name(queue_name: &str) -> Option<Self> {
         let components = QueueNameComponents::parse(queue_name);
-        let mut entries = Self::get_matching(
+        let mut entries = ENTRIES.lock();
+        entries.maybe_prune();
+        entries.get_matching(
             components.campaign,
             components.tenant,
             Some(components.domain),
-        );
-        entries.pop()
+            None,
+        )
     }
 }
 
@@ -156,9 +118,12 @@ pub async fn suspend(
     let duration = request.duration();
     let entry = AdminSuspendEntry {
         id: Uuid::new_v4(),
-        campaign: request.campaign,
-        tenant: request.tenant,
-        domain: request.domain,
+        criteria: Criteria {
+            campaign: request.campaign,
+            tenant: request.tenant,
+            domain: request.domain,
+            routing_domain: None,
+        },
         reason: request.reason,
         expires: Instant::now() + duration,
     };
@@ -224,9 +189,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let id = Uuid::new_v4();
             let entry = AdminSuspendEntry {
                 id,
-                campaign: request.campaign,
-                tenant: request.tenant,
-                domain: request.domain,
+                criteria: Criteria {
+                    campaign: request.campaign,
+                    tenant: request.tenant,
+                    domain: request.domain,
+                    routing_domain: None, // FIXME: add to API surface
+                },
                 reason: request.reason,
                 expires: Instant::now() + duration,
             };
