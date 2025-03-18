@@ -112,3 +112,6 @@
 * long rfc2047 encoded mailbox headers (`From`, `To`) might misinterpret
   encoded words in the display name, leading to `msg:check_fix_conformance`
   rebuilding that header incorrectly.
+* Using `prefer_openssl` with a `routing_domain` could result in TLS certificate
+  verification failure due to a trailing `.` on the canonical DNS name passed
+  to the verification routine.

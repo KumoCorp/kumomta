@@ -160,11 +160,14 @@ fn extract_hostname(hostname: &str) -> &str {
         hostname
     };
 
-    if hostname.starts_with('[') && hostname.ends_with(']') {
+    let hostname = if hostname.starts_with('[') && hostname.ends_with(']') {
         &hostname[1..hostname.len() - 1]
     } else {
         hostname
-    }
+    };
+
+    // Remove any trailing FQDN dot
+    hostname.strip_suffix(".").unwrap_or(hostname)
 }
 
 impl SmtpClient {
@@ -1243,8 +1246,11 @@ mod test {
     #[test]
     fn test_extract_hostname() {
         assert_eq!(extract_hostname("foo"), "foo");
+        assert_eq!(extract_hostname("foo."), "foo");
         assert_eq!(extract_hostname("foo:25"), "foo");
+        assert_eq!(extract_hostname("foo.:25"), "foo");
         assert_eq!(extract_hostname("[foo]:25"), "foo");
+        assert_eq!(extract_hostname("[foo.]:25"), "foo");
         assert_eq!(extract_hostname("[::1]:25"), "::1");
         assert_eq!(extract_hostname("::1:25"), "::1");
     }
