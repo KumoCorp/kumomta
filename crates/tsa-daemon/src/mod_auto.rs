@@ -21,7 +21,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     tsa_mod.set(
         "configure_tsa_db_path",
         lua.create_function(|_lua, file_name: String| {
-            *crate::http_server::DB_PATH.lock().unwrap() = file_name;
+            *crate::http_server::DB_PATH.lock() = file_name;
             Ok(())
         })?,
     )?;

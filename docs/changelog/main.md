@@ -122,3 +122,4 @@
 * Using `prefer_openssl` with a `routing_domain` could result in TLS certificate
   verification failure due to a trailing `.` on the canonical DNS name passed
   to the verification routine.
+* tsa-daemon: sqlite db lock could block tokio scheduler threads

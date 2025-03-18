@@ -15,6 +15,7 @@ use kumo_log_types::*;
 use kumo_server_common::http_server::auth::TrustedIpRequired;
 use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use message::message::QueueNameComponents;
+use parking_lot::Mutex;
 use rfc5321::ForwardPath;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -22,8 +23,9 @@ use sha2::{Digest, Sha256};
 use sqlite::{Connection, ConnectionThreadSafe};
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use tokio::sync::broadcast::{channel, Sender};
+use tokio::task::spawn_blocking;
 use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
 
@@ -33,7 +35,7 @@ static HISTORY: LazyLock<ConnectionThreadSafe> = LazyLock::new(|| open_history_d
 static SUSPENSION_TX: LazyLock<SubscriberMgr> = LazyLock::new(|| SubscriberMgr::new());
 
 pub fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
-    let path = DB_PATH.lock().unwrap().clone();
+    let path = DB_PATH.lock().clone();
     let mut db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening TSA database {path}"))?;
 
@@ -123,8 +125,8 @@ enum PreferRollup {
     No,
 }
 
-fn create_config(
-    db: &ConnectionThreadSafe,
+async fn create_config(
+    db: &Arc<ConnectionThreadSafe>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -133,40 +135,47 @@ fn create_config(
     source: &str,
     prefer_rollup: PreferRollup,
 ) -> anyhow::Result<()> {
-    let mut upsert = db.prepare(
-        "INSERT INTO config
+    let db = db.clone();
+    let source = source.to_string();
+    let domain = domain.to_string();
+    let name = config.name.to_string();
+    let value = serde_json::to_string(&config.value)?;
+    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
+    let site = record.site.to_string();
+    let rule_hash = rule_hash.to_string();
+    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+    let mx_rollup = if prefer_rollup == PreferRollup::Yes && rule.was_rollup {
+        1
+    } else {
+        0
+    };
+
+    spawn_blocking(move || {
+        let mut upsert = db.prepare(
+            "INSERT INTO config
                  (rule_hash, site_name, domain, mx_rollup, source, name, value, reason, expires)
                  VALUES
                  ($hash, $site, $domain, $mx_rollup, $source, $name, $value, $reason, $expires)
                  ON CONFLICT (rule_hash, site_name)
                  DO UPDATE SET expires=$expires",
-    )?;
+        )?;
 
-    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
+        upsert.bind(("$hash", rule_hash.as_str()))?;
+        upsert.bind(("$site", site.as_str()))?;
+        upsert.bind(("$domain", domain.as_str()))?;
+        upsert.bind(("$mx_rollup", mx_rollup))?;
+        upsert.bind(("$source", source.as_str()))?;
+        upsert.bind(("$name", name.as_str()))?;
+        upsert.bind(("$value", value.as_str()))?;
 
-    upsert.bind(("$hash", rule_hash))?;
-    upsert.bind(("$site", record.site.as_str()))?;
-    upsert.bind(("$domain", domain))?;
-    upsert.bind((
-        "$mx_rollup",
-        if prefer_rollup == PreferRollup::Yes && rule.was_rollup {
-            1
-        } else {
-            0
-        },
-    ))?;
-    upsert.bind(("$source", source))?;
-    upsert.bind(("$name", config.name.as_str()))?;
-    let value = serde_json::to_string(&config.value)?;
-    upsert.bind(("$value", value.as_str()))?;
+        upsert.bind(("$reason", reason.as_str()))?;
+        upsert.bind(("$expires", expires.as_str()))?;
 
-    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
-    upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires.as_str()))?;
+        upsert.next()?;
 
-    upsert.next()?;
-
-    Ok(())
+        Ok(())
+    })
+    .await?
 }
 
 fn regex_list_to_string(list: &[Regex]) -> String {
@@ -197,8 +206,8 @@ enum UseTenant {
     No,
 }
 
-fn create_bounce(
-    db: &ConnectionThreadSafe,
+async fn create_bounce(
+    db: &Arc<ConnectionThreadSafe>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -226,26 +235,6 @@ fn create_bounce(
     } else {
         None
     };
-
-    let mut upsert = db
-        .prepare(
-            "INSERT INTO sched_q_bounces
-                 (rule_hash, campaign, tenant, domain, reason, expires)
-                 VALUES
-                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
-                 ON CONFLICT (rule_hash, campaign, tenant, domain)
-                 DO UPDATE SET expires=$expires",
-        )
-        .context("prepare sched_q_bounces upsert")?;
-
-    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
-    let expires_str = expires.to_rfc3339();
-
-    upsert.bind(("$hash", rule_hash))?;
-    upsert.bind(("$campaign", campaign))?;
-    upsert.bind(("$tenant", tenant))?;
-    upsert.bind(("$domain", components.domain))?;
-
     let mut reason = format!(
         "automation rule: {} domain={}",
         regex_list_to_string(&rule.regex),
@@ -257,10 +246,43 @@ fn create_bounce(
     if let Some(campaign) = &campaign {
         reason.push_str(&format!(" campaign={campaign}"));
     }
-    upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires_str.as_str()))?;
+    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
 
-    upsert.next().context("execute sched_q_bounces upsert")?;
+    {
+        let db = db.clone();
+        let reason = reason.clone();
+        let domain = components.domain.to_string();
+        let campaign = campaign.as_ref().map(|c| c.to_string());
+        let tenant = tenant.as_ref().map(|c| c.to_string());
+        let rule_hash = rule_hash.to_string();
+        spawn_blocking(move || {
+            let mut upsert = db
+                .prepare(
+                    "INSERT INTO sched_q_bounces
+                 (rule_hash, campaign, tenant, domain, reason, expires)
+                 VALUES
+                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
+                 ON CONFLICT (rule_hash, campaign, tenant, domain)
+                 DO UPDATE SET expires=$expires",
+                )
+                .context("prepare sched_q_bounces upsert")?;
+
+            let expires_str = expires.to_rfc3339();
+
+            upsert.bind(("$hash", rule_hash.as_str()))?;
+            upsert.bind(("$campaign", campaign.as_deref()))?;
+            upsert.bind(("$tenant", tenant.as_deref()))?;
+            upsert.bind(("$domain", domain.as_str()))?;
+
+            upsert.bind(("$reason", reason.as_str()))?;
+            upsert.bind(("$expires", expires_str.as_str()))?;
+
+            upsert.next().context("execute sched_q_bounces upsert")?;
+
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    }
 
     events.push(SubscriptionItem::SchedQBounce(SchedQBounce {
         rule_hash: rule_hash.to_string(),
@@ -274,8 +296,8 @@ fn create_bounce(
     Ok(())
 }
 
-fn create_tenant_suspension(
-    db: &ConnectionThreadSafe,
+async fn create_tenant_suspension(
+    db: &Arc<ConnectionThreadSafe>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -297,26 +319,7 @@ fn create_tenant_suspension(
     } else {
         None
     };
-
-    let mut upsert = db
-        .prepare(
-            "INSERT INTO sched_q_suspensions
-                 (rule_hash, campaign, tenant, domain, reason, expires)
-                 VALUES
-                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
-                 ON CONFLICT (rule_hash, campaign, tenant, domain)
-                 DO UPDATE SET expires=$expires",
-        )
-        .context("prepare sched_q_suspensions upsert")?;
-
     let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
-    let expires_str = expires.to_rfc3339();
-
-    upsert.bind(("$hash", rule_hash))?;
-    upsert.bind(("$campaign", campaign))?;
-    upsert.bind(("$tenant", tenant))?;
-    upsert.bind(("$domain", components.domain))?;
-
     let mut reason = format!(
         "automation rule: {} tenant={tenant} domain={}",
         regex_list_to_string(&rule.regex),
@@ -325,12 +328,44 @@ fn create_tenant_suspension(
     if let Some(campaign) = &campaign {
         reason.push_str(&format!(" campaign={campaign}"));
     }
-    upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires_str.as_str()))?;
 
-    upsert
-        .next()
-        .context("execute sched_q_suspensions upsert")?;
+    {
+        let reason = reason.to_string();
+        let rule_hash = rule_hash.to_string();
+        let campaign = campaign.as_ref().map(|c| c.to_string());
+        let tenant = tenant.to_string();
+        let domain = components.domain.to_string();
+
+        let db = db.clone();
+        spawn_blocking(move || {
+            let mut upsert = db
+                .prepare(
+                    "INSERT INTO sched_q_suspensions
+                 (rule_hash, campaign, tenant, domain, reason, expires)
+                 VALUES
+                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
+                 ON CONFLICT (rule_hash, campaign, tenant, domain)
+                 DO UPDATE SET expires=$expires",
+                )
+                .context("prepare sched_q_suspensions upsert")?;
+
+            let expires_str = expires.to_rfc3339();
+
+            upsert.bind(("$hash", rule_hash.as_str()))?;
+            upsert.bind(("$campaign", campaign.as_deref()))?;
+            upsert.bind(("$tenant", tenant.as_str()))?;
+            upsert.bind(("$domain", domain.as_str()))?;
+
+            upsert.bind(("$reason", reason.as_str()))?;
+            upsert.bind(("$expires", expires_str.as_str()))?;
+
+            upsert
+                .next()
+                .context("execute sched_q_suspensions upsert")?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    }
 
     events.push(SubscriptionItem::SchedQSuspension(SchedQSuspension {
         rule_hash: rule_hash.to_string(),
@@ -344,35 +379,48 @@ fn create_tenant_suspension(
     Ok(())
 }
 
-fn create_ready_q_suspension(
-    db: &ConnectionThreadSafe,
+async fn create_ready_q_suspension(
+    db: &Arc<ConnectionThreadSafe>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
     source: &str,
     events: &mut Vec<SubscriptionItem>,
 ) -> anyhow::Result<()> {
-    let mut upsert = db.prepare(
-        "INSERT INTO ready_q_suspensions
+    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
+    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
+
+    {
+        let db = db.clone();
+        let reason = reason.to_string();
+        let source = source.to_string();
+        let site = record.site.to_string();
+        let rule_hash = rule_hash.to_string();
+
+        spawn_blocking(move || {
+            let mut upsert = db.prepare(
+                "INSERT INTO ready_q_suspensions
                  (rule_hash, site_name, source, reason, expires)
                  VALUES
                  ($hash, $site, $source, $reason, $expires)
                  ON CONFLICT (rule_hash, site_name)
                  DO UPDATE SET expires=$expires",
-    )?;
+            )?;
 
-    let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
-    let expires_str = expires.to_rfc3339();
+            let expires_str = expires.to_rfc3339();
 
-    upsert.bind(("$hash", rule_hash))?;
-    upsert.bind(("$site", record.site.as_str()))?;
-    upsert.bind(("$source", source))?;
+            upsert.bind(("$hash", rule_hash.as_str()))?;
+            upsert.bind(("$site", site.as_str()))?;
+            upsert.bind(("$source", source.as_str()))?;
 
-    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
-    upsert.bind(("$reason", reason.as_str()))?;
-    upsert.bind(("$expires", expires_str.as_str()))?;
+            upsert.bind(("$reason", reason.as_str()))?;
+            upsert.bind(("$expires", expires_str.as_str()))?;
 
-    upsert.next()?;
+            upsert.next()?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    }
 
     events.push(SubscriptionItem::ReadyQSuspension(ReadyQSuspension {
         rule_hash: rule_hash.to_string(),
@@ -385,72 +433,93 @@ fn create_ready_q_suspension(
     Ok(())
 }
 
-fn insert_record(
-    db: &ConnectionThreadSafe,
+async fn insert_record(
+    db: &Arc<ConnectionThreadSafe>,
     rule_hash: &str,
     record: &JsonLogRecord,
     record_hash: &str,
 ) -> anyhow::Result<()> {
     let unix: i64 = record.timestamp.format("%s").to_string().parse()?;
-    let mut insert =
-        db.prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
-    insert.bind((1, rule_hash))?;
-    insert.bind((2, record_hash))?;
-    insert.bind((3, unix))?;
-    insert.next()?;
-    Ok(())
+    let db = db.clone();
+    let rule_hash = rule_hash.to_string();
+    let record_hash = record_hash.to_string();
+    spawn_blocking(move || {
+        let mut insert =
+            db.prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
+        insert.bind((1, rule_hash.as_str()))?;
+        insert.bind((2, record_hash.as_str()))?;
+        insert.bind((3, unix))?;
+        insert.next()?;
+        Ok(())
+    })
+    .await?
 }
 
-fn prune_old_records(
-    db: &ConnectionThreadSafe,
+async fn prune_old_records(
+    db: &Arc<ConnectionThreadSafe>,
     rule: &Rule,
     rule_hash: &str,
 ) -> anyhow::Result<()> {
     match rule.trigger {
         Trigger::Immediate => Ok(()),
         Trigger::Threshold(spec) => {
-            let mut query = db.prepare(
-                "delete from event_history where rule_hash = ? and ts < unixepoch() - ?",
-            )?;
-            query.bind((1, rule_hash))?;
-            // Keep up to 2x the period
-            query.bind((2, 2 * spec.period as i64))?;
-            query.next()?;
-            Ok(())
+            let db = db.clone();
+            let rule_hash = rule_hash.to_string();
+            spawn_blocking(move || {
+                let mut query = db.prepare(
+                    "delete from event_history where rule_hash = ? and ts < unixepoch() - ?",
+                )?;
+                query.bind((1, rule_hash.as_str()))?;
+                // Keep up to 2x the period
+                query.bind((2, 2 * spec.period as i64))?;
+                query.next()?;
+                Ok(())
+            })
+            .await?
         }
     }
 }
 
-fn count_matching_records(
-    db: &ConnectionThreadSafe,
+async fn count_matching_records(
+    db: &Arc<ConnectionThreadSafe>,
     rule: &Rule,
     rule_hash: &str,
 ) -> anyhow::Result<u64> {
     match rule.trigger {
         Trigger::Immediate => Ok(0),
         Trigger::Threshold(spec) => {
-            let mut query = db.prepare(
-                "SELECT COUNT(ts) from event_history where rule_hash = ? and ts >= unixepoch() - ?",
-            )?;
-            query.bind((1, rule_hash))?;
-            query.bind((2, spec.period as i64))?;
-            query.next()?;
+            let db = db.clone();
+            let rule_hash = rule_hash.to_string();
+            spawn_blocking(move || {
+                let mut query = db.prepare(
+                    "SELECT COUNT(ts) from event_history \
+                    where rule_hash = ? and ts >= unixepoch() - ?",
+                )?;
+                query.bind((1, rule_hash.as_str()))?;
+                query.bind((2, spec.period as i64))?;
+                query.next()?;
 
-            let count: i64 = query.read(0)?;
-            Ok(count as u64)
+                let count: i64 = query.read(0)?;
+                Ok(count as u64)
+            })
+            .await?
         }
     }
 }
 
 pub async fn publish_log_batch(
-    db: &ConnectionThreadSafe,
+    db: &Arc<ConnectionThreadSafe>,
     records: &mut Vec<JsonLogRecord>,
 ) -> anyhow::Result<()> {
     let shaping = get_shaping();
 
     let mut events = vec![];
 
-    db.execute("BEGIN")?;
+    spawn_blocking({
+        let db = db.clone();
+        move || db.execute("BEGIN")
+    })
+    .await??;
 
     let now = Utc::now();
 
@@ -460,7 +529,11 @@ pub async fn publish_log_batch(
         }
     }
 
-    db.execute("COMMIT")?;
+    spawn_blocking({
+        let db = db.clone();
+        move || db.execute("COMMIT")
+    })
+    .await??;
 
     for event in events {
         SubscriberMgr::submit(event);
@@ -471,7 +544,7 @@ pub async fn publish_log_batch(
 
 async fn publish_log_v1_impl(
     now: &DateTime<Utc>,
-    db: &ConnectionThreadSafe,
+    db: &Arc<ConnectionThreadSafe>,
     shaping: &Shaping,
     record: JsonLogRecord,
     events: &mut Vec<SubscriptionItem>,
@@ -511,10 +584,10 @@ async fn publish_log_v1_impl(
                 let m_hash = match_hash(m);
                 let rule_hash = format!("{store_key}-{m_hash}");
 
-                insert_record(db, &rule_hash, &record, &record_hash)?;
-                prune_old_records(db, m, &rule_hash)?;
+                insert_record(db, &rule_hash, &record, &record_hash).await?;
+                prune_old_records(db, m, &rule_hash).await?;
 
-                let count = count_matching_records(db, m, &rule_hash)?;
+                let count = count_matching_records(db, m, &rule_hash).await?;
 
                 count >= spec.limit
             }
@@ -536,7 +609,8 @@ async fn publish_log_v1_impl(
                 tracing::debug!("{action:?} for {record:?}");
                 match action {
                     Action::Suspend => {
-                        create_ready_q_suspension(db, &rule_hash, m, &record, &source, events)?;
+                        create_ready_q_suspension(db, &rule_hash, m, &record, &source, events)
+                            .await?;
                     }
                     Action::SuspendTenant => {
                         create_tenant_suspension(
@@ -546,7 +620,8 @@ async fn publish_log_v1_impl(
                             &record,
                             UseCampaign::No,
                             events,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::SuspendCampaign => {
                         create_tenant_suspension(
@@ -556,7 +631,8 @@ async fn publish_log_v1_impl(
                             &record,
                             UseCampaign::Yes,
                             events,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::SetConfig(config) => {
                         create_config(
@@ -568,7 +644,8 @@ async fn publish_log_v1_impl(
                             &domain,
                             &source,
                             PreferRollup::Yes,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::SetDomainConfig(config) => {
                         create_config(
@@ -580,7 +657,8 @@ async fn publish_log_v1_impl(
                             &domain,
                             &source,
                             PreferRollup::No,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::Bounce => {
                         create_bounce(
@@ -591,7 +669,8 @@ async fn publish_log_v1_impl(
                             UseTenant::No,
                             UseCampaign::No,
                             events,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::BounceTenant => {
                         create_bounce(
@@ -602,7 +681,8 @@ async fn publish_log_v1_impl(
                             UseTenant::Yes,
                             UseCampaign::No,
                             events,
-                        )?;
+                        )
+                        .await?;
                     }
                     Action::BounceCampaign => {
                         create_bounce(
@@ -613,7 +693,8 @@ async fn publish_log_v1_impl(
                             UseTenant::Yes,
                             UseCampaign::Yes,
                             events,
-                        )?;
+                        )
+                        .await?;
                     }
                 }
             }
@@ -717,7 +798,7 @@ fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
     })
 }
 
-async fn do_get_config() -> anyhow::Result<String> {
+fn do_get_config() -> anyhow::Result<String> {
     use toml_edit::Item;
     let mut doc = toml_edit::DocumentMut::new();
 
@@ -782,11 +863,11 @@ async fn do_get_config() -> anyhow::Result<String> {
 }
 
 async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
-    let result = do_get_config().await?;
+    let result = spawn_blocking(do_get_config).await??;
     Ok(result)
 }
 
-async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
+fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
     let mut suspensions = Suspensions::default();
 
     let mut stmt = HISTORY.prepare(
@@ -883,7 +964,7 @@ async fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
 }
 
 async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
-    let result = do_get_suspension().await?;
+    let result = spawn_blocking(do_get_suspension).await??;
     Ok(result)
 }
 
@@ -912,7 +993,7 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
 
     // send the current set of suspensions first
     {
-        let suspensions = do_get_suspension().await?.0;
+        let suspensions = spawn_blocking(do_get_suspension).await??.0;
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
             socket.send(Message::Text(json)).await?;
@@ -953,7 +1034,7 @@ pub async fn subscribe_suspension_v1(
     ws.on_upgrade(|socket| process_suspension_subscription(socket))
 }
 
-async fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
+fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
     let mut stmt = HISTORY.prepare(
         "SELECT * from sched_q_bounces where
                                    unixepoch(expires) - unixepoch() > 0
@@ -1001,7 +1082,7 @@ async fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
 }
 
 async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
-    let result = do_get_bounces().await?;
+    let result = spawn_blocking(do_get_bounces).await??;
     Ok(result)
 }
 
@@ -1010,7 +1091,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
 
     // send the current set of suspensions first
     {
-        let suspensions = do_get_suspension().await?.0;
+        let suspensions = spawn_blocking(do_get_suspension).await??.0;
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
             socket.send(Message::Text(json)).await?;
@@ -1022,7 +1103,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     }
     // and then bounces
     {
-        let bounces = do_get_bounces().await?.0;
+        let bounces = spawn_blocking(do_get_bounces).await??.0;
         for record in bounces {
             let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
             socket.send(Message::Text(json)).await?;

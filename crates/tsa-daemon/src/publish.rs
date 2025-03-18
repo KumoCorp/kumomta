@@ -1,7 +1,7 @@
 use crate::http_server::{open_history_db, publish_log_batch};
 use kumo_log_types::JsonLogRecord;
 use parking_lot::Mutex;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use tokio::sync::Notify;
 use tokio::task::LocalSet;
 use tokio::time::{Duration, Instant};
@@ -118,7 +118,7 @@ fn grab_segment() -> Option<Vec<JsonLogRecord>> {
 }
 
 async fn run_processor() {
-    let db = open_history_db().unwrap();
+    let db = Arc::new(open_history_db().unwrap());
     loop {
         NOTIFY_CONSUMER.notified().await;
         while let Some(mut batch) = grab_segment() {
