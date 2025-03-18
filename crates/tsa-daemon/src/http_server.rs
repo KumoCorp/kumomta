@@ -876,15 +876,21 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
                                    order by expires, source",
     )?;
 
-    let mut by_rule_hash = HashMap::new();
+    let mut dedup = HashMap::new();
 
-    fn add_readyq_susp(
-        by_rule_hash: &mut HashMap<String, ReadyQSuspension>,
-        item: ReadyQSuspension,
-    ) {
-        let entry = by_rule_hash
-            .entry(item.rule_hash.to_string())
-            .or_insert_with(|| item.clone());
+    #[derive(Eq, PartialEq, Hash)]
+    struct ReadyKey {
+        rule_hash: String,
+        site_name: String,
+    }
+
+    fn add_readyq_susp(dedup: &mut HashMap<ReadyKey, ReadyQSuspension>, item: ReadyQSuspension) {
+        let key = ReadyKey {
+            rule_hash: item.rule_hash.clone(),
+            site_name: item.site_name.clone(),
+        };
+
+        let entry = dedup.entry(key).or_insert_with(|| item.clone());
 
         if item.expires > entry.expires {
             entry.expires = item.expires;
@@ -901,7 +907,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
         let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
 
         add_readyq_susp(
-            &mut by_rule_hash,
+            &mut dedup,
             ReadyQSuspension {
                 rule_hash,
                 site_name,
@@ -912,7 +918,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
         );
     }
 
-    suspensions.ready_q = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+    suspensions.ready_q = dedup.drain().map(|(_, v)| v).collect();
 
     let mut stmt = HISTORY.prepare(
         "SELECT * from sched_q_suspensions where
@@ -920,15 +926,24 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
                                    order by expires, tenant, domain, campaign",
     )?;
 
-    let mut by_rule_hash = HashMap::new();
+    let mut dedup = HashMap::new();
 
-    fn add_schedq_susp(
-        by_rule_hash: &mut HashMap<String, SchedQSuspension>,
-        item: SchedQSuspension,
-    ) {
-        let entry = by_rule_hash
-            .entry(item.rule_hash.to_string())
-            .or_insert_with(|| item.clone());
+    #[derive(Eq, PartialEq, Hash)]
+    struct SusKey {
+        rule_hash: String,
+        campaign: Option<String>,
+        tenant: String,
+        domain: String,
+    }
+
+    fn add_schedq_susp(dedup: &mut HashMap<SusKey, SchedQSuspension>, item: SchedQSuspension) {
+        let key = SusKey {
+            rule_hash: item.rule_hash.clone(),
+            campaign: item.campaign.clone(),
+            tenant: item.tenant.clone(),
+            domain: item.domain.clone(),
+        };
+        let entry = dedup.entry(key).or_insert_with(|| item.clone());
 
         if item.expires > entry.expires {
             entry.expires = item.expires;
@@ -946,7 +961,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
         let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
 
         add_schedq_susp(
-            &mut by_rule_hash,
+            &mut dedup,
             SchedQSuspension {
                 rule_hash,
                 domain,
@@ -958,7 +973,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
         );
     }
 
-    suspensions.sched_q = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+    suspensions.sched_q = dedup.drain().map(|(_, v)| v).collect();
 
     Ok(Json(suspensions))
 }
@@ -1041,12 +1056,25 @@ fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
                                    order by expires, tenant, domain, campaign",
     )?;
 
-    let mut by_rule_hash = HashMap::new();
+    #[derive(Eq, PartialEq, Hash)]
+    struct Key {
+        rule_hash: String,
+        campaign: Option<String>,
+        tenant: Option<String>,
+        domain: String,
+    }
 
-    fn add_schedq_bounce(by_rule_hash: &mut HashMap<String, SchedQBounce>, item: SchedQBounce) {
-        let entry = by_rule_hash
-            .entry(item.rule_hash.to_string())
-            .or_insert_with(|| item.clone());
+    let mut dedup = HashMap::new();
+
+    fn add_schedq_bounce(dedup: &mut HashMap<Key, SchedQBounce>, item: SchedQBounce) {
+        let key = Key {
+            rule_hash: item.rule_hash.clone(),
+            campaign: item.campaign.clone(),
+            tenant: item.tenant.clone(),
+            domain: item.domain.clone(),
+        };
+
+        let entry = dedup.entry(key).or_insert_with(|| item.clone());
 
         if item.expires > entry.expires {
             entry.expires = item.expires;
@@ -1064,7 +1092,7 @@ fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
         let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
 
         add_schedq_bounce(
-            &mut by_rule_hash,
+            &mut dedup,
             SchedQBounce {
                 rule_hash,
                 domain,
@@ -1076,7 +1104,7 @@ fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
         );
     }
 
-    let bounces = by_rule_hash.into_iter().map(|(_, v)| v).collect();
+    let bounces = dedup.drain().map(|(_, v)| v).collect();
 
     Ok(Json(bounces))
 }
@@ -1092,6 +1120,11 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     // send the current set of suspensions first
     {
         let suspensions = spawn_blocking(do_get_suspension).await??.0;
+        tracing::debug!(
+            "new sub, has {} readyq suspensions, {} schedq suspensions",
+            suspensions.ready_q.len(),
+            suspensions.sched_q.len()
+        );
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
             socket.send(Message::Text(json)).await?;
@@ -1104,11 +1137,14 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     // and then bounces
     {
         let bounces = spawn_blocking(do_get_bounces).await??.0;
+        tracing::debug!("new sub, has {} bounces", bounces.len());
         for record in bounces {
             let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
             socket.send(Message::Text(json)).await?;
         }
     }
+
+    tracing::debug!("new sub, waiting for data to pass on");
 
     // then wait for more to show up
     loop {

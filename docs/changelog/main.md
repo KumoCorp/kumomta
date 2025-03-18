@@ -123,3 +123,7 @@
   verification failure due to a trailing `.` on the canonical DNS name passed
   to the verification routine.
 * tsa-daemon: sqlite db lock could block tokio scheduler threads
+* tsa-daemon: bounce and suspension data pushes via websocket would be deduped
+  by just the rule hash instead of the full set of fields, resulting in
+  under-reporting the full set of bounces and subscriptions when initially
+  connecting via websocket.
