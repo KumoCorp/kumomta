@@ -166,79 +166,61 @@ local function get_queue_cfg(options, publish, domain, tenant, campaign)
 end
 
 local function apply_ready_q_suspension(items)
-  local current_suspensions = kumo.api.admin.suspend_ready_q.list()
-  local existing = {}
-  for _, v in ipairs(current_suspensions) do
-    existing[v.reason] = true
+  if #items == 0 then
+    return
   end
-
+  kumo.log_debug('apply_ready_q_suspension', #items)
   for _, item in ipairs(items) do
-    local seen = false
     local reason =
       string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
 
-    if not existing[reason] then
-      kumo.api.admin.suspend_ready_q.suspend {
-        name = item.site_name,
-        reason = reason,
-        expires = item.expires,
-      }
-
-      existing[reason] = true
-    end
+    kumo.api.admin.suspend_ready_q.suspend {
+      name = item.site_name,
+      reason = reason,
+      expires = item.expires,
+    }
   end
+  kumo.log_debug('applied ready_q_suspensions', #items)
 end
 
 local function apply_sched_q_suspension(items)
-  local current_suspensions = kumo.api.admin.suspend.list()
-  local existing = {}
-  for _, v in ipairs(current_suspensions) do
-    existing[v.reason] = true
+  if #items == 0 then
+    return
   end
-
+  kumo.log_debug('apply_sched_q_suspension', #items)
   for _, item in ipairs(items) do
-    local seen = false
     local reason =
       string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
 
-    if not existing[reason] then
-      kumo.api.admin.suspend.suspend {
-        campaign = item.campaign,
-        domain = item.domain,
-        tenant = item.tenant,
-        reason = reason,
-        expires = item.expires,
-      }
-
-      existing[reason] = true
-    end
+    kumo.api.admin.suspend.suspend {
+      campaign = item.campaign,
+      domain = item.domain,
+      tenant = item.tenant,
+      reason = reason,
+      expires = item.expires,
+    }
   end
+  kumo.log_debug('applied sched_q_suspensions', #items)
 end
 
 local function apply_sched_q_bounce(items)
-  local current_suspensions = kumo.api.admin.bounce.list()
-  local existing = {}
-  for _, v in ipairs(current_suspensions) do
-    existing[v.reason] = true
+  if #items == 0 then
+    return
   end
-
+  kumo.log_debug('apply_sched_q_bounce', #items)
   for _, item in ipairs(items) do
-    local seen = false
     local reason =
       string.format('%s (rule_hash=%s)', item.reason, item.rule_hash)
 
-    if not existing[reason] then
-      kumo.api.admin.bounce.bounce {
-        campaign = item.campaign,
-        domain = item.domain,
-        tenant = item.tenant,
-        reason = reason,
-        expires = item.expires,
-      }
-
-      existing[reason] = true
-    end
+    kumo.api.admin.bounce.bounce {
+      campaign = item.campaign,
+      domain = item.domain,
+      tenant = item.tenant,
+      reason = reason,
+      expires = item.expires,
+    }
   end
+  kumo.log_debug('applied sched_q_bounce', #items)
 end
 
 kumo.on('kumo.tsa.config.monitor', function(args)
