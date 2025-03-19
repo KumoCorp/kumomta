@@ -129,3 +129,7 @@
   connecting via websocket.
 * tsa-daemon: when busy, could report `channel lagged by NUMBER` and drop the
   websocket connection, causing the MTA to need to reconnect and re-sync.
+* Incorrectly attempted to retry a broken TLS connection when `enable_tls =
+  "Required"` (such as when implied by MTA-STS) and
+  `opportunistic_tls_reconnect_on_failed_handshake = true`, which could
+  lead to a session being stuck in a retry loop.

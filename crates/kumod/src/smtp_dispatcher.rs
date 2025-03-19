@@ -666,7 +666,9 @@ impl SmtpDispatcher {
                         .await
                         .ok();
 
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                        if enable_tls.is_opportunistic()
+                            && path_config.opportunistic_tls_reconnect_on_failed_handshake
+                        {
                             self.addresses.push(address);
                             anyhow::bail!(
                                 "TLS handshake failed: {handshake_error}, will \
@@ -695,7 +697,9 @@ impl SmtpDispatcher {
                     Err(err) => {
                         self.remember_broken_tls(&dispatcher.name, &path_config)
                             .await;
-                        if path_config.opportunistic_tls_reconnect_on_failed_handshake {
+                        if enable_tls.is_opportunistic()
+                            && path_config.opportunistic_tls_reconnect_on_failed_handshake
+                        {
                             self.addresses.push(address);
                             anyhow::bail!(
                                 "{helo_verb} after STARTLS failed {err:#}, \

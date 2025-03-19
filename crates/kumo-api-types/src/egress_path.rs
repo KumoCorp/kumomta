@@ -38,6 +38,13 @@ impl Tls {
             _ => false,
         }
     }
+
+    pub fn is_opportunistic(&self) -> bool {
+        match self {
+            Self::OpportunisticInsecure | Self::Opportunistic => true,
+            _ => false,
+        }
+    }
 }
 
 impl Default for Tls {
