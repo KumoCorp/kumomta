@@ -52,7 +52,6 @@ axum-client-ip = "0.6"
 axum-server = "0.7"
 axum-streams = {version="0.19", features=["text"]}
 backtrace = "0.3"
-batch-channel = "0.4.2"
 bitflags = "2.3"
 bitstring = "0.2"
 bytes = "1.0"
@@ -86,7 +85,7 @@ futures-lite = "2.3"
 gcd = "2.3"
 gethostname = "0.5"
 getrandom = "0.2"
-git2 = { version = "0.19", default-features = false }
+git2 = { version = "0.20", default-features = false }
 hdrhistogram = "7.5"
 hex = "0.4"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
@@ -151,10 +150,10 @@ rdkafka = "0.36"
 redis = {version="0.29", features=["cluster", "cluster-async", "connection-manager", "tokio-comp", "tls-native-tls", "tokio-native-tls-comp"]}
 regex = "1.7"
 reqwest = {version="0.12", default-features=false, features=["rustls-tls", "rustls-tls-native-roots"]}
-ring = "=0.17.12" # pinned due to https://github.com/briansmith/ring/issues/2462
+ring = "0.17"
 rocksdb = {version="0.22", features=["jemalloc"]}
 rustls = "0.23"
-rustls-platform-verifier = "0.4"
+rustls-platform-verifier = "0.5"
 self_cell = "1.0"
 serde = {version="1.0", features=["derive"]}
 serde_bytes = "0.11"
