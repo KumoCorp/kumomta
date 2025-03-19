@@ -95,7 +95,13 @@ If a non-JSON format is needed for the logs, the *template* option can be used:
 ```lua
 kumo.configure_local_logs {
   -- ..
-  template = [[{{type}} id={{ id }}, from={{ sender }} code={{ code }} age={{ timestamp - created }}]],
+  per_record = {
+    Bounce = {
+      -- Instead of logging the json record, evaluate this
+      -- template string and log the result.
+      template = [[Bounce! id={{ id }}, from={{ sender }} code={{ code }} age={{ timestamp - created }}]],
+    },
+  }
 }
 ```
 {% endraw %}
