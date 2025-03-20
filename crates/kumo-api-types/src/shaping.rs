@@ -527,7 +527,7 @@ pub struct ShapingMergeOptions {
     pub remote_load: CheckLevel,
     #[serde(default)]
     pub local_load: CheckLevel,
-    #[serde(with = "duration_serde")]
+    #[serde(default, with = "duration_serde")]
     pub http_timeout: Option<Duration>,
 }
 

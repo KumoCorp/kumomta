@@ -6,3 +6,6 @@
 
 ## Fixes
 
+* Specifying `validation_options` for the shaping helper without explicitly
+  setting the new `http_timeout` could lead to a `missing field` error when
+  running `kumod --validate`.
