@@ -12,7 +12,8 @@ services:
     ports:
       - 25:2525
     depends_on:
-      - tsa
+      tsa:
+        condition: service_healthy
   tsa:
     container_name: kumo-tsa
     hostname: tsa # The kumod policy scripts rely on this name
@@ -21,3 +22,8 @@ services:
     volumes:
       - ./policy:/opt/kumomta/etc/policy
     restart: unless-stopped
+    healthcheck:
+        test: /opt/kumomta/sbin/validate-shaping /opt/kumomta/etc/policy/shaping.toml || exit 1
+        interval: 1s
+        timeout: 2s
+        retries: 3
