@@ -20,6 +20,12 @@ $ docker run --rm -it --net host nicolaka/netshoot \
     --server $HOSTNAME:25
 ```
 
+View shaping rules applied to a domain:
+
+```
+$ docker exec -t kumod /opt/kumomta/sbin/resolve-shaping-domain example.com
+```
+
 Trace submissions in realtime:
 
 ```
