@@ -96,7 +96,7 @@ end)
 
 ## limit_concurrent_loads
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 When loading from RocksDB, KumoMTA will first try a non-blocking load, but if
 RocksDB is too busy for that, a blocking load will occur in a background thread
@@ -140,7 +140,7 @@ end)
 
 ## limit_concurrent_removes
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 When deleting from RocksDB, KumoMTA will first try a non-blocking remove, but if
 RocksDB is too busy for that, a blocking remove will occur in a background thread
@@ -184,7 +184,7 @@ end)
 
 ## limit_concurrent_stores
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 When saving to RocksDB, KumoMTA will first try a non-blocking submission, but if
 RocksDB is too busy for that, a blocking submission will occur in a background

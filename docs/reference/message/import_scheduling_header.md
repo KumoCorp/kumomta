@@ -7,12 +7,12 @@ will call [message:set_scheduling()](set_scheduling.md) with that value, and if
 
 The return value of `message:import_scheduling_header` is:
 
-* A lua table representation of the scheduling parameters, or nil if the specified header was not present. {{since('dev', inline=True)}}
+* A lua table representation of the scheduling parameters, or nil if the specified header was not present. {{since('2025.03.19-1d3f1f67', inline=True)}}
 * `nil` in prior versions of KumoMTA.
 
 If the header is present, but has invalid contents the behavior will be:
 
-* An error will be raised explaining the issue. {{since('dev', inline=True)}}
+* An error will be raised explaining the issue. {{since('2025.03.19-1d3f1f67', inline=True)}}
 * No error indication will be given and no errors will be logged in prior versions of KumoMTA.
 
 For example, given this message:

@@ -11,7 +11,7 @@ There are two separate groups of scheduling constraint:
 
 * Deferred initial delivery, using the `first_attempt` field
 * Constrained time/day of week delivery using the `dow`, `tz`, `start` and `end` fields.
-* Custom expiration time, using the `expires` field. {{since('dev', inline=True)}}.
+* Custom expiration time, using the `expires` field. {{since('2025.03.19-1d3f1f67', inline=True)}}.
 
 When using constrained time of delivery, all four of the associated fields must be
 specified.  If not using constrained time of delivery, all four of the associated
@@ -25,7 +25,7 @@ practice, that will be the `start` time on the follow appropriate `dow`.
 
 The return value of `message:set_scheduling` is:
 
-* A lua table representation of the scheduling parameters. {{since('dev', inline=True)}}
+* A lua table representation of the scheduling parameters. {{since('2025.03.19-1d3f1f67', inline=True)}}
 * `nil` in prior versions of KumoMTA.
 
 Just setting the `first_attempt`:
@@ -69,7 +69,7 @@ scheduled for delivery.
 
 ## expires
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Optional String.
 

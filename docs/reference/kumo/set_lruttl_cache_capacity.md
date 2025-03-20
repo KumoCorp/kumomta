@@ -1,6 +1,6 @@
 # `kumo.set_lruttl_cache_capacity(NAME, CAPACITY)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Allows you to configure the maximum capacity for a specific named pre-defined cache.
 

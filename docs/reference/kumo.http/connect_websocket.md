@@ -52,7 +52,7 @@ The returned data is a string.
 
 ### client:recv_batch(duration)
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Waits for up to `duration` (which can either be a number of seconds, or a
 duration string like `10s`) and collects however many messages are sent by the

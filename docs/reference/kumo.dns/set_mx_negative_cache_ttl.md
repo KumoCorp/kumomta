@@ -1,6 +1,6 @@
 # `kumo.dns.set_mx_negative_cache_ttl(DURATION)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Set the negative cache TTL that should be used when caching an MX resolution
 failure.

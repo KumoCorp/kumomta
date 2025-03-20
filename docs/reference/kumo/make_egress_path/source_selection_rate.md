@@ -1,6 +1,6 @@
 # source_selection_rate
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Optional throttle spec string.
 

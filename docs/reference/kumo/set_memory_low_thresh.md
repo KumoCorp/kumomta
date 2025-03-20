@@ -5,7 +5,7 @@ tags:
 
 # `kumo.set_memory_low_thresh(THRESH)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Set the low memory threshold. This usually defaults to 60% of
 amount of physical RAM in the system (actually 80% of the *soft limit* which

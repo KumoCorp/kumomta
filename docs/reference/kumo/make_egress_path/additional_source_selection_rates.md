@@ -1,6 +1,6 @@
 # additional_source_selection_rates
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Specifies additional source selection constraints that cut across the
 per-site-per-source scoping of the

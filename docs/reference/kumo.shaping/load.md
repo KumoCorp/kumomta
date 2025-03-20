@@ -64,7 +64,7 @@ The options parameter allows for the following fields:
 
 * `http_timeout` - an optional duration string specifying the timeout to
   use for http requests made to fetch shaping data.  The default value if
-  unspecified is `5s`. {{since('dev', inline=True)}}
+  unspecified is `5s`. {{since('2025.03.19-1d3f1f67', inline=True)}}
 
 ## Shaping Data Format
 

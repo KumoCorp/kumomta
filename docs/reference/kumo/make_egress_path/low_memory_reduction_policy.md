@@ -5,7 +5,7 @@ tags:
 
 # low_memory_reduction_policy
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Specifies what action should be taken when a message is added to the ready
 queue corresponding to this egress path when the memory usage is above the *low

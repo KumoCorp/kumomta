@@ -5,7 +5,7 @@ tags:
 
 # `kumo.set_memory_soft_limit(LIMIT)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Set the *soft limit* for memory utilization. This usually defaults to 75% of
 amount of physical RAM in the system, but ulimit or cgroup constraints may

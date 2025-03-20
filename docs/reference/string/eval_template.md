@@ -1,6 +1,6 @@
 # `kumo.string.eval_template(NAME, SOURCE, CONTEXT)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Evaluates a minijinja template.
 

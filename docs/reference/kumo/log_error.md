@@ -6,7 +6,7 @@ tags:
 
 # `kumo.log_error(ARGS)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Logs the series of `ARGS` to the diagnostic log at `ERROR` level.
 This works similarly to the `print` function except that it is routed

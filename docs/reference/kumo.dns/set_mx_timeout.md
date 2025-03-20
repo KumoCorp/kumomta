@@ -1,6 +1,6 @@
 # `kumo.dns.set_mx_timeout(DURATION)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Set overall time limit for MX record resolution.  This applies to the MX record
 resolution, rather than the resolution of MX hosts into addresses.

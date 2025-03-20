@@ -121,7 +121,7 @@ Each call to this function with the same parameters is cached for up to the
 specified TTL in order to avoid the overhead of repeatedly load the key from
 disk.
 
-{{since('dev', indent=True)}}
+{{since('2025.03.19-1d3f1f67', indent=True)}}
     The ttl now supports a duration string like `"5 mins"`
 
 ## over_sign

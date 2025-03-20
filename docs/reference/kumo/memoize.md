@@ -82,7 +82,7 @@ The parameters it accepts are:
        will be evicted to make space.
      * `invalidate_with_epoch` - optional boolean that defaults to `false`.
        If true, anything that bumps the config epoch (eg: config file changes,
-       TSA config overrides and so on) will invalidate the cache. {{since('dev', inline=True)}}
+       TSA config overrides and so on) will invalidate the cache. {{since('2025.03.19-1d3f1f67', inline=True)}}
 
 In the example above calling:
 

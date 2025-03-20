@@ -5,7 +5,7 @@ tags:
 
 # `kumo.set_memory_hard_limit(LIMIT)`
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 Set the hard limit for memory utilization. This defaults to the amount of
 physical RAM in the system.

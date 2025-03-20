@@ -5,7 +5,7 @@ tags:
 
 # shrink_policy
 
-{{since('dev')}}
+{{since('2025.03.19-1d3f1f67')}}
 
 !!! danger
     This is an advanced option whose use is not recommended without
