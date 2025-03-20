@@ -1,8 +1,8 @@
 use anyhow::Context;
 use arc_swap::ArcSwap;
-use hickory_resolver::error::ResolveResult;
 pub use hickory_resolver::proto::rr::rdata::tlsa::TLSA;
 use hickory_resolver::proto::rr::RecordType;
+use hickory_resolver::proto::ProtoError;
 pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
 use kumo_log_types::ResolvedAddress;
@@ -131,7 +131,7 @@ pub struct MailExchanger {
     expires: Option<Instant>,
 }
 
-pub fn fully_qualify(domain_name: &str) -> ResolveResult<Name> {
+pub fn fully_qualify(domain_name: &str) -> Result<Name, ProtoError> {
     let mut name = Name::from_str_relaxed(domain_name)?.to_lowercase();
 
     // Treat it as fully qualified

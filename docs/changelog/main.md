@@ -22,6 +22,10 @@
   [smtp_server_get_dynamic_parameters](../reference/events/smtp_server_get_dynamic_parameters.md)
   event allows dynamically amending listener configuration to support IP-based
   virtual service.
+* Updated the hickory DNS resolver to `0.25`. While no kumomta-user-visible
+  changes are anticipated as a result of this upgrade, it is a fairly
+  significant release of the DNS resolver so please report unexpected
+  changes in behavior around DNS.
 
 ## Fixes
 
