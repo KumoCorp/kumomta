@@ -415,6 +415,8 @@ function mod:setup_with_automation(options)
     ttl = options.cache_ttl or '1 minute',
     capacity = 4,
     invalidate_with_epoch = true,
+    retry_on_populate_timeout = options.retry_shaping_data_fetch_on_populate_timeout,
+    populate_timeout = options.shaping_data_populate_timeout,
   })
 
   local file_names = {}
