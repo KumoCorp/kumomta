@@ -355,7 +355,7 @@ impl Domain {
     pub fn name(name: &str) -> Result<Self, String> {
         match idna::domain_to_ascii(name) {
             Ok(name) => Ok(Self::Name(name)),
-            Err(err) => Err(format!("{err:#}")),
+            Err(_empty_error_type) => Err(format!("invalid IDNA domain {name}")),
         }
     }
 }
@@ -585,6 +585,16 @@ mod test {
                 sasl_mech: "PLAIN".to_string(),
                 initial_response: None,
             }
+        );
+    }
+
+    #[test]
+    fn parse_rcpt_to_punycode() {
+        assert_eq!(
+            Parser::parse_command("Rcpt To:<user@4bed.xn--5dbhlacyps5bf4a.com>")
+                .unwrap_err()
+                .to_string(),
+            "invalid IDNA domain 4bed.xn--5dbhlacyps5bf4a.com"
         );
     }
 
