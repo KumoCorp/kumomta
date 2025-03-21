@@ -66,6 +66,10 @@ pub struct MemoizeParams {
     pub name: String,
     #[serde(default)]
     pub invalidate_with_epoch: bool,
+    #[serde(default)]
+    pub retry_on_populate_timeout: bool,
+    #[serde(default, with = "duration_serde")]
+    pub populate_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq)]
@@ -397,12 +401,18 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 }
                 changed
             });
-            CACHES
-                .entry(cache_name.to_string())
-                .or_insert_with(|| MemoizeCache {
+            CACHES.entry(cache_name.to_string()).or_insert_with(|| {
+                let cache = LruCacheWithTtl::new(cache_name.clone(), params.capacity);
+                cache.set_retry_on_sema_timeout(params.retry_on_populate_timeout);
+                if let Some(duration) = params.populate_timeout {
+                    cache.set_sema_timeout(duration);
+                }
+
+                MemoizeCache {
                     params: params.clone(),
-                    cache: Arc::new(LruCacheWithTtl::new(cache_name.clone(), params.capacity)),
-                });
+                    cache: Arc::new(cache),
+                }
+            });
 
             let lookup_counter = CACHE_LOOKUP
                 .get_metric_with_label_values(&[&cache_name])

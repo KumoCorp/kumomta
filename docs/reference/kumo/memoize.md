@@ -71,7 +71,7 @@ the *memoized function*.
 The parameters it accepts are:
 
 * *FUNCTION* - the function or lambda which will be called when there is a cache miss.
-  When it is called, it will be passed the parameters that were passed to the *memoized function*.
+  When it is called, it will be passed the parameters that were passed to the *memoized function* in order to populate the cache.
 * *PARAMS* is a required lua table with the following fields, all of which are required:
      * `name` - the name for the cache. You should create one name per function/purpose.
      * `ttl` - the Time To Live for cache entries; how long a previously computed
@@ -83,6 +83,13 @@ The parameters it accepts are:
      * `invalidate_with_epoch` - optional boolean that defaults to `false`.
        If true, anything that bumps the config epoch (eg: config file changes,
        TSA config overrides and so on) will invalidate the cache. {{since('2025.03.19-1d3f1f67', inline=True)}}
+     * `populate_timeout` - optional duration string. The effective default
+       value is `120 seconds`.  Specifies how long to allow the cache population
+       function to run before generating a timeout error. {{since('dev', inline=True)}}
+     * `retry_on_populate_timeout` - optional boolean that defaults to `false`.
+       If true, if the `populate_timeout` is reached, then instead of generating
+       an error, memoize will retry the population attempt.
+       {{since('dev', inline=True)}}
 
 In the example above calling:
 
