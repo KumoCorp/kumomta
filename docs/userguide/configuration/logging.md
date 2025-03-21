@@ -101,7 +101,7 @@ kumo.configure_local_logs {
       -- template string and log the result.
       template = [[Bounce! id={{ id }}, from={{ sender }} code={{ code }} age={{ timestamp - created }}]],
     },
-  }
+  },
 }
 ```
 {% endraw %}
