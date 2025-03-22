@@ -1,12 +1,12 @@
 use async_trait::async_trait;
-use hickory_resolver::error::{ResolveError, ResolveErrorKind};
+use hickory_proto::ProtoErrorKind;
 use hickory_resolver::proto::op::response_code::ResponseCode;
 use hickory_resolver::proto::rr::rdata::{A, AAAA, MX, PTR, TXT};
 #[cfg(feature = "unbound")]
 use hickory_resolver::proto::rr::DNSClass;
 use hickory_resolver::proto::rr::{LowerName, RData, RecordData, RecordSet, RecordType, RrKey};
 use hickory_resolver::proto::serialize::txt::Parser;
-use hickory_resolver::{Name, TokioAsyncResolver};
+use hickory_resolver::{Name, ResolveError, ResolveErrorKind, TokioResolver};
 #[cfg(feature = "unbound")]
 use libunbound::{AsyncContext, Context};
 use std::collections::BTreeMap;
@@ -150,8 +150,24 @@ pub struct TestResolver {
 
 impl TestResolver {
     pub fn with_zone(mut self, zone: &str) -> Self {
-        let (name, records) = Parser::new(zone, None, None).parse().unwrap();
-        self.records.insert(name, records);
+        let (mut name, records) = Parser::new(zone, None, None).parse().unwrap();
+        // The parser can create results with varying FQDN-ness, so let's
+        // ensure that they're all marked as FQDN, otherwise our get()
+        // function can fail to resolve data from the zone.
+        name.set_fqdn(true);
+        let fqdn_records = records
+            .into_iter()
+            .map(|(key, value)| {
+                if key.name().is_fqdn() {
+                    (key, value)
+                } else {
+                    let mut name: Name = key.name().into();
+                    name.set_fqdn(true);
+                    (RrKey::new(LowerName::new(&name), key.record_type), value)
+                }
+            })
+            .collect();
+        self.records.insert(name, fqdn_records);
         self
     }
 
@@ -168,7 +184,7 @@ impl TestResolver {
             record_type: RecordType::TXT,
         };
 
-        let mut records = RecordSet::new(&authority, RecordType::TXT, 0);
+        let mut records = RecordSet::new(authority.clone(), RecordType::TXT, 0);
         for item in value {
             records.add_rdata(RData::TXT(TXT::new(vec![item])));
         }
@@ -181,14 +197,12 @@ impl TestResolver {
     }
 
     fn get<'a>(&'a self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
-        let mut authority = match full.is_fqdn() {
-            true => full.clone(),
-            false => {
-                let mut fqdn = full.clone();
-                fqdn.set_fqdn(true);
-                fqdn
-            }
+        let full_fqdn = {
+            let mut name = full.clone();
+            name.set_fqdn(true);
+            name
         };
+        let mut authority = full_fqdn.clone();
 
         let records = loop {
             if let Some(records) = self.records.get(&authority) {
@@ -213,7 +227,7 @@ impl TestResolver {
         };
 
         let records = records.get(&RrKey {
-            name: LowerName::from(full),
+            name: LowerName::from(&full_fqdn),
             record_type,
         });
 
@@ -234,7 +248,7 @@ impl TestResolver {
             canon_name: None,
             records: records
                 .records_without_rrsigs()
-                .filter_map(|r| r.data().cloned())
+                .map(|r| r.data().clone())
                 .collect(),
             nxdomain: false,
             secure: false,
@@ -451,13 +465,13 @@ impl From<AsyncContext> for UnboundResolver {
 }
 
 pub struct HickoryResolver {
-    inner: TokioAsyncResolver,
+    inner: TokioResolver,
 }
 
 impl HickoryResolver {
-    pub fn new() -> Result<Self, hickory_resolver::error::ResolveError> {
+    pub fn new() -> Result<Self, hickory_resolver::ResolveError> {
         Ok(Self {
-            inner: TokioAsyncResolver::tokio_from_system_conf()?,
+            inner: TokioResolver::builder_tokio()?.build(),
         })
     }
 }
@@ -517,29 +531,32 @@ impl Resolver for HickoryResolver {
                 })
             }
             Err(err) => match err.kind() {
-                ResolveErrorKind::NoRecordsFound {
-                    negative_ttl,
-                    response_code,
-                    ..
-                } => Ok(Answer {
-                    canon_name: None,
-                    records: vec![],
-                    nxdomain: *response_code == ResponseCode::NXDomain,
-                    secure: false,
-                    bogus: false,
-                    why_bogus: None,
-                    response_code: *response_code,
-                    expires: Instant::now()
-                        + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
-                }),
+                ResolveErrorKind::Proto(proto_err) => match proto_err.kind() {
+                    ProtoErrorKind::NoRecordsFound {
+                        negative_ttl,
+                        response_code,
+                        ..
+                    } => Ok(Answer {
+                        canon_name: None,
+                        records: vec![],
+                        nxdomain: *response_code == ResponseCode::NXDomain,
+                        secure: false,
+                        bogus: false,
+                        why_bogus: None,
+                        response_code: *response_code,
+                        expires: Instant::now()
+                            + Duration::from_secs(negative_ttl.unwrap_or(60) as u64),
+                    }),
+                    _ => Err(DnsError::from_resolve(&name, err)),
+                },
                 _ => Err(DnsError::from_resolve(&name, err)),
             },
         }
     }
 }
 
-impl From<TokioAsyncResolver> for HickoryResolver {
-    fn from(inner: TokioAsyncResolver) -> Self {
+impl From<TokioResolver> for HickoryResolver {
+    fn from(inner: TokioResolver) -> Self {
         Self { inner }
     }
 }

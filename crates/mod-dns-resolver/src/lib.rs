@@ -4,8 +4,10 @@ use dns_resolver::{
     get_resolver, resolve_a_or_aaaa, set_mx_negative_cache_ttl, set_mx_timeout, HickoryResolver,
     MailExchanger, TestResolver, UnboundResolver,
 };
-use hickory_resolver::config::{NameServerConfig, Protocol, ResolverConfig, ResolverOpts};
-use hickory_resolver::{Name, TokioAsyncResolver};
+use hickory_resolver::config::{NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
+use hickory_resolver::name_server::TokioConnectionProvider;
+use hickory_resolver::proto::xfer::Protocol;
+use hickory_resolver::{Name, TokioResolver};
 use mlua::{Lua, LuaSerdeExt, Value};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -145,8 +147,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 });
             }
 
-            let resolver = TokioAsyncResolver::tokio(r_config, config.options);
-            dns_resolver::reconfigure_resolver(HickoryResolver::from(resolver));
+            let mut builder =
+                TokioResolver::builder_with_config(r_config, TokioConnectionProvider::default());
+            *builder.options_mut() = config.options;
+            dns_resolver::reconfigure_resolver(HickoryResolver::from(builder.build()));
 
             Ok(())
         })?,
@@ -185,7 +189,10 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     .context("add_builtin_trust_anchors")
                     .map_err(any_err)?;
             }
-            if config.options.use_hosts_file {
+            if matches!(
+                config.options.use_hosts_file,
+                ResolveHosts::Always | ResolveHosts::Auto
+            ) {
                 context
                     .load_hosts(None)
                     .context("load_hosts")

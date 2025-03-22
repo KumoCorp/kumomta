@@ -90,8 +90,8 @@ hdrhistogram = "7.5"
 hex = "0.4"
 # Be sure to update the link to the docs in docs/reference/kumo.dns/configure_resolver.md
 # to match the version that we are using when you update this dep
-hickory-resolver = "0.24"
-hickory-proto = "0.24"
+hickory-resolver = "0.25"
+hickory-proto = "0.25"
 hierarchical_hash_wheel_timer = {version="1.2", default-features=false, features=["fx-hash"]}
 human_bytes = "0.4.3"
 humanize-rs = "0.1"
@@ -110,7 +110,7 @@ lapin = {version="2.5", default-features=false, features=["native-tls"]}
 lexicmp = "0.1"
 libc = "0.2.139"
 linkme = "0.3"
-libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="514258fa097d04236761fff2f97b4221ff4965e0"}
+libunbound = {git="https://github.com/KumoCorp/libunbound-rs.git", rev="19b39a551b3cf7cbc69a7eb24fef4801e66c6260"}
 lipsum = "0.9"
 log = "0.4"
 lru-cache = "0.1"

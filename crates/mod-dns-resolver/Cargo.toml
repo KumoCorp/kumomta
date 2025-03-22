@@ -11,4 +11,4 @@ duration-serde = {path="../duration-serde"}
 libunbound = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
 serde = {workspace=true}
-hickory-resolver = {workspace=true, features=["serde-config"]}
+hickory-resolver = {workspace=true, features=["serde"]}

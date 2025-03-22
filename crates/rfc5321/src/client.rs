@@ -1009,10 +1009,10 @@ impl TlsOptions {
             for tlsa in &self.dane_tlsa {
                 let usable = config.dane_tlsa_add(
                     match tlsa.cert_usage() {
-                        CertUsage::CA => DaneUsage::PKIX_TA,
-                        CertUsage::Service => DaneUsage::PKIX_EE,
-                        CertUsage::TrustAnchor => DaneUsage::DANE_TA,
-                        CertUsage::DomainIssued => DaneUsage::DANE_EE,
+                        CertUsage::PkixTa => DaneUsage::PKIX_TA,
+                        CertUsage::PkixEe => DaneUsage::PKIX_EE,
+                        CertUsage::DaneTa => DaneUsage::DANE_TA,
+                        CertUsage::DaneEe => DaneUsage::DANE_EE,
                         CertUsage::Unassigned(n) => DaneUsage::from_raw(n),
                         CertUsage::Private => DaneUsage::PRIV_CERT,
                     },
