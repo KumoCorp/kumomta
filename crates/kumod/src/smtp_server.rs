@@ -410,12 +410,12 @@ impl EsmtpListenerParams {
                         let my_address = socket.local_addr()?;
                         let params = self.clone();
                         SMTPSRV.spawn(
-                            format!("SmtpServer {peer_address:?}"),
+                            format!("SmtpServerSession {peer_address:?}"),
                             async move {
                                 if let Err(err) =
-                                    Box::pin(SmtpServer::run(socket, my_address, peer_address, params)).await
+                                    Box::pin(SmtpServerSession::run(socket, my_address, peer_address, params)).await
                                     {
-                                        tracing::error!("SmtpServer::run: {err:#}");
+                                        tracing::error!("SmtpServerSession::run: {err:#}");
                                 }
                                 drop(permit);
                             }
@@ -496,7 +496,7 @@ impl std::fmt::Debug for DebugabbleReadBuffer {
     }
 }
 
-pub struct SmtpServer {
+pub struct SmtpServerSession {
     socket: Option<BoxedAsyncReadAndWrite>,
     state: Option<TransactionState>,
     said_hello: Option<String>,
@@ -539,7 +539,7 @@ impl RelayDisposition {
     }
 }
 
-impl SmtpServer {
+impl SmtpServerSession {
     #[instrument(skip(params, my_address, peer_address))]
     pub async fn run<T>(
         socket: T,
@@ -560,7 +560,7 @@ impl SmtpServer {
 
         let service = format!("esmtp_listener:{my_address}");
 
-        let mut server = SmtpServer {
+        let mut server = SmtpServerSession {
             socket: Some(socket),
             state: None,
             said_hello: None,
@@ -592,12 +592,12 @@ impl SmtpServer {
 
         if let Err(err) = server.process().await {
             if err.downcast_ref::<WriteError>().is_none() {
-                error!("Error in SmtpServer: {err:#}");
+                error!("Error in SmtpServerSession: {err:#}");
                 server
                     .write_response(
                         421,
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
-                        Some(format!("Error in SmtpServer: {err:#}")),
+                        Some(format!("Error in SmtpServerSession: {err:#}")),
                     )
                     .await
                     .ok();
@@ -1701,7 +1701,7 @@ impl SmtpServer {
 
         for recip in state.recipients {
             let id = SpoolId::new();
-            let protocol = "ESMTP"; // FIXME: update SmtpServer ctor if we change this.
+            let protocol = "ESMTP"; // FIXME: update SmtpServerSession ctor if we change this.
                                     // OR: just read this from self.meta?
 
             let mut body = if self.params.trace_headers.received_header {
