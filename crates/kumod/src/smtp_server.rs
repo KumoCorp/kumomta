@@ -266,6 +266,57 @@ impl ConcreteEsmtpListenerParams {
 
         Ok(TlsAcceptor::from(lookup.item))
     }
+
+    pub fn apply_generic(&mut self, base: GenericEsmtpListenerParams) {
+        if let Some(hostname) = base.hostname {
+            self.hostname = hostname;
+        }
+        if let Some(relay_hosts) = base.relay_hosts {
+            self.relay_hosts = relay_hosts;
+        }
+        if let Some(banner) = base.banner {
+            self.banner = banner;
+        }
+        if let Some(tls_certificate) = base.tls_certificate {
+            self.tls_certificate.replace(tls_certificate);
+        }
+        if let Some(tls_private_key) = base.tls_private_key {
+            self.tls_private_key.replace(tls_private_key);
+        }
+        if let Some(deferred_spool) = base.deferred_spool {
+            self.deferred_spool = deferred_spool;
+        }
+        if let Some(deferred_queue) = base.deferred_queue {
+            self.deferred_queue = deferred_queue;
+        }
+        if let Some(trace_headers) = base.trace_headers {
+            self.trace_headers = trace_headers;
+        }
+        if let Some(client_timeout) = base.client_timeout {
+            self.client_timeout = client_timeout;
+        }
+        if let Some(data_processing_timeout) = base.data_processing_timeout {
+            self.data_processing_timeout = data_processing_timeout;
+        }
+        if let Some(max_messages_per_connection) = base.max_messages_per_connection {
+            self.max_messages_per_connection = max_messages_per_connection;
+        }
+        if let Some(max_recipients_per_message) = base.max_recipients_per_message {
+            self.max_recipients_per_message = max_recipients_per_message;
+        }
+        if let Some(max_message_size) = base.max_message_size {
+            self.max_message_size = max_message_size;
+        }
+        if let Some(data_buffer_size) = base.data_buffer_size {
+            self.data_buffer_size = data_buffer_size;
+        }
+        if let Some(invalid_line_endings) = base.invalid_line_endings {
+            self.invalid_line_endings = invalid_line_endings;
+        }
+        if let Some(line_length_hard_limit) = base.line_length_hard_limit {
+            self.line_length_hard_limit = line_length_hard_limit;
+        }
+    }
 }
 
 pub fn connection_gauge() -> AtomicCounter {
@@ -308,15 +359,13 @@ impl Default for ConcreteEsmtpListenerParams {
 
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
-pub struct EsmtpListenerParams {
-    #[serde(default = "EsmtpListenerParams::default_listen")]
-    pub listen: String,
-    #[serde(default = "default_hostname")]
-    pub hostname: String,
-    #[serde(default = "CidrSet::default_trusted_hosts")]
-    pub relay_hosts: CidrSet,
-    #[serde(default = "EsmtpListenerParams::default_banner")]
-    pub banner: String,
+pub struct GenericEsmtpListenerParams {
+    #[serde(default)]
+    pub hostname: Option<String>,
+    #[serde(default)]
+    pub relay_hosts: Option<CidrSet>,
+    #[serde(default)]
+    pub banner: Option<String>,
 
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
@@ -324,86 +373,58 @@ pub struct EsmtpListenerParams {
     pub tls_private_key: Option<KeySource>,
 
     #[serde(default)]
-    pub deferred_spool: bool,
+    pub deferred_spool: Option<bool>,
 
     #[serde(default)]
-    pub deferred_queue: bool,
+    pub deferred_queue: Option<bool>,
 
     #[serde(default)]
-    pub trace_headers: TraceHeaders,
+    pub trace_headers: Option<TraceHeaders>,
 
-    #[serde(
-        default = "EsmtpListenerParams::default_client_timeout",
-        with = "duration_serde"
-    )]
-    pub client_timeout: Duration,
+    #[serde(default, with = "duration_serde")]
+    pub client_timeout: Option<Duration>,
 
-    #[serde(
-        default = "EsmtpListenerParams::default_data_processing_timeout",
-        with = "duration_serde"
-    )]
-    pub data_processing_timeout: Duration,
+    #[serde(default, with = "duration_serde")]
+    pub data_processing_timeout: Option<Duration>,
 
-    #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
-    max_messages_per_connection: usize,
-    #[serde(default = "EsmtpListenerParams::default_max_recipients_per_message")]
-    max_recipients_per_message: usize,
+    #[serde(default)]
+    max_messages_per_connection: Option<usize>,
+    #[serde(default)]
+    max_recipients_per_message: Option<usize>,
 
-    #[serde(default = "EsmtpListenerParams::default_max_message_size")]
-    max_message_size: usize,
+    #[serde(default)]
+    max_message_size: Option<usize>,
+
+    #[serde(default)]
+    data_buffer_size: Option<usize>,
+
+    #[serde(default)]
+    invalid_line_endings: Option<ConformanceDisposition>,
+
+    #[serde(default)]
+    line_length_hard_limit: Option<usize>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct EsmtpListenerParams {
+    #[serde(default = "EsmtpListenerParams::default_listen")]
+    pub listen: String,
+
+    #[serde(flatten)]
+    base: GenericEsmtpListenerParams,
 
     #[serde(default = "EsmtpListenerParams::default_max_connections")]
     max_connections: usize,
-
-    #[serde(default = "EsmtpListenerParams::default_data_buffer_size")]
-    data_buffer_size: usize,
-
-    #[serde(default)]
-    invalid_line_endings: ConformanceDisposition,
-
-    #[serde(default = "EsmtpListenerParams::default_line_length_hard_limit")]
-    line_length_hard_limit: usize,
 }
 
 impl EsmtpListenerParams {
-    fn default_max_messages_per_connection() -> usize {
-        10_000
-    }
-
-    fn default_max_recipients_per_message() -> usize {
-        1024
-    }
-
-    fn default_max_message_size() -> usize {
-        20 * 1024 * 1024
-    }
-
     fn default_max_connections() -> usize {
         32 * 1024
     }
 
-    fn default_data_buffer_size() -> usize {
-        128 * 1024
-    }
-
-    fn default_client_timeout() -> Duration {
-        Duration::from_secs(60)
-    }
-
-    fn default_data_processing_timeout() -> Duration {
-        Duration::from_secs(300)
-    }
-
-    fn default_line_length_hard_limit() -> usize {
-        MAX_LINE_LEN
-    }
-
     fn default_listen() -> String {
         "127.0.0.1:2025".to_string()
-    }
-
-    fn default_banner() -> String {
-        "KumoMTA".to_string()
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
@@ -439,7 +460,7 @@ impl EsmtpListenerParams {
                             // to mitigate it.
                             denied.inc();
 
-                            let hostname = &self.hostname;
+                            let hostname = &self.base.hostname.clone().unwrap_or_else(default_hostname);
                             let response = format!("421 4.3.2 {hostname} too many concurrent sessions. Try later\r\n");
                             // We allow up to 2 seconds to write the response to
                             // the peer. Since we're not spawning this task, further
@@ -610,30 +631,14 @@ impl SmtpServerSession {
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
 
+        let mut concrete_params = ConcreteEsmtpListenerParams::default();
+        concrete_params.apply_generic(params.base);
+
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
         meta.set_meta("received_from", peer_address.to_string());
-        meta.set_meta("hostname", params.hostname.to_string());
-
-        let concrete_params = ConcreteEsmtpListenerParams {
-            hostname: params.hostname,
-            relay_hosts: params.relay_hosts,
-            banner: params.banner,
-            tls_certificate: params.tls_certificate,
-            tls_private_key: params.tls_private_key,
-            deferred_spool: params.deferred_spool,
-            deferred_queue: params.deferred_queue,
-            trace_headers: params.trace_headers,
-            client_timeout: params.client_timeout,
-            data_processing_timeout: params.data_processing_timeout,
-            max_messages_per_connection: params.max_messages_per_connection,
-            max_recipients_per_message: params.max_recipients_per_message,
-            max_message_size: params.max_message_size,
-            data_buffer_size: params.data_buffer_size,
-            invalid_line_endings: params.invalid_line_endings,
-            line_length_hard_limit: params.line_length_hard_limit,
-        };
+        meta.set_meta("hostname", concrete_params.hostname.to_string());
 
         let service = format!("esmtp_listener:{my_address}");
 
