@@ -242,12 +242,6 @@ pub struct EsmtpListenerParams {
     #[serde(skip)]
     tls_config: OnceLock<Arc<ServerConfig>>,
 
-    #[serde(skip)]
-    connection_gauge: OnceLock<AtomicCounter>,
-
-    #[serde(skip)]
-    connection_denied_counter: OnceLock<AtomicCounter>,
-
     #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
     max_messages_per_connection: usize,
     #[serde(default = "EsmtpListenerParams::default_max_recipients_per_message")]
@@ -335,14 +329,12 @@ impl EsmtpListenerParams {
         ))
     }
 
-    pub fn connection_gauge(&self) -> &AtomicCounter {
-        self.connection_gauge
-            .get_or_init(|| crate::metrics_helper::connection_gauge_for_service("esmtp_listener"))
+    pub fn connection_gauge(&self) -> AtomicCounter {
+        crate::metrics_helper::connection_gauge_for_service("esmtp_listener")
     }
 
-    pub fn connection_denied_counter(&self) -> &AtomicCounter {
-        self.connection_denied_counter
-            .get_or_init(|| crate::metrics_helper::connection_denied_for_service("esmtp_listener"))
+    pub fn connection_denied_counter(&self) -> AtomicCounter {
+        crate::metrics_helper::connection_denied_for_service("esmtp_listener")
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
