@@ -213,12 +213,105 @@ struct TlsAcceptorConfigKey {
     pub tls_private_key: Option<KeySource>,
 }
 
+/// The effective set of parameters for a given SmtpServerSession
+#[derive(Clone, Debug)]
+pub struct ConcreteEsmtpListenerParams {
+    pub hostname: String,
+    pub relay_hosts: CidrSet,
+    pub banner: String,
+
+    pub tls_certificate: Option<KeySource>,
+    pub tls_private_key: Option<KeySource>,
+
+    pub deferred_spool: bool,
+    pub deferred_queue: bool,
+
+    pub trace_headers: TraceHeaders,
+
+    pub client_timeout: Duration,
+
+    pub data_processing_timeout: Duration,
+
+    max_messages_per_connection: usize,
+    max_recipients_per_message: usize,
+
+    max_message_size: usize,
+
+    data_buffer_size: usize,
+
+    invalid_line_endings: ConformanceDisposition,
+    line_length_hard_limit: usize,
+}
+
+impl ConcreteEsmtpListenerParams {
+    pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
+        let key = TlsAcceptorConfigKey {
+            hostname: self.hostname.clone(),
+            tls_private_key: self.tls_private_key.clone(),
+            tls_certificate: self.tls_certificate.clone(),
+        };
+
+        let lookup = TLS_CONFIG
+            .get_or_try_insert(
+                &key,
+                |_| Duration::from_secs(300),
+                kumo_server_common::tls_helpers::make_server_config(
+                    &self.hostname,
+                    &self.tls_private_key,
+                    &self.tls_certificate,
+                ),
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
+
+        Ok(TlsAcceptor::from(lookup.item))
+    }
+}
+
+pub fn connection_gauge() -> AtomicCounter {
+    crate::metrics_helper::connection_gauge_for_service("esmtp_listener")
+}
+
+pub fn connection_denied_counter() -> AtomicCounter {
+    crate::metrics_helper::connection_denied_for_service("esmtp_listener")
+}
+
+pub fn default_hostname() -> String {
+    gethostname::gethostname()
+        .to_str()
+        .unwrap_or("localhost")
+        .to_string()
+}
+
+impl Default for ConcreteEsmtpListenerParams {
+    fn default() -> Self {
+        Self {
+            hostname: default_hostname(),
+            relay_hosts: CidrSet::default_trusted_hosts(),
+            banner: "KumoMTA".to_string(),
+            tls_certificate: None,
+            tls_private_key: None,
+            deferred_spool: false,
+            deferred_queue: false,
+            trace_headers: TraceHeaders::default(),
+            client_timeout: Duration::from_secs(60),
+            data_processing_timeout: Duration::from_secs(300),
+            max_messages_per_connection: 10_000,
+            max_recipients_per_message: 1024,
+            max_message_size: 20 * 1024 * 1024,
+            data_buffer_size: 128 * 1024,
+            invalid_line_endings: ConformanceDisposition::default(),
+            line_length_hard_limit: MAX_LINE_LEN,
+        }
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct EsmtpListenerParams {
     #[serde(default = "EsmtpListenerParams::default_listen")]
     pub listen: String,
-    #[serde(default = "EsmtpListenerParams::default_hostname")]
+    #[serde(default = "default_hostname")]
     pub hostname: String,
     #[serde(default = "CidrSet::default_trusted_hosts")]
     pub relay_hosts: CidrSet,
@@ -309,50 +402,12 @@ impl EsmtpListenerParams {
         "127.0.0.1:2025".to_string()
     }
 
-    pub fn default_hostname() -> String {
-        gethostname::gethostname()
-            .to_str()
-            .unwrap_or("localhost")
-            .to_string()
-    }
-
     fn default_banner() -> String {
         "KumoMTA".to_string()
     }
 
-    pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
-        let key = TlsAcceptorConfigKey {
-            hostname: self.hostname.clone(),
-            tls_private_key: self.tls_private_key.clone(),
-            tls_certificate: self.tls_certificate.clone(),
-        };
-
-        let lookup = TLS_CONFIG
-            .get_or_try_insert(
-                &key,
-                |_| Duration::from_secs(300),
-                kumo_server_common::tls_helpers::make_server_config(
-                    &self.hostname,
-                    &self.tls_private_key,
-                    &self.tls_certificate,
-                ),
-            )
-            .await
-            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
-
-        Ok(TlsAcceptor::from(lookup.item))
-    }
-
-    pub fn connection_gauge(&self) -> AtomicCounter {
-        crate::metrics_helper::connection_gauge_for_service("esmtp_listener")
-    }
-
-    pub fn connection_denied_counter(&self) -> AtomicCounter {
-        crate::metrics_helper::connection_denied_for_service("esmtp_listener")
-    }
-
     pub async fn run(self) -> anyhow::Result<()> {
-        self.connection_gauge();
+        connection_gauge();
 
         let listener = TcpListener::bind(&self.listen)
             .await
@@ -364,7 +419,7 @@ impl EsmtpListenerParams {
         let mut shutting_down = ShutdownSubcription::get();
         let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
         spawn(format!("esmtp_listener {addr:?}"), async move {
-            let denied = self.connection_denied_counter();
+            let denied = connection_denied_counter();
             loop {
                 tokio::select! {
                     _ = shutting_down.shutting_down() => {
@@ -507,7 +562,7 @@ pub struct SmtpServerSession {
     my_address: SocketAddr,
     tls_active: bool,
     read_buffer: DebugabbleReadBuffer,
-    params: EsmtpListenerParams,
+    params: ConcreteEsmtpListenerParams,
     shutdown: ShutdownSubcription,
     rcpt_count: usize,
     authorization_id: Option<String>,
@@ -561,6 +616,25 @@ impl SmtpServerSession {
         meta.set_meta("received_from", peer_address.to_string());
         meta.set_meta("hostname", params.hostname.to_string());
 
+        let concrete_params = ConcreteEsmtpListenerParams {
+            hostname: params.hostname,
+            relay_hosts: params.relay_hosts,
+            banner: params.banner,
+            tls_certificate: params.tls_certificate,
+            tls_private_key: params.tls_private_key,
+            deferred_spool: params.deferred_spool,
+            deferred_queue: params.deferred_queue,
+            trace_headers: params.trace_headers,
+            client_timeout: params.client_timeout,
+            data_processing_timeout: params.data_processing_timeout,
+            max_messages_per_connection: params.max_messages_per_connection,
+            max_recipients_per_message: params.max_recipients_per_message,
+            max_message_size: params.max_message_size,
+            data_buffer_size: params.data_buffer_size,
+            invalid_line_endings: params.invalid_line_endings,
+            line_length_hard_limit: params.line_length_hard_limit,
+        };
+
         let service = format!("esmtp_listener:{my_address}");
 
         let mut server = SmtpServerSession {
@@ -571,7 +645,7 @@ impl SmtpServerSession {
             my_address,
             tls_active: false,
             read_buffer: DebugabbleReadBuffer(Vec::with_capacity(1024)),
-            params,
+            params: concrete_params,
             shutdown: ShutdownSubcription::get(),
             rcpt_count: 0,
             authorization_id: None,
@@ -585,7 +659,7 @@ impl SmtpServerSession {
             domains: HashMap::new(),
         };
 
-        server.params.connection_gauge().inc();
+        connection_gauge().inc();
 
         SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
             conn_meta: server.meta.clone_inner(),
@@ -606,7 +680,7 @@ impl SmtpServerSession {
                     .ok();
             }
         }
-        server.params.connection_gauge().dec();
+        connection_gauge().dec();
 
         SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
             conn_meta: server.meta.clone_inner(),
@@ -1097,7 +1171,7 @@ impl SmtpServerSession {
         if kumo_server_memory::get_headroom() == 0 {
             // Bump connection_denied_counter because the operator may care to
             // investigate this, and we don't otherwise log this class of rejection.
-            self.params.connection_denied_counter().inc();
+            connection_denied_counter().inc();
 
             // Using too much memory
             self.write_response(
@@ -1111,7 +1185,7 @@ impl SmtpServerSession {
         if kumo_server_common::disk_space::is_over_limit() {
             // Bump connection_denied_counter because the operator may care to
             // investigate this, and we don't otherwise log this class of rejection.
-            self.params.connection_denied_counter().inc();
+            connection_denied_counter().inc();
 
             self.write_response(
                 421,

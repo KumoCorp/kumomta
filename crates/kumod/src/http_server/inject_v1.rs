@@ -2,7 +2,7 @@ use crate::delivery_metrics::MetricsWrappedConnection;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{DeliveryProto, QueueConfig, QueueManager};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
-use crate::smtp_server::{EsmtpListenerParams, TraceHeaders};
+use crate::smtp_server::{default_hostname, TraceHeaders};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -521,7 +521,7 @@ fn make_message<'a>(
         // we use here. Right now the solution for them is to disable
         // the automatic received header and for them to prepend their
         // own in http_message_generated.
-        let hostname = EsmtpListenerParams::default_hostname();
+        let hostname = default_hostname();
         format!(
             "Received: from {from_domain} ({peer_address})\r\n  \
             by {hostname} (KumoMTA)\r\n  \
