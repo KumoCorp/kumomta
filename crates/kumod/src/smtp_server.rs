@@ -10,7 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
-use cidr_map::{AnyIpCidr, CidrMap, CidrSet};
+use cidr_map::{CidrMap, CidrSet};
 use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
@@ -329,15 +329,9 @@ impl ConcreteEsmtpListenerParams {
             }
         }
 
-        if let Some(peer) = base.peer {
-            // TODO: find a way to pre-compile and make it cheap to reference
-            // this mapping
-            let map: CidrMap<GenericEsmtpListenerParams> = peer
-                .into_iter()
-                .map(|(key, box_value)| (key, *box_value))
-                .collect();
-            if let Some(peer_params) = map.get_prefix_match(peer_address.ip()) {
-                self.apply_generic(peer_params.clone(), my_address, peer_address, meta);
+        if let Some(peer) = &base.peer {
+            if let Some(peer_params) = peer.get_prefix_match(peer_address.ip()) {
+                self.apply_generic(*peer_params.clone(), my_address, peer_address, meta);
             }
         }
 
@@ -346,15 +340,9 @@ impl ConcreteEsmtpListenerParams {
         // contained inside it.
         // Yes, technically we will parse and apply via blocks defined
         // inside a peer recursively, but the intent is peer before via.
-        if let Some(via) = base.via {
-            // TODO: find a way to pre-compile and make it cheap to reference
-            // this mapping
-            let map: CidrMap<GenericEsmtpListenerParams> = via
-                .into_iter()
-                .map(|(key, box_value)| (key, *box_value))
-                .collect();
-            if let Some(peer_params) = map.get_prefix_match(my_address.ip()) {
-                self.apply_generic(peer_params.clone(), my_address, peer_address, meta);
+        if let Some(via) = &base.via {
+            if let Some(via_params) = via.get_prefix_match(my_address.ip()) {
+                self.apply_generic(*via_params.clone(), my_address, peer_address, meta);
             }
         }
     }
@@ -429,10 +417,10 @@ pub struct GenericEsmtpListenerParams {
     pub data_processing_timeout: Option<Duration>,
 
     #[serde(default)]
-    pub peer: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
+    pub peer: Option<Arc<CidrMap<Box<GenericEsmtpListenerParams>>>>,
 
     #[serde(default)]
-    pub via: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
+    pub via: Option<Arc<CidrMap<Box<GenericEsmtpListenerParams>>>>,
 
     #[serde(default)]
     pub meta: Option<HashMap<String, serde_json::Value>>,

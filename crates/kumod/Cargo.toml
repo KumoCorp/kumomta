@@ -56,7 +56,7 @@ prometheus = {workspace=true}
 rand = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 rustls = {workspace=true}
-serde = {workspace=true}
+serde = {workspace=true, features=["rc"]}
 serde_json = {workspace=true}
 smallvec.workspace = true
 socksv5 = {workspace=true}

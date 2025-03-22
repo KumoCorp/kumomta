@@ -14,6 +14,8 @@ use mlua::prelude::LuaUserData;
 use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
 #[cfg(feature = "lua")]
 use mod_memoize::CacheValue;
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use std::fmt::Debug;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -52,6 +54,49 @@ where
         }
 
         map.finish()
+    }
+}
+
+struct MapVis<T>
+where
+    T: Clone + PartialEq,
+{
+    map: CidrMap<T>,
+}
+
+impl<'de, T> Visitor<'de> for MapVis<T>
+where
+    T: Clone + PartialEq + Deserialize<'de>,
+{
+    type Value = CidrMap<T>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a CidrMap")
+    }
+
+    fn visit_map<M>(mut self, mut access: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        while let Some((key, value)) = access.next_entry()? {
+            self.map.insert(key, value);
+        }
+
+        Ok(self.map)
+    }
+}
+
+impl<'de, V> Deserialize<'de> for CidrMap<V>
+where
+    V: Clone + PartialEq + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(MapVis {
+            map: CidrMap::new(),
+        })
     }
 }
 
