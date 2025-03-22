@@ -333,6 +333,23 @@ impl ConcreteEsmtpListenerParams {
                 self.apply_generic(peer_params.clone(), my_address, peer_address);
             }
         }
+
+        // Consider via after peer, because peer is considered to be
+        // less specific than via: via may have more specific peer blocks
+        // contained inside it.
+        // Yes, technically we will parse and apply via blocks defined
+        // inside a peer recursively, but the intent is peer before via.
+        if let Some(via) = base.via {
+            // TODO: find a way to pre-compile and make it cheap to reference
+            // this mapping
+            let map: CidrMap<GenericEsmtpListenerParams> = via
+                .into_iter()
+                .map(|(key, box_value)| (key, *box_value))
+                .collect();
+            if let Some(peer_params) = map.get_prefix_match(my_address.ip()) {
+                self.apply_generic(peer_params.clone(), my_address, peer_address);
+            }
+        }
     }
 }
 
@@ -406,6 +423,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     pub peer: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
+
+    #[serde(default)]
+    pub via: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
 
     #[serde(default)]
     max_messages_per_connection: Option<usize>,
