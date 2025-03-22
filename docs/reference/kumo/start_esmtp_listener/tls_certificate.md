@@ -5,6 +5,13 @@ the client issues `STARTTLS`.
 
 The default, if unspecified, is to dynamically allocate a self-signed certificate.
 
+{{since('dev', indent=True)}}
+    The certificate will be cached for 5 minutes, then re-evaluated,
+    allowing for the certificate to be updated without restarting
+    the service. In prior versions of KumoMTA you would need to
+    restart kumod in order to pick up an updated certificate.
+
+
 ```lua
 kumo.start_esmtp_listener {
   -- ..

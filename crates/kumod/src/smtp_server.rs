@@ -19,6 +19,7 @@ use kumo_log_types::ResolvedAddress;
 use kumo_prometheus::AtomicCounter;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::{spawn, Runtime};
+use lruttl::declare_cache;
 use mailparsing::ConformanceDisposition;
 use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
@@ -35,7 +36,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -47,6 +48,10 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub const DEFERRED_QUEUE_NAME: &str = "deferred_smtp_inject.kumomta.internal";
+
+declare_cache! {
+static TLS_CONFIG: LruCacheWithTtl<TlsAcceptorConfigKey, Arc<ServerConfig>>::new("smtp_server_tls_config", 128);
+}
 
 declare_event! {
 static SMTP_SERVER_MSG_RX: Single(
@@ -201,6 +206,13 @@ fn default_true() -> bool {
     true
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct TlsAcceptorConfigKey {
+    pub hostname: String,
+    pub tls_certificate: Option<KeySource>,
+    pub tls_private_key: Option<KeySource>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct EsmtpListenerParams {
@@ -238,9 +250,6 @@ pub struct EsmtpListenerParams {
         with = "duration_serde"
     )]
     pub data_processing_timeout: Duration,
-
-    #[serde(skip)]
-    tls_config: OnceLock<Arc<ServerConfig>>,
 
     #[serde(default = "EsmtpListenerParams::default_max_messages_per_connection")]
     max_messages_per_connection: usize,
@@ -312,21 +321,26 @@ impl EsmtpListenerParams {
     }
 
     pub async fn build_tls_acceptor(&self) -> anyhow::Result<TlsAcceptor> {
-        if let Some(config) = self.tls_config.get() {
-            return Ok(TlsAcceptor::from(config.clone()));
-        }
+        let key = TlsAcceptorConfigKey {
+            hostname: self.hostname.clone(),
+            tls_private_key: self.tls_private_key.clone(),
+            tls_certificate: self.tls_certificate.clone(),
+        };
 
-        let config = kumo_server_common::tls_helpers::make_server_config(
-            &self.hostname,
-            &self.tls_private_key,
-            &self.tls_certificate,
-        )
-        .await?;
+        let lookup = TLS_CONFIG
+            .get_or_try_insert(
+                &key,
+                |_| Duration::from_secs(300),
+                kumo_server_common::tls_helpers::make_server_config(
+                    &self.hostname,
+                    &self.tls_private_key,
+                    &self.tls_certificate,
+                ),
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!("{err:#}"))?;
 
-        // If we race to create, take the winner's version
-        Ok(TlsAcceptor::from(
-            self.tls_config.get_or_init(|| config).clone(),
-        ))
+        Ok(TlsAcceptor::from(lookup.item))
     }
 
     pub fn connection_gauge(&self) -> AtomicCounter {
@@ -338,9 +352,6 @@ impl EsmtpListenerParams {
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
-        // Pre-create the acceptor so that we can share it across
-        // the various listeners
-        self.build_tls_acceptor().await?;
         self.connection_gauge();
 
         let listener = TcpListener::bind(&self.listen)

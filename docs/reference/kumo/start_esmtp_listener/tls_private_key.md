@@ -4,6 +4,13 @@ Specify the path to the TLS private key file that corresponds to the `tls_certif
 
 The default, if unspecified, is to dynamically allocate a self-signed certificate.
 
+{{since('dev', indent=True)}}
+    The private key will be cached for 5 minutes, then re-evaluated,
+    allowing for the privae key to be updated without restarting
+    the service. In prior versions of KumoMTA you would need to
+    restart kumod in order to pick up an updated private key.
+
+
 ```lua
 kumo.start_esmtp_listener {
   -- ..
