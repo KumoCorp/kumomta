@@ -136,6 +136,15 @@ kumo.on('init', function()
 
     -- max_recipients_per_message = 1024
     -- max_messages_per_connection = 10000,
+
+    peer = {
+      ['127.0.0.1'] = {
+        banner = 'Welcome to loopback!',
+      },
+      ['192.168.1.0/24'] = {
+        banner = 'Welcome to lan!',
+      },
+    },
   }
 
   local do_logging = true

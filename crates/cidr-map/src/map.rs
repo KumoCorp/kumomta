@@ -531,7 +531,7 @@ where
     }
 }
 
-impl<S, V: Clone + Eq> FromIterator<(S, V)> for CidrMap<V>
+impl<S, V: Clone + PartialEq> FromIterator<(S, V)> for CidrMap<V>
 where
     S: Into<AnyIpCidr>,
 {

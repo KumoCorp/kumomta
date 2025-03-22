@@ -10,7 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use chrono::Utc;
-use cidr_map::CidrSet;
+use cidr_map::{AnyIpCidr, CidrMap, CidrSet};
 use config::{any_err, declare_event, load_config, serialize_options, CallbackSignature};
 use data_encoding::BASE64;
 use data_loader::KeySource;
@@ -134,7 +134,7 @@ fn default_ttl() -> Duration {
     Duration::from_secs(60)
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, ToSchema)]
+#[derive(Deserialize, Serialize, Clone, Debug, ToSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TraceHeaders {
     /// Whether to add a Received: header
@@ -267,7 +267,12 @@ impl ConcreteEsmtpListenerParams {
         Ok(TlsAcceptor::from(lookup.item))
     }
 
-    pub fn apply_generic(&mut self, base: GenericEsmtpListenerParams) {
+    pub fn apply_generic(
+        &mut self,
+        base: GenericEsmtpListenerParams,
+        my_address: &SocketAddr,
+        peer_address: &SocketAddr,
+    ) {
         if let Some(hostname) = base.hostname {
             self.hostname = hostname;
         }
@@ -316,6 +321,18 @@ impl ConcreteEsmtpListenerParams {
         if let Some(line_length_hard_limit) = base.line_length_hard_limit {
             self.line_length_hard_limit = line_length_hard_limit;
         }
+
+        if let Some(peer) = base.peer {
+            // TODO: find a way to pre-compile and make it cheap to reference
+            // this mapping
+            let map: CidrMap<GenericEsmtpListenerParams> = peer
+                .into_iter()
+                .map(|(key, box_value)| (key, *box_value))
+                .collect();
+            if let Some(peer_params) = map.get_prefix_match(peer_address.ip()) {
+                self.apply_generic(peer_params.clone(), my_address, peer_address);
+            }
+        }
     }
 }
 
@@ -357,7 +374,7 @@ impl Default for ConcreteEsmtpListenerParams {
     }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GenericEsmtpListenerParams {
     #[serde(default)]
@@ -386,6 +403,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default, with = "duration_serde")]
     pub data_processing_timeout: Option<Duration>,
+
+    #[serde(default)]
+    pub peer: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
 
     #[serde(default)]
     max_messages_per_connection: Option<usize>,
@@ -632,7 +652,7 @@ impl SmtpServerSession {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
 
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
-        concrete_params.apply_generic(params.base);
+        concrete_params.apply_generic(params.base, &my_address, &peer_address);
 
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
