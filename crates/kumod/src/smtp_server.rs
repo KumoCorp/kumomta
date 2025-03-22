@@ -272,6 +272,7 @@ impl ConcreteEsmtpListenerParams {
         base: GenericEsmtpListenerParams,
         my_address: &SocketAddr,
         peer_address: &SocketAddr,
+        meta: &mut ConnectionMetaData,
     ) {
         if let Some(hostname) = base.hostname {
             self.hostname = hostname;
@@ -322,6 +323,12 @@ impl ConcreteEsmtpListenerParams {
             self.line_length_hard_limit = line_length_hard_limit;
         }
 
+        if let Some(map) = base.meta {
+            for (k, v) in map.into_iter() {
+                meta.set_meta(k, v);
+            }
+        }
+
         if let Some(peer) = base.peer {
             // TODO: find a way to pre-compile and make it cheap to reference
             // this mapping
@@ -330,7 +337,7 @@ impl ConcreteEsmtpListenerParams {
                 .map(|(key, box_value)| (key, *box_value))
                 .collect();
             if let Some(peer_params) = map.get_prefix_match(peer_address.ip()) {
-                self.apply_generic(peer_params.clone(), my_address, peer_address);
+                self.apply_generic(peer_params.clone(), my_address, peer_address, meta);
             }
         }
 
@@ -347,7 +354,7 @@ impl ConcreteEsmtpListenerParams {
                 .map(|(key, box_value)| (key, *box_value))
                 .collect();
             if let Some(peer_params) = map.get_prefix_match(my_address.ip()) {
-                self.apply_generic(peer_params.clone(), my_address, peer_address);
+                self.apply_generic(peer_params.clone(), my_address, peer_address, meta);
             }
         }
     }
@@ -426,6 +433,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     pub via: Option<HashMap<AnyIpCidr, Box<GenericEsmtpListenerParams>>>,
+
+    #[serde(default)]
+    pub meta: Option<HashMap<String, serde_json::Value>>,
 
     #[serde(default)]
     max_messages_per_connection: Option<usize>,
@@ -670,14 +680,14 @@ impl SmtpServerSession {
         T: AsyncReadAndWrite + Debug + Send + 'static,
     {
         let socket: BoxedAsyncReadAndWrite = Box::new(socket);
-
-        let mut concrete_params = ConcreteEsmtpListenerParams::default();
-        concrete_params.apply_generic(params.base, &my_address, &peer_address);
-
         let mut meta = ConnectionMetaData::new();
         meta.set_meta("reception_protocol", "ESMTP");
         meta.set_meta("received_via", my_address.to_string());
         meta.set_meta("received_from", peer_address.to_string());
+
+        let mut concrete_params = ConcreteEsmtpListenerParams::default();
+        concrete_params.apply_generic(params.base, &my_address, &peer_address, &mut meta);
+
         meta.set_meta("hostname", concrete_params.hostname.to_string());
 
         let service = format!("esmtp_listener:{my_address}");
