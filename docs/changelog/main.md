@@ -15,6 +15,9 @@
   SMTP listeners enable metadata (and other existing listener options) to
   be conditionally set based on the source and local address of the
   incoming SMTP session.
+* SMTP Server: new
+  [smtp_server_connection_accepted](../reference/events/smtp_server_connection_accepted.md)
+  event allows custom processing prior to returning the banner to the client.
 
 ## Fixes
 

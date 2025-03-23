@@ -1258,6 +1258,14 @@ impl SmtpServerSession {
             return Ok(());
         }
 
+        if let Err(rej) = self
+            .call_callback::<(), _, _>("smtp_server_connection_accepted", self.meta.clone())
+            .await?
+        {
+            self.write_response(rej.code, rej.message, None).await?;
+            return Ok(());
+        }
+
         self.write_response(
             220,
             format!("{} {}", self.params.hostname, self.params.banner),
