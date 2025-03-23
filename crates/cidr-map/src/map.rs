@@ -15,7 +15,8 @@ use mlua::{FromLua, Lua, MetaMethod, UserDataMethods};
 #[cfg(feature = "lua")]
 use mod_memoize::CacheValue;
 use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::Debug;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -97,6 +98,22 @@ where
         deserializer.deserialize_map(MapVis {
             map: CidrMap::new(),
         })
+    }
+}
+
+impl<V> Serialize for CidrMap<V>
+where
+    V: Clone + PartialEq + Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        for (k, v) in self.iter() {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
     }
 }
 
