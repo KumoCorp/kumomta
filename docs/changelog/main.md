@@ -9,6 +9,12 @@
   file. In prior versions, the TLS parameters would be held for the lifetime
   of the process, requiring a restart to pick up a changed certificate/key
   pair.
+* SMTP Server: new [via](../reference/kumo/start_esmtp_listener/via.md),
+  [peer](../reference/kumo/start_esmtp_listener/peer.md), and
+  [meta](../reference/kumo/start_esmtp_listener/meta.md) options for
+  SMTP listeners enable metadata (and other existing listener options) to
+  be conditionally set based on the source and local address of the
+  incoming SMTP session.
 
 ## Fixes
 
