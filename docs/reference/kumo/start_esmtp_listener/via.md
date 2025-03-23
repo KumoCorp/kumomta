@@ -39,3 +39,6 @@ kumo.start_esmtp_listener {
 }
 ```
 
+See also:
+
+ * [smtp_server_get_dynamic_parameters](../../events/smtp_server_get_dynamic_parameters.md)

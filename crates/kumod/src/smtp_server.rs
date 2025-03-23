@@ -276,6 +276,7 @@ impl ConcreteEsmtpListenerParams {
     ) {
         if let Some(hostname) = base.hostname {
             self.hostname = hostname;
+            meta.set_meta("hostname", self.hostname.to_string());
         }
         if let Some(relay_hosts) = base.relay_hosts {
             self.relay_hosts = relay_hosts;
@@ -386,7 +387,7 @@ impl Default for ConcreteEsmtpListenerParams {
     }
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GenericEsmtpListenerParams {
     #[serde(default)]
@@ -441,6 +442,12 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     line_length_hard_limit: Option<usize>,
+}
+
+impl mlua::FromLua for GenericEsmtpListenerParams {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> Result<Self, mlua::Error> {
+        config::from_lua_value(lua, value)
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -674,9 +681,9 @@ impl SmtpServerSession {
         meta.set_meta("received_from", peer_address.to_string());
 
         let mut concrete_params = ConcreteEsmtpListenerParams::default();
-        concrete_params.apply_generic(params.base, &my_address, &peer_address, &mut meta);
-
         meta.set_meta("hostname", concrete_params.hostname.to_string());
+
+        concrete_params.apply_generic(params.base, &my_address, &peer_address, &mut meta);
 
         let service = format!("esmtp_listener:{my_address}");
 
@@ -1256,6 +1263,27 @@ impl SmtpServerSession {
             )
             .await?;
             return Ok(());
+        }
+
+        match self
+            .call_callback::<GenericEsmtpListenerParams, _, _>(
+                "smtp_server_get_dynamic_parameters",
+                (self.my_address.to_string(), self.meta.clone()),
+            )
+            .await?
+        {
+            Ok(generic) => {
+                self.params.apply_generic(
+                    generic,
+                    &self.my_address,
+                    &self.peer_address,
+                    &mut self.meta,
+                );
+            }
+            Err(rej) => {
+                self.write_response(rej.code, rej.message, None).await?;
+                return Ok(());
+            }
         }
 
         if let Err(rej) = self

@@ -18,6 +18,10 @@
 * SMTP Server: new
   [smtp_server_connection_accepted](../reference/events/smtp_server_connection_accepted.md)
   event allows custom processing prior to returning the banner to the client.
+* SMTP Server: new
+  [smtp_server_get_dynamic_parameters](../reference/events/smtp_server_get_dynamic_parameters.md)
+  event allows dynamically amending listener configuration to support IP-based
+  virtual service.
 
 ## Fixes
 

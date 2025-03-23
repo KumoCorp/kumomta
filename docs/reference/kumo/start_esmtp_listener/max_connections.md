@@ -18,4 +18,10 @@ In earlier releases, there was no kumod-controlled upper bound on the
 number of connections, and as many as the kernel allowed would be
 permitted.
 
+!!! note
+    This option cannot be used in dynamic listener contexts such as within
+    [via](via.md), [peer](peer.md) or within the parameters returned from
+    [smtp_server_get_dynamic_parameters](../../events/smtp_server_get_dynamic_parameters.md).
+    It can only be used directly at the top level within the
+    `kumo.start_esmtp_listener` call.
 
