@@ -5,7 +5,8 @@ Opens a connection to a [Redis](https://redis.io/) data store and returns a conn
 ```lua
 local redis = require 'redis'
 
--- Open a connection and increment a counter, returning its new value
+-- Open a connection and increment a counter, returning its new value.
+-- Redis URL syntax is: 'redis://[<username>][:<password>@]<hostname>[:port][/[<db>][?protocol=<protocol>]]'
 local conn = redis.open { node = 'redis://127.0.0.1/' }
 print(conn:query('incr', 'test-count'))
 ```
@@ -13,7 +14,8 @@ print(conn:query('incr', 'test-count'))
 *PARAMS* is a lua table with the following keys:
 
 * `node` - the redis URL string identifying the server.  Can be a table listing
-  multiple servers if you have a redis cluster deployed.
+  multiple servers if you have a redis cluster deployed.  Redis URL strings
+  have the form `redis://[<username>][:<password>@]<hostname>[:port][/[<db>][?protocol=<protocol>]]`
 
 * `pool_size` - optional integer. Specifies the maximum number of spare
   connections to be maintained by the connection pool.  The default is 10.
