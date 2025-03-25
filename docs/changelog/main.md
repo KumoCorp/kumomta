@@ -1,6 +1,12 @@
 # Unreleased Changes in The Mainline
 
 ## Breaking Changes
+* The embedded hickory DNS resolver was updated to version `0.25`.
+  If you are using
+  [kumo.dns.configure_resolver](../reference/kumo.dns/configure_resolver.md) be
+  aware that hickory has changed its configuration schema and that you may need
+  to update your configuration to match; be sure to test this before trying to
+  deploy to production.
 
 ## Other Changes and Enhancements
 

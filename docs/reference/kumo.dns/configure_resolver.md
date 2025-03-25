@@ -28,8 +28,12 @@ your system configuration.
   irrelevant for MX resolution.
 * `options` - a lua table listing out additional resolver options.
   The possible names, values and meanings are documented in
-  the [hickory DNS resolver ResolverOpts
-  documentation](https://docs.rs/hickory-resolver/0.24.1/hickory_resolver/config/struct.ResolverOpts.html)
+  the hickory DNS resolver documentation; see the table below:
+
+|KumoMTA Version|Hickory DNS ResolverOpts|
+|---------------|------------------------|
+|2025.03.19-1d3f1f67|[hickory DNS 0.24](https://docs.rs/hickory-resolver/0.24.1/hickory_resolver/config/struct.ResolverOpts.html)|
+|{{since('dev', inline=True)}}|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
 
 ```lua
 kumo.on('init', function()
@@ -49,8 +53,8 @@ kumo.on('init', function()
       },
     },
     options = {
-      edns = true,
-      use_hosts_file = true,
+      edns = true,  -- in dev builds, this is called `edns0`
+      use_hosts_file = true, -- in dev builds, use "Auto" as the value
     },
   }
 end)
