@@ -65,10 +65,21 @@ if [ "$CI" == true ] ; then
   exit 0
 fi
 
-docker build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
+docker_or_podman() {
+  if hash podman 2>/dev/null ; then
+    podman "$@"
+  elif hash docker 2>/dev/null ; then
+    docker "$@"
+  else
+    echo "Please install either podman or docker"
+    exit 1
+  fi
+}
+
+docker_or_podman build -t kumomta/mkdocs-material --pull -f docs/Dockerfile .
 	
 if [ "$SERVE" == "yes" ] ; then
-  docker run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material $@
+  docker_or_podman run --rm -it --network=host -v ${PWD}:/docs kumomta/mkdocs-material $@
 else
-  docker run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
+  docker_or_podman run --rm -e CARDS=${CARDS} -v ${PWD}:/docs kumomta/mkdocs-material build
 fi
