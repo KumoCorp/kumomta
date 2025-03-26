@@ -13,8 +13,7 @@ pub use hierarchical_hash_wheel_timer::wheels::TimerEntryWithDelay;
 /// It is also possible to cancel an entry given its id.
 pub struct TimeQ<EntryType: TimerEntryWithDelay> {
     wheel: QuadWheelWithOverflow<EntryType>,
-    start: Instant,
-    last_check: u128,
+    last_check: Instant,
     len: usize,
 }
 
@@ -32,17 +31,9 @@ impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
     pub fn new() -> Self {
         Self {
             wheel: QuadWheelWithOverflow::new(no_prune),
-            start: Instant::now(),
-            last_check: 0,
+            last_check: Instant::now(),
             len: 0,
         }
-    }
-
-    fn elapsed(&mut self) -> u128 {
-        let since_start = self.start.elapsed().as_millis();
-        let relative = since_start - self.last_check;
-        self.last_check = since_start;
-        relative
     }
 
     /// Returns true if the wheel is empty
@@ -63,30 +54,31 @@ impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
 
     /// Returns the set of items that need immediate action
     pub fn pop(&mut self) -> PopResult<EntryType> {
-        let elapsed = self.elapsed();
-        if elapsed > 0 {
-            let mut items = vec![];
+        let now = Instant::now();
+        let elapsed = now - self.last_check;
+        self.last_check = now;
+        let mut elapsed_ms = elapsed.as_millis() as u32;
 
-            let mut elapsed = elapsed as u32;
-            while elapsed > 0 {
-                match self.wheel.can_skip() {
-                    Skip::Empty => break,
-                    Skip::None => {
-                        items.append(&mut self.wheel.tick());
-                        elapsed -= 1;
-                    }
-                    Skip::Millis(m) => {
-                        let amount = m.min(elapsed);
-                        self.wheel.skip(amount);
-                        elapsed -= amount;
-                    }
+        let mut items = vec![];
+
+        while elapsed_ms > 0 {
+            match self.wheel.can_skip() {
+                Skip::Empty => break,
+                Skip::None => {
+                    items.append(&mut self.wheel.tick());
+                    elapsed_ms -= 1;
+                }
+                Skip::Millis(m) => {
+                    let amount = m.min(elapsed_ms);
+                    self.wheel.skip(amount);
+                    elapsed_ms -= amount;
                 }
             }
+        }
 
-            if !items.is_empty() {
-                self.len -= items.len();
-                return PopResult::Items(items);
-            }
+        if !items.is_empty() {
+            self.len -= items.len();
+            return PopResult::Items(items);
         }
 
         match self.wheel.can_skip() {
@@ -103,10 +95,9 @@ impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
         loop {
             match self.wheel.can_skip() {
                 Skip::Empty => {
-                    self.start = Instant::now();
-                    self.last_check = 0;
+                    self.last_check = Instant::now();
                     self.len = 0;
-                    break;
+                    return items;
                 }
                 Skip::None => {
                     items.append(&mut self.wheel.tick());
@@ -116,7 +107,6 @@ impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
                 }
             }
         }
-        items
     }
 }
 
