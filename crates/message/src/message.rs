@@ -1961,5 +1961,6 @@ Body\r
     fn sizes() {
         assert_eq!(std::mem::size_of::<Message>(), 8);
         assert_eq!(std::mem::size_of::<MessageInner>(), 32);
+        assert_eq!(std::mem::size_of::<MessageWithId>(), 72);
     }
 }
