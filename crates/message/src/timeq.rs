@@ -1,7 +1,7 @@
-use crate::message::{MessageList, MessageWithIdAdapter};
-use crate::Message;
-use intrusive_collections::LinkedList;
+use crate::message::{Message, MessageList};
 use kumo_chrono_helper::{DateTime, Utc};
+use spool::SpoolId;
+use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
 
 const WHEEL_BITS: usize = 8;
@@ -9,26 +9,44 @@ const WHEEL_SIZE: usize = 256;
 const WHEEL_MASK: usize = WHEEL_SIZE - 1;
 
 /// A time ordered queue of Messages
+#[derive(Debug)]
 pub struct TimeQ<const SLOTS: usize = 4> {
     tick_resolution: Duration,
     created: Instant,
     next_run: Instant,
     last_dispatched: Instant,
-    len: usize,
     buckets: [Bucket; SLOTS],
+    entry_by_id: HashMap<SpoolId, ListEntry>,
+    entry_slot_to_id: HashMap<EntrySlotId, SpoolId>,
+    next_entry_slot_id: EntrySlotId,
 }
 
+/// EntrySlotId represents a scheduled instance of a ListEntry.
+/// Each time we insert (or reinsert/reschedule due to a cascade)
+/// we will compute an new EntrySlotId to represent that new position.
+/// If the slot we found the entry via doesn't match the current
+/// value stored in the entry, then the slot we found was invalidated
+/// and we should continue and pretend that the entry was not found
+/// in that location.
+type EntrySlotId = usize;
 pub type QuadTimeQ = TimeQ<4>;
 pub type TriTimeQ = TimeQ<3>;
 
+#[derive(Debug)]
+struct ListEntry {
+    msg: Message,
+    entry_slot: EntrySlotId,
+}
+
+#[derive(Debug)]
 struct Bucket {
-    lists: [LinkedList<MessageWithIdAdapter>; WHEEL_SIZE],
+    lists: [Vec<EntrySlotId>; WHEEL_SIZE],
 }
 
 impl Default for Bucket {
     fn default() -> Self {
         Self {
-            lists: std::array::from_fn(|_| LinkedList::default()),
+            lists: std::array::from_fn(|_| Default::default()),
         }
     }
 }
@@ -59,8 +77,10 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
             next_run: now + tick_resolution,
             last_dispatched: now,
             created: now,
-            len: 0,
             buckets: std::array::from_fn(|_| Default::default()),
+            entry_by_id: HashMap::new(),
+            entry_slot_to_id: HashMap::new(),
+            next_entry_slot_id: 0,
         }
     }
 
@@ -68,12 +88,23 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         Self::new_impl(Instant::now(), tick_resolution)
     }
 
+    pub fn clear(&mut self) {
+        for bucket in &mut self.buckets {
+            for list in &mut bucket.lists {
+                list.clear();
+            }
+        }
+        self.entry_by_id.clear();
+        self.entry_slot_to_id.clear();
+        self.next_entry_slot_id = 0;
+    }
+
     pub fn len(&self) -> usize {
-        self.len
+        self.entry_by_id.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.entry_by_id.is_empty()
     }
 
     pub fn tick_resolution(&self) -> Duration {
@@ -100,7 +131,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         &mut self,
         due: Instant,
         round_direction: RoundDirection,
-    ) -> Option<&mut LinkedList<MessageWithIdAdapter>> {
+    ) -> Option<&mut Vec<EntrySlotId>> {
         let next_run_tick = self.compute_abs_tick(self.next_run, round_direction)?;
         let mut due = self.compute_abs_tick(due, round_direction)?;
         let diff = due.checked_sub(next_run_tick)?;
@@ -153,10 +184,22 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
 
         let due_instant = now + due_in;
 
+        let id = *message.id();
+        let entry_slot = self.next_entry_slot_id;
+        self.next_entry_slot_id += 1;
+
         match self.compute_list(due_instant, round_direction) {
             Some(list) => {
-                list.push_back(message.msg_and_id);
-                self.len += 1;
+                list.push(entry_slot);
+                self.entry_slot_to_id.insert(entry_slot, id);
+                self.entry_by_id.insert(
+                    id,
+                    ListEntry {
+                        msg: message,
+                        entry_slot,
+                    },
+                );
+
                 Ok(())
             }
             None => Err(message),
@@ -172,7 +215,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
             return ready_messages;
         }
 
-        let mut reinsert = LinkedList::default();
+        let mut reinsert = vec![];
 
         // We are due (or perhaps over due); figure out which slot(s)
         // we need to process to get up to date
@@ -195,14 +238,11 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
 
             /// Sweep all messages from bucket.lists[slot] into the reinsertion
             /// list, and return true if the next level should also cascade
-            fn cascade(
-                bucket: &mut Bucket,
-                slot: usize,
-                reinsert: &mut LinkedList<MessageWithIdAdapter>,
-            ) -> bool {
-                while let Some(msg_and_id) = bucket.lists[slot].pop_front() {
-                    reinsert.push_back(msg_and_id);
+            fn cascade(bucket: &mut Bucket, slot: usize, reinsert: &mut Vec<EntrySlotId>) -> bool {
+                while let Some(entry_slot) = bucket.lists[slot].pop() {
+                    reinsert.push(entry_slot);
                 }
+                bucket.lists[slot].shrink_to_fit();
                 slot == 0
             }
 
@@ -220,16 +260,27 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
             // bucket, or collect any that are now ready into the ready list.
             // We round down when reinserting, so that we don't push out the
             // due time by an extra tick_resolution interval
-            while let Some(msg_and_id) = reinsert.pop_front() {
-                if let Err(msg) =
-                    self.insert_impl(now, now_utc, Message { msg_and_id }, RoundDirection::Down)
-                {
+            while let Some(entry_slot) = reinsert.pop() {
+                let Some(spool_id) = self.entry_slot_to_id.remove(&entry_slot) else {
+                    // cancelled or previously cascaded
+                    continue;
+                };
+                let Some(entry) = self.entry_by_id.get(&spool_id) else {
+                    // cancelled or previously cascaded.
+                    // Note that we removed the entry_slot_to_id above.
+                    continue;
+                };
+                if entry.entry_slot != entry_slot {
+                    // entry_slot was invalidated by cancel or cascade.
+                    // We must not remove entry_by_id because it is most
+                    // likely owned by the latest generation of entry_slot.
+                    continue;
+                }
+
+                let msg = entry.msg.clone();
+                if let Err(msg) = self.insert_impl(now, now_utc, msg, RoundDirection::Down) {
                     ready_messages.push_back(msg);
-                } else {
-                    // insert_impl incremented len, but we didn't
-                    // really remove it as part of the cascade,
-                    // so compensate for that now.
-                    self.len -= 1;
+                    self.entry_by_id.remove(&spool_id);
                 }
             }
         }
@@ -239,24 +290,34 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         let num_slots = (now_slot - last_slot).min(WHEEL_SIZE);
         for idx in last_slot + 1..=last_slot + num_slots {
             // Retrieve any ready messages from the current slot
-            let mut nominally_ready = self.buckets[0].lists[idx & WHEEL_MASK].take();
-            while let Some(msg_and_id) = nominally_ready.pop_front() {
-                if let Err(msg) =
-                    self.insert_impl(now, now_utc, Message { msg_and_id }, RoundDirection::Down)
-                {
+            let mut nominally_ready = std::mem::take(&mut self.buckets[0].lists[idx & WHEEL_MASK]);
+            while let Some(entry_slot) = nominally_ready.pop() {
+                let Some(spool_id) = self.entry_slot_to_id.remove(&entry_slot) else {
+                    // cancelled or previously cascaded
+                    continue;
+                };
+                let Some(entry) = self.entry_by_id.get(&spool_id) else {
+                    // cancelled or previously cascaded.
+                    // Note that we removed the entry_slot_to_id above.
+                    continue;
+                };
+                if entry.entry_slot != entry_slot {
+                    // entry_slot was invalidated by cancel or cascade.
+                    // We must not remove entry_by_id because it is most
+                    // likely owned by the latest generation of entry_slot.
+                    continue;
+                }
+
+                let msg = entry.msg.clone();
+                if let Err(msg) = self.insert_impl(now, now_utc, msg, RoundDirection::Down) {
                     ready_messages.push_back(msg);
-                } else {
-                    // insert_impl incremented len, but we didn't
-                    // really remove it as part of the cascade,
-                    // so compensate for that now.
-                    self.len -= 1;
+                    self.entry_by_id.remove(&spool_id);
                 }
             }
         }
 
         self.last_dispatched = now;
         self.next_run = now + self.tick_resolution;
-        self.len -= ready_messages.len();
 
         ready_messages
     }
@@ -267,6 +328,29 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         // We round up when inserting so that very short near-future
         // intervals aren't immediately returned as ready
         self.insert_impl(Instant::now(), Utc::now(), message, RoundDirection::Up)
+    }
+
+    /// Cancel/remove the currently scheduled entry for a given message,
+    /// returning true if the message was scheduled, or false otherwise
+    pub fn cancel(&mut self, message: &Message) -> bool {
+        match self.entry_by_id.remove(message.id()) {
+            Some(entry) => {
+                self.entry_slot_to_id.remove(&entry.entry_slot);
+                // We potentially leave a number of dangling entry_slot_to_id
+                // entries here, for other generations of entry_slot value,
+                // but those will eventually be dealt with in pop_impl when we
+                // cascade or otherwise visit the buckets
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn contains(&self, message: &Message) -> bool {
+        self.entry_by_id
+            .get(message.id())
+            .and_then(|entry| self.entry_slot_to_id.get(&entry.entry_slot))
+            .is_some()
     }
 
     #[cfg(test)]
@@ -289,6 +373,25 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         self.pop_impl(Instant::now(), Utc::now())
     }
 
+    /// Drain the entire contents of the timerwheel
+    pub fn drain(&mut self) -> impl Iterator<Item = Message> + use<'_, SLOTS> {
+        self.buckets
+            .iter_mut()
+            .flat_map(|bucket| bucket.lists.iter_mut())
+            .flat_map(|list| std::mem::take(list).into_iter())
+            .filter_map(|entry_slot| {
+                let spool_id = self.entry_slot_to_id.remove(&entry_slot)?;
+                let entry = self.entry_by_id.get(&spool_id)?;
+                if entry.entry_slot == entry_slot {
+                    let entry = self.entry_by_id.remove(&spool_id)?;
+                    self.entry_by_id.remove(&spool_id);
+                    Some(entry.msg)
+                } else {
+                    None
+                }
+            })
+    }
+
     /// Iterate the entire timeq and apply KEEPER to each item.
     /// If it returns true then the item will be retained in
     /// the timeq, otherwise, it will be unlinked from the timeq.
@@ -298,15 +401,30 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
     {
         for bucket in self.buckets.iter_mut() {
             for list in bucket.lists.iter_mut() {
-                let to_process = list.take();
-                for msg_and_id in to_process {
-                    let msg = Message { msg_and_id };
-                    if (keeper)(&msg) {
+                let to_process = std::mem::take(list);
+                for entry_slot in to_process {
+                    let Some(spool_id) = self.entry_slot_to_id.get(&entry_slot).copied() else {
+                        // cancelled or otherwise removed
+                        continue;
+                    };
+                    let Some(entry) = self.entry_by_id.get(&spool_id) else {
+                        // cancelled or otherwise removed
+                        self.entry_slot_to_id.remove(&entry_slot);
+                        continue;
+                    };
+                    if entry.entry_slot != entry_slot {
+                        // invalidated
+                        self.entry_slot_to_id.remove(&entry_slot);
+                        continue;
+                    }
+
+                    if (keeper)(&entry.msg) {
                         // Keep it
-                        list.push_back(msg.msg_and_id);
+                        list.push(entry_slot);
                     } else {
                         // Removed it
-                        self.len -= 1;
+                        self.entry_slot_to_id.remove(&entry_slot);
+                        self.entry_by_id.remove(&spool_id);
                     }
                 }
             }
@@ -402,14 +520,20 @@ mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "attempted to insert an object that is already linked")]
     async fn double_insert() {
         let mut timeq = QuadTimeQ::new(Duration::from_secs(3));
         assert!(timeq.is_empty());
         let msg1 = new_msg();
         msg1.delay_by(chrono::Duration::seconds(10)).await.unwrap();
         assert!(timeq.insert(msg1.clone()).is_ok());
-        assert!(timeq.insert(msg1).is_ok());
+        assert!(timeq.insert(msg1.clone()).is_ok());
+        assert_eq!(timeq.len(), 1);
+        let drained = timeq.drain().collect::<Vec<_>>();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0], msg1);
+        assert!(timeq.is_empty());
+        assert!(timeq.entry_slot_to_id.is_empty());
+        assert!(timeq.entry_by_id.is_empty());
     }
 
     #[tokio::test]
@@ -635,6 +759,9 @@ mod tests {
         let msg = time.new_msg_due_in(Duration::from_secs(3)).await;
         time.insert(&mut timeq, msg.clone()).unwrap();
 
+        assert_eq!(timeq.len(), 2);
+        eprintln!("{timeq:?}");
+
         loop {
             time.advance(Duration::from_secs(1)).await;
             let mut ready = time.pop(&mut timeq);
@@ -642,10 +769,17 @@ mod tests {
                 popped.push(time.elapsed());
             }
 
+            eprintln!(
+                "popped.len={} timeq.empty={}",
+                popped.len(),
+                timeq.is_empty()
+            );
+
             if timeq.is_empty() {
                 break;
             }
         }
+        eprintln!("{timeq:?}");
 
         let intervals = [9, 12];
         eprintln!("{popped:?} vs {intervals:?}");

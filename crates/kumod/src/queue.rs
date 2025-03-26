@@ -953,10 +953,30 @@ impl QueueStructure {
             }
             Self::SingletonTimerWheel(q) => q.lock().drain().collect(),
             Self::SingletonTimerWheelV2(q) => {
+                // Note: We must always lock SINGLETON_WHEEL_2 before q
                 let mut wheel = SINGLETON_WHEEL_V2.lock();
                 let mut q = q.lock();
-                wheel.retain(|msg| !q.contains(&msg));
-                q.drain().collect()
+                let mut msgs: Vec<Message> = q.drain().collect();
+                // run_singleton_wheel_v2 does not guarantee that it
+                // will atomically remove a msg from the wheel and q.
+                // It removes from the wheel first, then subsequently
+                // resolves q to fix it up for ready messages.
+                // If the wheel.cancel call fails, the message we are
+                // considering is in-flight over in the run_singleton_wheel_v2
+                // and we must not include it here, and need to put it
+                // back into q so that things can process correctly.
+                msgs.retain(|msg| {
+                    if wheel.cancel(&msg) {
+                        true
+                    } else {
+                        // Put it back in the queue so that
+                        // run_singleton_wheel_v2 can find it
+                        // and process it.
+                        q.insert(msg.clone());
+                        false
+                    }
+                });
+                msgs
             }
         }
     }
@@ -971,12 +991,20 @@ impl QueueStructure {
                 .take(take.unwrap_or(usize::MAX))
                 .cloned()
                 .collect(),
-            Self::SingletonTimerWheelV2(q) => q
-                .lock()
-                .iter()
-                .take(take.unwrap_or(usize::MAX))
-                .cloned()
-                .collect(),
+            Self::SingletonTimerWheelV2(q) => {
+                let wheel = SINGLETON_WHEEL_V2.lock();
+                q.lock()
+                    .iter()
+                    .take(take.unwrap_or(usize::MAX))
+                    .filter_map(|msg| {
+                        if wheel.contains(msg) {
+                            Some(msg.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            }
         }
     }
 
@@ -1040,6 +1068,9 @@ impl QueueStructure {
                 let mut wheel = SINGLETON_WHEEL_V2.lock();
                 match wheel.insert(msg.clone()) {
                     Ok(()) => {
+                        q.lock().insert(msg);
+                        drop(wheel);
+
                         STARTED_SINGLETON_WHEEL_V2.call_once(|| {
                             QMAINT_RUNTIME
                                 .spawn("singleton_wheel_v2".to_string(), async move {
@@ -1049,7 +1080,6 @@ impl QueueStructure {
                                 })
                                 .expect("failed to spawn singleton_wheel_v2");
                         });
-                        q.lock().insert(msg);
 
                         QueueInsertResult::Inserted {
                             // We never notify for TimerWheel because we always tick
