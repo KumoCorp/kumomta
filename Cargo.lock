@@ -3881,6 +3881,7 @@ dependencies = [
  "lruttl",
  "mailparsing",
  "mlua",
+ "parking_lot",
  "prometheus",
  "rand 0.8.5",
  "rfc5321",

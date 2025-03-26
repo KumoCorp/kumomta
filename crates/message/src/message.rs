@@ -20,11 +20,12 @@ use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue
 use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
 use mlua::{LuaSerdeExt, UserData, UserDataMethods};
+use parking_lot::Mutex;
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::hash::Hash;
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::{Duration, Instant};
 use timeq::TimerEntryWithDelay;
 
@@ -342,17 +343,17 @@ impl Message {
     }
 
     pub fn get_num_attempts(&self) -> u16 {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         inner.num_attempts
     }
 
     pub fn set_num_attempts(&self, num_attempts: u16) {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         inner.num_attempts = num_attempts;
     }
 
     pub fn increment_num_attempts(&self) {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         inner.num_attempts += 1;
     }
 
@@ -360,7 +361,7 @@ impl Message {
         &self,
         scheduling: Option<Scheduling>,
     ) -> anyhow::Result<Option<Scheduling>> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             None => anyhow::bail!("metadata must be loaded first"),
             Some(meta) => {
@@ -378,7 +379,7 @@ impl Message {
     }
 
     pub fn get_scheduling(&self) -> Option<Scheduling> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         inner
             .metadata
             .as_ref()
@@ -386,7 +387,7 @@ impl Message {
     }
 
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         inner.due
     }
 
@@ -420,7 +421,7 @@ impl Message {
         due: Option<DateTime<Utc>>,
     ) -> anyhow::Result<Option<DateTime<Utc>>> {
         let due = {
-            let mut inner = self.msg_and_id.inner.lock().unwrap();
+            let mut inner = self.msg_and_id.inner.lock();
 
             if !inner.flags.contains(MessageFlags::SCHEDULED) {
                 // This is the simple, fast-path, common case
@@ -446,7 +447,7 @@ impl Message {
         self.load_meta().await?;
 
         {
-            let mut inner = self.msg_and_id.inner.lock().unwrap();
+            let mut inner = self.msg_and_id.inner.lock();
             match &inner.metadata {
                 Some(meta) => {
                     inner.due = match &meta.schedule {
@@ -461,7 +462,7 @@ impl Message {
     }
 
     fn get_data_if_dirty(&self) -> Option<Arc<Box<[u8]>>> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             Some(Arc::clone(&inner.data))
         } else {
@@ -470,7 +471,7 @@ impl Message {
     }
 
     fn get_meta_if_dirty(&self) -> Option<MetaData> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         if inner.flags.contains(MessageFlags::META_DIRTY) {
             inner.metadata.as_ref().map(|md| (**md).clone())
         } else {
@@ -479,12 +480,12 @@ impl Message {
     }
 
     pub fn set_force_sync(&self, force: bool) {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         inner.flags.set(MessageFlags::FORCE_SYNC, force);
     }
 
     pub fn needs_save(&self) -> bool {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         inner.flags.contains(MessageFlags::META_DIRTY)
             || inner.flags.contains(MessageFlags::DATA_DIRTY)
     }
@@ -505,7 +506,6 @@ impl Message {
             .msg_and_id
             .inner
             .lock()
-            .unwrap()
             .flags
             .contains(MessageFlags::FORCE_SYNC);
 
@@ -539,7 +539,6 @@ impl Message {
             self.msg_and_id
                 .inner
                 .lock()
-                .unwrap()
                 .flags
                 .remove(MessageFlags::DATA_DIRTY);
         }
@@ -547,7 +546,6 @@ impl Message {
             self.msg_and_id
                 .inner
                 .lock()
-                .unwrap()
                 .flags
                 .remove(MessageFlags::META_DIRTY);
         }
@@ -571,7 +569,7 @@ impl Message {
     }
 
     pub fn shrink_data(&self) -> anyhow::Result<bool> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         let mut did_shrink = false;
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             anyhow::bail!("Cannot shrink message: DATA_DIRTY");
@@ -588,7 +586,7 @@ impl Message {
     }
 
     pub fn shrink(&self) -> anyhow::Result<bool> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         let mut did_shrink = false;
         if inner.flags.contains(MessageFlags::DATA_DIRTY) {
             anyhow::bail!("Cannot shrink message: DATA_DIRTY");
@@ -612,7 +610,7 @@ impl Message {
     }
 
     pub fn sender(&self) -> anyhow::Result<EnvelopeAddress> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.sender.clone()),
             None => anyhow::bail!("metadata is not loaded"),
@@ -620,7 +618,7 @@ impl Message {
     }
 
     pub fn set_sender(&self, sender: EnvelopeAddress) -> anyhow::Result<()> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
                 meta.sender = sender;
@@ -632,7 +630,7 @@ impl Message {
     }
 
     pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => Ok(meta.recipient.clone()),
             None => anyhow::bail!("metadata is not loaded"),
@@ -640,7 +638,7 @@ impl Message {
     }
 
     pub fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
                 meta.recipient = recipient;
@@ -652,11 +650,11 @@ impl Message {
     }
 
     pub fn is_meta_loaded(&self) -> bool {
-        self.msg_and_id.inner.lock().unwrap().metadata.is_some()
+        self.msg_and_id.inner.lock().metadata.is_some()
     }
 
     pub fn is_data_loaded(&self) -> bool {
-        !self.msg_and_id.inner.lock().unwrap().data.is_empty()
+        !self.msg_and_id.inner.lock().data.is_empty()
     }
 
     pub async fn load_meta_if_needed(&self) -> anyhow::Result<()> {
@@ -684,7 +682,7 @@ impl Message {
     ) -> anyhow::Result<()> {
         let id = self.id();
         let data = meta_spool.load(*id).await?;
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         let was_not_loaded = inner.metadata.is_none();
         let metadata: MetaData = serde_json::from_slice(&data)?;
         inner.metadata.replace(Box::new(metadata));
@@ -704,7 +702,7 @@ impl Message {
         data_spool: &(dyn Spool + Send + Sync),
     ) -> anyhow::Result<()> {
         let data = data_spool.load(*self.id()).await?;
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         let was_empty = inner.data.is_empty();
         inner.data = Arc::new(data.into_boxed_slice());
         if was_empty {
@@ -714,7 +712,7 @@ impl Message {
     }
 
     pub fn assign_data(&self, data: Vec<u8>) {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         let was_empty = inner.data.is_empty();
         inner.data = Arc::new(data.into_boxed_slice());
         inner.flags.set(MessageFlags::DATA_DIRTY, true);
@@ -724,7 +722,7 @@ impl Message {
     }
 
     pub fn get_data(&self) -> Arc<Box<[u8]>> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         inner.data.clone()
     }
 
@@ -733,7 +731,7 @@ impl Message {
         key: S,
         value: V,
     ) -> anyhow::Result<()> {
-        let mut inner = self.msg_and_id.inner.lock().unwrap();
+        let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             None => anyhow::bail!("metadata must be loaded first"),
             Some(meta) => {
@@ -768,7 +766,7 @@ impl Message {
     }
 
     pub fn get_meta_obj(&self) -> anyhow::Result<serde_json::Value> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             None => anyhow::bail!("metadata must be loaded first"),
             Some(meta) => Ok(meta.meta.clone()),
@@ -779,7 +777,7 @@ impl Message {
         &self,
         key: S,
     ) -> anyhow::Result<serde_json::Value> {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             None => anyhow::bail!("metadata must be loaded first"),
             Some(meta) => match meta.meta.get(key) {
@@ -1458,7 +1456,7 @@ impl TimerEntryWithDelay for WeakMessage {
 
 impl TimerEntryWithDelay for Message {
     fn delay(&self) -> Duration {
-        let inner = self.msg_and_id.inner.lock().unwrap();
+        let inner = self.msg_and_id.inner.lock();
         match inner.due {
             Some(time) => {
                 let now = Utc::now();

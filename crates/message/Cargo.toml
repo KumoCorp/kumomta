@@ -25,6 +25,7 @@ linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}
+parking_lot.workspace = true
 prometheus = {workspace=true}
 rand = {workspace=true}
 rfc5321 = {path="../rfc5321", default-features=false}
