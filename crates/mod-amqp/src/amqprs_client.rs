@@ -4,15 +4,84 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 use amqprs::tls::TlsAdaptor;
 use amqprs::{BasicProperties, FieldTable, TimeStamp};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
+use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-static POOLS: LazyLock<Mutex<HashMap<ConnectionInfo, Pool<ConnectionManager>>>> =
-    LazyLock::new(Mutex::default);
+static POOLS: LazyLock<Mutex<Pools>> = LazyLock::new(|| Pools::new());
+
+struct Pools {
+    map: HashMap<ConnectionInfo, Arc<Pool<ConnectionManager>>>,
+}
+
+impl Pools {
+    pub fn new() -> Mutex<Self> {
+        tokio::spawn(Self::memory_monitor());
+        Mutex::new(Self {
+            map: HashMap::new(),
+        })
+    }
+
+    pub fn get(&self, info: &ConnectionInfo) -> Option<&Arc<Pool<ConnectionManager>>> {
+        self.map.get(info)
+    }
+
+    pub fn insert(&mut self, info: ConnectionInfo, pool: Arc<Pool<ConnectionManager>>) {
+        self.map.insert(info, pool);
+    }
+
+    async fn memory_monitor() {
+        tracing::debug!("starting memory monitor");
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
+        let mut memory_status = subscribe_to_memory_status_changes_async().await;
+        while let Ok(()) = memory_status.changed().await {
+            if kumo_server_memory::get_headroom() == 0 {
+                Self::purge().await;
+            }
+        }
+    }
+
+    fn all_pools() -> Vec<Arc<Pool<ConnectionManager>>> {
+        POOLS.lock().map.values().cloned().collect()
+    }
+
+    async fn purge() {
+        let pools = Self::all_pools();
+        for pool in pools {
+            let info = &pool.manager().0;
+
+            let result = pool.retain(|_, _| false);
+            tracing::error!(
+                "purging {} amqprs connections for {}:{:?}",
+                result.removed.len(),
+                info.host,
+                info.port
+            );
+
+            for connection in result.removed {
+                if let Err(err) = connection.channel.close().await {
+                    tracing::error!(
+                        "Error closing channel to {}:{:?}: {err:#}",
+                        info.host,
+                        info.port
+                    );
+                }
+                if let Err(err) = connection.connection.connection.close().await {
+                    tracing::error!(
+                        "Error closing connection to {}:{:?}: {err:#}",
+                        info.host,
+                        info.port
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -142,7 +211,7 @@ impl ConnectionInfo {
         Ok(connection)
     }
 
-    pub fn get_pool(&self) -> anyhow::Result<Pool<ConnectionManager>> {
+    pub fn get_pool(&self) -> anyhow::Result<Arc<Pool<ConnectionManager>>> {
         let mut pools = POOLS.lock();
         if let Some(pool) = pools.get(self) {
             return Ok(pool.clone());
@@ -158,7 +227,7 @@ impl ConnectionInfo {
             builder = builder.max_size(limit);
         }
 
-        let pool = builder.build()?;
+        let pool = Arc::new(builder.build()?);
 
         pools.insert(self.clone(), pool.clone());
 

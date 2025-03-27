@@ -9,6 +9,7 @@ anyhow = {workspace=true}
 config = {path="../config"}
 deadpool = {workspace=true}
 duration-serde = {path="../duration-serde"}
+kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 lapin = {workspace=true}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}

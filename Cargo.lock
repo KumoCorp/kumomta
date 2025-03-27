@@ -4079,6 +4079,7 @@ dependencies = [
  "config",
  "deadpool",
  "duration-serde",
+ "kumo-server-memory",
  "kumo-server-runtime",
  "lapin",
  "mlua",
