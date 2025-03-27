@@ -473,7 +473,7 @@ impl EsmtpListenerParams {
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
-        connection_gauge();
+        let connection_gauge = connection_gauge();
 
         let listener = TcpListener::bind(&self.listen)
             .await
@@ -490,6 +490,10 @@ impl EsmtpListenerParams {
                 tokio::select! {
                     _ = shutting_down.shutting_down() => {
                         tracing::info!("smtp listener on {addr:?} -> stopping");
+                        // Keep the connection gauge alive for the lifetime
+                        // of this listener so that it doesn't get reaped out
+                        // of the reported set of metrics
+                        drop(connection_gauge);
                         return Ok::<(), anyhow::Error>(());
                     }
                     result = listener.accept() => {
