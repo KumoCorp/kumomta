@@ -4,10 +4,11 @@ use amqprs::connection::{Connection, OpenConnectionArguments};
 use amqprs::tls::TlsAdaptor;
 use amqprs::{BasicProperties, FieldTable, TimeStamp};
 use deadpool::managed::{Manager, Metrics, Pool, RecycleError, RecycleResult};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 static POOLS: LazyLock<Mutex<HashMap<ConnectionInfo, Pool<ConnectionManager>>>> =
@@ -142,7 +143,7 @@ impl ConnectionInfo {
     }
 
     pub fn get_pool(&self) -> anyhow::Result<Pool<ConnectionManager>> {
-        let mut pools = POOLS.lock().unwrap();
+        let mut pools = POOLS.lock();
         if let Some(pool) = pools.get(self) {
             return Ok(pool.clone());
         }

@@ -4082,6 +4082,7 @@ dependencies = [
  "kumo-server-runtime",
  "lapin",
  "mlua",
+ "parking_lot",
  "serde",
  "tokio",
  "tokio-executor-trait",
