@@ -4,6 +4,7 @@ use chrono::Utc;
 use flume::Receiver;
 pub use kumo_log_types::*;
 use kumo_server_common::disk_space::MinFree;
+use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use kumo_template::{Template, TemplateEngine};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -152,6 +153,8 @@ impl LogThreadState {
         self.mark_existing_logs_as_done();
         let mut expire_counter = 0u16;
 
+        let mut memory_status = subscribe_to_memory_status_changes_async().await;
+
         loop {
             let deadline = self.get_deadline();
             tracing::debug!("waiting until deadline={deadline:?} for a log record");
@@ -171,6 +174,14 @@ impl LogThreadState {
                             expire_counter = 0;
                         }
                         cmd
+                    }
+                    _ = memory_status.changed() => {
+                        if kumo_server_memory::get_headroom() == 0 {
+                            tracing::debug!("memory is short, flushing open logs");
+                            self.file_map.clear();
+                        }
+
+                        continue;
                     }
                     _ = tokio::time::sleep_until(deadline.into()) => {
                         tracing::debug!("deadline reached, running expiration for this segment");
