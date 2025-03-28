@@ -1,5 +1,4 @@
-use crate::queue::maintainer::QMAINT_RUNTIME;
-use crate::queue::queue::Queue;
+use crate::queue::maintainer::{run_singleton_wheel_v1, run_singleton_wheel_v2, QMAINT_RUNTIME};
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipSet;
 use message::message::WeakMessage;
@@ -209,8 +208,8 @@ impl QueueStructure {
                         STARTED_SINGLETON_WHEEL.call_once(|| {
                             QMAINT_RUNTIME
                                 .spawn("singleton_wheel".to_string(), async move {
-                                    if let Err(err) = Queue::run_singleton_wheel().await {
-                                        tracing::error!("run_singleton_wheel: {err:#}");
+                                    if let Err(err) = run_singleton_wheel_v1().await {
+                                        tracing::error!("run_singleton_wheel_v1: {err:#}");
                                     }
                                 })
                                 .expect("failed to spawn singleton_wheel");
@@ -241,7 +240,7 @@ impl QueueStructure {
                         STARTED_SINGLETON_WHEEL_V2.call_once(|| {
                             QMAINT_RUNTIME
                                 .spawn("singleton_wheel_v2".to_string(), async move {
-                                    if let Err(err) = Queue::run_singleton_wheel_v2().await {
+                                    if let Err(err) = run_singleton_wheel_v2().await {
                                         tracing::error!("run_singleton_wheel_v2: {err:#}");
                                     }
                                 })

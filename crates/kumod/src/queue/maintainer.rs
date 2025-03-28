@@ -2,14 +2,20 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::queue::insert_context::InsertReason;
 use crate::queue::manager::{QueueManager, MANAGER};
 use crate::queue::queue::{Queue, QueueHandle};
+use crate::queue::strategy::{QueueStructure, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
+use message::message::{MessageList, WeakMessage};
+use message::Message;
+use parking_lot::FairMutex;
 use prometheus::IntCounter;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
+use timeq::PopResult;
 use tracing::instrument;
 
 const ONE_SECOND: Duration = Duration::from_secs(1);
@@ -148,6 +154,201 @@ pub async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
                     q.insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                         .await?;
                 }
+            }
+        }
+    }
+}
+
+pub async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
+    let mut shutdown = ShutdownSubcription::get();
+
+    tracing::debug!("singleton_wheel_v2: starting up");
+
+    async fn reinsert_ready(
+        msg: Message,
+        to_shrink: &mut HashMap<String, QueueHandle>,
+    ) -> anyhow::Result<()> {
+        if !msg.is_meta_loaded() {
+            msg.load_meta().await?;
+        }
+        let queue_name = msg.get_queue_name()?;
+        // Use get_opt rather than resolve here. If the queue is not currently
+        // tracked in the QueueManager then this message cannot possibly belong
+        // to it. Using resolve would have the side effect of creating an empty
+        // queue for it, which will then age out later. It's a waste to do that,
+        // so we just check and skip.
+        let queue = QueueManager::get_opt(&queue_name)
+            .ok_or_else(|| anyhow::anyhow!("no scheduled queue"))?;
+
+        if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
+            // Note that this will cause the msg to be removed from the
+            // queue so the remove() check below will return false
+            queue.bounce_all(&b).await;
+        }
+
+        // Verify that the message is still in the queue
+        match &queue.queue {
+            QueueStructure::SingletonTimerWheelV2(q) => {
+                fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
+                    q.lock().remove(msg)
+                }
+
+                if remove(q, &msg) {
+                    queue.metrics().sub(1);
+                    queue
+                        .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
+                        .await?;
+                    if !to_shrink.contains_key(&queue_name) {
+                        to_shrink.insert(queue_name, queue);
+                    }
+                }
+            }
+            _ => {
+                anyhow::bail!("impossible queue strategy");
+            }
+        }
+
+        Ok(())
+    }
+
+    let mut to_shrink = HashMap::new();
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                TOTAL_QMAINT_RUNS.inc();
+
+                fn pop() -> (MessageList, usize) {
+                    let mut wheel = SINGLETON_WHEEL_V2.lock();
+
+                    let ready = wheel.pop();
+                    if !ready.is_empty() {
+                    tracing::debug!("singleton_wheel_v2: popped {} messages", ready.len());
+                    }
+
+                    (ready, wheel.len())
+                }
+
+                let mut reinserted = 0;
+                let (msgs, len) = pop();
+                for msg in msgs {
+                    reinserted += 1;
+                    if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+                        tracing::error!("singleton_wheel_v2: reinsert_ready: {err:#}");
+                    }
+                }
+                tracing::debug!("singleton_wheel_v2: done reinserting {reinserted}. total scheduled={len}");
+
+                for (_queue_name, queue) in to_shrink.drain() {
+                    queue.queue.shrink();
+                }
+                to_shrink.shrink_to_fit();
+            }
+            _ = shutdown.shutting_down() => {
+                tracing::info!("singleton_wheel: stopping");
+                return Ok(());
+            }
+        }
+    }
+}
+
+pub async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
+    let mut shutdown = ShutdownSubcription::get();
+
+    tracing::debug!("singleton_wheel_v1: starting up");
+
+    async fn reinsert_ready(
+        msg: Message,
+        to_shrink: &mut HashMap<String, QueueHandle>,
+    ) -> anyhow::Result<()> {
+        if !msg.is_meta_loaded() {
+            msg.load_meta().await?;
+        }
+        let queue_name = msg.get_queue_name()?;
+        // Use get_opt rather than resolve here. If the queue is not currently
+        // tracked in the QueueManager then this message cannot possibly belong
+        // to it. Using resolve would have the side effect of creating an empty
+        // queue for it, which will then age out later. It's a waste to do that,
+        // so we just check and skip.
+        let queue = QueueManager::get_opt(&queue_name)
+            .ok_or_else(|| anyhow::anyhow!("no scheduled queue"))?;
+
+        if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
+            // Note that this will cause the msg to be removed from the
+            // queue so the remove() check below will return false
+            queue.bounce_all(&b).await;
+        }
+
+        // Verify that the message is still in the queue
+        match &queue.queue {
+            QueueStructure::SingletonTimerWheel(q) => {
+                fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
+                    q.lock().remove(msg)
+                }
+
+                if remove(q, &msg) {
+                    queue.metrics().sub(1);
+                    queue
+                        .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
+                        .await?;
+                    if !to_shrink.contains_key(&queue_name) {
+                        to_shrink.insert(queue_name, queue);
+                    }
+                }
+            }
+            _ => {
+                anyhow::bail!("impossible queue strategy");
+            }
+        }
+
+        Ok(())
+    }
+
+    let mut to_shrink = HashMap::new();
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {
+                TOTAL_QMAINT_RUNS.inc();
+
+                fn pop() -> (Vec<WeakMessage>, usize) {
+                    let mut wheel = SINGLETON_WHEEL.lock();
+
+                    let msgs = if let PopResult::Items(weak_messages) = wheel.pop() {
+                        tracing::debug!("singleton_wheel: popped {} messages", weak_messages.len());
+                        weak_messages
+                    } else {
+                        vec![]
+                    };
+
+                    (msgs, wheel.len())
+                }
+
+                let mut reinserted = 0;
+                let (msgs, len) = pop();
+                let mut messages = vec![];
+                for weak_message in msgs {
+                    if let Some(msg) = weak_message.upgrade() {
+                        messages.push(msg);
+                    }
+                }
+                wait_for_message_batch(&messages).await;
+                for msg in messages {
+                    reinserted += 1;
+                    if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+                        tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
+                    }
+                }
+                tracing::debug!("singleton_wheel: done reinserting {reinserted}. total scheduled={len}");
+
+                for (_queue_name, queue) in to_shrink.drain() {
+                    queue.queue.shrink();
+                }
+                to_shrink.shrink_to_fit();
+            }
+            _ = shutdown.shutting_down() => {
+                tracing::info!("singleton_wheel: stopping");
+                return Ok(());
             }
         }
     }
