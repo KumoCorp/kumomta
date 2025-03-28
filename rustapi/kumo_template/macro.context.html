@@ -1,0 +1,62 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Creates a template context from keys and values or merging in another value."><title>context in kumo_template - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-46132b98.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="kumo_template" data-themes="" data-resource-suffix="" data-rustdoc-version="1.85.1 (4eb161250 2025-03-15)" data-channel="1.85.1" data-search-js="search-75f5ac3e.js" data-settings-js="settings-0f613d39.js" ><script src="../static.files/storage-59e33391.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-5f194d8c.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../kumo_template/index.html">kumo_<wbr>template</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">context</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#note-on-conversions" title="Note on Conversions">Note on Conversions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate kumo_<wbr>template</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><span class="rustdoc-breadcrumbs"><a href="index.html">kumo_template</a></span><h1>Macro <span class="macro">context</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"></span></div><pre class="rust item-decl"><code>macro_rules! context {
+    () =&gt; { ... };
+    (
+        $($key:ident $(=&gt; $value:expr)?),*
+        $(, .. $ctx:expr),* $(,)?
+    ) =&gt; { ... };
+    (
+        $(.. $ctx:expr),* $(,)?
+    ) =&gt; { ... };
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a template context from keys and values or merging in another value.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>ctx = <span class="macro">context!</span>{
+    name =&gt; <span class="string">"Peter"</span>,
+    location =&gt; <span class="string">"World"</span>,
+};</code></pre></div>
+<p>Alternatively if the variable name matches the key name it can
+be omitted:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>name = <span class="string">"Peter"</span>;
+<span class="kw">let </span>ctx = <span class="macro">context!</span>{ name };</code></pre></div>
+<p>The return value is a <a href="struct.Value.html" title="struct kumo_template::Value"><code>Value</code></a>.</p>
+<p>Note that <a href="macro.context.html" title="macro kumo_template::context"><code>context!</code></a> can also be used recursively if you need to
+create nested objects:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>ctx = <span class="macro">context!</span> {
+    nav =&gt; <span class="macro">vec!</span>[
+        <span class="macro">context!</span>(path =&gt; <span class="string">"/"</span>, title =&gt; <span class="string">"Index"</span>),
+        <span class="macro">context!</span>(path =&gt; <span class="string">"/downloads"</span>, title =&gt; <span class="string">"Downloads"</span>),
+        <span class="macro">context!</span>(path =&gt; <span class="string">"/faq"</span>, title =&gt; <span class="string">"FAQ"</span>),
+    ]
+};</code></pre></div>
+<p>Additionally the macro supports a second syntax that can merge other
+contexts or values.  In that case one or more values need to be
+passed with a leading <code>..</code> operator.  This is useful to supply extra
+values into render in a common place.  The order of precedence is
+left to right:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>ctx = <span class="macro">context!</span> { a =&gt; <span class="string">"A" </span>};
+<span class="kw">let </span>ctx = <span class="macro">context!</span> { ..ctx, ..<span class="macro">context!</span> {
+    b =&gt; <span class="string">"B"
+</span>}};
+
+<span class="comment">// or
+
+</span><span class="kw">let </span>ctx = <span class="macro">context!</span> {
+    a =&gt; <span class="string">"A"</span>,
+    ..<span class="macro">context!</span> {
+        b =&gt; <span class="string">"B"
+    </span>}
+};</code></pre></div>
+<p>The merge works with an value, not just values created by the <code>context!</code>
+macro and is performed lazy.  This means it also works with dynamic
+<a href="crate::value::Object"><code>Object</code></a>s.</p>
+<h2 id="note-on-conversions"><a class="doc-anchor" href="#note-on-conversions">§</a>Note on Conversions</h2>
+<p>This macro uses <a href="struct.Value.html#method.from_serialize" title="associated function kumo_template::Value::from_serialize"><code>Value::from_serialize</code></a>
+for conversions.</p>
+<p>This macro currently does not move passed values.  Future versions of
+MiniJinja are going to change the move behavior and it’s recommended to not
+depend on this implicit reference behavior.  You should thus pass values
+with <code>&amp;value</code> if you intend on still being able to reference them
+after the macro invocation.</p>
+</div></details></section></div></main></body></html>
