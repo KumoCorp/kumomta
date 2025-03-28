@@ -10,10 +10,10 @@ use kumo_server_runtime::Runtime;
 use message::message::{MessageList, WeakMessage};
 use message::Message;
 use parking_lot::FairMutex;
-use prometheus::IntCounter;
+use prometheus::{Histogram, IntCounter};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{LazyLock, Once};
 use std::time::{Duration, Instant};
 use timeq::PopResult;
 use tracing::instrument;
@@ -21,6 +21,7 @@ use tracing::instrument;
 const ONE_SECOND: Duration = Duration::from_secs(1);
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const ONE_DAY: Duration = Duration::from_secs(86400);
+static SPAWN_REINSERTION: AtomicBool = AtomicBool::new(false);
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
 pub static QMAINT_RUNTIME: LazyLock<Runtime> =
@@ -28,6 +29,10 @@ pub static QMAINT_RUNTIME: LazyLock<Runtime> =
 
 pub fn set_qmaint_threads(n: usize) {
     QMAINT_THREADS.store(n, Ordering::SeqCst);
+}
+
+pub fn set_spawn_reinsertion(v: bool) {
+    SPAWN_REINSERTION.store(v, Ordering::SeqCst);
 }
 
 pub static TOTAL_QMAINT_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
@@ -206,103 +211,166 @@ async fn reinsert_ready(
     Ok(())
 }
 
-pub async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
+async fn reinsert_batch(messages: Vec<Message>, total_scheduled: usize) {
+    let mut to_shrink = HashMap::new();
+    let mut reinserted = 0;
+
+    wait_for_message_batch(&messages).await;
+    for msg in messages {
+        reinserted += 1;
+        if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+            tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
+        }
+    }
+    tracing::debug!(
+        "singleton_wheel: done reinserting {reinserted}. total scheduled={total_scheduled}"
+    );
+
+    for (_queue_name, queue) in to_shrink.drain() {
+        queue.queue.shrink();
+    }
+    to_shrink.shrink_to_fit();
+}
+
+async fn process_batch(messages: Vec<Message>, total_scheduled: usize) {
+    if messages.is_empty() {
+        return;
+    }
+
+    if !SPAWN_REINSERTION.load(Ordering::Relaxed) {
+        reinsert_batch(messages, total_scheduled).await;
+        return;
+    }
+
+    if let Err(err) =
+        QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
+    {
+        tracing::error!("run_singleton_wheel_v1: failed to spawn reinsert_batch: {err:#}");
+    }
+}
+
+static POP_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
+        "timeq_pop_latency",
+        "The amount of time that passes between calls to a singleon timerwheel pop",
+    )
+    .unwrap()
+});
+
+async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
 
     tracing::debug!("singleton_wheel_v1: starting up");
 
-    let mut to_shrink = HashMap::new();
-
     loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(3)) => {
-                TOTAL_QMAINT_RUNS.inc();
+        if tokio::time::timeout(Duration::from_secs(3), shutdown.shutting_down())
+            .await
+            .is_ok()
+        {
+            tracing::info!("singleton_wheel: stopping");
+            return Ok(());
+        }
+        tracing::trace!("singleton_wheel_v1 ticking");
+        TOTAL_QMAINT_RUNS.inc();
 
-                fn pop() -> (Vec<WeakMessage>, usize) {
-                    let mut wheel = SINGLETON_WHEEL.lock();
+        fn pop() -> (Vec<WeakMessage>, usize) {
+            let _timer = POP_LATENCY.start_timer();
+            let mut wheel = SINGLETON_WHEEL.lock();
 
-                    let msgs = if let PopResult::Items(weak_messages) = wheel.pop() {
-                        tracing::debug!("singleton_wheel: popped {} messages", weak_messages.len());
-                        weak_messages
-                    } else {
-                        vec![]
-                    };
+            let msgs = if let PopResult::Items(weak_messages) = wheel.pop() {
+                tracing::debug!("singleton_wheel: popped {} messages", weak_messages.len());
+                weak_messages
+            } else {
+                vec![]
+            };
 
-                    (msgs, wheel.len())
-                }
+            (msgs, wheel.len())
+        }
 
-                let mut reinserted = 0;
-                let (msgs, len) = pop();
-                let mut messages = vec![];
-                for weak_message in msgs {
-                    if let Some(msg) = weak_message.upgrade() {
-                        messages.push(msg);
-                    }
-                }
-                wait_for_message_batch(&messages).await;
-                for msg in messages {
-                    reinserted += 1;
-                    if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
-                        tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
-                    }
-                }
-                tracing::debug!("singleton_wheel: done reinserting {reinserted}. total scheduled={len}");
+        let (msgs, total_scheduled) = pop();
 
-                for (_queue_name, queue) in to_shrink.drain() {
-                    queue.queue.shrink();
-                }
-                to_shrink.shrink_to_fit();
-            }
-            _ = shutdown.shutting_down() => {
-                tracing::info!("singleton_wheel: stopping");
-                return Ok(());
+        let mut messages = vec![];
+        for weak_message in msgs {
+            if let Some(msg) = weak_message.upgrade() {
+                messages.push(msg);
             }
         }
+        process_batch(messages, total_scheduled).await;
     }
 }
 
-pub async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
+async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
     let mut shutdown = ShutdownSubcription::get();
 
     tracing::debug!("singleton_wheel_v2: starting up");
 
-    let mut to_shrink = HashMap::new();
-
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(3)) => {
-                TOTAL_QMAINT_RUNS.inc();
-
-                fn pop() -> (MessageList, usize) {
-                    let mut wheel = SINGLETON_WHEEL_V2.lock();
-
-                    let ready = wheel.pop();
-                    if !ready.is_empty() {
-                    tracing::debug!("singleton_wheel_v2: popped {} messages", ready.len());
-                    }
-
-                    (ready, wheel.len())
-                }
-
-                let mut reinserted = 0;
-                let (msgs, len) = pop();
-                for msg in msgs {
-                    reinserted += 1;
-                    if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
-                        tracing::error!("singleton_wheel_v2: reinsert_ready: {err:#}");
-                    }
-                }
-                tracing::debug!("singleton_wheel_v2: done reinserting {reinserted}. total scheduled={len}");
-
-                for (_queue_name, queue) in to_shrink.drain() {
-                    queue.queue.shrink();
-                }
-                to_shrink.shrink_to_fit();
-            }
+            _ = tokio::time::sleep(Duration::from_secs(3)) => {}
             _ = shutdown.shutting_down() => {
                 tracing::info!("singleton_wheel: stopping");
                 return Ok(());
             }
         }
+        tracing::trace!("singleton_wheel_v2 ticking");
+        TOTAL_QMAINT_RUNS.inc();
+
+        fn pop() -> (MessageList, usize) {
+            let _timer = POP_LATENCY.start_timer();
+            let mut wheel = SINGLETON_WHEEL_V2.lock();
+
+            let ready = wheel.pop();
+            if !ready.is_empty() {
+                tracing::debug!("singleton_wheel_v2: popped {} messages", ready.len());
+            }
+
+            (ready, wheel.len())
+        }
+
+        let (messages, total_scheduled) = pop();
+        process_batch(messages.into_iter().collect(), total_scheduled).await;
     }
+}
+
+fn start_ticker(label: &'static str, f: impl std::future::Future<Output = ()> + Send + 'static) {
+    if !SPAWN_REINSERTION.load(Ordering::SeqCst) {
+        QMAINT_RUNTIME
+            .spawn(format!("start_singleton_{label}"), f)
+            .expect("failed to start ticker");
+    } else {
+        std::thread::Builder::new()
+            .name(label.into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .expect("failed to build ticker runtime");
+                runtime.block_on(f);
+            })
+            .expect("failed to spawn ticker");
+    }
+}
+
+#[inline]
+pub fn start_singleton_wheel_v1() {
+    static STARTED_SINGLETON_WHEEL: Once = Once::new();
+    STARTED_SINGLETON_WHEEL.call_once(|| {
+        start_ticker("wheel_v1", async move {
+            if let Err(err) = run_singleton_wheel_v1().await {
+                tracing::error!("run_singleton_wheel_v1: {err:#}");
+            }
+        });
+    });
+}
+
+#[inline]
+pub fn start_singleton_wheel_v2() {
+    static STARTED_SINGLETON_WHEEL_V2: Once = Once::new();
+    STARTED_SINGLETON_WHEEL_V2.call_once(|| {
+        start_ticker("wheel_v2", async move {
+            if let Err(err) = run_singleton_wheel_v2().await {
+                tracing::error!("run_singleton_wheel_v2: {err:#}");
+            }
+        });
+    });
 }

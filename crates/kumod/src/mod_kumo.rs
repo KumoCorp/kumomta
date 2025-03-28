@@ -76,6 +76,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_timeq_spawn_reinsertion",
+        lua.create_function(move |_, v: bool| {
+            crate::queue::maintainer::set_spawn_reinsertion(v);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_qmaint_threads",
         lua.create_function(move |_, limit: usize| {
             crate::queue::maintainer::set_qmaint_threads(limit);

@@ -1,4 +1,4 @@
-use crate::queue::maintainer::{run_singleton_wheel_v1, run_singleton_wheel_v2, QMAINT_RUNTIME};
+use crate::queue::maintainer::{start_singleton_wheel_v1, start_singleton_wheel_v2};
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipSet;
 use message::message::WeakMessage;
@@ -8,7 +8,7 @@ use mlua::prelude::*;
 use parking_lot::FairMutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::{Arc, LazyLock, Once};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use timeq::{PopResult, TimeQ, TimerError};
 
@@ -17,8 +17,6 @@ pub static SINGLETON_WHEEL: LazyLock<Arc<FairMutex<TimeQ<WeakMessage>>>> =
 
 pub static SINGLETON_WHEEL_V2: LazyLock<Arc<FairMutex<TriTimeQ>>> =
     LazyLock::new(|| Arc::new(FairMutex::new(TriTimeQ::new(Duration::from_secs(3)))));
-static STARTED_SINGLETON_WHEEL: Once = Once::new();
-static STARTED_SINGLETON_WHEEL_V2: Once = Once::new();
 const ZERO_DURATION: Duration = Duration::from_secs(0);
 
 #[derive(Deserialize, Serialize, Debug, Clone, FromLua, Default, Copy, PartialEq, Eq)]
@@ -205,16 +203,7 @@ impl QueueStructure {
                 q.lock().insert(msg.clone());
                 match SINGLETON_WHEEL.lock().insert(msg.weak()) {
                     Ok(()) => {
-                        STARTED_SINGLETON_WHEEL.call_once(|| {
-                            QMAINT_RUNTIME
-                                .spawn("singleton_wheel".to_string(), async move {
-                                    if let Err(err) = run_singleton_wheel_v1().await {
-                                        tracing::error!("run_singleton_wheel_v1: {err:#}");
-                                    }
-                                })
-                                .expect("failed to spawn singleton_wheel");
-                        });
-
+                        start_singleton_wheel_v1();
                         QueueInsertResult::Inserted {
                             // We never notify for TimerWheel because we always tick
                             // on a regular(ish) schedule
@@ -236,16 +225,7 @@ impl QueueStructure {
                     Ok(()) => {
                         q.lock().insert(msg);
                         drop(wheel);
-
-                        STARTED_SINGLETON_WHEEL_V2.call_once(|| {
-                            QMAINT_RUNTIME
-                                .spawn("singleton_wheel_v2".to_string(), async move {
-                                    if let Err(err) = run_singleton_wheel_v2().await {
-                                        tracing::error!("run_singleton_wheel_v2: {err:#}");
-                                    }
-                                })
-                                .expect("failed to spawn singleton_wheel_v2");
-                        });
+                        start_singleton_wheel_v2();
 
                         QueueInsertResult::Inserted {
                             // We never notify for TimerWheel because we always tick
