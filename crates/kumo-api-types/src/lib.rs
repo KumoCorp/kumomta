@@ -378,6 +378,8 @@ pub struct MessageInformation {
     pub due: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_attempts: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduling: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]

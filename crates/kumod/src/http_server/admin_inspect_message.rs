@@ -23,6 +23,9 @@ pub async fn inspect_v1(
     let recipient = msg.recipient()?.to_string();
     let sender = msg.sender()?.to_string();
     let meta = msg.get_meta_obj()?;
+    let scheduling = msg
+        .get_scheduling()
+        .and_then(|s| serde_json::to_value(&s).ok());
 
     let data = if request.want_body {
         msg.load_data_if_needed().await?;
@@ -40,6 +43,7 @@ pub async fn inspect_v1(
             data,
             due: None,
             num_attempts: None,
+            scheduling,
         },
     }))
 }
