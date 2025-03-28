@@ -32,6 +32,7 @@ pub enum QueueStrategy {
 }
 
 #[must_use]
+#[derive(Debug)]
 pub enum QueueInsertResult {
     Inserted { should_notify: bool },
     Full(Message),
@@ -179,16 +180,23 @@ impl QueueStructure {
                 Err(TimerError::NotFound) => unreachable!(),
             },
             Self::SkipList(q) => {
-                let due = q.front().map(|entry| entry.get_bucketed_due());
-                q.insert(DelayedEntry(msg));
-                let now_due = q.front().map(|entry| entry.get_bucketed_due());
-                QueueInsertResult::Inserted {
-                    // Only notify the maintainer if it now needs to wake up
-                    // sooner than it previously thought. In particular,
-                    // we do not want to wake up for every message insertion,
-                    // as that would generally be a waste of effort and bog
-                    // down the system without gain.
-                    should_notify: if due.is_none() { true } else { now_due < due },
+                let now_ts = Utc::now().timestamp();
+                let entry = DelayedEntry(msg);
+                let entry_due = entry.get_bucketed_due();
+                if entry_due <= now_ts {
+                    QueueInsertResult::Full(entry.0)
+                } else {
+                    let due = q.front().map(|entry| entry.get_bucketed_due());
+                    q.insert(entry);
+                    let now_due = q.front().map(|entry| entry.get_bucketed_due());
+                    QueueInsertResult::Inserted {
+                        // Only notify the maintainer if it now needs to wake up
+                        // sooner than it previously thought. In particular,
+                        // we do not want to wake up for every message insertion,
+                        // as that would generally be a waste of effort and bog
+                        // down the system without gain.
+                        should_notify: if due.is_none() { true } else { now_due < due },
+                    }
                 }
             }
             Self::SingletonTimerWheel(q) => {
@@ -325,5 +333,69 @@ impl PartialOrd for DelayedEntry {
 impl Ord for DelayedEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.get_bucketed_due().cmp(&other.get_bucketed_due())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use message::EnvelopeAddress;
+    use spool::SpoolId;
+
+    async fn insert_past_due(qs: &mut QueueStructure) {
+        let msg = Message::new_dirty(
+            SpoolId::new(),
+            EnvelopeAddress::parse("sender@example.com").unwrap(),
+            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            serde_json::json!({}),
+            Arc::new(
+                "Subject: hello\r\n\r\nwoot"
+                    .as_bytes()
+                    .to_vec()
+                    .into_boxed_slice(),
+            ),
+        )
+        .unwrap();
+
+        let due = msg
+            .delay_by(kumo_chrono_helper::seconds(-30).unwrap())
+            .await
+            .unwrap();
+        eprintln!("due {due:?}");
+        let result = qs.insert(msg);
+        eprintln!("result: {result:?}");
+        assert!(matches!(result, QueueInsertResult::Full(_)));
+    }
+
+    #[tokio::test]
+    async fn insert_past_due_timer_wheel() {
+        let mut qs = QueueStructure::new(QueueStrategy::TimerWheel);
+        insert_past_due(&mut qs).await;
+    }
+
+    #[tokio::test]
+    async fn insert_past_due_skip_list() {
+        let mut qs = QueueStructure::new(QueueStrategy::SkipList);
+        insert_past_due(&mut qs).await;
+    }
+
+    // Note: this test vivifies SINGLETON_WHEEL and may have other consequences
+    // if other tests do the same. In this case, assuming that things are working
+    // correctly, this test doesn't actually mutate it because the message is
+    // immediately due.
+    #[tokio::test]
+    async fn insert_past_due_singleton_timer_wheel_v1() {
+        let mut qs = QueueStructure::new(QueueStrategy::SingletonTimerWheel);
+        insert_past_due(&mut qs).await;
+    }
+
+    // Note: this test vivifies SINGLETON_WHEEL_V2 and may have other consequences
+    // if other tests do the same. In this case, assuming that things are working
+    // correctly, this test doesn't actually mutate it because the message is
+    // immediately due.
+    #[tokio::test]
+    async fn insert_past_due_singleton_timer_wheel_v2() {
+        let mut qs = QueueStructure::new(QueueStrategy::SingletonTimerWheelV2);
+        insert_past_due(&mut qs).await;
     }
 }
