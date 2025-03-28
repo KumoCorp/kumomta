@@ -53,7 +53,7 @@ kumo.on('init', function()
       },
     },
     options = {
-      edns = true,  -- in dev builds, this is called `edns0`
+      edns = true, -- in dev builds, this is called `edns0`
       use_hosts_file = true, -- in dev builds, use "Auto" as the value
     },
   }
