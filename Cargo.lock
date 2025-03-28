@@ -6921,6 +6921,7 @@ name = "timeq"
 version = "0.1.0"
 dependencies = [
  "hierarchical_hash_wheel_timer",
+ "prometheus",
 ]
 
 [[package]]

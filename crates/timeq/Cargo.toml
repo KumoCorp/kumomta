@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 hierarchical_hash_wheel_timer = {workspace=true}
+prometheus.workspace = true

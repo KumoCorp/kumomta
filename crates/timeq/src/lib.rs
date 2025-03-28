@@ -1,6 +1,8 @@
 use hierarchical_hash_wheel_timer::wheels::quad_wheel::no_prune;
 use hierarchical_hash_wheel_timer::wheels::Skip;
 pub use hierarchical_hash_wheel_timer::TimerError;
+use prometheus::Histogram;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 pub use hierarchical_hash_wheel_timer::wheels::quad_wheel::QuadWheelWithOverflow;
@@ -16,6 +18,18 @@ pub struct TimeQ<EntryType: TimerEntryWithDelay> {
     last_check: Instant,
     len: usize,
 }
+
+static POP_INTERVAL: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
+        "timeq_pop_interval",
+        "The amount of time that passes between calls to TimeQ::pop",
+        // Since we generally start at 3s, let's use a custom set
+        // of buckets that will let us catch more "dynamic range"
+        // in longer intervals
+        vec![3.0, 4.0, 5.0, 8.0, 10.0, 12.0, 15.0, 20.0, 25.0, 30.0]
+    )
+    .unwrap()
+});
 
 #[must_use]
 pub enum PopResult<EntryType> {
@@ -58,6 +72,7 @@ impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
         let elapsed = now - self.last_check;
         self.last_check = now;
         let mut elapsed_ms = elapsed.as_millis() as u32;
+        POP_INTERVAL.observe(elapsed.as_secs_f64());
 
         let mut items = vec![];
 
