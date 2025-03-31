@@ -32,6 +32,8 @@
   changes are anticipated as a result of this upgrade, it is a fairly
   significant release of the DNS resolver so please report unexpected
   changes in behavior around DNS.
+* Added example and recommended default shaping configuration for the
+  TSA daemon to the default `shaping.toml` file.
 
 ## Fixes
 

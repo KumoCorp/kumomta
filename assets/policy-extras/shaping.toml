@@ -219,3 +219,16 @@ connection_limit = 3
 ["example.com".sources."my source name"]
 connection_limit = 5
 
+# Increase constraints when sending events to the TSA daemon.
+# If you deploy TSA daemon to other hosts, you need to define an entry
+# like this for each of them!
+['http://127.0.0.1:8008.tsa.kumomta']
+# This is not a regular email domain, so do not try to resolve it
+# as an MX record
+mx_rollup = false
+max_deliveries_per_connection = 8192
+# No need to coordinate with other MTAs on a shared limit
+connection_limit = "local:5"
+# Allow a healthy amount in the ready queue in case things get
+# busy
+max_ready = 10000
