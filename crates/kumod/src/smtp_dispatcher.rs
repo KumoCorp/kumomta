@@ -976,17 +976,24 @@ impl QueueDispatcher for SmtpDispatcher {
                     //
                     // We should consider the connection to be broken and we
                     // should allow the message to be retried later on.
-                    tracing::error!(
-                        "Unexpected {} response while sending message \
-                        to {} {:?}: {response:?}. \
-                        Probable protocol synchronization error, please report this! \
-                        Session ID={}. \
-                        Message will be re-queued.",
-                        response.code,
-                        dispatcher.name,
-                        self.client_address,
-                        dispatcher.session_id,
-                    );
+                    if !self
+                        .client_address
+                        .as_ref()
+                        .map(|a| a.name.contains("icloud.com"))
+                        .unwrap_or(false)
+                    {
+                        tracing::error!(
+                            "Unexpected {} response while sending message \
+                            to {} {:?}: {response:?}. \
+                            Probable protocol synchronization error, please report this! \
+                            Session ID={}. \
+                            Message will be re-queued.",
+                            response.code,
+                            dispatcher.name,
+                            self.client_address,
+                            dispatcher.session_id,
+                        );
+                    }
                     if let Some(msg) = dispatcher.msgs.pop() {
                         self.log_disposition(
                             dispatcher,
