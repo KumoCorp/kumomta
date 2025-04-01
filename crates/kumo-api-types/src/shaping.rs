@@ -570,16 +570,22 @@ impl Shaping {
                 // We'll log the error message but consider it to be an empty map
 
                 async fn http_get(url: &str, timeout: Duration) -> anyhow::Result<String> {
-                    reqwest::Client::builder()
-                        .timeout(timeout)
-                        .build()?
-                        .get(url)
-                        .send()
-                        .await
-                        .with_context(|| format!("making HTTP request to {url}"))?
-                        .text()
-                        .await
-                        .with_context(|| format!("reading text from {url}"))
+                    tokio::time::timeout(timeout, async {
+                        reqwest::Client::builder()
+                            .timeout(timeout)
+                            .connect_timeout(timeout)
+                            .read_timeout(timeout)
+                            .build()?
+                            .get(url)
+                            .send()
+                            .await
+                            .with_context(|| format!("making HTTP request to {url}"))?
+                            .text()
+                            .await
+                            .with_context(|| format!("reading text from {url}"))
+                    })
+                    .await
+                    .with_context(|| format!("timeout making HTTP request to {url}"))?
                 }
 
                 let timeout = options.http_timeout.unwrap_or(Duration::from_secs(5));
