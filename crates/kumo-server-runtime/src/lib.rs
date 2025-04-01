@@ -1,3 +1,4 @@
+use anyhow::Context;
 use parking_lot::Mutex;
 use prometheus::IntGaugeVec;
 use std::collections::HashMap;
@@ -84,7 +85,7 @@ impl Runtime {
             Err(_) => {
                 let configured = configured_size.load(Ordering::SeqCst);
                 if configured == 0 {
-                    let cpus = std::thread::available_parallelism()?.get();
+                    let cpus = available_parallelism()?;
                     (default_size)(cpus).max(1)
                 } else {
                     configured
@@ -238,4 +239,15 @@ where
     tokio::task::Builder::new()
         .name(name.as_ref())
         .spawn_blocking_on(func, runtime)
+}
+
+pub fn available_parallelism() -> anyhow::Result<usize> {
+    match std::env::var("KUMO_AVAILABLE_PARALLELISM") {
+        Ok(n) => n
+            .parse()
+            .context("failed to parse KUMO_AVAILABLE_PARALLELISM as a number"),
+        Err(_) => Ok(std::thread::available_parallelism()
+            .context("failed to get available_parallelism")?
+            .get()),
+    }
 }

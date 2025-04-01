@@ -7,6 +7,7 @@ use config::{declare_event, CallbackSignature};
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
 use kumo_server_lifecycle::LifeCycle;
+use kumo_server_runtime::available_parallelism;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use nix::unistd::{Uid, User};
 use std::path::PathBuf;
@@ -179,7 +180,7 @@ fn main() -> anyhow::Result<()> {
 
     let n_threads = match std::env::var("KUMOD_MAIN_THREADS") {
         Ok(n) => n.parse()?,
-        Err(_) => std::thread::available_parallelism()?.get(),
+        Err(_) => available_parallelism()?,
     };
 
     tokio::runtime::Builder::new_multi_thread()
@@ -221,9 +222,7 @@ fn main() -> anyhow::Result<()> {
 async fn perform_init(opts: Opt) -> anyhow::Result<()> {
     let nodeid = kumo_server_common::nodeid::NodeId::get();
     tracing::info!("NodeId is {nodeid}");
-    let num_cores = std::thread::available_parallelism()
-        .context("failed to get available_parallelism")?
-        .get();
+    let num_cores = available_parallelism()?;
     tracing::info!("available_parallelism={num_cores}");
     if num_cores < 4 {
         tracing::error!(

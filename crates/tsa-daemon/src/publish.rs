@@ -1,5 +1,6 @@
 use crate::http_server::{open_history_db, publish_log_batch};
 use kumo_log_types::JsonLogRecord;
+use kumo_server_runtime::available_parallelism;
 use parking_lot::Mutex;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::Notify;
@@ -139,7 +140,7 @@ async fn flush_batches() {
 }
 
 fn start_processor_pool() -> anyhow::Result<Mutex<BatchQueue>> {
-    let n_threads: usize = std::thread::available_parallelism()?.into();
+    let n_threads = available_parallelism()?;
 
     for i in 0..n_threads {
         std::thread::Builder::new()

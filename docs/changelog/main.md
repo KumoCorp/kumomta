@@ -34,6 +34,12 @@
   changes in behavior around DNS.
 * Added example and recommended default shaping configuration for the
   TSA daemon to the default `shaping.toml` file.
+* If you are running on a system where
+  [kumo.available_parallelism](../reference/kumo/available_parallelism.md)
+  returns an inaccurate value (such as an overcommitted VM), then you may
+  now export `KUMO_AVAILABLE_PARALLELISM` into the launching environment to
+  override the value to something more appropriate, which helps to scale
+  the various thread pools more appropriately.
 
 ## Fixes
 

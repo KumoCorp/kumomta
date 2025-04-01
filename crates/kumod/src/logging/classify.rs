@@ -4,6 +4,7 @@ use bounce_classify::{
 };
 use config::epoch::{get_current_epoch, ConfigEpoch};
 use kumo_log_types::JsonLogRecord;
+use kumo_server_runtime::available_parallelism;
 use lru_cache::LruCache;
 use parking_lot::Mutex;
 use prometheus::Histogram;
@@ -45,9 +46,7 @@ impl ClassifierParams {
     }
 
     fn default_pool_size() -> usize {
-        std::thread::available_parallelism()
-            .map(|p| (p.get() / 4).max(1))
-            .unwrap_or(4)
+        available_parallelism().map(|p| (p / 4).max(1)).unwrap_or(4)
     }
 
     fn default_cache_size() -> usize {

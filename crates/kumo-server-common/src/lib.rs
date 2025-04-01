@@ -2,6 +2,7 @@ use config::{
     any_err, decorate_callback_name, from_lua_value, get_or_create_module, load_config,
     CallbackSignature,
 };
+use kumo_server_runtime::available_parallelism;
 use mlua::{Function, Lua, LuaSerdeExt, Value, Variadic};
 use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
@@ -327,9 +328,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "available_parallelism",
-        lua.create_function(move |_, _: ()| {
-            Ok(std::thread::available_parallelism().map_err(any_err)?.get())
-        })?,
+        lua.create_function(move |_, _: ()| available_parallelism().map_err(any_err))?,
     )?;
 
     kumo_mod.set(
