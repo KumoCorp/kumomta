@@ -5,6 +5,8 @@ After=syslog.target network.target
 [Service]
 Type=simple
 Restart=always
+EnvironmentFile=-/opt/kumomta/etc/kumo-common.env
+EnvironmentFile=-/opt/kumomta/etc/tsa-daemon.env
 ExecStart=/opt/kumomta/sbin/tsa-daemon --policy /opt/kumomta/etc/policy/tsa_init.lua
 User=kumod
 

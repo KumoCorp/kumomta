@@ -5,6 +5,8 @@ After=syslog.target network.target
 [Service]
 Type=simple
 Restart=always
+EnvironmentFile=-/opt/kumomta/etc/kumo-common.env
+EnvironmentFile=-/opt/kumomta/etc/kumod.env
 ExecStart=/opt/kumomta/sbin/kumod --policy /opt/kumomta/etc/policy/init.lua --user kumod
 # Allow sufficient time to wrap up in-flight tasks and safely
 # write out pending data
