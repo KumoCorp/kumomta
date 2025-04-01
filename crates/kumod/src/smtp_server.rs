@@ -1202,7 +1202,7 @@ impl SmtpServerSession {
 
     #[instrument(skip(self))]
     async fn process(&mut self) -> anyhow::Result<()> {
-        let _activity = match Activity::get_opt(format!(
+        let activity = match Activity::get_opt(format!(
             "smtp_server process client {:?} -> {:?}",
             self.peer_address, self.my_address
         )) {
@@ -1780,7 +1780,7 @@ impl SmtpServerSession {
                     read_data_timer.stop_and_record();
 
                     let _process_data_timer = PROCESS_DATA_LATENCY.start_timer();
-                    Box::pin(self.process_data(data)).await?;
+                    Box::pin(self.process_data(data, &activity)).await?;
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
@@ -1799,7 +1799,7 @@ impl SmtpServerSession {
         }
     }
 
-    async fn process_data(&mut self, mut data: Vec<u8>) -> anyhow::Result<()> {
+    async fn process_data(&mut self, mut data: Vec<u8>, activity: &Activity) -> anyhow::Result<()> {
         let start = Instant::now();
         let deadline = start + self.params.data_processing_timeout;
 
@@ -1961,7 +1961,19 @@ impl SmtpServerSession {
                     return Ok(());
                 }
                 Ok(Err(err)) => {
-                    anyhow::bail!("QueueManager::resolve({queue_name}) failed: {err:#}");
+                    let err = format!("{err:#}");
+
+                    if activity.is_shutting_down() && err.contains("shutting down") {
+                        self.write_response(
+                            421,
+                            format!("4.3.2 {} shutting down", self.params.hostname),
+                            None,
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+
+                    anyhow::bail!("QueueManager::resolve({queue_name}) failed: {err}");
                 }
                 Ok(Ok(_handle)) => {}
             }
