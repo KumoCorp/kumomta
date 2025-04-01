@@ -19,6 +19,7 @@ kumo-server-memory = {path="../kumo-server-memory"}
 kumo-server-runtime = {path="../kumo-server-runtime"}
 message = {path="../message"}
 mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "serialize"]}
+nix = {workspace=true, features=["resource", "user"]}
 parking_lot.workspace = true
 rfc5321= {path="../rfc5321"}
 serde = {workspace=true}

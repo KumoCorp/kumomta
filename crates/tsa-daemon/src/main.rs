@@ -4,6 +4,7 @@ use clap::Parser;
 use config::CallbackSignature;
 use kumo_server_common::diagnostic_logging::{DiagnosticFormat, LoggingConfig};
 use kumo_server_common::start::StartConfig;
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use std::path::PathBuf;
 
 mod http_server;
@@ -48,6 +49,9 @@ fn main() -> anyhow::Result<()> {
         println!("{}", api_docs.to_pretty_json()?);
         return Ok(());
     }
+
+    let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
+    setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard).context("setrlimit NOFILE")?;
 
     kumo_server_common::panic::register_panic_hook();
 

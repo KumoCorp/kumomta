@@ -46,3 +46,6 @@
 * Specifying `validation_options` for the shaping helper without explicitly
   setting the new `http_timeout` could lead to a `missing field` error when
   running `kumod --validate`.
+* tsa-daemon now increases its soft `NOFILE` limit to match its hard limit
+  on startup (just as we do in kumod), which helps to avoid issues with
+  running out of file descriptors on systems with very large core counts.
