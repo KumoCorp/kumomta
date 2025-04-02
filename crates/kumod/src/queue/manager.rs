@@ -1,6 +1,6 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::insert_context::{InsertContext, InsertReason};
-use crate::queue::maintainer::{queue_meta_maintainer, QMAINT_RUNTIME};
+use crate::queue::maintainer::queue_meta_maintainer;
 use crate::queue::queue::QueueHandle;
 use crate::queue::{opt_timeout_at, IncrementAttempts, Queue};
 use crate::smtp_server::RejectError;
@@ -64,12 +64,9 @@ enum SlotLease {
 
 impl QueueManager {
     pub fn new() -> Self {
-        kumo_server_runtime::get_main_runtime().spawn(queue_meta_maintainer());
-        QMAINT_RUNTIME
-            .spawn("queue_config_maintainer".to_string(), async move {
-                Queue::queue_config_maintainer().await;
-            })
-            .expect("failed to spawn queue_config_maintainer");
+        let main_runtime = kumo_server_runtime::get_main_runtime();
+        main_runtime.spawn(queue_meta_maintainer());
+        main_runtime.spawn(Queue::queue_config_maintainer());
         Self {
             named: DashMap::new(),
         }

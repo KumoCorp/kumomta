@@ -266,12 +266,7 @@ pub struct ReadyQueueManager {
 
 impl ReadyQueueManager {
     pub fn new() -> Self {
-        QMAINT_RUNTIME
-            .spawn(
-                "ready_queue_config_maintainer".to_string(),
-                ReadyQueueManager::queue_config_maintainer(),
-            )
-            .expect("failed to spawn ReadyQueueManager::queue_config_maintainer");
+        kumo_server_runtime::get_main_runtime().spawn(ReadyQueueManager::queue_config_maintainer());
 
         Self::default()
     }
