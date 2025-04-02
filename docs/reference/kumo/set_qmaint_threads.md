@@ -21,3 +21,9 @@ kumo.on('pre_init', function()
 end)
 ```
 
+!!! note
+    The `qmaint` used to perform maintenance of a mixture of both
+    scheduled and ready queue tasks, but now is used only for
+    scheduled queue maintenance. The ready queue maintenance
+    is carried out by the `ready_qmaint` thread pool.
+    {{since('dev', inline=True)}}

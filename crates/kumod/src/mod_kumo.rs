@@ -92,6 +92,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     )?;
 
     kumo_mod.set(
+        "set_ready_qmaint_threads",
+        lua.create_function(move |_, limit: usize| {
+            crate::ready_queue::set_ready_qmaint_threads(limit);
+            Ok(())
+        })?,
+    )?;
+
+    kumo_mod.set(
         "set_readyq_threads",
         lua.create_function(move |_, limit: usize| {
             crate::ready_queue::set_readyq_threads(limit);

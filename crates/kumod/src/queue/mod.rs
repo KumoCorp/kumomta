@@ -19,7 +19,6 @@ pub mod test;
 pub use self::config::QueueConfig;
 pub use self::delivery_proto::DeliveryProto;
 pub use self::insert_context::{InsertContext, InsertReason};
-pub use self::maintainer::QMAINT_RUNTIME;
 pub use self::manager::QueueManager;
 pub use self::queue::Queue;
 

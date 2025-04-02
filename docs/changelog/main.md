@@ -40,6 +40,13 @@
   now export `KUMO_AVAILABLE_PARALLELISM` into the launching environment to
   override the value to something more appropriate, which helps to scale
   the various thread pools more appropriately.
+* Ready Queue Maintenance is now carried out in a new `readyq_qmaint` thread
+  pool. In previous versions, it was handled by the `qmaint` thread pool.  If
+  you were tuning via
+  [kumo.set_qmaint_threads](../reference/kumo.set_qmaint_threads.md) in a prior
+  version, you may need to review and adjust both that and the corresponding
+  [kumo.set_ready_qmaint_threads](../reference/kumo.set_ready_qmaint_threads.md)
+  tuning.
 
 ## Fixes
 

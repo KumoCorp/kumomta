@@ -11,7 +11,7 @@ use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
 use crate::queue::{
     DeliveryProto, IncrementAttempts, InsertContext, InsertReason, Queue, QueueConfig,
-    QueueManager, QueueState, QMAINT_RUNTIME,
+    QueueManager, QueueState,
 };
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
 use crate::smtp_server::DeferredSmtpInjectionDispatcher;
@@ -50,6 +50,13 @@ use uuid::Uuid;
 static MANAGER: LazyLock<ReadyQueueManager> = LazyLock::new(|| ReadyQueueManager::new());
 static READYQ_RUNTIME: LazyLock<Runtime> =
     LazyLock::new(|| Runtime::new("readyq", |cpus| cpus / 2, &READYQ_THREADS).unwrap());
+static RQMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
+static RQMAINT_RUNTIME: LazyLock<Runtime> =
+    LazyLock::new(|| Runtime::new("readyq_maint", |cpus| cpus / 4, &RQMAINT_THREADS).unwrap());
+
+pub fn set_ready_qmaint_threads(n: usize) {
+    RQMAINT_THREADS.store(n, Ordering::SeqCst);
+}
 
 declare_event! {
 pub static GET_EGRESS_PATH_CONFIG_SIG: Single(
@@ -401,7 +408,7 @@ impl ReadyQueueManager {
 
     fn spawn_maintainer(name: &str, notify_maintainer: Arc<Notify>) -> anyhow::Result<()> {
         let name = name.to_string();
-        QMAINT_RUNTIME.spawn(
+        RQMAINT_RUNTIME.spawn(
             format!("maintain {name}"),
             Self::maintainer_task(name, notify_maintainer),
         )?;
