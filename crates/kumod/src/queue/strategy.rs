@@ -197,13 +197,13 @@ impl QueueStructure {
                 }
             }
             Self::SingletonTimerWheel(q) => {
-                // Ensure that the msg is visible in q before we add it to
-                // the timer wheel, as it is possible for it to tick and pop
-                // the message as soon as it is inserted into the wheel.
-                q.lock().insert(msg.clone());
-                match SINGLETON_WHEEL.lock().insert(msg.weak()) {
+                let mut wheel = SINGLETON_WHEEL.lock();
+                match wheel.insert(msg.weak()) {
                     Ok(()) => {
+                        q.lock().insert(msg);
+                        drop(wheel);
                         start_singleton_wheel_v1();
+
                         QueueInsertResult::Inserted {
                             // We never notify for TimerWheel because we always tick
                             // on a regular(ish) schedule
@@ -212,8 +212,6 @@ impl QueueStructure {
                     }
                     Err(TimerError::Expired(_weak_msg)) => {
                         // Message is actually due immediately.
-                        // Take it out of the local q and return it
-                        q.lock().remove(&msg);
                         QueueInsertResult::Full(msg)
                     }
                     Err(TimerError::NotFound) => unreachable!(),
