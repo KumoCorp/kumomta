@@ -852,8 +852,8 @@ impl<
 
                                     // semaphore was closed, but the status is
                                     // still somehow pending
-                                    tracing::warn!(
-                                        "{} lookup for {name:?} woke up semas \
+                                    tracing::debug!(
+                                        "{} lookup for {name:?} woke up semaphores \
                                         but is still marked pending, \
                                         will restart cache lookup",
                                         self.inner.name
