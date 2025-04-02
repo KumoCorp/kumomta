@@ -47,8 +47,15 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
     let activity = Activity::get(format!("Queue Manager Meta Maintainer"))?;
     let mut shutdown = ShutdownSubcription::get();
     shutdown.shutting_down().await;
+    tracing::trace!("queue_meta_maintainer: system is shutting down");
     loop {
+        tracing::trace!("queue_meta_maintainer: get all scheduled queue names");
         let names = QueueManager::all_queue_names();
+        tracing::trace!(
+            "queue_meta_maintainer: got {} scheduled queue names",
+            names.len()
+        );
+
         if names.is_empty() && ReadyQueueManager::number_of_queues() == 0 {
             tracing::debug!("All queues are reaped");
             drop(activity);
@@ -56,7 +63,9 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
         }
 
         for name in names {
+            tracing::trace!("queue_meta_maintainer: examine {name}");
             if let Some(queue) = QueueManager::get_opt(&name) {
+                tracing::trace!("queue_meta_maintainer: draining {name}");
                 for msg in queue.drain_timeq() {
                     Queue::save_if_needed_and_log(&msg, None).await;
                 }
@@ -75,6 +84,7 @@ pub async fn queue_meta_maintainer() -> anyhow::Result<()> {
             }
         }
 
+        tracing::trace!("queue_meta_maintainer: sleep for a second");
         tokio::time::sleep(ONE_SECOND).await;
     }
 }
