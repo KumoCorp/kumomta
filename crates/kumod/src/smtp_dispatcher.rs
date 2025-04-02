@@ -432,7 +432,7 @@ impl SmtpDispatcher {
 
         // Use STARTTLS if available.
         let has_tls = pretls_caps.contains_key("STARTTLS");
-        let broken_tls = self.has_broken_tls(&dispatcher.name).await;
+        let broken_tls = self.has_broken_tls(&dispatcher.name);
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
@@ -770,8 +770,8 @@ impl SmtpDispatcher {
         }
     }
 
-    async fn has_broken_tls(&self, site_name: &str) -> bool {
-        self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).await.is_some()
+    fn has_broken_tls(&self, site_name: &str) -> bool {
+        self.site_has_broken_tls || BROKEN_TLS_BY_SITE.get(site_name).is_some()
     }
 
     async fn log_disposition(

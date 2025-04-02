@@ -581,7 +581,7 @@ impl<
         item.last_tick.store(v, Ordering::Relaxed);
     }
 
-    pub async fn lookup<Q: ?Sized>(&self, name: &Q) -> Option<ItemLookup<V>>
+    pub fn lookup<Q: ?Sized>(&self, name: &Q) -> Option<ItemLookup<V>>
     where
         K: Borrow<Q>,
         Q: Hash + Eq,
@@ -630,12 +630,12 @@ impl<
         }
     }
 
-    pub async fn get<Q: ?Sized>(&self, name: &Q) -> Option<V>
+    pub fn get<Q: ?Sized>(&self, name: &Q) -> Option<V>
     where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        self.lookup(name).await.map(|lookup| lookup.item)
+        self.lookup(name).map(|lookup| lookup.item)
     }
 
     pub async fn insert(&self, name: K, item: V, expiration: Instant) -> V {
@@ -702,7 +702,7 @@ impl<
         fut: impl Future<Output = Result<V, E>>,
     ) -> Result<ItemLookup<V>, Arc<anyhow::Error>> {
         // Fast path avoids cloning the key
-        if let Some(entry) = self.lookup(name).await {
+        if let Some(entry) = self.lookup(name) {
             return Ok(entry);
         }
 
@@ -894,9 +894,9 @@ mod test {
         let expiration = Instant::now() + Duration::from_secs(1);
         cache.insert(0, 0, expiration).await;
 
-        cache.get(&0).await.expect("still in cache");
+        cache.get(&0).expect("still in cache");
         tokio::time::advance(Duration::from_secs(2)).await;
-        assert!(cache.get(&0).await.is_none(), "evicted due to ttl");
+        assert!(cache.get(&0).is_none(), "evicted due to ttl");
     }
 
     #[test(tokio::test)]

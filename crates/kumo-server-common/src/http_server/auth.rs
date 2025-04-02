@@ -71,7 +71,7 @@ impl AuthKind {
     }
 
     async fn lookup_cache(&self) -> Option<Result<bool, String>> {
-        AUTH_CACHE.get(self).await
+        AUTH_CACHE.get(self)
     }
 
     pub async fn validate(&self) -> anyhow::Result<bool> {

@@ -202,7 +202,7 @@ impl LuaUserData for Signer {}
 
 async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<DkimPrivateKey>> {
     KEY_CACHE_LOOKUP.inc();
-    if let Some(pkey) = KEY_CACHE.get(key).await {
+    if let Some(pkey) = KEY_CACHE.get(key) {
         KEY_CACHE_HIT.inc();
         return Ok(pkey);
     }
@@ -244,7 +244,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let params: SignerConfig = from_lua_value(&lua, params)?;
 
             SIGNER_CACHE_LOOKUP.inc();
-            if let Some(inner) = SIGNER_CACHE.get(&params).await {
+            if let Some(inner) = SIGNER_CACHE.get(&params) {
                 SIGNER_CACHE_HIT.inc();
                 return Ok(Signer(inner));
             }
@@ -277,7 +277,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, params: Value| async move {
             let params: SignerConfig = from_lua_value(&lua, params)?;
 
-            if let Some(inner) = SIGNER_CACHE.get(&params).await {
+            if let Some(inner) = SIGNER_CACHE.get(&params) {
                 return Ok(Signer(inner));
             }
 

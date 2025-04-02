@@ -333,7 +333,7 @@ impl MailExchanger {
 
         let name_fq = fully_qualify(domain_name)?;
 
-        if let Some(mx) = MX_CACHE.get(&name_fq).await {
+        if let Some(mx) = MX_CACHE.get(&name_fq) {
             MX_CACHED.inc();
             return mx.map_err(|err| anyhow::anyhow!("{err}"));
         }
@@ -522,7 +522,7 @@ async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreferenc
 
 pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IP_CACHE.lookup(&key_fq).await {
+    if let Some(lookup) = IP_CACHE.lookup(&key_fq) {
         return Ok((lookup.item, lookup.expiration.into()));
     }
 
@@ -570,7 +570,7 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
 
 pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV4_CACHE.lookup(&key_fq).await {
+    if let Some(lookup) = IPV4_CACHE.lookup(&key_fq) {
         return Ok((lookup.item, lookup.expiration.into()));
     }
 
@@ -588,7 +588,7 @@ pub async fn ipv4_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant
 
 pub async fn ipv6_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)> {
     let key_fq = fully_qualify(key)?;
-    if let Some(lookup) = IPV6_CACHE.lookup(&key_fq).await {
+    if let Some(lookup) = IPV6_CACHE.lookup(&key_fq) {
         return Ok((lookup.item, lookup.expiration.into()));
     }
 

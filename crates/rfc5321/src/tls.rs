@@ -53,8 +53,8 @@ static RUSTLS_CACHE: LruCacheWithTtl<RustlsCacheKey, Arc<ClientConfig>>::new("rf
 }
 
 impl RustlsCacheKey {
-    async fn get(&self) -> Option<Arc<ClientConfig>> {
-        RUSTLS_CACHE.get(self).await
+    fn get(&self) -> Option<Arc<ClientConfig>> {
+        RUSTLS_CACHE.get(self)
     }
 
     async fn set(self, value: Arc<ClientConfig>) {
@@ -97,7 +97,7 @@ impl TlsOptions {
             rustls_cipher_suites: self.rustls_cipher_suites.clone(),
         };
 
-        if let Some(config) = key.get().await {
+        if let Some(config) = key.get() {
             return TlsConnector::from(config);
         }
         let cipher_suites = if self.rustls_cipher_suites.is_empty() {
