@@ -31,6 +31,37 @@ sudo /opt/kumomta/sbin/traffic-gen --help
 
 The `traffic-gen` script is used internally by the KumoMTA team to test performance before each release.
 
+A more advanced example is as follows:
+
+```bash
+$ cat traffic-gen.sh
+#!/bin/bash
+
+exec traffic-gen \
+        --target localhost:2025 \
+        --keep-going \
+        --concurrency 400 \
+        --body-size 60kb \
+        --duration 1500 \
+        --domain-suffix '' \
+        --domain aol.com:1.5 \
+        --domain bellsouth.net:0.2 \
+        --domain comcast.net:0.5 \
+        --domain gmail.com:67.4 \
+        --domain hotmail.com:8.8 \
+        --domain icloud.com:1.2 \
+        --domain live.com:0.3 \
+        --domain me.com:0.2 \
+        --domain msn.com:0.5 \
+        --domain orange.fr:0.4 \
+        --domain outlook.com:1.2 \
+        --domain sbcglobal.net:0.3 \
+        --domain yahoo.com:5.9 \
+        $@
+```
+
+The preceding example uses the domain argument to list the destination domains that should be generated and their relative weights.
+
 It is helpful to use [custom routing](https://docs.kumomta.com/userguide/policy/routing/) to configure the test server to route all messages to the sink server, with the sink configured to dev/null all messages. Modify the `init.lua` on the test server with the following:
 
 ```bash
@@ -38,6 +69,14 @@ kumo.on('smtp_server_message_received', function(msg)
     msg:set_meta('queue', 'my.sink.server')
 end)
 ```
+
+Alternatively you can use `iptables` to re-route traffic to a sink:
+
+```bash
+iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
+```
+
+In the preceding example all traffic destined for port 25 is instead routed to localhost on port 2026.
 
 ## Sample Test Results
 The hardware configuration used in this example is one "sending" configured KumoMTA instance hosted on AWS (variable CPU and RAM) and one "sink" KumoMTA instance hosted on Azure (8 CPU/16GB RAM) using a payload of 100KB messages sent in a loop 100,000 times.
