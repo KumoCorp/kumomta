@@ -215,6 +215,12 @@ pub struct EgressPathConfig {
     #[serde(flatten)]
     pub client_timeouts: SmtpClientTimeouts,
 
+    /// How long to wait for an established session to gracefully
+    /// close when the system is shutting down. After this period
+    /// has elapsed, sessions will be aborted.
+    #[serde(default, with = "duration_serde")]
+    pub system_shutdown_timeout: Option<Duration>,
+
     #[serde(default = "EgressPathConfig::default_max_ready")]
     pub max_ready: usize,
 
@@ -342,6 +348,7 @@ impl Default for EgressPathConfig {
             max_connection_rate: None,
             max_deliveries_per_connection: Self::default_max_deliveries_per_connection(),
             client_timeouts: SmtpClientTimeouts::default(),
+            system_shutdown_timeout: None,
             prohibited_hosts: CidrSet::default_prohibited_hosts(),
             skip_hosts: CidrSet::default(),
             ehlo_domain: None,

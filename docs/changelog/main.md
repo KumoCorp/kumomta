@@ -47,6 +47,11 @@
   version, you may need to review and adjust both that and the corresponding
   [kumo.set_ready_qmaint_threads](../reference/kumo/set_ready_qmaint_threads.md)
   tuning.
+* New
+  [system_shutdown_timeout](../reference/kumo/make_egress_path/system_shutdown_timeout.md)
+  option to specify how long we should wait for an in-flight delivery attempt
+  to wrap up before terminating it once we have received a request to shutdown
+  kumod.
 
 ## Fixes
 
@@ -56,3 +61,6 @@
 * tsa-daemon now increases its soft `NOFILE` limit to match its hard limit
   on startup (just as we do in kumod), which helps to avoid issues with
   running out of file descriptors on systems with very large core counts.
+* Shutdown could take longer than the 300s permitted by kumomta.service
+  when lua delivery handlers are experiencing delays, leading to systemd
+  issuing a SIGKILL.

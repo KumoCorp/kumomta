@@ -571,7 +571,11 @@ impl ReadyQueueManager {
                 _ = wait_for_shutdown => {
                     shutting_down = true;
                     if force_reap_deadline.is_none() {
-                        let duration = queue.path_config.borrow().client_timeouts.total_message_send_duration();
+                        let path_config = queue.path_config.borrow();
+
+                        let duration = path_config.system_shutdown_timeout.unwrap_or_else(|| {
+                            path_config.client_timeouts.total_message_send_duration()
+                        });
                         force_reap_deadline.replace(tokio::time::Instant::now() + duration);
                         tracing::debug!("{name}: reap deadline in {duration:?}");
                     }
@@ -918,7 +922,9 @@ impl ReadyQueue {
             return;
         }
 
-        let lease_duration = path_config.client_timeouts.total_message_send_duration();
+        let lease_duration = path_config
+            .client_timeouts
+            .total_connection_lifetime_duration();
         let limit_name = format!("kumomta.connection_limit.{}", self.name);
         let mut limits = vec![(
             &limit_name,
@@ -1931,7 +1937,7 @@ impl Dispatcher {
                     self.path_config
                         .borrow()
                         .client_timeouts
-                        .total_message_send_duration(),
+                        .total_connection_lifetime_duration(),
                 )
                 .await
                 .is_err()

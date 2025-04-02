@@ -232,3 +232,4 @@ connection_limit = "local:5"
 # Allow a healthy amount in the ready queue in case things get
 # busy
 max_ready = 10000
+system_shutdown_timeout = "30s"
