@@ -6,7 +6,10 @@ use human_bytes::human_bytes;
 use kumo_prometheus::parser::Metric;
 use num_format::{Locale, ToFormattedString};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, RenderDirection, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, Paragraph, RenderDirection, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, Wrap,
+};
 use reqwest::Url;
 use std::collections::HashMap;
 
@@ -100,6 +103,8 @@ pub struct State {
     time_series: HashMap<String, TimeSeries>,
     factories: Vec<Box<dyn SeriesFactory + 'static>>,
     error: String,
+    vert_scroll: ScrollbarState,
+    vert_scroll_position: usize,
 }
 
 impl State {
@@ -162,12 +167,30 @@ impl State {
         match action {
             Action::Quit => anyhow::bail!("quit!"),
             Action::UpdateData => self.update_metrics(endpoint).await?,
+            Action::ScrollTop => {
+                self.vert_scroll_position = 0;
+            }
+            Action::ScrollBottom => {
+                self.vert_scroll_position = usize::MAX;
+            }
+            Action::ScrollUp => {
+                self.vert_scroll_position = self.vert_scroll_position.saturating_sub(1);
+            }
+            Action::ScrollDown => {
+                self.vert_scroll_position = self.vert_scroll_position.saturating_add(1);
+            }
+            Action::PageUp => {
+                self.vert_scroll_position = self.vert_scroll_position.saturating_sub(10);
+            }
+            Action::PageDown => {
+                self.vert_scroll_position = self.vert_scroll_position.saturating_add(10);
+            }
             Action::Redraw => {}
         }
         Ok(())
     }
 
-    pub fn draw_ui(&self, f: &mut Frame, _options: &TopCommand) {
+    pub fn draw_ui(&mut self, f: &mut Frame, _options: &TopCommand) {
         let mut sparklines = vec![
             Entry::new(
                 "Delivered",
@@ -269,7 +292,6 @@ impl State {
         ];
 
         let pool_colors = [Color::LightGreen, Color::Green];
-
         let mut dynamic_series = self
             .time_series
             .iter()
@@ -292,52 +314,19 @@ impl State {
             }
         }
 
-        // Figure out the layout; first see if the ideal heights will fit
-        let mut base_height = sparklines
-            .iter()
-            .map(|entry| entry.base_height)
-            .sum::<u16>();
-        let available_height = f.area().height;
-
-        'adapted_larger: while base_height < available_height {
-            // We have room to expand
-            for entry in &mut sparklines {
-                entry.base_height += 1;
-                base_height += 1;
-
-                if base_height == available_height {
-                    break 'adapted_larger;
-                }
-            }
-        }
-
-        'adapted_smaller: while base_height > available_height {
-            // We need to reduce some row(s)
-            let mut progress = false;
-            for entry in sparklines.iter_mut().rev() {
-                if entry.base_height > 1 {
-                    entry.base_height -= 1;
-                    base_height -= 1;
-                    progress = true;
-
-                    if base_height == available_height {
-                        break 'adapted_smaller;
-                    }
-                }
-            }
-            if !progress {
-                break;
-            }
-        }
-
         let label_col_width = sparklines
             .iter()
             .map(|entry| entry.min_width())
             .max()
             .unwrap_or(12);
 
+        let content_length = sparklines.len();
+        let vert_scroll_position = self
+            .vert_scroll_position
+            .min(content_length.saturating_sub(1));
+
         let mut y = 0;
-        for entry in sparklines.into_iter() {
+        for entry in sparklines.into_iter().skip(vert_scroll_position) {
             if y >= f.area().height {
                 break;
             }
@@ -345,11 +334,11 @@ impl State {
             let spark_chunk = Rect {
                 x: 0,
                 y,
-                width: f.area().width - label_col_width,
+                width: f.area().width - label_col_width - 1,
                 height: entry.base_height,
             };
             let summary = Rect {
-                x: f.area().width - label_col_width,
+                x: f.area().width - label_col_width - 1,
                 y,
                 width: label_col_width,
                 height: entry.base_height,
@@ -385,6 +374,26 @@ impl State {
                 );
             f.render_widget(label, summary);
         }
+
+        self.vert_scroll_position = vert_scroll_position;
+        self.vert_scroll = self
+            .vert_scroll
+            .content_length(content_length)
+            .position(self.vert_scroll_position);
+
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+
+        f.render_stateful_widget(
+            scrollbar,
+            f.area().inner(Margin {
+                // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut self.vert_scroll,
+        );
 
         if !self.error.is_empty() {
             let error_rect = Rect {

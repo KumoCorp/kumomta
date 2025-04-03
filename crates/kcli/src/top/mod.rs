@@ -196,6 +196,12 @@ enum Action {
     UpdateData,
     Quit,
     Redraw,
+    ScrollUp,
+    ScrollTop,
+    PageUp,
+    PageDown,
+    ScrollDown,
+    ScrollBottom,
 }
 
 impl Action {
@@ -203,6 +209,12 @@ impl Action {
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
+                KeyCode::Down => Some(Action::ScrollDown),
+                KeyCode::Up => Some(Action::ScrollUp),
+                KeyCode::Home => Some(Action::ScrollTop),
+                KeyCode::End => Some(Action::ScrollBottom),
+                KeyCode::PageUp => Some(Action::PageUp),
+                KeyCode::PageDown => Some(Action::PageDown),
                 _ => None,
             },
             Event::Key(_) => None,

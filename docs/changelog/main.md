@@ -57,6 +57,9 @@
   option to specify how long we should wait for an in-flight delivery attempt
   to wrap up before terminating it once we have received a request to shutdown
   kumod.
+* `kcli top`: you may now scroll through the metrics using the arrow keys
+  (to move one metric at a time), page up/down (10 at a time) and home/end
+  (to move to the top/bottom). #372
 
 ## Fixes
 
