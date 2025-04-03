@@ -40,6 +40,11 @@
   now export `KUMO_AVAILABLE_PARALLELISM` into the launching environment to
   override the value to something more appropriate, which helps to scale
   the various thread pools more appropriately.
+* New systemd environment override files for both kumod and tsa-daemon.  These
+  are useful for setting the `KUMO_AVAILABLE_PARALLELISM` variable mentioned in
+  the item above. See [the
+  commit](https://github.com/KumoCorp/kumomta/commit/f8bbacba541375e0be2d2ac355f4c109826c0700)
+  for details.
 * Ready Queue Maintenance is now carried out in a new `readyq_qmaint` thread
   pool. In previous versions, it was handled by the `qmaint` thread pool.  If
   you were tuning via
