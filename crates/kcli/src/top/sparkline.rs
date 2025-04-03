@@ -1,4 +1,5 @@
 use ratatui::prelude::*;
+use ratatui::style::Styled;
 use ratatui::symbols::bar::NINE_LEVELS;
 use ratatui::widgets::{Block, RenderDirection, WidgetRef};
 
@@ -191,9 +192,9 @@ impl Sparkline<'_> {
                     RenderDirection::LeftToRight => spark_area.left() + i as u16,
                     RenderDirection::RightToLeft => spark_area.right() - i as u16 - 1,
                 };
-                buf.get_mut(x, spark_area.top() + j)
-                    .set_symbol(symbol)
-                    .set_style(self.style());
+                if let Some(cell) = buf.cell_mut(Position::new(x, spark_area.top() + j)) {
+                    cell.set_symbol(symbol).set_style(self.style());
+                }
 
                 if *d > 8 {
                     *d -= 8;
@@ -256,7 +257,7 @@ mod tests {
         let area = Rect::new(0, 0, width, height);
         let mut cell = Cell::default();
         cell.set_symbol("x");
-        let mut buffer = Buffer::filled(area, &cell);
+        let mut buffer = Buffer::filled(area, cell);
         widget.render(area, &mut buffer);
         buffer
     }

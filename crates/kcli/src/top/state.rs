@@ -297,7 +297,7 @@ impl State {
             .iter()
             .map(|entry| entry.base_height)
             .sum::<u16>();
-        let available_height = f.size().height;
+        let available_height = f.area().height;
 
         'adapted_larger: while base_height < available_height {
             // We have room to expand
@@ -338,18 +338,18 @@ impl State {
 
         let mut y = 0;
         for entry in sparklines.into_iter() {
-            if y >= f.size().height {
+            if y >= f.area().height {
                 break;
             }
 
             let spark_chunk = Rect {
                 x: 0,
                 y,
-                width: f.size().width - label_col_width,
+                width: f.area().width - label_col_width,
                 height: entry.base_height,
             };
             let summary = Rect {
-                x: f.size().width - label_col_width,
+                x: f.area().width - label_col_width,
                 y,
                 width: label_col_width,
                 height: entry.base_height,
@@ -389,8 +389,8 @@ impl State {
         if !self.error.is_empty() {
             let error_rect = Rect {
                 x: 0,
-                y: f.size().height.saturating_sub(4),
-                width: f.size().width,
+                y: f.area().height.saturating_sub(4),
+                width: f.area().width,
                 height: 4,
             };
 
