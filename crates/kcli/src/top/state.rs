@@ -1,14 +1,14 @@
 use crate::queue_summary::get_metrics;
 use crate::top::sparkline::Sparkline;
 use crate::top::timeseries::*;
-use crate::top::{Action, TopCommand};
+use crate::top::{Action, TopCommand, WhichTab};
 use human_bytes::human_bytes;
 use kumo_prometheus::parser::Metric;
 use num_format::{Locale, ToFormattedString};
 use ratatui::prelude::*;
 use ratatui::widgets::{
     Block, Borders, Clear, Paragraph, RenderDirection, Scrollbar, ScrollbarOrientation,
-    ScrollbarState, Wrap,
+    ScrollbarState, Tabs, Wrap,
 };
 use reqwest::Url;
 use std::collections::HashMap;
@@ -106,6 +106,7 @@ pub struct State {
     vert_scroll: ScrollbarState,
     vert_scroll_position: usize,
     zoom: u8,
+    active_tab: WhichTab,
 }
 
 impl State {
@@ -167,6 +168,9 @@ impl State {
     pub async fn update(&mut self, action: Action, endpoint: &Url) -> anyhow::Result<()> {
         match action {
             Action::Quit => anyhow::bail!("quit!"),
+            Action::NextTab => {
+                self.active_tab.next();
+            }
             Action::UpdateData => self.update_metrics(endpoint).await?,
             Action::ScrollTop => {
                 self.vert_scroll_position = 0;
@@ -197,7 +201,7 @@ impl State {
         Ok(())
     }
 
-    pub fn draw_ui(&mut self, f: &mut Frame, _options: &TopCommand) {
+    fn draw_series_ui(&mut self, f: &mut Frame) {
         let mut sparklines = vec![
             Entry::new(
                 "Delivered",
@@ -336,7 +340,7 @@ impl State {
             .vert_scroll_position
             .min(content_length.saturating_sub(1));
 
-        let mut y = 0;
+        let mut y = 1;
         for entry in sparklines.into_iter().skip(vert_scroll_position) {
             if y >= f.area().height || y + entry.base_height >= f.area().height {
                 break;
@@ -405,6 +409,45 @@ impl State {
             }),
             &mut self.vert_scroll,
         );
+    }
+
+    fn draw_help_ui(&mut self, f: &mut Frame) {
+        let paragraph = Paragraph::new(vec![
+            Line::from("Use Tab to switch between tabs"),
+            Line::from("Escape or 'q' to quit"),
+            Line::from("▲ ▼ to scroll up or down"),
+            Line::from("Page Up or Page Down to scroll up or down faster"),
+            Line::from("Home or End to scroll to the top or bottom"),
+            Line::from("'+' or '-' to zoom in or out"),
+        ])
+        .block(Block::bordered());
+
+        f.render_widget(
+            paragraph,
+            f.area().inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+        );
+    }
+
+    pub fn draw_ui(&mut self, f: &mut Frame, _options: &TopCommand) {
+        let all_tabs = WhichTab::all();
+        let tab_index = all_tabs
+            .iter()
+            .position(|&t| t == self.active_tab)
+            .unwrap_or(0);
+        let tabs = Tabs::new(all_tabs.into_iter().map(|t| t.title())).select(tab_index);
+        f.render_widget(tabs, f.area());
+
+        match self.active_tab {
+            WhichTab::Series => {
+                self.draw_series_ui(f);
+            }
+            WhichTab::Help => {
+                self.draw_help_ui(f);
+            }
+        }
 
         if !self.error.is_empty() {
             let error_rect = Rect {

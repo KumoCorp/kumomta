@@ -204,6 +204,38 @@ enum Action {
     ScrollBottom,
     ZoomIn,
     ZoomOut,
+    NextTab,
+}
+
+#[derive(Default, PartialEq, Copy, Clone)]
+enum WhichTab {
+    #[default]
+    Series,
+    Help,
+}
+
+impl WhichTab {
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::Series => "Time Series",
+            Self::Help => "Help (press tab to switch tabs)",
+        }
+    }
+
+    pub fn all() -> Vec<Self> {
+        vec![Self::Series, Self::Help]
+    }
+
+    pub fn next(&mut self) {
+        match self {
+            Self::Series => {
+                *self = Self::Help;
+            }
+            Self::Help => {
+                *self = Self::Series;
+            }
+        }
+    }
 }
 
 impl Action {
@@ -219,6 +251,7 @@ impl Action {
                 KeyCode::PageDown => Some(Action::PageDown),
                 KeyCode::Char('+') => Some(Action::ZoomIn),
                 KeyCode::Char('-') => Some(Action::ZoomOut),
+                KeyCode::Tab => Some(Action::NextTab),
                 _ => None,
             },
             Event::Key(_) => None,
