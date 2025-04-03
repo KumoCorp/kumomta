@@ -105,6 +105,7 @@ pub struct State {
     error: String,
     vert_scroll: ScrollbarState,
     vert_scroll_position: usize,
+    zoom: u8,
 }
 
 impl State {
@@ -184,6 +185,12 @@ impl State {
             }
             Action::PageDown => {
                 self.vert_scroll_position = self.vert_scroll_position.saturating_add(10);
+            }
+            Action::ZoomIn => {
+                self.zoom = self.zoom.saturating_add(1);
+            }
+            Action::ZoomOut => {
+                self.zoom = self.zoom.saturating_sub(1);
             }
             Action::Redraw => {}
         }
@@ -314,6 +321,10 @@ impl State {
             }
         }
 
+        for entry in sparklines.iter_mut() {
+            entry.base_height += self.zoom as u16;
+        }
+
         let label_col_width = sparklines
             .iter()
             .map(|entry| entry.min_width())
@@ -327,7 +338,7 @@ impl State {
 
         let mut y = 0;
         for entry in sparklines.into_iter().skip(vert_scroll_position) {
-            if y >= f.area().height {
+            if y >= f.area().height || y + entry.base_height >= f.area().height {
                 break;
             }
 

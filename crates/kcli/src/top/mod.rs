@@ -202,6 +202,8 @@ enum Action {
     PageDown,
     ScrollDown,
     ScrollBottom,
+    ZoomIn,
+    ZoomOut,
 }
 
 impl Action {
@@ -215,6 +217,8 @@ impl Action {
                 KeyCode::End => Some(Action::ScrollBottom),
                 KeyCode::PageUp => Some(Action::PageUp),
                 KeyCode::PageDown => Some(Action::PageDown),
+                KeyCode::Char('+') => Some(Action::ZoomIn),
+                KeyCode::Char('-') => Some(Action::ZoomOut),
                 _ => None,
             },
             Event::Key(_) => None,
