@@ -1,8 +1,8 @@
 # `kumo.kafka.build_producer(URI)`
 
-Constructs an AMQP client object.
+Constructs a Kafka client object.
 
-`URI` is the URI that references the AMQP server to which you want to connect.
+`URI` is the URI that references the Kafka cluster to which you want to connect. Bootstrap server addresses should be separated by comma.
 
 ```lua
 local producer = kumo.kafka.build_producer {
@@ -19,7 +19,7 @@ The returned client object has the following methods:
 Sends a message. `PARAMS` is an object style table with the
 following keys:
 
-* `topic` - required string; the name of the queue to which to send the message
+* `topic` - required string; the name of the topic to which to send the message
 * `payload` - required string; the message to send
 * `timeout` - how long to wait for a response.
 
@@ -47,7 +47,7 @@ producer:send {
 Sends a batch of messages. `PARAMS` is a table of object style table with the
 following keys:
 
-* `topic` - required string; the name of the queue to which to send the message
+* `topic` - required string; the name of the topic to which to send the message
 * `payload` - required string; the message to send
 * `timeout` - how long to wait for a response.
 
