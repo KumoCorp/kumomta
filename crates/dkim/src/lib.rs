@@ -91,6 +91,34 @@ impl DkimPrivateKey {
 
         Err(DKIMError::PrivateKeyLoadError(errors.join(". ")))
     }
+
+    /// Parse either an RSA or ed25519 key into a DkimPrivateKey.
+    /// Both DER and PEM are supported.
+    pub fn key(data: &[u8]) -> Result<Self, DKIMError> {
+        let mut errors = vec![];
+
+        match Rsa::private_key_from_pem(data) {
+            Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+            Err(err) => errors.push(format!("openssl private_key_from_pem: {err:#}")),
+        }
+        match Rsa::private_key_from_der(data) {
+            Ok(key) => return Ok(Self::OpenSSLRsa(key)),
+            Err(err) => errors.push(format!("openssl private_key_from_der: {err:#}")),
+        }
+        match SigningKey::from_pkcs8_der(data) {
+            Ok(key) => return Ok(Self::Ed25519(key)),
+            Err(err) => errors.push(format!("Ed25519 SigningKey::from_pkcs8_der: {err:#}")),
+        }
+        match std::str::from_utf8(data) {
+            Ok(s) => match SigningKey::from_pkcs8_pem(s) {
+                Ok(key) => return Ok(Self::Ed25519(key)),
+                Err(err) => errors.push(format!("Ed25519 SigningKey::from_pkcs8_pem: {err:#}")),
+            },
+            Err(err) => errors.push(format!("ed25519_key: data is not UTF-8: {err:#}")),
+        }
+
+        Err(DKIMError::PrivateKeyLoadError(errors.join(". ")))
+    }
 }
 
 // https://datatracker.ietf.org/doc/html/rfc6376#section-6.1.3 Step 4

@@ -69,3 +69,5 @@
 * Shutdown could take longer than the 300s permitted by kumomta.service
   when lua delivery handlers are experiencing delays, leading to systemd
   issuing a SIGKILL.
+* Loading an ed25519 private key via `kumo.dkim.ed25519_signer` would always
+  fail. #368

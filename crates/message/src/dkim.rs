@@ -211,7 +211,7 @@ async fn cached_key_load(key: &KeySource, ttl: Duration) -> anyhow::Result<Arc<D
     let key_fetch_timer = SIGNER_KEY_FETCH.start_timer();
     let data = key.get().await?;
 
-    let pkey = Arc::new(DkimPrivateKey::rsa_key(&data)?);
+    let pkey = Arc::new(DkimPrivateKey::key(&data)?);
     key_fetch_timer.stop_and_record();
 
     KEY_CACHE
