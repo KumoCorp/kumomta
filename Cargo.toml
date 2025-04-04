@@ -133,7 +133,7 @@ nom_locate = "4.1"
 notify = "7"
 nucleo-matcher = "0.3"
 num-format = "0.4.4"
-openssl = { version="=0.10.65" } # pinned; see patch below
+openssl = { version="=0.10.72" } # pinned; see patch below
 openssl-sys = { version="0.9" }
 ordermap = {version="0.5", features=["serde"]}
 parking_lot = "0.12"
@@ -207,6 +207,6 @@ zstd-safe = {version="7.0", features=["std"]}
 
 [patch.crates-io]
 # Can be removed once dane support is upstreamed
-openssl = { version="0.10.65", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
+openssl = { version="0.10.72", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.72" }
 # Can be removed once dane support is upstreamed
-openssl-sys = { version="0.9", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane" }
+openssl-sys = { version="0.9", git="https://github.com/KumoCorp/rust-openssl.git", branch="dane-openssl-v0.10.72" }

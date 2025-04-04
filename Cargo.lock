@@ -4372,9 +4372,9 @@ dependencies = [
 
 [[package]]
 name = "native-tls"
-version = "0.2.12"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8614eb2c83d59d1c8cc974dd3f920198647674a0a035e1af1fa58707e317466"
+checksum = "87de3442987e9dbec73158d5c715e7ad9072fda936bb03d19d7fa10e00520f0e"
 dependencies = [
  "libc",
  "log",
@@ -4689,8 +4689,8 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "openssl"
-version = "0.10.65"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
+version = "0.10.72"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane-openssl-v0.10.72#7edbd9ecc65b0c98634e19755c923568c12c4ee2"
 dependencies = [
  "bitflags 2.9.0",
  "cfg-if",
@@ -4704,7 +4704,7 @@ dependencies = [
 [[package]]
 name = "openssl-macros"
 version = "0.1.1"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane-openssl-v0.10.72#7edbd9ecc65b0c98634e19755c923568c12c4ee2"
 dependencies = [
  "proc-macro2 1.0.94",
  "quote 1.0.40",
@@ -4728,8 +4728,8 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.103"
-source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane#c24c0df90cc0e5b79f1a47e883e195db3e13dfef"
+version = "0.9.107"
+source = "git+https://github.com/KumoCorp/rust-openssl.git?branch=dane-openssl-v0.10.72#7edbd9ecc65b0c98634e19755c923568c12c4ee2"
 dependencies = [
  "cc",
  "libc",
