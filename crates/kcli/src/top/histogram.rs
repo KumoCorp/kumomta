@@ -4,6 +4,7 @@ use kumo_prometheus::parser::Metric;
 pub struct Histogram {
     pub data: Vec<Vec<u64>>,
     pub buckets: Vec<f64>,
+    accumulator: Option<Vec<u64>>,
     name: String,
     label: Option<String>,
     label_value: Option<String>,
@@ -15,6 +16,7 @@ impl Histogram {
         Self {
             data: vec![],
             buckets: vec![],
+            accumulator: None,
             name: name.into(),
             label: None,
             label_value: None,
@@ -31,6 +33,7 @@ impl Histogram {
         Self {
             data: vec![],
             buckets: vec![],
+            accumulator: None,
             name: name.into(),
             label: Some(label.into()),
             label_value: Some(label_value.into()),
@@ -52,20 +55,40 @@ impl Histogram {
                 // Note that we assume that histo.bucket is ordered by threshold.
                 // This is currently guaranteed by the kumo prometheus metric
                 // exporter, so we don't need to fix it up on the client side.
-                let mut data = vec![];
+                let mut col = vec![];
                 let need_buckets = self.buckets.is_empty();
                 let mut buckets = vec![];
                 for (thresh, value) in &histo.bucket {
                     if need_buckets {
                         buckets.push(*thresh);
                     }
-                    data.push(*value as u64);
+                    col.push(*value as u64);
                 }
 
                 if need_buckets {
                     self.buckets = buckets;
                 }
 
+                let row_deltas: Vec<u64> = match &self.accumulator {
+                    None => col.iter().map(|_| 0).collect(),
+                    Some(a) => a
+                        .iter()
+                        .zip(col.iter())
+                        .map(|(a, b)| b.saturating_sub(*a))
+                        .collect(),
+                };
+
+                self.accumulator.replace(col);
+
+                let mut prior = 0;
+                let data: Vec<_> = row_deltas
+                    .iter()
+                    .map(|&v| {
+                        let delta = v - prior;
+                        prior = v;
+                        delta
+                    })
+                    .collect();
                 self.data.push(data);
             }
             _ => unreachable!(),

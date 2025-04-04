@@ -108,9 +108,8 @@ impl<'a> HeatMap<'a> {
 
         let max_width = (area.width as usize - label_width).min(self.histogram.data.len());
 
-        let mut cols = vec![];
         let mut max_delta = 1;
-        let mut accum: Option<Vec<u64>> = None;
+        let mut num_cols = 0;
         for col in self
             .histogram
             .data
@@ -118,35 +117,23 @@ impl<'a> HeatMap<'a> {
             .skip(self.histogram.data.len() - max_width)
             .take(max_width)
         {
-            let row_deltas: Vec<u64> = match &accum {
-                None => col.iter().map(|_| 0).collect(),
-                Some(a) => a
-                    .iter()
-                    .zip(col.iter())
-                    .map(|(a, b)| b.saturating_sub(*a))
-                    .collect(),
-            };
-            accum.replace(col.to_vec());
-
-            let mut prior = 0;
-            let data: Vec<_> = row_deltas
-                .iter()
-                .map(|&v| {
-                    let delta = v - prior;
-                    prior = v;
-                    max_delta = max_delta.max(delta);
-                    delta
-                })
-                .collect();
-            cols.push(data);
+            max_delta = col.iter().max().copied().unwrap_or(0).max(max_delta);
+            num_cols += 1;
         }
 
         let max_delta = max_delta as f32;
+        let right_alignment = area.width as usize - num_cols;
 
-        let right_alignment = area.width as usize - cols.len();
-
-        for (x, data) in cols.into_iter().enumerate() {
+        for (x, data) in self
+            .histogram
+            .data
+            .iter()
+            .skip(self.histogram.data.len() - max_width)
+            .take(max_width)
+            .enumerate()
+        {
             for (y, value) in data.into_iter().rev().enumerate() {
+                let value = *value;
                 if value == 0 {
                     continue;
                 }
