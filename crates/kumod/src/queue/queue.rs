@@ -1073,7 +1073,8 @@ impl Queue {
                 // Queue is full; try again shortly
                 self.metrics().delay_due_to_ready_queue_full().inc();
                 self.force_into_delayed(msg, context.add(InsertReason::ReadyQueueWasFull))
-                    .await?;
+                    .await
+                    .context("force_into_delayed")?;
             }
         }
         Ok(())

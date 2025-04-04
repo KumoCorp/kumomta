@@ -5,6 +5,7 @@ use crate::queue::queue::{Queue, QueueHandle};
 use crate::queue::strategy::{QueueStructure, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
+use anyhow::Context;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
 use message::message::{MessageList, WeakMessage};
@@ -181,7 +182,7 @@ async fn reinsert_ready(
     if !msg.is_meta_loaded() {
         msg.load_meta().await?;
     }
-    let queue_name = msg.get_queue_name()?;
+    let queue_name = msg.get_queue_name().context("msg.get_queue_name")?;
     // Use get_opt rather than resolve here. If the queue is not currently
     // tracked in the QueueManager then this message cannot possibly belong
     // to it. Using resolve would have the side effect of creating an empty
