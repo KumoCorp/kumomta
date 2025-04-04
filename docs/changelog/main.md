@@ -59,7 +59,9 @@
   kumod.
 * `kcli top`: you may now scroll through the metrics using the arrow keys
   (to move one metric at a time), page up/down (10 at a time) and home/end
-  (to move to the top/bottom). #372
+  (to move to the top/bottom). Pressing `f` edits a fuzzy matching filter.
+  Pressing Tab moves through tabs and allows viewing heatmap vizualizations.
+  #372
 
 ## Fixes
 
