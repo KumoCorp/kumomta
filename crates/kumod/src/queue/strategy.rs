@@ -1,4 +1,6 @@
 use crate::queue::maintainer::{start_singleton_wheel_v1, start_singleton_wheel_v2};
+use crate::queue::queue::QueueHandle;
+use crate::queue::Queue;
 use chrono::{DateTime, Utc};
 use crossbeam_skiplist::SkipSet;
 use message::message::WeakMessage;
@@ -8,11 +10,11 @@ use mlua::prelude::*;
 use parking_lot::FairMutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::Duration;
-use timeq::{PopResult, TimeQ, TimerError};
+use timeq::{PopResult, TimeQ, TimerEntryWithDelay, TimerError};
 
-pub static SINGLETON_WHEEL: LazyLock<Arc<FairMutex<TimeQ<WeakMessage>>>> =
+pub static SINGLETON_WHEEL: LazyLock<Arc<FairMutex<TimeQ<WheelV1Entry>>>> =
     LazyLock::new(|| Arc::new(FairMutex::new(TimeQ::new())));
 
 pub static SINGLETON_WHEEL_V2: LazyLock<Arc<FairMutex<TriTimeQ>>> =
@@ -33,6 +35,32 @@ pub enum QueueStrategy {
 pub enum QueueInsertResult {
     Inserted { should_notify: bool },
     Full(Message),
+}
+
+#[derive(Debug)]
+pub struct WheelV1Entry {
+    weak: WeakMessage,
+    queue: Weak<Queue>,
+}
+
+impl WheelV1Entry {
+    pub fn upgrade(self) -> Option<(Message, QueueHandle)> {
+        let message = self.weak.upgrade()?;
+        let queue = self.queue.upgrade()?;
+        Some((message, queue))
+    }
+}
+
+impl TimerEntryWithDelay for WheelV1Entry {
+    fn delay(&self) -> Duration {
+        match self.weak.upgrade() {
+            None => {
+                // Dangling/Cancelled. Make it appear due immediately
+                Duration::from_millis(0)
+            }
+            Some(msg) => msg.delay(),
+        }
+    }
 }
 
 pub enum QueueStructure {
@@ -165,7 +193,7 @@ impl QueueStructure {
         }
     }
 
-    pub fn insert(&self, msg: Message) -> QueueInsertResult {
+    pub fn insert(&self, msg: Message, queue: &Arc<Queue>) -> QueueInsertResult {
         match self {
             Self::TimerWheel(q) => match q.lock().insert(msg) {
                 Ok(()) => QueueInsertResult::Inserted {
@@ -198,7 +226,10 @@ impl QueueStructure {
             }
             Self::SingletonTimerWheel(q) => {
                 let mut wheel = SINGLETON_WHEEL.lock();
-                match wheel.insert(msg.weak()) {
+                match wheel.insert(WheelV1Entry {
+                    weak: msg.weak(),
+                    queue: Arc::downgrade(queue),
+                }) {
                     Ok(()) => {
                         q.lock().insert(msg);
                         drop(wheel);
@@ -316,6 +347,7 @@ impl Ord for DelayedEntry {
 #[cfg(test)]
 mod test {
     use super::*;
+    use kumo_server_lifecycle::LifeCycle;
     use message::EnvelopeAddress;
     use spool::SpoolId;
 
@@ -339,7 +371,22 @@ mod test {
             .await
             .unwrap();
         eprintln!("due {due:?}");
-        let result = qs.insert(msg);
+
+        // This is a bit inelegant; the queue object that we need
+        // to pass to the insert method needs to be able to construct
+        // an Activity instance, which will fail with "shutting down"
+        // if no lifecycle has been started.
+        // Let's start one up in this test context.
+        // This is bad because future tests that might have this dependency
+        // might now intermittently start to pass depending on their
+        // runtime ordering wrt. tests that call this function.
+        static TEST_LIFE_CYCLE: LazyLock<LifeCycle> = LazyLock::new(|| LifeCycle::new());
+        LazyLock::force(&TEST_LIFE_CYCLE);
+        let queue = Queue::new(format!("dummy-{:?}", qs.strategy()))
+            .await
+            .unwrap();
+
+        let result = qs.insert(msg, &queue);
         eprintln!("result: {result:?}");
         assert!(matches!(result, QueueInsertResult::Full(_)));
     }

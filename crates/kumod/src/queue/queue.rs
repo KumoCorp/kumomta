@@ -346,9 +346,9 @@ impl Queue {
     }
 
     /// Insert into the timeq, and updates the counters.
-    fn timeq_insert(&self, msg: Message) -> Result<(), Message> {
+    fn timeq_insert(self: &Arc<Self>, msg: Message) -> Result<(), Message> {
         tracing::trace!("timeq_insert {} due={:?}", self.name, msg.get_due());
-        match self.queue.insert(msg) {
+        match self.queue.insert(msg, self) {
             QueueInsertResult::Inserted { should_notify } => {
                 self.metrics().inc();
                 if should_notify {
@@ -373,7 +373,7 @@ impl Queue {
     }
 
     async fn do_rebind(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         rebind: &Arc<AdminRebindEntry>,
         context: InsertContext,
@@ -441,7 +441,7 @@ impl Queue {
             }
             Ok(queue) => {
                 queue_holder = queue;
-                &*queue_holder
+                &queue_holder
             }
         };
 
@@ -494,7 +494,7 @@ impl Queue {
     }
 
     #[instrument(skip(self))]
-    pub async fn rebind_all(&self, rebind: &Arc<AdminRebindEntry>) {
+    pub async fn rebind_all(self: &Arc<Self>, rebind: &Arc<AdminRebindEntry>) {
         let msgs = self.drain_timeq();
         let count = msgs.len();
         if count > 0 {
@@ -668,7 +668,7 @@ impl Queue {
     /// The requeue_message event is NOT called by this function.
     #[instrument(skip(self, msg))]
     pub async fn requeue_message_internal(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         increment_attempts: IncrementAttempts,
         delay: Option<chrono::Duration>,
@@ -734,7 +734,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     async fn insert_delayed(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         context: InsertContext,
     ) -> anyhow::Result<InsertResult> {
@@ -764,7 +764,11 @@ impl Queue {
     }
 
     #[instrument(skip(self, msg))]
-    async fn force_into_delayed(&self, msg: Message, context: InsertContext) -> anyhow::Result<()> {
+    async fn force_into_delayed(
+        self: &Arc<Self>,
+        msg: Message,
+        context: InsertContext,
+    ) -> anyhow::Result<()> {
         tracing::trace!("force_into_delayed {}", msg.id());
         loop {
             match self.insert_delayed(msg.clone(), context.clone()).await? {
@@ -909,7 +913,7 @@ impl Queue {
 
     #[instrument(skip(self, msg))]
     pub async fn insert_ready(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         mut context: InsertContext,
         deadline: Option<Instant>,
@@ -1397,7 +1401,7 @@ impl Queue {
     /// into this queue
     #[instrument(fields(self.name), skip(self, msg))]
     pub async fn insert(
-        &self,
+        self: &Arc<Self>,
         msg: Message,
         context: InsertContext,
         deadline: Option<Instant>,

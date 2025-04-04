@@ -2,13 +2,13 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::queue::insert_context::InsertReason;
 use crate::queue::manager::{QueueManager, MANAGER};
 use crate::queue::queue::{Queue, QueueHandle};
-use crate::queue::strategy::{QueueStructure, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
+use crate::queue::strategy::{QueueStructure, WheelV1Entry, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
 use anyhow::Context;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
-use message::message::{MessageList, WeakMessage};
+use message::message::MessageList;
 use message::Message;
 use parking_lot::FairMutex;
 use prometheus::{Histogram, IntCounter};
@@ -177,11 +177,94 @@ pub async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
 
 async fn reinsert_ready(
     msg: Message,
+    queue: QueueHandle,
     to_shrink: &mut HashMap<String, QueueHandle>,
 ) -> anyhow::Result<()> {
-    if !msg.is_meta_loaded() {
-        msg.load_meta().await?;
+    if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
+        // Note that this will cause the msg to be removed from the
+        // queue so the remove() check below will return false
+        queue.bounce_all(&b).await;
     }
+
+    fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
+        q.lock().remove(msg)
+    }
+
+    // Verify that the message is still in the queue
+    match &queue.queue {
+        QueueStructure::SingletonTimerWheel(q) | QueueStructure::SingletonTimerWheelV2(q) => {
+            if remove(q, &msg) {
+                queue.metrics().sub(1);
+                queue
+                    .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
+                    .await?;
+                if !to_shrink.contains_key(queue.name.as_str()) {
+                    to_shrink.insert(queue.name.to_string(), queue);
+                }
+            }
+        }
+        _ => {
+            anyhow::bail!("impossible queue strategy");
+        }
+    }
+
+    Ok(())
+}
+
+async fn reinsert_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: usize) {
+    let mut to_shrink = HashMap::new();
+    let mut reinserted = 0;
+
+    let messages_only: Vec<Message> = messages.iter().map(|(msg, _q)| msg.clone()).collect();
+    wait_for_message_batch(&messages_only).await;
+    for (msg, queue) in messages {
+        reinserted += 1;
+        if let Err(err) = reinsert_ready(msg, queue, &mut to_shrink).await {
+            tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
+        }
+    }
+    tracing::debug!(
+        "singleton_wheel: done reinserting {reinserted}. total scheduled={total_scheduled}"
+    );
+
+    for (_queue_name, queue) in to_shrink.drain() {
+        queue.queue.shrink();
+    }
+    to_shrink.shrink_to_fit();
+}
+
+async fn process_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: usize) {
+    if messages.is_empty() {
+        return;
+    }
+
+    if !SPAWN_REINSERTION.load(Ordering::Relaxed) {
+        reinsert_batch(messages, total_scheduled).await;
+        return;
+    }
+
+    if let Err(err) =
+        QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
+    {
+        tracing::error!("run_singleton_wheel_v1: failed to spawn reinsert_batch: {err:#}");
+    }
+}
+
+async fn reinsert_ready_v2(
+    msg: Message,
+    to_shrink: &mut HashMap<String, QueueHandle>,
+) -> anyhow::Result<()> {
+    // Note that there is a potential race here that we cannot detect
+    // until we try to call the v2 cancel method.
+    // If we are no longer responsible for the message (detected later),
+    // we might load the metadata here while a concurrent actor is requeing
+    // the message and releasing the metadata.
+    // That can cause the get_queue_name method to fail.
+    // We address this in the v1 flavor of this function by keeping
+    // the associate Queue handle so that we don't need to muck with the
+    // metadata at all.
+    // Here, we don't and can't do that.
+    msg.load_meta_if_needed().await?;
     let queue_name = msg.get_queue_name().context("msg.get_queue_name")?;
     // Use get_opt rather than resolve here. If the queue is not currently
     // tracked in the QueueManager then this message cannot possibly belong
@@ -209,8 +292,8 @@ async fn reinsert_ready(
                 queue
                     .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                     .await?;
-                if !to_shrink.contains_key(&queue_name) {
-                    to_shrink.insert(queue_name, queue);
+                if !to_shrink.contains_key(queue.name.as_str()) {
+                    to_shrink.insert(queue.name.to_string(), queue);
                 }
             }
         }
@@ -222,14 +305,14 @@ async fn reinsert_ready(
     Ok(())
 }
 
-async fn reinsert_batch(messages: Vec<Message>, total_scheduled: usize) {
+async fn reinsert_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
     let mut to_shrink = HashMap::new();
     let mut reinserted = 0;
 
     wait_for_message_batch(&messages).await;
     for msg in messages {
         reinserted += 1;
-        if let Err(err) = reinsert_ready(msg, &mut to_shrink).await {
+        if let Err(err) = reinsert_ready_v2(msg, &mut to_shrink).await {
             tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
         }
     }
@@ -243,19 +326,20 @@ async fn reinsert_batch(messages: Vec<Message>, total_scheduled: usize) {
     to_shrink.shrink_to_fit();
 }
 
-async fn process_batch(messages: Vec<Message>, total_scheduled: usize) {
+async fn process_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
     if messages.is_empty() {
         return;
     }
 
     if !SPAWN_REINSERTION.load(Ordering::Relaxed) {
-        reinsert_batch(messages, total_scheduled).await;
+        reinsert_batch_v2(messages, total_scheduled).await;
         return;
     }
 
-    if let Err(err) =
-        QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
-    {
+    if let Err(err) = QMAINT_RUNTIME.spawn(
+        "reinsert_batch",
+        reinsert_batch_v2(messages, total_scheduled),
+    ) {
         tracing::error!("run_singleton_wheel_v1: failed to spawn reinsert_batch: {err:#}");
     }
 }
@@ -284,7 +368,7 @@ async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
         tracing::trace!("singleton_wheel_v1 ticking");
         TOTAL_QMAINT_RUNS.inc();
 
-        fn pop() -> (Vec<WeakMessage>, usize) {
+        fn pop() -> (Vec<WheelV1Entry>, usize) {
             let _timer = POP_LATENCY.start_timer();
             let mut wheel = SINGLETON_WHEEL.lock();
 
@@ -302,8 +386,8 @@ async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
 
         let mut messages = vec![];
         for weak_message in msgs {
-            if let Some(msg) = weak_message.upgrade() {
-                messages.push(msg);
+            if let Some((msg, queue)) = weak_message.upgrade() {
+                messages.push((msg, queue));
             }
         }
         process_batch(messages, total_scheduled).await;
@@ -339,7 +423,7 @@ async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
         }
 
         let (messages, total_scheduled) = pop();
-        process_batch(messages.into_iter().collect(), total_scheduled).await;
+        process_batch_v2(messages.into_iter().collect(), total_scheduled).await;
     }
 }
 
