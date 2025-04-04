@@ -1,5 +1,5 @@
 use crate::top::accumulator::*;
-use crate::top::{SeriesChartOptions, SeriesFactory, TimeSeries};
+use crate::top::{Histogram, HistogramFactory, SeriesChartOptions, SeriesFactory, TimeSeries};
 use kumo_prometheus::parser::Metric;
 
 pub struct ThreadPoolFactory {}
@@ -119,5 +119,41 @@ impl SeriesFactory for HistogramEventAvgFactory {
         });
 
         series
+    }
+}
+
+pub struct HistogramHistoFactory {}
+
+impl HistogramFactory for HistogramHistoFactory {
+    fn matches(&self, metric: &Metric) -> Option<String> {
+        if metric.is_histogram() {
+            let h = metric.as_histogram();
+
+            match h.labels.values().next() {
+                Some(l) => {
+                    let label = l.as_str();
+                    if label == "init" || label == "pre_init" {
+                        return None;
+                    }
+                    Some(format!("{} - {label}", h.name.as_str()))
+                }
+                None => Some(h.name.as_str().to_string()),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn factory(&self, _series_name: &str, metric: &Metric) -> Histogram {
+        let h = metric.as_histogram();
+        match h.labels.iter().next() {
+            Some((key, value)) => Histogram::new_with_label_match(
+                metric.name().to_string(),
+                key.to_string(),
+                value.to_string(),
+                "s",
+            ),
+            None => Histogram::new(metric.name().to_string(), "s"),
+        }
     }
 }

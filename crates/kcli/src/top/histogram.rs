@@ -72,3 +72,10 @@ impl Histogram {
         }
     }
 }
+
+pub trait HistogramFactory {
+    /// Returns the name that should be created for this metric
+    fn matches(&self, metric: &Metric) -> Option<String>;
+    /// Constructs the appropriate histogram for this metric
+    fn factory(&self, series_name: &str, metric: &Metric) -> Histogram;
+}

@@ -84,6 +84,7 @@ pub struct State {
     time_series: HashMap<String, TimeSeries>,
     histograms: HashMap<String, Histogram>,
     factories: Vec<Box<dyn SeriesFactory + 'static>>,
+    histo_factories: Vec<Box<dyn HistogramFactory + 'static>>,
     error: String,
     vert_scroll: ScrollbarState,
     vert_scroll_position: usize,
@@ -94,6 +95,10 @@ pub struct State {
 impl State {
     pub fn add_factory(&mut self, f: impl SeriesFactory + 'static) {
         self.factories.push(Box::new(f));
+    }
+
+    pub fn add_histogram_factory(&mut self, f: impl HistogramFactory + 'static) {
+        self.histo_factories.push(Box::new(f));
     }
 
     fn accumulate_series(&mut self, metric: &Metric) {
@@ -112,6 +117,19 @@ impl State {
 
         for series in self.time_series.values_mut() {
             series.accumulate(metric);
+        }
+
+        let mut new_histo = vec![];
+        for factory in &self.histo_factories {
+            if let Some(name) = factory.matches(metric) {
+                if !self.histograms.contains_key(&name) {
+                    let histogram = factory.factory(&name, metric);
+                    new_histo.push((name, histogram));
+                }
+            }
+        }
+        for (name, histo) in new_histo {
+            self.add_histogram(name, histo);
         }
 
         for histo in self.histograms.values_mut() {
@@ -413,8 +431,12 @@ impl State {
             .vert_scroll_position
             .min(content_length.saturating_sub(1));
 
+        let mut names: Vec<_> = self.histograms.keys().map(|s| s.to_string()).collect();
+        names.sort();
+
         let mut y = area.top();
-        for (caption, histo) in self.histograms.iter().skip(vert_scroll_position) {
+        for caption in names.iter().skip(vert_scroll_position) {
+            let histo = self.histograms.get(caption).expect("caption to be valid");
             let heatmap = HeatMap::new(histo, caption).block(Block::bordered());
             let height = heatmap.height() + 2 /* borders */;
 

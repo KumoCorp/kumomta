@@ -50,6 +50,8 @@ impl TopCommand {
         state.add_factory(HistogramEventFreqFactory {});
         state.add_factory(HistogramEventAvgFactory {});
 
+        state.add_histogram_factory(HistogramHistoFactory {});
+
         state.add_series(
             "message_count",
             TimeSeries::new(DirectAccumulator::new("message_count")),
@@ -142,21 +144,6 @@ impl TopCommand {
                 "service",
                 "smtp_client",
             )),
-        );
-
-        state.add_histogram(
-            "Inbound SMTP Transaction Duration",
-            Histogram::new("smtpsrv_transaction_duration", "s"),
-        );
-
-        state.add_histogram(
-            "Inbound SMTP Data Receive Latency",
-            Histogram::new("smtpsrv_read_data_duration", "s"),
-        );
-
-        state.add_histogram(
-            "Inbound SMTP Data Process Latency",
-            Histogram::new("smtpsrv_process_data_duration", "s"),
         );
 
         let mut ticker = tokio::time::interval(Duration::from_secs(self.update_interval));
