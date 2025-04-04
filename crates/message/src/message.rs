@@ -363,7 +363,7 @@ impl Message {
     ) -> anyhow::Result<Option<Scheduling>> {
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
-            None => anyhow::bail!("metadata must be loaded first"),
+            None => anyhow::bail!("set_scheduling: metadata must be loaded first"),
             Some(meta) => {
                 meta.schedule = scheduling;
                 inner
@@ -733,7 +733,7 @@ impl Message {
     ) -> anyhow::Result<()> {
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
-            None => anyhow::bail!("metadata must be loaded first"),
+            None => anyhow::bail!("set_meta: metadata must be loaded first"),
             Some(meta) => {
                 let key = key.as_ref();
                 let value = value.into();
@@ -768,7 +768,7 @@ impl Message {
     pub fn get_meta_obj(&self) -> anyhow::Result<serde_json::Value> {
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
-            None => anyhow::bail!("metadata must be loaded first"),
+            None => anyhow::bail!("get_meta_obj: metadata must be loaded first"),
             Some(meta) => Ok(meta.meta.clone()),
         }
     }
@@ -779,7 +779,7 @@ impl Message {
     ) -> anyhow::Result<serde_json::Value> {
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
-            None => anyhow::bail!("metadata must be loaded first"),
+            None => anyhow::bail!("get_meta: metadata must be loaded first"),
             Some(meta) => match meta.meta.get(key) {
                 Some(value) => Ok(value.clone()),
                 None => Ok(serde_json::Value::Null),
