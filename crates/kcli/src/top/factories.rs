@@ -35,16 +35,16 @@ impl SeriesFactory for HistogramEventFreqFactory {
         if metric.is_histogram() {
             let h = metric.as_histogram();
 
-            let label = match h.labels.values().next() {
-                Some(l) => l.as_str(),
-                None => h.name.as_str(),
-            };
-
-            if label == "init" || label == "pre_init" {
-                return None;
+            match h.labels.values().next() {
+                Some(l) => {
+                    let label = l.as_str();
+                    if label == "init" || label == "pre_init" {
+                        return None;
+                    }
+                    Some(format!("freq: {} - {label}", h.name.as_str()))
+                }
+                None => Some(format!("freq: {}", h.name.as_str())),
             }
-
-            Some(format!("freq: {label}"))
         } else {
             None
         }
@@ -81,16 +81,16 @@ impl SeriesFactory for HistogramEventAvgFactory {
         if metric.is_histogram() {
             let h = metric.as_histogram();
 
-            let label = match h.labels.values().next() {
-                Some(l) => l.as_str(),
-                None => h.name.as_str(),
-            };
-
-            if label == "init" || label == "pre_init" {
-                return None;
+            match h.labels.values().next() {
+                Some(l) => {
+                    let label = l.as_str();
+                    if label == "init" || label == "pre_init" {
+                        return None;
+                    }
+                    Some(format!("avg: {} - {label}", h.name.as_str()))
+                }
+                None => Some(format!("avg: {}", h.name.as_str())),
             }
-
-            Some(format!("avg: {label}"))
         } else {
             None
         }
