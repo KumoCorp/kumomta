@@ -4,7 +4,7 @@ use crate::top::histogram::*;
 use crate::top::state::State;
 use crate::top::timeseries::*;
 use clap::Parser;
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::Event;
 use futures::StreamExt;
 use ratatui::prelude::*;
 use ratatui::Terminal;
@@ -43,7 +43,7 @@ impl TopCommand {
     async fn run_tui(&self, endpoint: &Url) -> anyhow::Result<()> {
         let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
 
-        let mut rx = self.spawn_ticker().await?;
+        let mut rx = self.spawn_event_handler().await?;
         let mut state = State::default();
 
         state.add_factory(ThreadPoolFactory {});
@@ -157,10 +157,9 @@ impl TopCommand {
             tokio::select! {
                 action = rx.recv() => {
                     if let Some(action) = action {
-                        if action == Action::Quit {
+                        if state.update(Action::Event(action), endpoint).await.is_err() {
                             return Ok(());
                         }
-                        state.update(action, endpoint).await?;
                     }
                 }
                 _ = ticker.tick() => {
@@ -170,22 +169,13 @@ impl TopCommand {
         }
     }
 
-    async fn spawn_ticker(&self) -> anyhow::Result<UnboundedReceiver<Action>> {
+    async fn spawn_event_handler(&self) -> anyhow::Result<UnboundedReceiver<Event>> {
         let (tx, rx) = unbounded_channel();
 
         let mut stream = crossterm::event::EventStream::new();
 
         tokio::spawn(async move {
-            loop {
-                let event = stream.next().await;
-                let event = match event {
-                    Some(Ok(event)) => match Action::from_crossterm(event) {
-                        Some(event) => event,
-                        None => continue,
-                    },
-                    _ => Action::Quit,
-                };
-
+            while let Some(Ok(event)) = stream.next().await {
                 if tx.send(event).is_err() {
                     break;
                 }
@@ -198,18 +188,8 @@ impl TopCommand {
 
 #[derive(PartialEq)]
 enum Action {
+    Event(Event),
     UpdateData,
-    Quit,
-    Redraw,
-    ScrollUp,
-    ScrollTop,
-    PageUp,
-    PageDown,
-    ScrollDown,
-    ScrollBottom,
-    ZoomIn,
-    ZoomOut,
-    NextTab,
 }
 
 #[derive(Default, PartialEq, Copy, Clone)]
@@ -244,31 +224,6 @@ impl WhichTab {
             Self::Help => {
                 *self = Self::Series;
             }
-        }
-    }
-}
-
-impl Action {
-    fn from_crossterm(event: Event) -> Option<Action> {
-        match event {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
-                KeyCode::Down => Some(Action::ScrollDown),
-                KeyCode::Up => Some(Action::ScrollUp),
-                KeyCode::Home => Some(Action::ScrollTop),
-                KeyCode::End => Some(Action::ScrollBottom),
-                KeyCode::PageUp => Some(Action::PageUp),
-                KeyCode::PageDown => Some(Action::PageDown),
-                KeyCode::Char('+') => Some(Action::ZoomIn),
-                KeyCode::Char('-') => Some(Action::ZoomOut),
-                KeyCode::Tab => Some(Action::NextTab),
-                _ => None,
-            },
-            Event::Key(_) => None,
-            Event::FocusGained | Event::FocusLost => None,
-            Event::Mouse(_) => None,
-            Event::Paste(_) => None,
-            Event::Resize(_, _) => Some(Action::Redraw),
         }
     }
 }

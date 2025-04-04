@@ -4,6 +4,7 @@ use crate::top::histogram::*;
 use crate::top::sparkline::Sparkline;
 use crate::top::timeseries::*;
 use crate::top::{Action, TopCommand, WhichTab};
+use crossterm::event::{Event, KeyCode, KeyEventKind};
 use human_bytes::human_bytes;
 use kumo_prometheus::parser::Metric;
 use num_format::{Locale, ToFormattedString};
@@ -176,37 +177,54 @@ impl State {
 
     pub async fn update(&mut self, action: Action, endpoint: &Url) -> anyhow::Result<()> {
         match action {
-            Action::Quit => anyhow::bail!("quit!"),
-            Action::NextTab => {
-                self.active_tab.next();
-                self.vert_scroll_position = 0;
-            }
+            Action::Event(event) => match event {
+                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        anyhow::bail!("Quit!");
+                    }
+                    KeyCode::Down => {
+                        // Scroll down
+                        self.vert_scroll_position = self.vert_scroll_position.saturating_add(1);
+                    }
+                    KeyCode::Up => {
+                        // Scroll up
+                        self.vert_scroll_position = self.vert_scroll_position.saturating_sub(1);
+                    }
+                    KeyCode::Home => {
+                        // Scroll top
+                        self.vert_scroll_position = 0;
+                    }
+                    KeyCode::End => {
+                        // ScrollBottom
+                        self.vert_scroll_position = usize::MAX;
+                    }
+
+                    KeyCode::PageUp => {
+                        self.vert_scroll_position = self.vert_scroll_position.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        self.vert_scroll_position = self.vert_scroll_position.saturating_add(10);
+                    }
+                    KeyCode::Char('+') => {
+                        // zoom in
+                        self.zoom = self.zoom.saturating_add(1);
+                    }
+                    KeyCode::Char('-') => {
+                        // zoom out
+                        self.zoom = self.zoom.saturating_sub(1);
+                    }
+                    KeyCode::Tab => {
+                        // Next tab
+                        self.active_tab.next();
+                        self.vert_scroll_position = 0;
+                    }
+
+                    _ => {}
+                },
+                _ => {}
+            },
+
             Action::UpdateData => self.update_metrics(endpoint).await?,
-            Action::ScrollTop => {
-                self.vert_scroll_position = 0;
-            }
-            Action::ScrollBottom => {
-                self.vert_scroll_position = usize::MAX;
-            }
-            Action::ScrollUp => {
-                self.vert_scroll_position = self.vert_scroll_position.saturating_sub(1);
-            }
-            Action::ScrollDown => {
-                self.vert_scroll_position = self.vert_scroll_position.saturating_add(1);
-            }
-            Action::PageUp => {
-                self.vert_scroll_position = self.vert_scroll_position.saturating_sub(10);
-            }
-            Action::PageDown => {
-                self.vert_scroll_position = self.vert_scroll_position.saturating_add(10);
-            }
-            Action::ZoomIn => {
-                self.zoom = self.zoom.saturating_add(1);
-            }
-            Action::ZoomOut => {
-                self.zoom = self.zoom.saturating_sub(1);
-            }
-            Action::Redraw => {}
         }
         Ok(())
     }
