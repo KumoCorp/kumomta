@@ -179,6 +179,7 @@ impl State {
             Action::Quit => anyhow::bail!("quit!"),
             Action::NextTab => {
                 self.active_tab.next();
+                self.vert_scroll_position = 0;
             }
             Action::UpdateData => self.update_metrics(endpoint).await?,
             Action::ScrollTop => {
