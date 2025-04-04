@@ -10,6 +10,7 @@ chrono = {workspace=true, default-features=false, features=["serde"]}
 cidr-map = {path="../cidr-map", default-features=false}
 clap = {workspace=true}
 clap-markdown = {workspace=true}
+colorgrad.workspace = true
 crossterm = {workspace=true}
 dns-resolver = {path="../dns-resolver"}
 futures = {workspace=true}

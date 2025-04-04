@@ -1,4 +1,6 @@
 use crate::queue_summary::get_metrics;
+use crate::top::heatmap::HeatMap;
+use crate::top::histogram::*;
 use crate::top::sparkline::Sparkline;
 use crate::top::timeseries::*;
 use crate::top::{Action, TopCommand, WhichTab};
@@ -52,28 +54,7 @@ impl<'a> Entry<'a> {
     fn current_value_impl(&self) -> String {
         self.data
             .get(0)
-            .map(|v| {
-                if self.unit == "b" {
-                    human_bytes(*v as f64)
-                } else if self.unit == "" {
-                    v.to_formatted_string(&Locale::en)
-                } else if self.unit == "/s" {
-                    format!("{}/s", v.to_formatted_string(&Locale::en))
-                } else if self.unit == "%" {
-                    format!("{v:3}%")
-                } else if self.unit == "us" {
-                    let v = *v as f64;
-                    if v >= 1_000_000.0 {
-                        format!("{:.3}s", v / 1_000_000.0)
-                    } else if v >= 1_000.0 {
-                        format!("{:.0}ms", v / 1_000.0)
-                    } else {
-                        format!("{:.0}us", v)
-                    }
-                } else {
-                    format!("{v}{}", self.unit)
-                }
-            })
+            .map(|v| value_with_unit(*v, self.unit))
             .unwrap_or_else(String::new)
     }
 
@@ -101,6 +82,7 @@ impl<'a> Entry<'a> {
 #[derive(Default)]
 pub struct State {
     time_series: HashMap<String, TimeSeries>,
+    histograms: HashMap<String, Histogram>,
     factories: Vec<Box<dyn SeriesFactory + 'static>>,
     error: String,
     vert_scroll: ScrollbarState,
@@ -131,7 +113,12 @@ impl State {
         for series in self.time_series.values_mut() {
             series.accumulate(metric);
         }
+
+        for histo in self.histograms.values_mut() {
+            histo.accumulate(metric);
+        }
     }
+
     fn commit_series(&mut self) {
         for series in self.time_series.values_mut() {
             series.commit();
@@ -144,6 +131,10 @@ impl State {
 
     pub fn add_series<S: Into<String>>(&mut self, name: S, series: TimeSeries) {
         self.time_series.insert(name.into(), series);
+    }
+
+    pub fn add_histogram<S: Into<String>>(&mut self, name: S, histo: Histogram) {
+        self.histograms.insert(name.into(), histo);
     }
 
     async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
@@ -411,6 +402,60 @@ impl State {
         );
     }
 
+    fn draw_heatmap_ui(&mut self, f: &mut Frame) {
+        let area = f.area().inner(Margin {
+            vertical: 2,
+            horizontal: 2,
+        });
+
+        let content_length = self.histograms.len();
+        let vert_scroll_position = self
+            .vert_scroll_position
+            .min(content_length.saturating_sub(1));
+
+        let mut y = area.top();
+        for (caption, histo) in self.histograms.iter().skip(vert_scroll_position) {
+            let heatmap = HeatMap::new(histo, caption).block(Block::bordered());
+            let height = heatmap.height() + 2 /* borders */;
+
+            if y > area.bottom() || y + height > area.bottom() {
+                break;
+            }
+
+            f.render_widget(
+                heatmap,
+                Rect {
+                    x: 0,
+                    y,
+                    width: area.width,
+                    height,
+                },
+            );
+
+            y += height;
+        }
+
+        self.vert_scroll_position = vert_scroll_position;
+        self.vert_scroll = self
+            .vert_scroll
+            .content_length(content_length)
+            .position(self.vert_scroll_position);
+
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+
+        f.render_stateful_widget(
+            scrollbar,
+            f.area().inner(Margin {
+                // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut self.vert_scroll,
+        );
+    }
+
     fn draw_help_ui(&mut self, f: &mut Frame) {
         let paragraph = Paragraph::new(vec![
             Line::from("Use Tab to switch between tabs"),
@@ -444,6 +489,9 @@ impl State {
             WhichTab::Series => {
                 self.draw_series_ui(f);
             }
+            WhichTab::HeatMap => {
+                self.draw_heatmap_ui(f);
+            }
             WhichTab::Help => {
                 self.draw_help_ui(f);
             }
@@ -463,5 +511,59 @@ impl State {
             f.render_widget(Clear, error_rect);
             f.render_widget(status, error_rect);
         }
+    }
+}
+
+fn value_with_unit(v: u64, unit: &str) -> String {
+    if unit == "b" {
+        human_bytes(v as f64)
+    } else if unit == "" {
+        v.to_formatted_string(&Locale::en)
+    } else if unit == "/s" {
+        format!("{}/s", v.to_formatted_string(&Locale::en))
+    } else if unit == "%" {
+        format!("{v:3}%")
+    } else if unit == "us" {
+        let v = v as f64;
+        if v >= 1_000_000.0 {
+            format!("{:.3}s", v / 1_000_000.0)
+        } else if v >= 1_000.0 {
+            format!("{:.0}ms", v / 1_000.0)
+        } else {
+            format!("{:.0}us", v)
+        }
+    } else {
+        format!("{v}{unit}")
+    }
+}
+
+pub fn fvalue_with_unit(v: f64, unit: &str) -> String {
+    if unit == "b" {
+        human_bytes(v)
+    } else if unit == "" {
+        (v as u64).to_formatted_string(&Locale::en)
+    } else if unit == "/s" {
+        format!("{}/s", (v as u64).to_formatted_string(&Locale::en))
+    } else if unit == "%" {
+        format!("{v:3}%")
+    } else if unit == "us" {
+        if v >= 1_000_000.0 {
+            format!("{:.3}s", v / 1_000_000.0)
+        } else if v >= 1_000.0 {
+            format!("{:.0}ms", v / 1_000.0)
+        } else {
+            format!("{:.0}us", v)
+        }
+    } else if unit == "s" {
+        let v = v * 1_000_000.0;
+        if v >= 1_000_000.0 {
+            format!("{}s", v / 1_000_000.0)
+        } else if v >= 1_000.0 {
+            format!("{:.0}ms", v / 1_000.0)
+        } else {
+            format!("{:.0}us", v)
+        }
+    } else {
+        format!("{v}{unit}")
     }
 }

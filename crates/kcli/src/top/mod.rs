@@ -1,5 +1,6 @@
 use crate::top::accumulator::*;
 use crate::top::factories::*;
+use crate::top::histogram::*;
 use crate::top::state::State;
 use crate::top::timeseries::*;
 use clap::Parser;
@@ -14,6 +15,8 @@ use tokio::time::MissedTickBehavior;
 
 mod accumulator;
 mod factories;
+mod heatmap;
+mod histogram;
 mod sparkline;
 mod state;
 mod timeseries;
@@ -141,6 +144,21 @@ impl TopCommand {
             )),
         );
 
+        state.add_histogram(
+            "Inbound SMTP Transaction Duration",
+            Histogram::new("smtpsrv_transaction_duration", "s"),
+        );
+
+        state.add_histogram(
+            "Inbound SMTP Data Receive Latency",
+            Histogram::new("smtpsrv_read_data_duration", "s"),
+        );
+
+        state.add_histogram(
+            "Inbound SMTP Data Process Latency",
+            Histogram::new("smtpsrv_process_data_duration", "s"),
+        );
+
         let mut ticker = tokio::time::interval(Duration::from_secs(self.update_interval));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -211,6 +229,7 @@ enum Action {
 enum WhichTab {
     #[default]
     Series,
+    HeatMap,
     Help,
 }
 
@@ -218,17 +237,21 @@ impl WhichTab {
     pub fn title(&self) -> &'static str {
         match self {
             Self::Series => "Time Series",
+            Self::HeatMap => "Heatmaps",
             Self::Help => "Help (press tab to switch tabs)",
         }
     }
 
     pub fn all() -> Vec<Self> {
-        vec![Self::Series, Self::Help]
+        vec![Self::Series, Self::HeatMap, Self::Help]
     }
 
     pub fn next(&mut self) {
         match self {
             Self::Series => {
+                *self = Self::HeatMap;
+            }
+            Self::HeatMap => {
                 *self = Self::Help;
             }
             Self::Help => {
