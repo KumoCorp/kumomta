@@ -68,7 +68,7 @@ colorgrad = "0.7"
 criterion = "0.5"
 crossbeam-queue= "0.3"
 crossbeam-skiplist= "0.1"
-crossterm = { version = "0.27.0", features = ["event-stream"] }
+crossterm = { version = "0.28.0", features = ["event-stream"] }
 dashmap = "6.1"
 data-encoding = "2.6"
 data-encoding-macro = "0.1"
@@ -131,6 +131,7 @@ nix = "0.28"
 nom = "7.1.0"
 nom_locate = "4.1"
 notify = "7"
+nucleo-matcher = "0.3"
 num-format = "0.4.4"
 openssl = { version="=0.10.65" } # pinned; see patch below
 openssl-sys = { version="0.9" }
@@ -193,6 +194,7 @@ tower-http = {version="0.6", features=["trace", "compression-deflate", "compress
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}
+tui-prompts = "0.5"
 utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="4.0", features = ["axum"] }
 url = "2.4"

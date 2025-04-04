@@ -20,6 +20,7 @@ humantime = {workspace=true}
 lexicmp = {workspace=true}
 message = {path="../message", default-features=false}
 num-format = {workspace=true}
+nucleo-matcher.workspace = true
 ordermap = {workspace=true}
 kumo-api-types = {path="../kumo-api-types", default-features=false}
 kumo-prometheus = {path="../kumo-prometheus"}
@@ -30,6 +31,7 @@ serde_json = {workspace=true}
 tabout = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-tungstenite = {workspace=true}
+tui-prompts.workspace = true
 uuid = {workspace=true}
 version-info = {path="../version-info"}
 

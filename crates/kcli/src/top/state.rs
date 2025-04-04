@@ -7,7 +7,10 @@ use crate::top::{Action, TopCommand, WhichTab};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 use human_bytes::human_bytes;
 use kumo_prometheus::parser::Metric;
+use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Config, Matcher};
 use num_format::{Locale, ToFormattedString};
+use ratatui::layout::Flex;
 use ratatui::prelude::*;
 use ratatui::widgets::{
     Block, Borders, Clear, Paragraph, RenderDirection, Scrollbar, ScrollbarOrientation,
@@ -15,6 +18,7 @@ use ratatui::widgets::{
 };
 use reqwest::Url;
 use std::collections::HashMap;
+use tui_prompts::{FocusState, Prompt, State as _, TextPrompt, TextState};
 
 struct Entry<'a> {
     label: &'a str,
@@ -91,6 +95,8 @@ pub struct State {
     vert_scroll_position: usize,
     zoom: u8,
     active_tab: WhichTab,
+    editing_filter: bool,
+    filter_edit_state: TextState<'static>,
 }
 
 impl State {
@@ -178,49 +184,68 @@ impl State {
     pub async fn update(&mut self, action: Action, endpoint: &Url) -> anyhow::Result<()> {
         match action {
             Action::Event(event) => match event {
-                Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => {
-                        anyhow::bail!("Quit!");
-                    }
-                    KeyCode::Down => {
-                        // Scroll down
-                        self.vert_scroll_position = self.vert_scroll_position.saturating_add(1);
-                    }
-                    KeyCode::Up => {
-                        // Scroll up
-                        self.vert_scroll_position = self.vert_scroll_position.saturating_sub(1);
-                    }
-                    KeyCode::Home => {
-                        // Scroll top
-                        self.vert_scroll_position = 0;
-                    }
-                    KeyCode::End => {
-                        // ScrollBottom
-                        self.vert_scroll_position = usize::MAX;
-                    }
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if self.editing_filter {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Enter => {
+                                self.editing_filter = false;
+                                *self.filter_edit_state.focus_state_mut() = FocusState::Unfocused;
+                            }
+                            _ => self.filter_edit_state.handle_key_event(key),
+                        }
 
-                    KeyCode::PageUp => {
-                        self.vert_scroll_position = self.vert_scroll_position.saturating_sub(10);
+                        return Ok(());
                     }
-                    KeyCode::PageDown => {
-                        self.vert_scroll_position = self.vert_scroll_position.saturating_add(10);
-                    }
-                    KeyCode::Char('+') => {
-                        // zoom in
-                        self.zoom = self.zoom.saturating_add(1);
-                    }
-                    KeyCode::Char('-') => {
-                        // zoom out
-                        self.zoom = self.zoom.saturating_sub(1);
-                    }
-                    KeyCode::Tab => {
-                        // Next tab
-                        self.active_tab.next();
-                        self.vert_scroll_position = 0;
-                    }
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => {
+                            anyhow::bail!("Quit!");
+                        }
+                        KeyCode::Char('f') => {
+                            self.editing_filter = true;
+                            *self.filter_edit_state.focus_state_mut() = FocusState::Focused;
+                        }
+                        KeyCode::Down => {
+                            // Scroll down
+                            self.vert_scroll_position = self.vert_scroll_position.saturating_add(1);
+                        }
+                        KeyCode::Up => {
+                            // Scroll up
+                            self.vert_scroll_position = self.vert_scroll_position.saturating_sub(1);
+                        }
+                        KeyCode::Home => {
+                            // Scroll top
+                            self.vert_scroll_position = 0;
+                        }
+                        KeyCode::End => {
+                            // ScrollBottom
+                            self.vert_scroll_position = usize::MAX;
+                        }
 
-                    _ => {}
-                },
+                        KeyCode::PageUp => {
+                            self.vert_scroll_position =
+                                self.vert_scroll_position.saturating_sub(10);
+                        }
+                        KeyCode::PageDown => {
+                            self.vert_scroll_position =
+                                self.vert_scroll_position.saturating_add(10);
+                        }
+                        KeyCode::Char('+') => {
+                            // zoom in
+                            self.zoom = self.zoom.saturating_add(1);
+                        }
+                        KeyCode::Char('-') => {
+                            // zoom out
+                            self.zoom = self.zoom.saturating_sub(1);
+                        }
+                        KeyCode::Tab => {
+                            // Next tab
+                            self.active_tab.next();
+                            self.vert_scroll_position = 0;
+                        }
+
+                        _ => {}
+                    }
+                }
                 _ => {}
             },
 
@@ -331,6 +356,7 @@ impl State {
         ];
 
         let pool_colors = [Color::LightGreen, Color::Green];
+
         let mut dynamic_series = self
             .time_series
             .iter()
@@ -351,6 +377,31 @@ impl State {
                     1,
                 ));
             }
+        }
+
+        if !self.filter_edit_state.value().is_empty() {
+            let candidates: Vec<_> = sparklines.iter().map(|entry| entry.label).collect();
+            let mut matcher = Matcher::new(Config::DEFAULT);
+
+            let matches = Pattern::new(
+                self.filter_edit_state.value(),
+                CaseMatching::Smart,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            )
+            .match_list(&candidates, &mut matcher);
+
+            let names: HashMap<_, _> = matches
+                .into_iter()
+                .map(|(n, score)| (n.to_string(), score))
+                .collect();
+
+            sparklines.retain(|entry| names.contains_key(entry.label));
+            sparklines.sort_by(|entry_a, entry_b| {
+                let score_a = names.get(entry_a.label).unwrap();
+                let score_b = names.get(entry_b.label).unwrap();
+                score_b.cmp(score_a)
+            });
         }
 
         for entry in sparklines.iter_mut() {
@@ -453,6 +504,30 @@ impl State {
         let mut names: Vec<_> = self.histograms.keys().map(|s| s.to_string()).collect();
         names.sort();
 
+        if !self.filter_edit_state.value().is_empty() {
+            let mut matcher = Matcher::new(Config::DEFAULT);
+
+            let matches = Pattern::new(
+                self.filter_edit_state.value(),
+                CaseMatching::Smart,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            )
+            .match_list(&names, &mut matcher);
+
+            let matches: HashMap<_, _> = matches
+                .into_iter()
+                .map(|(n, score)| (n.to_string(), score))
+                .collect();
+
+            names.retain(|name| matches.contains_key(name));
+            names.sort_by(|name_a, name_b| {
+                let score_a = matches.get(name_a).unwrap();
+                let score_b = matches.get(name_b).unwrap();
+                score_b.cmp(score_a)
+            });
+        }
+
         let mut y = area.top();
         for caption in names.iter().skip(vert_scroll_position) {
             let histo = self.histograms.get(caption).expect("caption to be valid");
@@ -505,6 +580,7 @@ impl State {
             Line::from("Page Up or Page Down to scroll up or down faster"),
             Line::from("Home or End to scroll to the top or bottom"),
             Line::from("'+' or '-' to zoom in or out"),
+            Line::from("'f' to edit the fuzzy matching filter"),
         ])
         .block(Block::bordered());
 
@@ -523,8 +599,24 @@ impl State {
             .iter()
             .position(|&t| t == self.active_tab)
             .unwrap_or(0);
+
         let tabs = Tabs::new(all_tabs.into_iter().map(|t| t.title())).select(tab_index);
-        f.render_widget(tabs, f.area());
+        if self.filter_edit_state.value().is_empty() {
+            f.render_widget(tabs, f.area());
+        } else {
+            let layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![Constraint::Percentage(75), Constraint::Percentage(25)])
+                .split(f.area());
+            f.render_widget(tabs, layout[0]);
+            f.render_widget(
+                Paragraph::new(Line::from(format!(
+                    "filter: {}",
+                    self.filter_edit_state.value()
+                ))),
+                layout[1],
+            );
+        }
 
         match self.active_tab {
             WhichTab::Series => {
@@ -536,6 +628,17 @@ impl State {
             WhichTab::Help => {
                 self.draw_help_ui(f);
             }
+        }
+
+        if self.editing_filter {
+            let block = Block::bordered().title("Edit Fuzzy Match Filter");
+            let area = popup_area(f.area(), 60, 20);
+            f.render_widget(Clear, area); //this clears out the background
+            TextPrompt::from("Fuzzy filter").with_block(block).draw(
+                f,
+                area,
+                &mut self.filter_edit_state,
+            );
         }
 
         if !self.error.is_empty() {
@@ -553,6 +656,15 @@ impl State {
             f.render_widget(status, error_rect);
         }
     }
+}
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
 }
 
 fn value_with_unit(v: u64, unit: &str) -> String {
