@@ -64,6 +64,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn perform_init() -> anyhow::Result<()> {
+    tracing::info!("Version is {}", version_info::kumo_version());
     let mut config = config::load_config().await?;
 
     // Explicitly load the shaping config now to catch silly

@@ -221,6 +221,7 @@ fn main() -> anyhow::Result<()> {
 
 async fn perform_init(opts: Opt) -> anyhow::Result<()> {
     let nodeid = kumo_server_common::nodeid::NodeId::get();
+    tracing::info!("Version is {}", version_info::kumo_version());
     tracing::info!("NodeId is {nodeid}");
     let num_cores = available_parallelism()?;
     tracing::info!("available_parallelism={num_cores}");
