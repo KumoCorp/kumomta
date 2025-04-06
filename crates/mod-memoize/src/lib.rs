@@ -403,7 +403,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             });
             CACHES.entry(cache_name.to_string()).or_insert_with(|| {
                 let cache = LruCacheWithTtl::new(cache_name.clone(), params.capacity);
-                cache.set_retry_on_sema_timeout(params.retry_on_populate_timeout);
                 if let Some(duration) = params.populate_timeout {
                     cache.set_sema_timeout(duration);
                 }
@@ -426,6 +425,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             let populate_counter = CACHE_POPULATED
                 .get_metric_with_label_values(&[&cache_name])
                 .map_err(any_err)?;
+            let retry_on_populate_timeout = params.retry_on_populate_timeout;
 
             let func_ref = lua.create_registry_value(func)?;
 
@@ -439,54 +439,69 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 async move {
                     lookup_counter.inc();
                     let key = multi_value_to_json_value(&lua, params.clone())?;
-                    let key = serde_json::to_string(&key).map_err(any_err)?;
 
-                    // We use the epoch from the start of the lookup as part
-                    // of the cache key. If the epoch changes while we are in
-                    // the middle of computing this value then subsequent calls
-                    // through to the cached function will see the newer epoch
-                    // and encounter a cache miss. This prevents a race condition
-                    // poisoning the cache with a stale value during an epoch
-                    // bump. The caller will still observe the stale value, so
-                    // ultimately should have some accommodation for detecting
-                    // the epoch change and retrying their call through here,
-                    // if it is important to not see a stale value.
-                    let epoch_at_start = get_current_epoch();
+                    let func = func?;
 
-                    let (cache, ttl, invalidate_with_epoch) = get_cache_by_name(&cache_name)
-                        .ok_or_else(|| anyhow::anyhow!("cache is somehow undefined!?"))
-                        .map_err(any_err)?;
+                    let mut last_failure = None;
 
-                    let epoch_key = if invalidate_with_epoch {
-                        Some(epoch_at_start)
-                    } else {
-                        None
-                    };
-                    let key = (epoch_key, key);
+                    for _attempt in 0..3 {
+                        // We use the epoch from the start of the lookup as part
+                        // of the cache key. If the epoch changes while we are in
+                        // the middle of computing this value then subsequent calls
+                        // through to the cached function will see the newer epoch
+                        // and encounter a cache miss. This prevents a race condition
+                        // poisoning the cache with a stale value during an epoch
+                        // bump. The caller will still observe the stale value, so
+                        // ultimately should have some accommodation for detecting
+                        // the epoch change and retrying their call through here,
+                        // if it is important to not see a stale value.
+                        let epoch_at_start = get_current_epoch();
 
-                    let value_result = cache
-                        .get_or_try_insert(&key, |_| ttl, async {
-                            tracing::trace!("populate {key:?}");
-                            populate_counter.inc();
-                            let result: MultiValue = (func?).call_async(params).await?;
-                            CacheEntry::from_multi_value(&lua, result.clone())
-                        })
-                        .await;
+                        let (cache, ttl, invalidate_with_epoch) = get_cache_by_name(&cache_name)
+                            .ok_or_else(|| anyhow::anyhow!("cache is somehow undefined!?"))
+                            .map_err(any_err)?;
 
-                    match value_result {
-                        Ok(lookup) => {
-                            if lookup.is_fresh {
-                                miss_counter.inc();
-                            } else {
-                                hit_counter.inc();
+                        let epoch_key = if invalidate_with_epoch {
+                            Some(epoch_at_start)
+                        } else {
+                            None
+                        };
+                        let key = serde_json::to_string(&key).map_err(any_err)?;
+                        let key = (epoch_key, key);
+
+                        let value_result = cache
+                            .get_or_try_insert(&key, |_| ttl, async {
+                                tracing::trace!("populate {key:?}");
+                                populate_counter.inc();
+                                let result: MultiValue =
+                                    (func.clone()).call_async(params.clone()).await?;
+                                CacheEntry::from_multi_value(&lua, result.clone())
+                            })
+                            .await;
+
+                        match value_result {
+                            Ok(lookup) => {
+                                if lookup.is_fresh {
+                                    miss_counter.inc();
+                                } else {
+                                    hit_counter.inc();
+                                }
+                                return lookup.item.to_value(&lua);
                             }
-                            lookup.item.to_value(&lua)
-                        }
-                        Err(err) => {
-                            tracing::error!("{cache_name} {key:?} failed: {err:#}");
-                            Err(mlua::Error::external(format!("{err:#}")))
+                            Err(err) => {
+                                tracing::error!("{cache_name} {key:?} failed: {err:#}");
+                                let error = format!("{err:#}");
+                                if !retry_on_populate_timeout {
+                                    return Err(mlua::Error::external(error));
+                                }
+                                last_failure.replace(error);
+                            }
                         }
                     }
+
+                    Err(mlua::Error::external(
+                        last_failure.expect("last_failure to always be set in loop above"),
+                    ))
                 }
             })
         })?,

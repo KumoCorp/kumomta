@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
 use tokio::time::{timeout, Duration, Instant};
@@ -26,7 +26,6 @@ struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     cache: DashMap<K, Item<V>>,
     lru_samples: AtomicUsize,
     sema_timeout_milliseconds: AtomicUsize,
-    retry_on_sema_timeout: AtomicBool,
     lookup_counter: IntCounter,
     evict_counter: IntCounter,
     expire_counter: IntCounter,
@@ -528,7 +527,6 @@ impl<
             capacity: AtomicUsize::new(capacity),
             lru_samples: AtomicUsize::new(10),
             sema_timeout_milliseconds: AtomicUsize::new(120_000),
-            retry_on_sema_timeout: AtomicBool::new(false),
             lookup_counter,
             evict_counter,
             expire_counter,
@@ -554,12 +552,6 @@ impl<
         }
 
         Self { inner }
-    }
-
-    pub fn set_retry_on_sema_timeout(&self, value: bool) {
-        self.inner
-            .retry_on_sema_timeout
-            .store(value, Ordering::Relaxed);
     }
 
     pub fn set_sema_timeout(&self, duration: Duration) {
@@ -748,17 +740,7 @@ impl<
                     {
                         Err(_) => {
                             self.inner.error_counter.inc();
-
-                            if self.inner.retry_on_sema_timeout.load(Ordering::Relaxed) {
-                                tracing::warn!(
-                                    "{} semaphore acquire for {name:?} timed out, \
-                                    will restart cache resolve.",
-                                    self.inner.name
-                                );
-                                continue 'retry;
-                            }
-
-                            tracing::error!(
+                            tracing::debug!(
                                 "{} semaphore acquire for {name:?} timed out",
                                 self.inner.name
                             );
