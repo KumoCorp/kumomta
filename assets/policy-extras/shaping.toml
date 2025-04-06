@@ -134,7 +134,10 @@ provider_connection_limit = 5
 
 [provider."office365-dane"]
 match=[{MXSuffix=".mx.microsoft"}]
-enable_dane = true
+# Ideally we'd enable dane here, but most sites are not
+# configured to work correctly with DNSSEC or DANE out
+# of the box, so we leave it disabled.
+# enable_dane = true
 max_deliveries_per_connection = 50
 provider_connection_limit = 5
 

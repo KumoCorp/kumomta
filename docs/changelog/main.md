@@ -62,6 +62,10 @@
   (to move to the top/bottom). Pressing `f` edits a fuzzy matching filter.
   Pressing Tab moves through tabs and allows viewing heatmap vizualizations.
   #372
+* Disabled DANE in the default `shaping.toml` for the `office365-dane` provider.
+  We cannot default DANE to on without a guarantee that the DNS/resolver
+  situation is correctly deployed with DNSSEC and without also knowing that
+  we're configure to use openssl.
 
 ## Fixes
 
