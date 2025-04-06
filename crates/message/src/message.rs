@@ -1199,19 +1199,22 @@ fn emit_header(dest: &mut Vec<u8>, name: Option<&str>, value: &str) {
 #[cfg(feature = "impl")]
 impl UserData for Message {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method(
+        methods.add_async_method(
             "set_meta",
-            move |_, this, (name, value): (String, mlua::Value)| {
+            move |_, this, (name, value): (String, mlua::Value)| async move {
+                this.load_meta_if_needed().await.map_err(any_err)?;
                 let value = serde_json::value::to_value(value).map_err(any_err)?;
                 this.set_meta(name, value).map_err(any_err)?;
                 Ok(())
             },
         );
-        methods.add_method("get_meta", move |lua, this, name: String| {
+        methods.add_async_method("get_meta", move |lua, this, name: String| async move {
+            this.load_meta_if_needed().await.map_err(any_err)?;
             let value = this.get_meta(name).map_err(any_err)?;
             Ok(Some(lua.to_value_with(&value, serialize_options())?))
         });
-        methods.add_method("get_data", move |lua, this, _: ()| {
+        methods.add_async_method("get_data", move |lua, this, _: ()| async move {
+            this.load_data_if_needed().await.map_err(any_err)?;
             let data = this.get_data();
             lua.create_string(&*data)
         });
