@@ -14,6 +14,7 @@ use std::net::{IpAddr, Ipv6Addr};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
 mod resolver;
@@ -40,6 +41,11 @@ static IPV6_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip
 declare_cache! {
 static IP_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ip", 1024);
 }
+
+/// Maximum number of concurrent mx resolves permitted
+static MX_MAX_CONCURRENCY: AtomicUsize = AtomicUsize::new(128);
+static MX_CONCURRENCY_SEMA: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(MX_MAX_CONCURRENCY.load(Ordering::SeqCst)));
 
 /// 5 seconds in ms
 static MX_TIMEOUT_MS: AtomicUsize = AtomicUsize::new(5000);
@@ -89,6 +95,10 @@ fn default_resolver() -> impl Resolver {
     return UnboundResolver::new().unwrap();
     #[cfg(not(feature = "default-unbound"))]
     return HickoryResolver::new().expect("Parsing /etc/resolv.conf failed");
+}
+
+pub fn set_mx_concurrency_limit(n: usize) {
+    MX_MAX_CONCURRENCY.store(n, Ordering::SeqCst);
 }
 
 pub fn set_mx_timeout(duration: Duration) -> anyhow::Result<()> {
@@ -333,63 +343,73 @@ impl MailExchanger {
 
         let name_fq = fully_qualify(domain_name)?;
 
-        if let Some(mx) = MX_CACHE.get(&name_fq) {
+        let lookup_result = MX_CACHE
+            .get_or_try_insert(
+                &name_fq,
+                |mx_result| {
+                    if let Ok(mx) = mx_result {
+                        if let Some(exp) = mx.expires {
+                            return exp
+                                .checked_duration_since(std::time::Instant::now())
+                                .unwrap_or_else(|| Duration::from_secs(10));
+                        }
+                    }
+                    get_mx_negative_ttl()
+                },
+                async {
+                    MX_QUERIES.inc();
+                    let start = Instant::now();
+                    let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
+                        Ok((by_pref, expires)) => (by_pref, expires),
+                        Err(err) => {
+                            let error = format!(
+                                "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
+                                elapsed = start.elapsed()
+                            );
+                            return Ok::<Result<Arc<MailExchanger>, String>, anyhow::Error>(Err(
+                                error,
+                            ));
+                        }
+                    };
+
+                    let mut hosts = vec![];
+                    for pref in &by_pref {
+                        for host in &pref.hosts {
+                            hosts.push(host.to_string());
+                        }
+                    }
+
+                    let is_secure = by_pref.iter().all(|p| p.is_secure);
+                    let is_mx = by_pref.iter().all(|p| p.is_mx);
+
+                    let by_pref = by_pref
+                        .into_iter()
+                        .map(|pref| (pref.pref, pref.hosts))
+                        .collect();
+
+                    let site_name = factor_names(&hosts);
+                    let mx = Self {
+                        hosts,
+                        domain_name: name_fq.to_ascii(),
+                        site_name,
+                        by_pref,
+                        is_domain_literal: false,
+                        is_secure,
+                        is_mx,
+                        expires: Some(expires),
+                    };
+
+                    Ok(Ok(Arc::new(mx)))
+                },
+            )
+            .await
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+
+        if !lookup_result.is_fresh {
             MX_CACHED.inc();
-            return mx.map_err(|err| anyhow::anyhow!("{err}"));
         }
 
-        let start = Instant::now();
-        MX_QUERIES.inc();
-        let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
-            Ok((by_pref, expires)) => (by_pref, expires),
-            Err(err) => {
-                let error = format!(
-                    "MX lookup for {domain_name} failed after {elapsed:?}: {err:#}",
-                    elapsed = start.elapsed()
-                );
-                let _ = MX_CACHE
-                    .insert(
-                        name_fq,
-                        Err(error.clone()),
-                        tokio::time::Instant::now() + get_mx_negative_ttl(),
-                    )
-                    .await;
-                anyhow::bail!("{error}");
-            }
-        };
-
-        let mut hosts = vec![];
-        for pref in &by_pref {
-            for host in &pref.hosts {
-                hosts.push(host.to_string());
-            }
-        }
-
-        let is_secure = by_pref.iter().all(|p| p.is_secure);
-        let is_mx = by_pref.iter().all(|p| p.is_mx);
-
-        let by_pref = by_pref
-            .into_iter()
-            .map(|pref| (pref.pref, pref.hosts))
-            .collect();
-
-        let site_name = factor_names(&hosts);
-        let mx = Self {
-            hosts,
-            domain_name: name_fq.to_ascii(),
-            site_name,
-            by_pref,
-            is_domain_literal: false,
-            is_secure,
-            is_mx,
-            expires: Some(expires),
-        };
-
-        let mx = Arc::new(mx);
-        let _ = MX_CACHE
-            .insert(name_fq, Ok(mx.clone()), expires.into())
-            .await;
-        Ok(mx)
+        lookup_result.item.map_err(|err| anyhow::anyhow!("{err}"))
     }
 
     pub fn has_expired(&self) -> bool {
@@ -465,10 +485,13 @@ struct ByPreference {
 }
 
 async fn lookup_mx_record(domain_name: &Name) -> anyhow::Result<(Vec<ByPreference>, Instant)> {
-    let mx_lookup = timeout(
-        get_mx_timeout(),
-        RESOLVER.load().resolve(domain_name.clone(), RecordType::MX),
-    )
+    let mx_lookup = timeout(get_mx_timeout(), async {
+        let _permit = MX_CONCURRENCY_SEMA.acquire().await;
+        RESOLVER
+            .load()
+            .resolve(domain_name.clone(), RecordType::MX)
+            .await
+    })
     .await??;
     let mx_records = mx_lookup.records;
 

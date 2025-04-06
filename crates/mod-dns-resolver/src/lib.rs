@@ -1,8 +1,8 @@
 use anyhow::Context;
 use config::{any_err, get_or_create_sub_module, serialize_options};
 use dns_resolver::{
-    get_resolver, resolve_a_or_aaaa, set_mx_negative_cache_ttl, set_mx_timeout, HickoryResolver,
-    MailExchanger, TestResolver, UnboundResolver,
+    get_resolver, resolve_a_or_aaaa, set_mx_concurrency_limit, set_mx_negative_cache_ttl,
+    set_mx_timeout, HickoryResolver, MailExchanger, TestResolver, UnboundResolver,
 };
 use hickory_resolver::config::{NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts};
 use hickory_resolver::name_server::TokioConnectionProvider;
@@ -20,6 +20,14 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_async_function(|lua, domain: String| async move {
             let mx = MailExchanger::resolve(&domain).await.map_err(any_err)?;
             Ok(lua.to_value_with(&*mx, serialize_options()))
+        })?,
+    )?;
+
+    dns_mod.set(
+        "set_mx_concurrency_limit",
+        lua.create_function(move |_lua, limit: usize| {
+            set_mx_concurrency_limit(limit);
+            Ok(())
         })?,
     )?;
 

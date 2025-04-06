@@ -7,6 +7,11 @@
   aware that hickory has changed its configuration schema and that you may need
   to update your configuration to match; be sure to test this before trying to
   deploy to production.
+* There is now an artificial limit of `128` concurrent MX lookups that are
+  permitted to be in-flight at any given time. In prior versions there was
+  no limit. You can adjust this via the new
+  [kumo.dns.set_mx_concurrency_limit](../reference/kumo.dns/set_mx_concurrency_limit.md)
+  function.
 
 ## Other Changes and Enhancements
 
@@ -66,6 +71,9 @@
   We cannot default DANE to on without a guarantee that the DNS/resolver
   situation is correctly deployed with DNSSEC and without also knowing that
   we're configure to use openssl.
+* MX lookups now participate in lruttl cache thundering herd protection.
+  In prior versions, we could potentially issue multiple concurrent requests
+  for the same name.
 
 ## Fixes
 

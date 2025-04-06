@@ -658,23 +658,15 @@ impl Shaping {
         // Pre-resolve domains. We don't interleave the resolution with
         // the work below, because we want to ensure that the ordering
         // is preserved
-        let limiter = Arc::new(tokio::sync::Semaphore::new(128));
         let mut mx = std::collections::HashMap::new();
         let mut lookups = FuturesUnordered::new();
         for item in &loaded {
             for (domain, partial) in &item.domains {
                 if partial.mx_rollup {
                     let domain = domain.to_string();
-                    let limiter = limiter.clone();
                     lookups.push(tokio::spawn(async move {
-                        match limiter.acquire().await {
-                            Ok(permit) => {
-                                let mx_result = MailExchanger::resolve(&domain).await;
-                                drop(permit);
-                                (domain, mx_result)
-                            }
-                            Err(err) => (domain, Err(err).context("failed to acquire permit")),
-                        }
+                        let mx_result = MailExchanger::resolve(&domain).await;
+                        (domain, mx_result)
                     }));
                 }
             }
