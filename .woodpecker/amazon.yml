@@ -107,6 +107,7 @@ steps:
     depends_on: [build]
     image: ${AMAZON_IMAGE}
     commands:
+      - yum clean all
       - yum install -y ./kumomta*.rpm
 
   sign-rpm:
