@@ -100,7 +100,7 @@ fn mark_path_as_done(path: &PathBuf) -> std::io::Result<()> {
     // now considered to be complete
     let mut perms = meta.permissions();
     perms.set_readonly(true);
-    std::fs::set_permissions(&path, perms)
+    std::fs::set_permissions(path, perms)
 }
 
 fn mark_existing_logs_as_done_in_dir(dir: &PathBuf) -> anyhow::Result<()> {
@@ -241,10 +241,7 @@ impl LogThreadState {
     }
 
     fn get_deadline(&self) -> Option<Instant> {
-        self.file_map
-            .values()
-            .filter_map(|of| of.expires.clone())
-            .min()
+        self.file_map.values().filter_map(|of| of.expires).min()
     }
 
     fn per_record(&self, kind: RecordType) -> Option<&LogRecordParams> {
@@ -317,7 +314,7 @@ impl LogThreadState {
                 Ok(f) => f,
                 Err(err) => {
                     if err.kind() == std::io::ErrorKind::NotFound {
-                        match std::fs::create_dir_all(&log_dir) {
+                        match std::fs::create_dir_all(log_dir) {
                             Ok(_) => {
                                 // Try opening it again now
                                 std::fs::OpenOptions::new()

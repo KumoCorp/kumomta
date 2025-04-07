@@ -341,7 +341,7 @@ impl SmtpDispatcher {
         let make_connection = {
             let target_address = target_address.clone();
             let address = address.clone();
-            let timeouts = path_config.client_timeouts.clone();
+            let timeouts = path_config.client_timeouts;
             let egress_source = dispatcher.egress_source.clone();
             let tracer = self.tracer.clone();
             let enable_rset = path_config.enable_rset;
@@ -437,7 +437,7 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
-        let openssl_options = path_config.openssl_options.clone();
+        let openssl_options = path_config.openssl_options;
         let openssl_cipher_list = path_config.openssl_cipher_list.clone();
         let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
         let rustls_cipher_suites = path_config.rustls_cipher_suites.clone();
@@ -1003,7 +1003,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         )
                         .await;
                         spawn(
-                            "requeue message".to_string(),
+                            "requeue message",
                             QueueManager::requeue_message(
                                 msg,
                                 IncrementAttempts::Yes,
@@ -1039,7 +1039,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         )
                         .await;
                         spawn(
-                            "requeue message".to_string(),
+                            "requeue message",
                             QueueManager::requeue_message(
                                 msg,
                                 IncrementAttempts::Yes,
@@ -1106,7 +1106,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     )
                     .await;
                     spawn(
-                        "requeue message".to_string(),
+                        "requeue message",
                         QueueManager::requeue_message(
                             msg,
                             IncrementAttempts::Yes,
@@ -1149,7 +1149,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     )
                     .await;
                     spawn(
-                        "requeue message".to_string(),
+                        "requeue message",
                         QueueManager::requeue_message(
                             msg,
                             IncrementAttempts::Yes,

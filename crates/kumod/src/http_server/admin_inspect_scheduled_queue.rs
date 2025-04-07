@@ -36,7 +36,7 @@ pub async fn inspect_v1(
             let meta = msg.get_meta_obj()?;
             let scheduling = msg
                 .get_scheduling()
-                .and_then(|s| serde_json::to_value(&s).ok());
+                .and_then(|s| serde_json::to_value(s).ok());
 
             let data = if request.want_body {
                 msg.load_data_if_needed().await?;

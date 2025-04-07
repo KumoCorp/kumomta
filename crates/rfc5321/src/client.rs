@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 use crate::client_types::*;
 use crate::{
     AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Domain, EsmtpParameter, ForwardPath,
@@ -593,7 +594,6 @@ impl SmtpClient {
         self.ehlo_common(response)
     }
 
-    #[allow(clippy::result_large_err)]
     fn ehlo_common(
         &mut self,
         response: Response,

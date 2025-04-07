@@ -314,6 +314,7 @@ impl<'a> Compiled<'a> {
                     address: AddrSpec::parse(&recip.email)?,
                 }));
 
+                #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
                     let expanded = self.env_and_templates.borrow_dependent()[id].render(&subst)?;
                     id += 1;

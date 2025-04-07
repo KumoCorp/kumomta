@@ -493,7 +493,7 @@ impl EgressPoolSourceSelector {
         }
 
         if entries.len() == 1 {
-            return entries.get(0).map(|(entry, ready_queue_name)| {
+            return entries.first().map(|(entry, ready_queue_name)| {
                 (entry.name.to_string(), ready_queue_name.clone())
             });
         }

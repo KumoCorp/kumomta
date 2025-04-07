@@ -187,17 +187,17 @@ impl Queue {
     pub async fn queue_config_maintainer() {
         let mut shutdown = ShutdownSubcription::get();
         let mut epoch_subscriber = config::epoch::subscribe();
-        let mut last_epoch = epoch_subscriber.borrow_and_update().clone();
+        let mut last_epoch = *epoch_subscriber.borrow_and_update();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(10)) => {
                     Self::check_config_refresh(&last_epoch, false).await;
                 }
                 _ = epoch_subscriber.changed() => {
-                    let this_epoch = epoch_subscriber.borrow_and_update().clone();
+                    let this_epoch = *epoch_subscriber.borrow_and_update();
                     tracing::debug!("queue_config_maintainer: epoch changed from \
                                      {last_epoch:?} -> {this_epoch:?}");
-                    last_epoch = this_epoch.clone();
+                    last_epoch = this_epoch;
                     Self::check_config_refresh(&last_epoch, true).await;
                 }
                 _ = shutdown.shutting_down() => {
@@ -268,11 +268,11 @@ impl Queue {
     }
 
     fn get_config_epoch(&self) -> ConfigEpoch {
-        self.config_epoch.lock().clone()
+        *self.config_epoch.lock()
     }
 
     fn set_config_epoch(&self, epoch: &ConfigEpoch) {
-        *self.config_epoch.lock() = epoch.clone();
+        *self.config_epoch.lock() = *epoch;
     }
 
     async fn perform_config_refresh_if_due(
@@ -1406,29 +1406,27 @@ impl Queue {
         context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
-        loop {
-            *self.last_change.lock() = Instant::now();
+        *self.last_change.lock() = Instant::now();
 
-            tracing::trace!("insert msg {}", msg.id());
-            if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
-                let id = *msg.id();
-                b.log(msg, Some(&self.name)).await;
-                SpoolManager::remove_from_spool(id).await?;
-                return Ok(());
-            }
+        tracing::trace!("insert msg {}", msg.id());
+        if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
+            let id = *msg.id();
+            b.log(msg, Some(&self.name)).await;
+            SpoolManager::remove_from_spool(id).await?;
+            return Ok(());
+        }
 
-            if self.activity.is_shutting_down() {
-                Self::save_if_needed_and_log(&msg, None).await;
-                drop(msg);
-                return Ok(());
-            }
+        if self.activity.is_shutting_down() {
+            Self::save_if_needed_and_log(&msg, None).await;
+            drop(msg);
+            return Ok(());
+        }
 
-            match self.insert_delayed(msg.clone(), context.clone()).await? {
-                InsertResult::Delayed => return Ok(()),
-                InsertResult::Ready(msg) => {
-                    self.insert_ready(msg.clone(), context, deadline).await?;
-                    return Ok(());
-                }
+        match self.insert_delayed(msg.clone(), context.clone()).await? {
+            InsertResult::Delayed => Ok(()),
+            InsertResult::Ready(msg) => {
+                self.insert_ready(msg.clone(), context, deadline).await?;
+                Ok(())
             }
         }
     }

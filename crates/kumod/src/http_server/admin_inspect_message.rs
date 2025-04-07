@@ -18,14 +18,14 @@ pub async fn inspect_v1(
     _: TrustedIpRequired,
     Query(request): Query<InspectMessageV1Request>,
 ) -> Result<Json<InspectMessageV1Response>, AppError> {
-    let msg = Message::new_with_id(request.id.into()).await?;
+    let msg = Message::new_with_id(request.id).await?;
 
     let recipient = msg.recipient()?.to_string();
     let sender = msg.sender()?.to_string();
     let meta = msg.get_meta_obj()?;
     let scheduling = msg
         .get_scheduling()
-        .and_then(|s| serde_json::to_value(&s).ok());
+        .and_then(|s| serde_json::to_value(s).ok());
 
     let data = if request.want_body {
         msg.load_data_if_needed().await?;

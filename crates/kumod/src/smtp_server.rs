@@ -879,8 +879,7 @@ impl SmtpServerSession {
         command: Option<String>,
     ) -> Result<(), WriteError> {
         if let Some(socket) = self.socket.as_mut() {
-            if status >= 400
-                && status < 600
+            if (400..600).contains(&status)
                 // Don't log the shutting down message, or load shedding messages.
                 // The main purpose of Rejection logging is to see what unexpected and
                 // unsuccessful results are being returned to the peer.

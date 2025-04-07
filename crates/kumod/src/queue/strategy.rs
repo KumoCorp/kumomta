@@ -132,7 +132,7 @@ impl QueueStructure {
             Self::SkipList(q) => {
                 let mut msgs = vec![];
                 while let Some(entry) = q.pop_front() {
-                    msgs.push((*entry).0.clone());
+                    msgs.push(entry.0.clone());
                 }
                 msgs
             }

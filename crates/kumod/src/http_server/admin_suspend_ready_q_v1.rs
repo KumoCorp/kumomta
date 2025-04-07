@@ -126,11 +126,7 @@ impl AdminSuspendReadyQEntry {
     fn get_all() -> Vec<Self> {
         let mut entries = ENTRIES.lock();
         entries.do_expire();
-        entries
-            .entries
-            .values()
-            .map(|entry| entry.clone())
-            .collect()
+        entries.entries.values().cloned().collect()
     }
 
     pub fn get_all_v1() -> Vec<SuspendReadyQueueV1ListEntry> {

@@ -227,7 +227,7 @@ mod tests {
 
         match queue.pop() {
             PopResult::Items(items) => assert_eq!(items, vec![&item3]),
-            PopResult::Sleep(ms) => assert!(false, "still have {ms:?} to go"),
+            PopResult::Sleep(ms) => unreachable!("still have {ms:?} to go"),
             _ => unreachable!(),
         }
 

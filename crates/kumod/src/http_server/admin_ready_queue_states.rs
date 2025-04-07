@@ -29,8 +29,7 @@ pub async fn readyq_states(
             && request
                 .queues
                 .iter()
-                .find(|name| name.as_str() == queue.name())
-                .is_none()
+                .any(|name| name.as_str() == queue.name())
         {
             continue;
         }

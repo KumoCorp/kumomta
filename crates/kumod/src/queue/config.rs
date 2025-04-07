@@ -150,7 +150,7 @@ impl QueueConfig {
             if elapsed + delay > age {
                 return num_attempts;
             }
-            elapsed = elapsed + delay;
+            elapsed += delay;
             num_attempts += 1;
         }
     }
@@ -192,7 +192,6 @@ impl QueueConfig {
         // Compute the delay from the creation time of the message
         // based on the number of attempts
         let overall_delay: i64 = (1..num_attempts)
-            .into_iter()
             .map(|i| self.delay_for_attempt(i).num_seconds())
             .sum();
         let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))
@@ -228,7 +227,6 @@ impl QueueConfig {
         age: chrono::Duration,
     ) -> chrono::Duration {
         let overall_delay: i64 = (1..num_attempts)
-            .into_iter()
             .map(|i| self.delay_for_attempt(i).num_seconds())
             .sum();
         let overall_delay = chrono::Duration::try_seconds(overall_delay.min(MAX_CHRONO_SECONDS))

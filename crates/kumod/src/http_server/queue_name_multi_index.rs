@@ -197,8 +197,8 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
             }
         }
 
-        self.by_criteria.insert(criteria.clone(), id.clone());
-        self.by_id.insert(id.clone(), entry);
+        self.by_criteria.insert(criteria.clone(), *id);
+        self.by_id.insert(*id, entry);
     }
 
     /// Remove the entry with the specified id

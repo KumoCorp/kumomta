@@ -344,6 +344,7 @@ impl ResponseBuilder {
     }
 }
 
+#[allow(clippy::ptr_arg)]
 fn as_single_line<S>(content: &String, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,

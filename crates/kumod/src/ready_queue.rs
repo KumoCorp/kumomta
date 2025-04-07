@@ -481,17 +481,17 @@ impl ReadyQueueManager {
     async fn queue_config_maintainer() {
         let mut shutdown = ShutdownSubcription::get();
         let mut epoch_subscriber = config::epoch::subscribe();
-        let mut last_epoch = epoch_subscriber.borrow_and_update().clone();
+        let mut last_epoch = *epoch_subscriber.borrow_and_update();
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(10)) => {
                     Self::check_config_refresh(&last_epoch, false).await;
                 }
                 _ = epoch_subscriber.changed() => {
-                    let this_epoch = epoch_subscriber.borrow_and_update().clone();
+                    let this_epoch = *epoch_subscriber.borrow_and_update();
                     tracing::debug!("queue_config_maintainer: epoch changed from \
                                      {last_epoch:?} -> {this_epoch:?}");
-                    last_epoch = this_epoch.clone();
+                    last_epoch = this_epoch;
                     Self::check_config_refresh(&last_epoch, true).await;
                 }
                 _ = shutdown.shutting_down() => {
@@ -1079,7 +1079,7 @@ impl ReadyQueue {
     }
 
     async fn perform_config_refresh(&self, epoch: &ConfigEpoch) {
-        *self.config_epoch.lock() = epoch.clone();
+        *self.config_epoch.lock() = *epoch;
         tracing::trace!("perform_config_refresh for {}", self.name);
 
         match ReadyQueueManager::compute_config(
@@ -1600,7 +1600,7 @@ impl Dispatcher {
         {
             // Transient failure; continue with another host
             tracing::debug!("failed to send message batch to {}: {err:#}", self.name,);
-            return Err(err.into());
+            return Err(err);
         }
 
         drop(activity);

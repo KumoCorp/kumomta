@@ -126,6 +126,7 @@ impl ScheduledMetrics {
         });
         let by_tenant_campaign = match &components.campaign {
             Some(campaign) => {
+                #[allow(clippy::useless_asref)]
                 let key = BorrowedTenantCampaignKey {
                     tenant: components.tenant.as_ref().map(|s| s.as_ref()).unwrap_or(""),
                     campaign,

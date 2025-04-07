@@ -149,8 +149,8 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         }
 
         // In the largest slot
-        if diff > std::u32::MAX as usize {
-            due = next_run_tick + std::u32::MAX as usize
+        if diff > u32::MAX as usize {
+            due = next_run_tick + u32::MAX as usize
         }
 
         self.buckets

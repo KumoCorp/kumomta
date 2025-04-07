@@ -36,6 +36,8 @@ test-kumod:
 
 clippy:
 	cargo clippy -- \
+		-A clippy::assertions_on_constants \
+		-A clippy::upper_case_acronyms \
 		-A clippy::collapsible_if \
 		-A clippy::comparison_chain \
 		-A clippy::drop_non_drop \
@@ -48,6 +50,7 @@ clippy:
 		-A clippy::manual_strip \
 		-A clippy::match_like_matches_macro \
 		-A clippy::multiple_bound_locations \
+		-A clippy::module_inception \
 		-A clippy::needless_bool \
 		-A clippy::needless_borrow \
 		-A clippy::needless_lifetimes \
