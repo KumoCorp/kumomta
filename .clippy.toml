@@ -1,0 +1,9 @@
+await-holding-invalid-types = [
+  { path = "dashmap::mapref::one::MappedRef", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::one::MappedRefMut", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::one::Ref", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::one::RefMut", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::entry::Entry", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::multiple::RefMulti", reason = "potentially deadlocks" },
+  { path = "dashmap::mapref::multiple::RefMutMulti", reason = "potentially deadlocks" },
+]
