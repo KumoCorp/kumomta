@@ -97,32 +97,34 @@ impl RawStack {
     fn interesting_stack(&self) -> Vec<Frame> {
         let mut frames = self.parse_stack();
 
-        frames.retain(|frame| match frame.module() {
-            "__rust_alloc"
-            | "__rust_alloc_zeroed"
-            | "__rust_realloc"
-            | "alloc"
-            | "clone"
-            | "core"
-            | "hashbrown"
-            | "indexmap"
-            | "kumo_server_memory"
-            | "lua"
-            | "mlua"
-            | "mlua_sys"
-            | "ordermap"
-            | "regex_automata"
-            | "serde"
-            | "serde_json"
-            | "serde_path_to_error"
-            | "sharded_slab"
-            | "start_thread"
-            | "std"
-            | "tokio"
-            | "toml"
-            | "toml_edit"
-            | "tracing" => false,
-            _ => true,
+        frames.retain(|frame| {
+            !matches!(
+                frame.module(),
+                "__rust_alloc"
+                    | "__rust_alloc_zeroed"
+                    | "__rust_realloc"
+                    | "alloc"
+                    | "clone"
+                    | "core"
+                    | "hashbrown"
+                    | "indexmap"
+                    | "kumo_server_memory"
+                    | "lua"
+                    | "mlua"
+                    | "mlua_sys"
+                    | "ordermap"
+                    | "regex_automata"
+                    | "serde"
+                    | "serde_json"
+                    | "serde_path_to_error"
+                    | "sharded_slab"
+                    | "start_thread"
+                    | "std"
+                    | "tokio"
+                    | "toml"
+                    | "toml_edit"
+                    | "tracing"
+            )
         });
 
         frames
