@@ -90,9 +90,7 @@ where
         None => Ok(None),
         Some(option_list) => match parse_openssl_options(&option_list) {
             Ok(options) => Ok(Some(options)),
-            Err(err) => {
-                return Err(D::Error::custom(format!("{err:#}")));
-            }
+            Err(err) => Err(D::Error::custom(format!("{err:#}"))),
         },
     }
 }

@@ -220,8 +220,8 @@ pub fn set_sticky_bit(path: &Path) {
         if let Ok(metadata) = path.metadata() {
             let mut perms = metadata.permissions();
             let mode = perms.mode();
-            perms.set_mode(mode | libc::S_ISVTX as u32);
-            let _ = std::fs::set_permissions(&path, perms);
+            perms.set_mode(mode | libc::S_ISVTX);
+            let _ = std::fs::set_permissions(path, perms);
         }
     }
 
@@ -235,7 +235,7 @@ fn lock_pid_file(pid_file: PathBuf) -> anyhow::Result<std::fs::File> {
     let pid_file_dir = pid_file
         .parent()
         .ok_or_else(|| anyhow::anyhow!("{} has no parent?", pid_file.display()))?;
-    std::fs::create_dir_all(&pid_file_dir).with_context(|| {
+    std::fs::create_dir_all(pid_file_dir).with_context(|| {
         format!(
             "while creating directory structure: {}",
             pid_file_dir.display()
@@ -276,7 +276,7 @@ mod test {
     #[tokio::test]
     async fn basic_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = LocalDiskSpool::new(&location.path(), false, Handle::current())?;
+        let spool = LocalDiskSpool::new(location.path(), false, Handle::current())?;
         let data_dir = location.path().join("data");
 
         {

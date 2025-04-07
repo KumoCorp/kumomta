@@ -77,7 +77,7 @@ pub async fn get_policy_for_domain(policy_domain: &str) -> anyhow::Result<Arc<Mt
 }
 
 fn cache_lookup(name: &Name) -> Option<CachedPolicy> {
-    CACHE.get(&name)
+    CACHE.get(name)
 }
 
 async fn get_policy_for_domain_impl(

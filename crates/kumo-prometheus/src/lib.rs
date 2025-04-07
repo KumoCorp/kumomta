@@ -46,14 +46,14 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         let prefix = prefix.as_deref().unwrap_or("");
         buffer.push_str(prefix);
         buffer.push_str(self.name);
-        buffer.push_str(" ");
+        buffer.push(' ');
         buffer.push_str(self.help);
         buffer.push_str("\n# TYPE ");
         buffer.push_str(prefix);
         buffer.push_str(self.name);
-        buffer.push_str(" ");
+        buffer.push(' ');
         buffer.push_str(if self.is_gauge { "gauge" } else { "counter" });
-        buffer.push_str("\n");
+        buffer.push('\n');
 
         let mut buffer = Some(buffer);
 

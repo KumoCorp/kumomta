@@ -313,7 +313,7 @@ impl Opt {
     fn load_body_file(&self) -> anyhow::Result<()> {
         if let Some(path) = &self.body_file {
             let data =
-                std::fs::read_to_string(&path).with_context(|| format!("{}", path.display()))?;
+                std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
             // Canonicalize the line endings
             let data = data.replace("\r\n", "\n").replace("\n", "\r\n");
             self.body_file_content.set(data).unwrap();
@@ -389,13 +389,9 @@ impl Opt {
 
     async fn make_client(&self) -> anyhow::Result<Client> {
         if self.http {
-            self.make_http_client()
-                .await
-                .map(|client| Client::Http(client))
+            self.make_http_client().await.map(Client::Http)
         } else {
-            self.make_smtp_client()
-                .await
-                .map(|client| Client::Smtp(client))
+            self.make_smtp_client().await.map(Client::Smtp)
         }
     }
 

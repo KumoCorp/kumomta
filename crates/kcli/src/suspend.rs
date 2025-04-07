@@ -37,13 +37,15 @@ pub struct SuspendCommand {
 
 impl SuspendCommand {
     pub async fn run(&self, endpoint: &Url) -> anyhow::Result<()> {
-        if self.domain.is_none() && self.campaign.is_none() && self.tenant.is_none() {
-            if !self.everything {
-                anyhow::bail!(
-                    "No domain, campaign or tenant was specified. \
-                     Use --everything if you intend to suspend all queues"
-                );
-            }
+        if self.domain.is_none()
+            && self.campaign.is_none()
+            && self.tenant.is_none()
+            && !self.everything
+        {
+            anyhow::bail!(
+                "No domain, campaign or tenant was specified. \
+                 Use --everything if you intend to suspend all queues"
+            );
         }
 
         let result: SuspendV1Response = crate::request_with_json_response(
@@ -54,7 +56,7 @@ impl SuspendCommand {
                 domain: self.domain.clone(),
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
-                duration: self.duration.clone(),
+                duration: self.duration,
                 expires: None,
             },
         )

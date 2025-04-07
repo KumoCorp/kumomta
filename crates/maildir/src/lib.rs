@@ -152,7 +152,7 @@ impl MailEntry {
                 .get_raw_value()
                 .rsplit(';')
                 .nth(0)
-                .ok_or_else(|| MailEntryError::DateError("Unable to split Received header"))
+                .ok_or(MailEntryError::DateError("Unable to split Received header"))
                 .and_then(|ts| DateTime::parse_from_rfc2822(ts).map_err(MailEntryError::from)),
             None => Err("No Received header found")?,
         }
@@ -621,7 +621,7 @@ impl Maildir {
             let merged = String::from(old_flags) + flags;
             Self::normalize_flags(&merged)
         };
-        self.update_flags(id, &flag_merge)
+        self.update_flags(id, flag_merge)
     }
 
     /// Removes the given flags to the message with the given id in the maildir.
@@ -632,7 +632,7 @@ impl Maildir {
     pub fn remove_flags(&self, id: &str, flags: &str) -> std::io::Result<()> {
         let flag_strip =
             |old_flags: &str| old_flags.chars().filter(|c| !flags.contains(*c)).collect();
-        self.update_flags(id, &flag_strip)
+        self.update_flags(id, flag_strip)
     }
 
     /// Deletes the message with the given id in the maildir.
@@ -685,8 +685,8 @@ impl Maildir {
                         self.create_dir_all(parent)?;
                     }
 
-                    match std::fs::create_dir(path) {
-                        Err(err) => match err.kind() {
+                    if let Err(err) = std::fs::create_dir(path) {
+                        match err.kind() {
                             std::io::ErrorKind::AlreadyExists => {
                                 // The file now exists, but we're not
                                 // sure what its type is: restart
@@ -701,8 +701,7 @@ impl Maildir {
                             _ => {
                                 return Err(err);
                             }
-                        },
-                        Ok(()) => {}
+                        }
                     }
 
                     #[cfg(unix)]

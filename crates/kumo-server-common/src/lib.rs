@@ -74,7 +74,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         }
 
         let tbl: Value = lua.named_registry_value(&decorated_name)?;
-        return match tbl {
+        match tbl {
             Value::Nil => {
                 let tbl = lua.create_table()?;
                 tbl.set(1, call_stack)?;
@@ -89,7 +89,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             _ => Err(mlua::Error::external(format!(
                 "registry key for {decorated_name} has invalid type",
             ))),
-        };
+        }
     }
 
     // Returns the list of call-stacks of the code that registered
@@ -187,7 +187,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         output.push_str(&item);
                     }
                 },
-                item @ _ => match item.to_string() {
+                item => match item.to_string() {
                     Ok(s) => output.push_str(&s),
                     Err(_) => output.push_str(&format!("{item:?}")),
                 },
@@ -445,7 +445,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                         let runtime = tokio::runtime::Builder::new_current_thread()
                             .enable_io()
                             .enable_time()
-                            .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+                            .on_thread_park(kumo_server_memory::purge_thread_cache)
                             .build()
                             .unwrap();
                         let local_set = LocalSet::new();

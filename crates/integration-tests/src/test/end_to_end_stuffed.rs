@@ -17,7 +17,7 @@ async fn end_to_end_stuffed() -> anyhow::Result<()> {
 
     let body = ".Stuffing required\r\nFor me\r\n";
     let response = MailGenParams {
-        body: Some(&body),
+        body: Some(body),
         ..Default::default()
     }
     .send(&mut client)

@@ -15,7 +15,7 @@ pub struct HeatMap<'a> {
     caption: Option<&'a str>,
 }
 
-impl<'a> Styled for HeatMap<'a> {
+impl Styled for HeatMap<'_> {
     type Item = Self;
 
     fn style(&self) -> Style {
@@ -132,7 +132,7 @@ impl<'a> HeatMap<'a> {
             .take(max_width)
             .enumerate()
         {
-            for (y, value) in data.into_iter().rev().enumerate() {
+            for (y, value) in data.iter().rev().enumerate() {
                 let value = *value;
                 if value == 0 {
                     continue;
@@ -162,7 +162,7 @@ impl<'a> HeatMap<'a> {
         buf.set_string(
             area.left() + label_width as u16,
             scale_y,
-            format!("1"),
+            "1",
             Style::default(),
         );
         buf.set_string(

@@ -41,6 +41,12 @@ pub enum PopResult<EntryType> {
     Empty,
 }
 
+impl<EntryType: TimerEntryWithDelay> Default for TimeQ<EntryType> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<EntryType: TimerEntryWithDelay> TimeQ<EntryType> {
     pub fn new() -> Self {
         Self {
@@ -167,7 +173,7 @@ mod tests {
 
         let items = queue.drain();
         assert_eq!(queue.len(), 0);
-        assert_eq!(queue.is_empty(), true);
+        assert!(queue.is_empty());
         assert_eq!(items, vec![&item1, &item3, &item2]);
     }
 
@@ -196,7 +202,7 @@ mod tests {
         queue.insert(&item3).unwrap();
 
         assert_eq!(queue.len(), 3);
-        assert_eq!(queue.is_empty(), false);
+        assert!(!queue.is_empty());
 
         std::thread::sleep(Duration::from_millis(2));
 
@@ -206,7 +212,7 @@ mod tests {
         }
 
         assert_eq!(queue.len(), 2);
-        assert_eq!(queue.is_empty(), false);
+        assert!(!queue.is_empty());
 
         std::thread::sleep(Duration::from_millis(2));
 
@@ -226,7 +232,7 @@ mod tests {
         }
 
         assert_eq!(queue.len(), 1);
-        assert_eq!(queue.is_empty(), false);
+        assert!(!queue.is_empty());
 
         std::thread::sleep(Duration::from_secs(1));
         match queue.pop() {
@@ -235,6 +241,6 @@ mod tests {
         }
 
         assert_eq!(queue.len(), 0);
-        assert_eq!(queue.is_empty(), true);
+        assert!(queue.is_empty());
     }
 }

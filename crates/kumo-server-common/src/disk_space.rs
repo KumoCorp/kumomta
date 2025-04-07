@@ -62,11 +62,11 @@ impl TryFrom<Value> for MinFree {
                     Some(n) => n
                         .parse::<u8>()
                         .map_err(|err| format!("invalid MinFree percentage specifier. {err:#}"))
-                        .map(|n| MinFree::Percent(n)),
+                        .map(MinFree::Percent),
                     None => s
                         .parse::<u64>()
                         .map_err(|err| format!("invalid MinFree size specifier. {err:#}"))
-                        .map(|n| MinFree::Value(n)),
+                        .map(MinFree::Value),
                 }
             }
             Value::Number(n) => {
@@ -94,11 +94,11 @@ impl TryFrom<&str> for MinFree {
             Some(n) => n
                 .parse::<u8>()
                 .map_err(|err| format!("invalid MinFree percentage specifier. {err:#}"))
-                .map(|n| MinFree::Percent(n)),
+                .map(MinFree::Percent),
             None => s
                 .parse::<u64>()
                 .map_err(|err| format!("invalid MinFree size specifier. {err:#}"))
-                .map(|n| MinFree::Value(n)),
+                .map(MinFree::Value),
         }
     }
 }

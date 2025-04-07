@@ -37,6 +37,12 @@ impl TryFrom<String> for SpoolId {
     }
 }
 
+impl Default for SpoolId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpoolId {
     pub fn new() -> Self {
         // We're using v1, but we should be able to seamlessly upgrade to v7

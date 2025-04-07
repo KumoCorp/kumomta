@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+        .on_thread_park(kumo_server_memory::purge_thread_cache)
         .build()
         .unwrap()
         .block_on(async move { run(opts).await })

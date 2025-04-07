@@ -190,13 +190,13 @@ impl TestResolver {
         }
         self.records
             .entry(authority)
-            .or_insert_with(BTreeMap::new)
+            .or_default()
             .insert(key, records);
 
         self
     }
 
-    fn get<'a>(&'a self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
+    fn get(&self, full: &Name, record_type: RecordType) -> Result<Answer, DnsError> {
         let mut full_fqdn = full.clone();
         full_fqdn.set_fqdn(true);
         let mut authority = full_fqdn.clone();
@@ -241,7 +241,7 @@ impl TestResolver {
             });
         };
 
-        return Ok(Answer {
+        Ok(Answer {
             canon_name: None,
             records: records
                 .records_without_rrsigs()
@@ -253,7 +253,7 @@ impl TestResolver {
             why_bogus: None,
             expires: Instant::now() + Duration::from_secs(60),
             response_code: ResponseCode::NoError,
-        });
+        })
     }
 }
 
@@ -484,7 +484,7 @@ impl Resolver for HickoryResolver {
             .await
             .map_err(|err| DnsError::from_resolve(&host, err))?
             .into_iter()
-            .map(|ip| Ok(ip))
+            .map(Ok)
             .collect()
     }
 

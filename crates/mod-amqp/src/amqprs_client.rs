@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-static POOLS: LazyLock<Mutex<Pools>> = LazyLock::new(|| Pools::new());
+static POOLS: LazyLock<Mutex<Pools>> = LazyLock::new(Pools::new);
 
 struct Pools {
     map: HashMap<ConnectionInfo, Arc<Pool<ConnectionManager>>>,

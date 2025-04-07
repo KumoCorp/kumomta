@@ -146,13 +146,10 @@ fn verify_signature(
             ctx.set_rsa_padding(Padding::PKCS1).map_err(|err| {
                 DKIMError::UnknownInternalError(format!("ctx.set_rsa_padding failed: {err}"))
             })?;
-            ctx.set_signature_md(&md).map_err(|err| {
+            ctx.set_signature_md(md).map_err(|err| {
                 DKIMError::UnknownInternalError(format!("ctx.set_signature_md failed: {err}"))
             })?;
-            match ctx.verify(header_hash, signature) {
-                Ok(result) => result,
-                Err(_) => false,
-            }
+            ctx.verify(header_hash, signature).unwrap_or_default()
         }
         DkimPublicKey::Ed25519(public_key) => {
             let mut sig_bytes = [0u8; ed25519_dalek::Signature::BYTE_SIZE];
@@ -189,7 +186,7 @@ async fn verify_email_header<'a>(
 
     let (header_canonicalization_type, body_canonicalization_type) =
         parser::parse_canonicalization(dkim_header.get_tag("c"))?;
-    let hash_algo = parser::parse_hash_algo(&dkim_header.get_required_tag("a"))?;
+    let hash_algo = parser::parse_hash_algo(dkim_header.get_required_tag("a"))?;
     let computed_body_hash = hash::compute_body_hash(
         body_canonicalization_type,
         dkim_header.parse_tag("l")?,
@@ -262,7 +259,7 @@ pub async fn verify_email_with_resolver<'a>(
         }
 
         let value = h.get_raw_value();
-        match DKIMHeader::parse(&value) {
+        match DKIMHeader::parse(value) {
             Ok(v) => {
                 dkim_headers.push(v);
             }
@@ -322,7 +319,7 @@ pub async fn verify_email_with_resolver<'a>(
         props.insert("header.b".to_string(), b_tag);
 
         let mut reason = None;
-        let result = match verify_email_header(resolver, &dkim_header, email).await {
+        let result = match verify_email_header(resolver, dkim_header, email).await {
             Ok(()) => {
                 if signing_domain.eq_ignore_ascii_case(from_domain) {
                     "pass"

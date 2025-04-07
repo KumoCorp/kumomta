@@ -149,17 +149,16 @@ impl RebindCommand {
             && self.campaign.is_none()
             && self.tenant.is_none()
             && self.routing_domain.is_none()
+            && !self.everything
         {
-            if !self.everything {
-                anyhow::bail!(
-                    "No domain, routing_domain, campaign or tenant was specified. \
-                     Use --everything if you intend to apply to all queues"
-                );
-            }
+            anyhow::bail!(
+                "No domain, routing_domain, campaign or tenant was specified. \
+                 Use --everything if you intend to apply to all queues"
+            );
         }
 
         let mut data: HashMap<String, String> = match &self.data {
-            Some(data) => serde_json::from_str(&data)?,
+            Some(data) => serde_json::from_str(data)?,
             None => HashMap::new(),
         };
         for (k, v) in &self.set {

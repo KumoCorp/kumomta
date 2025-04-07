@@ -19,7 +19,7 @@ pub struct Sparkline<'a> {
     inverted: bool,
 }
 
-impl<'a> Default for Sparkline<'a> {
+impl Default for Sparkline<'_> {
     fn default() -> Self {
         Self {
             block: None,
@@ -96,7 +96,7 @@ impl<'a> Sparkline<'a> {
     }
 }
 
-impl<'a> Styled for Sparkline<'a> {
+impl Styled for Sparkline<'_> {
     type Item = Self;
 
     fn style(&self) -> Style {
@@ -228,7 +228,7 @@ mod tests {
     }
 
     fn reversed(mut b: Buffer) -> Buffer {
-        let area = b.area().clone();
+        let area = *b.area();
         b.set_style(area, Style::default().add_modifier(Modifier::REVERSED));
         b
     }

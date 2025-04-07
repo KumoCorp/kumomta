@@ -124,6 +124,12 @@ pub struct LifeCycle {
     request_shutdown_rx: MPSCReceiver<()>,
 }
 
+impl Default for LifeCycle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LifeCycle {
     /// Initialize the process life_cycle.
     /// May be called only once; will panic if called multiple times.

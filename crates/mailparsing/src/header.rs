@@ -111,7 +111,7 @@ impl<'a> Header<'a> {
         let name = name.into();
         let value = value.into();
 
-        let value = if value.chars().all(|c| c.is_ascii()) {
+        let value = if value.is_ascii() {
             crate::textwrap::wrap(&value)
         } else {
             crate::rfc5322_parser::qp_encode(&value)
@@ -243,12 +243,10 @@ impl<'a> Header<'a> {
                     "lone CR in header".to_string(),
                 ));
             }
-            if headers.is_empty() {
-                if b.is_ascii_whitespace() {
-                    return Err(MailParsingError::HeaderParse(
-                        "header block must not start with spaces".to_string(),
-                    ));
-                }
+            if headers.is_empty() && b.is_ascii_whitespace() {
+                return Err(MailParsingError::HeaderParse(
+                    "header block must not start with spaces".to_string(),
+                ));
             }
             let (header, next) = Self::parse(header_block.slice(idx..header_block.len()))?;
             overall_conformance |= header.conformance;
@@ -298,9 +296,9 @@ impl<'a> Header<'a> {
             match state {
                 State::Initial => {
                     if c.is_ascii_whitespace() {
-                        return Err(MailParsingError::HeaderParse(format!(
-                            "header cannot start with space"
-                        )));
+                        return Err(MailParsingError::HeaderParse(
+                            "header cannot start with space".to_string(),
+                        ));
                     }
                     state = State::Name;
                     continue;
@@ -325,7 +323,7 @@ impl<'a> Header<'a> {
                         value_end = idx;
                         idx += 1;
                         break;
-                    } else if c != b'\r' && (c < 33 || c > 126) {
+                    } else if c != b'\r' && !(33..=126).contains(&c) {
                         return Err(MailParsingError::HeaderParse(format!(
                             "header name must be comprised of printable US-ASCII characters. Found {c:?}"
                         )));

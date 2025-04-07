@@ -24,11 +24,10 @@ pub async fn handle_proxy_client(
     .with_context(|| format!("timeout reading client handshake from {peer_address:?}"))?
     .with_context(|| format!("failed to read client handshake from {peer_address:?}"))?;
 
-    if handshake
+    if !handshake
         .methods
         .into_iter()
-        .find(|m| *m == socksv5::v5::SocksV5AuthMethod::Noauth)
-        .is_none()
+        .any(|m| m == socksv5::v5::SocksV5AuthMethod::Noauth)
     {
         return Err(anyhow::anyhow!(
             "client {peer_address:?} requested authentication, but this proxy only supports NOAUTH"
@@ -167,7 +166,7 @@ async fn handle_request(
                 return Ok(RequestStatus::status(SocksV5RequestStatus::ServerFailure));
             }
 
-            let host = request_addr(&request).await?;
+            let host = request_addr(request).await?;
             let socket = match host {
                 SocketAddr::V4(_) => TcpSocket::new_v4(),
                 SocketAddr::V6(_) => TcpSocket::new_v6(),
@@ -181,7 +180,7 @@ async fn handle_request(
             Ok(RequestStatus::success(addr))
         }
         SocksV5Command::Connect => {
-            let host = request_addr(&request).await?;
+            let host = request_addr(request).await?;
 
             let addr = match std::mem::take(state) {
                 ClientState::None => {

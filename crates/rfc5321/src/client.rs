@@ -101,7 +101,7 @@ pub trait SmtpClientTracer: std::fmt::Debug {
 struct WriteTracer<'a> {
     data: &'a str,
 }
-impl<'a> DeferredTracer for WriteTracer<'a> {
+impl DeferredTracer for WriteTracer<'_> {
     fn trace(&self) -> SmtpClientTraceEvent {
         SmtpClientTraceEvent::Write(self.data.to_string())
     }
@@ -115,9 +115,9 @@ impl<'a> WriteTracer<'a> {
 struct BinWriteTracer<'a> {
     data: &'a [u8],
 }
-impl<'a> DeferredTracer for BinWriteTracer<'a> {
+impl DeferredTracer for BinWriteTracer<'_> {
     fn trace(&self) -> SmtpClientTraceEvent {
-        let data = String::from_utf8_lossy(&self.data).to_string();
+        let data = String::from_utf8_lossy(self.data).to_string();
         SmtpClientTraceEvent::Write(data)
     }
 }
@@ -132,7 +132,7 @@ impl<'a> BinWriteTracer<'a> {
 struct ReadTracer<'a> {
     data: &'a [u8],
 }
-impl<'a> DeferredTracer for ReadTracer<'a> {
+impl DeferredTracer for ReadTracer<'_> {
     fn trace(&self) -> SmtpClientTraceEvent {
         SmtpClientTraceEvent::Read(self.data.to_vec())
     }
@@ -482,7 +482,7 @@ impl SmtpClient {
     async fn write_data_with_timeout(&mut self, data: &[u8]) -> Result<(), ClientError> {
         if self.socket.is_some() {
             if let Some(tracer) = &self.tracer {
-                BinWriteTracer::trace(tracer, &data);
+                BinWriteTracer::trace(tracer, data);
             }
         }
         let timeout_duration = Command::Data.client_timeout_request(&self.timeouts);
@@ -522,7 +522,7 @@ impl SmtpClient {
         let pipeline = self.enable_pipelining && self.capabilities.contains_key("PIPELINING");
         if pipeline {
             if let Err(err) = self.write_pipeline_request(&commands).await {
-                let err: ClientError = err.into();
+                let err: ClientError = err;
                 results.push(Err(err.clone()));
                 while results.len() < commands.len() {
                     // Synthesize failures for the remaining commands
@@ -543,7 +543,7 @@ impl SmtpClient {
 
         for cmd in &commands {
             if let Err(err) = self.write_command_request(cmd).await {
-                let err: ClientError = err.into();
+                let err: ClientError = err;
                 results.push(Err(err.clone()));
                 while results.len() < commands.len() {
                     // Synthesize failures for the remaining commands
@@ -903,7 +903,7 @@ impl SmtpClient {
 
         tracing::trace!("message data is {} bytes", data.len());
 
-        self.write_data_with_timeout(&data).await?;
+        self.write_data_with_timeout(data).await?;
 
         let marker = if needs_newline { "\r\n.\r\n" } else { ".\r\n" };
 
@@ -978,11 +978,11 @@ impl TlsOptions {
             openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
         if let Some(list) = &self.openssl_cipher_list {
-            builder.set_cipher_list(&list)?;
+            builder.set_cipher_list(list)?;
         }
 
         if let Some(suites) = &self.openssl_cipher_suites {
-            builder.set_ciphersuites(&suites)?;
+            builder.set_ciphersuites(suites)?;
         }
 
         if let Some(options) = &self.openssl_options {
@@ -1053,7 +1053,7 @@ impl TlsOptions {
 fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
     static LFDOT: LazyLock<Finder> = LazyLock::new(|| memchr::memmem::Finder::new("\n."));
 
-    if !data.starts_with(b".") && LFDOT.find(&data).is_none() {
+    if !data.starts_with(b".") && LFDOT.find(data).is_none() {
         return None;
     }
 
@@ -1062,7 +1062,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
         stuffed.push(b'.');
     }
     let mut last_idx = 0;
-    for i in LFDOT.find_iter(&data) {
+    for i in LFDOT.find_iter(data) {
         stuffed.extend_from_slice(&data[last_idx..=i]);
         stuffed.push(b'.');
         last_idx = i + 1;

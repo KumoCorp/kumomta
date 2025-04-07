@@ -90,9 +90,9 @@ impl Parser {
 
         if let Some(params) = pairs.next() {
             if no_angles {
-                return Err(format!(
-                    "must enclose address in <> if you want to use ESMTP parameters"
-                ));
+                return Err(
+                    "must enclose address in <> if you want to use ESMTP parameters".to_string(),
+                );
             }
             for param in params.into_inner() {
                 let mut iter = param.into_inner();
@@ -125,9 +125,9 @@ impl Parser {
 
         if let Some(params) = pairs.next() {
             if no_angles {
-                return Err(format!(
-                    "must enclose address in <> if you want to use ESMTP parameters"
-                ));
+                return Err(
+                    "must enclose address in <> if you want to use ESMTP parameters".to_string(),
+                );
             }
             for param in params.into_inner() {
                 let mut iter = param.into_inner();
@@ -456,9 +456,9 @@ impl Command {
             Self::Vrfy(param) => format!("VRFY {param}\r\n"),
             Self::Expn(param) => format!("EXPN {param}\r\n"),
             Self::Help(Some(param)) => format!("HELP {param}\r\n"),
-            Self::Help(None) => format!("HELP\r\n"),
+            Self::Help(None) => "HELP\r\n".to_string(),
             Self::Noop(Some(param)) => format!("NOOP {param}\r\n"),
-            Self::Noop(None) => format!("NOOP\r\n"),
+            Self::Noop(None) => "NOOP\r\n".to_string(),
             Self::Auth {
                 sasl_mech,
                 initial_response: None,

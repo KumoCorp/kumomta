@@ -178,7 +178,7 @@ impl<'a> SpfContext<'a> {
     }
 
     pub async fn check(&self, resolver: &dyn Resolver, initial: bool) -> SpfResult {
-        let name = match Name::from_utf8(&self.domain) {
+        let name = match Name::from_utf8(self.domain) {
             Ok(name) => name,
             Err(_) => {
                 // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid

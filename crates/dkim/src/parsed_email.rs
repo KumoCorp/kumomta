@@ -46,7 +46,7 @@ impl<'a> ParsedEmail<'a> {
 
     pub fn get_headers(&'a self) -> &'a HeaderMap<'a> {
         match self {
-            Self::FullyParsed(email) => &email.headers(),
+            Self::FullyParsed(email) => email.headers(),
             Self::HeaderOnlyParse { parsed, .. } => &parsed.headers,
         }
     }

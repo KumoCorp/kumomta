@@ -112,11 +112,11 @@ impl<'a> HeaderMap<'a> {
     }
 
     pub fn get_last(&'a self, name: &str) -> Option<&'a Header<'a>> {
-        self.iter_named(name).rev().next()
+        self.iter_named(name).next_back()
     }
 
     pub fn get_last_mut(&'a mut self, name: &str) -> Option<&'a mut Header<'a>> {
-        self.iter_named_mut(name).rev().next()
+        self.iter_named_mut(name).next_back()
     }
 
     pub fn iter_named<'name>(

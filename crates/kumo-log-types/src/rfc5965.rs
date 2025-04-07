@@ -171,7 +171,7 @@ pub(crate) fn extract_headers(part: &[u8]) -> anyhow::Result<BTreeMap<String, Ve
         let name = hdr.get_name().to_ascii_lowercase();
         extensions
             .entry(name)
-            .or_insert_with(|| vec![])
+            .or_insert_with(std::vec::Vec::new)
             .push(hdr.as_unstructured()?);
     }
     Ok(extensions)
@@ -187,9 +187,9 @@ impl FromStr for DateTimeRfc2822 {
     }
 }
 
-impl Into<DateTime<Utc>> for DateTimeRfc2822 {
-    fn into(self) -> DateTime<Utc> {
-        self.0
+impl From<DateTimeRfc2822> for DateTime<Utc> {
+    fn from(val: DateTimeRfc2822) -> Self {
+        val.0
     }
 }
 

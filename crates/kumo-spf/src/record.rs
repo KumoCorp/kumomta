@@ -24,9 +24,9 @@ impl Record {
         }
 
         let mut new = Self::default();
-        while let Some(t) = tokens.next() {
+        for t in tokens {
             if t.is_empty() {
-                return Err(format!("invalid empty token"));
+                return Err("invalid empty token".to_string());
             }
 
             if let Ok(directive) = Directive::parse(t) {

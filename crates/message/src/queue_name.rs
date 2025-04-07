@@ -49,12 +49,7 @@ impl<'a> QueueNameComponents<'a> {
     }
 
     pub fn to_string(&self) -> String {
-        Self::format(
-            self.campaign.as_deref(),
-            self.tenant.as_deref(),
-            &self.domain,
-            self.routing_domain.as_deref(),
-        )
+        Self::format(self.campaign, self.tenant, self.domain, self.routing_domain)
     }
 
     pub fn format<C: AsRef<str>, T: AsRef<str>, D: AsRef<str>, RD: AsRef<str>>(

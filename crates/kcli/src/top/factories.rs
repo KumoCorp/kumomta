@@ -16,7 +16,7 @@ impl SeriesFactory for ThreadPoolFactory {
 
     fn factory(&self, series_name: &str, metric: &Metric) -> TimeSeries {
         let pool = metric.labels().get("pool").unwrap();
-        let mut series = TimeSeries::new(ThreadPoolAccumulator::new(&pool));
+        let mut series = TimeSeries::new(ThreadPoolAccumulator::new(pool));
 
         series.set_chart(SeriesChartOptions {
             name: series_name.to_string(),

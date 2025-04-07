@@ -228,8 +228,7 @@ impl QueueMetrics {
         })
         .await?;
 
-        let mut ready_metrics: Vec<ReadyQueueMetrics> =
-            ready.into_iter().map(|(_k, v)| v).collect();
+        let mut ready_metrics: Vec<ReadyQueueMetrics> = ready.into_values().collect();
 
         if params.by_volume {
             ready_metrics.sort_by(|a, b| match a.compare_volume(b) {
@@ -240,8 +239,7 @@ impl QueueMetrics {
             ready_metrics.sort_by(|a, b| natural_lexical_cmp(&a.name, &b.name));
         }
 
-        let mut scheduled_metrics: Vec<ScheduledQueueMetrics> =
-            scheduled.into_iter().map(|(_k, v)| v).collect();
+        let mut scheduled_metrics: Vec<ScheduledQueueMetrics> = scheduled.into_values().collect();
 
         if params.by_volume {
             scheduled_metrics.sort_by(|a, b| match a.compare_volume(b) {
@@ -452,10 +450,10 @@ fn domain_matches(
     tenant: &Option<String>,
     domain: &Option<String>,
 ) -> bool {
-    if !match_criteria(components.campaign.as_deref(), campaign.as_deref()) {
+    if !match_criteria(components.campaign, campaign.as_deref()) {
         return false;
     }
-    if !match_criteria(components.tenant.as_deref(), tenant.as_deref()) {
+    if !match_criteria(components.tenant, tenant.as_deref()) {
         return false;
     }
     if !match_criteria(Some(components.domain), domain.as_deref()) {

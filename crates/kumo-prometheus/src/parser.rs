@@ -70,6 +70,12 @@ pub struct Parser {
     histogram: Option<HistogramMetric>,
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Parser {
     pub fn new() -> Self {
         Parser {
@@ -137,7 +143,7 @@ impl Parser {
 
             if line.starts_with("# TYPE ") {
                 self.flush_histogram(func);
-                match line.rsplit(|b| b == ' ').next() {
+                match line.rsplit(' ').next() {
                     Some("counter") => self.current_type = MetricType::Counter,
                     Some("gauge") => self.current_type = MetricType::Gauge,
                     Some("histogram") => self.current_type = MetricType::Histogram,
@@ -447,9 +453,9 @@ impl HistogramMetric {
         let forwards = self.sum.is_nan() || q < 0.5;
 
         let (mut rank, iter) = if forwards {
-            (q * self.count as f64, bucket_iter(&buckets, true))
+            (q * self.count, bucket_iter(&buckets, true))
         } else {
-            ((1.0 - q) * self.count as f64, bucket_iter(&buckets, false))
+            ((1.0 - q) * self.count, bucket_iter(&buckets, false))
         };
 
         let mut count = 0.0;
@@ -469,7 +475,7 @@ impl HistogramMetric {
             return f64::NEG_INFINITY;
         };
 
-        count = count.min(self.count as f64);
+        count = count.min(self.count);
         if count < rank {
             return bucket.upper_bound;
         }

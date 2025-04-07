@@ -47,6 +47,12 @@ pub struct RegexSetMapBuilder<V: Clone> {
     pattern_to_value: Vec<V>,
 }
 
+impl<V: Clone> Default for RegexSetMapBuilder<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: Clone> RegexSetMapBuilder<V> {
     pub fn new() -> Self {
         Self {

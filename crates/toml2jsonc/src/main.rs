@@ -24,7 +24,7 @@ impl Opt {
     fn read_input(&self) -> anyhow::Result<String> {
         match &self.input {
             Some(path) => {
-                std::fs::read_to_string(&path).context(format!("failed to read file {path}"))
+                std::fs::read_to_string(path).context(format!("failed to read file {path}"))
             }
             None => {
                 let mut result = String::new();
@@ -79,7 +79,7 @@ fn emit_comment<W: std::fmt::Write>(
 ) -> anyhow::Result<()> {
     if let Some(c) = comment {
         for line in c.lines() {
-            write!(target, "{indent}// {line}\n")?;
+            writeln!(target, "{indent}// {line}")?;
         }
     }
 
@@ -108,7 +108,7 @@ impl CommentedValue {
                 target.write_str(&s)?;
             }
             Value::Array(arr) => {
-                write!(target, "[\n")?;
+                writeln!(target, "[")?;
 
                 let mut iter = arr.iter().peekable();
                 while let Some(value) = iter.next() {
@@ -120,7 +120,7 @@ impl CommentedValue {
                     if iter.peek().is_some() {
                         write!(target, ",")?;
                     }
-                    write!(target, "\n")?;
+                    writeln!(target)?;
 
                     emit_comment(value.after.as_deref(), target, &indent)?;
                 }
@@ -129,9 +129,9 @@ impl CommentedValue {
             }
             Value::Object(map) => {
                 if depth == 0 {
-                    write!(target, "{brace_indent}{{\n")?;
+                    writeln!(target, "{brace_indent}{{")?;
                 } else {
-                    write!(target, "{{\n")?;
+                    writeln!(target, "{{")?;
                 }
                 let mut iter = map.iter().peekable();
                 while let Some((key, value)) = iter.next() {
@@ -144,7 +144,7 @@ impl CommentedValue {
                     if iter.peek().is_some() {
                         write!(target, ",")?;
                     }
-                    write!(target, "\n")?;
+                    writeln!(target)?;
 
                     emit_comment(value.after.as_deref(), target, &indent)?;
                 }

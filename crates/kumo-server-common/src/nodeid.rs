@@ -37,6 +37,12 @@ impl std::fmt::Display for NodeId {
     }
 }
 
+impl Default for NodeId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeId {
     /// Get the NodeId
     pub fn get() -> Self {

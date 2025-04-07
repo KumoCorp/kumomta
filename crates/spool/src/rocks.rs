@@ -89,13 +89,11 @@ impl Default for RocksSpoolParams {
 
 impl RocksSpoolParams {
     fn default_log_file_time_to_roll() -> Duration {
-        let one_day = Duration::from_secs(86400);
-        one_day
+        Duration::from_secs(86400)
     }
 
     fn default_obsolete_files_period() -> Duration {
-        let six_hours = Duration::from_secs(6 * 60 * 60);
-        six_hours
+        Duration::from_secs(6 * 60 * 60)
     }
 }
 
@@ -110,16 +108,16 @@ pub enum DBCompressionTypeDef {
     Zstd,
 }
 
-impl Into<DBCompressionType> for DBCompressionTypeDef {
-    fn into(self) -> DBCompressionType {
-        match self {
-            Self::None => DBCompressionType::None,
-            Self::Snappy => DBCompressionType::Snappy,
-            Self::Zlib => DBCompressionType::Zlib,
-            Self::Bz2 => DBCompressionType::Bz2,
-            Self::Lz4 => DBCompressionType::Lz4,
-            Self::Lz4hc => DBCompressionType::Lz4hc,
-            Self::Zstd => DBCompressionType::Zstd,
+impl From<DBCompressionTypeDef> for DBCompressionType {
+    fn from(val: DBCompressionTypeDef) -> Self {
+        match val {
+            DBCompressionTypeDef::None => DBCompressionType::None,
+            DBCompressionTypeDef::Snappy => DBCompressionType::Snappy,
+            DBCompressionTypeDef::Zlib => DBCompressionType::Zlib,
+            DBCompressionTypeDef::Bz2 => DBCompressionType::Bz2,
+            DBCompressionTypeDef::Lz4 => DBCompressionType::Lz4,
+            DBCompressionTypeDef::Lz4hc => DBCompressionType::Lz4hc,
+            DBCompressionTypeDef::Zstd => DBCompressionType::Zstd,
         }
     }
 }
@@ -146,15 +144,15 @@ impl Default for LogLevelDef {
     }
 }
 
-impl Into<LogLevel> for LogLevelDef {
-    fn into(self) -> LogLevel {
-        match self {
-            Self::Debug => LogLevel::Debug,
-            Self::Info => LogLevel::Info,
-            Self::Warn => LogLevel::Warn,
-            Self::Error => LogLevel::Error,
-            Self::Fatal => LogLevel::Fatal,
-            Self::Header => LogLevel::Header,
+impl From<LogLevelDef> for LogLevel {
+    fn from(val: LogLevelDef) -> Self {
+        match val {
+            LogLevelDef::Debug => LogLevel::Debug,
+            LogLevelDef::Info => LogLevel::Info,
+            LogLevelDef::Warn => LogLevel::Warn,
+            LogLevelDef::Error => LogLevel::Error,
+            LogLevelDef::Fatal => LogLevel::Fatal,
+            LogLevelDef::Header => LogLevel::Header,
         }
     }
 }
@@ -425,7 +423,7 @@ mod test {
     #[tokio::test]
     async fn rocks_spool() -> anyhow::Result<()> {
         let location = tempfile::tempdir()?;
-        let spool = RocksSpool::new(&location.path(), false, None, Handle::current())?;
+        let spool = RocksSpool::new(location.path(), false, None, Handle::current())?;
 
         {
             let id1 = SpoolId::new();

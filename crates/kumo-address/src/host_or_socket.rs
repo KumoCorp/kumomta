@@ -76,10 +76,10 @@ impl HostOrSocketAddress {
     pub fn host(&self) -> HostAddress {
         match self {
             Self::UnixDomain(p) => HostAddress::UnixDomain(p.clone()),
-            Self::V4Host(a) => HostAddress::V4(a.clone()),
-            Self::V4Socket(a) => HostAddress::V4(a.ip().clone()),
-            Self::V6Host(a) => HostAddress::V6(a.clone()),
-            Self::V6Socket(a) => HostAddress::V6(a.ip().clone()),
+            Self::V4Host(a) => HostAddress::V4(*a),
+            Self::V4Socket(a) => HostAddress::V4(*a.ip()),
+            Self::V6Host(a) => HostAddress::V6(*a),
+            Self::V6Socket(a) => HostAddress::V6(*a.ip()),
         }
     }
 
@@ -95,10 +95,10 @@ impl HostOrSocketAddress {
     pub fn ip(&self) -> Option<IpAddr> {
         match self {
             Self::UnixDomain(_) => None,
-            Self::V4Host(a) => Some(a.clone().into()),
-            Self::V4Socket(a) => Some(a.ip().clone().into()),
-            Self::V6Host(a) => Some(a.clone().into()),
-            Self::V6Socket(a) => Some(a.ip().clone().into()),
+            Self::V4Host(a) => Some((*a).into()),
+            Self::V4Socket(a) => Some((*a.ip()).into()),
+            Self::V6Host(a) => Some((*a).into()),
+            Self::V6Socket(a) => Some((*a.ip()).into()),
         }
     }
 

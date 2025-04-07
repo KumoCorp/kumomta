@@ -194,10 +194,10 @@ fn serialize(header: DKIMHeader) -> String {
                 );
                 value = &value_storage;
             } else {
-                out.push_str(" ");
+                out.push(' ');
             }
         }
-        out.push_str(&key);
+        out.push_str(key);
         out.push('=');
         out.push_str(value);
         out.push(';');
@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn signed_header_list(headers: &[&str]) -> HeaderList {
-        HeaderList::new(headers.into_iter().map(|h| h.to_lowercase()).collect())
+        HeaderList::new(headers.iter().map(|h| h.to_lowercase()).collect())
     }
 
     #[test]

@@ -216,13 +216,12 @@ impl ProviderSummaryCommand {
         }
 
         if self.by_pool {
-            let mut provider_by_pool: Vec<_> =
-                provider_by_pool.into_iter().map(|(_k, v)| v).collect();
+            let mut provider_by_pool: Vec<_> = provider_by_pool.into_values().collect();
 
             provider_by_pool.sort_by(|a, b| match b.volume().cmp(&a.volume()) {
                 Ordering::Equal => match natural_lexical_cmp(&a.name, &b.name) {
                     Ordering::Equal => {
-                        natural_lexical_cmp(&a.pool.as_ref().unwrap(), &b.pool.as_ref().unwrap())
+                        natural_lexical_cmp(a.pool.as_ref().unwrap(), b.pool.as_ref().unwrap())
                     }
                     ordering => ordering,
                 },
@@ -292,8 +291,7 @@ impl ProviderSummaryCommand {
 
             tabout::tabulate_output(&columns, &rows, &mut std::io::stdout())?;
         } else {
-            let mut provider_metrics: Vec<_> =
-                provider_metrics.into_iter().map(|(_k, v)| v).collect();
+            let mut provider_metrics: Vec<_> = provider_metrics.into_values().collect();
             // Order by queue size DESC, then name
             provider_metrics.sort_by(|a, b| match b.volume().cmp(&a.volume()) {
                 Ordering::Equal => natural_lexical_cmp(&a.name, &b.name),

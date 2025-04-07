@@ -443,7 +443,7 @@ impl KumoDaemon {
                 eprintln!("{text}");
 
                 for line in text.lines() {
-                    let record: JsonLogRecord = serde_json::from_str(&line)?;
+                    let record: JsonLogRecord = serde_json::from_str(line)?;
                     match record.kind {
                         RecordType::Reception | RecordType::Delivery => {
                             assert!(record.headers.contains_key("Subject"));
@@ -478,7 +478,7 @@ impl KumoDaemon {
             let mut records = vec![];
 
             fn read_zstd_file(path: &Path) -> anyhow::Result<String> {
-                let f = std::fs::File::open(&path).with_context(|| format!("open {path:?}"))?;
+                let f = std::fs::File::open(path).with_context(|| format!("open {path:?}"))?;
                 let data = zstd::stream::decode_all(f)
                     .with_context(|| format!("decoding zstd from {path:?}"))?;
                 let text = String::from_utf8(data)?;
@@ -488,7 +488,7 @@ impl KumoDaemon {
             fn read_zstd_file_with_retry(path: &Path) -> anyhow::Result<String> {
                 let mut error = None;
                 for _ in 0..10 {
-                    match read_zstd_file(&path) {
+                    match read_zstd_file(path) {
                         Ok(t) => {
                             return Ok(t);
                         }
@@ -507,7 +507,7 @@ impl KumoDaemon {
                 if entry.file_type()?.is_file() {
                     let text = read_zstd_file_with_retry(&entry.path())?;
                     for line in text.lines() {
-                        let record: JsonLogRecord = serde_json::from_str(&line)?;
+                        let record: JsonLogRecord = serde_json::from_str(line)?;
                         records.push(record);
                     }
                 }

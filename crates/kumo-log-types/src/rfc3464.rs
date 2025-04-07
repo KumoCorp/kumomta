@@ -276,7 +276,7 @@ impl Report {
             .ok_or_else(|| anyhow!("missing per-message section"))?;
         let per_message = PerMessageReportEntry::parse(per_message)?;
         let mut per_recipient = vec![];
-        while let Some(part) = parts.next() {
+        for part in parts {
             let part = PerRecipientReportEntry::parse(part)?;
             per_recipient.push(part);
         }

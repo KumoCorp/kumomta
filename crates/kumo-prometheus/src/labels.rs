@@ -60,11 +60,11 @@ macro_rules! label_key {
             }
 
             pub trait [<$name Trait>] {
-                fn key<'k>(&'k self) -> [<Borrowed $name>]<'k>;
+                fn key(&self) -> [<Borrowed $name>]<'_>;
             }
 
             impl [<$name Trait>] for $name {
-                fn key<'k>(&'k self) -> [<Borrowed $name>]<'k> {
+                fn key(&self) -> [<Borrowed $name>]<'_> {
                     [<Borrowed $name>] {
                         $(
                             $fieldname: self.$fieldname.as_str(),
@@ -115,7 +115,7 @@ macro_rules! label_key {
             }
 
             impl<'a> [<$name Trait>] for [<Borrowed $name>] <'a> {
-                fn key<'k>(&'k self) -> [<Borrowed $name>]<'k> {
+                fn key(&self) -> [<Borrowed $name>]<'_> {
                     *self
                 }
             }

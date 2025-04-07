@@ -212,29 +212,29 @@ fn metrics_to_partial_json(metrics: &[MetricFamily], target: &mut String) {
             }
 
             if label.is_empty() {
-                emit_value(metric_type, &metric, target);
+                emit_value(metric_type, metric, target);
                 break;
             }
 
             if label.len() == 1 {
-                target.push_str("\"");
+                target.push('"');
                 target.push_str(label[0].get_value());
                 target.push_str("\":");
-                emit_value(metric_type, &metric, target);
+                emit_value(metric_type, metric, target);
                 continue;
             }
 
-            target.push_str("{");
+            target.push('{');
             for pair in label {
-                target.push_str("\"");
+                target.push('"');
                 target.push_str(pair.get_name());
                 target.push_str("\":\"");
                 target.push_str(pair.get_value());
                 target.push_str("\",");
             }
             target.push_str("\"@\":");
-            emit_value(metric_type, &metric, target);
-            target.push_str("}");
+            emit_value(metric_type, metric, target);
+            target.push('}');
         }
 
         if first_label.len() == 1 {
@@ -263,7 +263,7 @@ mod test {
         family.set_metric(vec![metric].into());
 
         let mut buf = "{".into();
-        metrics_to_partial_json(&vec![family], &mut buf);
+        metrics_to_partial_json(&[family], &mut buf);
         buf.push('}');
 
         println!("{buf}");
@@ -339,7 +339,7 @@ mod test {
         family.set_metric(vec![metric].into());
 
         let mut buf = "{".into();
-        metrics_to_partial_json(&vec![family], &mut buf);
+        metrics_to_partial_json(&[family], &mut buf);
         buf.push('}');
 
         println!("{buf}");
@@ -383,7 +383,7 @@ mod test {
         family.set_metric(vec![metric, metric2].into());
 
         let mut buf = "{".into();
-        metrics_to_partial_json(&vec![family], &mut buf);
+        metrics_to_partial_json(&[family], &mut buf);
         buf.push('}');
 
         println!("{buf}");
@@ -423,7 +423,7 @@ mod test {
         family.set_metric(vec![metric].into());
 
         let mut buf = "{".into();
-        metrics_to_partial_json(&vec![family], &mut buf);
+        metrics_to_partial_json(&[family], &mut buf);
         buf.push('}');
 
         println!("{buf}");
@@ -457,7 +457,7 @@ mod test {
         family.set_metric(vec![metric].into());
 
         let mut buf = "{".into();
-        metrics_to_partial_json(&vec![family], &mut buf);
+        metrics_to_partial_json(&[family], &mut buf);
         buf.push('}');
 
         println!("{buf}");

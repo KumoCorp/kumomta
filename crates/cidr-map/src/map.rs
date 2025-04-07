@@ -215,7 +215,7 @@ where
     }
 
     fn new_inner_unknown_order(shared_prefix_len: usize, a: Node<V>, b: Node<V>) -> Node<V> {
-        let mut key = a.key().clone();
+        let mut key = *a.key();
         key.clip(shared_prefix_len);
         Node::InnerNode(InnerNode {
             key,
@@ -285,9 +285,9 @@ where
                 Node::Leaf(_) => {
                     // linear split of path down to leaf
                     let old_value = self.leaf_ref().unwrap().value.clone();
-                    let mut new_node = Self::new_leaf(key.clone(), value);
+                    let mut new_node = Self::new_leaf(key, value);
                     for l in (shared_prefix_len..key.len()).rev() {
-                        let mut other_key = key.clone();
+                        let mut other_key = key;
                         other_key.clip(l + 1);
                         other_key.flip(l);
                         new_node = Self::new_inner_unknown_order(
@@ -353,9 +353,9 @@ where
                             // below in tree, but same value - nothing new
                             return;
                         }
-                        let mut new_node = Self::new_leaf(key.clone(), value);
+                        let mut new_node = Self::new_leaf(key, value);
                         for l in (shared_prefix_len..key.len()).rev() {
-                            let mut other_key = key.clone();
+                            let mut other_key = key;
                             other_key.clip(l + 1);
                             other_key.flip(l);
                             new_node = Self::new_inner_unknown_order(
@@ -408,7 +408,7 @@ where
                 // move value from left
                 Node::InnerNode(inner) => match &inner.children.left {
                     Node::Leaf(leaf) => Node::Leaf(Leaf {
-                        key: inner.key.clone(),
+                        key: inner.key,
                         value: leaf.value.clone(),
                     }),
                     _ => unreachable!(),
@@ -447,7 +447,7 @@ where
 
     pub fn get_prefix_match_cidr(&self, key: &AnyIpCidr) -> Option<&V> {
         let node = self.root.as_ref()?;
-        Self::find_item(node, &key)
+        Self::find_item(node, key)
     }
 
     fn find_item<'a>(node: &'a Node<V>, ip: &AnyIpCidr) -> Option<&'a V> {
@@ -459,7 +459,7 @@ where
                     None
                 }
             }
-            Node::InnerNode(inner) => Self::find_item(inner.pick_side(&ip), ip),
+            Node::InnerNode(inner) => Self::find_item(inner.pick_side(ip), ip),
         }
     }
 
@@ -615,16 +615,16 @@ impl<T: Ord + Into<AnyIpCidr>, const N: usize, V: Clone + Ord> From<[(T, V); N]>
 
         // use stable sort to preserve the insertion order.
         arr.sort();
-        let iter = IntoIterator::into_iter(arr).map(|k| k);
+        let iter = IntoIterator::into_iter(arr);
         iter.collect()
     }
 }
 
-impl<V: Clone> Into<Vec<(AnyIpCidr, V)>> for CidrMap<V> {
-    fn into(self) -> Vec<(AnyIpCidr, V)> {
+impl<V: Clone> From<CidrMap<V>> for Vec<(AnyIpCidr, V)> {
+    fn from(val: CidrMap<V>) -> Self {
         let mut result = vec![];
-        for (key, value) in self.iter() {
-            result.push((key.clone(), value.clone()));
+        for (key, value) in val.iter() {
+            result.push((*key, value.clone()));
         }
         result
     }

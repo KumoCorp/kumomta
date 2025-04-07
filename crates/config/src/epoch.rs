@@ -23,6 +23,12 @@ pub struct ConfigurationParams {
     receiver: Receiver<ConfigEpoch>,
 }
 
+impl Default for ConfigurationParams {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConfigurationParams {
     pub fn new() -> Self {
         let glob = Glob::new("/opt/kumomta/etc/**/*.{lua,json,toml,yaml}")

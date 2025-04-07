@@ -10,7 +10,7 @@ fn bind_param<I: ParameterIndex>(
     index: I,
     value: &JsonValue,
 ) -> anyhow::Result<()> {
-    Ok(match value {
+    match value {
         JsonValue::Null => stmt.bind((index, ()))?,
         JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {
@@ -25,7 +25,8 @@ fn bind_param<I: ParameterIndex>(
         _ => {
             anyhow::bail!("only numbers, strings and nil can be passed as parameter values");
         }
-    })
+    };
+    Ok(())
 }
 
 fn params_to_json(lua: &Lua, mut params: MultiValue) -> mlua::Result<JsonValue> {
@@ -53,7 +54,7 @@ fn bind_params(stmt: &mut Statement, params: &JsonValue) -> anyhow::Result<()> {
     match params {
         JsonValue::Object(obj) => {
             for (name, value) in obj.iter() {
-                bind_param(stmt, format!(":{name}").as_str(), &value)
+                bind_param(stmt, format!(":{name}").as_str(), value)
                     .with_context(|| format!("binding parameter :{name} with value {value:?}"))?;
             }
             Ok(())
@@ -62,13 +63,13 @@ fn bind_params(stmt: &mut Statement, params: &JsonValue) -> anyhow::Result<()> {
             for (i, value) in arr.iter().enumerate() {
                 // Parameter indices are 1-based
                 let i = i + 1;
-                bind_param(stmt, i, &value)
+                bind_param(stmt, i, value)
                     .with_context(|| format!("binding parameter {i} with value {value:?}"))?;
             }
             Ok(())
         }
         JsonValue::Null => Ok(()),
-        p => bind_param(stmt, 1, &p)
+        p => bind_param(stmt, 1, p)
             .with_context(|| format!("binding sole parameter with value {p:?}")),
     }
 }

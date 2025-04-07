@@ -26,13 +26,13 @@ fn get_mac_address_once() -> [u8; 6] {
 }
 
 pub fn get_mac_address() -> &'static [u8; 6] {
-    &*MAC
+    &MAC
 }
 
 pub fn now_v1() -> uuid::Uuid {
-    Uuid::now_v1(&*MAC)
+    Uuid::now_v1(&MAC)
 }
 
 pub fn new_v1(ts: uuid::timestamp::Timestamp) -> uuid::Uuid {
-    Uuid::new_v1(ts, &*MAC)
+    Uuid::new_v1(ts, &MAC)
 }

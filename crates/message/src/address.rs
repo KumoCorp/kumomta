@@ -249,9 +249,9 @@ impl HeaderAddress {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("no address"))?;
 
-        Ok(address
+        address
             .split_once('@')
-            .ok_or_else(|| anyhow::anyhow!("no @ in address"))?)
+            .ok_or_else(|| anyhow::anyhow!("no @ in address"))
     }
 }
 

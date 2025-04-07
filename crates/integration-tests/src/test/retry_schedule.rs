@@ -90,7 +90,7 @@ async fn retry_schedule_impl(strategy: &str, domain: &str) -> anyhow::Result<()>
 
     let first = intervals.remove(0);
     assert!(
-        first >= 0 && first <= 1,
+        (0..=1).contains(&first),
         "first is {first} but should be ~0"
     );
     let mut expect = 5;

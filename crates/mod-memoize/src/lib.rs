@@ -243,7 +243,7 @@ impl UserData for MemoizedTable {
             let iter_func =
                 lua.create_function_mut(
                     move |lua, (state, _control): (UserDataRef<MemoizedTable>, mlua::Value)| {
-                        match state.table().iter().skip(idx).next() {
+                        match state.table().iter().nth(idx) {
                             Some((key, value)) => {
                                 idx += 1;
                                 let key = key.clone().as_lua(lua)?;

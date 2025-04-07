@@ -31,7 +31,7 @@ impl Type {
     }
 }
 
-fn do_body_simple<'a>(mut body: &'a [u8]) -> &'a [u8] {
+fn do_body_simple(mut body: &[u8]) -> &[u8] {
     if body.is_empty() {
         return b"\r\n";
     }

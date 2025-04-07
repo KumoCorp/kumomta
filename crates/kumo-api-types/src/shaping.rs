@@ -308,7 +308,7 @@ impl ShapingInner {
             // Then Provider source rules
             for prov in prov_with_sources {
                 if let Some(source) = prov.sources.get(egress_source) {
-                    toml_table_merge_from(&mut params.params, &source);
+                    toml_table_merge_from(&mut params.params, source);
                     prov.apply_provider_params_to(egress_source, &mut params.params);
                 }
             }
@@ -327,14 +327,14 @@ impl ShapingInner {
         // Then source config for the site
         if let Some(by_site) = self.by_site.get(site_name) {
             if let Some(source) = by_site.sources.get(egress_source) {
-                toml_table_merge_from(&mut params.params, &source);
+                toml_table_merge_from(&mut params.params, source);
             }
         }
 
         // Then source config for the domain
         if let Some(by_domain) = self.by_domain.get(domain) {
             if let Some(source) = by_domain.sources.get(egress_source) {
-                toml_table_merge_from(&mut params.params, &source);
+                toml_table_merge_from(&mut params.params, source);
             }
         }
 
@@ -1140,7 +1140,7 @@ impl ProviderEntry {
         }
 
         // Now we can consider DNS
-        match MailExchanger::resolve(&domain).await {
+        match MailExchanger::resolve(domain).await {
             Err(err) => {
                 // Didn't resolve; could be legit, for example, could
                 // be an internal or fake name that is handled via
@@ -1401,7 +1401,9 @@ impl PartialEntry {
     }
 
     fn hash_into(&self, ctx: &mut Sha256) {
-        self.domain_name.as_ref().map(|name| ctx.update(name));
+        if let Some(name) = self.domain_name.as_ref() {
+            ctx.update(name)
+        }
         ctx.update(serde_json::to_string(self).unwrap_or_else(|_| String::new()));
     }
 }

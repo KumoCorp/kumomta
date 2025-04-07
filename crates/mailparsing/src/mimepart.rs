@@ -118,7 +118,7 @@ impl<'a> MimePart<'a> {
             overall_conformance: mut conformance,
         } = Header::parse_headers(bytes.clone())?;
 
-        conformance = conformance | base_conformance;
+        conformance |= base_conformance;
 
         let body_len = bytes.len();
 
@@ -359,9 +359,9 @@ impl<'a> MimePart<'a> {
             }
         } else {
             let ct = info.content_type.ok_or_else(|| {
-                MailParsingError::BodyParse(format!(
-                    "multipart message has no content-type information!?"
-                ))
+                MailParsingError::BodyParse(
+                    "multipart message has no content-type information!?".to_string(),
+                )
             })?;
             Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())
         };
@@ -409,15 +409,15 @@ impl<'a> MimePart<'a> {
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
         } else {
             let info = Rfc2045Info::new(&self.headers)?;
-            let ct = info.content_type.ok_or_else(|| {
+            let ct = info.content_type.ok_or({
                 MailParsingError::WriteMessageWtf(
                     "expected to have Content-Type when there are child parts",
                 )
             })?;
-            let boundary = ct.get("boundary").ok_or_else(|| {
+            let boundary = ct.get("boundary").ok_or({
                 MailParsingError::WriteMessageWtf("expected Content-Type to have a boundary")
             })?;
-            out.write_all(&self.intro.as_bytes())
+            out.write_all(self.intro.as_bytes())
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
             for p in &self.parts {
                 write!(out, "--{boundary}{line_ending}")
@@ -426,7 +426,7 @@ impl<'a> MimePart<'a> {
             }
             write!(out, "--{boundary}--{line_ending}")
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
-            out.write_all(&self.outro.as_bytes())
+            out.write_all(self.outro.as_bytes())
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
         }
         Ok(())
@@ -642,7 +642,7 @@ impl<'a> MimePart<'a> {
         let mut cursor = ptr.0.as_slice();
 
         loop {
-            match cursor.get(0) {
+            match cursor.first() {
                 Some(&idx) => {
                     current = current.parts.get(idx as usize)?;
                     cursor = &cursor[1..];
@@ -661,7 +661,7 @@ impl<'a> MimePart<'a> {
         let mut cursor = ptr.0.as_slice();
 
         loop {
-            match cursor.get(0) {
+            match cursor.first() {
                 Some(&idx) => {
                     current = current.parts.get_mut(idx as usize)?;
                     cursor = &cursor[1..];

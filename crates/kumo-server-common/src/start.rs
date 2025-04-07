@@ -11,7 +11,7 @@ pub struct StartConfig<'a> {
     pub policy: &'a Path,
 }
 
-impl<'a> StartConfig<'a> {
+impl StartConfig<'_> {
     pub async fn run<INIT, FINI>(
         self,
         init_future: INIT,
@@ -44,7 +44,7 @@ impl<'a> StartConfig<'a> {
 
         let mut life_cycle = LifeCycle::new();
 
-        let init_handle = rt_spawn("initialize".to_string(), async move {
+        let init_handle = rt_spawn("initialize", async move {
             let mut error = None;
             if let Err(err) = init_future.await {
                 let err = format!("{err:#}");

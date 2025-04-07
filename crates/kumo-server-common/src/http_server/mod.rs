@@ -277,26 +277,26 @@ async fn memory_stats(_: TrustedIpRequired) -> String {
     let mut result = String::new();
 
     let jstats = JemallocStats::collect();
-    write!(result, "{jstats:#?}\n").ok();
+    writeln!(result, "{jstats:#?}").ok();
 
     if let Ok((usage, limit)) = get_usage_and_limit() {
-        write!(result, "RSS = {:?}\n", NumBytes::from(usage.bytes)).ok();
-        write!(
+        writeln!(result, "RSS = {:?}", NumBytes::from(usage.bytes)).ok();
+        writeln!(
             result,
-            "soft limit = {:?}\n",
+            "soft limit = {:?}",
             limit.soft_limit.map(NumBytes::from)
         )
         .ok();
-        write!(
+        writeln!(
             result,
-            "hard limit = {:?}\n",
+            "hard limit = {:?}",
             limit.hard_limit.map(NumBytes::from)
         )
         .ok();
     }
 
     let mut stats = tracking_stats();
-    write!(result, "live = {:?}\n", stats.live).ok();
+    writeln!(result, "live = {:?}", stats.live).ok();
 
     if stats.top_callstacks.is_empty() {
         write!(
@@ -305,12 +305,12 @@ async fn memory_stats(_: TrustedIpRequired) -> String {
         )
         .ok();
     } else {
-        write!(result, "small_threshold = {:?}\n", stats.small_threshold).ok();
+        writeln!(result, "small_threshold = {:?}", stats.small_threshold).ok();
         write!(result, "\ntop call stacks:\n").ok();
         for stack in &mut stats.top_callstacks {
-            write!(
+            writeln!(
                 result,
-                "sampled every {} allocations, estimated {} allocations of {} total bytes\n",
+                "sampled every {} allocations, estimated {} allocations of {} total bytes",
                 stack.stochastic_rate,
                 stack.count * stack.stochastic_rate,
                 stack.total_size * stack.stochastic_rate

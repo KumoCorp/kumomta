@@ -50,8 +50,8 @@ impl SocketAddress {
     pub fn host(&self) -> HostAddress {
         match self {
             Self::UnixDomain(p) => HostAddress::UnixDomain(p.clone()),
-            Self::V4(a) => HostAddress::V4(a.ip().clone()),
-            Self::V6(a) => HostAddress::V6(a.ip().clone()),
+            Self::V4(a) => HostAddress::V4(*a.ip()),
+            Self::V6(a) => HostAddress::V6(*a.ip()),
         }
     }
 
@@ -66,8 +66,8 @@ impl SocketAddress {
     /// Returns the ip representation of the address
     pub fn ip(&self) -> Option<SocketAddr> {
         match self {
-            Self::V4(a) => Some(a.clone().into()),
-            Self::V6(a) => Some(a.clone().into()),
+            Self::V4(a) => Some((*a).into()),
+            Self::V6(a) => Some((*a).into()),
             Self::UnixDomain(_) => None,
         }
     }

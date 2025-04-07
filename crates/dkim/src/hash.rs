@@ -205,7 +205,7 @@ impl HeaderList {
 
         'outer: for name in header_list {
             for header in email_headers.iter().rev() {
-                if header.get_name().eq_ignore_ascii_case(&name) {
+                if header.get_name().eq_ignore_ascii_case(name) {
                     apply(header.get_name(), header.get_raw_value().as_bytes());
                     continue 'outer;
                 }
@@ -242,7 +242,7 @@ impl HeaderList {
                 .rev()
                 .skip(num_headers - index)
             {
-                if header.get_name().eq_ignore_ascii_case(&name) {
+                if header.get_name().eq_ignore_ascii_case(name) {
                     apply(header.get_name(), header.get_raw_value().as_bytes());
                     last_index.insert(name, header_index);
                     continue 'outer;
@@ -259,25 +259,25 @@ impl HeaderList {
     }
 }
 
-pub(crate) fn compute_headers_hash<'a, 'b>(
+pub(crate) fn compute_headers_hash<'a>(
     canonicalization_type: canonicalization::Type,
     headers: &HeaderList,
     hash_algo: HashAlgo,
-    dkim_header: &'b DKIMHeader,
+    dkim_header: &DKIMHeader,
     email: &'a ParsedEmail<'a>,
 ) -> Result<Vec<u8>, DKIMError> {
     let mut input = Vec::new();
     let mut hasher = HashImpl::from_algo(hash_algo);
 
     headers.apply(email, |key, value| {
-        canonicalization_type.canon_header_into(&key, value, &mut input);
+        canonicalization_type.canon_header_into(key, value, &mut input);
     });
 
     // Add the DKIM-Signature header in the hash. Remove the value of the
     // signature (b) first.
     {
         let sign = dkim_header.get_required_raw_tag("b");
-        let value = dkim_header.raw_bytes.replace(&sign, "");
+        let value = dkim_header.raw_bytes.replace(sign, "");
         let mut canonicalized_value = vec![];
         canonicalization_type.canon_header_into(HEADER, value.as_bytes(), &mut canonicalized_value);
 
@@ -534,10 +534,7 @@ Hello Alice
         let result1 = select_headers(&header_list, &email1);
         assert_eq!(
             result1,
-            vec![
-                ("from".into(), &b"baz"[..]),
-                ("subject".into(), &b"boring"[..]),
-            ]
+            vec![("from", &b"baz"[..]), ("subject", &b"boring"[..]),]
         );
 
         let email2 =
@@ -546,10 +543,7 @@ Hello Alice
         let result2 = select_headers(&header_list, &email2);
         assert_eq!(
             result2,
-            vec![
-                ("From".into(), &b"biz"[..]),
-                ("Subject".into(), &b"Boring"[..]),
-            ]
+            vec![("From", &b"biz"[..]), ("Subject", &b"Boring"[..]),]
         );
     }
 
@@ -570,9 +564,9 @@ Hello Alice
         assert_eq!(
             result1,
             vec![
-                ("from".into(), &b"baz"[..]),
-                ("subject".into(), &b"boring"[..]),
-                ("from".into(), &b"biz"[..]),
+                ("from", &b"baz"[..]),
+                ("subject", &b"boring"[..]),
+                ("from", &b"biz"[..]),
             ]
         );
 
@@ -582,10 +576,7 @@ Hello Alice
         let result2 = select_headers(&header_list, &email2);
         assert_eq!(
             result2,
-            vec![
-                ("From".into(), &b"biz"[..]),
-                ("Subject".into(), &b"Boring"[..]),
-            ]
+            vec![("From", &b"biz"[..]), ("Subject", &b"Boring"[..]),]
         );
     }
 }

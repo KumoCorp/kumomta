@@ -48,8 +48,8 @@ impl<T: Clone + Send> ConfigHandle<T> {
     /// Other config handles will notice the change when borrow() is subsequently called.
     pub fn update(&self, new_value: T) -> usize {
         self.inner.value.swap(Arc::new(new_value));
-        let generation = self.inner.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        generation
+
+        self.inner.generation.fetch_add(1, Ordering::SeqCst) + 1
     }
 
     /// Borrows the local copy of the config for read.

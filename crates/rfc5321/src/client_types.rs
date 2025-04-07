@@ -281,7 +281,7 @@ pub(crate) struct ResponseLine<'a> {
     pub content: &'a str,
 }
 
-impl<'a> ResponseLine<'a> {
+impl ResponseLine<'_> {
     /// Reconsitute the original line that we parsed
     fn to_original_line(&self) -> String {
         format!(
@@ -344,6 +344,13 @@ impl ResponseBuilder {
     }
 }
 
+fn as_single_line<S>(content: &String, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&remove_line_break(content))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -381,11 +388,4 @@ mod test {
 
         assert_eq!(parse_enhanced_status_code("2.0.0.1w00t"), None);
     }
-}
-
-fn as_single_line<S>(content: &String, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(&remove_line_break(content))
 }

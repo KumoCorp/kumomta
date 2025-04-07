@@ -224,10 +224,7 @@ impl AllocationTracker {
             entry.total_size += alloc.size;
         }
 
-        let mut stats = by_stack
-            .into_iter()
-            .map(|(_, stats)| stats)
-            .collect::<Vec<_>>();
+        let mut stats = by_stack.into_values().collect::<Vec<_>>();
         stats.sort_by(|a, b| b.total_size.cmp(&a.total_size));
         stats.truncate(max_stacks);
         stats.shrink_to_fit();

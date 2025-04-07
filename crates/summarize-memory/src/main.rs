@@ -194,7 +194,7 @@ fn main() -> anyhow::Result<()> {
         for (symbol, label) in &interesting_symbols {
             for f in frames {
                 if f.symbol == *symbol {
-                    let entry = notable_things.entry(label).or_insert_with(Notable::default);
+                    let entry = notable_things.entry(label).or_default();
                     entry.total_size += stack.total_size;
                     entry.min_size += stack.min_size;
                     break;
@@ -205,7 +205,7 @@ fn main() -> anyhow::Result<()> {
 
     fn format_range(min_size: usize, total_size: usize) -> String {
         if min_size == total_size {
-            format!("{}", human_bytes(total_size as f64))
+            human_bytes(total_size as f64).to_string()
         } else {
             format!(
                 "{} - {}",

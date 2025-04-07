@@ -194,7 +194,7 @@ impl<
 
         // Sort by ascending tick, which is equivalent to having the
         // LRU within that set towards the front of the vec
-        samples.sort_by(|(_ka, tick_a), (_kb, tick_b)| tick_a.cmp(&tick_b));
+        samples.sort_by(|(_ka, tick_a), (_kb, tick_b)| tick_a.cmp(tick_b));
 
         for (key, tick) in samples {
             // Sanity check that the tick value is the same as we expect.
@@ -583,7 +583,7 @@ impl<
         match self.inner.cache.get_mut(name) {
             None => {
                 self.inner.miss_counter.inc();
-                return None;
+                None
             }
             Some(entry) => {
                 match &entry.item {

@@ -14,47 +14,47 @@ pub enum SharedString<'a> {
     },
 }
 
-impl<'a> std::cmp::PartialEq<Self> for SharedString<'a> {
+impl std::cmp::PartialEq<Self> for SharedString<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.as_str().eq(other.as_str())
     }
 }
 
-impl<'a> std::cmp::PartialEq<&str> for SharedString<'a> {
+impl std::cmp::PartialEq<&str> for SharedString<'_> {
     fn eq(&self, other: &&str) -> bool {
         self.as_str().eq(*other)
     }
 }
 
-impl<'a> std::fmt::Display for SharedString<'a> {
+impl std::fmt::Display for SharedString<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         let str = self.as_str();
         fmt.write_str(str)
     }
 }
 
-impl<'a> std::fmt::Debug for SharedString<'a> {
+impl std::fmt::Debug for SharedString<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         let str = self.as_str();
         write!(fmt, "{str:?}")
     }
 }
 
-impl<'a> std::ops::Deref for SharedString<'a> {
+impl std::ops::Deref for SharedString<'_> {
     type Target = str;
     fn deref(&self) -> &str {
         self.as_str()
     }
 }
 
-impl<'a> std::ops::Index<usize> for SharedString<'a> {
+impl std::ops::Index<usize> for SharedString<'_> {
     type Output = u8;
     fn index(&self, index: usize) -> &u8 {
         &self.as_str().as_bytes()[index]
     }
 }
 
-impl<'a> Clone for SharedString<'a> {
+impl Clone for SharedString<'_> {
     fn clone(&self) -> Self {
         match self {
             Self::Owned(s) => Self::Sliced {
@@ -70,7 +70,7 @@ impl<'a> Clone for SharedString<'a> {
     }
 }
 
-impl<'a> SharedString<'a> {
+impl SharedString<'_> {
     pub fn slice(&self, slice_range: std::ops::Range<usize>) -> Self {
         self.assert_slice(slice_range.clone());
         match self {
@@ -112,7 +112,7 @@ impl<'a> SharedString<'a> {
     }
 }
 
-impl<'a> From<String> for SharedString<'a> {
+impl From<String> for SharedString<'_> {
     fn from(s: String) -> Self {
         Self::Owned(Arc::new(s))
     }

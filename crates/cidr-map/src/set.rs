@@ -90,7 +90,7 @@ impl TryFrom<Vec<&str>> for CidrSet {
         let mut set = CidrMap::new();
         let mut problems = vec![];
         for entry in v {
-            match parse_cidr(&entry) {
+            match parse_cidr(entry) {
                 Ok(cidr) => {
                     set.insert(cidr, ());
                 }
@@ -131,10 +131,10 @@ impl TryFrom<Vec<String>> for CidrSet {
     }
 }
 
-impl Into<Vec<String>> for CidrSet {
-    fn into(self) -> Vec<String> {
+impl From<CidrSet> for Vec<String> {
+    fn from(val: CidrSet) -> Self {
         let mut result = vec![];
-        for (key, _unit) in self.0.iter() {
+        for (key, _unit) in val.0.iter() {
             result.push(key.to_string());
         }
         result
@@ -147,11 +147,11 @@ impl From<Vec<AnyIpCidr>> for CidrSet {
     }
 }
 
-impl Into<Vec<AnyIpCidr>> for CidrSet {
-    fn into(self) -> Vec<AnyIpCidr> {
+impl From<CidrSet> for Vec<AnyIpCidr> {
+    fn from(val: CidrSet) -> Self {
         let mut result = vec![];
-        for (key, _unit) in self.0.iter() {
-            result.push(key.clone());
+        for (key, _unit) in val.0.iter() {
+            result.push(*key);
         }
         result
     }

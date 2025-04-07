@@ -49,7 +49,7 @@ pub struct LoggingConfig<'a> {
     pub diag_format: DiagnosticFormat,
 }
 
-impl<'a> LoggingConfig<'a> {
+impl LoggingConfig<'_> {
     pub fn init(&self) -> anyhow::Result<()> {
         let (non_blocking, _non_blocking_flusher);
         let log_writer = if let Some(log_dir) = &self.log_dir {
@@ -83,7 +83,7 @@ impl<'a> LoggingConfig<'a> {
             .set(Box::new(move |new_filter: &str| {
                 let f = EnvFilter::try_new(new_filter)
                     .with_context(|| format!("parsing log filter '{new_filter}'"))?;
-                Ok(reload_handle.reload(f).context("applying new log filter")?)
+                reload_handle.reload(f).context("applying new log filter")
             }))
             .map_err(|_| anyhow::anyhow!("failed to assign reloadable logging filter"))?;
 

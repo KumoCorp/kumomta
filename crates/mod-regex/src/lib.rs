@@ -29,7 +29,7 @@ impl UserData for RegexWrap {
         });
 
         methods.add_method("is_match", |_, this, haystack: String| {
-            Ok(this.0.is_match(&haystack).map_err(any_err)?)
+            this.0.is_match(&haystack).map_err(any_err)
         });
 
         methods.add_method("find", |_, this, haystack: String| {
@@ -77,7 +77,7 @@ impl UserData for RegexWrap {
         );
 
         methods.add_method("split", |_, this, haystack: String| {
-            Ok(split_into_vec(&this.0, &haystack).map_err(any_err)?)
+            split_into_vec(&this.0, &haystack).map_err(any_err)
         });
     }
 }
@@ -117,7 +117,7 @@ impl<'r, 'h> Split<'r, 'h> {
     }
 }
 
-impl<'r, 'h> Iterator for Split<'r, 'h> {
+impl<'h> Iterator for Split<'_, 'h> {
     type Item = Result<&'h str, fancy_regex::Error>;
 
     fn next(&mut self) -> Option<Result<&'h str, fancy_regex::Error>> {

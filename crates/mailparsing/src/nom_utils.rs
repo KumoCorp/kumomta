@@ -62,10 +62,10 @@ impl<I: Debug, E: std::fmt::Display> nom::error::FromExternalError<I, E> for Par
     }
 }
 
-pub fn make_context_error<'a, S: Into<String>>(
-    input: Span<'a>,
+pub fn make_context_error<S: Into<String>>(
+    input: Span<'_>,
     reason: S,
-) -> nom::Err<ParseError<Span<'a>>> {
+) -> nom::Err<ParseError<Span<'_>>> {
     nom::Err::Error(ParseError {
         errors: vec![(
             input,

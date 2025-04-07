@@ -346,7 +346,7 @@ impl LuaUserData for HeaderMapWrapper {
         methods.add_meta_method(MetaMethod::Pairs, |lua, this, ()| {
             let stateless_iter =
                 lua.create_function(|lua, (this, key): (HeaderMapWrapper, Option<String>)| {
-                    let mut iter = this.0.iter();
+                    let iter = this.0.iter();
 
                     let mut this_is_key = false;
 
@@ -354,7 +354,7 @@ impl LuaUserData for HeaderMapWrapper {
                         this_is_key = true;
                     }
 
-                    while let Some((this_key, value)) = iter.next() {
+                    for (this_key, value) in iter {
                         if this_is_key {
                             let key = lua.create_string(this_key.as_str().as_bytes())?;
                             let value = lua.create_string(value.as_bytes())?;
@@ -368,7 +368,7 @@ impl LuaUserData for HeaderMapWrapper {
                             this_is_key = true;
                         }
                     }
-                    return Ok(mlua::MultiValue::new());
+                    Ok(mlua::MultiValue::new())
                 })?;
             Ok((stateless_iter, this.clone(), Value::Nil))
         });
@@ -512,7 +512,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             // so that we can use our existing ResponseWrapper type with it
             let status = response.status();
             let (parts, body) = response.into_parts();
-            let body = Body::from(body.unwrap_or_else(|| vec![]));
+            let body = Body::from(body.unwrap_or_else(std::vec::Vec::new));
             let response = tokio_tungstenite::tungstenite::http::Response::from_parts(parts, body);
 
             let response = ResponseWrapper {

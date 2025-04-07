@@ -121,9 +121,7 @@ impl<'de> Deserialize<'de> for Scheduling {
             target: &mut Option<T>,
         ) -> Result<(), M::Error> {
             match map.next_value() {
-                Err(err) => {
-                    return Err(M::Error::custom(format!("{label}: {err:#}")));
-                }
+                Err(err) => Err(M::Error::custom(format!("{label}: {err:#}"))),
                 Ok(v) => {
                     target.replace(v);
                     Ok(())
@@ -252,7 +250,7 @@ impl Scheduling {
                     Some(result) => result,
                     None => {
                         // Wonky date/time, try the next day
-                        dt = dt + one_day;
+                        dt += one_day;
                         continue;
                     }
                 };
@@ -364,7 +362,7 @@ impl<'de> Deserialize<'de> for DaysOfWeek {
         D: serde::Deserializer<'de>,
     {
         struct Visit {}
-        impl<'de> serde::de::Visitor<'de> for Visit {
+        impl serde::de::Visitor<'_> for Visit {
             type Value = DaysOfWeek;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -524,7 +522,7 @@ mod test {
         let sched = Scheduling {
             restriction: Some(ScheduleRestriction {
                 days_of_week: DaysOfWeek::MON | DaysOfWeek::WED,
-                timezone: phoenix.clone(),
+                timezone: phoenix,
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),
@@ -548,7 +546,7 @@ mod test {
         let sched = Scheduling {
             restriction: Some(ScheduleRestriction {
                 days_of_week: DaysOfWeek::MON | DaysOfWeek::FRI,
-                timezone: phoenix.clone(),
+                timezone: phoenix,
                 start: NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
                 end: NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
             }),

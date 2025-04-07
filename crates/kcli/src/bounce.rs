@@ -68,13 +68,12 @@ impl BounceCommand {
             && self.campaign.is_none()
             && self.tenant.is_none()
             && self.routing_domain.is_none()
+            && !self.everything
         {
-            if !self.everything {
-                anyhow::bail!(
-                    "No domain, routing_domain, campaign or tenant was specified. \
-                     Use --everything if you intend to purge all queues"
-                );
-            }
+            anyhow::bail!(
+                "No domain, routing_domain, campaign or tenant was specified. \
+                 Use --everything if you intend to purge all queues"
+            );
         }
 
         let result: BounceV1Response = crate::request_with_json_response(
@@ -86,7 +85,7 @@ impl BounceCommand {
                 routing_domain: self.routing_domain.clone(),
                 tenant: self.tenant.clone(),
                 reason: self.reason.clone(),
-                duration: self.duration.clone(),
+                duration: self.duration,
                 expires: None,
                 suppress_logging: self.suppress_logging,
             },

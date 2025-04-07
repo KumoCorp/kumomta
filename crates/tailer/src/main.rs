@@ -159,7 +159,7 @@ fn tail_single_file(params: &mut FileTailerParams) -> anyhow::Result<()> {
                 if batch.len() == params.batch_size {
                     (params.actor)(&batch)?;
                     if let Some(cp) = &params.checkpoint {
-                        CheckpointData::save(cp, &params.path, line_number + 1)?;
+                        CheckpointData::save(cp, params.path, line_number + 1)?;
                     }
                     batch.clear();
                 }
@@ -183,7 +183,7 @@ fn tail_single_file(params: &mut FileTailerParams) -> anyhow::Result<()> {
     if !batch.is_empty() {
         (params.actor)(&batch)?;
         if let Some(cp) = &params.checkpoint {
-            CheckpointData::save(cp, &params.path, line_number)?;
+            CheckpointData::save(cp, params.path, line_number)?;
         }
     }
 
@@ -332,7 +332,7 @@ fn main() -> anyhow::Result<()> {
         match rx.recv_timeout(timeout) {
             Ok(_) => {
                 // Let's drain any others that might be pending
-                while let Ok(_) = rx.try_recv() {
+                while rx.try_recv().is_ok() {
                     // drain
                 }
             }

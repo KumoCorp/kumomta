@@ -80,7 +80,7 @@ impl<'a> MessageBuilder<'a> {
         let content_node = if !self.inline.is_empty() {
             let mut parts = Vec::with_capacity(self.inline.len() + 1);
             parts.push(content_node);
-            parts.extend(self.inline.into_iter());
+            parts.extend(self.inline);
             MimePart::new_multipart(
                 "multipart/related",
                 parts,
@@ -97,7 +97,7 @@ impl<'a> MessageBuilder<'a> {
         let mut root = if !self.attached.is_empty() {
             let mut parts = Vec::with_capacity(self.attached.len() + 1);
             parts.push(content_node);
-            parts.extend(self.attached.into_iter());
+            parts.extend(self.attached);
             MimePart::new_multipart(
                 "multipart/mixed",
                 parts,
@@ -111,9 +111,7 @@ impl<'a> MessageBuilder<'a> {
             content_node
         };
 
-        root.headers_mut()
-            .headers
-            .extend(self.headers.headers.into_iter());
+        root.headers_mut().headers.extend(self.headers.headers);
 
         if root.headers().mime_version()?.is_none() {
             root.headers_mut().set_mime_version("1.0");

@@ -74,7 +74,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         let mut group = c.benchmark_group("kumo_dkim openssl signing");
         group.sampling_mode(SamplingMode::Flat);
         group.throughput(Throughput::Bytes(email_text.len() as u64));
-        group.bench_function(&format!("sign {canon:?}"), |b| {
+        group.bench_function(format!("sign {canon:?}"), |b| {
             b.iter(|| signer.sign(black_box(&email)).unwrap())
         });
         group.finish();

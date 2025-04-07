@@ -180,11 +180,11 @@ impl MessageList {
         messages
     }
 
-    pub fn extend_from_iter<I>(&mut self, mut iter: I)
+    pub fn extend_from_iter<I>(&mut self, iter: I)
     where
         I: Iterator<Item = Message>,
     {
-        while let Some(msg) = iter.next() {
+        for msg in iter {
             self.push_back(msg)
         }
     }
@@ -370,7 +370,7 @@ impl Message {
                     .flags
                     .set(MessageFlags::SCHEDULED, scheduling.is_some());
                 if let Some(sched) = scheduling {
-                    let due = inner.due.unwrap_or_else(|| Utc::now());
+                    let due = inner.due.unwrap_or_else(Utc::now);
                     inner.due = Some(sched.adjust_for_schedule(due));
                 }
                 Ok(scheduling)
@@ -380,10 +380,7 @@ impl Message {
 
     pub fn get_scheduling(&self) -> Option<Scheduling> {
         let inner = self.msg_and_id.inner.lock();
-        inner
-            .metadata
-            .as_ref()
-            .and_then(|meta| meta.schedule.clone())
+        inner.metadata.as_ref().and_then(|meta| meta.schedule)
     }
 
     pub fn get_due(&self) -> Option<DateTime<Utc>> {
@@ -429,7 +426,7 @@ impl Message {
                 return Ok(inner.due);
             }
 
-            let due = due.unwrap_or_else(|| Utc::now());
+            let due = due.unwrap_or_else(Utc::now);
 
             if let Some(meta) = &inner.metadata {
                 inner.due = match &meta.schedule {
@@ -872,9 +869,9 @@ impl Message {
                 let headers = &data[0..idx + 2];
                 let body = &data[idx + 2..];
 
-                new_data.extend_from_slice(&headers);
+                new_data.extend_from_slice(headers);
                 emit_header(&mut new_data, name, value);
-                new_data.extend_from_slice(&body);
+                new_data.extend_from_slice(body);
                 self.assign_data(new_data);
                 return;
             }
@@ -1233,7 +1230,7 @@ impl UserData for Message {
 
         methods.add_method("id", move |_, this, _: ()| Ok(this.id().to_string()));
         methods.add_method("sender", move |_, this, _: ()| {
-            Ok(this.sender().map_err(any_err)?)
+            this.sender().map_err(any_err)
         });
 
         methods.add_method("num_attempts", move |_, this, _: ()| {
@@ -1241,7 +1238,7 @@ impl UserData for Message {
         });
 
         methods.add_method("queue_name", move |_, this, _: ()| {
-            Ok(this.get_queue_name().map_err(any_err)?)
+            this.get_queue_name().map_err(any_err)
         });
 
         methods.add_async_method("set_due", move |lua, this, due: mlua::Value| async move {
@@ -1258,11 +1255,11 @@ impl UserData for Message {
                 }
                 _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
             };
-            Ok(this.set_sender(sender).map_err(any_err)?)
+            this.set_sender(sender).map_err(any_err)
         });
 
         methods.add_method("recipient", move |_, this, _: ()| {
-            Ok(this.recipient().map_err(any_err)?)
+            this.recipient().map_err(any_err)
         });
 
         methods.add_method("set_recipient", move |lua, this, value: mlua::Value| {
@@ -1273,12 +1270,12 @@ impl UserData for Message {
                 }
                 _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
             };
-            Ok(this.set_recipient(recipient).map_err(any_err)?)
+            this.set_recipient(recipient).map_err(any_err)
         });
 
         #[cfg(feature = "impl")]
         methods.add_async_method("dkim_sign", |_, this, signer: Signer| async move {
-            Ok(this.dkim_sign(signer).await.map_err(any_err)?)
+            this.dkim_sign(signer).await.map_err(any_err)
         });
 
         methods.add_async_method("shrink", |_, this, _: ()| async move {
@@ -1320,36 +1317,34 @@ impl UserData for Message {
         methods.add_method(
             "prepend_header",
             move |_, this, (name, value): (String, String)| {
-                Ok(this.prepend_header(Some(&name), &value))
+                this.prepend_header(Some(&name), &value);
+                Ok(())
             },
         );
         methods.add_method(
             "append_header",
             move |_, this, (name, value): (String, String)| {
-                Ok(this.append_header(Some(&name), &value))
+                this.append_header(Some(&name), &value);
+                Ok(())
             },
         );
         methods.add_method("get_address_header", move |_, this, name: String| {
-            Ok(this.get_address_header(&name).map_err(any_err)?)
+            this.get_address_header(&name).map_err(any_err)
         });
         methods.add_method("from_header", move |_, this, ()| {
-            Ok(this.get_address_header("From").map_err(any_err)?)
+            this.get_address_header("From").map_err(any_err)
         });
         methods.add_method("to_header", move |_, this, ()| {
-            Ok(this.get_address_header("To").map_err(any_err)?)
+            this.get_address_header("To").map_err(any_err)
         });
 
         methods.add_method(
             "get_first_named_header_value",
-            move |_, this, name: String| {
-                Ok(this.get_first_named_header_value(&name).map_err(any_err)?)
-            },
+            move |_, this, name: String| this.get_first_named_header_value(&name).map_err(any_err),
         );
         methods.add_method(
             "get_all_named_header_values",
-            move |_, this, name: String| {
-                Ok(this.get_all_named_header_values(&name).map_err(any_err)?)
-            },
+            move |_, this, name: String| this.get_all_named_header_values(&name).map_err(any_err),
         );
         methods.add_method("get_all_headers", move |_, this, _: ()| {
             Ok(this
@@ -1370,22 +1365,20 @@ impl UserData for Message {
         methods.add_method(
             "import_x_headers",
             move |_, this, names: Option<Vec<String>>| {
-                Ok(this
-                    .import_x_headers(names.unwrap_or_else(|| vec![]))
-                    .map_err(any_err)?)
+                this.import_x_headers(names.unwrap_or_default())
+                    .map_err(any_err)
             },
         );
 
         methods.add_method(
             "remove_x_headers",
             move |_, this, names: Option<Vec<String>>| {
-                Ok(this
-                    .remove_x_headers(names.unwrap_or_else(|| vec![]))
-                    .map_err(any_err)?)
+                this.remove_x_headers(names.unwrap_or_default())
+                    .map_err(any_err)
             },
         );
         methods.add_method("remove_all_named_headers", move |_, this, name: String| {
-            Ok(this.remove_all_named_headers(&name).map_err(any_err)?)
+            this.remove_all_named_headers(&name).map_err(any_err)
         });
 
         methods.add_method(

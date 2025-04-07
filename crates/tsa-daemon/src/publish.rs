@@ -36,10 +36,8 @@ impl BatchQueue {
                 started: Instant::now(),
                 contents,
             });
-        } else {
-            self.segments
-                .last_mut()
-                .map(move |seg| seg.contents.push(record));
+        } else if let Some(seg) = self.segments.last_mut() {
+            seg.contents.push(record)
         }
 
         self.size += 1;
@@ -149,7 +147,7 @@ fn start_processor_pool() -> anyhow::Result<Mutex<BatchQueue>> {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_io()
                     .enable_time()
-                    .on_thread_park(|| kumo_server_memory::purge_thread_cache())
+                    .on_thread_park(kumo_server_memory::purge_thread_cache)
                     .build()
                     .unwrap();
                 let local_set = LocalSet::new();

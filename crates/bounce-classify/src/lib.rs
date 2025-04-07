@@ -20,9 +20,9 @@ impl From<String> for BounceClass {
     }
 }
 
-impl Into<String> for BounceClass {
-    fn into(self) -> String {
-        match self {
+impl From<BounceClass> for String {
+    fn from(val: BounceClass) -> Self {
+        match val {
             BounceClass::PreDefined(pre) => pre.to_string(),
             BounceClass::UserDefined(s) => s,
         }

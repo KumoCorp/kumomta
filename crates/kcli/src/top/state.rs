@@ -58,9 +58,9 @@ impl<'a> Entry<'a> {
 
     fn current_value_impl(&self) -> String {
         self.data
-            .get(0)
+            .first()
             .map(|v| value_with_unit(*v, self.unit))
-            .unwrap_or_else(String::new)
+            .unwrap_or_default()
     }
 
     fn label(&self, col_width: Option<u16>) -> String {
@@ -164,7 +164,7 @@ impl State {
 
     async fn update_metrics(&mut self, endpoint: &Url) -> anyhow::Result<()> {
         match get_metrics::<Vec<()>, _>(endpoint, |m| {
-            self.accumulate_series(&m);
+            self.accumulate_series(m);
             None
         })
         .await
@@ -455,11 +455,11 @@ impl State {
 
             let label = Paragraph::new(entry.current_value())
                 .right_aligned()
-                .style(text_style.clone())
+                .style(text_style)
                 .block(
                     Block::new()
                         .title(entry.label(Some(label_col_width)))
-                        .title_style(text_style.clone())
+                        .title_style(text_style)
                         .title_alignment(if entry.base_height == 1 {
                             Alignment::Right
                         } else {
@@ -670,7 +670,7 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 fn value_with_unit(v: u64, unit: &str) -> String {
     if unit == "b" {
         human_bytes(v as f64)
-    } else if unit == "" {
+    } else if unit.is_empty() {
         v.to_formatted_string(&Locale::en)
     } else if unit == "/s" {
         format!("{}/s", v.to_formatted_string(&Locale::en))
@@ -693,7 +693,7 @@ fn value_with_unit(v: u64, unit: &str) -> String {
 pub fn fvalue_with_unit(v: f64, unit: &str) -> String {
     if unit == "b" {
         human_bytes(v)
-    } else if unit == "" {
+    } else if unit.is_empty() {
         (v as u64).to_formatted_string(&Locale::en)
     } else if unit == "/s" {
         format!("{}/s", (v as u64).to_formatted_string(&Locale::en))

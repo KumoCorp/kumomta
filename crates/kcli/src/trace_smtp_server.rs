@@ -143,12 +143,10 @@ impl TraceSmtpServerCommand {
                             format!("{delta: >5.0?}")
                         }
                         None => {
-                            if event.payload != TraceSmtpV1Payload::Connected {
-                                if self.only_new {
-                                    // We haven't seen this one before, and we're only tracing new
-                                    // sessions, so ignore it
-                                    continue;
-                                }
+                            if event.payload != TraceSmtpV1Payload::Connected && self.only_new {
+                                // We haven't seen this one before, and we're only tracing new
+                                // sessions, so ignore it
+                                continue;
                             }
 
                             if self.only_one && wanted_key.is_none() {

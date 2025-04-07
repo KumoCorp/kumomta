@@ -193,7 +193,7 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
         // convert to string and order by that, which is a bit
         // wasteful but the cardinality of TLSA records is
         // generally low
-        result.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        result.sort_by_key(|a| a.to_string());
     }
 
     tracing::info!("resolve_dane {hostname}:{port} result is: {result:?}");
@@ -236,7 +236,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
             Ok(addr) => {
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
-                    addr: addr.into(),
+                    addr,
                 }]);
             }
             Err(err) => {
@@ -585,7 +585,7 @@ pub async fn ip_lookup(key: &str) -> anyhow::Result<(Arc<Vec<IpAddr>>, Instant)>
     }
 
     let addr = Arc::new(results);
-    let exp = expires.take().unwrap_or_else(|| Instant::now());
+    let exp = expires.take().unwrap_or_else(Instant::now);
 
     IP_CACHE.insert(key_fq, addr.clone(), exp.into()).await;
     Ok((addr, exp))

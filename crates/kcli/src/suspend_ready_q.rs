@@ -28,7 +28,7 @@ impl SuspendReadyQCommand {
             &SuspendReadyQueueV1Request {
                 name: self.name.clone(),
                 reason: self.reason.clone(),
-                duration: self.duration.clone(),
+                duration: self.duration,
                 expires: None,
             },
         )

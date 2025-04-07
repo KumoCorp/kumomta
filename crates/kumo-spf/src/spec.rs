@@ -6,7 +6,7 @@ use std::time::SystemTime;
 fn starts_with_number(input: &str) -> Result<(Option<u32>, &str), String> {
     let i = input
         .find(|c: char| !c.is_numeric() && c != '.')
-        .unwrap_or_else(|| input.len());
+        .unwrap_or(input.len());
     if i == 0 {
         return Ok((None, input));
     }
@@ -38,7 +38,7 @@ impl MacroSpec {
 
         fn is_macro_literal(c: char) -> bool {
             let c = c as u32;
-            (c >= 0x21 && c <= 0x24) || (c >= 0x26 && c <= 0x7e)
+            (0x21..=0x24).contains(&c) || (0x26..=0x7e).contains(&c)
         }
 
         let mut s = s;
@@ -117,7 +117,7 @@ impl MacroSpec {
         for element in &self.elements {
             let m = match element {
                 MacroElement::Literal(t) => {
-                    result.push_str(&t);
+                    result.push_str(t);
                     continue;
                 }
                 MacroElement::Macro(m) => m,
@@ -126,9 +126,9 @@ impl MacroSpec {
             buf.clear();
             match m.name {
                 MacroName::Sender => buf.push_str(cx.sender),
-                MacroName::LocalPart => buf.push_str(&cx.local_part),
-                MacroName::SenderDomain => buf.push_str(&cx.sender_domain),
-                MacroName::Domain => buf.push_str(&cx.domain),
+                MacroName::LocalPart => buf.push_str(cx.local_part),
+                MacroName::SenderDomain => buf.push_str(cx.sender_domain),
+                MacroName::Domain => buf.push_str(cx.domain),
                 MacroName::ReverseDns => buf.push_str(match cx.client_ip.is_ipv4() {
                     true => "in-addr",
                     false => "ip6",

@@ -14,7 +14,7 @@ fn wrap_impl(value: &str, soft_width: usize, hard_width: usize) -> String {
     let mut line = String::new();
 
     for word in value.split_ascii_whitespace() {
-        if line.len() + word.len() + 1 <= soft_width {
+        if line.len() + word.len() < soft_width {
             if !line.is_empty() {
                 line.push(' ');
             }

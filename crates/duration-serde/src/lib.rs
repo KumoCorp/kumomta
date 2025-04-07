@@ -39,7 +39,7 @@ impl<'de> Deserialize<'de> for Wrap<Duration> {
     {
         struct V;
 
-        impl<'de2> serde::de::Visitor<'de2> for V {
+        impl serde::de::Visitor<'_> for V {
             type Value = Duration;
 
             fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -99,7 +99,7 @@ impl<'de> Deserialize<'de> for Wrap<Option<Duration>> {
     }
 }
 
-impl<'a> Serialize for Wrap<&'a Duration> {
+impl Serialize for Wrap<&Duration> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -121,7 +121,7 @@ impl Serialize for Wrap<Duration> {
     }
 }
 
-impl<'a> Serialize for Wrap<&'a Option<Duration>> {
+impl Serialize for Wrap<&Option<Duration>> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

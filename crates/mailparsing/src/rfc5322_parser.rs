@@ -61,7 +61,7 @@ fn is_token(c: char) -> bool {
 // vchar = { '\u{21}'..'\u{7e}' | utf8_non_ascii }
 fn is_vchar(c: char) -> bool {
     let u = c as u32;
-    (u >= 0x21 && u <= 0x7e) || is_utf8_non_ascii(c)
+    (0x21..=0x7e).contains(&u) || is_utf8_non_ascii(c)
 }
 
 fn is_atext(c: char) -> bool {
@@ -174,7 +174,7 @@ fn obs_mbox_list(input: Span) -> IResult<Span, Vec<Mailbox>> {
                 mailbox,
                 many0(preceded(
                     char(','),
-                    alt((map(mailbox, |m| Some(m)), map(cfws, |_| None))),
+                    alt((map(mailbox, Some), map(cfws, |_| None))),
                 )),
             )),
         )),
@@ -231,7 +231,7 @@ fn obs_address_list(input: Span) -> IResult<Span, AddressList> {
                 address,
                 many0(preceded(
                     char(','),
-                    alt((map(address, |m| Some(m)), map(cfws, |_| None))),
+                    alt((map(address, Some), map(cfws, |_| None))),
                 )),
             )),
         )),
@@ -900,8 +900,8 @@ fn unstructured(input: Span) -> IResult<Span, String> {
                 map(take_while(|c| c == '\r' || c == '\n'), |_| Word::Fws),
                 terminated(
                     alt((
-                        map(encoded_word, |w| Word::Encoded(w)),
-                        map(obs_utext, |c| Word::UText(c)),
+                        map(encoded_word, Word::Encoded),
+                        map(obs_utext, Word::UText),
                     )),
                     map(take_while(|c| c == '\r' || c == '\n'), |_| Word::Fws),
                 ),
@@ -1293,7 +1293,7 @@ fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
             tuple((attribute, opt(cfws), char('='), opt(cfws), value)),
             |(name, _, _, _, value)| MimeParameter {
                 name: name.to_string(),
-                value: value,
+                value,
                 section: None,
                 uses_encoding: false,
                 mime_charset: None,
@@ -1388,7 +1388,7 @@ impl EncodeHeaderValue for AuthenticationResults {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = match self.version {
             Some(v) => format!("{} {v}", self.serv_id),
-            None => format!("{}", self.serv_id),
+            None => self.serv_id.to_string(),
         };
         if self.results.is_empty() {
             result.push_str("; none");
@@ -1582,16 +1582,16 @@ impl MimeParameters {
                                 match chars.next() {
                                     Some(n) => match n {
                                         '0'..='9' => {
-                                            value = value << 4;
-                                            value = value | (n as u32 as u8 - b'0');
+                                            value <<= 4;
+                                            value |= n as u32 as u8 - b'0';
                                         }
                                         'a'..='f' => {
-                                            value = value << 4;
-                                            value = value | (n as u32 as u8 - b'a') + 10;
+                                            value <<= 4;
+                                            value |= (n as u32 as u8 - b'a') + 10;
                                         }
                                         'A'..='F' => {
-                                            value = value << 4;
-                                            value = value | (n as u32 as u8 - b'A') + 10;
+                                            value <<= 4;
+                                            value |= (n as u32 as u8 - b'A') + 10;
                                         }
                                         _ => {
                                             char_to_bytes('%', &mut bytes);
@@ -1749,7 +1749,7 @@ impl EncodeHeaderValue for MimeParameters {
                 let section = p
                     .section
                     .map(|s| format!("*{s}"))
-                    .unwrap_or_else(|| String::new());
+                    .unwrap_or_else(String::new);
 
                 let uses_encoding = if !use_quoted_string && p.uses_encoding {
                     "*"
@@ -1775,9 +1775,7 @@ impl EncodeHeaderValue for MimeParameters {
     }
 }
 
-static HEX_CHARS: &[u8] = &[
-    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'A', b'B', b'C', b'D', b'E', b'F',
-];
+static HEX_CHARS: &[u8] = b"0123456789ABCDEF";
 
 pub(crate) fn qp_encode(s: &str) -> String {
     let prefix = b"=?UTF-8?q?";

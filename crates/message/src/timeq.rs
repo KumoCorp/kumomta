@@ -137,7 +137,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
         let diff = due.checked_sub(next_run_tick)?;
 
         for slot in 0..SLOTS {
-            let ceiling = 1 << (slot + 1) * WHEEL_BITS;
+            let ceiling = 1 << ((slot + 1) * WHEEL_BITS);
             if diff < ceiling {
                 return self
                     .buckets
@@ -157,7 +157,7 @@ impl<const SLOTS: usize> TimeQ<SLOTS> {
             .last_mut()
             .unwrap()
             .lists
-            .get_mut((due >> (SLOTS - 1) * WHEEL_BITS) & WHEEL_MASK)
+            .get_mut((due >> ((SLOTS - 1) * WHEEL_BITS)) & WHEEL_MASK)
     }
 
     fn insert_impl(
@@ -699,9 +699,9 @@ mod tests {
         assert_eq!(popped.len(), intervals.len());
 
         for (idx, (expected, actual)) in intervals.iter().zip(popped.iter()).enumerate() {
-            let upper_limit = Duration::from_secs((*expected as u64).div_ceil(3) * 3);
+            let upper_limit = Duration::from_secs({ *expected }.div_ceil(3) * 3);
             assert!(
-                *actual >= Duration::from_secs(*expected as u64) && *actual <= upper_limit,
+                *actual >= Duration::from_secs(*expected) && *actual <= upper_limit,
                 "idx={idx}, expected {expected}-{upper_limit:?} seconds, got {actual:?}"
             );
         }
