@@ -241,6 +241,8 @@ fn lock_pid_file(pid_file: PathBuf) -> anyhow::Result<std::fs::File> {
             pid_file_dir.display()
         )
     })?;
+
+    #[allow(clippy::suspicious_open_options)]
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)

@@ -593,6 +593,7 @@ impl SmtpClient {
         self.ehlo_common(response)
     }
 
+    #[allow(clippy::result_large_err)]
     fn ehlo_common(
         &mut self,
         response: Response,

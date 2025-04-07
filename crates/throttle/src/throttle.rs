@@ -175,8 +175,8 @@ async fn redis_script_throttle(
         limit: max_burst + 1,
         remaining: result.1,
         retry_after: match result.3 {
-            n if n <= 0 => None,
-            n => Some(Duration::from_secs(n.max(0) as u64)),
+            0 => None,
+            n => Some(Duration::from_secs(n)),
         },
         reset_after: Duration::from_secs(result.2),
     })
@@ -201,7 +201,6 @@ async fn redis_script_throttle(
 ///                1 token is added.
 /// * `force_local` - if true, always use the in-memory store on the local
 ///                   machine even if the redis backend has been configured.
-
 pub async fn throttle(
     key: &str,
     limit: u64,

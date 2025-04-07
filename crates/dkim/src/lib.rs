@@ -37,6 +37,7 @@ pub(crate) enum DkimPublicKey {
     Ed25519(ed25519_dalek::VerifyingKey),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum DkimPrivateKey {
     Ed25519(SigningKey),

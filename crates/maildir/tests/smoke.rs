@@ -158,9 +158,8 @@ fn check_delete() {
         assert!(maildir
             .delete("1463941010.5f7fa6dd4922c183dc457d033deee9d7")
             .is_ok());
-        assert!(!maildir
-            .find("1463941010.5f7fa6dd4922c183dc457d033deee9d7")
-            .is_some());
+        assert!(maildir
+            .find("1463941010.5f7fa6dd4922c183dc457d033deee9d7").is_none());
     })
 }
 

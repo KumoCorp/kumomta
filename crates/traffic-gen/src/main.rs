@@ -196,6 +196,7 @@ enum SendDisposition {
     Failed(anyhow::Error),
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Client {
     Smtp(SmtpClient),
     Http(InjectClient),

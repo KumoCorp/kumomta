@@ -142,6 +142,7 @@ impl<'h> Iterator for Split<'_, 'h> {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn split_into_vec(re: &Regex, haystack: &str) -> Result<Vec<String>, fancy_regex::Error> {
     let mut result = vec![];
     for m in Split::split(re, haystack) {

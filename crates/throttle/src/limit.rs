@@ -41,7 +41,7 @@ impl LimitSpecWithDuration {
     ) -> Result<LimitLease, Error> {
         match (self.spec.force_local, REDIS.get()) {
             (false, Some(redis)) => {
-                self.acquire_lease_redis(&redis, key.as_ref(), deadline)
+                self.acquire_lease_redis(redis, key.as_ref(), deadline)
                     .await
             }
             (true, _) | (false, None) => self.acquire_lease_memory(key.as_ref(), deadline).await,
@@ -145,7 +145,7 @@ impl LimitLease {
             Backend::Memory => self.release_memory().await,
             Backend::Redis => {
                 if let Some(redis) = REDIS.get() {
-                    self.release_redis(&redis).await;
+                    self.release_redis(redis).await;
                 } else {
                     eprintln!("LimitLease::release: backend is Redis but REDIS is not set");
                 }
@@ -158,7 +158,7 @@ impl LimitLease {
             Backend::Memory => self.extend_memory(duration).await,
             Backend::Redis => {
                 if let Some(redis) = REDIS.get() {
-                    self.extend_redis(&redis, duration).await
+                    self.extend_redis(redis, duration).await
                 } else {
                     Err(anyhow::anyhow!(
                         "LimitLease::extend: backend is Redis but REDIS is not set"

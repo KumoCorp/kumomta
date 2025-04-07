@@ -487,7 +487,7 @@ impl<'de> Deserialize<'de> for LimitSpec {
                     return Err(E::custom("limit must be 1 or larger"));
                 }
                 Ok(LimitSpec {
-                    limit: value as u64,
+                    limit: value,
                     force_local: false,
                 })
             }

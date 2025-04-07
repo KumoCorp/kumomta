@@ -277,7 +277,7 @@ fn main() -> anyhow::Result<()> {
         first_time = false;
 
         if let Some(cp) = &checkpoint {
-            let file = Utf8PathBuf::try_from(&cp.file)?;
+            let file = Utf8PathBuf::from(&cp.file);
             match plan.iter().position(|f| f == &file) {
                 None => {
                     // There are no files available that include the file

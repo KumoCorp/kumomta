@@ -143,17 +143,11 @@ impl<'a> MimePart<'a> {
         if is_top_level {
             conformance.set(
                 MessageConformance::MISSING_DATE_HEADER,
-                match headers.date() {
-                    Ok(Some(_)) => false,
-                    _ => true,
-                },
+                !matches!(headers.date(), Ok(Some(_))),
             );
             conformance.set(
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
-                match headers.message_id() {
-                    Ok(Some(_)) => false,
-                    _ => true,
-                },
+                !matches!(headers.message_id(), Ok(Some(_))),
             );
             conformance.set(
                 MessageConformance::MISSING_MIME_VERSION,

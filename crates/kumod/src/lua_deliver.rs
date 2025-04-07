@@ -46,6 +46,7 @@ impl LuaDeliveryProtocol {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum ConnectionState {
     NotYet,
     Connected(MetricsWrappedConnection<RegistryKey>),
