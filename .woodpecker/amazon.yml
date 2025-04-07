@@ -106,8 +106,8 @@ steps:
   verify-installable:
     depends_on: [build]
     image: ${AMAZON_IMAGE}
+    pull: true
     commands:
-      - yum clean all
       - yum install -y ./kumomta*.rpm
 
   sign-rpm:
