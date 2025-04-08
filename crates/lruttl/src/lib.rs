@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use kumo_server_memory::subscribe_to_memory_status_changes_async;
 use parking_lot::Mutex;
 use prometheus::{IntCounter, IntGauge};
+use scopeguard::defer;
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -659,7 +660,11 @@ impl<
         });
 
         match &entry.value().item {
-            ItemState::Pending(_) => {}
+            ItemState::Pending(sema) => {
+                if sema.is_closed() {
+                    entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
+                }
+            }
             ItemState::Present(_) | ItemState::Failed(_) => {
                 let now = Instant::now();
                 if now >= entry.expiration {
@@ -773,7 +778,16 @@ impl<
                             // It's still outstanding
                             match wait_result {
                                 Ok(permit) => {
-                                    // We're responsible for resolving it
+                                    // We're responsible for resolving it.
+                                    // We will always close the semaphore when
+                                    // we're done with this logic (and when we unwind
+                                    // or are cancelled) so that we can wake up any
+                                    // waiters.
+                                    // We use defer! for this so that if we are cancelled
+                                    // at the await point below, others are still woken up.
+                                    defer! {
+                                        permit.semaphore().close();
+                                    }
 
                                     if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
                                         self.inner.error_counter.inc();
@@ -782,12 +796,6 @@ impl<
                                             will restart cache resolve.",
                                             self.inner.name
                                         );
-
-                                        // sema is the one we started with, and
-                                        // we own the permit for it. Both us and
-                                        // anyone else waiting for this is going
-                                        // to be let down by this situation.
-                                        permit.semaphore().close();
                                         continue 'retry;
                                     }
 
@@ -823,10 +831,7 @@ impl<
                                             last_tick: self.inc_tick().into(),
                                         },
                                     );
-                                    // Wake everybody up
-                                    permit.semaphore().close();
                                     self.inner.maybe_evict();
-
                                     return return_value;
                                 }
                                 Err(_) => {

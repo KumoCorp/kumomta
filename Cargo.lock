@@ -3765,6 +3765,7 @@ dependencies = [
  "paste",
  "prometheus",
  "rand 0.8.5",
+ "scopeguard",
  "test-log",
  "tokio",
  "tracing",

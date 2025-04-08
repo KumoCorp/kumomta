@@ -12,6 +12,7 @@ parking_lot = {workspace=true}
 paste.workspace = true
 prometheus.workspace = true
 rand.workspace = true
+scopeguard.workspace = true
 tokio = {workspace=true, features=["sync"]}
 tracing = {workspace=true}
 
