@@ -55,7 +55,8 @@ InvalidRecipient = [
   "^550.+recipient unrecognized",
   "^550.+permanent failure for one or more recipients",
   "^585.+Recipient address rejected: undeliverable address: No such user here",
-
+  "^554.+undeliverable address",
+  "^550.+not a valid user",
 ]
 BadDomain = [
   "^556.+Recipient address has a null MX"
@@ -67,6 +68,7 @@ InactiveMailbox = [
    "^550.+Account Closed, Please Remove", # comcast.net
    "^505.+this account is suspended",
    "^550.+Your message wasn't delivered due to an error; .+requires an upgrade to Enhanced Protection at .+forwardemail\\.net", # forwardemail.net
+   "^550.+DisabledUser",
 ]
 InvalidSender = [
 ]
@@ -78,6 +80,9 @@ QuotaIssues = [
   "^550.+Mailbox is full / Blocks limit exceeded / Inode limit exceeded",
   "^552.+Mailbox full",
   "^554.+Quota exceeded (mailbox for user is full)",
+  "^552.+extended quota violation",
+  "^552.+OverQuotaPerm",
+  "^550.+account is overquota",
 ]
 NoAnswerFromHost = [
 ]
@@ -90,10 +95,12 @@ RoutingErrors = [
   "^550.+relay not permitted",
   "^550.+isn't allowed to relay",
   "^550.+Unrouteable address",
+  "^554.+MailLoop",
 ]
 TransientFailure = [
   "^451.*Temporarily unable to process your email",
   "^554.+Error: transaction failed, blame it on the weather: E2: Cannot accept your message due to internal error, please report that to our engineers",
+  "^550.+ReceivingRatePerm",
 ]
 MessageExpired = [
 ]
@@ -112,6 +119,7 @@ AuthenticationFailed = [
   "^553.+Domain of sender address .+ does not exist",
   "^550.+Sender .+ has no A, AAAA, or MX DNS records",
   "^550.+authentication required",
+  "^550.+DmarcRejection",
 ]
 PolicyRelated = [
   "^553 5\\.0\\.3.+DNSBL:RBL 521.+_is_blocked", # AT&T
@@ -143,4 +151,5 @@ PolicyRelated = [
   "^550.+Rejected - Content Policy",
   "^554.+Blocklisting in effect",
   "^552.+sender rejected AUP", # mms.att.net
+  "^452.+restricted by policy error",
 ]
