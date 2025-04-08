@@ -350,7 +350,13 @@ pub struct EgressPoolSourceSelector {
     entries: Vec<EgressPoolEntry>,
 
     index_and_weight: Mutex<IndexAndWeight>,
-    ready_queue_names: Mutex<HashMap<String, Arc<CachedReadyQueueName>>>,
+    ready_queue_names: Mutex<HashMap<String, CachedReadyQueueNameEntry>>,
+}
+
+#[derive(Clone, Debug)]
+enum CachedReadyQueueNameEntry {
+    Hit(Arc<CachedReadyQueueName>),
+    Negative { expires_at: Instant },
 }
 
 #[derive(Debug)]
@@ -412,16 +418,25 @@ impl EgressPoolSourceSelector {
         &self,
         queue_config: &ConfigHandle<QueueConfig>,
         source: &str,
-    ) -> Option<Arc<CachedReadyQueueName>> {
+    ) -> Option<CachedReadyQueueNameEntry> {
         let mut ready_queue_names = self.ready_queue_names.lock();
-        let name = ready_queue_names.get(source)?;
+        let entry = ready_queue_names.get(source)?;
 
-        if queue_config.generation() != name.generation || name.name.has_expired() {
-            ready_queue_names.remove(source);
-            return None;
+        match entry {
+            CachedReadyQueueNameEntry::Hit(name) => {
+                if queue_config.generation() != name.generation || name.name.has_expired() {
+                    ready_queue_names.remove(source);
+                    return None;
+                }
+            }
+            CachedReadyQueueNameEntry::Negative { expires_at } => {
+                if Instant::now() >= *expires_at {
+                    ready_queue_names.remove(source);
+                    return None;
+                }
+            }
         }
-
-        Some(Arc::clone(name))
+        Some(entry.clone())
     }
 
     async fn compute_ready_queue_name(
@@ -430,26 +445,32 @@ impl EgressPoolSourceSelector {
         queue_name: &str,
         queue_config: &ConfigHandle<QueueConfig>,
         source: &str,
-    ) -> anyhow::Result<Arc<CachedReadyQueueName>> {
+    ) -> CachedReadyQueueNameEntry {
         if let Some(entry) = self.get_ready_queue_for_source(queue_config, source) {
-            return Ok(entry);
+            return entry;
         }
 
         let generation = queue_config.generation();
 
-        let name = opt_timeout_at(
+        let entry = match opt_timeout_at(
             deadline,
             ReadyQueueManager::compute_queue_name(queue_name, queue_config, source),
         )
-        .await?;
-
-        let cached = Arc::new(CachedReadyQueueName { name, generation });
+        .await
+        {
+            Ok(name) => {
+                CachedReadyQueueNameEntry::Hit(Arc::new(CachedReadyQueueName { name, generation }))
+            }
+            Err(_) => CachedReadyQueueNameEntry::Negative {
+                expires_at: Instant::now() + Duration::from_secs(60),
+            },
+        };
 
         self.ready_queue_names
             .lock()
-            .insert(source.to_string(), cached.clone());
+            .insert(source.to_string(), entry.clone());
 
-        Ok(cached)
+        entry
     }
 
     #[cfg(test)]
@@ -529,7 +550,7 @@ impl EgressPoolSourceSelector {
                 .compute_ready_queue_name(deadline, queue_name, queue_config, &entry.name)
                 .await
             {
-                Ok(ready_name) => {
+                CachedReadyQueueNameEntry::Hit(ready_name) => {
                     match AdminSuspendReadyQEntry::get_for_queue_name(&ready_name.name.name) {
                         Some(suspend) => {
                             let duration = suspend.get_duration_chrono();
@@ -540,7 +561,7 @@ impl EgressPoolSourceSelector {
                         }
                     }
                 }
-                Err(_) => {
+                CachedReadyQueueNameEntry::Negative { .. } => {
                     // Likely a DNS resolution issue that prevented us from computing
                     // the site name to use for the ready queue.
                     // We're not in an appropriate context to handle that issue here,
