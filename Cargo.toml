@@ -179,7 +179,7 @@ thiserror = "1"
 tikv-jemallocator = {version="0.5", features=["background_threads", "stats"]}
 tikv-jemalloc-ctl = {version="0.5"}
 tikv-jemalloc-sys = {version="0.5", features=["profiling", "unprefixed_malloc_on_supported_platforms", "stats"]}
-tokio = "1.32"
+tokio = "1.44"
 tokio-executor-trait = "2.1.0"
 tokio-metrics = "0.3.1"
 tokio-metrics-collector = "0.2.1"
