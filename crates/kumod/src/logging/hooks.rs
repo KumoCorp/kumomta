@@ -177,6 +177,11 @@ impl LogHookState {
                 .await?;
             lua_config.put();
 
+            // Release permit before we insert, as insertion itself can generate
+            // log pressure if queues are fully and we want to avoid the potential
+            // for deadlock-alike behavior
+            drop(permit);
+
             if enqueue {
                 let queue_name = msg.get_queue_name()?;
                 if !deferred_spool {
@@ -184,7 +189,6 @@ impl LogHookState {
                 }
                 QueueManager::insert(&queue_name, msg, InsertReason::Received.into()).await?;
             }
-            drop(permit);
             anyhow::Result::<()>::Ok(())
         })?;
 
