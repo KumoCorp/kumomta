@@ -717,48 +717,35 @@ impl<
                     return Err(error);
                 }
                 (ItemState::Pending(sema), _) => {
-                    /// A little helper to ensure that we decrement the count
-                    /// when we unwind, in the case that this future is cancelled
-                    /// or abandoned prior to completion
-                    struct DecOnDrop(IntGauge);
-                    impl DecOnDrop {
-                        /// Increment on acquire, decrement on drop
-                        fn new(g: IntGauge) -> Self {
-                            g.inc();
-                            Self(g)
+                    let wait_result = {
+                        self.inner.wait_gauge.inc();
+                        defer! {
+                            self.inner.wait_gauge.dec();
                         }
-                    }
-                    impl Drop for DecOnDrop {
-                        fn drop(&mut self) {
-                            self.0.dec();
-                        }
-                    }
 
-                    let wait_count = DecOnDrop::new(self.inner.wait_gauge.clone());
-                    let wait_result = match timeout(
-                        Duration::from_millis(
-                            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
-                        ),
-                        sema.acquire_owned(),
-                    )
-                    .await
-                    {
-                        Err(_) => {
-                            self.inner.error_counter.inc();
-                            tracing::debug!(
-                                "{} semaphore acquire for {name:?} timed out",
-                                self.inner.name
-                            );
-                            return Err(Arc::new(anyhow::anyhow!(
-                                "{} lookup for {name:?} \
+                        match timeout(
+                            Duration::from_millis(
+                                self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
+                            ),
+                            sema.acquire_owned(),
+                        )
+                        .await
+                        {
+                            Err(_) => {
+                                self.inner.error_counter.inc();
+                                tracing::debug!(
+                                    "{} semaphore acquire for {name:?} timed out",
+                                    self.inner.name
+                                );
+                                return Err(Arc::new(anyhow::anyhow!(
+                                    "{} lookup for {name:?} \
                                             timed out on semaphore acquire",
-                                self.inner.name
-                            )));
+                                    self.inner.name
+                                )));
+                            }
+                            Ok(r) => r,
                         }
-                        Ok(r) => r,
                     };
-
-                    drop(wait_count);
 
                     // While we slept, someone else may have satisfied
                     // the lookup; check it
