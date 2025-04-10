@@ -1,6 +1,6 @@
 # DNS Performance
 
-DNS is at the core of KumoMTA's processing pathway, it's used to validate incoming messages and their destination and to define queueing, and it's needed to successfully route messages to their MXes. 
+DNS is at the core of KumoMTA's processing pathway, it's used to validate incoming messages and their destination and to define queueing, and it's needed to successfully route messages to their MXes.
 
 DNS performance is critical, and if DNS performance is missing it can slow down the entire message flow.
 
