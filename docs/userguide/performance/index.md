@@ -11,7 +11,7 @@ This chapter will cover the following:
 * [Performance Testing](./testing.md) - How to test KumoMTA for tuning and performance.
 * [Message Flows](./messageflow.md) - Understanding message flows and resource usage in KumoMTA.
 * Finding the bottlenecks in a KumoMTA installation.
-* The impact of webhooks and other alternative log delivery methods.
+* [Log Hooks](./loghooks.md) - The impact of webhooks and other alternative log delivery methods.
 * Memory tuning in KumoMTA.
 * Threadpool tuning in KumoMTA.
 

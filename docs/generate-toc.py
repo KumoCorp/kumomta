@@ -341,6 +341,7 @@ TOC = [
                     Page("DNS", "userguide/performance/dns.md"),
                     Page("Performance Testing", "userguide/performance/testing.md"),
                     Page("Understanding KumoMTA Message Flows", "userguide/performance/messageflow.md"),
+                    Page("Log Hooks", "userguide/performance/loghooks.md"),
                 ],
             ),
             Page(
