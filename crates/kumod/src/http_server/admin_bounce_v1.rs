@@ -1,6 +1,9 @@
-use crate::http_server::queue_name_multi_index::{Criteria, GetCriteria, QueueNameMultiIndexMap};
+use crate::http_server::queue_name_multi_index::{
+    CachedEntry, Criteria, GetCriteria, QueueNameMultiIndexMap,
+};
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::QueueManager;
+use arc_swap::ArcSwap;
 use axum::extract::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -100,6 +103,22 @@ impl AdminBounceEntry {
             components.tenant,
             Some(components.domain),
             components.routing_domain,
+        )
+    }
+
+    pub fn cached_get_for_queue_name(
+        queue_name: &str,
+        cache: &ArcSwap<Option<CachedEntry<Self>>>,
+    ) -> Option<Self> {
+        let components = QueueNameComponents::parse(queue_name);
+        let mut entries = ENTRIES.lock();
+        entries.maybe_prune();
+        entries.cached_get_matching(
+            components.campaign,
+            components.tenant,
+            Some(components.domain),
+            components.routing_domain,
+            cache,
         )
     }
 

@@ -6,6 +6,7 @@ use crate::http_server::admin_suspend_ready_q_v1::{
 };
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::http_server::inject_v1::HttpInjectionGeneratorDispatcher;
+use crate::http_server::queue_name_multi_index::CachedEntry;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::lua_deliver::LuaQueueDispatcher;
 use crate::metrics_helper::TOTAL_READYQ_RUNS;
@@ -17,6 +18,7 @@ use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError
 use crate::smtp_server::DeferredSmtpInjectionDispatcher;
 use crate::spool::SpoolManager;
 use anyhow::Context;
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use config::epoch::ConfigEpoch;
 use config::{declare_event, load_config};
@@ -1187,6 +1189,7 @@ pub struct Dispatcher {
     leases: Vec<LimitLease>,
     batch_started: Option<tokio::time::Instant>,
     pub states: Arc<FairMutex<ReadyQueueStates>>,
+    active_bounce: ArcSwap<Option<CachedEntry<AdminBounceEntry>>>,
 }
 
 impl Drop for Dispatcher {
@@ -1291,6 +1294,7 @@ impl Dispatcher {
             batch_started: None,
             session_id: Uuid::new_v4(),
             states,
+            active_bounce: Arc::new(None).into(),
         };
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
@@ -1804,7 +1808,10 @@ impl Dispatcher {
         while self.msgs.len() < queue_dispatcher.max_batch_size() {
             if let Some(msg) = self.ready.pop() {
                 if let Ok(queue_name) = msg.get_queue_name() {
-                    if let Some(entry) = AdminBounceEntry::get_for_queue_name(&queue_name) {
+                    if let Some(entry) = AdminBounceEntry::cached_get_for_queue_name(
+                        &queue_name,
+                        &self.active_bounce,
+                    ) {
                         entry.log(msg.clone(), Some(&queue_name)).await;
                         SpoolManager::remove_from_spool(*msg.id()).await.ok();
                         continue;

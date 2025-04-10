@@ -3,6 +3,7 @@ use crate::http_server::admin_bounce_v1::AdminBounceEntry;
 use crate::http_server::admin_rebind_v1::AdminRebindEntry;
 use crate::http_server::admin_suspend_v1::AdminSuspendEntry;
 use crate::http_server::inject_v1::{make_generate_queue_config, GENERATOR_QUEUE_NAME};
+use crate::http_server::queue_name_multi_index::CachedEntry;
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::config::QueueConfig;
 use crate::queue::delivery_proto::DeliveryProto;
@@ -55,6 +56,7 @@ pub struct Queue {
     warned_strategy_change: AtomicBool,
     config_epoch: FairMutex<ConfigEpoch>,
     site_name: String,
+    active_bounce: ArcSwap<Option<CachedEntry<AdminBounceEntry>>>,
 }
 
 impl Queue {
@@ -158,6 +160,7 @@ impl Queue {
             warned_strategy_change: AtomicBool::new(false),
             config_epoch: FairMutex::new(epoch),
             site_name,
+            active_bounce: Arc::new(None).into(),
         });
 
         match strategy {
@@ -918,7 +921,9 @@ impl Queue {
         mut context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
-        if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
+        if let Some(b) =
+            AdminBounceEntry::cached_get_for_queue_name(&self.name, &self.active_bounce)
+        {
             let id = *msg.id();
             b.log(msg, Some(&self.name)).await;
             SpoolManager::remove_from_spool(id).await.ok();

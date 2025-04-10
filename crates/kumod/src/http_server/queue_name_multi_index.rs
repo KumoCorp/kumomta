@@ -1,4 +1,6 @@
+use arc_swap::ArcSwap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
@@ -28,6 +30,13 @@ pub struct QueueNameMultiIndexMap<T: GetCriteria> {
     other: UuidHashSet,
     match_all: Option<Uuid>,
     lookup_count: usize,
+    generation_count: usize,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct CachedEntry<T> {
+    pub entry: Option<T>,
+    generation_count: usize,
 }
 
 /// Domain, Campaign, Tenant key into by_domain_campaign_tenant
@@ -150,6 +159,7 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
             other: HashMap::new(),
             match_all: None,
             lookup_count: 0,
+            generation_count: 0,
         }
     }
 
@@ -199,11 +209,13 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
 
         self.by_criteria.insert(criteria.clone(), *id);
         self.by_id.insert(*id, entry);
+        self.generation_count += 1;
     }
 
     /// Remove the entry with the specified id
     pub fn remove_by_id(&mut self, id: &Uuid) -> Option<T> {
         let entry = self.by_id.remove(id)?;
+        self.generation_count += 1;
 
         let criteria = entry.get_criteria();
         self.by_criteria.remove(criteria);
@@ -258,6 +270,39 @@ impl<T: GetCriteria> QueueNameMultiIndexMap<T> {
         for id in expired_ids {
             self.remove_by_id(&id);
         }
+    }
+
+    pub fn cached_get_matching(
+        &self,
+        campaign: Option<&str>,
+        tenant: Option<&str>,
+        domain: Option<&str>,
+        routing_domain: Option<&str>,
+        cache: &ArcSwap<Option<CachedEntry<T>>>,
+    ) -> Option<T> {
+        if let Some(hit) = cache.load().as_ref() {
+            if hit.generation_count == self.generation_count {
+                match &hit.entry {
+                    Some(entry) => {
+                        if entry.get_expires() > Instant::now() {
+                            return Some(entry.clone());
+                        }
+                    }
+                    None => {
+                        return None;
+                    }
+                }
+            }
+        }
+
+        let entry = self.get_matching(campaign, tenant, domain, routing_domain);
+
+        cache.store(Arc::new(Some(CachedEntry {
+            entry: entry.clone(),
+            generation_count: self.generation_count,
+        })));
+
+        entry
     }
 
     /// Get any entry that matches the specified criteria.

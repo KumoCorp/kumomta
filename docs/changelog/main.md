@@ -77,6 +77,9 @@
 * Singleton wheel now spawns batches of messages when promoting them to
   the ready queue, helping to ensure more even time keeping when there are
   domains with slow DNS.
+* Add caching and, more importantly, negative caching in the queue insertion
+  code paths when checking for admin bounce entries. This improves performance
+  on systems with a large number of admin bounce entries.
 
 ## Fixes
 
