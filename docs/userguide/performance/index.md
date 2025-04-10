@@ -14,4 +14,3 @@ This chapter will cover the following:
 * [Log Hooks](./loghooks.md) - The impact of webhooks and other alternative log delivery methods.
 * Memory tuning in KumoMTA.
 * Threadpool tuning in KumoMTA.
-
