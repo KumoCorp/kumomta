@@ -74,6 +74,9 @@
 * MX lookups now participate in lruttl cache thundering herd protection.
   In prior versions, we could potentially issue multiple concurrent requests
   for the same name.
+* Singleton wheel now spawns batches of messages when promoting them to
+  the ready queue, helping to ensure more even time keeping when there are
+  domains with slow DNS.
 
 ## Fixes
 

@@ -77,8 +77,12 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 
     kumo_mod.set(
         "set_timeq_spawn_reinsertion",
-        lua.create_function(move |_, v: bool| {
-            crate::queue::maintainer::set_spawn_reinsertion(v);
+        lua.create_function(move |_, _v: bool| {
+            // This was a short-lived function that is no longer needed
+            tracing::warn!(
+                "set_timeq_spawn_reinsertion is deprecated and has no effect; \
+                remove it from your configuration"
+            );
             Ok(())
         })?,
     )?;

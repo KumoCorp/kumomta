@@ -13,7 +13,7 @@ use message::Message;
 use parking_lot::FairMutex;
 use prometheus::{Histogram, IntCounter};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{LazyLock, Once};
 use std::time::{Duration, Instant};
 use timeq::PopResult;
@@ -22,7 +22,6 @@ use tracing::instrument;
 const ONE_SECOND: Duration = Duration::from_secs(1);
 const ONE_MINUTE: Duration = Duration::from_secs(60);
 const ONE_DAY: Duration = Duration::from_secs(86400);
-static SPAWN_REINSERTION: AtomicBool = AtomicBool::new(false);
 
 static QMAINT_THREADS: AtomicUsize = AtomicUsize::new(0);
 pub static QMAINT_RUNTIME: LazyLock<Runtime> =
@@ -30,10 +29,6 @@ pub static QMAINT_RUNTIME: LazyLock<Runtime> =
 
 pub fn set_qmaint_threads(n: usize) {
     QMAINT_THREADS.store(n, Ordering::SeqCst);
-}
-
-pub fn set_spawn_reinsertion(v: bool) {
-    SPAWN_REINSERTION.store(v, Ordering::SeqCst);
 }
 
 pub static TOTAL_QMAINT_RUNS: LazyLock<IntCounter> = LazyLock::new(|| {
@@ -232,11 +227,6 @@ async fn process_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: u
         return;
     }
 
-    if !SPAWN_REINSERTION.load(Ordering::Relaxed) {
-        reinsert_batch(messages, total_scheduled).await;
-        return;
-    }
-
     if let Err(err) =
         QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
     {
@@ -316,11 +306,6 @@ async fn reinsert_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
 
 async fn process_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
     if messages.is_empty() {
-        return;
-    }
-
-    if !SPAWN_REINSERTION.load(Ordering::Relaxed) {
-        reinsert_batch_v2(messages, total_scheduled).await;
         return;
     }
 
@@ -416,22 +401,16 @@ async fn run_singleton_wheel_v2() -> anyhow::Result<()> {
 }
 
 fn start_ticker(label: &'static str, f: impl std::future::Future<Output = ()> + Send + 'static) {
-    if !SPAWN_REINSERTION.load(Ordering::SeqCst) {
-        QMAINT_RUNTIME
-            .spawn(format!("start_singleton_{label}"), f)
-            .expect("failed to start ticker");
-    } else {
-        std::thread::Builder::new()
-            .name(label.into())
-            .spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_time()
-                    .build()
-                    .expect("failed to build ticker runtime");
-                runtime.block_on(f);
-            })
-            .expect("failed to spawn ticker");
-    }
+    std::thread::Builder::new()
+        .name(label.into())
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("failed to build ticker runtime");
+            runtime.block_on(f);
+        })
+        .expect("failed to spawn ticker");
 }
 
 #[inline]
