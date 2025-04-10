@@ -723,23 +723,21 @@ impl<
                             self.inner.wait_gauge.dec();
                         }
 
-                        match timeout(
-                            Duration::from_millis(
-                                self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
-                            ),
-                            sema.acquire_owned(),
-                        )
-                        .await
-                        {
+                        let timeout_duration = Duration::from_millis(
+                            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
+                        );
+
+                        match timeout(timeout_duration, sema.acquire_owned()).await {
                             Err(_) => {
                                 self.inner.error_counter.inc();
                                 tracing::debug!(
-                                    "{} semaphore acquire for {name:?} timed out",
+                                    "{} semaphore acquire for {name:?} timed out after {timeout_duration:?}",
                                     self.inner.name
                                 );
                                 return Err(Arc::new(anyhow::anyhow!(
                                     "{} lookup for {name:?} \
-                                            timed out on semaphore acquire",
+                                    timed out after {timeout_duration:?} \
+                                    on semaphore acquire while waiting for cache to populate",
                                     self.inner.name
                                 )));
                             }
