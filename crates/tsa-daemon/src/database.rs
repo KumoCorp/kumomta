@@ -1,7 +1,10 @@
 use anyhow::Context;
 use sqlite::{Connection, ConnectionThreadSafe};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::task::spawn_blocking;
+
+const BUSY_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone)]
 pub struct Database {
@@ -15,14 +18,38 @@ impl Database {
         mut func: impl FnMut(&ConnectionThreadSafe) -> anyhow::Result<T> + Send + 'static,
     ) -> anyhow::Result<T> {
         let db = self.db.clone();
-        spawn_blocking(move || (func)(&db)).await?
+        let start = Instant::now();
+        let result = spawn_blocking(move || (func)(&db)).await?.map_err(|err| {
+            if let Some(s) = err.root_cause().downcast_ref::<sqlite::Error>() {
+                if let Some(code) = s.code {
+                    if code == sqlite::ffi::SQLITE_BUSY as isize {
+                        return err.context(format!(
+                            "failed to acquire database within {BUSY_TIMEOUT:?}"
+                        ));
+                    }
+                }
+            }
+
+            err
+        });
+        let took = start.elapsed();
+        if took > Duration::from_secs(1) {
+            let is_ok = result.is_ok();
+            tracing::warn!("Database::perform took {took:?}. is_ok={is_ok}");
+        }
+        result
     }
 
     pub fn open(path: &str) -> anyhow::Result<Self> {
         let mut db = Connection::open_thread_safe(path)
             .with_context(|| format!("failed to open TSA database {path}"))?;
 
-        db.set_busy_timeout(60_000)?;
+        db.set_busy_timeout(
+            BUSY_TIMEOUT
+                .as_millis()
+                .try_into()
+                .expect("timeout to be in range"),
+        )?;
 
         let query = r#"
 CREATE TABLE IF NOT EXISTS event_history (
