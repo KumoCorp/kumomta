@@ -1,3 +1,4 @@
+use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
 use anyhow::{anyhow, Context};
@@ -20,86 +21,22 @@ use rfc5321::ForwardPath;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
-use sqlite::{Connection, ConnectionThreadSafe};
+use sqlite::ConnectionThreadSafe;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::broadcast::{channel, Sender};
-use tokio::task::spawn_blocking;
 use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
 
 pub static DB_PATH: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
-static HISTORY: LazyLock<ConnectionThreadSafe> = LazyLock::new(|| open_history_db().unwrap());
+static HISTORY: LazyLock<Database> = LazyLock::new(|| open_history_db().unwrap());
 static SUSPENSION_TX: LazyLock<SubscriberMgr> = LazyLock::new(SubscriberMgr::new);
 
-pub fn open_history_db() -> anyhow::Result<ConnectionThreadSafe> {
+pub fn open_history_db() -> anyhow::Result<Database> {
     let path = DB_PATH.lock().clone();
-    let mut db = Connection::open_thread_safe(&path)
-        .with_context(|| format!("opening TSA database {path}"))?;
-
-    db.set_busy_timeout(60_000)?;
-
-    let query = r#"
-CREATE TABLE IF NOT EXISTS event_history (
-    rule_hash text,
-    record_hash text,
-    ts int,
-    PRIMARY KEY (rule_hash, record_hash)
-);
-
-CREATE TABLE IF NOT EXISTS config (
-    rule_hash text,
-    site_name text,
-    reason text,
-    domain text,
-    mx_rollup bool,
-    source text,
-    name text,
-    value text,
-    expires DATETIME,
-    PRIMARY KEY (rule_hash, site_name)
-);
-
-CREATE TABLE IF NOT EXISTS ready_q_suspensions (
-    rule_hash text,
-    site_name text,
-    reason text,
-    source text,
-    expires DATETIME,
-    PRIMARY KEY (rule_hash, site_name)
-);
-
-CREATE TABLE IF NOT EXISTS sched_q_suspensions (
-    rule_hash text,
-    campaign text,
-    tenant text,
-    domain text,
-    reason text,
-    expires DATETIME,
-    PRIMARY KEY (rule_hash, campaign, tenant, domain)
-);
-
-CREATE TABLE IF NOT EXISTS sched_q_bounces (
-    rule_hash text,
-    campaign text,
-    tenant text,
-    domain text,
-    reason text,
-    expires DATETIME,
-    PRIMARY KEY (rule_hash, campaign, tenant, domain)
-);
-    "#;
-
-    db.execute(query)?;
-    db.execute("PRAGMA synchronous = OFF")?;
-
-    // This one is risky and doesn't make a significant
-    // impact on overall performance
-    // db.execute("PRAGMA journal_mode = MEMORY")?;
-
-    Ok(db)
+    Database::open(&path)
 }
 
 #[derive(OpenApi)]
@@ -126,7 +63,7 @@ enum PreferRollup {
 }
 
 async fn create_config(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -135,7 +72,6 @@ async fn create_config(
     source: &str,
     prefer_rollup: PreferRollup,
 ) -> anyhow::Result<()> {
-    let db = db.clone();
     let source = source.to_string();
     let domain = domain.to_string();
     let name = config.name.to_string();
@@ -150,7 +86,7 @@ async fn create_config(
         0
     };
 
-    spawn_blocking(move || {
+    db.perform(move |db| {
         let mut upsert = db.prepare(
             "INSERT INTO config
                  (rule_hash, site_name, domain, mx_rollup, source, name, value, reason, expires)
@@ -175,7 +111,7 @@ async fn create_config(
 
         Ok(())
     })
-    .await?
+    .await
 }
 
 fn regex_list_to_string(list: &[Regex]) -> String {
@@ -207,7 +143,7 @@ enum UseTenant {
 }
 
 async fn create_bounce(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -249,13 +185,12 @@ async fn create_bounce(
     let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
 
     {
-        let db = db.clone();
         let reason = reason.clone();
         let domain = components.domain.to_string();
         let campaign = campaign.as_ref().map(|c| c.to_string());
         let tenant = tenant.as_ref().map(|c| c.to_string());
         let rule_hash = rule_hash.to_string();
-        spawn_blocking(move || {
+        db.perform(move |db| {
             let mut upsert = db
                 .prepare(
                     "INSERT INTO sched_q_bounces
@@ -281,7 +216,7 @@ async fn create_bounce(
 
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await?;
     }
 
     events.push(SubscriptionItem::SchedQBounce(SchedQBounce {
@@ -297,7 +232,7 @@ async fn create_bounce(
 }
 
 async fn create_tenant_suspension(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -336,8 +271,7 @@ async fn create_tenant_suspension(
         let tenant = tenant.to_string();
         let domain = components.domain.to_string();
 
-        let db = db.clone();
-        spawn_blocking(move || {
+        db.perform(move |db| {
             let mut upsert = db
                 .prepare(
                     "INSERT INTO sched_q_suspensions
@@ -364,7 +298,7 @@ async fn create_tenant_suspension(
                 .context("execute sched_q_suspensions upsert")?;
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await?;
     }
 
     events.push(SubscriptionItem::SchedQSuspension(SchedQSuspension {
@@ -380,7 +314,7 @@ async fn create_tenant_suspension(
 }
 
 async fn create_ready_q_suspension(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -391,13 +325,12 @@ async fn create_ready_q_suspension(
     let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
 
     {
-        let db = db.clone();
         let reason = reason.to_string();
         let source = source.to_string();
         let site = record.site.to_string();
         let rule_hash = rule_hash.to_string();
 
-        spawn_blocking(move || {
+        db.perform(move |db| {
             let mut upsert = db.prepare(
                 "INSERT INTO ready_q_suspensions
                  (rule_hash, site_name, source, reason, expires)
@@ -419,7 +352,7 @@ async fn create_ready_q_suspension(
             upsert.next()?;
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await?;
     }
 
     events.push(SubscriptionItem::ReadyQSuspension(ReadyQSuspension {
@@ -434,16 +367,15 @@ async fn create_ready_q_suspension(
 }
 
 async fn insert_record(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule_hash: &str,
     record: &JsonLogRecord,
     record_hash: &str,
 ) -> anyhow::Result<()> {
     let unix: i64 = record.timestamp.format("%s").to_string().parse()?;
-    let db = db.clone();
     let rule_hash = rule_hash.to_string();
     let record_hash = record_hash.to_string();
-    spawn_blocking(move || {
+    db.perform(move |db| {
         let mut insert =
             db.prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
         insert.bind((1, rule_hash.as_str()))?;
@@ -452,20 +384,15 @@ async fn insert_record(
         insert.next()?;
         Ok(())
     })
-    .await?
+    .await
 }
 
-async fn prune_old_records(
-    db: &Arc<ConnectionThreadSafe>,
-    rule: &Rule,
-    rule_hash: &str,
-) -> anyhow::Result<()> {
+async fn prune_old_records(db: &Arc<Database>, rule: &Rule, rule_hash: &str) -> anyhow::Result<()> {
     match rule.trigger {
         Trigger::Immediate => Ok(()),
         Trigger::Threshold(spec) => {
-            let db = db.clone();
             let rule_hash = rule_hash.to_string();
-            spawn_blocking(move || {
+            db.perform(move |db| {
                 let mut query = db.prepare(
                     "delete from event_history where rule_hash = ? and ts < unixepoch() - ?",
                 )?;
@@ -475,22 +402,21 @@ async fn prune_old_records(
                 query.next()?;
                 Ok(())
             })
-            .await?
+            .await
         }
     }
 }
 
 async fn count_matching_records(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     rule: &Rule,
     rule_hash: &str,
 ) -> anyhow::Result<u64> {
     match rule.trigger {
         Trigger::Immediate => Ok(0),
         Trigger::Threshold(spec) => {
-            let db = db.clone();
             let rule_hash = rule_hash.to_string();
-            spawn_blocking(move || {
+            db.perform(move |db| {
                 let mut query = db.prepare(
                     "SELECT COUNT(ts) from event_history \
                     where rule_hash = ? and ts >= unixepoch() - ?",
@@ -502,24 +428,24 @@ async fn count_matching_records(
                 let count: i64 = query.read(0)?;
                 Ok(count as u64)
             })
-            .await?
+            .await
         }
     }
 }
 
 pub async fn publish_log_batch(
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     records: &mut Vec<JsonLogRecord>,
 ) -> anyhow::Result<()> {
     let shaping = get_shaping();
 
     let mut events = vec![];
 
-    spawn_blocking({
-        let db = db.clone();
-        move || db.execute("BEGIN")
+    db.perform(|db| {
+        db.execute("BEGIN")?;
+        Ok(())
     })
-    .await??;
+    .await?;
 
     let now = Utc::now();
 
@@ -529,11 +455,11 @@ pub async fn publish_log_batch(
         }
     }
 
-    spawn_blocking({
-        let db = db.clone();
-        move || db.execute("COMMIT")
+    db.perform(|db| {
+        db.execute("COMMIT")?;
+        Ok(())
     })
-    .await??;
+    .await?;
 
     for event in events {
         SubscriberMgr::submit(event);
@@ -544,7 +470,7 @@ pub async fn publish_log_batch(
 
 async fn publish_log_v1_impl(
     now: &DateTime<Utc>,
-    db: &Arc<ConnectionThreadSafe>,
+    db: &Arc<Database>,
     shaping: &Shaping,
     record: JsonLogRecord,
     events: &mut Vec<SubscriptionItem>,
@@ -800,11 +726,11 @@ fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
     })
 }
 
-fn do_get_config() -> anyhow::Result<String> {
+fn do_get_config(db: &ConnectionThreadSafe) -> anyhow::Result<String> {
     use toml_edit::Item;
     let mut doc = toml_edit::DocumentMut::new();
 
-    let mut stmt = HISTORY.prepare(
+    let mut stmt = db.prepare(
         "SELECT * from config where
                                    unixepoch(expires) - unixepoch() > 0
                                    order by expires, domain, source, name",
@@ -865,14 +791,14 @@ fn do_get_config() -> anyhow::Result<String> {
 }
 
 async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
-    let result = spawn_blocking(do_get_config).await??;
+    let result = HISTORY.perform(do_get_config).await?;
     Ok(result)
 }
 
-fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
+fn do_get_suspension(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Suspensions>> {
     let mut suspensions = Suspensions::default();
 
-    let mut stmt = HISTORY.prepare(
+    let mut stmt = db.prepare(
         "SELECT * from ready_q_suspensions where
                                    unixepoch(expires) - unixepoch() > 0
                                    order by expires, source",
@@ -922,7 +848,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
 
     suspensions.ready_q = dedup.drain().map(|(_, v)| v).collect();
 
-    let mut stmt = HISTORY.prepare(
+    let mut stmt = db.prepare(
         "SELECT * from sched_q_suspensions where
                                    unixepoch(expires) - unixepoch() > 0
                                    order by expires, tenant, domain, campaign",
@@ -981,7 +907,7 @@ fn do_get_suspension() -> anyhow::Result<Json<Suspensions>> {
 }
 
 async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
-    let result = spawn_blocking(do_get_suspension).await??;
+    let result = HISTORY.perform(do_get_suspension).await?;
     Ok(result)
 }
 
@@ -1010,7 +936,7 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
 
     // send the current set of suspensions first
     {
-        let suspensions = spawn_blocking(do_get_suspension).await??.0;
+        let suspensions = HISTORY.perform(do_get_suspension).await?.0;
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
             socket.send(Message::Text(json)).await?;
@@ -1051,8 +977,8 @@ pub async fn subscribe_suspension_v1(
     ws.on_upgrade(process_suspension_subscription)
 }
 
-fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
-    let mut stmt = HISTORY.prepare(
+fn do_get_bounces(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Vec<SchedQBounce>>> {
+    let mut stmt = db.prepare(
         "SELECT * from sched_q_bounces where
                                    unixepoch(expires) - unixepoch() > 0
                                    order by expires, tenant, domain, campaign",
@@ -1112,7 +1038,7 @@ fn do_get_bounces() -> anyhow::Result<Json<Vec<SchedQBounce>>> {
 }
 
 async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
-    let result = spawn_blocking(do_get_bounces).await??;
+    let result = HISTORY.perform(do_get_bounces).await?;
     Ok(result)
 }
 
@@ -1121,7 +1047,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
 
     // send the current set of suspensions first
     {
-        let suspensions = spawn_blocking(do_get_suspension).await??.0;
+        let suspensions = HISTORY.perform(do_get_suspension).await?.0;
         tracing::debug!(
             "new sub, has {} readyq suspensions, {} schedq suspensions",
             suspensions.ready_q.len(),
@@ -1138,7 +1064,7 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
     }
     // and then bounces
     {
-        let bounces = spawn_blocking(do_get_bounces).await??.0;
+        let bounces = HISTORY.perform(do_get_bounces).await?.0;
         tracing::debug!("new sub, has {} bounces", bounces.len());
         for record in bounces {
             let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;

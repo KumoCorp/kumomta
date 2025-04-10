@@ -7,6 +7,7 @@ use kumo_server_common::start::StartConfig;
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use std::path::PathBuf;
 
+mod database;
 mod http_server;
 mod mod_auto;
 mod publish;
