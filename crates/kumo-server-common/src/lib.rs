@@ -7,7 +7,6 @@ use mlua::{Function, Lua, LuaSerdeExt, Value, Variadic};
 use mod_redis::RedisConnKey;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicUsize;
-use tokio::task::LocalSet;
 
 pub mod config_handle;
 pub mod diagnostic_logging;
@@ -448,11 +447,9 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             .on_thread_park(kumo_server_memory::purge_thread_cache)
                             .build()
                             .unwrap();
-                        let local_set = LocalSet::new();
                         let event_name = params.event_name.clone();
 
-                        let result =
-                            local_set.block_on(&runtime, async move { params.run().await });
+                        let result = runtime.block_on(async move { params.run().await });
                         if let Err(err) = result {
                             tracing::error!("Error while dispatching {event_name}: {err:#}");
                         }
