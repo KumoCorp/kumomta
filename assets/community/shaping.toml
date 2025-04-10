@@ -77,6 +77,27 @@ trigger = {Threshold="2/hr"}
 action = "Suspend"
 duration = "2 hours"
 
+# 421 4.7.0 [TSS05] Messages from a.b.c.d temporarily deferred due to user complaints
+[["yahoo.com".automation]]
+regex = "421 4\\.7\\.0 \\[TSS05\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "4 hours"
+
+# 421 [IPTS04] Messages from a.b.c.d temporarily deferred due to user complaints
+[["yahoo.com".automation]]
+regex = "421 \\[IPTS04\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "2 hours"
+
+# 421 [IPTS05] Messages from a.b.c.d temporarily deferred due to user complaints
+[["yahoo.com".automation]]
+regex = "421 \\[IPTS05\\]"
+trigger = {Threshold="2/hr"}
+action = "Suspend"
+duration = "4 hours"
+
 # The sending IP is listed on a Spamhaus blacklist
 [["yahoo.com".automation]]
 regex = "553 5\\.7\\.1 \\[BL"
