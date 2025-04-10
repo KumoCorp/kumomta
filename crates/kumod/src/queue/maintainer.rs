@@ -180,12 +180,6 @@ async fn reinsert_ready(
     queue: QueueHandle,
     to_shrink: &mut HashMap<String, QueueHandle>,
 ) -> anyhow::Result<()> {
-    if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
-        // Note that this will cause the msg to be removed from the
-        // queue so the remove() check below will return false
-        queue.bounce_all(&b).await;
-    }
-
     fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
         q.lock().remove(msg)
     }
@@ -273,12 +267,6 @@ async fn reinsert_ready_v2(
     // so we just check and skip.
     let queue =
         QueueManager::get_opt(&queue_name).ok_or_else(|| anyhow::anyhow!("no scheduled queue"))?;
-
-    if let Some(b) = AdminBounceEntry::get_for_queue_name(&queue.name) {
-        // Note that this will cause the msg to be removed from the
-        // queue so the remove() check below will return false
-        queue.bounce_all(&b).await;
-    }
 
     fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
         q.lock().remove(msg)

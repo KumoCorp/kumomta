@@ -918,6 +918,13 @@ impl Queue {
         mut context: InsertContext,
         deadline: Option<Instant>,
     ) -> anyhow::Result<()> {
+        if let Some(b) = AdminBounceEntry::get_for_queue_name(&self.name) {
+            let id = *msg.id();
+            b.log(msg, Some(&self.name)).await;
+            SpoolManager::remove_from_spool(id).await.ok();
+            return Ok(());
+        }
+
         // Don't promote to ready queue while suspended
         if let Some(suspend) = AdminSuspendEntry::get_for_queue_name(&self.name) {
             let remaining = suspend.get_duration();
