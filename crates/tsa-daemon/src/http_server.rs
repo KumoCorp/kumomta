@@ -1,14 +1,16 @@
 use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
-use crate::state::{MatchingScope, TSA_STATE};
+use crate::state::{ActionHash, ConfigurationOverride, MatchingScope, TsaState, TSA_STATE};
 use anyhow::{anyhow, Context};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
-use kumo_api_types::shaping::{Action, EgressPathConfigValue, Regex, Rule, Shaping, Trigger};
+use kumo_api_types::shaping::{
+    Action, EgressPathConfigValueUnchecked, Regex, Rule, Shaping, Trigger,
+};
 use kumo_api_types::tsa::{
     ReadyQSuspension, SchedQBounce, SchedQSuspension, SubscriptionItem, SuspensionEntry,
     Suspensions,
@@ -27,7 +29,6 @@ use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use tokio::sync::broadcast::{channel, Sender};
-use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
 
 pub static DB_PATH: LazyLock<Mutex<String>> =
@@ -58,64 +59,12 @@ pub fn make_router() -> RouterAndDocs {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum PreferRollup {
+pub enum PreferRollup {
     Yes,
     No,
 }
 
-async fn create_config(
-    db: &Arc<Database>,
-    rule_hash: &str,
-    rule: &Rule,
-    record: &JsonLogRecord,
-    config: &EgressPathConfigValue,
-    domain: &str,
-    source: &str,
-    prefer_rollup: PreferRollup,
-) -> anyhow::Result<()> {
-    let source = source.to_string();
-    let domain = domain.to_string();
-    let name = config.name.to_string();
-    let value = serde_json::to_string(&config.value)?;
-    let expires = (record.timestamp + chrono::Duration::from_std(rule.duration)?).to_rfc3339();
-    let site = record.site.to_string();
-    let rule_hash = rule_hash.to_string();
-    let reason = format!("automation rule: {}", regex_list_to_string(&rule.regex));
-    let mx_rollup = if prefer_rollup == PreferRollup::Yes && rule.was_rollup {
-        1
-    } else {
-        0
-    };
-
-    db.perform("create_config", move |db| {
-        let mut upsert = db.prepare(
-            "INSERT INTO config
-                 (rule_hash, site_name, domain, mx_rollup, source, name, value, reason, expires)
-                 VALUES
-                 ($hash, $site, $domain, $mx_rollup, $source, $name, $value, $reason, $expires)
-                 ON CONFLICT (rule_hash, site_name)
-                 DO UPDATE SET expires=$expires",
-        )?;
-
-        upsert.bind(("$hash", rule_hash.as_str()))?;
-        upsert.bind(("$site", site.as_str()))?;
-        upsert.bind(("$domain", domain.as_str()))?;
-        upsert.bind(("$mx_rollup", mx_rollup))?;
-        upsert.bind(("$source", source.as_str()))?;
-        upsert.bind(("$name", name.as_str()))?;
-        upsert.bind(("$value", value.as_str()))?;
-
-        upsert.bind(("$reason", reason.as_str()))?;
-        upsert.bind(("$expires", expires.as_str()))?;
-
-        upsert.next()?;
-
-        Ok(())
-    })
-    .await
-}
-
-fn regex_list_to_string(list: &[Regex]) -> String {
+pub fn regex_list_to_string(list: &[Regex]) -> String {
     if list.len() == 1 {
         list[0].to_string()
     } else {
@@ -439,13 +388,15 @@ async fn publish_log_v1_impl(
             continue;
         }
 
+        let matching_scope = MatchingScope::from_rule_and_record(m, &record);
+
         let triggered = match m.trigger {
             Trigger::Immediate => true,
             Trigger::Threshold(spec) => {
                 let count = TSA_STATE
                     .get()
                     .expect("state not initialized")
-                    .record_event(&MatchingScope::from_rule_and_record(m, &record), m, &record);
+                    .record_event(&matching_scope, m, &record);
 
                 count >= spec.limit
             }
@@ -463,6 +414,7 @@ async fn publish_log_v1_impl(
                 // action that we are iterating
                 let a_hash = action_hash(m, action);
                 let rule_hash = format!("{store_key}-{a_hash}");
+                let action_hash = ActionHash::from_rule_and_record(m, action, &record);
 
                 tracing::debug!("{action:?} for {record:?}");
                 match action {
@@ -493,30 +445,32 @@ async fn publish_log_v1_impl(
                         .await?;
                     }
                     Action::SetConfig(config) => {
-                        create_config(
-                            db,
-                            &rule_hash,
-                            m,
-                            &record,
-                            config,
-                            &domain,
-                            source,
-                            PreferRollup::Yes,
-                        )
-                        .await?;
+                        TSA_STATE
+                            .get()
+                            .expect("tsa_state missing")
+                            .create_config_override(
+                                &action_hash,
+                                m,
+                                &record,
+                                config,
+                                &domain,
+                                source,
+                                PreferRollup::Yes,
+                            );
                     }
                     Action::SetDomainConfig(config) => {
-                        create_config(
-                            db,
-                            &rule_hash,
-                            m,
-                            &record,
-                            config,
-                            &domain,
-                            source,
-                            PreferRollup::No,
-                        )
-                        .await?;
+                        TSA_STATE
+                            .get()
+                            .expect("tsa_state missing")
+                            .create_config_override(
+                                &action_hash,
+                                m,
+                                &record,
+                                config,
+                                &domain,
+                                source,
+                                PreferRollup::No,
+                            );
                     }
                     Action::Bounce => {
                         create_bounce(
@@ -616,30 +570,29 @@ async fn publish_log_v1(
     })
 }
 
-fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
-    use toml_edit::Formatted;
+fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<toml::Value> {
     Ok(match item_value {
-        JsonValue::Bool(b) => TomlValue::Boolean(Formatted::new(*b)),
-        JsonValue::String(s) => TomlValue::String(Formatted::new(s.to_string())),
+        JsonValue::Bool(b) => toml::Value::Boolean(*b),
+        JsonValue::String(s) => toml::Value::String(s.to_string()),
         JsonValue::Array(a) => {
-            let mut res = toml_edit::Array::new();
+            let mut res = toml::value::Array::new();
             for item in a {
                 res.push(json_to_toml_value(item)?);
             }
-            TomlValue::Array(res)
+            toml::Value::Array(res)
         }
         JsonValue::Object(o) => {
-            let mut tbl = toml_edit::InlineTable::new();
+            let mut tbl = toml::Table::new();
             for (k, v) in o.iter() {
-                tbl.insert(k, json_to_toml_value(v)?);
+                tbl.insert(k.to_string(), json_to_toml_value(v)?);
             }
-            TomlValue::InlineTable(tbl)
+            toml::Value::Table(tbl)
         }
         JsonValue::Number(n) => {
             if let Some(i) = n.as_i64() {
-                TomlValue::Integer(Formatted::new(i))
+                toml::Value::Integer(i)
             } else if let Some(f) = n.as_f64() {
-                TomlValue::Float(Formatted::new(f))
+                toml::Value::Float(f)
             } else {
                 anyhow::bail!("impossible number value {n:?}");
             }
@@ -648,72 +601,79 @@ fn json_to_toml_value(item_value: &JsonValue) -> anyhow::Result<TomlValue> {
     })
 }
 
-fn do_get_config(db: &ConnectionThreadSafe) -> anyhow::Result<String> {
-    use toml_edit::Item;
-    let mut doc = toml_edit::DocumentMut::new();
-
-    let mut stmt = db.prepare(
-        "SELECT * from config where
-                                   unixepoch(expires) - unixepoch() > 0
-                                   order by expires, domain, source, name",
-    )?;
-    let mut num_entries = 0;
-    while let Ok(sqlite::State::Row) = stmt.next() {
-        num_entries += 1;
-        let reason: String = stmt.read("reason")?;
-        let domain: String = stmt.read("domain")?;
-        let mx_rollup: i64 = stmt.read("mx_rollup")?;
-        let source: String = stmt.read("source")?;
-        let name: String = stmt.read("name")?;
-        let config_value: String = stmt.read("value")?;
-        let expires: String = stmt.read("expires")?;
-
-        let config_value = serde_json::from_str(&config_value)?;
-        let config_value = json_to_toml_value(&config_value)?;
-
-        let domain_entry = doc
-            .entry(&domain)
-            .or_insert_with(|| {
-                let mut tbl = toml_edit::Table::new();
-                tbl["mx_rollup"] = value(mx_rollup != 0);
-                Item::Table(tbl)
-            })
-            .as_table_mut()
-            .unwrap();
-        let sources = domain_entry
-            .entry("sources")
-            .or_insert_with(|| {
-                let tbl = toml_edit::Table::new();
-                Item::Table(tbl)
-            })
-            .as_table_mut()
-            .unwrap();
-        let source_entry = sources
-            .entry(&source)
-            .or_insert_with(|| {
-                let tbl = toml_edit::Table::new();
-                Item::Table(tbl)
-            })
-            .as_table_mut()
-            .unwrap();
-
-        let item = Item::Value(config_value);
-        source_entry.insert(&name, item);
-
-        if let Some(mut key) = source_entry.key_mut(&name) {
-            key.leaf_decor_mut()
-                .set_prefix(format!("# reason: {reason}\n# expires: {expires}\n"));
+pub fn toml_to_toml_edit_value(v: toml::Value) -> toml_edit::Value {
+    use toml_edit::Formatted;
+    match v {
+        toml::Value::String(s) => toml_edit::Value::String(Formatted::new(s)),
+        toml::Value::Integer(s) => toml_edit::Value::Integer(Formatted::new(s)),
+        toml::Value::Float(s) => toml_edit::Value::Float(Formatted::new(s)),
+        toml::Value::Boolean(s) => toml_edit::Value::Boolean(Formatted::new(s)),
+        toml::Value::Datetime(s) => toml_edit::Value::Datetime(Formatted::new(s)),
+        toml::Value::Array(s) => {
+            let mut array = toml_edit::Array::new();
+            for item in s.into_iter().map(toml_to_toml_edit_value) {
+                array.push(item);
+            }
+            toml_edit::Value::Array(array)
+        }
+        toml::Value::Table(t) => {
+            let mut tbl = toml_edit::InlineTable::new();
+            for (k, v) in t {
+                tbl.insert(k, toml_to_toml_edit_value(v));
+            }
+            toml_edit::Value::InlineTable(tbl)
         }
     }
+}
 
-    Ok(format!(
-        "# Generated by tsa-daemon\n# Number of entries: {num_entries}\n\n{}",
-        doc
-    ))
+pub async fn import_configs_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<()> {
+    HISTORY
+        .perform("import config", move |db| {
+            let mut stmt = db.prepare(
+                "SELECT * from config where
+                                   unixepoch(expires) - unixepoch() > 0
+                                   order by expires, domain, source, name",
+            )?;
+            while let Ok(sqlite::State::Row) = stmt.next() {
+                let rule_hash: String = stmt.read("rule_hash")?;
+                let site_name: String = stmt.read("site_name")?;
+                let reason: String = stmt.read("reason")?;
+                let domain: String = stmt.read("domain")?;
+                let mx_rollup: i64 = stmt.read("mx_rollup")?;
+                let source: String = stmt.read("source")?;
+                let name: String = stmt.read("name")?;
+                let config_value: String = stmt.read("value")?;
+                let expires: String = stmt.read("expires")?;
+
+                let config_value = serde_json::from_str(&config_value)?;
+                let config_value = json_to_toml_value(&config_value)?;
+
+                let matching_scope = ActionHash::from_legacy_hash_and_site(&rule_hash, &site_name);
+                state.insert_config_override(
+                    matching_scope,
+                    ConfigurationOverride {
+                        domain,
+                        reason,
+                        mx_rollup: mx_rollup != 0,
+                        source,
+                        option: EgressPathConfigValueUnchecked {
+                            name,
+                            value: config_value.into(),
+                        },
+                        expires: expires.parse()?,
+                    },
+                );
+            }
+            Ok(())
+        })
+        .await
 }
 
 async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
-    let result = HISTORY.perform("get_config_v1", do_get_config).await?;
+    let result = TSA_STATE
+        .get()
+        .expect("tsa_state missing")
+        .export_config_override_toml();
     Ok(result)
 }
 

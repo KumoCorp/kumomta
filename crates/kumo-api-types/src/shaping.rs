@@ -158,7 +158,7 @@ pub struct EgressPathConfigValue {
 /// The validation is performed by the TryFrom impl that is used to convert to the
 /// checked form below.
 #[derive(Deserialize, Serialize, Debug, Clone)]
-struct EgressPathConfigValueUnchecked {
+pub struct EgressPathConfigValueUnchecked {
     pub name: String,
     pub value: toml::Value,
 }
