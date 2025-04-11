@@ -337,6 +337,7 @@ TOC = [
                 "Performance",
                 "userguide/performance/index.md",
                 children=[
+                    Page("Architecture", "userguide/performance/architecture.md"),
                     Page("Linux Tuning", "userguide/performance/linuxtuning.md"),
                     Page("DNS", "userguide/performance/dns.md"),
                     Page("Performance Testing", "userguide/performance/testing.md"),

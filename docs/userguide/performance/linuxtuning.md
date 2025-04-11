@@ -6,9 +6,12 @@ KumoMTA makes heavy use of files, RAM, CPU and network resources. Setting these 
 
 ## Tuning sysctl.conf
 
-The following tuning parameters can help KumoMTA fully leverage its host server resources.
+The following tuning parameters are an example of how to tune Linux to help KumoMTA fully leverage its host server resources.
 
 These parameters should be added or updated in */etc/sysctl.conf*:
+
+!!! warning
+    The following example is just that, an example. It is tuned to an arbitrary combination of distribution and server hardware. Linux kernel tuning is a subject outside the scope of this user guide.
 
 ```bash
 vm.max_map_count = 768000
