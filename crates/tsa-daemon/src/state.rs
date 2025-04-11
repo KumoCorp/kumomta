@@ -1,6 +1,6 @@
 use crate::http_server::{
-    import_configs_from_sqlite, regex_list_to_string, toml_to_toml_edit_value, PreferRollup,
-    Sha256Hasher, DB_PATH,
+    import_bounces_from_sqlite, import_configs_from_sqlite, regex_list_to_string,
+    toml_to_toml_edit_value, PreferRollup, Sha256Hasher, DB_PATH,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -8,6 +8,7 @@ use dashmap::DashMap;
 use kumo_api_types::shaping::{
     Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, Rule,
 };
+use kumo_api_types::tsa::SchedQBounce;
 use kumo_log_types::JsonLogRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -41,6 +42,12 @@ impl SiteKey {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionHash(#[serde(with = "serde_bytes")] [u8; 32], SiteKey);
 
+impl std::fmt::Display for ActionHash {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(fmt, "{}-{}", self.1 .0, hex::encode(&self.0))
+    }
+}
+
 impl ActionHash {
     pub fn from_rule_and_record(rule: &Rule, action: &Action, record: &JsonLogRecord) -> Self {
         let mut hasher = Sha256Hasher::new();
@@ -51,8 +58,17 @@ impl ActionHash {
 
     pub fn from_legacy_hash_and_site(hash: &str, site: &str) -> Self {
         let mut bytes = [0u8; 32];
-        hex::decode_to_slice(hash, &mut bytes).ok();
+        if let Err(err) = hex::decode_to_slice(hash, &mut bytes) {
+            panic!("invalid action hash ahash={hash} {err:#}");
+        }
         Self(bytes, SiteKey(site.to_string()))
+    }
+
+    pub fn from_legacy_action_hash_string(full_string: &str) -> Self {
+        let Some((site, ahash)) = full_string.rsplit_once('-') else {
+            panic!("invalid action hash {full_string}");
+        };
+        Self::from_legacy_hash_and_site(ahash, site)
     }
 }
 
@@ -111,10 +127,25 @@ pub struct ConfigurationOverride {
     pub expires: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct SchedQBounceKey {
+    pub action_hash: ActionHash,
+    pub domain: String,
+    pub tenant: Option<String>,
+    pub campaign: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedQBounceEntry {
+    pub reason: String,
+    pub expires: DateTime<Utc>,
+}
+
 #[derive(Default)]
 pub struct TsaState {
     event_history: DashMap<MatchingScope, EventData>,
     config_overrides: DashMap<ActionHash, ConfigurationOverride>,
+    schedq_bounces: DashMap<SchedQBounceKey, SchedQBounceEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,6 +154,8 @@ struct SerializableState {
     event_history: HashMap<MatchingScope, EventData>,
     #[serde(default)]
     config_overrides: HashMap<ActionHash, ConfigurationOverride>,
+    #[serde(default)]
+    schedq_bounces: HashMap<SchedQBounceKey, SchedQBounceEntry>,
 }
 
 impl TsaState {
@@ -170,11 +203,48 @@ impl TsaState {
     pub fn insert_config_override(&self, scope: ActionHash, over: ConfigurationOverride) {
         if Utc::now() >= over.expires {
             // Skip already expired entry
-            tracing::warn!("Skip insertion of {scope:?} {over:?} because it has already expired");
             return;
         }
-        tracing::warn!("inserting {scope:?} {over:?}");
         self.config_overrides.insert(scope, over);
+    }
+
+    pub fn insert_schedq_bounce(&self, key: SchedQBounceKey, bounce: SchedQBounceEntry) {
+        if Utc::now() >= bounce.expires {
+            // Skip already expired entry
+            return;
+        }
+        self.schedq_bounces.insert(key, bounce);
+    }
+
+    pub fn export_schedq_bounces(&self) -> Vec<SchedQBounce> {
+        let mut entries = vec![];
+        let now = Utc::now();
+        for entry in self.schedq_bounces.iter() {
+            let value = entry.value();
+            if now >= value.expires {
+                continue;
+            }
+            let key = entry.key();
+            entries.push(SchedQBounce {
+                rule_hash: key.action_hash.to_string(),
+                domain: key.domain.clone(),
+                tenant: key.tenant.clone(),
+                campaign: key.campaign.clone(),
+                reason: value.reason.clone(),
+                expires: value.expires.clone(),
+            });
+        }
+
+        entries.sort_by_key(|over| {
+            (
+                over.expires,
+                over.tenant.clone(),
+                over.domain.clone(),
+                over.campaign.clone(),
+            )
+        });
+
+        entries
     }
 
     pub fn export_config_override_toml(&self) -> String {
@@ -258,6 +328,11 @@ impl TsaState {
                 .collect(),
             config_overrides: self
                 .config_overrides
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            schedq_bounces: self
+                .schedq_bounces
                 .iter()
                 .map(|entry| (entry.key().clone(), entry.value().clone()))
                 .collect(),
@@ -404,6 +479,18 @@ pub async fn load_state() -> anyhow::Result<()> {
             tracing::info!(
                 "Imported {} config entries from sqlite",
                 import_holder.config_overrides.len()
+            );
+        }
+    }
+
+    if import_holder.schedq_bounces.is_empty() {
+        if let Err(err) = import_bounces_from_sqlite(import_holder.clone()).await {
+            tracing::warn!(
+                "Failed to import legacy bounce entries from sqlite: {err:#}. Proceeding without them");
+        } else {
+            tracing::info!(
+                "Imported {} bounce entries from sqlite",
+                import_holder.schedq_bounces.len()
             );
         }
     }

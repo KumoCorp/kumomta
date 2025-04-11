@@ -1,7 +1,10 @@
 use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
-use crate::state::{ActionHash, ConfigurationOverride, MatchingScope, TsaState, TSA_STATE};
+use crate::state::{
+    ActionHash, ConfigurationOverride, MatchingScope, SchedQBounceEntry, SchedQBounceKey, TsaState,
+    TSA_STATE,
+};
 use anyhow::{anyhow, Context};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
@@ -93,8 +96,7 @@ enum UseTenant {
 }
 
 async fn create_bounce(
-    db: &Arc<Database>,
-    rule_hash: &str,
+    action_hash: &ActionHash,
     rule: &Rule,
     record: &JsonLogRecord,
     use_tenant: UseTenant,
@@ -134,43 +136,24 @@ async fn create_bounce(
     }
     let expires = record.timestamp + chrono::Duration::from_std(rule.duration)?;
 
-    {
-        let reason = reason.clone();
-        let domain = components.domain.to_string();
-        let campaign = campaign.as_ref().map(|c| c.to_string());
-        let tenant = tenant.as_ref().map(|c| c.to_string());
-        let rule_hash = rule_hash.to_string();
-        db.perform("create_bounce", move |db| {
-            let mut upsert = db
-                .prepare(
-                    "INSERT INTO sched_q_bounces
-                 (rule_hash, campaign, tenant, domain, reason, expires)
-                 VALUES
-                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
-                 ON CONFLICT (rule_hash, campaign, tenant, domain)
-                 DO UPDATE SET expires=$expires",
-                )
-                .context("prepare sched_q_bounces upsert")?;
-
-            let expires_str = expires.to_rfc3339();
-
-            upsert.bind(("$hash", rule_hash.as_str()))?;
-            upsert.bind(("$campaign", campaign.as_deref()))?;
-            upsert.bind(("$tenant", tenant.as_deref()))?;
-            upsert.bind(("$domain", domain.as_str()))?;
-
-            upsert.bind(("$reason", reason.as_str()))?;
-            upsert.bind(("$expires", expires_str.as_str()))?;
-
-            upsert.next().context("execute sched_q_bounces upsert")?;
-
-            Ok::<_, anyhow::Error>(())
-        })
-        .await?;
-    }
+    TSA_STATE
+        .get()
+        .expect("tsa_state missing")
+        .insert_schedq_bounce(
+            SchedQBounceKey {
+                action_hash: action_hash.clone(),
+                domain: components.domain.to_string(),
+                campaign: campaign.as_ref().map(|c| c.to_string()),
+                tenant: tenant.as_ref().map(|c| c.to_string()),
+            },
+            SchedQBounceEntry {
+                reason: reason.clone(),
+                expires,
+            },
+        );
 
     events.push(SubscriptionItem::SchedQBounce(SchedQBounce {
-        rule_hash: rule_hash.to_string(),
+        rule_hash: action_hash.to_string(),
         domain: components.domain.to_string(),
         tenant: tenant.map(|s| s.to_string()),
         campaign: campaign.map(|s| s.to_string()),
@@ -474,8 +457,7 @@ async fn publish_log_v1_impl(
                     }
                     Action::Bounce => {
                         create_bounce(
-                            db,
-                            &rule_hash,
+                            &action_hash,
                             m,
                             &record,
                             UseTenant::No,
@@ -486,8 +468,7 @@ async fn publish_log_v1_impl(
                     }
                     Action::BounceTenant => {
                         create_bounce(
-                            db,
-                            &rule_hash,
+                            &action_hash,
                             m,
                             &record,
                             UseTenant::Yes,
@@ -498,8 +479,7 @@ async fn publish_log_v1_impl(
                     }
                     Action::BounceCampaign => {
                         create_bounce(
-                            db,
-                            &rule_hash,
+                            &action_hash,
                             m,
                             &record,
                             UseTenant::Yes,
@@ -624,6 +604,39 @@ pub fn toml_to_toml_edit_value(v: toml::Value) -> toml_edit::Value {
             toml_edit::Value::InlineTable(tbl)
         }
     }
+}
+
+pub async fn import_bounces_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<()> {
+    HISTORY
+        .perform("import bounces", move |db| {
+            let mut stmt = db.prepare("SELECT * from sched_q_bounces")?;
+
+            while let Ok(sqlite::State::Row) = stmt.next() {
+                let rule_hash: String = stmt.read("rule_hash")?;
+                let tenant: Option<String> = stmt.read("tenant")?;
+                let domain: String = stmt.read("domain")?;
+                let campaign: Option<String> = stmt.read("campaign")?;
+                let reason: String = stmt.read("reason")?;
+                let expires: String = stmt.read("expires")?;
+
+                let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+
+                let action_hash = ActionHash::from_legacy_action_hash_string(&rule_hash);
+
+                state.insert_schedq_bounce(
+                    SchedQBounceKey {
+                        action_hash,
+                        domain,
+                        tenant,
+                        campaign,
+                    },
+                    SchedQBounceEntry { reason, expires },
+                );
+            }
+
+            Ok(())
+        })
+        .await
 }
 
 pub async fn import_configs_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<()> {
@@ -864,69 +877,12 @@ pub async fn subscribe_suspension_v1(
     ws.on_upgrade(process_suspension_subscription)
 }
 
-fn do_get_bounces(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Vec<SchedQBounce>>> {
-    let mut stmt = db.prepare(
-        "SELECT * from sched_q_bounces where
-                                   unixepoch(expires) - unixepoch() > 0
-                                   order by expires, tenant, domain, campaign",
-    )?;
-
-    #[derive(Eq, PartialEq, Hash)]
-    struct Key {
-        rule_hash: String,
-        campaign: Option<String>,
-        tenant: Option<String>,
-        domain: String,
-    }
-
-    let mut dedup = HashMap::new();
-
-    fn add_schedq_bounce(dedup: &mut HashMap<Key, SchedQBounce>, item: SchedQBounce) {
-        let key = Key {
-            rule_hash: item.rule_hash.clone(),
-            campaign: item.campaign.clone(),
-            tenant: item.tenant.clone(),
-            domain: item.domain.clone(),
-        };
-
-        let entry = dedup.entry(key).or_insert_with(|| item.clone());
-
-        if item.expires > entry.expires {
-            entry.expires = item.expires;
-        }
-    }
-
-    while let Ok(sqlite::State::Row) = stmt.next() {
-        let rule_hash: String = stmt.read("rule_hash")?;
-        let tenant: Option<String> = stmt.read("tenant")?;
-        let domain: String = stmt.read("domain")?;
-        let campaign: Option<String> = stmt.read("campaign")?;
-        let reason: String = stmt.read("reason")?;
-        let expires: String = stmt.read("expires")?;
-
-        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
-
-        add_schedq_bounce(
-            &mut dedup,
-            SchedQBounce {
-                rule_hash,
-                domain,
-                tenant,
-                campaign,
-                reason,
-                expires,
-            },
-        );
-    }
-
-    let bounces = dedup.drain().map(|(_, v)| v).collect();
-
-    Ok(Json(bounces))
-}
-
 async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
-    let result = HISTORY.perform("get_bounce_v1", do_get_bounces).await?;
-    Ok(result)
+    let result = TSA_STATE
+        .get()
+        .expect("tsa_state missing")
+        .export_schedq_bounces();
+    Ok(Json(result))
 }
 
 async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
@@ -961,7 +917,10 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
         }
         // and then bounces
         {
-            let bounces = HISTORY.perform("ws get_bounces", do_get_bounces).await?.0;
+            let bounces = TSA_STATE
+                .get()
+                .expect("tsa_state missing")
+                .export_schedq_bounces();
             num_bounces = bounces.len();
             tracing::debug!("new sub, has {num_bounces} bounces");
             for record in bounces {
