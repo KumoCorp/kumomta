@@ -154,7 +154,6 @@ impl TsaState {
                 .is_some();
             if pruned {
                 num_pruned += 1;
-                tracing::info!("pruned {key:?}");
             }
         }
         tracing::debug!(
