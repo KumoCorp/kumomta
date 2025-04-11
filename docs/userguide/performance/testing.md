@@ -43,7 +43,7 @@ exec traffic-gen \
         --concurrency 400 \
         --body-size 60kb \
         --duration 1500 \
-        --domain-suffix '' \
+        --domain-suffix 'testingdomain.tld' \
         --domain aol.com:1.5 \
         --domain bellsouth.net:0.2 \
         --domain comcast.net:0.5 \
