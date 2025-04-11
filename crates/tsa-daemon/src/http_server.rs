@@ -1,6 +1,7 @@
 use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
+use crate::state::{MatchingScope, TSA_STATE};
 use anyhow::{anyhow, Context};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
@@ -18,13 +19,13 @@ use kumo_server_common::http_server::{AppError, RouterAndDocs};
 use message::message::QueueNameComponents;
 use parking_lot::Mutex;
 use rfc5321::ForwardPath;
-use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use sqlite::ConnectionThreadSafe;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 use tokio::sync::broadcast::{channel, Sender};
 use toml_edit::{value, Value as TomlValue};
 use utoipa::OpenApi;
@@ -86,7 +87,7 @@ async fn create_config(
         0
     };
 
-    db.perform(move |db| {
+    db.perform("create_config", move |db| {
         let mut upsert = db.prepare(
             "INSERT INTO config
                  (rule_hash, site_name, domain, mx_rollup, source, name, value, reason, expires)
@@ -190,7 +191,7 @@ async fn create_bounce(
         let campaign = campaign.as_ref().map(|c| c.to_string());
         let tenant = tenant.as_ref().map(|c| c.to_string());
         let rule_hash = rule_hash.to_string();
-        db.perform(move |db| {
+        db.perform("create_bounce", move |db| {
             let mut upsert = db
                 .prepare(
                     "INSERT INTO sched_q_bounces
@@ -271,7 +272,7 @@ async fn create_tenant_suspension(
         let tenant = tenant.to_string();
         let domain = components.domain.to_string();
 
-        db.perform(move |db| {
+        db.perform("create_tenant_suspension", move |db| {
             let mut upsert = db
                 .prepare(
                     "INSERT INTO sched_q_suspensions
@@ -330,7 +331,7 @@ async fn create_ready_q_suspension(
         let site = record.site.to_string();
         let rule_hash = rule_hash.to_string();
 
-        db.perform(move |db| {
+        db.perform("create_ready_q_suspension", move |db| {
             let mut upsert = db.prepare(
                 "INSERT INTO ready_q_suspensions
                  (rule_hash, site_name, source, reason, expires)
@@ -366,73 +367,6 @@ async fn create_ready_q_suspension(
     Ok(())
 }
 
-async fn insert_record(
-    db: &Arc<Database>,
-    rule_hash: &str,
-    record: &JsonLogRecord,
-    record_hash: &str,
-) -> anyhow::Result<()> {
-    let unix: i64 = record.timestamp.format("%s").to_string().parse()?;
-    let rule_hash = rule_hash.to_string();
-    let record_hash = record_hash.to_string();
-    db.perform(move |db| {
-        let mut insert =
-            db.prepare("INSERT INTO event_history (rule_hash, record_hash, ts) values (?, ?, ?)")?;
-        insert.bind((1, rule_hash.as_str()))?;
-        insert.bind((2, record_hash.as_str()))?;
-        insert.bind((3, unix))?;
-        insert.next()?;
-        Ok(())
-    })
-    .await
-}
-
-async fn prune_old_records(db: &Arc<Database>, rule: &Rule, rule_hash: &str) -> anyhow::Result<()> {
-    match rule.trigger {
-        Trigger::Immediate => Ok(()),
-        Trigger::Threshold(spec) => {
-            let rule_hash = rule_hash.to_string();
-            db.perform(move |db| {
-                let mut query = db.prepare(
-                    "delete from event_history where rule_hash = ? and ts < unixepoch() - ?",
-                )?;
-                query.bind((1, rule_hash.as_str()))?;
-                // Keep up to 2x the period
-                query.bind((2, 2 * spec.period as i64))?;
-                query.next()?;
-                Ok(())
-            })
-            .await
-        }
-    }
-}
-
-async fn count_matching_records(
-    db: &Arc<Database>,
-    rule: &Rule,
-    rule_hash: &str,
-) -> anyhow::Result<u64> {
-    match rule.trigger {
-        Trigger::Immediate => Ok(0),
-        Trigger::Threshold(spec) => {
-            let rule_hash = rule_hash.to_string();
-            db.perform(move |db| {
-                let mut query = db.prepare(
-                    "SELECT COUNT(ts) from event_history \
-                    where rule_hash = ? and ts >= unixepoch() - ?",
-                )?;
-                query.bind((1, rule_hash.as_str()))?;
-                query.bind((2, spec.period as i64))?;
-                query.next()?;
-
-                let count: i64 = query.read(0)?;
-                Ok(count as u64)
-            })
-            .await
-        }
-    }
-}
-
 pub async fn publish_log_batch(
     db: &Arc<Database>,
     records: &mut Vec<JsonLogRecord>,
@@ -441,7 +375,9 @@ pub async fn publish_log_batch(
 
     let mut events = vec![];
 
-    db.perform(|db| {
+    tracing::trace!("publish_log_batch with {} records", records.len());
+
+    db.perform("publish_log_batch begin", |db| {
         db.execute("BEGIN")?;
         Ok(())
     })
@@ -455,7 +391,7 @@ pub async fn publish_log_batch(
         }
     }
 
-    db.perform(|db| {
+    db.perform("publish_log_batch COMMIT", |db| {
         db.execute("COMMIT")?;
         Ok(())
     })
@@ -495,7 +431,6 @@ async fn publish_log_v1_impl(
     let store_key = record.site.to_string();
 
     let matches = shaping.match_rules(&record).await?;
-    let record_hash = sha256hex(&record)?;
 
     for m in &matches {
         let expires = record.timestamp + chrono::Duration::from_std(m.duration)?;
@@ -507,13 +442,10 @@ async fn publish_log_v1_impl(
         let triggered = match m.trigger {
             Trigger::Immediate => true,
             Trigger::Threshold(spec) => {
-                let m_hash = match_hash(m);
-                let rule_hash = format!("{store_key}-{m_hash}");
-
-                insert_record(db, &rule_hash, &record, &record_hash).await?;
-                prune_old_records(db, m, &rule_hash).await?;
-
-                let count = count_matching_records(db, m, &rule_hash).await?;
+                let count = TSA_STATE
+                    .get()
+                    .expect("state not initialized")
+                    .record_event(&MatchingScope::from_rule_and_record(m, &record), m, &record);
 
                 count >= spec.limit
             }
@@ -630,30 +562,26 @@ async fn publish_log_v1_impl(
     Ok(())
 }
 
-/// Serialize T as json, then sha256 hash it, returning the hash as a hex string
-fn sha256hex<T: Serialize>(t: &T) -> anyhow::Result<String> {
-    let json = serde_json::to_string(t)?;
-    let mut h = Sha256::new();
-    h.update(&json);
-    Ok(hex::encode(h.finalize()))
-}
-
 /// A helper for computing a hash of a rust struct via the
 /// derived Hash trait
-struct Sha256Hasher {
+pub struct Sha256Hasher {
     h: Option<Sha256>,
 }
 
 impl Sha256Hasher {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             h: Some(Sha256::new()),
         }
     }
 
-    fn get(mut self) -> String {
+    pub fn get(mut self) -> String {
         let result = self.h.take().unwrap().finalize();
         hex::encode(result)
+    }
+
+    pub fn get_binary(mut self) -> [u8; 32] {
+        self.h.take().unwrap().finalize().into()
     }
 }
 
@@ -667,12 +595,6 @@ impl std::hash::Hasher for Sha256Hasher {
             h.update(bytes)
         }
     }
-}
-
-fn match_hash(m: &Rule) -> String {
-    let mut hasher = Sha256Hasher::new();
-    m.hash(&mut hasher);
-    hasher.get()
 }
 
 fn action_hash(m: &Rule, action: &Action) -> String {
@@ -791,7 +713,7 @@ fn do_get_config(db: &ConnectionThreadSafe) -> anyhow::Result<String> {
 }
 
 async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
-    let result = HISTORY.perform(do_get_config).await?;
+    let result = HISTORY.perform("get_config_v1", do_get_config).await?;
     Ok(result)
 }
 
@@ -907,7 +829,9 @@ fn do_get_suspension(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Suspensio
 }
 
 async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
-    let result = HISTORY.perform(do_get_suspension).await?;
+    let result = HISTORY
+        .perform("get_suspension_v1", do_get_suspension)
+        .await?;
     Ok(result)
 }
 
@@ -936,7 +860,10 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
 
     // send the current set of suspensions first
     {
-        let suspensions = HISTORY.perform(do_get_suspension).await?.0;
+        let suspensions = HISTORY
+            .perform("ws get_suspension", do_get_suspension)
+            .await?
+            .0;
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
             socket.send(Message::Text(json)).await?;
@@ -1038,41 +965,60 @@ fn do_get_bounces(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Vec<SchedQBo
 }
 
 async fn get_bounce_v1(_: TrustedIpRequired) -> Result<Json<Vec<SchedQBounce>>, AppError> {
-    let result = HISTORY.perform(do_get_bounces).await?;
+    let result = HISTORY.perform("get_bounce_v1", do_get_bounces).await?;
     Ok(result)
 }
 
 async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     let mut rx = SUSPENSION_TX.tx.subscribe();
 
-    // send the current set of suspensions first
     {
-        let suspensions = HISTORY.perform(do_get_suspension).await?.0;
-        tracing::debug!(
-            "new sub, has {} readyq suspensions, {} schedq suspensions",
-            suspensions.ready_q.len(),
-            suspensions.sched_q.len()
-        );
-        for record in suspensions.ready_q {
-            let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
-            socket.send(Message::Text(json)).await?;
-        }
-        for record in suspensions.sched_q {
-            let json = serde_json::to_string(&SubscriptionItem::SchedQSuspension(record))?;
-            socket.send(Message::Text(json)).await?;
-        }
-    }
-    // and then bounces
-    {
-        let bounces = HISTORY.perform(do_get_bounces).await?.0;
-        tracing::debug!("new sub, has {} bounces", bounces.len());
-        for record in bounces {
-            let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
-            socket.send(Message::Text(json)).await?;
-        }
-    }
+        let start = Instant::now();
+        let num_ready_q_sus;
+        let num_sched_q_sus;
+        let num_bounces;
 
-    tracing::debug!("new sub, waiting for data to pass on");
+        // send the current set of suspensions first
+        {
+            let suspensions = HISTORY
+                .perform("ws get_suspension", do_get_suspension)
+                .await?
+                .0;
+            num_ready_q_sus = suspensions.ready_q.len();
+            num_sched_q_sus = suspensions.sched_q.len();
+            tracing::debug!(
+                "new sub, has {num_ready_q_sus} readyq suspensions,\
+                {num_sched_q_sus} schedq suspensions",
+            );
+            for record in suspensions.ready_q {
+                let json = serde_json::to_string(&SubscriptionItem::ReadyQSuspension(record))?;
+                socket.send(Message::Text(json)).await?;
+            }
+            for record in suspensions.sched_q {
+                let json = serde_json::to_string(&SubscriptionItem::SchedQSuspension(record))?;
+                socket.send(Message::Text(json)).await?;
+            }
+        }
+        // and then bounces
+        {
+            let bounces = HISTORY.perform("ws get_bounces", do_get_bounces).await?.0;
+            num_bounces = bounces.len();
+            tracing::debug!("new sub, has {num_bounces} bounces");
+            for record in bounces {
+                let json = serde_json::to_string(&SubscriptionItem::SchedQBounce(record))?;
+                socket.send(Message::Text(json)).await?;
+            }
+        }
+
+        tracing::info!(
+            "new sub, took {:?} to produce initial data and send to client. \
+            ({num_ready_q_sus} readyq suspensions, \
+             {num_sched_q_sus} schedq suspensions, \
+             {num_bounces} bounces). \
+            waiting for data to pass on",
+            start.elapsed()
+        );
+    }
 
     // then wait for more to show up
     loop {

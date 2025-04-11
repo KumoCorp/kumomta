@@ -15,6 +15,7 @@ impl Database {
     /// Carry out the blocking operation on the database object
     pub async fn perform<T: Send + 'static>(
         &self,
+        reason: impl Into<String>,
         mut func: impl FnMut(&ConnectionThreadSafe) -> anyhow::Result<T> + Send + 'static,
     ) -> anyhow::Result<T> {
         let db = self.db.clone();
@@ -35,7 +36,10 @@ impl Database {
         let took = start.elapsed();
         if took > Duration::from_secs(1) {
             let is_ok = result.is_ok();
-            tracing::warn!("Database::perform took {took:?}. is_ok={is_ok}");
+            tracing::warn!(
+                "Database::perform {} took {took:?}. is_ok={is_ok}",
+                reason.into()
+            );
         }
         result
     }
@@ -52,12 +56,7 @@ impl Database {
         )?;
 
         let query = r#"
-CREATE TABLE IF NOT EXISTS event_history (
-    rule_hash text,
-    record_hash text,
-    ts int,
-    PRIMARY KEY (rule_hash, record_hash)
-);
+DROP TABLE IF EXISTS event_history;
 
 CREATE TABLE IF NOT EXISTS config (
     rule_hash text,

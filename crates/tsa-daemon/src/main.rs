@@ -1,4 +1,5 @@
 use crate::shaping_config::{assign_shaping, load_shaping, spawn_shaping_updater};
+use crate::state::state_pruner;
 use anyhow::Context;
 use clap::Parser;
 use config::CallbackSignature;
@@ -12,6 +13,7 @@ mod http_server;
 mod mod_auto;
 mod publish;
 mod shaping_config;
+mod state;
 
 /// KumoMTA Traffic Shaping Automation Daemon.
 ///
@@ -74,6 +76,8 @@ async fn perform_init() -> anyhow::Result<()> {
     // and set it as the global shared copy of the shaping config
     assign_shaping(shaping);
 
+    crate::state::load_state().await?;
+
     let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
 
     config
@@ -83,11 +87,17 @@ async fn perform_init() -> anyhow::Result<()> {
     config.put();
 
     spawn_shaping_updater()?;
+    tokio::spawn(state_pruner());
 
     Ok(())
 }
 
-async fn signal_shutdown() {}
+async fn signal_shutdown() {
+    tracing::info!("shutting down");
+    if let Err(err) = crate::state::save_state(false).await {
+        tracing::error!("Error saving state: {err:#}");
+    }
+}
 
 async fn run(opts: Opt) -> anyhow::Result<()> {
     kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());

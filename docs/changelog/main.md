@@ -80,6 +80,8 @@
 * Add caching and, more importantly, negative caching in the queue insertion
   code paths when checking for admin bounce entries. This improves performance
   on systems with a large number of admin bounce entries.
+* Improved performance of TSA event history storage, which in turn improves
+  latency in tsa-daemon response times when many automation rules are triggering.
 
 ## Fixes
 

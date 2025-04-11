@@ -11,7 +11,9 @@ axum-server = {workspace=true, features=["tls-rustls"]}
 chrono = {workspace=true, default-features=false, features=["serde"]}
 clap = {workspace=true}
 config = {path="../config"}
+dashmap.workspace = true
 hex = {workspace=true}
+humansize.workspace = true
 kumo-api-types = {path="../kumo-api-types"}
 kumo-log-types = {path="../kumo-log-types"}
 kumo-server-common = {path="../kumo-server-common"}
@@ -22,7 +24,9 @@ mlua = {workspace=true, features=["vendored", "lua54", "async", "send", "seriali
 nix = {workspace=true, features=["resource", "user"]}
 parking_lot.workspace = true
 rfc5321= {path="../rfc5321"}
+rmp-serde.workspace = true
 serde = {workspace=true}
+serde_bytes.workspace = true
 serde_json = {workspace=true}
 sha2 = {workspace=true}
 sqlite = {workspace=true}

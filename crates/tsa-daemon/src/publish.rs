@@ -85,9 +85,10 @@ pub async fn submit_record(mut record: JsonLogRecord) -> anyhow::Result<()> {
             }
             Err(rec) => {
                 record = rec;
+                let wakeup = NOTIFY_PRODUCER.notified();
                 NOTIFY_CONSUMER.notify_waiters();
                 tracing::debug!("backlog hit, waiting");
-                NOTIFY_PRODUCER.notified().await;
+                wakeup.await;
                 tracing::debug!("after backlog wait");
             }
         }
@@ -96,6 +97,9 @@ pub async fn submit_record(mut record: JsonLogRecord) -> anyhow::Result<()> {
 
 fn grab_segment() -> Option<Vec<JsonLogRecord>> {
     let mut queue = QUEUE.lock();
+    if queue.segments.is_empty() {
+        return None;
+    }
     if queue.segments.len() > 1 {
         let segment = queue.segments.remove(0);
         queue.size -= segment.contents.len();
@@ -113,6 +117,9 @@ fn grab_segment() -> Option<Vec<JsonLogRecord>> {
         NOTIFY_PRODUCER.notify_one();
         return Some(segment.contents);
     }
+
+    tracing::trace!("grab_segment {} segments, none ready", queue.segments.len());
+
     None
 }
 
