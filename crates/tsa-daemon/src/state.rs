@@ -727,6 +727,18 @@ pub async fn load_state() -> anyhow::Result<()> {
                     for (key, value) in loaded.event_history.into_iter() {
                         state.event_history.insert(key, value);
                     }
+                    for (key, value) in loaded.config_overrides.into_iter() {
+                        state.config_overrides.insert(key, value);
+                    }
+                    for (key, value) in loaded.schedq_bounces.into_iter() {
+                        state.schedq_bounces.insert(key, value);
+                    }
+                    for (key, value) in loaded.readyq_suspensions.into_iter() {
+                        state.readyq_suspensions.insert(key, value);
+                    }
+                    for (key, value) in loaded.schedq_suspensions.into_iter() {
+                        state.schedq_suspensions.insert(key, value);
+                    }
                     state.prune(true).await;
 
                     tracing::info!(
