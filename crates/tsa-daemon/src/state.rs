@@ -492,16 +492,16 @@ impl TsaState {
         }
     }
 
-    async fn prune(&self) {
+    async fn prune(&self, verbose: bool) {
         let now = Utc::now();
         let now_ts = to_unix_ts(&now);
-        self.prune_events(now_ts).await;
-        self.prune_config_overrides(&now).await;
-        self.prune_readyq_suspensions(&now).await;
-        self.prune_schedq_suspensions(&now).await;
+        self.prune_events(now_ts, verbose).await;
+        self.prune_config_overrides(&now, verbose).await;
+        self.prune_readyq_suspensions(&now, verbose).await;
+        self.prune_schedq_suspensions(&now, verbose).await;
     }
 
-    async fn prune_schedq_suspensions(&self, now: &DateTime<Utc>) {
+    async fn prune_schedq_suspensions(&self, now: &DateTime<Utc>, verbose: bool) {
         let mut visited = 0;
         let start = Instant::now();
 
@@ -531,6 +531,9 @@ impl TsaState {
                 num_pruned += 1;
             }
         }
+        if verbose && num_pruned > 0 {
+            tracing::info!("Pruned {num_pruned} schedq_suspensions");
+        }
         tracing::debug!(
             "visited {visited} and pruned {num_pruned} \
             scheq_suspensions in {:?}",
@@ -538,7 +541,7 @@ impl TsaState {
         );
     }
 
-    async fn prune_readyq_suspensions(&self, now: &DateTime<Utc>) {
+    async fn prune_readyq_suspensions(&self, now: &DateTime<Utc>, verbose: bool) {
         let mut visited = 0;
         let start = Instant::now();
 
@@ -568,6 +571,9 @@ impl TsaState {
                 num_pruned += 1;
             }
         }
+        if verbose && num_pruned > 0 {
+            tracing::info!("Pruned {num_pruned} readyq_suspensions");
+        }
         tracing::debug!(
             "visited {visited} and pruned {num_pruned} \
             readyq_suspensions in {:?}",
@@ -575,7 +581,7 @@ impl TsaState {
         );
     }
 
-    async fn prune_config_overrides(&self, now: &DateTime<Utc>) {
+    async fn prune_config_overrides(&self, now: &DateTime<Utc>, verbose: bool) {
         let mut visited = 0;
         let start = Instant::now();
 
@@ -605,6 +611,9 @@ impl TsaState {
                 num_pruned += 1;
             }
         }
+        if verbose && num_pruned > 0 {
+            tracing::info!("Pruned {num_pruned} config_overrides");
+        }
         tracing::debug!(
             "visited {visited} and pruned {num_pruned} \
             config_overrides entries in {:?}",
@@ -612,7 +621,7 @@ impl TsaState {
         );
     }
 
-    async fn prune_events(&self, now_ts: UnixTimeStamp) {
+    async fn prune_events(&self, now_ts: UnixTimeStamp, verbose: bool) {
         let mut visited = 0;
         let start = Instant::now();
 
@@ -651,6 +660,9 @@ impl TsaState {
                 num_pruned += 1;
             }
         }
+        if verbose && num_pruned > 0 {
+            tracing::info!("Pruned {num_pruned} event_history entries");
+        }
         tracing::debug!(
             "visited {visited} and pruned {num_pruned} \
             event_history entries in {:?}",
@@ -674,7 +686,7 @@ pub async fn load_state() -> anyhow::Result<()> {
                     for (key, value) in loaded.event_history.into_iter() {
                         state.event_history.insert(key, value);
                     }
-                    state.prune().await;
+                    state.prune(true).await;
 
                     tracing::info!(
                         "Loaded {} of state data from {path}",
@@ -706,6 +718,11 @@ pub async fn load_state() -> anyhow::Result<()> {
 
     if need_import {
         if let Ok(database) = open_history_db() {
+            let mut num_config_overrides = 0;
+            let mut num_schedq_bounces = 0;
+            let mut num_schedq_suspensions = 0;
+            let mut num_readyq_suspensions = 0;
+
             if import_holder.config_overrides.is_empty() {
                 // Import configs from the sqlite database
                 if let Err(err) = import_configs_from_sqlite(&database, import_holder.clone()).await
@@ -713,10 +730,7 @@ pub async fn load_state() -> anyhow::Result<()> {
                     tracing::warn!(
                         "Failed to import legacy config entries from sqlite: {err:#}. Proceeding without them");
                 } else {
-                    tracing::info!(
-                        "Imported {} config entries from sqlite",
-                        import_holder.config_overrides.len()
-                    );
+                    num_config_overrides += import_holder.config_overrides.len();
                 }
             }
 
@@ -726,10 +740,7 @@ pub async fn load_state() -> anyhow::Result<()> {
                     tracing::warn!(
                         "Failed to import legacy bounce entries from sqlite: {err:#}. Proceeding without them");
                 } else {
-                    tracing::info!(
-                        "Imported {} bounce entries from sqlite",
-                        import_holder.schedq_bounces.len()
-                    );
+                    num_schedq_bounces += import_holder.schedq_bounces.len();
                 }
             }
 
@@ -742,12 +753,25 @@ pub async fn load_state() -> anyhow::Result<()> {
                     tracing::warn!(
                         "Failed to import legacy suspension entries from sqlite: {err:#}. Proceeding without them");
                 } else {
-                    tracing::info!(
-                        "Imported {} readyq, {} schedq suspensions from sqlite",
-                        import_holder.readyq_suspensions.len(),
-                        import_holder.schedq_suspensions.len()
-                    );
+                    num_readyq_suspensions += import_holder.readyq_suspensions.len();
+                    num_schedq_suspensions += import_holder.schedq_suspensions.len();
                 }
+            }
+
+            let did_import = num_config_overrides
+                + num_schedq_bounces
+                + num_schedq_suspensions
+                + num_readyq_suspensions
+                > 0;
+
+            if did_import {
+                tracing::info!(
+                    "Imported {num_config_overrides} config overrides, \
+                    {num_schedq_bounces} schedq bounces, \
+                    {num_schedq_suspensions} schedq suspensions, \
+                    {num_readyq_suspensions} readyq suspensions \
+                    from sqlite"
+                );
             }
         }
     }
@@ -758,11 +782,12 @@ pub async fn load_state() -> anyhow::Result<()> {
     let num_schedq_bounces = state.schedq_bounces.len();
     let num_schedq_suspensions = state.schedq_suspensions.len();
     let num_readyq_suspensions = state.readyq_suspensions.len();
+    let num_events = state.event_history.len();
 
     tracing::info!(
         "State has {num_config_overrides} config overrides, \
         {num_schedq_bounces} schedq bounces, {num_schedq_suspensions} schedq suspensions, \
-        {num_readyq_suspensions} readyq suspensions."
+        {num_readyq_suspensions} readyq suspensions, {num_events} events."
     );
 
     TSA_STATE.set(state).ok();
@@ -790,11 +815,12 @@ pub async fn save_state(background: bool) -> anyhow::Result<()> {
     let num_schedq_bounces = state.schedq_bounces.len();
     let num_schedq_suspensions = state.schedq_suspensions.len();
     let num_readyq_suspensions = state.readyq_suspensions.len();
+    let num_events = state.event_history.len();
 
     let message = format!(
         "stored {} of data to {path}. State has {num_config_overrides} config overrides, \
         {num_schedq_bounces} schedq bounces, {num_schedq_suspensions} schedq suspensions, \
-        {num_readyq_suspensions} readyq suspensions. \
+        {num_readyq_suspensions} readyq suspensions, {num_events} events. \
         (Extract took {extract:?}, write took {write:?})",
         humansize::format_size(data.len(), humansize::DECIMAL)
     );
@@ -814,7 +840,7 @@ pub async fn state_pruner() -> anyhow::Result<()> {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         if let Some(state) = TSA_STATE.get() {
-            state.prune().await;
+            state.prune(false).await;
         }
 
         if last_save.elapsed() > std::time::Duration::from_secs(300) {
