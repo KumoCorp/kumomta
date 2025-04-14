@@ -15,7 +15,7 @@ use parking_lot::FairMutex;
 use prometheus::{Histogram, IntCounter};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{LazyLock, Once};
+use std::sync::{Arc, LazyLock, Once};
 use std::time::{Duration, Instant};
 use timeq::PopResult;
 use tracing::instrument;
@@ -171,11 +171,7 @@ pub async fn maintain_named_queue(q: &QueueHandle) -> anyhow::Result<()> {
     }
 }
 
-async fn reinsert_ready(
-    msg: Message,
-    queue: QueueHandle,
-    to_shrink: &mut HashMap<String, QueueHandle>,
-) -> anyhow::Result<()> {
+fn reinsert_ready(msg: Message, queue: &QueueHandle) -> Option<Message> {
     fn remove(q: &FairMutex<HashSet<Message>>, msg: &Message) -> bool {
         q.lock().remove(msg)
     }
@@ -190,53 +186,61 @@ async fn reinsert_ready(
                     .observe((now - due).to_std().unwrap_or(Duration::ZERO).as_secs_f64());
 
                 queue.metrics().sub(1);
-                queue
-                    .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
-                    .await?;
-                if !to_shrink.contains_key(queue.name.as_str()) {
-                    to_shrink.insert(queue.name.to_string(), queue);
-                }
+
+                Some(msg)
+            } else {
+                None
             }
         }
         _ => {
-            anyhow::bail!("impossible queue strategy");
+            unreachable!("impossible queue strategy");
         }
     }
-
-    Ok(())
 }
 
 async fn reinsert_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: usize) {
-    let mut to_shrink = HashMap::new();
+    struct Entry {
+        queue: QueueHandle,
+        messages: Vec<Message>,
+    }
+    let mut by_queue: HashMap<Arc<String>, Entry> = HashMap::new();
     let mut reinserted = 0;
 
     let messages_only: Vec<Message> = messages.iter().map(|(msg, _q)| msg.clone()).collect();
     wait_for_message_batch(&messages_only).await;
     for (msg, queue) in messages {
         reinserted += 1;
-        if let Err(err) = reinsert_ready(msg, queue, &mut to_shrink).await {
-            tracing::error!("singleton_wheel: reinsert_ready: {err:#}");
+        match reinsert_ready(msg, &queue) {
+            Some(msg) => {
+                let entry = by_queue.entry(queue.name.clone()).or_insert_with(|| Entry {
+                    queue: queue.clone(),
+                    messages: vec![],
+                });
+                entry.messages.push(msg);
+            }
+            None => {}
         }
     }
     tracing::debug!(
         "singleton_wheel: done reinserting {reinserted}. total scheduled={total_scheduled}"
     );
 
-    for (_queue_name, queue) in to_shrink.drain() {
-        queue.queue.shrink();
-    }
-    to_shrink.shrink_to_fit();
-}
-
-async fn process_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: usize) {
-    if messages.is_empty() {
-        return;
-    }
-
-    if let Err(err) =
-        QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
-    {
-        tracing::error!("run_singleton_wheel_v1: failed to spawn reinsert_batch: {err:#}");
+    for (_queue_name, entry) in by_queue.drain() {
+        let queue = entry.queue.clone();
+        let messages = entry.messages;
+        QMAINT_RUNTIME
+            .spawn("reinsert", async move {
+                for msg in messages {
+                    if let Err(err) = queue
+                        .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
+                        .await
+                    {
+                        tracing::error!("Error reinserting message: {err:#}");
+                    }
+                }
+            })
+            .expect("spawn reinsert failed");
+        entry.queue.queue.shrink();
     }
 }
 
@@ -395,7 +399,15 @@ async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
                 messages.push((msg, queue));
             }
         }
-        process_batch(messages, total_scheduled).await;
+        if messages.is_empty() {
+            continue;
+        }
+
+        if let Err(err) =
+            QMAINT_RUNTIME.spawn("reinsert_batch", reinsert_batch(messages, total_scheduled))
+        {
+            tracing::error!("run_singleton_wheel_v1: failed to spawn reinsert_batch: {err:#}");
+        }
     }
 }
 
