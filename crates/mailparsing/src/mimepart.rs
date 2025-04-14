@@ -308,12 +308,11 @@ impl<'a> MimePart<'a> {
             }
         };
 
-        let (decoded, _malformed) = info.charset.decode_without_bom_handling(&bytes);
-
         if info.is_text {
+            let (decoded, _malformed) = info.charset.decode_without_bom_handling(&bytes);
             Ok(DecodedBody::Text(decoded.to_string().into()))
         } else {
-            Ok(DecodedBody::Binary(decoded.as_bytes().to_vec()))
+            Ok(DecodedBody::Binary(bytes))
         }
     }
 
@@ -1272,5 +1271,20 @@ Ok(
         assert!(part
             .conformance()
             .contains(MessageConformance::MISSING_COLON_VALUE));
+    }
+
+    /// This is a regression test for an issue where we'd interpret the
+    /// binary bytes as default windows-1252 codepage charset, and mangle them.
+    /// The high byte is sufficient to trigger the offending code prior
+    /// to the fix
+    #[test]
+    fn rebuild_binary() {
+        let expect = &[0, 1, 2, 3, 0xbe, 4, 5];
+        let part = MimePart::new_binary("applicat/octet-stream", expect, None);
+
+        let rebuilt = part.rebuild().unwrap();
+        let body = rebuilt.body().unwrap();
+
+        assert_eq!(body, DecodedBody::Binary(expect.to_vec()));
     }
 }

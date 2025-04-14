@@ -100,3 +100,6 @@
   [msg:get_meta](../reference/message/get_meta.md) and
   [msg:set_meta](../reference/message/set_meta.md) now internally will ensure
   that the data or meta portion of the message is loaded from spool.
+* Rebuilding a MIME message (such as via `msg:check_fix_conformance`) that had
+  binary attachments would incorrectly re-interpret the bytes as windows-1252
+  encoded characters, damaging the attachment.
