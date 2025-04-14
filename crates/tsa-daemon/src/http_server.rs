@@ -2,10 +2,10 @@ use crate::database::Database;
 use crate::publish::submit_record;
 use crate::shaping_config::get_shaping;
 use crate::state::{
-    ActionHash, ConfigurationOverride, MatchingScope, SchedQBounceEntry, SchedQBounceKey, TsaState,
-    TSA_STATE,
+    ActionHash, ConfigurationOverride, MatchingScope, ReadyQSuspensionEntry, SchedQBounceEntry,
+    SchedQBounceKey, SchedQSuspensionEntry, SchedQSuspensionKey, TsaState, TSA_STATE,
 };
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -26,8 +26,6 @@ use parking_lot::Mutex;
 use rfc5321::ForwardPath;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
-use sqlite::ConnectionThreadSafe;
-use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -36,7 +34,6 @@ use utoipa::OpenApi;
 
 pub static DB_PATH: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new("/var/spool/kumomta/tsa.db".to_string()));
-static HISTORY: LazyLock<Database> = LazyLock::new(|| open_history_db().unwrap());
 static SUSPENSION_TX: LazyLock<SubscriberMgr> = LazyLock::new(SubscriberMgr::new);
 
 pub fn open_history_db() -> anyhow::Result<Database> {
@@ -165,7 +162,7 @@ async fn create_bounce(
 }
 
 async fn create_tenant_suspension(
-    db: &Arc<Database>,
+    action_hash: &ActionHash,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -199,39 +196,22 @@ async fn create_tenant_suspension(
 
     {
         let reason = reason.to_string();
-        let rule_hash = rule_hash.to_string();
         let campaign = campaign.as_ref().map(|c| c.to_string());
         let tenant = tenant.to_string();
         let domain = components.domain.to_string();
 
-        db.perform("create_tenant_suspension", move |db| {
-            let mut upsert = db
-                .prepare(
-                    "INSERT INTO sched_q_suspensions
-                 (rule_hash, campaign, tenant, domain, reason, expires)
-                 VALUES
-                 ($hash, $campaign, $tenant, $domain, $reason, $expires)
-                 ON CONFLICT (rule_hash, campaign, tenant, domain)
-                 DO UPDATE SET expires=$expires",
-                )
-                .context("prepare sched_q_suspensions upsert")?;
-
-            let expires_str = expires.to_rfc3339();
-
-            upsert.bind(("$hash", rule_hash.as_str()))?;
-            upsert.bind(("$campaign", campaign.as_deref()))?;
-            upsert.bind(("$tenant", tenant.as_str()))?;
-            upsert.bind(("$domain", domain.as_str()))?;
-
-            upsert.bind(("$reason", reason.as_str()))?;
-            upsert.bind(("$expires", expires_str.as_str()))?;
-
-            upsert
-                .next()
-                .context("execute sched_q_suspensions upsert")?;
-            Ok::<_, anyhow::Error>(())
-        })
-        .await?;
+        TSA_STATE
+            .get()
+            .expect("tsa_state missing")
+            .insert_schedq_suspension(
+                SchedQSuspensionKey {
+                    action_hash: action_hash.clone(),
+                    domain,
+                    tenant,
+                    campaign,
+                },
+                SchedQSuspensionEntry { reason, expires },
+            );
     }
 
     events.push(SubscriptionItem::SchedQSuspension(SchedQSuspension {
@@ -247,7 +227,7 @@ async fn create_tenant_suspension(
 }
 
 async fn create_ready_q_suspension(
-    db: &Arc<Database>,
+    action_hash: &ActionHash,
     rule_hash: &str,
     rule: &Rule,
     record: &JsonLogRecord,
@@ -260,32 +240,18 @@ async fn create_ready_q_suspension(
     {
         let reason = reason.to_string();
         let source = source.to_string();
-        let site = record.site.to_string();
-        let rule_hash = rule_hash.to_string();
 
-        db.perform("create_ready_q_suspension", move |db| {
-            let mut upsert = db.prepare(
-                "INSERT INTO ready_q_suspensions
-                 (rule_hash, site_name, source, reason, expires)
-                 VALUES
-                 ($hash, $site, $source, $reason, $expires)
-                 ON CONFLICT (rule_hash, site_name)
-                 DO UPDATE SET expires=$expires",
-            )?;
-
-            let expires_str = expires.to_rfc3339();
-
-            upsert.bind(("$hash", rule_hash.as_str()))?;
-            upsert.bind(("$site", site.as_str()))?;
-            upsert.bind(("$source", source.as_str()))?;
-
-            upsert.bind(("$reason", reason.as_str()))?;
-            upsert.bind(("$expires", expires_str.as_str()))?;
-
-            upsert.next()?;
-            Ok::<_, anyhow::Error>(())
-        })
-        .await?;
+        TSA_STATE
+            .get()
+            .expect("tsa_state missing")
+            .insert_readyq_suspension(
+                action_hash.clone(),
+                ReadyQSuspensionEntry {
+                    reason,
+                    source,
+                    expires,
+                },
+            );
     }
 
     events.push(SubscriptionItem::ReadyQSuspension(ReadyQSuspension {
@@ -299,35 +265,20 @@ async fn create_ready_q_suspension(
     Ok(())
 }
 
-pub async fn publish_log_batch(
-    db: &Arc<Database>,
-    records: &mut Vec<JsonLogRecord>,
-) -> anyhow::Result<()> {
+pub async fn publish_log_batch(records: &mut Vec<JsonLogRecord>) -> anyhow::Result<()> {
     let shaping = get_shaping();
 
     let mut events = vec![];
 
     tracing::trace!("publish_log_batch with {} records", records.len());
 
-    db.perform("publish_log_batch begin", |db| {
-        db.execute("BEGIN")?;
-        Ok(())
-    })
-    .await?;
-
     let now = Utc::now();
 
     for record in records.drain(..) {
-        if let Err(err) = publish_log_v1_impl(&now, db, &shaping, record, &mut events).await {
+        if let Err(err) = publish_log_v1_impl(&now, &shaping, record, &mut events).await {
             tracing::error!("error processing record: {err:#}");
         }
     }
-
-    db.perform("publish_log_batch COMMIT", |db| {
-        db.execute("COMMIT")?;
-        Ok(())
-    })
-    .await?;
 
     for event in events {
         SubscriberMgr::submit(event);
@@ -338,7 +289,6 @@ pub async fn publish_log_batch(
 
 async fn publish_log_v1_impl(
     now: &DateTime<Utc>,
-    db: &Arc<Database>,
     shaping: &Shaping,
     record: JsonLogRecord,
     events: &mut Vec<SubscriptionItem>,
@@ -402,12 +352,19 @@ async fn publish_log_v1_impl(
                 tracing::debug!("{action:?} for {record:?}");
                 match action {
                     Action::Suspend => {
-                        create_ready_q_suspension(db, &rule_hash, m, &record, source, events)
-                            .await?;
+                        create_ready_q_suspension(
+                            &action_hash,
+                            &rule_hash,
+                            m,
+                            &record,
+                            source,
+                            events,
+                        )
+                        .await?;
                     }
                     Action::SuspendTenant => {
                         create_tenant_suspension(
-                            db,
+                            &action_hash,
                             &rule_hash,
                             m,
                             &record,
@@ -418,7 +375,7 @@ async fn publish_log_v1_impl(
                     }
                     Action::SuspendCampaign => {
                         create_tenant_suspension(
-                            db,
+                            &action_hash,
                             &rule_hash,
                             m,
                             &record,
@@ -606,8 +563,11 @@ pub fn toml_to_toml_edit_value(v: toml::Value) -> toml_edit::Value {
     }
 }
 
-pub async fn import_bounces_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<()> {
-    HISTORY
+pub async fn import_bounces_from_sqlite(
+    database: &Database,
+    state: Arc<TsaState>,
+) -> anyhow::Result<()> {
+    database
         .perform("import bounces", move |db| {
             let mut stmt = db.prepare("SELECT * from sched_q_bounces")?;
 
@@ -639,8 +599,11 @@ pub async fn import_bounces_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<
         .await
 }
 
-pub async fn import_configs_from_sqlite(state: Arc<TsaState>) -> anyhow::Result<()> {
-    HISTORY
+pub async fn import_configs_from_sqlite(
+    database: &Database,
+    state: Arc<TsaState>,
+) -> anyhow::Result<()> {
+    database
         .perform("import config", move |db| {
             let mut stmt = db.prepare(
                 "SELECT * from config where
@@ -690,122 +653,75 @@ async fn get_config_v1(_: TrustedIpRequired) -> Result<String, AppError> {
     Ok(result)
 }
 
-fn do_get_suspension(db: &ConnectionThreadSafe) -> anyhow::Result<Json<Suspensions>> {
+fn get_suspensions() -> Suspensions {
+    let state = TSA_STATE.get().expect("tsa_state missing");
     let mut suspensions = Suspensions::default();
 
-    let mut stmt = db.prepare(
-        "SELECT * from ready_q_suspensions where
-                                   unixepoch(expires) - unixepoch() > 0
-                                   order by expires, source",
-    )?;
+    suspensions.ready_q = state.export_readyq_suspensions();
+    suspensions.sched_q = state.export_schedq_suspensions();
 
-    let mut dedup = HashMap::new();
+    suspensions
+}
 
-    #[derive(Eq, PartialEq, Hash)]
-    struct ReadyKey {
-        rule_hash: String,
-        site_name: String,
-    }
+pub async fn import_suspensions_from_sqlite(
+    database: &Database,
+    state: Arc<TsaState>,
+) -> anyhow::Result<()> {
+    database
+        .perform("import suspensions", move |db| {
+            let mut stmt = db.prepare("SELECT * from ready_q_suspensions")?;
 
-    fn add_readyq_susp(dedup: &mut HashMap<ReadyKey, ReadyQSuspension>, item: ReadyQSuspension) {
-        let key = ReadyKey {
-            rule_hash: item.rule_hash.clone(),
-            site_name: item.site_name.clone(),
-        };
+            while let Ok(sqlite::State::Row) = stmt.next() {
+                let rule_hash: String = stmt.read("rule_hash")?;
+                let _site_name: String = stmt.read("site_name")?;
+                let reason: String = stmt.read("reason")?;
+                let source: String = stmt.read("source")?;
+                let expires: String = stmt.read("expires")?;
 
-        let entry = dedup.entry(key).or_insert_with(|| item.clone());
+                let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+                let action_hash = ActionHash::from_legacy_action_hash_string(&rule_hash);
 
-        if item.expires > entry.expires {
-            entry.expires = item.expires;
-        }
-    }
+                state.insert_readyq_suspension(
+                    action_hash,
+                    ReadyQSuspensionEntry {
+                        reason,
+                        source,
+                        expires,
+                    },
+                );
+            }
 
-    while let Ok(sqlite::State::Row) = stmt.next() {
-        let rule_hash: String = stmt.read("rule_hash")?;
-        let site_name: String = stmt.read("site_name")?;
-        let reason: String = stmt.read("reason")?;
-        let source: String = stmt.read("source")?;
-        let expires: String = stmt.read("expires")?;
+            let mut stmt = db.prepare("SELECT * from sched_q_suspensions")?;
 
-        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+            while let Ok(sqlite::State::Row) = stmt.next() {
+                let rule_hash: String = stmt.read("rule_hash")?;
+                let tenant: String = stmt.read("tenant")?;
+                let domain: String = stmt.read("domain")?;
+                let campaign: Option<String> = stmt.read("campaign")?;
+                let reason: String = stmt.read("reason")?;
+                let expires: String = stmt.read("expires")?;
 
-        add_readyq_susp(
-            &mut dedup,
-            ReadyQSuspension {
-                rule_hash,
-                site_name,
-                reason,
-                source,
-                expires,
-            },
-        );
-    }
+                let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
+                let action_hash = ActionHash::from_legacy_action_hash_string(&rule_hash);
 
-    suspensions.ready_q = dedup.drain().map(|(_, v)| v).collect();
+                state.insert_schedq_suspension(
+                    SchedQSuspensionKey {
+                        action_hash,
+                        domain,
+                        tenant,
+                        campaign,
+                    },
+                    SchedQSuspensionEntry { reason, expires },
+                );
+            }
 
-    let mut stmt = db.prepare(
-        "SELECT * from sched_q_suspensions where
-                                   unixepoch(expires) - unixepoch() > 0
-                                   order by expires, tenant, domain, campaign",
-    )?;
-
-    let mut dedup = HashMap::new();
-
-    #[derive(Eq, PartialEq, Hash)]
-    struct SusKey {
-        rule_hash: String,
-        campaign: Option<String>,
-        tenant: String,
-        domain: String,
-    }
-
-    fn add_schedq_susp(dedup: &mut HashMap<SusKey, SchedQSuspension>, item: SchedQSuspension) {
-        let key = SusKey {
-            rule_hash: item.rule_hash.clone(),
-            campaign: item.campaign.clone(),
-            tenant: item.tenant.clone(),
-            domain: item.domain.clone(),
-        };
-        let entry = dedup.entry(key).or_insert_with(|| item.clone());
-
-        if item.expires > entry.expires {
-            entry.expires = item.expires;
-        }
-    }
-
-    while let Ok(sqlite::State::Row) = stmt.next() {
-        let rule_hash: String = stmt.read("rule_hash")?;
-        let tenant: String = stmt.read("tenant")?;
-        let domain: String = stmt.read("domain")?;
-        let campaign: Option<String> = stmt.read("campaign")?;
-        let reason: String = stmt.read("reason")?;
-        let expires: String = stmt.read("expires")?;
-
-        let expires = DateTime::parse_from_rfc3339(&expires)?.to_utc();
-
-        add_schedq_susp(
-            &mut dedup,
-            SchedQSuspension {
-                rule_hash,
-                domain,
-                tenant,
-                campaign,
-                reason,
-                expires,
-            },
-        );
-    }
-
-    suspensions.sched_q = dedup.drain().map(|(_, v)| v).collect();
-
-    Ok(Json(suspensions))
+            Ok(())
+        })
+        .await
 }
 
 async fn get_suspension_v1(_: TrustedIpRequired) -> Result<Json<Suspensions>, AppError> {
-    let result = HISTORY
-        .perform("get_suspension_v1", do_get_suspension)
-        .await?;
-    Ok(result)
+    Ok(Json(get_suspensions()))
 }
 
 struct SubscriberMgr {
@@ -833,10 +749,7 @@ async fn process_suspension_subscription_inner(mut socket: WebSocket) -> anyhow:
 
     // send the current set of suspensions first
     {
-        let suspensions = HISTORY
-            .perform("ws get_suspension", do_get_suspension)
-            .await?
-            .0;
+        let suspensions = get_suspensions();
         for record in suspensions.ready_q {
             let json = serde_json::to_string(&SuspensionEntry::ReadyQ(record))?;
             socket.send(Message::Text(json)).await?;
@@ -896,14 +809,11 @@ async fn process_event_subscription_inner(mut socket: WebSocket) -> anyhow::Resu
 
         // send the current set of suspensions first
         {
-            let suspensions = HISTORY
-                .perform("ws get_suspension", do_get_suspension)
-                .await?
-                .0;
+            let suspensions = get_suspensions();
             num_ready_q_sus = suspensions.ready_q.len();
             num_sched_q_sus = suspensions.sched_q.len();
             tracing::debug!(
-                "new sub, has {num_ready_q_sus} readyq suspensions,\
+                "new sub, has {num_ready_q_sus} readyq suspensions, \
                 {num_sched_q_sus} schedq suspensions",
             );
             for record in suspensions.ready_q {

@@ -1,8 +1,8 @@
-use crate::http_server::{open_history_db, publish_log_batch};
+use crate::http_server::publish_log_batch;
 use kumo_log_types::JsonLogRecord;
 use kumo_server_runtime::available_parallelism;
 use parking_lot::Mutex;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 use tokio::sync::Notify;
 use tokio::task::LocalSet;
 use tokio::time::{Duration, Instant};
@@ -124,11 +124,10 @@ fn grab_segment() -> Option<Vec<JsonLogRecord>> {
 }
 
 async fn run_processor() {
-    let db = Arc::new(open_history_db().unwrap());
     loop {
         NOTIFY_CONSUMER.notified().await;
         while let Some(mut batch) = grab_segment() {
-            if let Err(err) = publish_log_batch(&db, &mut batch).await {
+            if let Err(err) = publish_log_batch(&mut batch).await {
                 tracing::error!("Error in publish_log_v1_impl: {err:#}");
             }
         }

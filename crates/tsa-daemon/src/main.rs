@@ -76,8 +76,6 @@ async fn perform_init() -> anyhow::Result<()> {
     // and set it as the global shared copy of the shaping config
     assign_shaping(shaping);
 
-    crate::state::load_state().await?;
-
     let tsa_init_sig = CallbackSignature::<(), ()>::new("tsa_init");
 
     config
@@ -85,6 +83,8 @@ async fn perform_init() -> anyhow::Result<()> {
         .await
         .context("in tsa_init event")?;
     config.put();
+
+    crate::state::load_state().await?;
 
     spawn_shaping_updater()?;
     tokio::spawn(state_pruner());

@@ -1,6 +1,7 @@
 use crate::http_server::{
-    import_bounces_from_sqlite, import_configs_from_sqlite, regex_list_to_string,
-    toml_to_toml_edit_value, PreferRollup, Sha256Hasher, DB_PATH,
+    import_bounces_from_sqlite, import_configs_from_sqlite, import_suspensions_from_sqlite,
+    open_history_db, regex_list_to_string, toml_to_toml_edit_value, PreferRollup, Sha256Hasher,
+    DB_PATH,
 };
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -8,7 +9,7 @@ use dashmap::DashMap;
 use kumo_api_types::shaping::{
     Action, EgressPathConfigValue, EgressPathConfigValueUnchecked, Rule,
 };
-use kumo_api_types::tsa::SchedQBounce;
+use kumo_api_types::tsa::{ReadyQSuspension, SchedQBounce, SchedQSuspension};
 use kumo_log_types::JsonLogRecord;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,7 +20,7 @@ use std::time::Instant;
 pub static TSA_STATE: OnceLock<TsaState> = OnceLock::new();
 
 /// Represents a specific rule definition.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RuleHash(#[serde(with = "serde_bytes")] [u8; 32]);
 
 impl RuleHash {
@@ -27,6 +28,20 @@ impl RuleHash {
         let mut hasher = Sha256Hasher::new();
         rule.hash(&mut hasher);
         Self(hasher.get_binary())
+    }
+}
+
+impl std::fmt::Display for RuleHash {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        hex::encode(&self.0).fmt(fmt)
+    }
+}
+
+impl std::fmt::Debug for RuleHash {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_tuple("RuleHash")
+            .field(&hex::encode(&self.0))
+            .finish()
     }
 }
 
@@ -39,12 +54,27 @@ impl SiteKey {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+impl std::fmt::Display for SiteKey {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.0.fmt(fmt)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionHash(#[serde(with = "serde_bytes")] [u8; 32], SiteKey);
 
 impl std::fmt::Display for ActionHash {
     fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(fmt, "{}-{}", self.1 .0, hex::encode(&self.0))
+    }
+}
+
+impl std::fmt::Debug for ActionHash {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fmt.debug_tuple("ActionHash")
+            .field(&hex::encode(&self.0))
+            .field(&self.1)
+            .finish()
     }
 }
 
@@ -69,6 +99,14 @@ impl ActionHash {
             panic!("invalid action hash {full_string}");
         };
         Self::from_legacy_hash_and_site(ahash, site)
+    }
+
+    pub fn hash_portion(&self) -> String {
+        hex::encode(&self.0)
+    }
+
+    pub fn site_name(&self) -> &str {
+        &self.1 .0
     }
 }
 
@@ -141,11 +179,34 @@ pub struct SchedQBounceEntry {
     pub expires: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadyQSuspensionEntry {
+    pub reason: String,
+    pub source: String,
+    pub expires: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
+pub struct SchedQSuspensionKey {
+    pub action_hash: ActionHash,
+    pub domain: String,
+    pub tenant: String,
+    pub campaign: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedQSuspensionEntry {
+    pub reason: String,
+    pub expires: DateTime<Utc>,
+}
+
 #[derive(Default)]
 pub struct TsaState {
     event_history: DashMap<MatchingScope, EventData>,
     config_overrides: DashMap<ActionHash, ConfigurationOverride>,
     schedq_bounces: DashMap<SchedQBounceKey, SchedQBounceEntry>,
+    readyq_suspensions: DashMap<ActionHash, ReadyQSuspensionEntry>,
+    schedq_suspensions: DashMap<SchedQSuspensionKey, SchedQSuspensionEntry>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,6 +217,10 @@ struct SerializableState {
     config_overrides: HashMap<ActionHash, ConfigurationOverride>,
     #[serde(default)]
     schedq_bounces: HashMap<SchedQBounceKey, SchedQBounceEntry>,
+    #[serde(default)]
+    readyq_suspensions: HashMap<ActionHash, ReadyQSuspensionEntry>,
+    #[serde(default)]
+    schedq_suspensions: HashMap<SchedQSuspensionKey, SchedQSuspensionEntry>,
 }
 
 impl TsaState {
@@ -205,6 +270,8 @@ impl TsaState {
             // Skip already expired entry
             return;
         }
+
+        tracing::debug!("new config override {scope:?} = {over:?}");
         self.config_overrides.insert(scope, over);
     }
 
@@ -213,7 +280,83 @@ impl TsaState {
             // Skip already expired entry
             return;
         }
+
+        tracing::debug!("new schedq bounce {key:?} = {bounce:?}");
         self.schedq_bounces.insert(key, bounce);
+    }
+
+    pub fn insert_readyq_suspension(&self, key: ActionHash, entry: ReadyQSuspensionEntry) {
+        if Utc::now() >= entry.expires {
+            // Skip already expired entry
+            return;
+        }
+
+        tracing::debug!("new readyq suspension {key:?} = {entry:?}");
+        self.readyq_suspensions.insert(key, entry);
+    }
+
+    pub fn insert_schedq_suspension(&self, key: SchedQSuspensionKey, entry: SchedQSuspensionEntry) {
+        if Utc::now() >= entry.expires {
+            // Skip already expired entry
+            return;
+        }
+
+        tracing::debug!("new sched suspension {key:?} = {entry:?}");
+        self.schedq_suspensions.insert(key, entry);
+    }
+
+    pub fn export_schedq_suspensions(&self) -> Vec<SchedQSuspension> {
+        let mut entries = vec![];
+        let now = Utc::now();
+        for entry in self.schedq_suspensions.iter() {
+            let value = entry.value();
+            if now >= value.expires {
+                continue;
+            }
+            let key = entry.key();
+            entries.push(SchedQSuspension {
+                rule_hash: key.action_hash.to_string(),
+                domain: key.domain.clone(),
+                campaign: key.campaign.clone(),
+                tenant: key.tenant.clone(),
+                reason: value.reason.clone(),
+                expires: value.expires.clone(),
+            });
+        }
+
+        entries.sort_by_key(|over| {
+            (
+                over.expires,
+                over.tenant.clone(),
+                over.domain.clone(),
+                over.campaign.clone(),
+            )
+        });
+
+        entries
+    }
+
+    pub fn export_readyq_suspensions(&self) -> Vec<ReadyQSuspension> {
+        let mut entries = vec![];
+        let now = Utc::now();
+        for entry in self.readyq_suspensions.iter() {
+            let value = entry.value();
+            if now >= value.expires {
+                continue;
+            }
+            let key = entry.key();
+            entries.push(ReadyQSuspension {
+                rule_hash: key.hash_portion(),
+                site_name: key.site_name().to_string(),
+                source: value.source.clone(),
+                reason: value.reason.clone(),
+                expires: value.expires.clone(),
+            });
+        }
+
+        entries.sort_by_key(|over| (over.expires, over.source.clone()));
+
+        entries
     }
 
     pub fn export_schedq_bounces(&self) -> Vec<SchedQBounce> {
@@ -336,6 +479,16 @@ impl TsaState {
                 .iter()
                 .map(|entry| (entry.key().clone(), entry.value().clone()))
                 .collect(),
+            readyq_suspensions: self
+                .readyq_suspensions
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
+            schedq_suspensions: self
+                .schedq_suspensions
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect(),
         }
     }
 
@@ -344,6 +497,82 @@ impl TsaState {
         let now_ts = to_unix_ts(&now);
         self.prune_events(now_ts).await;
         self.prune_config_overrides(&now).await;
+        self.prune_readyq_suspensions(&now).await;
+        self.prune_schedq_suspensions(&now).await;
+    }
+
+    async fn prune_schedq_suspensions(&self, now: &DateTime<Utc>) {
+        let mut visited = 0;
+        let start = Instant::now();
+
+        let is_prunable = |entry: &SchedQSuspensionEntry| *now >= entry.expires;
+
+        let keys_to_prune: Vec<SchedQSuspensionKey> = self
+            .schedq_suspensions
+            .iter()
+            .filter_map(|entry| {
+                visited += 1;
+                let over = entry.value();
+                if is_prunable(over) {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut num_pruned = 0;
+        for key in keys_to_prune {
+            let pruned = self
+                .schedq_suspensions
+                .remove_if(&key, |_key, entry| is_prunable(entry))
+                .is_some();
+            if pruned {
+                num_pruned += 1;
+            }
+        }
+        tracing::debug!(
+            "visited {visited} and pruned {num_pruned} \
+            scheq_suspensions in {:?}",
+            start.elapsed()
+        );
+    }
+
+    async fn prune_readyq_suspensions(&self, now: &DateTime<Utc>) {
+        let mut visited = 0;
+        let start = Instant::now();
+
+        let is_prunable = |entry: &ReadyQSuspensionEntry| *now >= entry.expires;
+
+        let keys_to_prune: Vec<ActionHash> = self
+            .readyq_suspensions
+            .iter()
+            .filter_map(|entry| {
+                visited += 1;
+                let over = entry.value();
+                if is_prunable(over) {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut num_pruned = 0;
+        for key in keys_to_prune {
+            let pruned = self
+                .readyq_suspensions
+                .remove_if(&key, |_key, entry| is_prunable(entry))
+                .is_some();
+            if pruned {
+                num_pruned += 1;
+            }
+        }
+        tracing::debug!(
+            "visited {visited} and pruned {num_pruned} \
+            readyq_suspensions in {:?}",
+            start.elapsed()
+        );
     }
 
     async fn prune_config_overrides(&self, now: &DateTime<Utc>) {
@@ -470,34 +699,73 @@ pub async fn load_state() -> anyhow::Result<()> {
 
     let import_holder = Arc::new(state);
 
-    if import_holder.config_overrides.is_empty() {
-        // Import configs from the sqlite database
-        if let Err(err) = import_configs_from_sqlite(import_holder.clone()).await {
-            tracing::warn!(
-                "Failed to import legacy config entries from sqlite: {err:#}. Proceeding without them");
-        } else {
-            tracing::info!(
-                "Imported {} config entries from sqlite",
-                import_holder.config_overrides.len()
-            );
+    let need_import = import_holder.config_overrides.is_empty()
+        || import_holder.schedq_bounces.is_empty()
+        || import_holder.schedq_suspensions.is_empty()
+        || import_holder.readyq_suspensions.is_empty();
+
+    if need_import {
+        if let Ok(database) = open_history_db() {
+            if import_holder.config_overrides.is_empty() {
+                // Import configs from the sqlite database
+                if let Err(err) = import_configs_from_sqlite(&database, import_holder.clone()).await
+                {
+                    tracing::warn!(
+                        "Failed to import legacy config entries from sqlite: {err:#}. Proceeding without them");
+                } else {
+                    tracing::info!(
+                        "Imported {} config entries from sqlite",
+                        import_holder.config_overrides.len()
+                    );
+                }
+            }
+
+            if import_holder.schedq_bounces.is_empty() {
+                if let Err(err) = import_bounces_from_sqlite(&database, import_holder.clone()).await
+                {
+                    tracing::warn!(
+                        "Failed to import legacy bounce entries from sqlite: {err:#}. Proceeding without them");
+                } else {
+                    tracing::info!(
+                        "Imported {} bounce entries from sqlite",
+                        import_holder.schedq_bounces.len()
+                    );
+                }
+            }
+
+            if import_holder.schedq_suspensions.is_empty()
+                && import_holder.readyq_suspensions.is_empty()
+            {
+                if let Err(err) =
+                    import_suspensions_from_sqlite(&database, import_holder.clone()).await
+                {
+                    tracing::warn!(
+                        "Failed to import legacy suspension entries from sqlite: {err:#}. Proceeding without them");
+                } else {
+                    tracing::info!(
+                        "Imported {} readyq, {} schedq suspensions from sqlite",
+                        import_holder.readyq_suspensions.len(),
+                        import_holder.schedq_suspensions.len()
+                    );
+                }
+            }
         }
     }
 
-    if import_holder.schedq_bounces.is_empty() {
-        if let Err(err) = import_bounces_from_sqlite(import_holder.clone()).await {
-            tracing::warn!(
-                "Failed to import legacy bounce entries from sqlite: {err:#}. Proceeding without them");
-        } else {
-            tracing::info!(
-                "Imported {} bounce entries from sqlite",
-                import_holder.schedq_bounces.len()
-            );
-        }
-    }
+    let state = Arc::into_inner(import_holder).expect("only we hold a ref");
 
-    TSA_STATE
-        .set(Arc::into_inner(import_holder).expect("only we hold a ref"))
-        .ok();
+    let num_config_overrides = state.config_overrides.len();
+    let num_schedq_bounces = state.schedq_bounces.len();
+    let num_schedq_suspensions = state.schedq_suspensions.len();
+    let num_readyq_suspensions = state.readyq_suspensions.len();
+
+    tracing::info!(
+        "State has {num_config_overrides} config overrides, \
+        {num_schedq_bounces} schedq bounces, {num_schedq_suspensions} schedq suspensions, \
+        {num_readyq_suspensions} readyq suspensions."
+    );
+
+    TSA_STATE.set(state).ok();
     Ok(())
 }
 
@@ -518,8 +786,16 @@ pub async fn save_state(background: bool) -> anyhow::Result<()> {
         .with_context(|| format!("failed to write to {path}"))?;
     let write = start.elapsed();
 
+    let num_config_overrides = state.config_overrides.len();
+    let num_schedq_bounces = state.schedq_bounces.len();
+    let num_schedq_suspensions = state.schedq_suspensions.len();
+    let num_readyq_suspensions = state.readyq_suspensions.len();
+
     let message = format!(
-        "stored {} of data to {path}. (Extract took {extract:?}, write took {write:?})",
+        "stored {} of data to {path}. State has {num_config_overrides} config overrides, \
+        {num_schedq_bounces} schedq bounces, {num_schedq_suspensions} schedq suspensions, \
+        {num_readyq_suspensions} readyq suspensions. \
+        (Extract took {extract:?}, write took {write:?})",
         humansize::format_size(data.len(), humansize::DECIMAL)
     );
 
