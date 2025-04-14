@@ -5,6 +5,7 @@ use crate::queue::queue::{Queue, QueueHandle};
 use crate::queue::strategy::{QueueStructure, WheelV1Entry, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
+use crate::Utc;
 use anyhow::Context;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
 use kumo_server_runtime::Runtime;
@@ -183,6 +184,11 @@ async fn reinsert_ready(
     match &queue.queue {
         QueueStructure::SingletonTimerWheel(q) | QueueStructure::SingletonTimerWheelV2(q) => {
             if remove(q, &msg) {
+                let now = Utc::now();
+                let due = msg.get_due().unwrap_or(now);
+                REINSERT_TARDY
+                    .observe((now - due).to_std().unwrap_or(Duration::ZERO).as_secs_f64());
+
                 queue.metrics().sub(1);
                 queue
                     .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
@@ -267,6 +273,10 @@ async fn reinsert_ready_v2(
         QueueStructure::SingletonTimerWheel(q) | QueueStructure::SingletonTimerWheelV2(q) => {
             if remove(q, &msg) {
                 queue.metrics().sub(1);
+                let now = Utc::now();
+                let due = msg.get_due().unwrap_or(now);
+                REINSERT_TARDY
+                    .observe((now - due).to_std().unwrap_or(Duration::ZERO).as_secs_f64());
                 queue
                     .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                     .await?;
@@ -305,8 +315,10 @@ async fn reinsert_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
 }
 
 async fn process_batch_v2(messages: Vec<Message>, total_scheduled: usize) {
-    if messages.is_empty() {
-        return;
+    let now = Utc::now();
+    for msg in &messages {
+        let due = msg.get_due().unwrap_or(now);
+        POP_TARDY.observe((now - due).to_std().unwrap_or(Duration::ZERO).as_secs_f64());
     }
 
     if let Err(err) = QMAINT_RUNTIME.spawn(
@@ -321,6 +333,23 @@ static POP_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
     prometheus::register_histogram!(
         "timeq_pop_latency",
         "The amount of time that passes between calls to a singleon timerwheel pop",
+    )
+    .unwrap()
+});
+static POP_TARDY: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
+        "timeq_pop_tardiness",
+        "The time difference between the due and current time for a singleon timerwheel pop",
+        vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0]
+    )
+    .unwrap()
+});
+static REINSERT_TARDY: LazyLock<Histogram> = LazyLock::new(|| {
+    prometheus::register_histogram!(
+        "timeq_reinsert_tardiness",
+        "The time difference between the due and current time for a singleon timerwheel reinsertion",
+        vec![0.25, 0.5, 1.0, 2.5, 3.0, 5.0, 10.0, 15.0, 30.0,
+             45.0, 60.0, 90.0, 180.0, 360.0, 720.0]
     )
     .unwrap()
 });
@@ -358,8 +387,11 @@ async fn run_singleton_wheel_v1() -> anyhow::Result<()> {
         let (msgs, total_scheduled) = pop();
 
         let mut messages = vec![];
+        let now = Utc::now();
         for weak_message in msgs {
             if let Some((msg, queue)) = weak_message.upgrade() {
+                let due = msg.get_due().unwrap_or(now);
+                POP_TARDY.observe((now - due).to_std().unwrap_or(Duration::ZERO).as_secs_f64());
                 messages.push((msg, queue));
             }
         }
