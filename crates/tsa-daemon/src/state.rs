@@ -499,6 +499,47 @@ impl TsaState {
         self.prune_config_overrides(&now, verbose).await;
         self.prune_readyq_suspensions(&now, verbose).await;
         self.prune_schedq_suspensions(&now, verbose).await;
+        self.prune_schedq_bounces(&now, verbose).await;
+    }
+
+    async fn prune_schedq_bounces(&self, now: &DateTime<Utc>, verbose: bool) {
+        let mut visited = 0;
+        let start = Instant::now();
+
+        let is_prunable = |entry: &SchedQBounceEntry| *now >= entry.expires;
+
+        let keys_to_prune: Vec<SchedQBounceKey> = self
+            .schedq_bounces
+            .iter()
+            .filter_map(|entry| {
+                visited += 1;
+                let over = entry.value();
+                if is_prunable(over) {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut num_pruned = 0;
+        for key in keys_to_prune {
+            let pruned = self
+                .schedq_bounces
+                .remove_if(&key, |_key, entry| is_prunable(entry))
+                .is_some();
+            if pruned {
+                num_pruned += 1;
+            }
+        }
+        if verbose && num_pruned > 0 {
+            tracing::info!("Pruned {num_pruned} schedq_bounces");
+        }
+        tracing::debug!(
+            "visited {visited} and pruned {num_pruned} \
+            schedq_bounces in {:?}",
+            start.elapsed()
+        );
     }
 
     async fn prune_schedq_suspensions(&self, now: &DateTime<Utc>, verbose: bool) {
