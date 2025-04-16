@@ -24,7 +24,9 @@ use config::epoch::ConfigEpoch;
 use config::{declare_event, load_config};
 use dashmap::DashMap;
 use dns_resolver::MailExchanger;
-use kumo_api_types::egress_path::{ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy};
+use kumo_api_types::egress_path::{
+    ConfigRefreshStrategy, EgressPathConfig, MemoryReductionPolicy, WakeupStrategy,
+};
 use kumo_server_common::config_handle::ConfigHandle;
 use kumo_server_lifecycle::{is_shutting_down, Activity, ShutdownSubcription};
 use kumo_server_memory::{
@@ -465,6 +467,7 @@ impl ReadyQueueManager {
                 notify_dispatcher,
                 notify_maintainer,
                 connections: FairMutex::new(vec![]),
+                num_connections: Arc::new(AtomicUsize::new(0)),
                 path_config: ConfigHandle::new(path_config),
                 queue_config: queue_config.clone(),
                 egress_source,
@@ -671,6 +674,7 @@ pub struct ReadyQueue {
     notify_maintainer: Arc<Notify>,
     notify_dispatcher: Arc<Notify>,
     connections: FairMutex<Vec<JoinHandle<()>>>,
+    num_connections: Arc<AtomicUsize>,
     metrics: DeliveryMetrics,
     activity: Activity,
     consecutive_connection_failures: Arc<AtomicUsize>,
@@ -693,9 +697,43 @@ impl ReadyQueue {
             Some(res) => Some(res),
             None => {
                 self.metrics.ready_full.inc();
-                self.notify_maintainer.notify_one();
-                self.notify_dispatcher.notify_waiters();
+                self.wakeup_dispatcher_or_maintainer();
                 None
+            }
+        }
+    }
+
+    pub fn wakeup_all_dispatchers(&self) {
+        self.notify_dispatcher.notify_waiters();
+    }
+
+    pub fn wakeup_dispatcher_or_maintainer(&self) {
+        let path_config = self.path_config.borrow();
+        let num_connections = self.num_connections.load(Ordering::SeqCst);
+
+        match path_config.dispatcher_wakeup_strategy {
+            WakeupStrategy::Aggressive => {
+                self.notify_dispatcher.notify_waiters();
+            }
+            WakeupStrategy::Relaxed => {
+                if num_connections > 0 {
+                    self.notify_dispatcher.notify_one();
+                }
+            }
+        }
+
+        match path_config.maintainer_wakeup_strategy {
+            WakeupStrategy::Aggressive => {
+                self.notify_maintainer.notify_one();
+            }
+            WakeupStrategy::Relaxed => {
+                let approx_conn_goal = ideal_connection_count(
+                    self.ready.len(),
+                    path_config.connection_limit.limit as usize,
+                );
+                if num_connections < approx_conn_goal {
+                    self.notify_maintainer.notify_one();
+                }
             }
         }
     }
@@ -720,8 +758,7 @@ impl ReadyQueue {
             }
         }
         reservation.redeem(msg);
-        self.notify_maintainer.notify_one();
-        self.notify_dispatcher.notify_waiters();
+        self.wakeup_dispatcher_or_maintainer();
     }
 
     pub async fn insert(&self, msg: Message) -> Result<(), Message> {
@@ -742,14 +779,12 @@ impl ReadyQueue {
         }
         match self.ready.push(msg) {
             Ok(()) => {
-                self.notify_maintainer.notify_one();
-                self.notify_dispatcher.notify_waiters();
+                self.wakeup_dispatcher_or_maintainer();
                 Ok(())
             }
             Err(msg) => {
                 self.metrics.ready_full.inc();
-                self.notify_maintainer.notify_one();
-                self.notify_dispatcher.notify_waiters();
+                self.wakeup_dispatcher_or_maintainer();
                 Err(msg)
             }
         }
@@ -909,7 +944,7 @@ impl ReadyQueue {
             );
             self.reinsert_ready_queue("suspend", InsertReason::ReadyQueueWasSuspended.into())
                 .await;
-            self.notify_dispatcher.notify_waiters();
+            self.wakeup_all_dispatchers();
             return;
         }
 
@@ -1011,6 +1046,7 @@ impl ReadyQueue {
             let egress_pool = self.egress_pool.clone();
             let consecutive_connection_failures = self.consecutive_connection_failures.clone();
             let states = self.states.clone();
+            let num_connections = self.num_connections.clone();
 
             tracing::trace!("spawning client for {name}");
             if let Ok(handle) = self.readyq_spawn(format!("smtp client {name}"), async move {
@@ -1028,6 +1064,7 @@ impl ReadyQueue {
                     egress_pool,
                     leases,
                     states,
+                    num_connections,
                 )
                 .await
                 {
@@ -1100,7 +1137,7 @@ impl ReadyQueue {
                         "{}: refreshed get_egress_path_config to generation {generation}",
                         self.name
                     );
-                    self.notify_dispatcher.notify_waiters();
+                    self.wakeup_all_dispatchers();
                     for msg in self.ready.update_capacity(max_ready) {
                         if let Err(err) = Dispatcher::reinsert_message(
                             msg,
@@ -1190,6 +1227,7 @@ pub struct Dispatcher {
     batch_started: Option<tokio::time::Instant>,
     pub states: Arc<FairMutex<ReadyQueueStates>>,
     active_bounce: ArcSwap<Option<CachedEntry<AdminBounceEntry>>>,
+    num_connections: Arc<AtomicUsize>,
 }
 
 impl Drop for Dispatcher {
@@ -1198,7 +1236,7 @@ impl Drop for Dispatcher {
         let msgs = std::mem::take(&mut self.msgs);
         let activity = self.activity.clone();
         let name = self.name.to_string();
-        let notify_dispatcher = self.notify_dispatcher.clone();
+        self.num_connections.fetch_sub(1, Ordering::SeqCst);
         self.readyq_spawn("Dispatcher::drop".to_string(), async move {
             let had_msgs = !msgs.is_empty();
 
@@ -1236,9 +1274,8 @@ impl Drop for Dispatcher {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 let ready_queue = ReadyQueueManager::get_by_name(&name);
                 if let Some(q) = ready_queue {
-                    q.notify_maintainer.notify_one();
+                    q.wakeup_dispatcher_or_maintainer();
                 }
-                notify_dispatcher.notify_one();
             }
         })
         .ok();
@@ -1261,6 +1298,7 @@ impl Dispatcher {
         egress_pool: String,
         leases: Vec<LimitLease>,
         states: Arc<FairMutex<ReadyQueueStates>>,
+        num_connections: Arc<AtomicUsize>,
     ) -> anyhow::Result<()> {
         let activity = Activity::get(format!("ready_queue Dispatcher {name}"))?;
 
@@ -1295,7 +1333,9 @@ impl Dispatcher {
             session_id: Uuid::new_v4(),
             states,
             active_bounce: Arc::new(None).into(),
+            num_connections: num_connections.clone(),
         };
+        dispatcher.num_connections.fetch_add(1, Ordering::SeqCst);
 
         let mut queue_dispatcher: Box<dyn QueueDispatcher> = match &queue_config.borrow().protocol {
             DeliveryProto::Smtp { smtp } => {

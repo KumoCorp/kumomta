@@ -133,6 +133,14 @@ pub fn find_rustls_cipher_suite(name: &str) -> Option<SupportedCipherSuite> {
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "lua", derive(FromLua))]
+pub enum WakeupStrategy {
+    #[default]
+    Aggressive,
+    Relaxed,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "lua", derive(FromLua))]
 pub enum MemoryReductionPolicy {
     #[default]
     ShrinkDataAndMeta,
@@ -280,6 +288,11 @@ pub struct EgressPathConfig {
     #[serde(default)]
     pub refresh_strategy: ConfigRefreshStrategy,
 
+    #[serde(default)]
+    pub dispatcher_wakeup_strategy: WakeupStrategy,
+    #[serde(default)]
+    pub maintainer_wakeup_strategy: WakeupStrategy,
+
     /// Specify an explicit provider name that should apply to this
     /// path. The provider name will be used when computing metrics
     /// rollups by provider. If omitted, then
@@ -372,6 +385,8 @@ impl Default for EgressPathConfig {
             readyq_pool_name: None,
             low_memory_reduction_policy: MemoryReductionPolicy::default(),
             no_memory_reduction_policy: MemoryReductionPolicy::default(),
+            maintainer_wakeup_strategy: WakeupStrategy::default(),
+            dispatcher_wakeup_strategy: WakeupStrategy::default(),
         }
     }
 }

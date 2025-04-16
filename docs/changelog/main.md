@@ -82,6 +82,11 @@
   on systems with a large number of admin bounce entries.
 * Improved performance of TSA state storage, which in turn improves
   latency in tsa-daemon response times when many automation rules are triggering.
+* New
+  [maintainer_wakeup_strategy](../reference/kumo/make_egress_path/maintainer_wakeup_strategy.md)
+  and
+  [dispatcher_wakeup_strategy](../reference/kumo/make_egress_path/dispatcher_wakeup_strategy.md)
+  options for fine tuning overall system performance.
 
 ## Fixes
 
