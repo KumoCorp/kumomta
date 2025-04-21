@@ -34,6 +34,9 @@ workflows:
             docs/.*                         build-docs true
             mkdocs-base.yml                 build-docs true
             stylua.toml                     build-docs true
+
+            .circleci/.*                    build-docs true
+            .circleci/.*                    build-rust true
           base-revision: main
           # this is the path of the configuration we should trigger once
           # path filtering and pipeline parameter value updates are
