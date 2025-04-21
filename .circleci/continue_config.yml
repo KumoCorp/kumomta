@@ -74,10 +74,10 @@ jobs:
     environment:
       KUMOD_TESTCONTAINERS: 0
       CARGO_INCREMENTAL: 0
-      ROCKSDB_LIB_DIR: /opt/kumomta/lib
-      ROCKSDB_STATIC: static
-      SNAPPY_LIB_DIR: /opt/kumomta/lib
-      SNAPPY_STATIC: static
+      #ROCKSDB_LIB_DIR: /opt/kumomta/lib
+      #ROCKSDB_STATIC: static
+      #SNAPPY_LIB_DIR: /opt/kumomta/lib
+      #SNAPPY_STATIC: static
       HOME: /root
     steps:
       - checkout
@@ -117,10 +117,10 @@ jobs:
     environment:
       KUMOD_TESTCONTAINERS: 0
       CARGO_INCREMENTAL: 0
-      ROCKSDB_LIB_DIR: /opt/kumomta/lib
-      ROCKSDB_STATIC: static
-      SNAPPY_LIB_DIR: /opt/kumomta/lib
-      SNAPPY_STATIC: static
+      #ROCKSDB_LIB_DIR: /opt/kumomta/lib
+      #ROCKSDB_STATIC: static
+      #SNAPPY_LIB_DIR: /opt/kumomta/lib
+      #SNAPPY_STATIC: static
       HOME: /root
     steps:
       - checkout
