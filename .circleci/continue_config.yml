@@ -87,12 +87,12 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Build
           command: PATH=$PATH:/root/.cargo/bin make build
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
@@ -104,7 +104,7 @@ jobs:
             PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
             ./assets/build-rpm.sh
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
@@ -130,12 +130,12 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Build
           command: PATH=$PATH:/root/.cargo/bin make build
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
@@ -147,7 +147,7 @@ jobs:
             PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
             ./assets/build-rpm.sh
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
@@ -174,12 +174,12 @@ jobs:
     steps:
       - checkout
       - restore_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Build
           command: PATH=$PATH:/root/.cargo/bin make build
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
@@ -191,7 +191,7 @@ jobs:
             PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
             ./assets/build-deb.sh
       - save_cache:
-          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: cargo-<< parameters.os.docker.image >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
       - run:
