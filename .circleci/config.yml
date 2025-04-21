@@ -1,74 +1,41 @@
 version: 2.1
 
-executors:
-  ubuntu_2004_amd64:
-    docker:
-      - image: ghcr.io/kumocorp/builder-for-ubuntu:20.04
-    resource_class: xlarge
-  ubuntu_2204_amd64:
-    docker:
-      - image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
-    resource_class: xlarge
-  ubuntu_2204_aarch64:
-    docker:
-      - image: ghcr.io/kumocorp/builder-for-aarch64-ubuntu:22.04
-    resource_class: arm.xlarge
+# define this file as the setup phase of your dynamic configuration
+setup: true
 
-jobs:
-  test-rust:
-    parameters:
-      os:
-        type: executor
-    executor: << parameters.os >>
-    #resource_class: xlarge
-    environment:
-      KUMOD_TESTCONTAINERS: 0
-      #REF_TYPE: ${{ github.ref_type }}
-      CARGO_INCREMENTAL: 0
-      ROCKSDB_LIB_DIR: /opt/kumomta/lib
-      ROCKSDB_STATIC: static
-      SNAPPY_LIB_DIR: /opt/kumomta/lib
-      SNAPPY_STATIC: static
-      HOME: /root
-    steps:
-      - checkout
-      - restore_cache:
-          key: cargo-{{ arch }}-{{ checksum "Cargo.lock" }}
-      - run:
-          name: Run Tests
-          command: PATH=$PATH:/root/.cargo/bin make test
-      - run:
-          name: Build Release Package
-          command: |
-            PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
-            ./assets/build-deb.sh
-      - run:
-          name: Verify That Package is Installable
-          command: |
-            apt update
-            apt-get install -y ./kumomta*.deb
+# use the path-filtering orb to continue a pipeline based on
+# the path of an updated set of files
+orbs:
+  path-filtering: circleci/path-filtering@1
 
-      - save_cache:
-          key: cargo-{{ arch }}-{{ checksum "Cargo.lock" }}
-          paths:
-            - ~/.cargo
-  deploy:
-    # This is an example deploy job, not actually used by the workflow
-    docker:
-      - image: cimg/base:stable
-    steps:
-      # Replace this with steps to deploy to users
-      - run:
-          name: deploy
-          command: '#e.g. ./deploy.sh'
-      - run:
-          name: found github actions config
-          command: ':'
 workflows:
-  build-and-test:
+  always-run:
     jobs:
-      - test-rust:
-          matrix:
-            parameters:
-              os: [ubuntu_2004_amd64, ubuntu_2204_amd64, ubuntu_2204_aarch64]
+      # the path-filtering/filter job determines which pipeline
+      # parameters to update.
+      - path-filtering/filter:
+          name: check-updated-files
+          # 3-column, whitespace-delimited mapping. One mapping per
+          # line:
+          # <regex path-to-test> <parameter-to-set> <value-of-pipeline-parameter>
+          mapping: |
+            assets/.*.lua                   build-rust true
+            assets/.*.service               build-rust true
+            assets/build-deb.sh             build-rust true
+            assets/build-rpm.sh             build-rust true
+            assets/install.sh               build-rust true
+            assets/accounting.sh            build-rust true
+            assets/bounce_classifier/.*     build-rust true
+            assets/policy-extras/.*         build-rust true
+            assets/run-lua-test             build-rust true
+            crates/.*                       build-rust true
+            docker/.*                       build-rust true
 
+            docs/.*                         build-docs true
+            mkdocs-base.yml                 build-docs true
+            stylua.toml                     build-docs true
+          base-revision: main
+          # this is the path of the configuration we should trigger once
+          # path filtering and pipeline parameter value updates are
+          # complete.
+          config-path: .circleci/continue_config.yml

@@ -1,0 +1,90 @@
+version: 2.1
+
+parameters:
+  build-rust:
+    type: boolean
+    default: false
+  build-docs:
+    type: boolean
+    default: false
+
+workflows:
+  build-and-test:
+    when: << pipeline.parameters.build-rust >>
+    jobs:
+      - test-rust-ubuntu:
+          matrix:
+            parameters:
+              os: [ubuntu_2004_amd64, ubuntu_2204_amd64, ubuntu_2204_aarch64]
+  docs:
+    when: << pipeline.parameters.build-docs >>
+    jobs:
+      - docs:
+
+executors:
+  ubuntu_2004_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-ubuntu:20.04
+    resource_class: xlarge
+  ubuntu_2204_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
+    resource_class: xlarge
+  ubuntu_2204_aarch64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-aarch64-ubuntu:22.04
+    resource_class: arm.xlarge
+
+jobs:
+  test-rust-ubuntu:
+    parameters:
+      os:
+        type: executor
+    executor: << parameters.os >>
+    #resource_class: xlarge
+    environment:
+      KUMOD_TESTCONTAINERS: 0
+      #REF_TYPE: ${{ github.ref_type }}
+      CARGO_INCREMENTAL: 0
+      ROCKSDB_LIB_DIR: /opt/kumomta/lib
+      ROCKSDB_STATIC: static
+      SNAPPY_LIB_DIR: /opt/kumomta/lib
+      SNAPPY_STATIC: static
+      HOME: /root
+    steps:
+      - checkout
+      - restore_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Run Tests
+          command: PATH=$PATH:/root/.cargo/bin make test
+      - run:
+          name: Build Release Package
+          command: |
+            PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
+            ./assets/build-deb.sh
+      - run:
+          name: Verify That Package is Installable
+          command: |
+            apt update
+            apt-get install -y ./kumomta*.deb
+
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+  docs:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
+    steps:
+      - checkout
+      - restore_cache:
+          key: cargo-docs-{{ arch }}-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Build docs
+          command: PATH=$PATH:/root/.cargo/bin ./docs/build.sh
+      - save_cache:
+          key: cargo-docs-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+
