@@ -19,7 +19,7 @@ workflows:
   docs:
     when: << pipeline.parameters.build-docs >>
     jobs:
-      - docs:
+      - docs
 
 executors:
   ubuntu_2004_amd64:
