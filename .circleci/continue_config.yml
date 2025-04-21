@@ -16,12 +16,42 @@ workflows:
           matrix:
             parameters:
               os: [ubuntu_2004_amd64, ubuntu_2204_amd64, ubuntu_2204_aarch64]
+      - test-rust-amazon:
+          matrix:
+            parameters:
+              os: [amazon2_amd64, amazon2023_amd64, amazon2023_aarch64]
+      - test-rust-rocky:
+          matrix:
+            parameters:
+              os: [rocky8_amd64, rocky9_amd64]
   docs:
     when: << pipeline.parameters.build-docs >>
     jobs:
       - docs
 
 executors:
+  amazon2_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-amazonlinux:2
+    resource_class: xlarge
+  amazon2023_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-amazonlinux:2023
+    resource_class: xlarge
+  amazon2023_aarch64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-aarch64-amazonlinux:2023
+    resource_class: arm.xlarge
+
+  rocky8_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-rockylinux:8
+    resource_class: xlarge
+  rocky9_amd64:
+    docker:
+      - image: ghcr.io/kumocorp/builder-for-rockylinux:9
+    resource_class: xlarge
+
   ubuntu_2004_amd64:
     docker:
       - image: ghcr.io/kumocorp/builder-for-ubuntu:20.04
@@ -36,15 +66,13 @@ executors:
     resource_class: arm.xlarge
 
 jobs:
-  test-rust-ubuntu:
+  test-rust-amazon:
     parameters:
       os:
         type: executor
     executor: << parameters.os >>
-    #resource_class: xlarge
     environment:
       KUMOD_TESTCONTAINERS: 0
-      #REF_TYPE: ${{ github.ref_type }}
       CARGO_INCREMENTAL: 0
       ROCKSDB_LIB_DIR: /opt/kumomta/lib
       ROCKSDB_STATIC: static
@@ -56,6 +84,100 @@ jobs:
       - restore_cache:
           key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
+          name: Build
+          command: PATH=$PATH:/root/.cargo/bin make build
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+      - run:
+          name: Run Tests
+          command: PATH=$PATH:/root/.cargo/bin make test
+      - run:
+          name: Build Release Package
+          command: |
+            PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
+            ./assets/build-rpm.sh
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+      - run:
+          name: Verify That Package is Installable
+          # FIXME: install in !builder but base image
+          command: |
+            yum install -y ./kumomta*.rpm
+
+
+  test-rust-rocky:
+    parameters:
+      os:
+        type: executor
+    executor: << parameters.os >>
+    environment:
+      KUMOD_TESTCONTAINERS: 0
+      CARGO_INCREMENTAL: 0
+      ROCKSDB_LIB_DIR: /opt/kumomta/lib
+      ROCKSDB_STATIC: static
+      SNAPPY_LIB_DIR: /opt/kumomta/lib
+      SNAPPY_STATIC: static
+      HOME: /root
+    steps:
+      - checkout
+      - restore_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Build
+          command: PATH=$PATH:/root/.cargo/bin make build
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+      - run:
+          name: Run Tests
+          command: PATH=$PATH:/root/.cargo/bin make test
+      - run:
+          name: Build Release Package
+          command: |
+            PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
+            ./assets/build-rpm.sh
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+      - run:
+          name: Verify That Package is Installable
+          # FIXME: install in !builder but base image
+          command: |
+            dnf install -y ./kumomta*.rpm
+
+
+  test-rust-ubuntu:
+    parameters:
+      os:
+        type: executor
+    executor: << parameters.os >>
+    #resource_class: xlarge
+    environment:
+      KUMOD_TESTCONTAINERS: 0
+      CARGO_INCREMENTAL: 0
+      ROCKSDB_LIB_DIR: /opt/kumomta/lib
+      ROCKSDB_STATIC: static
+      SNAPPY_LIB_DIR: /opt/kumomta/lib
+      SNAPPY_STATIC: static
+      HOME: /root
+    steps:
+      - checkout
+      - restore_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+      - run:
+          name: Build
+          command: PATH=$PATH:/root/.cargo/bin make build
+      - save_cache:
+          key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
+          paths:
+            - ~/.cargo
+      - run:
           name: Run Tests
           command: PATH=$PATH:/root/.cargo/bin make test
       - run:
@@ -63,16 +185,17 @@ jobs:
           command: |
             PATH=$PATH:/root/.cargo/bin make build BUILD_OPTS="--release"
             ./assets/build-deb.sh
-      - run:
-          name: Verify That Package is Installable
-          command: |
-            apt update
-            apt-get install -y ./kumomta*.deb
-
       - save_cache:
           key: cargo-<< parameters.os >>-{{ arch }}-{{ checksum "Cargo.lock" }}
           paths:
             - ~/.cargo
+      - run:
+          name: Verify That Package is Installable
+          # FIXME: install in !builder but base image
+          command: |
+            apt update
+            apt-get install -y ./kumomta*.deb
+
   docs:
     docker:
       - image: ghcr.io/kumocorp/builder-for-ubuntu:22.04
