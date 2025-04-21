@@ -74,6 +74,11 @@ jobs:
     environment:
       KUMOD_TESTCONTAINERS: 0
       CARGO_INCREMENTAL: 0
+      # These are needed because amazonlinux:2 has both `openssl-devel`
+      # and `openssl11-devel` and the latter, newer version, isn't
+      # automatically found by the rust openssl-sys build machinery
+      OPENSSL_LIB_DIR: /usr/lib64
+      OPENSSL_INCLUDE_DIR: /usr/include
       #ROCKSDB_LIB_DIR: /opt/kumomta/lib
       #ROCKSDB_STATIC: static
       #SNAPPY_LIB_DIR: /opt/kumomta/lib
