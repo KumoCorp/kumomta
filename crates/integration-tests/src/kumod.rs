@@ -562,8 +562,9 @@ impl KumoDaemon {
     pub fn accounting_stats(&self) -> anyhow::Result<AccountingStats> {
         let path = self.dir.path().join("accounting.db");
 
-        let db = Connection::open_thread_safe(&path)
+        let mut db = Connection::open_thread_safe(&path)
             .with_context(|| format!("opening accounting database {path:?}"))?;
+        db.set_busy_timeout(30_000)?;
 
         let mut stmt = db
             .prepare("select sum(received) as r, sum(delivered) as d from accounting")

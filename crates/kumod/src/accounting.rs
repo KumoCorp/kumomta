@@ -147,8 +147,9 @@ pub fn account_delivery(protocol: &str) {
 fn open_accounting_db() -> anyhow::Result<ConnectionThreadSafe> {
     let path = DB_PATH.lock().clone();
     tracing::trace!("using path {path:?} for accounting db");
-    let db = Connection::open_thread_safe(&path)
+    let mut db = Connection::open_thread_safe(&path)
         .with_context(|| format!("opening accounting database {path}"))?;
+    db.set_busy_timeout(30_000)?;
 
     let query = r#"
 CREATE TABLE IF NOT EXISTS accounting (
