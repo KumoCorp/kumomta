@@ -20,6 +20,7 @@ The install instructions for supported platforms are shown below. If your platfo
     ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ sudo chmod 644 /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu22.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
     $ sudo apt update
     $ sudo apt install -y kumomta
@@ -30,6 +31,7 @@ The install instructions for supported platforms are shown below. If your platfo
     ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ sudo chmod 644 /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
     $ sudo apt update
     $ sudo apt install -y kumomta
@@ -74,6 +76,7 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
     ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-22/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ sudo chmod 644 /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu22.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
     $ sudo apt update
     $ sudo apt install -y kumomta-dev
@@ -84,6 +87,7 @@ If you want to test the latest additions and improvements to KumoMTA, you can in
     ```console
     $ sudo apt install -y curl gnupg ca-certificates
     $ curl -fsSL https://openrepo.kumomta.com/kumomta-ubuntu-20/public.gpg | sudo gpg --yes --dearmor -o /usr/share/keyrings/kumomta.gpg
+    $ sudo chmod 644 /usr/share/keyrings/kumomta.gpg
     $ curl -fsSL https://openrepo.kumomta.com/files/kumomta-ubuntu20.list | sudo tee /etc/apt/sources.list.d/kumomta.list > /dev/null
     $ sudo apt update
     $ sudo apt install -y kumomta-dev
