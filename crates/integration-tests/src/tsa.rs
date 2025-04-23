@@ -127,8 +127,8 @@ impl TsaDaemon {
         nix::sys::signal::kill(pid, nix::sys::signal::SIGINT)?;
         tokio::select! {
             _ = self.child.wait() => Ok(()),
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                eprintln!("daemon didn't stop within 10 seconds");
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                eprintln!("tsa daemon didn't stop within 30 seconds");
                 self.child.start_kill()?;
                 Ok(())
             }
