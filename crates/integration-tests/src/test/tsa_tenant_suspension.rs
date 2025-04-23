@@ -1,6 +1,6 @@
 use crate::kumod::{DaemonWithTsa, MailGenParams};
 use kumo_api_types::SuspendV1ListEntry;
-use kumo_log_types::RecordType::{Delivery, TransientFailure};
+use kumo_log_types::RecordType::{Delivery, Rejection, TransientFailure};
 use std::time::Duration;
 
 #[tokio::test]
@@ -26,6 +26,13 @@ async fn tsa_tenant_suspension() -> anyhow::Result<()> {
                 summary.get(&TransientFailure).copied().unwrap_or(0) > 0
                     && summary.get(&Delivery).copied().unwrap_or(0) > 0
             },
+            Duration::from_secs(50),
+        )
+        .await;
+    daemon
+        .with_maildir
+        .wait_for_sink_summary(
+            |summary| summary.get(&Rejection).copied().unwrap_or(0) == 2,
             Duration::from_secs(50),
         )
         .await;

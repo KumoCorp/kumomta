@@ -236,6 +236,27 @@ impl DaemonWithMaildir {
         }
     }
 
+    pub async fn wait_for_sink_summary<F>(&self, mut func: F, timeout: Duration) -> bool
+    where
+        F: FnMut(&BTreeMap<RecordType, usize>) -> bool,
+    {
+        tokio::select! {
+            _ = async {
+                loop {
+                    if let Ok(summary) = self.sink.summarize_logs().await {
+                        let done = (func)(&summary);
+                        if done {
+                            return true;
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => true,
+            _ = tokio::time::sleep(timeout) => false,
+        }
+    }
+
     pub async fn stop_both(&mut self) -> anyhow::Result<()> {
         let (res_1, res_2) = tokio::join!(self.source.stop(), self.sink.stop());
         res_1?;
