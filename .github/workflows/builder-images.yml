@@ -95,5 +95,5 @@ jobs:
           file: Dockerfile.builder
           platforms: ${{ matrix.platform }}
           tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}
-          push: if: ${{ github.event_name != 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' }}
 
