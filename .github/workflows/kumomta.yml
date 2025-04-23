@@ -20,7 +20,23 @@ on:
       - "crates/**"
       - "docker/**"
   push:
-    branches: [ "main", "ghactions" ]
+    branches: [ "main" ]
+    paths:
+      - "**/Cargo.toml"
+      - ".github/workflows/kumomta.yml"
+      - "Cargo.lock"
+      - "assets/**/*.lua"
+      - "assets/*.service"
+      - "assets/accounting.sh"
+      - "assets/bounce_classifier/**"
+      - "assets/build-deb.sh"
+      - "assets/build-rpm.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/install.sh"
+      - "assets/policy-extras/**"
+      - "assets/run-lua-test"
+      - "crates/**"
+      - "docker/**"
     tags:
       - "20*"
   workflow_dispatch:

@@ -1,0 +1,57 @@
+name: Build Docs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/docs.yml"
+      - "crates/toml2jsonc/**"
+      - "docs/**"
+      - "mkdocs-base.yml"
+      - "stylua.toml"
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/docs.yml"
+      - "crates/toml2jsonc/**"
+      - "docs/**"
+      - "mkdocs-base.yml"
+      - "stylua.toml"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build_docs:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: "Install Rust"
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+    - name: "Setup sccache"
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Install stylua
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: stylua
+        features: lua54
+    - name: Install gelatyx
+      uses: baptiste0928/cargo-install@v3
+      with:
+        crate: gelatyx
+    - name: Run build
+      run: |
+        CI=false ./docs/build.sh
+    - name: Publish
+      if: ${{ github.event_name != 'pull_request' }}
+      env:
+        TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: ./assets/ci/push-gh-pages.sh

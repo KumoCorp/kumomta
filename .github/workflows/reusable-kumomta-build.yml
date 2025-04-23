@@ -144,6 +144,8 @@ jobs:
         with:
           name: "${{ inputs.artifact_name }}"
       - name: "Upload release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run:
           bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm *.deb
 
@@ -161,6 +163,8 @@ jobs:
         with:
           name: "${{ inputs.artifact_name }}"
       - name: "Upload release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run:
           bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm *.deb
 
