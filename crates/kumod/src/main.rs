@@ -339,7 +339,7 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
     .await;
 
     if !opts.validate && !opts.script {
-        if let Err(err) = crate::accounting::ACCT.flush() {
+        if let Err(err) = crate::accounting::ACCT.wait_for_shutdown().await {
             tracing::error!("error flushing ACCT: {err:#}");
         }
     }

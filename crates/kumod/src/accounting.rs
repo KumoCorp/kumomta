@@ -14,7 +14,8 @@ use std::sync::LazyLock;
 use tokio::task::JoinHandle;
 
 pub static ACCT: LazyLock<Accounting> = LazyLock::new(Accounting::default);
-static FLUSHER: LazyLock<JoinHandle<()>> = LazyLock::new(|| tokio::task::spawn(flusher()));
+static FLUSHER: LazyLock<Mutex<Option<JoinHandle<()>>>> =
+    LazyLock::new(|| Mutex::new(Some(get_main_runtime().spawn(flusher()))));
 pub static DB_PATH: LazyLock<Mutex<String>> =
     LazyLock::new(|| Mutex::new("/var/spool/kumomta/accounting.db".to_string()));
 
@@ -66,44 +67,66 @@ impl Accounting {
         (received, delivered)
     }
 
-    pub fn flush(&self) -> anyhow::Result<()> {
+    pub async fn wait_for_shutdown(&self) -> anyhow::Result<()> {
+        if config::is_validating() {
+            tracing::trace!("wait_for_shutdown: is_validating, ignoring");
+            return Ok(());
+        }
+
+        if let Some(handle) = FLUSHER.lock().take() {
+            handle.await.ok();
+        }
+
+        tracing::trace!("doing final accounting flush");
+        self.flush(true).await
+    }
+
+    async fn flush(&self, force: bool) -> anyhow::Result<()> {
         if config::is_validating() {
             return Ok(());
         }
 
-        tracing::trace!("flushing");
-        let db = open_accounting_db().context("open_accounting_db")?;
+        let (received, delivered) = self.grab();
 
-        let now = Utc::now().date_naive();
-        let now = now.format("%Y-%m-01 00:00:00").to_string();
+        if !force && (received + delivered == 0) {
+            // Nothing to do
+            return Ok(());
+        }
 
-        let mut insert = db
-            .prepare(
-                "INSERT INTO accounting
+        let res = get_main_runtime()
+            .spawn_blocking(move || {
+                tracing::trace!("flushing");
+                let db = open_accounting_db().context("open_accounting_db")?;
+
+                let now = Utc::now().date_naive();
+                let now = now.format("%Y-%m-01 00:00:00").to_string();
+
+                let mut insert = db
+                    .prepare(
+                        "INSERT INTO accounting
                     (event_time, received, delivered)
                     values ($now, $received, $delivered)
                     on conflict (event_time)
                     do update set received=received+$received, delivered=delivered+$delivered
                 ",
-            )
-            .context("prepare")?;
+                    )
+                    .context("prepare")?;
 
-        let (received, delivered) = self.grab();
+                insert.bind(("$now", now.as_str())).context("bind $now")?;
+                insert
+                    .bind(("$received", received as i64))
+                    .context("bind $received")?;
+                insert
+                    .bind(("$delivered", delivered as i64))
+                    .context("bind $delivered")?;
 
-        if received + delivered == 0 {
-            // Nothing to do
-            return Ok(());
-        }
+                insert.next()?;
+                tracing::trace!("flushed");
+                Ok(())
+            })
+            .await?;
 
-        insert.bind(("$now", now.as_str())).context("bind $now")?;
-        insert
-            .bind(("$received", received as i64))
-            .context("bind $received")?;
-        insert
-            .bind(("$delivered", delivered as i64))
-            .context("bind $delivered")?;
-
-        let res = insert.next();
+        tracing::trace!("flush result is {res:?}");
 
         if res.is_err() {
             self.inc_received(received);
@@ -115,9 +138,7 @@ impl Accounting {
             );
         }
 
-        res?;
-
-        Ok(())
+        res
     }
 }
 
@@ -178,7 +199,7 @@ async fn flusher() {
             _ = tokio::time::sleep(std::time::Duration::from_secs(5 * 60)) => {}
         };
 
-        let result = get_main_runtime().spawn_blocking(|| ACCT.flush()).await;
+        let result = ACCT.flush(false).await;
         if let Err(err) = result {
             tracing::error!("Error flushing accounting logs: {err:#}");
         }
