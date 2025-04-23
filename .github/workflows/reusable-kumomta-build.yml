@@ -147,6 +147,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run:
+          shopt -s nullglob
           bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm *.deb
 
   publish-tag:
@@ -166,6 +167,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run:
+          shopt -s nullglob
           bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm *.deb
 
   build-docker-image:
