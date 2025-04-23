@@ -1,0 +1,106 @@
+name: Builder Images
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/builder-images.yml"
+      - "assets/ci/emit-builder-dockerfile.py"
+      - "get-deps.sh"
+      - "assets/ci/build-rocksdb.sh"
+  push:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/builder-images.yml"
+      - "assets/ci/emit-builder-dockerfile.py"
+      - "get-deps.sh"
+      - "assets/ci/build-rocksdb.sh"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build-image:
+    name: ${{ matrix.IMAGE }}:${{ matrix.version }} ${{ matrix.ISARM }}
+    runs-on: ${{ matrix.runs_on }}
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - IMAGE: "amazonlinux"
+            VERSION: 2023
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
+          - IMAGE: "rockylinux"
+            VERSION: 9
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
+          - IMAGE: "ubuntu"
+            VERSION: 22.04
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
+          - IMAGE: "amazonlinux"
+            VERSION: 2023
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+          - IMAGE: "amazonlinux"
+            VERSION: 2
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+          - IMAGE: "rockylinux"
+            VERSION: 9
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+          - IMAGE: "rockylinux"
+            VERSION: 8
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+          - IMAGE: "ubuntu"
+            VERSION: 22.04
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+          - IMAGE: "ubuntu"
+            VERSION: 20.04
+            platform: linux/amd64
+            runs_on: kumo-linux-16core-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute Docker File
+        run: |
+          ${{ matrix.ISARM }} assets/ci/emit-builder-dockerfile.py ${{ matrix.IMAGE }}:${{ matrix.VERSION }} > Dockerfile.builder
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: https://ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.builder
+          platforms: ${{ matrix.platform }}
+          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}
+          push: ${{ github.event_name != 'pull_request' }}
+
