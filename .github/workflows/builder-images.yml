@@ -28,7 +28,7 @@ env:
 jobs:
   build-image:
     name: ${{ matrix.IMAGE }}:${{ matrix.version }} ${{ matrix.ISARM }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on }}
     permissions:
       packages: write
       contents: write
@@ -43,34 +43,44 @@ jobs:
             ISARM: "ARM=1"
             REPOARM: "-aarch64"
             platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
           - IMAGE: "rockylinux"
             VERSION: 9
             ISARM: "ARM=1"
             REPOARM: "-aarch64"
             platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
           - IMAGE: "ubuntu"
             VERSION: 22.04
             ISARM: "ARM=1"
             REPOARM: "-aarch64"
             platform: linux/aarch64
+            runs_on: kumo-linux-16core-arm64
           - IMAGE: "amazonlinux"
             VERSION: 2023
             platform: linux/amd64
+            runs_on: ubuntu-latest
           - IMAGE: "amazonlinux"
             VERSION: 2
             platform: linux/amd64
+            runs_on: ubuntu-latest
           - IMAGE: "rockylinux"
             VERSION: 9
             platform: linux/amd64
+            runs_on: ubuntu-latest
           - IMAGE: "rockylinux"
             VERSION: 8
             platform: linux/amd64
+            runs_on: ubuntu-latest
           - IMAGE: "ubuntu"
             VERSION: 22.04
             platform: linux/amd64
+            runs_on: ubuntu-latest
           - IMAGE: "ubuntu"
             VERSION: 20.04
             platform: linux/amd64
+            runs_on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
       - name: Compute Docker File
