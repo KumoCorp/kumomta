@@ -1,0 +1,78 @@
+name: Builder Images
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/builder-images.yml"
+      - "assets/ci/emit-builder-dockerfile.py"
+      - "get-deps.sh"
+      - "assets/ci/build-rocksdb.sh"
+  push:
+    branches: [ "main", "ghactions" ]
+    paths:
+      - ".github/workflows/builder-images.yml"
+      - "assets/ci/emit-builder-dockerfile.py"
+      - "get-deps.sh"
+      - "assets/ci/build-rocksdb.sh"
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 0"
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - IMAGE: "amazonlinux"
+            VERSION: 2023
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+          - IMAGE: "rockylinux"
+            VERSION: 9
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+          - IMAGE: "ubuntu"
+            VERSION: 22.04
+            ISARM: "ARM=1"
+            REPOARM: "-aarch64"
+            platform: linux/aarch64
+          - IMAGE: "amazonlinux"
+            VERSION: 2023
+            platform: linux/amd64
+          - IMAGE: "amazonlinux"
+            VERSION: 2
+            platform: linux/amd64
+          - IMAGE: "rockylinux"
+            VERSION: 9
+            platform: linux/amd64
+          - IMAGE: "rockylinux"
+            VERSION: 8
+            platform: linux/amd64
+          - IMAGE: "ubuntu"
+            VERSION: 22.04
+            platform: linux/amd64
+          - IMAGE: "ubuntu"
+            VERSION: 20.04
+            platform: linux/amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute Docker File
+        run: |
+          ${{ matrix.ISARM }} assets/ci/emit-builder-dockerfile.py ${{ matrix.IMAGE }}:${{ matrix.VERSION }} > Dockerfile.builder
+
