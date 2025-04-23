@@ -1,0 +1,226 @@
+name: KumoMTA Core Build
+on:
+  workflow_call:
+    inputs:
+      builder_image:
+        required: true
+        type: string
+      base_image:
+        required: true
+        type: string
+      arch:
+        required: true
+        type: string
+      runs_on:
+        required: true
+        type: string
+      artifact_name:
+        required: true
+        type: string
+      build_docker:
+        required: true
+        type: boolean
+      docker_platform:
+        type: string
+      pkg_type:
+        required: true
+        type: string
+      has_rocks:
+        default: false
+        type: boolean
+      test_containers:
+        default: 0
+        type: number
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    name: Build ${{ inputs.base_image }} ${{ inputs.arch }}
+    runs-on: ${{ inputs.runs_on }}
+    container: ${{ inputs.builder_image }}
+    env:
+      HOME: /root
+      KUMOD_TESTCONTAINERS: ${{ inputs.test_containers }}
+      REF_TYPE: ${{ github.ref_type }}
+    strategy:
+      fail-fast: false
+    steps:
+    - uses: actions/checkout@v4
+    - name: Update PATH
+      # We need to ensure that the cargo bin dir from the builder
+      # image is in the PATH that GH actions uses
+      run: "echo /root/.cargo/bin >> $GITHUB_PATH"
+    - name: Update env for rocksdb
+      if: ${{ inputs.has_rocks }}
+      run: |
+        echo ROCKSDB_LIB_DIR=/opt/kumomta/lib >> $GITHUB_ENV
+        echo ROCKSDB_STATIC=static >> $GITHUB_ENV
+        echo SNAPPY_LIB_DIR=/opt/kumomta/lib >> $GITHUB_ENV
+        echo SNAPPY_STATIC=static >> $GITHUB_ENV
+    - name: Fixup git permissions
+      run: git config --global --add safe.directory $PWD
+    - name: "Setup sccache"
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: "Restore Vendored Deps from cache"
+      uses: actions/cache@v4
+      id: cache-cargo-vendor
+      with:
+        path: |
+          vendor
+          .cargo/config.toml
+        key: "cargo-deps-${{ hashFiles('**/Cargo.lock', 'cargo/config.toml') }}"
+    - name: "Vendor Deps"
+      if: steps.cache-cargo-vendor.outputs.cache-hit != 'true'
+      run: "cargo vendor --locked --versioned-dirs >> .cargo/config.toml"
+    - name: Build for test
+      run: make build
+    - name: Run tests
+      run: make test
+    - name: Build Release
+      run: |
+        make build BUILD_OPTS="--release"
+    - name: Package DEB
+      if: ${{ inputs.pkg_type == 'apt' }}
+      run: |
+        ./assets/build-deb.sh
+    - name: Package and Sign RPM
+      if: ${{ inputs.pkg_type == 'yum' || inputs.pkg_type == 'dnf' }}
+      env:
+        PUB: ${{ secrets.OPENREPO_GPG_PUBLIC }}
+        PRIV: ${{ secrets.OPENREPO_GPG_PRIVATE }}
+      run: |
+        ./assets/build-rpm.sh
+        mv ~/rpmbuild/RPMS/*/*.rpm .
+        ./assets/sign-rpm.sh *.rpm
+
+    - name: "Upload artifact"
+      uses: actions/upload-artifact@v4
+      with:
+        name: "${{ inputs.artifact_name }}"
+        path: |
+          kumomta*.deb
+          kumomta*.rpm
+        retention-days: 1
+        if-no-files-found: error
+
+  verify-install:
+    needs: [build]
+    name: Verify install on ${{ inputs.base_image }} ${{ inputs.arch }}
+    runs-on: ${{ inputs.runs_on }}
+    container: ${{ inputs.base_image }}
+    steps:
+      - name: "Fetch artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ inputs.artifact_name }}"
+      - name: Install
+        if: ${{ inputs.pkg_type == 'apt' }}
+        run: |
+          apt update
+          apt-get install -y ./kumomta*.deb
+      - name: Install
+        if: ${{ inputs.pkg_type == 'yum' }}
+        run: yum install -y ./kumomta*.rpm
+      - name: Install
+        if: ${{ inputs.pkg_type == 'dnf' }}
+        run: dnf install -y ./kumomta*.rpm
+
+  publish-dev:
+    name: "Publish package to dev release"
+    needs: [verify-install]
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Fetch artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ inputs.artifact_name }}"
+      - name: "Upload release"
+        run:
+          bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm *.deb
+
+  publish-tag:
+    name: "Publish package to tagged release"
+    needs: [verify-install]
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_type == 'tag' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Fetch artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ inputs.artifact_name }}"
+      - name: "Upload release"
+        run:
+          bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm *.deb
+
+  build-docker-image:
+    if: ${{ inputs.build_docker }}
+    needs: [verify-install]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Fetch artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ inputs.artifact_name }}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: name=ghcr.io/kumocorp/kumomta-dev
+          tags: |
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=tag # produce latest tag when tagging
+            type=ref,event=pr
+      - name: Login to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: https://ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: ${{ inputs.docker_platform }}
+          context: .
+          file: docker/kumod/Dockerfile.incremental
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/kumocorp/kumomta-dev
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1

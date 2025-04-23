@@ -1,48 +1,192 @@
-name: Ubuntu LTS
+name: KumoMTA
 
 on:
   pull_request:
     branches: [ "main" ]
     paths:
-      - "crates/**/*.rs"
-      - ".github/workflows/kumomta.yml"
-      - "assets/build-deb.sh"
-      - "assets/policy-extras/**"
       - "**/Cargo.toml"
+      - ".github/workflows/kumomta.yml"
+      - "Cargo.lock"
+      - "assets/**/*.lua"
+      - "assets/*.service"
+      - "assets/accounting.sh"
+      - "assets/bounce_classifier/**"
+      - "assets/build-deb.sh"
+      - "assets/build-rpm.sh"
+      - "assets/sign-rpm.sh"
+      - "assets/install.sh"
+      - "assets/policy-extras/**"
+      - "assets/run-lua-test"
+      - "crates/**"
+      - "docker/**"
+  push:
+    branches: [ "main", "ghactions" ]
+    tags:
+      - "20*"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  RUSTC_WRAPPER: "sccache"
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   build-ubuntu:
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
+    uses: ./.github/workflows/reusable-kumomta-build.yml
+    secrets: inherit
+    with:
+      builder_image: ${{ matrix.builder_image }}
+      base_image: ${{ matrix.base_image }}
+      runs_on: ${{ matrix.runs_on }}
+      arch: ${{ matrix.arch }}
+      artifact_name: ${{ matrix.artifact_name }}
+      build_docker: ${{ matrix.build_docker }}
+      docker_platform: ${{ matrix.docker_platform }}
+      test_containers: ${{ matrix.test_containers }}
+      pkg_type: apt
+      has_rocks: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:22.04
+            base_image: ubuntu:22.04
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: ubuntu_2204_amd64
+            build_docker: true
+            docker_platform: linux/amd64
+            test_containers: 1
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-ubuntu:22.04
+            base_image: ubuntu:22.04
+            runs_on: kumo-linux-16core-arm64
+            arch: aarch64
+            artifact_name: ubuntu_2204_aarch64
+            build_docker: true
+            docker_platform: linux/arm64
+            test_containers: 0
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-ubuntu:20.04
+            base_image: ubuntu:20.04
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: ubuntu_2004_amd64
+            build_docker: false
+            test_containers: 0
+
+  build-amazon:
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
+    uses: ./.github/workflows/reusable-kumomta-build.yml
+    secrets: inherit
+    with:
+      builder_image: ${{ matrix.builder_image }}
+      base_image: ${{ matrix.base_image }}
+      runs_on: ${{ matrix.runs_on }}
+      arch: ${{ matrix.arch }}
+      artifact_name: ${{ matrix.artifact_name }}
+      build_docker: false
+      pkg_type: yum
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-amazonlinux:2023
+            base_image: amazonlinux:2023
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: amazonlinux_2003_amd64
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-aarch64-amazonlinux:2023
+            base_image: amazonlinux:2023
+            runs_on: kumo-linux-16core-arm64
+            arch: aarch64
+            artifact_name: amazonlinux_2003_aarch64
+
+  build-rocky:
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
+    uses: ./.github/workflows/reusable-kumomta-build.yml
+    secrets: inherit
+    with:
+      builder_image: ${{ matrix.builder_image }}
+      base_image: ${{ matrix.base_image }}
+      runs_on: ${{ matrix.runs_on }}
+      arch: ${{ matrix.arch }}
+      artifact_name: ${{ matrix.artifact_name }}
+      build_docker: false
+      pkg_type: dnf
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-rockylinux:8
+            base_image: rockylinux:8
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: rockylinux_8_amd64
+          - builder_image: docker://ghcr.io/kumocorp/builder-for-rockylinux:9
+            base_image: rockylinux:9
+            runs_on: kumo-linux-16core-amd64
+            arch: amd64
+            artifact_name: rockylinux_9_amd64
+
+  assemble-docker:
+    needs: [build-ubuntu]
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      packages: write
+      contents: write
+      attestations: write
+      id-token: write
     strategy:
       fail-fast: false
     steps:
-    - uses: actions/checkout@v4
-    - name: whoami
-      run: |
-        whoami
-        env
-    - name: Free Disk Space
-      uses: jlumbroso/free-disk-space@main
-      with:
-        tool-cache: true
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: true
-        docker-images: false
-        swap-storage: true
-    - name: Run tests
-      uses: docker://ghcr.io/kumocorp/builder-for-ubuntu:22.04
-      env:
-        KUMOD_TESTCONTAINERS: 0
-        REF_TYPE: ${{ github.ref_type }}
-        ROCKSDB_LIB_DIR: /opt/kumomta/lib
-        ROCKSDB_STATIC: static
-        SNAPPY_LIB_DIR: /opt/kumomta/lib
-        SNAPPY_STATIC: static
-      with:
-        args: /bin/bash -c "HOME=/root PATH=$PATH:/root/.cargo/bin make test"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: name=ghcr.io/kumocorp/kumomta-dev
+          tags: |
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=tag # produce latest tag when tagging
+            type=ref,event=pr
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Login to GHCR
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: https://ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/kumocorp/kumomta-dev@sha256:%s ' *)
+          docker buildx imagetools inspect ghcr.io/kumocorp/kumomta-dev:${{ steps.meta.outputs.version }}
+
