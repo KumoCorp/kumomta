@@ -27,6 +27,7 @@ env:
 
 jobs:
   build-image:
+    name: ${{ matrix.IMAGE }}:${{ matrix.version }} ${{ matrix.ISARM }}
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -75,4 +76,13 @@ jobs:
       - name: Compute Docker File
         run: |
           ${{ matrix.ISARM }} assets/ci/emit-builder-dockerfile.py ${{ matrix.IMAGE }}:${{ matrix.VERSION }} > Dockerfile.builder
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.builder
+          platforms: ${{ matrix.platform }}
+          push: false
 
