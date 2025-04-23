@@ -59,27 +59,27 @@ jobs:
           - IMAGE: "amazonlinux"
             VERSION: 2023
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
           - IMAGE: "amazonlinux"
             VERSION: 2
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
           - IMAGE: "rockylinux"
             VERSION: 9
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
           - IMAGE: "rockylinux"
             VERSION: 8
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
           - IMAGE: "ubuntu"
             VERSION: 22.04
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
           - IMAGE: "ubuntu"
             VERSION: 20.04
             platform: linux/amd64
-            runs_on: ubuntu-latest
+            runs_on: kumo-linux-16core-amd64
 
     steps:
       - uses: actions/checkout@v4
@@ -94,5 +94,6 @@ jobs:
           context: .
           file: Dockerfile.builder
           platforms: ${{ matrix.platform }}
-          push: false
+          tags: ghcr.io/kumocorp/builder-for${{ matrix.REPOARM }}-${{ matrix.IMAGE }}
+          push: if: ${{ github.event_name != 'pull_request' }}
 
