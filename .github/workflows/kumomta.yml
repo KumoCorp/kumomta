@@ -6,6 +6,7 @@ on:
     paths:
       - "**/Cargo.toml"
       - ".github/workflows/kumomta.yml"
+      - ".github/workflows/reusable-kumomta-build.yml"
       - "Cargo.lock"
       - "assets/**/*.lua"
       - "assets/*.service"
@@ -24,6 +25,7 @@ on:
     paths:
       - "**/Cargo.toml"
       - ".github/workflows/kumomta.yml"
+      - ".github/workflows/reusable-kumomta-build.yml"
       - "Cargo.lock"
       - "assets/**/*.lua"
       - "assets/*.service"
