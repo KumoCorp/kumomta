@@ -146,7 +146,7 @@ jobs:
       - name: "Upload release"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run:
+        run: |
           shopt -s nullglob
           bash ./assets/ci/retry.sh gh release upload --clobber dev *.rpm *.deb
 
@@ -166,7 +166,7 @@ jobs:
       - name: "Upload release"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run:
+        run: |
           shopt -s nullglob
           bash ./assets/ci/retry.sh bash ./assets/ci/create-release.sh *.rpm *.deb
 
