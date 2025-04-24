@@ -4,7 +4,7 @@ Our CI builds the latest version of our image and publishes it
 to the GitHub Container registry:
 
 * `ghcr.io/kumocorp/kumomta:latest` - the most recent stable release.
-* `ghcr.io/kumocorp/kumomta-dev:latest` - the most recent dev release.
+* `ghcr.io/kumocorp/kumomta:main` - the most recent dev release.
 
 You'll need a policy script in order to start kumo.
 

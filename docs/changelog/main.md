@@ -12,6 +12,10 @@
   no limit. You can adjust this via the new
   [kumo.dns.set_mx_concurrency_limit](../reference/kumo.dns/set_mx_concurrency_limit.md)
   function.
+* *dev* docker images are now published as `ghcr.io/kumocorp/kumomta:main`
+  instead of `ghcr.io/kumocorp/kumomta-dev:latest`. The most recent version
+  of the older image will be retained for a while, but you should
+  update to reference the new tag.
 
 ## Other Changes and Enhancements
 

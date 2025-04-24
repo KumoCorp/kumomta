@@ -1,7 +1,7 @@
 services:
   kumod:
     # use the latest build from `main`
-    image: ghcr.io/kumocorp/kumomta-dev:latest
+    image: ghcr.io/kumocorp/kumomta:main
     hostname: "kumod-{{.Task.Slot}}"
     # alternatively, use the latest stable release
     #image: ghcr.io/kumocorp/kumomta:latest
@@ -30,7 +30,7 @@ services:
   # tsa is the traffic shaping automation daemon that is used to
   # track and trigger shaping rules defined in your shaping.toml
   tsa:
-    image: ghcr.io/kumocorp/kumomta-dev:latest
+    image: ghcr.io/kumocorp/kumomta:main
     hostname: "tsa-{{.Task.Slot}}"
     command: runuser -u kumod -- /opt/kumomta/sbin/tsa-daemon --policy /opt/kumomta/etc/policy/tsa_init.lua
     environment:

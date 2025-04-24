@@ -3,7 +3,7 @@ services:
     container_name: kumo-sink
     hostname: sinkinator
     # use the latest build from `main`
-    image: ghcr.io/kumocorp/kumomta-dev:latest
+    image: ghcr.io/kumocorp/kumomta:main
     # alternatively, use the latest stable release
     #image: ghcr.io/kumocorp/kumomta:latest
     volumes:
