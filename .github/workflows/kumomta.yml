@@ -175,7 +175,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: name=ghcr.io/kumocorp/kumomta-dev
+          images: name=ghcr.io/kumocorp/kumomta
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
@@ -203,6 +203,6 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf 'ghcr.io/kumocorp/kumomta-dev@sha256:%s ' *)
-          docker buildx imagetools inspect ghcr.io/kumocorp/kumomta-dev:${{ steps.meta.outputs.version }}
+            $(printf 'ghcr.io/kumocorp/kumomta@sha256:%s ' *)
+          docker buildx imagetools inspect ghcr.io/kumocorp/kumomta:${{ steps.meta.outputs.version }}
 

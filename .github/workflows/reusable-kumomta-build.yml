@@ -191,7 +191,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: name=ghcr.io/kumocorp/kumomta-dev
+          images: name=ghcr.io/kumocorp/kumomta
           tags: |
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
@@ -215,7 +215,7 @@ jobs:
           context: .
           file: docker/kumod/Dockerfile.incremental
           labels: ${{ steps.meta.outputs.labels }}
-          tags: ghcr.io/kumocorp/kumomta-dev
+          tags: ghcr.io/kumocorp/kumomta
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
       - name: Export digest
         run: |
