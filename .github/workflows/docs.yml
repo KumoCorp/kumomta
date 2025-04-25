@@ -49,6 +49,7 @@ jobs:
         crate: gelatyx
     - name: Run build
       run: |
+        echo "target" > .dockerignore
         CI=false ./docs/build.sh
     - name: Publish
       if: ${{ github.event_name != 'pull_request' }}
