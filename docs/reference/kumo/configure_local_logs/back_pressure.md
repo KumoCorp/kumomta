@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # back_pressure
 
 Maximum number of outstanding items to be logged before

@@ -77,14 +77,37 @@ more information on this setting.
 
 It's a common practice to encode important per-user or per-campaign information
 in message headers, or to use a message Subject line as an identifier in
-reporting. This requires logging the headers, which can be achieved by
-specifying the desired headers in the configuration:
+reporting. This use-case requires logging the headers, which can be achieved
+very simply by specifying the desired headers in the configuration:
 
 ```lua
 kumo.configure_local_logs {
-  -- ..
+  -- This is convenient, but costly! Prefer to capture the
+  -- headers into meta and log those instead, as shown in
+  -- the example below!
   headers = { 'Subject', 'X-Client-ID' },
 }
+```
+
+Our recommendation is to capture the headers into the message metadata
+to make the system run faster and more efficiently:
+
+```lua
+kumo.on('init', function()
+  kumo.configure_local_logs {
+    -- ..
+    meta = { 'subject', 'x_client_id' },
+  }
+end)
+
+kumo.on('smtp_server_message_received', function(msg, conn_meta)
+  -- Arrange to log the subject header in the most
+  -- efficient way, by capturing it into the message
+  -- metadata when we receive the message.
+  -- The `msg:import_x_headers` method will capture non-x-header
+  -- names when header names are explicitly passed like this:
+  msg:import_x_headers { 'subject', 'x-client-id' }
+end)
 ```
 
 ## Customizing the log format

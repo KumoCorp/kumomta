@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # `kumo.configure_log_hook {PARAMS}`
 
 Configures the lua logging hook. When enabled, each matching log event will

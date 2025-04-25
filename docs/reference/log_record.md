@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 ## Log Record
 
 The log record is a JSON object with the following shape:

@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # max_file_size
 
 Specify how many uncompressed bytes to allow per file segment. When this number

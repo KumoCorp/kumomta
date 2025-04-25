@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # `kumo.on('should_enqueue_log_record', function(message, hook_name))`
 
 This event is triggered when

@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # per_record
 
 Allows configuring per-record type logging.

@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # filter_event
 
 {{since('2023.11.28-b5252a41')}}

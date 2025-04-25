@@ -1,3 +1,8 @@
+---
+tags:
+ - meta
+---
+
 # Connection Metadata Object
 
 {{since('2023.08.22-4d895015')}}

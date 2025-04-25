@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # `kumo.configure_local_logs {PARAMS}`
 
 Enables local logging of reception and delivery events to the specified

@@ -1,3 +1,8 @@
+---
+tags:
+ - meta
+---
+
 # Predefined Metadata
 
 KumoMTA provides the ability to set and retrieve metadata at both the connection and message level.

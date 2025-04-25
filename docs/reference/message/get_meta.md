@@ -1,3 +1,8 @@
+---
+tags:
+ - meta
+---
+
 # `message:get_meta(KEY)`
 
 Messages are associated with some metadata. You can think of this metadata

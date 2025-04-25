@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # log_dir
 
 Specifies the directory into which log file segments will be written.

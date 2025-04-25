@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # compression_level
 
 Specifies the level of *zstd* compression that should be used.  Compression

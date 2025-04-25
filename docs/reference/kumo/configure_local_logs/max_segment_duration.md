@@ -1,3 +1,8 @@
+---
+tags:
+ - logging
+---
+
 # max_segment_duration
 
 Specify the maximum time period for a file segment.  The default is unlimited.
