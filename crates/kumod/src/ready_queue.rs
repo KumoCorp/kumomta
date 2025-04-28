@@ -597,6 +597,26 @@ impl ReadyQueueManager {
                     }
                 },
                 _ = notify_maintainer.notified() => {
+                    // Avoid being over-notified.
+                    // Let's do an approximation of whatever
+                    // actual connection rate limit might be applicable.
+                    let path_config = queue.path_config.borrow();
+
+                    if let Some(throttle) = path_config.max_connection_rate {
+                        let local_throttle = throttle.as_local();
+
+                        let result = local_throttle
+                            .throttle(format!("{name}-readyq-maintainer-rate"))
+                            .await?;
+                        if let Some(delay) = result.retry_after {
+                            tracing::debug!("{name}: throttling readyq maintainer for {delay:?}");
+                            tokio::select! {
+                                _ = tokio::time::sleep(delay) => {},
+                                _ = shutdown.shutting_down() => {}
+                            };
+                        }
+                    }
+
                     last_notify = Instant::now();
                     age_out_time = last_notify + AGE_OUT_INTERVAL;
                 },

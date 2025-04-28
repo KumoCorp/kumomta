@@ -135,6 +135,12 @@ impl ThrottleSpec {
     pub fn interval(&self) -> Duration {
         Duration::from_secs_f64(self.period as f64 / self.limit.max(1) as f64)
     }
+
+    pub fn as_local(&self) -> Self {
+        let mut copy = self.clone();
+        copy.force_local = true;
+        copy
+    }
 }
 
 impl std::fmt::Debug for ThrottleSpec {
