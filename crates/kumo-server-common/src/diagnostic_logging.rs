@@ -1,6 +1,5 @@
 use anyhow::Context;
 use clap::ValueEnum;
-use metrics_prometheus::recorder::Layer as _;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tracing_subscriber::fmt::writer::BoxMakeWriter;
@@ -76,7 +75,6 @@ impl LoggingConfig<'_> {
         let (env_filter, reload_handle) = tracing_subscriber::reload::Layer::new(env_filter);
         tracing_subscriber::registry()
             .with(layer.with_filter(env_filter))
-            .with(metrics_tracing_context::MetricsLayer::new())
             .init();
 
         TRACING_FILTER_RELOAD_HANDLE
@@ -87,10 +85,7 @@ impl LoggingConfig<'_> {
             }))
             .map_err(|_| anyhow::anyhow!("failed to assign reloadable logging filter"))?;
 
-        metrics::set_global_recorder(
-            metrics_tracing_context::TracingContextLayer::all()
-                .layer(metrics_prometheus::Recorder::builder().build()),
-        )?;
+        metrics::set_global_recorder(metrics_prometheus::Recorder::builder().build())?;
         Ok(())
     }
 }
