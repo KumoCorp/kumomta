@@ -9,10 +9,10 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::future::Future;
 use std::hash::Hash;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Weak};
 use tokio::sync::Semaphore;
-use tokio::time::{timeout, Duration, Instant};
+use tokio::time::{timeout_at, Duration, Instant};
 pub use {linkme, paste};
 
 mod metrics;
@@ -24,6 +24,7 @@ struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     name: String,
     tick: AtomicUsize,
     capacity: AtomicUsize,
+    allow_stale_reads: AtomicBool,
     cache: DashMap<K, Item<V>>,
     lru_samples: AtomicUsize,
     sema_timeout_milliseconds: AtomicUsize,
@@ -34,6 +35,7 @@ struct Inner<K: Clone + Hash + Eq + Debug, V: Clone + Send + Sync + Debug> {
     miss_counter: IntCounter,
     populate_counter: IntCounter,
     insert_counter: IntCounter,
+    stale_counter: IntCounter,
     error_counter: IntCounter,
     wait_gauge: IntGauge,
     size_gauge: IntGauge,
@@ -141,7 +143,7 @@ impl<
                         current_idx = idx + 1;
                         let item = map_entry.value();
                         match &item.item {
-                            ItemState::Pending(_) => {
+                            ItemState::Pending(_) | ItemState::Refreshing { .. } => {
                                 // Cannot evict a pending lookup
                             }
                             ItemState::Present(_) | ItemState::Failed(_) => {
@@ -266,7 +268,7 @@ impl<
         for map_entry in self.cache.iter() {
             let item = map_entry.value();
             match &item.item {
-                ItemState::Pending(_) => {
+                ItemState::Pending(_) | ItemState::Refreshing { .. } => {
                     // Cannot evict a pending lookup
                 }
                 ItemState::Present(_) | ItemState::Failed(_) => {
@@ -443,6 +445,10 @@ where
     Present(V),
     Pending(Arc<Semaphore>),
     Failed(Arc<anyhow::Error>),
+    Refreshing {
+        stale_value: V,
+        pending: Arc<Semaphore>,
+    },
 }
 
 #[derive(Debug)]
@@ -496,6 +502,9 @@ impl<
         let hit_counter = CACHE_HIT
             .get_metric_with_label_values(&[&name])
             .expect("failed to get counter");
+        let stale_counter = CACHE_STALE
+            .get_metric_with_label_values(&[&name])
+            .expect("failed to get counter");
         let evict_counter = CACHE_EVICT
             .get_metric_with_label_values(&[&name])
             .expect("failed to get counter");
@@ -525,6 +534,7 @@ impl<
             name,
             cache,
             tick: AtomicUsize::new(0),
+            allow_stale_reads: AtomicBool::new(false),
             capacity: AtomicUsize::new(capacity),
             lru_samples: AtomicUsize::new(10),
             sema_timeout_milliseconds: AtomicUsize::new(120_000),
@@ -537,6 +547,7 @@ impl<
             error_counter,
             wait_gauge,
             insert_counter,
+            stale_counter,
             size_gauge,
         });
 
@@ -553,6 +564,14 @@ impl<
         }
 
         Self { inner }
+    }
+
+    fn allow_stale_reads(&self) -> bool {
+        self.inner.allow_stale_reads.load(Ordering::Relaxed)
+    }
+
+    pub fn set_allow_stale_reads(&self, value: bool) {
+        self.inner.allow_stale_reads.store(value, Ordering::Relaxed);
     }
 
     pub fn set_sema_timeout(&self, duration: Duration) {
@@ -590,7 +609,19 @@ impl<
                     ItemState::Present(item) => {
                         let now = Instant::now();
                         if now >= entry.expiration {
-                            // Expired; remove it from the map.
+                            // Expired
+                            if self.allow_stale_reads() {
+                                // We don't furnish a result directly, but we
+                                // also do not want to remove it from the map
+                                // at this stage.
+                                // We're assuming that lookup() is called only
+                                // via get_or_try_insert when allow_stale_reads
+                                // is enabled.
+                                self.inner.miss_counter.inc();
+                                return None;
+                            }
+
+                            // otherwise: remove it from the map.
                             // Take care to drop our ref first so that we don't
                             // self-deadlock
                             drop(entry);
@@ -614,7 +645,7 @@ impl<
                             is_fresh: false,
                         })
                     }
-                    ItemState::Pending(_) | ItemState::Failed(_) => {
+                    ItemState::Refreshing { .. } | ItemState::Pending(_) | ItemState::Failed(_) => {
                         self.inner.miss_counter.inc();
                         None
                     }
@@ -665,7 +696,33 @@ impl<
                     entry.value_mut().item = ItemState::Pending(Arc::new(Semaphore::new(1)));
                 }
             }
-            ItemState::Present(_) | ItemState::Failed(_) => {
+            ItemState::Refreshing {
+                stale_value,
+                pending,
+            } => {
+                if pending.is_closed() {
+                    entry.value_mut().item = ItemState::Refreshing {
+                        stale_value: stale_value.clone(),
+                        pending: Arc::new(Semaphore::new(1)),
+                    };
+                }
+            }
+            ItemState::Present(item) => {
+                let now = Instant::now();
+                if now >= entry.expiration {
+                    // Expired; we will need to fetch it
+                    let pending = Arc::new(Semaphore::new(1));
+                    if self.allow_stale_reads() {
+                        entry.value_mut().item = ItemState::Refreshing {
+                            stale_value: item.clone(),
+                            pending,
+                        };
+                    } else {
+                        entry.value_mut().item = ItemState::Pending(pending);
+                    }
+                }
+            }
+            ItemState::Failed(_) => {
                 let now = Instant::now();
                 if now >= entry.expiration {
                     // Expired; we will need to fetch it
@@ -703,9 +760,15 @@ impl<
             return Ok(entry);
         }
 
+        let timeout_duration = Duration::from_millis(
+            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
+        );
+        let start = Instant::now();
+        let deadline = start + timeout_duration;
+
         // Note: the lookup call increments lookup_counter and miss_counter
         'retry: loop {
-            match self.clone_item_state(name) {
+            let (stale_value, sema) = match self.clone_item_state(name) {
                 (ItemState::Present(item), expiration) => {
                     return Ok(ItemLookup {
                         item,
@@ -716,125 +779,150 @@ impl<
                 (ItemState::Failed(error), _) => {
                     return Err(error);
                 }
-                (ItemState::Pending(sema), _) => {
-                    let wait_result = {
-                        self.inner.wait_gauge.inc();
-                        defer! {
-                            self.inner.wait_gauge.dec();
-                        }
+                (
+                    ItemState::Refreshing {
+                        stale_value,
+                        pending,
+                    },
+                    expiration,
+                ) => (Some((stale_value, expiration)), pending),
+                (ItemState::Pending(sema), _) => (None, sema),
+            };
 
-                        let timeout_duration = Duration::from_millis(
-                            self.inner.sema_timeout_milliseconds.load(Ordering::Relaxed) as u64,
-                        );
+            let wait_result = {
+                self.inner.wait_gauge.inc();
+                defer! {
+                    self.inner.wait_gauge.dec();
+                }
 
-                        match timeout(timeout_duration, sema.acquire_owned()).await {
-                            Err(_) => {
-                                self.inner.error_counter.inc();
-                                tracing::debug!(
-                                    "{} semaphore acquire for {name:?} timed out after {timeout_duration:?}",
-                                    self.inner.name
-                                );
-                                return Err(Arc::new(anyhow::anyhow!(
-                                    "{} lookup for {name:?} \
-                                    timed out after {timeout_duration:?} \
-                                    on semaphore acquire while waiting for cache to populate",
-                                    self.inner.name
-                                )));
-                            }
-                            Ok(r) => r,
-                        }
-                    };
-
-                    // While we slept, someone else may have satisfied
-                    // the lookup; check it
-                    match self.clone_item_state(name) {
-                        (ItemState::Present(item), expiration) => {
+                match timeout_at(deadline, sema.acquire_owned()).await {
+                    Err(_) => {
+                        if let Some((item, expiration)) = stale_value {
+                            tracing::debug!(
+                                "{} semaphore acquire for {name:?} timed out after \
+                                {timeout_duration:?}, allowing stale value to satisfy the lookup",
+                                self.inner.name
+                            );
+                            self.inner.stale_counter.inc();
                             return Ok(ItemLookup {
                                 item,
                                 expiration,
                                 is_fresh: false,
                             });
                         }
-                        (ItemState::Failed(error), _) => {
-                            self.inner.hit_counter.inc();
-                            return Err(error);
-                        }
-                        (ItemState::Pending(current_sema), _) => {
-                            // It's still outstanding
-                            match wait_result {
-                                Ok(permit) => {
-                                    // We're responsible for resolving it.
-                                    // We will always close the semaphore when
-                                    // we're done with this logic (and when we unwind
-                                    // or are cancelled) so that we can wake up any
-                                    // waiters.
-                                    // We use defer! for this so that if we are cancelled
-                                    // at the await point below, others are still woken up.
-                                    defer! {
-                                        permit.semaphore().close();
-                                    }
+                        tracing::debug!(
+                            "{} semaphore acquire for {name:?} timed out after \
+                                {timeout_duration:?}, returning error",
+                            self.inner.name
+                        );
 
-                                    if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
-                                        self.inner.error_counter.inc();
-                                        tracing::warn!(
-                                            "{} mismatched semaphores for {name:?}, \
-                                            will restart cache resolve.",
-                                            self.inner.name
-                                        );
-                                        continue 'retry;
-                                    }
-
-                                    self.inner.populate_counter.inc();
-                                    let mut ttl = Duration::from_secs(60);
-                                    let future_result = fut.await;
-                                    let now = Instant::now();
-
-                                    let (item_result, return_value) = match future_result {
-                                        Ok(item) => {
-                                            ttl = ttl_func(&item);
-                                            (
-                                                ItemState::Present(item.clone()),
-                                                Ok(ItemLookup {
-                                                    item,
-                                                    expiration: now + ttl,
-                                                    is_fresh: true,
-                                                }),
-                                            )
-                                        }
-                                        Err(err) => {
-                                            self.inner.error_counter.inc();
-                                            let err = Arc::new(err.into());
-                                            (ItemState::Failed(err.clone()), Err(err))
-                                        }
-                                    };
-
-                                    self.inner.cache.insert(
-                                        name.clone(),
-                                        Item {
-                                            item: item_result,
-                                            expiration: Instant::now() + ttl,
-                                            last_tick: self.inc_tick().into(),
-                                        },
-                                    );
-                                    self.inner.maybe_evict();
-                                    return return_value;
-                                }
-                                Err(_) => {
-                                    self.inner.error_counter.inc();
-
-                                    // semaphore was closed, but the status is
-                                    // still somehow pending
-                                    tracing::debug!(
-                                        "{} lookup for {name:?} woke up semaphores \
-                                        but is still marked pending, \
-                                        will restart cache lookup",
-                                        self.inner.name
-                                    );
-                                    continue 'retry;
-                                }
-                            }
-                        }
+                        self.inner.error_counter.inc();
+                        return Err(Arc::new(anyhow::anyhow!(
+                            "{} lookup for {name:?} \
+                            timed out after {timeout_duration:?} \
+                            on semaphore acquire while waiting for cache to populate",
+                            self.inner.name
+                        )));
                     }
+                    Ok(r) => r,
+                }
+            };
+
+            // While we slept, someone else may have satisfied
+            // the lookup; check it
+            let current_sema = match self.clone_item_state(name) {
+                (ItemState::Present(item), expiration) => {
+                    return Ok(ItemLookup {
+                        item,
+                        expiration,
+                        is_fresh: false,
+                    });
+                }
+                (ItemState::Failed(error), _) => {
+                    self.inner.hit_counter.inc();
+                    return Err(error);
+                }
+                (
+                    ItemState::Refreshing {
+                        stale_value: _,
+                        pending,
+                    },
+                    _,
+                ) => pending,
+                (ItemState::Pending(current_sema), _) => current_sema,
+            };
+
+            // It's still outstanding
+            match wait_result {
+                Ok(permit) => {
+                    // We're responsible for resolving it.
+                    // We will always close the semaphore when
+                    // we're done with this logic (and when we unwind
+                    // or are cancelled) so that we can wake up any
+                    // waiters.
+                    // We use defer! for this so that if we are cancelled
+                    // at the await point below, others are still woken up.
+                    defer! {
+                        permit.semaphore().close();
+                    }
+
+                    if !Arc::ptr_eq(&current_sema, permit.semaphore()) {
+                        self.inner.error_counter.inc();
+                        tracing::warn!(
+                            "{} mismatched semaphores for {name:?}, \
+                                    will restart cache resolve.",
+                            self.inner.name
+                        );
+                        continue 'retry;
+                    }
+
+                    self.inner.populate_counter.inc();
+                    let mut ttl = Duration::from_secs(60);
+                    let future_result = fut.await;
+                    let now = Instant::now();
+
+                    let (item_result, return_value) = match future_result {
+                        Ok(item) => {
+                            ttl = ttl_func(&item);
+                            (
+                                ItemState::Present(item.clone()),
+                                Ok(ItemLookup {
+                                    item,
+                                    expiration: now + ttl,
+                                    is_fresh: true,
+                                }),
+                            )
+                        }
+                        Err(err) => {
+                            self.inner.error_counter.inc();
+                            let err = Arc::new(err.into());
+                            (ItemState::Failed(err.clone()), Err(err))
+                        }
+                    };
+
+                    self.inner.cache.insert(
+                        name.clone(),
+                        Item {
+                            item: item_result,
+                            expiration: Instant::now() + ttl,
+                            last_tick: self.inc_tick().into(),
+                        },
+                    );
+                    self.inner.maybe_evict();
+                    return return_value;
+                }
+                Err(_) => {
+                    self.inner.error_counter.inc();
+
+                    // semaphore was closed, but the status is
+                    // still somehow pending
+                    tracing::debug!(
+                        "{} lookup for {name:?} woke up semaphores \
+                                but is still marked pending, \
+                                will restart cache lookup",
+                        self.inner.name
+                    );
+                    continue 'retry;
                 }
             }
         }

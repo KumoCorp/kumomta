@@ -59,6 +59,7 @@ impl Memoized {
 impl UserData for Memoized {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct MemoizeParams {
     #[serde(with = "duration_serde")]
     pub ttl: Duration,
@@ -70,6 +71,8 @@ pub struct MemoizeParams {
     pub retry_on_populate_timeout: bool,
     #[serde(default, with = "duration_serde")]
     pub populate_timeout: Option<Duration>,
+    #[serde(default)]
+    pub allow_stale_reads: bool,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq)]
@@ -406,6 +409,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 if let Some(duration) = params.populate_timeout {
                     cache.set_sema_timeout(duration);
                 }
+                cache.set_allow_stale_reads(params.allow_stale_reads);
 
                 MemoizeCache {
                     params: params.clone(),
@@ -426,6 +430,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 .get_metric_with_label_values(&[&cache_name])
                 .map_err(any_err)?;
             let retry_on_populate_timeout = params.retry_on_populate_timeout;
+            let allow_stale_reads = params.allow_stale_reads;
 
             let func_ref = lua.create_registry_value(func)?;
 
@@ -461,7 +466,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                             .ok_or_else(|| anyhow::anyhow!("cache is somehow undefined!?"))
                             .map_err(any_err)?;
 
-                        let epoch_key = if invalidate_with_epoch {
+                        let epoch_key = if invalidate_with_epoch && !allow_stale_reads {
                             Some(epoch_at_start)
                         } else {
                             None

@@ -65,6 +65,14 @@ pub(crate) static CACHE_ERROR: LazyLock<IntCounterVec> = LazyLock::new(|| {
     )
     .unwrap()
 });
+pub(crate) static CACHE_STALE: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    prometheus::register_int_counter_vec!(
+        "lruttl_stale_count",
+        "how many times a lruttl cache population was satisfied by a stale value",
+        &["cache_name"]
+    )
+    .unwrap()
+});
 pub(crate) static CACHE_WAIT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     prometheus::register_int_gauge_vec!(
         "lruttl_waiting_populate",

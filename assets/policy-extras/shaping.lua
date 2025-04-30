@@ -417,6 +417,7 @@ function mod:setup_with_automation(options)
     invalidate_with_epoch = true,
     retry_on_populate_timeout = options.retry_shaping_data_fetch_on_populate_timeout,
     populate_timeout = options.shaping_data_populate_timeout,
+    allow_stale_reads = options.allow_stale_shaping_data or false,
   })
 
   local file_names = {}
