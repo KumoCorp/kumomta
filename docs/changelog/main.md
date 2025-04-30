@@ -112,3 +112,5 @@
 * Rebuilding a MIME message (such as via `msg:check_fix_conformance`) that had
   binary attachments would incorrectly re-interpret the bytes as windows-1252
   encoded characters, damaging the attachment.
+* Using redis-based throttles without redis-cell and with long periods (eg: `500/d`)
+  could result in throttles being exceeded.

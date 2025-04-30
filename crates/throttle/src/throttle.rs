@@ -60,7 +60,7 @@ else
   throttled = 0
   reset_after = math.ceil(new_tat - now)
   retry_after = 0
-  redis.call("SET", key, new_tat, "PX", reset_after)
+  redis.call("SET", key, new_tat, "EX", reset_after)
 end
 
 return {throttled, remaining, reset_after, retry_after, tostring(diff), tostring(interval)}
