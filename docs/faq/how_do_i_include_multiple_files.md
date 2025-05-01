@@ -8,10 +8,11 @@ For example, the following code will load the shaping helper with all toml files
 local shaper = shaping:setup_with_automation {
   publish = { 'http://127.0.0.1:8008' },
   subscribe = { 'http://127.0.0.1:8008' },
-  extra_files = {'/opt/kumomta/etc/policy/shaping.toml',
-                 '/opt/kumomta/etc/policy/vmta_shaping.toml',
-                 '/opt/kumomta/etc/policy/automation_rules.toml',
-                 table.unpack(kumo.glob '/opt/kumomta/etc/shaping/*.toml'),
-         },
+  extra_files = {
+    '/opt/kumomta/etc/policy/shaping.toml',
+    '/opt/kumomta/etc/policy/vmta_shaping.toml',
+    '/opt/kumomta/etc/policy/automation_rules.toml',
+    table.unpack(kumo.glob '/opt/kumomta/etc/shaping/*.toml'),
+  },
 }
 ```

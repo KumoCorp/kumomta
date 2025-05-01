@@ -67,7 +67,7 @@ It is helpful to use [custom routing](https://docs.kumomta.com/userguide/policy/
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
-    msg:set_meta('queue', 'my.sink.server')
+  msg:set_meta('queue', 'my.sink.server')
 end)
 ```
 
