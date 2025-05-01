@@ -51,7 +51,7 @@ log_hooks:new_json {
 Given the queue name of `webhook` the following should be added to the shaping helper TOML configuration file:
 
 ```toml
-['webhook']
+['webhook.log_hook']
 # This is not a regular email domain, so do not try to resolve it as an MX record
 mx_rollup = false
 max_deliveries_per_connection = 8192
