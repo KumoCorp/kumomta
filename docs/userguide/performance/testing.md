@@ -100,6 +100,17 @@ destined for port 25 is instead routed to localhost on port 2026.
     this sort of redirection, otherwise you will experience TLS failures for
     sites that publish MTA-STS and/or DANE policies.
 
+When using `iptables` correctly and safely, and you're sure that you cannot be
+leaking test SMTP traffic to the public internet, you can then change your
+`traffic-gen` command/script to remove the domain suffix:
+
+```bash
+  --domain-suffix '' \
+```
+
+which will then cause the real-world DNS records to be resolved and further
+increase the realism of your testing environment.
+
 ## Sample Test Results
 The hardware configuration used in this example is one "sending" configured KumoMTA instance hosted on AWS (variable CPU and RAM) and one "sink" KumoMTA instance hosted on Azure (8 CPU/16GB RAM) using a payload of 100KB messages sent in a loop 100,000 times.
 
