@@ -6,14 +6,23 @@ KumoMTA makes heavy use of files, RAM, CPU and network resources. Setting these 
 
 ## Tuning sysctl.conf
 
-Tuning Linux is beyond the scope of this documentation, for a guide to tuning `sysctl.conf` see [https://wiki.archlinux.org/title/Sysctl](https://wiki.archlinux.org/title/Sysctl).
+The following tuning parameters should be reviewed to ensure they are properly tuned for your workload.
 
-The following are designed to increase the number of file file descriptors and the size of the range of ports that can be leveraged. Further tuning may be required on your specific system.
+These parameters should be added or updated in */etc/sysctl.conf*:
 
-```bash
-fs.file-max = 250000
-net.ipv4.ip_local_port_range = 5000 63000
-net.ipv4.tcp_tw_reuse = 1
-```
+* vm.max_map_count
+* net.core.rmem_default
+* net.core.wmem_default
+* net.core.rmem_max
+* net.core.wmem_max
+* fs.file-max
+* net.ipv4.ip_local_port_range
+* net.ipv4.tcp_tw_reuse
+* kernel.shmmax
+* net.core.somaxconn
+* vm.nr_hugepages
+* kernel.shmmni
 
-After editing, the changes can be implemented without a restart with the **sysctl -p** command.
+This does not necessarily represent the full range of kernel tuning parameters you may need to adjust.
+
+KumoMTA Sponsors should consult with the KumoMTA support team for assistance with performance tuning. More information on sponsoring KumoMTA can be found [here](https://kumomta.com/support).
