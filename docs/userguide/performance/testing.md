@@ -22,6 +22,7 @@ For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic
 
 ```console
 $ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
+```
 
 For additional parameters for the `traffic-gen` utility see:
 
