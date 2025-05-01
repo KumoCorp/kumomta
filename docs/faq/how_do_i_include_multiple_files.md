@@ -11,7 +11,7 @@ local shaper = shaping:setup_with_automation {
   extra_files = {'/opt/kumomta/etc/policy/shaping.toml',
                  '/opt/kumomta/etc/policy/vmta_shaping.toml',
                  '/opt/kumomta/etc/policy/automation_rules.toml',
-                 table.unpack(kumo.glob '/opt/kumomta/etc/shaping/*'),
+                 table.unpack(kumo.glob '/opt/kumomta/etc/shaping/*.toml'),
          },
 }
 ```
