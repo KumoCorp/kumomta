@@ -63,7 +63,11 @@ exec traffic-gen \
 
 The preceding example uses the domain argument to list the destination domains that should be generated and their relative weights.
 
-It is helpful to use [custom routing](https://docs.kumomta.com/userguide/policy/routing/) to configure the test server to route all messages to the sink server, with the sink configured to dev/null all messages. Modify the `init.lua` on the test server with the following:
+When performing raw throughput testing, it can be helpful to use [custom
+routing](https://docs.kumomta.com/userguide/policy/routing/) to configure the
+test server to route all messages to the sink server, with the sink configured
+to dev/null all messages. Modify the `init.lua` on the test server with the
+following:
 
 ```lua
 kumo.on('smtp_server_message_received', function(msg)
@@ -71,13 +75,29 @@ kumo.on('smtp_server_message_received', function(msg)
 end)
 ```
 
-Alternatively you can use `iptables` to re-route traffic to a sink:
+However, when using the above smart hosting/routing technique you must be aware
+that it causes the outgoing traffic to fan in to a smaller-than-real-world set
+of egress sources.  It is suitable for measuring the maximum throughput
+possible, but will not reflect the system behavior in terms of managing queues
+and respecting your shaping settings for the various destination sites.
+
+For a truer representation of the overall system behavior we recommend using
+your firewall to redirect traffic to the sink in a transparent manner.  You
+can use the `iptables` command for this purpose:
 
 ```console
 $ iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
 ```
 
-In the preceding example all traffic destined for port 25 is instead routed to localhost on port 2026.
+In the preceding example all traffic, other than LAN traffic on 192.168.1.0/24,
+destined for port 25 is instead routed to localhost on port 2026.
+
+!!! note
+    You will need to disable
+    [MTA-STS](../../reference/kumo/make_egress_path/enable_mta_sts.md) and
+    [DANE](../../reference/kumo/make_egress_path/enable_dane.md) when using
+    this sort of redirection, otherwise you will experience TLS failures for
+    sites that publish MTA-STS and/or DANE policies.
 
 ## Sample Test Results
 The hardware configuration used in this example is one "sending" configured KumoMTA instance hosted on AWS (variable CPU and RAM) and one "sink" KumoMTA instance hosted on Azure (8 CPU/16GB RAM) using a payload of 100KB messages sent in a loop 100,000 times.
