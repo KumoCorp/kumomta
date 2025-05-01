@@ -86,7 +86,8 @@ your firewall to redirect traffic to the sink in a transparent manner.  You
 can use the `iptables` command for this purpose:
 
 ```console
-$ iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
+$ iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 \
+  --dport 25 -j DNAT --to-destination 127.0.0.1:2026
 ```
 
 In the preceding example all traffic, other than LAN traffic on 192.168.1.0/24,
