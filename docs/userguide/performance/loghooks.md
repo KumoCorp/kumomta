@@ -48,7 +48,7 @@ log_hooks:new_json {
 }
 ```
 
-Given the queue name of `webhook` the following should be added to the shaping helper TOML configuration file:
+Given the log hook name of `webhook` the following should be added to the shaping helper TOML configuration file:
 
 ```toml
 ['webhook.log_hook']
