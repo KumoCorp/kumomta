@@ -24,15 +24,16 @@ For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic
 $ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
 
 For additional parameters for the `traffic-gen` utility see:
-```bash
-sudo /opt/kumomta/sbin/traffic-gen --help
+
+```console
+$ /opt/kumomta/sbin/traffic-gen --help
 ```
 
 The `traffic-gen` script is used internally by the KumoMTA team to test performance before each release.
 
 A more advanced example is as follows:
 
-```bash
+```console
 $ cat traffic-gen.sh
 #!/bin/bash
 
@@ -63,7 +64,7 @@ The preceding example uses the domain argument to list the destination domains t
 
 It is helpful to use [custom routing](https://docs.kumomta.com/userguide/policy/routing/) to configure the test server to route all messages to the sink server, with the sink configured to dev/null all messages. Modify the `init.lua` on the test server with the following:
 
-```bash
+```lua
 kumo.on('smtp_server_message_received', function(msg)
     msg:set_meta('queue', 'my.sink.server')
 end)
@@ -71,8 +72,8 @@ end)
 
 Alternatively you can use `iptables` to re-route traffic to a sink:
 
-```bash
-iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
+```console
+$ iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
 ```
 
 In the preceding example all traffic destined for port 25 is instead routed to localhost on port 2026.
