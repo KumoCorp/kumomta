@@ -43,10 +43,13 @@ log_hooks:new_json {
   name = 'webhook',
   url = 'http://10.0.0.1:4242/log',
   log_parameters = {
-    headers = { 'Subject', 'X-Customer-ID' },
+    meta = { 'From', 'Subject', 'x-virtual-mta', 'x-dkim-options' },
   },
 }
 ```
+
+!!!note
+    In the preceding example we use the `meta` option instead of the `headers` option because logging headers requires the message body to be processed during logging. This can be combined with the [msg:import_x_headers](../../reference/message/import_x_headers.md) function to push the relevant headers into the message metadata for efficient logging.
 
 Given the log hook name of `webhook` the following should be added to the shaping helper TOML configuration file:
 
