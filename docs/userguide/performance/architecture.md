@@ -35,7 +35,7 @@ For more information on hardware see [this blog post](https://kumomta.com/blog/b
 When planning storage, especially on physical hardware, it is important to consider the different I/O that runs in parallel on an active MTA. These I/O sets should ideally reside on separate disks:
 
 1) Spool - KumoMTA will be continuously reading and writing from/to the spool disk. By default KumoMTA will place its spool under `/var/spool/` and this location should be mounted to a separate disk (or at least a separate partition).
-2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log` which should be mounted on a separate disk (or a least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
+2) Logs - KumoMTA will continuously write logs, and it should be noted that there is no log purging provided by KumoMTA. By default logs will be written under `/var/log/kumomta` which should be mounted on a separate disk (or a least a separate partition). To prevent running out of disk space you will need to implement log rotation and deletion based on your needs for data retention.
 3) Other IO - While KumoMTA will perform the majority of its I/O on the spool and log directories, a separate root partition is recommended to help isolate the general I/O from the spool and log I/O.
 
 ## Network Performance
