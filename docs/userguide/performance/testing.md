@@ -20,9 +20,8 @@ This is important because KumoMTA works in a highly parallel fashion, with very 
 ## Generating Traffic Using `traffic-gen`
 For cases where accurate simulation is not feasible, KumoMTA includes a "Traffic Generator" that can be use to send volume test mail for this purpose. The `traffic-gen` appends a known domain to all outbound mail that resolves to your own loopback address so that mail can be delivered, but will never deliver to real addresses:
 
-```bash
-sudo /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
-```
+```console
+$ /opt/kumomta/sbin/traffic-gen --target <your.sink.server>:25 --concurrency 20000 --message-count 100000 --body-size 100000
 
 For additional parameters for the `traffic-gen` utility see:
 ```bash
