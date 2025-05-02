@@ -9,17 +9,25 @@
 ]]
 --
 local kumo = require 'kumo'
-local docker_utils = require 'docker_utils'
-
+local docker_utils = require 'policy-extras.docker_utils'
 local shaping = require 'policy-extras.shaping'
 
 local DOCKER_NETWORK = docker_utils.resolve_docker_network()
 
--- The compose file causes tsa-daemon to be started and assigned
--- the DNS name `tsa`. We use that name to resolve the daemon here.
+-- We need to ensure that we publish logs to each individual
+-- tsa service node, and read data from all of them.
+-- We resolve the tsa DNS record to obtain the list of IPs;
+-- this requires that the service be deployed with
+-- `endpoint_mode: dnsrr`.
+-- NOTE: if you subsequently scale the number of tsa replicas,
+-- a given kumod instance will have mismatching information
+-- about them until it is restarted and shaper.setup_publish()
+-- is called again.
+local tsa_publish = docker_utils.resolve_tsa_endpoints()
+
 local shaper = shaping:setup_with_automation {
-  publish = { 'http://tsa:8008' },
-  subscribe = { 'http://tsa:8008' },
+  publish = tsa_publish,
+  subscribe = tsa_publish,
   extra_files = { '/opt/kumomta/etc/policy/shaping.toml' },
 }
 

@@ -10,9 +10,7 @@
 --
 local kumo = require 'kumo'
 local listener_domains = require 'policy-extras.listener_domains'
-
-local docker_utils = require 'docker_utils'
-
+local docker_utils = require 'policy-extras.docker_utils'
 local shaping = require 'policy-extras.shaping'
 
 local DOCKER_NETWORK = docker_utils.resolve_docker_network()
