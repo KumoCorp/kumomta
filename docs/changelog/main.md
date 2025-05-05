@@ -97,6 +97,9 @@
   incoming reports but not relay them. Additional descriptive dispositions for
   the prior behavior are now also supported, in addition to the legacy boolean
   values.
+* The rfc5965 (ARF) parser is now more forgiving if the incoming message
+  has an invalid `Arrival-Date` or `Received-Date` header, such as that
+  included in one of the examples in rfc5965 itself.
 
 ## Fixes
 

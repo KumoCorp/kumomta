@@ -22,7 +22,7 @@ User-Agent: SomeGenerator/1.0
 Version: 1
 Original-Mail-From: <somespammer@example.net>
 Original-Rcpt-To: <user@example.com>
-Arrival-Date: Tue, 8 Mar 2005 14:00:00 EDT
+Arrival-Date: Thu, 8 Mar 2005 14:00:00 EDT
 Reporting-MTA: dns; mail.example.com
 Source-IP: 192.0.2.1
 Authentication-Results: mail.example.com;

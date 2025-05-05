@@ -130,7 +130,7 @@ impl ARFReport {
             "arrival-date",
             "received-date",
             &mut extensions,
-        )?;
+        );
         let incidents = extract_single("incidents", &mut extensions)?;
         let original_envelope_id = extract_single("original-envelope-id", &mut extensions)?;
         let original_mail_from = extract_single("original-mail-from", &mut extensions)?;
@@ -242,18 +242,19 @@ pub(crate) fn extract_single_conv_fallback<R, T>(
     name: &str,
     fallback: &str,
     extensions: &mut BTreeMap<String, Vec<String>>,
-) -> anyhow::Result<Option<T>>
+) -> Option<T>
 where
     R: FromStr,
     <R as FromStr>::Err: std::fmt::Display,
     R: Into<T>,
 {
-    let maybe = extract_single::<R>(name, extensions)?;
-    let value = match maybe {
+    let maybe = extract_single::<R>(name, extensions).ok()?;
+    match maybe {
         Some(value) => Some(value.into()),
-        None => extract_single::<R>(fallback, extensions)?.map(Into::into),
-    };
-    Ok(value)
+        None => extract_single::<R>(fallback, extensions)
+            .ok()?
+            .map(Into::into),
+    }
 }
 
 pub(crate) fn extract_multiple<R>(
@@ -342,9 +343,7 @@ Some(
         feedback_type: "abuse",
         user_agent: "SomeGenerator/1.0",
         version: "1",
-        arrival_date: Some(
-            2005-03-08T18:00:00Z,
-        ),
+        arrival_date: None,
         incidents: None,
         original_envelope_id: None,
         original_mail_from: Some(
