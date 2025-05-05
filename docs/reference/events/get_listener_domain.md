@@ -21,8 +21,9 @@ The event is expected to return a listener-domain object constructed
 by a call to [kumo.make_listener_domain](../kumo/make_listener_domain/index.md),
 or a `nil` value to indicate that there is no explicit configuration.
 
-If none of `log_relay`, `log_oob` or `log_arf` are set to true, in the returned
-listener-domain object, then the `RCPT TO` command is rejected.
+If none of `log_relay`, `log_oob` or `log_arf` are set in the returned
+listener-domain object to a value that allows the reception of a message, then
+the `RCPT TO` command is rejected.
 
 Once the `DATA` stage has transmitted the message content, and after the
 [smtp_server_message_received](../events/smtp_server_message_received.md) event

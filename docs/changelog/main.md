@@ -91,6 +91,12 @@
   and
   [dispatcher_wakeup_strategy](../reference/kumo/make_egress_path/dispatcher_wakeup_strategy.md)
   options for fine tuning overall system performance.
+* [log_arf](../reference/kumo/make_listener_domain/log_arf.md) and
+  [log_oob](../reference/kumo/make_listener_domain/log_oob.md) now support
+  `"LogThenDrop"` to make it easier to express a policy that wants to log
+  incoming reports but not relay them. Additional descriptive dispositions for
+  the prior behavior are now also supported, in addition to the legacy boolean
+  values.
 
 ## Fixes
 

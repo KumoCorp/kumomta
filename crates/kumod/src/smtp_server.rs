@@ -107,13 +107,126 @@ pub fn set_smtpsrv_threads(n: usize) {
     SMTPSRV_THREADS.store(n, Ordering::SeqCst);
 }
 
+/// Indicates how we should handle an incoming report
+/// message, such as an OOB or Feedback report
+#[derive(Serialize, Clone, Copy, Debug, Default)]
+pub enum LogReportDisposition {
+    /// Don't bother parsing for it; ignore it from the
+    /// perspective of being an incoming report, just
+    /// treat it like a regular message
+    #[default]
+    Ignore,
+    /// Log the report, then silently drop the message.
+    /// Do not relay it.
+    LogThenDrop,
+    /// Log the report, but then keep the message as a
+    /// regular message and relay it
+    LogThenRelay,
+}
+
+impl Into<serde_json::Value> for LogReportDisposition {
+    fn into(self) -> serde_json::Value {
+        format!("{self:?}").into()
+    }
+}
+
+impl From<bool> for LogReportDisposition {
+    fn from(v: bool) -> Self {
+        match v {
+            true => Self::LogThenRelay,
+            false => Self::Ignore,
+        }
+    }
+}
+
+impl TryFrom<&str> for LogReportDisposition {
+    type Error = ();
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "Ignore" => Ok(Self::Ignore),
+            "LogThenDrop" => Ok(Self::LogThenDrop),
+            "LogThenRelay" => Ok(Self::LogThenRelay),
+            _ => Err(()),
+        }
+    }
+}
+
+impl LogReportDisposition {
+    pub fn should_log(&self) -> bool {
+        match self {
+            Self::Ignore => false,
+            Self::LogThenDrop | Self::LogThenRelay => true,
+        }
+    }
+
+    pub fn should_relay(&self) -> bool {
+        match self {
+            Self::LogThenRelay => true,
+            Self::Ignore | Self::LogThenDrop => false,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LogReportDisposition {
+    fn deserialize<D>(d: D) -> Result<LogReportDisposition, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = LogReportDisposition;
+            fn expecting(&self, fmt: &mut std::fmt::Formatter) -> std::fmt::Result {
+                fmt.write_str("a boolean value or one of 'Ignore', 'LogThenDrop' or 'LogThenRelay'")
+            }
+
+            // For legacy compatibility with the original boolean values
+            fn visit_bool<E>(self, v: bool) -> Result<LogReportDisposition, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v.into())
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<LogReportDisposition, E>
+            where
+                E: serde::de::Error,
+            {
+                v.try_into()
+                    .map_err(|()| E::invalid_value(serde::de::Unexpected::Str(v), &self))
+            }
+        }
+        d.deserialize_any(V)
+    }
+}
+
+impl mlua::FromLua for LogReportDisposition {
+    fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> Result<Self, mlua::Error> {
+        match value {
+            mlua::Value::Boolean(b) => return Ok(b.into()),
+            mlua::Value::String(ref s) => {
+                if let Ok(s) = s.to_str() {
+                    if let Ok(v) = (&*s).try_into() {
+                        return Ok(v);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Err(mlua::Error::external(format!(
+            "expected a boolean value or one of \
+            'Ignore', 'LogThenDrop' or 'LogThenRelay', but got {value:?}"
+        )))
+    }
+}
+
 #[derive(Deserialize, Clone, Debug, Default, Serialize, mlua::FromLua)]
 #[serde(deny_unknown_fields)]
 pub struct EsmtpDomain {
     #[serde(default)]
-    pub log_oob: bool,
+    pub log_oob: LogReportDisposition,
     #[serde(default)]
-    pub log_arf: bool,
+    pub log_arf: LogReportDisposition,
     #[serde(default)]
     pub relay_to: bool,
     #[serde(default)]
@@ -657,13 +770,13 @@ pub struct RelayDisposition {
     /// Should queue for onward delivery
     pub relay: bool,
     /// Should accept to process ARF reports
-    pub log_arf: bool,
-    pub log_oob: bool,
+    pub log_arf: LogReportDisposition,
+    pub log_oob: LogReportDisposition,
 }
 
 impl RelayDisposition {
     pub fn accept_rcpt_to(&self) -> bool {
-        self.relay || self.log_arf || self.log_oob
+        self.relay || self.log_arf.should_log() || self.log_oob.should_log()
     }
 }
 
@@ -836,8 +949,8 @@ impl SmtpServerSession {
 
         let recipient_domain = recipient.domain();
         let mut relay_to_allowed = None;
-        let mut log_arf = false;
-        let mut log_oob = false;
+        let mut log_arf = LogReportDisposition::Ignore;
+        let mut log_oob = LogReportDisposition::Ignore;
 
         if let Some(dom) = self.lookup_listener_domain(&recipient_domain).await? {
             relay_to_allowed.replace(dom.relay_to);
@@ -861,7 +974,7 @@ impl SmtpServerSession {
              recip={recipient_domain} relay_to_allowed={relay_to_allowed:?} \
              relay_hosts_allowed={relay_hosts_allowed} \
              relay_from_allowed={relay_from_allowed} \
-             -> log_arf={log_arf} log_oob={log_oob} relay={relay}"
+             -> log_arf={log_arf:?} log_oob={log_oob:?} relay={relay}"
         );
 
         Ok(RelayDisposition {
@@ -1989,12 +2102,28 @@ impl SmtpServerSession {
                 .check_relaying(&message.sender()?, &message.recipient()?)
                 .await?;
 
+            let mut relay_this_one = relay_disposition.relay;
+
+            if relay_disposition.log_arf.should_log()
+                && matches!(message.parse_rfc5965(), Ok(Some(_)))
+            {
+                was_arf_or_oob = true;
+                relay_this_one = relay_disposition.log_arf.should_relay();
+            } else if relay_disposition.log_oob.should_log()
+                && matches!(message.parse_rfc3464(), Ok(Some(_)))
+            {
+                was_arf_or_oob = true;
+                relay_this_one = relay_disposition.log_oob.should_relay();
+            }
+
             SmtpServerTraceManager::submit(|| SmtpServerTraceEvent {
                 conn_meta: self.meta.clone_inner(),
                 payload: SmtpServerTraceEventPayload::MessageDisposition {
                     relay: relay_disposition.relay,
                     log_arf: relay_disposition.log_arf,
                     log_oob: relay_disposition.log_oob,
+                    will_enqueue: relay_this_one,
+                    was_arf_or_oob: was_arf_or_oob,
                     queue: queue_name.clone(),
                     meta: message.get_meta_obj().unwrap_or(serde_json::Value::Null),
                     sender: message
@@ -2010,32 +2139,24 @@ impl SmtpServerSession {
                 when: Utc::now(),
             });
 
-            if queue_name != "null" {
-                if relay_disposition.relay && !self.params.deferred_spool {
-                    match message.save(Some(deadline)).await {
-                        Err(err) => {
-                            // FIXME: unwind rest of batch
+            if relay_this_one && queue_name != "null" && !self.params.deferred_spool {
+                match message.save(Some(deadline)).await {
+                    Err(err) => {
+                        // FIXME: unwind rest of batch
 
-                            if err.root_cause().is::<tokio::time::error::Elapsed>() {
-                                self.write_response(
-                                    451,
-                                    "4.4.5 data_processing_timeout exceeded (spool)",
-                                    Some("DATA".into()),
-                                )
-                                .await?;
-                                return Ok(());
-                            }
-                            return Err(err);
+                        if err.root_cause().is::<tokio::time::error::Elapsed>() {
+                            self.write_response(
+                                451,
+                                "4.4.5 data_processing_timeout exceeded (spool)",
+                                Some("DATA".into()),
+                            )
+                            .await?;
+                            return Ok(());
                         }
-                        Ok(_) => {}
+                        return Err(err);
                     }
+                    Ok(_) => {}
                 }
-            }
-
-            if relay_disposition.log_arf && matches!(message.parse_rfc5965(), Ok(Some(_))) {
-                was_arf_or_oob = true;
-            } else if relay_disposition.log_oob && matches!(message.parse_rfc3464(), Ok(Some(_))) {
-                was_arf_or_oob = true;
             }
 
             log_disposition(LogDisposition {
@@ -2063,7 +2184,7 @@ impl SmtpServerSession {
             })
             .await;
             if queue_name != "null" {
-                if relay_disposition.relay {
+                if relay_this_one {
                     messages.push((queue_name, message));
                 }
             } else {

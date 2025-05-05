@@ -8,6 +8,7 @@ anyhow = {workspace=true}
 axum = {workspace=true}
 axum-server = {workspace=true}
 chrono = {workspace=true, default-features=false, features=["std", "clock"]}
+futures.workspace = true
 futures-lite = {workspace=true}
 k9 = {workspace=true}
 kumo-api-types = {path="../kumo-api-types"}
@@ -28,4 +29,5 @@ textwrap = {workspace=true}
 tokio = {workspace=true, features=["full"]}
 tokio-executor-trait = {workspace=true}
 tokio-reactor-trait = {workspace=true}
+tokio-tungstenite.workspace = true
 zstd = {workspace=true}

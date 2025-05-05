@@ -2,6 +2,9 @@
 use crate::tsa::{TsaArgs, TsaDaemon};
 use crate::webhook::WebHookServer;
 use anyhow::Context;
+use futures::stream::FusedStream;
+use futures::{SinkExt, StreamExt};
+use kumo_api_types::{TraceSmtpV1Event, TraceSmtpV1Request};
 use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
@@ -16,6 +19,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Default, Clone)]
 pub struct MailGenParams<'a> {
@@ -177,6 +182,71 @@ impl DaemonWithMaildir {
         let status = cmd.status().await?;
         anyhow::ensure!(status.success(), "{label}: {status:?}");
         Ok(status)
+    }
+
+    /// Run a server trace and capture the records until the trace is stopped,
+    /// at which point it will return the set of records.
+    pub async fn trace_server(&self) -> anyhow::Result<ServerTracer> {
+        let (mut socket, _response) = connect_async(format!(
+            "ws://{}/api/admin/trace-smtp-server/v1",
+            self.source.listener("http")
+        ))
+        .await?;
+        socket
+            .send(Message::Text(serde_json::to_string(&TraceSmtpV1Request {
+                source_addr: None,
+                terse: true,
+            })?))
+            .await?;
+
+        let (signal_close, mut close_signalled) = tokio::sync::oneshot::channel();
+
+        let joiner = tokio::spawn(async move {
+            let mut records = vec![];
+            let mut closed = false;
+
+            while !socket.is_terminated() {
+                tokio::select! {
+                    _ = &mut close_signalled, if !closed => {
+                        closed = true;
+                        if socket.close(None).await.is_err() {
+                            break;
+                        }
+                    }
+                    record = socket.next() => {
+                        match record {
+                            Some(Ok(msg)) => {
+                                match msg {
+                                    Message::Text(s) => {
+                                        let event: TraceSmtpV1Event = serde_json::from_str(&s).expect("TraceSmtpV1Event");
+                                        records.push(event);
+                                    }
+                                    Message::Ping(ping) => {
+                                        if socket.send(Message::Pong(ping)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    wat => {
+                                        eprintln!("WAT: {wat:?}");
+                                        break;
+                                    }
+                                }
+                            }
+                            Some(Err(_)) | None => {
+                                break;
+                            }
+                        }
+                    }
+                };
+            }
+
+            records
+        });
+
+        Ok(ServerTracer {
+            signal_close,
+            joiner,
+        })
     }
 
     pub async fn kcli_json<R: for<'a> serde::Deserialize<'a>>(
@@ -719,5 +789,17 @@ impl DaemonWithTsa {
         self.with_maildir.stop_both().await?;
         self.tsa.stop().await?;
         Ok(())
+    }
+}
+
+pub struct ServerTracer {
+    signal_close: tokio::sync::oneshot::Sender<()>,
+    joiner: tokio::task::JoinHandle<Vec<TraceSmtpV1Event>>,
+}
+
+impl ServerTracer {
+    pub async fn stop(self) -> anyhow::Result<Vec<TraceSmtpV1Event>> {
+        self.signal_close.send(()).expect("call stop only once");
+        Ok(self.joiner.await?)
     }
 }

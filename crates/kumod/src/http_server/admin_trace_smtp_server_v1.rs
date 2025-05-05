@@ -1,3 +1,4 @@
+use crate::smtp_server::LogReportDisposition;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use chrono::{DateTime, Utc};
@@ -49,8 +50,10 @@ pub enum SmtpServerTraceEventPayload {
     },
     MessageDisposition {
         relay: bool,
-        log_arf: bool,
-        log_oob: bool,
+        log_arf: LogReportDisposition,
+        log_oob: LogReportDisposition,
+        will_enqueue: bool,
+        was_arf_or_oob: bool,
         queue: String,
         meta: serde_json::Value,
         sender: String,
@@ -101,20 +104,24 @@ impl SmtpServerTraceEventPayload {
                 relay,
                 log_arf,
                 log_oob,
+                will_enqueue,
                 queue,
                 meta,
                 sender,
                 recipient,
                 id,
+                was_arf_or_oob,
             } => TraceSmtpV1Payload::MessageDisposition {
                 relay,
-                log_arf,
-                log_oob,
+                log_arf: log_arf.into(),
+                log_oob: log_oob.into(),
                 queue,
                 meta,
                 sender,
                 recipient,
                 id,
+                will_enqueue: Some(will_enqueue),
+                was_arf_or_oob: Some(was_arf_or_oob),
             },
         }
     }
@@ -162,43 +169,71 @@ async fn process_websocket_inner(mut socket: WebSocket) -> anyhow::Result<()> {
     };
 
     loop {
-        let event = match rx.recv().await {
-            Ok(event) => event,
-            Err(RecvError::Closed) => {
-                return Ok(());
-            }
-            Err(RecvError::Lagged(n)) => {
-                let message = format!("Tracer Lagged behind and missed {n} events");
+        tokio::select! {
+            event = rx.recv() => {
+                let event = match event {
+                    Ok(event) => event,
+                    Err(RecvError::Closed) => {
+                        return Ok(());
+                    }
+                    Err(RecvError::Lagged(n)) => {
+                        let message = format!("Tracer Lagged behind and missed {n} events");
 
-                if !has_lagged {
-                    tracing::error!(
-                        "{message} (this message is shown only once per trace session)"
-                    );
-                    has_lagged = true;
-                }
-                let event = TraceSmtpV1Event {
-                    conn_meta: serde_json::Value::Null,
-                    when: Utc::now(),
-                    payload: TraceSmtpV1Payload::Diagnostic {
-                        level: tracing::Level::ERROR.to_string(),
-                        message,
-                    },
+                        if !has_lagged {
+                            tracing::error!(
+                                "{message} (this message is shown only once per trace session)"
+                            );
+                            has_lagged = true;
+                        }
+                        let event = TraceSmtpV1Event {
+                            conn_meta: serde_json::Value::Null,
+                            when: Utc::now(),
+                            payload: TraceSmtpV1Payload::Diagnostic {
+                                level: tracing::Level::ERROR.to_string(),
+                                message,
+                            },
+                        };
+                        let json = serde_json::to_string(&event)?;
+                        socket.send(Message::Text(json)).await?;
+                        continue;
+                    }
                 };
-                let json = serde_json::to_string(&event)?;
+                if let Some(cidrset) = &request.source_addr {
+                    if let Some(peer) = peer_from_meta(&event.conn_meta) {
+                        if !cidrset.contains(peer) {
+                            continue;
+                        }
+                    }
+                }
+
+                let json = serde_json::to_string(&event.to_v1(request.terse))?;
                 socket.send(Message::Text(json)).await?;
-                continue;
             }
-        };
-        if let Some(cidrset) = &request.source_addr {
-            if let Some(peer) = peer_from_meta(&event.conn_meta) {
-                if !cidrset.contains(peer) {
-                    continue;
+
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Close(_)))=> {
+                        return Ok(());
+                    }
+                    Some(Ok(Message::Ping(ping))) => {
+                        socket.send(Message::Pong(ping)).await?;
+                    }
+                    Some(Ok(Message::Pong(_)))=> {
+                        continue;
+                    }
+                    Some(Ok(Message::Text(_) | Message::Binary(_)))=> {
+                        tracing::error!("Received unexpected {msg:?} from client");
+                        return Ok(());
+                    }
+                    Some(Err(err)) => {
+                        tracing::error!("{err:#}, closing trace session");
+                    }
+                    None => {
+                        return Ok(());
+                    }
                 }
             }
         }
-
-        let json = serde_json::to_string(&event.to_v1(request.terse))?;
-        socket.send(Message::Text(json)).await?;
     }
 }
 

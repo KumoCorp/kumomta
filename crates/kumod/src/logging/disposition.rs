@@ -56,7 +56,11 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
     let reception_protocol = msg.get_meta_string("reception_protocol").unwrap_or(None);
 
     if kind == RecordType::Reception {
-        if let Some(RelayDisposition { log_arf: true, .. }) = relay_disposition {
+        if relay_disposition
+            .as_ref()
+            .map(|disp| disp.log_arf.should_log())
+            .unwrap_or(false)
+        {
             if let Ok(Some(report)) = msg.parse_rfc5965() {
                 feedback_report.replace(Box::new(report));
                 kind = RecordType::Feedback;
@@ -170,7 +174,11 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
         }
 
         if kind == RecordType::Reception {
-            if let Some(RelayDisposition { log_oob: true, .. }) = relay_disposition {
+            if relay_disposition
+                .as_ref()
+                .map(|disp| disp.log_oob.should_log())
+                .unwrap_or(false)
+            {
                 if let Ok(Some(report)) = msg.parse_rfc3464() {
                     // This incoming bounce report is addressed to
                     // the envelope from of the original message

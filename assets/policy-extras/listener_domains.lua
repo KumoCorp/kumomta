@@ -15,7 +15,7 @@ local function is_listener_domain_option(name, value)
   local status, err = pcall(kumo.make_listener_domain, p)
   if not status then
     local err = typing.extract_deserialize_error(err)
-    if tostring(err):find 'invalid type' then
+    if tostring(err):find 'invalid' then
       return false, err
     end
     return false, nil
@@ -408,7 +408,7 @@ log_arf = "yes"
   assert(not status)
   utils.assert_matches(
     err,
-    'ListenerConfig: invalid value for field \'log_arf\'\n.*invalid type: string "yes", expected a boolean'
+    'ListenerConfig: invalid value for field \'log_arf\'\n.*invalid value: string "yes", expected a boolean'
   )
 end
 

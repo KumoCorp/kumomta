@@ -246,13 +246,16 @@ impl TraceSmtpServerCommand {
                             sender,
                             recipient,
                             id,
+                            was_arf_or_oob,
+                            will_enqueue,
                         } => {
                             println!(
                                 "[{key}] {delta} === Message from=<{sender}> to=<{recipient}> id={id}"
                             );
                             println!(
                                 "[{key}] {delta} === Message queue={queue} relay={relay} \
-                                 log_arf={log_arf} log_oob={log_oob}"
+                                 log_arf={log_arf} log_oob={log_oob} \
+                                 was_arf_or_oob={was_arf_or_oob:?} will_enqueue={will_enqueue:?}"
                             );
                             match meta {
                                 serde_json::Value::Object(obj) => {

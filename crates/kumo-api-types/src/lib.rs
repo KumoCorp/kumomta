@@ -419,13 +419,17 @@ pub enum TraceSmtpV1Payload {
     },
     MessageDisposition {
         relay: bool,
-        log_arf: bool,
-        log_oob: bool,
+        log_arf: serde_json::Value,
+        log_oob: serde_json::Value,
         queue: String,
         meta: serde_json::Value,
         sender: String,
         recipient: String,
         id: SpoolId,
+        #[serde(default)]
+        was_arf_or_oob: Option<bool>,
+        #[serde(default)]
+        will_enqueue: Option<bool>,
     },
     /// Like `Read`, but abbreviated by `terse`
     AbbreviatedRead {

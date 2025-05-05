@@ -2889,6 +2889,7 @@ dependencies = [
  "axum",
  "axum-server",
  "chrono",
+ "futures",
  "futures-lite 2.6.0",
  "k9",
  "kumo-api-types",
@@ -2909,6 +2910,7 @@ dependencies = [
  "tokio",
  "tokio-executor-trait",
  "tokio-reactor-trait",
+ "tokio-tungstenite",
  "zstd",
 ]
 
