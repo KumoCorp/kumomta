@@ -110,6 +110,12 @@ impl ShutdownSubcription {
         }
     }
 
+    pub fn try_get() -> Option<Self> {
+        Some(Self {
+            rx: STOPPING.get()?.rx.clone(),
+        })
+    }
+
     /// Await the shutdown of the process
     pub async fn shutting_down(&mut self) {
         self.rx.changed().await.ok();

@@ -68,6 +68,10 @@ impl Accounting {
     }
 
     pub async fn wait_for_shutdown(&self) -> anyhow::Result<()> {
+        if ShutdownSubcription::try_get().is_none() {
+            tracing::trace!("wait_for_shutdown: didn't properly start, ignoring");
+            return Ok(());
+        }
         if config::is_validating() {
             tracing::trace!("wait_for_shutdown: is_validating, ignoring");
             return Ok(());
