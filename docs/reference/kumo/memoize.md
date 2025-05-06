@@ -87,9 +87,14 @@ The parameters it accepts are:
        value is `120 seconds`.  Specifies how long to allow the cache population
        function to run before generating a timeout error. {{since('dev', inline=True)}}
      * `retry_on_populate_timeout` - optional boolean that defaults to `false`.
-       If true, if the `populate_timeout` is reached, then instead of generating
+       If `true`, if the `populate_timeout` is reached, then instead of generating
        an error, memoize will retry the population attempt.
        {{since('dev', inline=True)}}
+     * `allow_stale_reads` - optional boolean that defaults to `false`.  If
+       `true` then `invalidate_with_epoch` will be assumed to `false` and a
+       cache lookup will be allowed to return with the last populated value in
+       the case that the item has expired and the cache population takes longer
+       than the `populate_timeout`. {{since('dev', inline=True)}}
 
 In the example above calling:
 
