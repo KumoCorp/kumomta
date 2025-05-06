@@ -28,7 +28,7 @@ Can be one of the following values:
 kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   if domain == 'fbl.example.com' then
     return kumo.make_listener_domain {
-      log_arf = "LogThenDrop",
+      log_arf = 'LogThenDrop',
     }
   end
 end)
