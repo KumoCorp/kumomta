@@ -1,6 +1,6 @@
 # maintainer_wakeup_strategy
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 Adjusts how aggressively the readyq maintainer task will be awoken
 as messages are placed into the readyq.

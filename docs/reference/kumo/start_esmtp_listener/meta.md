@@ -1,6 +1,6 @@
 # meta
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 Pre-define [connection metadata](../../connectionmeta.md) values.
 

@@ -64,4 +64,4 @@ function](https://doc.rust-lang.org/stable/std/thread/fn.available_parallelism.h
     system (for the reasons mentioned above), you can force it to return a
     different by value by setting the `KUMO_AVAILABLE_PARALLELISM`
     environment variable to the desired value in the environment when you
-    launch `kumod` or `tsa-daemon`.  {{since('dev', inline=True)}}.
+    launch `kumod` or `tsa-daemon`.  {{since('2025.05.06-b29689af', inline=True)}}.

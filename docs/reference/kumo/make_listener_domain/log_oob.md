@@ -6,16 +6,16 @@ handled.
 Can be one of the following values:
 
  * `"Ignore"` - do not parse or care whether the incoming message might
-   be an OOB report. {{since('dev', inline=True)}}
+   be an OOB report. {{since('2025.05.06-b29689af', inline=True)}}
  * `"LogThenRelay"` - if the incoming message is an OOB report, then
    log the `OOB` record and continue to allow the message to be
    enqueued for relay.  You will also see a `Reception` record for the relayed
    message, as well as records for its attempts to relay after reception.
-   {{since('dev', inline=True)}}
+   {{since('2025.05.06-b29689af', inline=True)}}
  * `"LogThenDrop"` - if the incoming message is an OOB report, then log
    the `OOB` record, but silently drop the message without relaying it.
    There will be no additional log records for the message.
-   {{since('dev', inline=True)}}
+   {{since('2025.05.06-b29689af', inline=True)}}
  * `false` - equivalent to `"Ignore"`.  This is for backwards compatibility
    with earlier versions of KumoMTA and we recommend using `"Ignore"` explicitly
    in your configuration moving forwards.

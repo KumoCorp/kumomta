@@ -4,7 +4,7 @@ Specify the path to the TLS private key file that corresponds to the `tls_certif
 
 The default, if unspecified, is to dynamically allocate a self-signed certificate.
 
-{{since('dev', indent=True)}}
+{{since('2025.05.06-b29689af', indent=True)}}
     The private key will be cached for 5 minutes, then re-evaluated,
     allowing for the privae key to be updated without restarting
     the service. In prior versions of KumoMTA you would need to

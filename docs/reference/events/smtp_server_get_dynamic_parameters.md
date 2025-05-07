@@ -1,6 +1,6 @@
 # `kumo.on('smtp_server_get_dynamic_parameters', function(listener, conn_meta))`
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 !!! note
     This option is primarily intended to be used together with

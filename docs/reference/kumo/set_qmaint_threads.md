@@ -26,4 +26,4 @@ end)
     scheduled and ready queue tasks, but now is used only for
     scheduled queue maintenance. The ready queue maintenance
     is carried out by the `ready_qmaint` thread pool.
-    {{since('dev', inline=True)}}
+    {{since('2025.05.06-b29689af', inline=True)}}

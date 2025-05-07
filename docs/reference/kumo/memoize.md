@@ -85,16 +85,16 @@ The parameters it accepts are:
        TSA config overrides and so on) will invalidate the cache. {{since('2025.03.19-1d3f1f67', inline=True)}}
      * `populate_timeout` - optional duration string. The effective default
        value is `120 seconds`.  Specifies how long to allow the cache population
-       function to run before generating a timeout error. {{since('dev', inline=True)}}
+       function to run before generating a timeout error. {{since('2025.05.06-b29689af', inline=True)}}
      * `retry_on_populate_timeout` - optional boolean that defaults to `false`.
        If `true`, if the `populate_timeout` is reached, then instead of generating
        an error, memoize will retry the population attempt.
-       {{since('dev', inline=True)}}
+       {{since('2025.05.06-b29689af', inline=True)}}
      * `allow_stale_reads` - optional boolean that defaults to `false`.  If
        `true` then `invalidate_with_epoch` will be assumed to `false` and a
        cache lookup will be allowed to return with the last populated value in
        the case that the item has expired and the cache population takes longer
-       than the `populate_timeout`. {{since('dev', inline=True)}}
+       than the `populate_timeout`. {{since('2025.05.06-b29689af', inline=True)}}
 
 In the example above calling:
 

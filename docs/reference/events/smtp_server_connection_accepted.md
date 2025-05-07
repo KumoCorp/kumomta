@@ -1,6 +1,6 @@
 # `kumo.on('smtp_server_connection_accepted', function(conn_meta))`
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 Called by the ESMTP server when a new server session has accepted
 a connection from a client.

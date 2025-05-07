@@ -5,7 +5,7 @@ tags:
 
 # `kumo.set_ready_qmaint_threads(N)`
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 Sets the number of threads to be used for the `readyq_maint` thread pool.
 This thread pool is used to perform ready queue maintenance operations.

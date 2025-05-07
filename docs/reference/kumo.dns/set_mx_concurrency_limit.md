@@ -1,6 +1,6 @@
 # `kumo.dns.set_mx_concurrency_limit(LIMIT)`
 
-{{since('dev')}}
+{{since('2025.05.06-b29689af')}}
 
 Set the maximum number of concurrent MX lookups that we will allow
 to send to the upstream DNS resolver.

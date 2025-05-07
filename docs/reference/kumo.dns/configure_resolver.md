@@ -33,7 +33,7 @@ your system configuration.
 |KumoMTA Version|Hickory DNS ResolverOpts|
 |---------------|------------------------|
 |2025.03.19-1d3f1f67|[hickory DNS 0.24](https://docs.rs/hickory-resolver/0.24.1/hickory_resolver/config/struct.ResolverOpts.html)|
-|{{since('dev', inline=True)}}|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
+|{{since('2025.05.06-b29689af', inline=True)}}|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
 
 ```lua
 kumo.on('init', function()
