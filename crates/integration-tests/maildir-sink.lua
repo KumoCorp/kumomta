@@ -56,6 +56,11 @@ kumo.on('smtp_server_mail_from', function(sender)
 end)
 
 kumo.on('smtp_server_message_received', function(msg)
+  local sender = msg:sender().user
+  if utils.starts_with(sender, 'disconnect-in-data-no-421') then
+    kumo.disconnect(451, 'disconnecting ' .. sender, 'ForceDisconnect')
+  end
+
   msg:set_meta('queue', 'maildir')
 end)
 

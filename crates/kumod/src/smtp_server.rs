@@ -677,6 +677,47 @@ pub struct RejectError {
     pub code: u16,
     /// The textual portion of the response to send
     pub message: String,
+    pub disconnect: RejectDisconnect,
+}
+
+#[derive(Debug, Clone, Default, Copy)]
+pub enum RejectDisconnect {
+    #[default]
+    If421,
+    FollowWith421,
+    ForceDisconnect,
+}
+
+impl TryFrom<&str> for RejectDisconnect {
+    type Error = ();
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "If421" => Ok(Self::If421),
+            "FollowWith421" => Ok(Self::FollowWith421),
+            "ForceDisconnect" => Ok(Self::ForceDisconnect),
+            _ => Err(()),
+        }
+    }
+}
+
+impl mlua::FromLua for RejectDisconnect {
+    fn from_lua(value: mlua::Value, _lua: &mlua::Lua) -> Result<Self, mlua::Error> {
+        match value {
+            mlua::Value::String(ref s) => {
+                if let Ok(s) = s.to_str() {
+                    if let Ok(v) = (&*s).try_into() {
+                        return Ok(v);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Err(mlua::Error::external(format!(
+            "expected one of \
+            'If421', 'FollowWith421' or 'ForceDisconnect', but got {value:?}"
+        )))
+    }
 }
 
 impl RejectError {
@@ -842,6 +883,7 @@ impl SmtpServerSession {
                         421,
                         format!("4.3.0 {} technical difficulties", server.params.hostname),
                         Some(format!("Error in SmtpServerSession: {err:#}")),
+                        RejectDisconnect::If421,
                     )
                     .await
                     .ok();
@@ -990,6 +1032,7 @@ impl SmtpServerSession {
         status: u16,
         message: S,
         command: Option<String>,
+        disconnect: RejectDisconnect,
     ) -> Result<(), WriteError> {
         if let Some(socket) = self.socket.as_mut() {
             if (400..600).contains(&status)
@@ -1042,11 +1085,25 @@ impl SmtpServerSession {
                     .await
                     .map_err(|_| WriteError {})?;
             }
+
+            let close_connection = match disconnect {
+                RejectDisconnect::If421 => status == 421,
+                RejectDisconnect::FollowWith421 => {
+                    if status != 421 {
+                        // "least effort" attempt to send a 421 before we snip
+                        let hostname = &self.params.hostname;
+                        let text =
+                            format!("421 {hostname} disconnecting due to previous error\r\n");
+                        let _ = socket.write(text.as_bytes()).await;
+                    }
+                    true
+                }
+                RejectDisconnect::ForceDisconnect => true,
+            };
+
             socket.flush().await.map_err(|_| WriteError {})?;
 
-            if status == 421 {
-                // 421 is only valid when disconnecting the session,
-                // so disconnect it!
+            if close_connection {
                 if let Some(mut socket) = self.socket.take() {
                     // Do a graceful shutdown of the socket so that we can
                     // flush the 421 response through TLS to the peer
@@ -1328,6 +1385,7 @@ impl SmtpServerSession {
                     421,
                     format!("4.3.2 {} shutting down", self.params.hostname),
                     None,
+                    RejectDisconnect::If421,
                 )
                 .await?;
                 return Ok(());
@@ -1344,6 +1402,7 @@ impl SmtpServerSession {
                 421,
                 format!("4.3.2 {} load shedding. Try later", self.params.hostname),
                 None,
+                RejectDisconnect::If421,
             )
             .await?;
             return Ok(());
@@ -1357,6 +1416,7 @@ impl SmtpServerSession {
                 421,
                 format!("4.3.2 {} disk is too full. Try later", self.params.hostname),
                 None,
+                RejectDisconnect::If421,
             )
             .await?;
             return Ok(());
@@ -1376,6 +1436,7 @@ impl SmtpServerSession {
                     self.params.hostname
                 ),
                 None,
+                RejectDisconnect::If421,
             )
             .await?;
             return Ok(());
@@ -1397,7 +1458,8 @@ impl SmtpServerSession {
                 );
             }
             Err(rej) => {
-                self.write_response(rej.code, rej.message, None).await?;
+                self.write_response(rej.code, rej.message, None, rej.disconnect)
+                    .await?;
                 return Ok(());
             }
         }
@@ -1406,7 +1468,8 @@ impl SmtpServerSession {
             .call_callback::<(), _, _>("smtp_server_connection_accepted", self.meta.clone())
             .await?
         {
-            self.write_response(rej.code, rej.message, None).await?;
+            self.write_response(rej.code, rej.message, None, rej.disconnect)
+                .await?;
             return Ok(());
         }
 
@@ -1414,6 +1477,7 @@ impl SmtpServerSession {
             220,
             format!("{} {}", self.params.hostname, self.params.banner),
             None,
+            RejectDisconnect::If421,
         )
         .await?;
         loop {
@@ -1422,6 +1486,7 @@ impl SmtpServerSession {
                     421,
                     format!("4.3.2 {} shutting down", self.params.hostname),
                     None,
+                    RejectDisconnect::If421,
                 )
                 .await?;
                 return Ok(());
@@ -1435,6 +1500,7 @@ impl SmtpServerSession {
                         421,
                         format!("4.3.2 {} idle too long", self.params.hostname),
                         None,
+                        RejectDisconnect::If421,
                     )
                     .await?;
                     return Ok(());
@@ -1444,12 +1510,13 @@ impl SmtpServerSession {
                         421,
                         format!("4.3.2 {} shutting down", self.params.hostname),
                         None,
+                        RejectDisconnect::If421,
                     )
                     .await?;
                     return Ok(());
                 }
                 ReadLine::TooLong => {
-                    self.write_response(500, "5.2.3 line too long", None)
+                    self.write_response(500, "5.2.3 line too long", None, RejectDisconnect::If421)
                         .await?;
                     continue;
                 }
@@ -1461,12 +1528,18 @@ impl SmtpServerSession {
                         501,
                         format!("Syntax error in command or arguments: {err}"),
                         Some(line),
+                        RejectDisconnect::If421,
                     )
                     .await?;
                 }
                 Ok(Command::Quit) => {
-                    self.write_response(221, "So long, and thanks for all the fish!", None)
-                        .await?;
+                    self.write_response(
+                        221,
+                        "So long, and thanks for all the fish!",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                     return Ok(());
                 }
                 Ok(Command::StartTls) => {
@@ -1475,11 +1548,13 @@ impl SmtpServerSession {
                             501,
                             "Cannot STARTTLS as TLS is already active",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
                     }
-                    self.write_response(220, "Ready to Start TLS", None).await?;
+                    self.write_response(220, "Ready to Start TLS", None, RejectDisconnect::If421)
+                        .await?;
                     let acceptor = self.params.build_tls_acceptor().await?;
                     let socket: BoxedAsyncReadAndWrite = match acceptor
                         .accept(self.socket.take().unwrap())
@@ -1506,6 +1581,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.1 AUTH me once, can't get authed again!",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1515,6 +1591,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.1 AUTH not permitted inside a transaction",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1524,6 +1601,7 @@ impl SmtpServerSession {
                             504,
                             format!("5.5.4 AUTH {sasl_mech} not supported"),
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1533,6 +1611,7 @@ impl SmtpServerSession {
                             524,
                             format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1541,7 +1620,8 @@ impl SmtpServerSession {
                     let response = if let Some(r) = initial_response {
                         r
                     } else {
-                        self.write_response(334, " ", None).await?;
+                        self.write_response(334, " ", None, RejectDisconnect::If421)
+                            .await?;
                         match self.read_line(Some(16384)).await? {
                             ReadLine::Disconnected => return Ok(()),
                             ReadLine::Line(line) => line,
@@ -1550,6 +1630,7 @@ impl SmtpServerSession {
                                     421,
                                     format!("4.3.2 {} idle too long", self.params.hostname),
                                     Some(line),
+                                    RejectDisconnect::If421,
                                 )
                                 .await?;
                                 return Ok(());
@@ -1559,6 +1640,7 @@ impl SmtpServerSession {
                                     421,
                                     format!("4.3.2 {} shutting down", self.params.hostname),
                                     Some(line),
+                                    RejectDisconnect::If421,
                                 )
                                 .await?;
                                 return Ok(());
@@ -1568,6 +1650,7 @@ impl SmtpServerSession {
                                     500,
                                     "5.5.6 authentication exchange line too long",
                                     Some(line),
+                                    RejectDisconnect::If421,
                                 )
                                 .await?;
                                 continue;
@@ -1576,8 +1659,13 @@ impl SmtpServerSession {
                     };
 
                     if response == "*" {
-                        self.write_response(501, "5.5.0 AUTH cancelled by client", Some(line))
-                            .await?;
+                        self.write_response(
+                            501,
+                            "5.5.0 AUTH cancelled by client",
+                            Some(line),
+                            RejectDisconnect::If421,
+                        )
+                        .await?;
                         continue;
                     }
 
@@ -1597,6 +1685,7 @@ impl SmtpServerSession {
                                         501,
                                         "5.5.2 Invalid decoded PLAIN response",
                                         Some(response),
+                                        RejectDisconnect::If421,
                                     )
                                     .await?;
                                     continue;
@@ -1610,6 +1699,7 @@ impl SmtpServerSession {
                                         501,
                                         "5.5.2 Invalid UTF8 in decoded PLAIN response",
                                         Some(response),
+                                        RejectDisconnect::If421,
                                     )
                                     .await?;
                                     continue;
@@ -1628,13 +1718,23 @@ impl SmtpServerSession {
                                 .await?
                             {
                                 Err(rej) => {
-                                    self.write_response(rej.code, rej.message, Some(response))
-                                        .await?;
+                                    self.write_response(
+                                        rej.code,
+                                        rej.message,
+                                        Some(response),
+                                        rej.disconnect,
+                                    )
+                                    .await?;
                                     continue;
                                 }
                                 Ok(false) => {
-                                    self.write_response(535, "5.7.8 AUTH invalid", Some(response))
-                                        .await?;
+                                    self.write_response(
+                                        535,
+                                        "5.7.8 AUTH invalid",
+                                        Some(response),
+                                        RejectDisconnect::If421,
+                                    )
+                                    .await?;
                                 }
                                 Ok(true) => {
                                     self.authorization_id.replace(authz.to_string());
@@ -1642,7 +1742,13 @@ impl SmtpServerSession {
                                     self.meta.set_meta("authz_id", authz);
                                     self.meta.set_meta("authn_id", authc);
 
-                                    self.write_response(235, "2.7.0 AUTH OK!", None).await?;
+                                    self.write_response(
+                                        235,
+                                        "2.7.0 AUTH OK!",
+                                        None,
+                                        RejectDisconnect::If421,
+                                    )
+                                    .await?;
                                 }
                             }
                         }
@@ -1651,6 +1757,7 @@ impl SmtpServerSession {
                                 501,
                                 "5.5.2 Invalid base64 response",
                                 Some(response),
+                                RejectDisconnect::If421,
                             )
                             .await?;
                             continue;
@@ -1675,7 +1782,7 @@ impl SmtpServerSession {
                         .await?
                     {
                         Err(rej) => {
-                            self.write_response(rej.code, rej.message, Some(line))
+                            self.write_response(rej.code, rej.message, Some(line), rej.disconnect)
                                 .await?;
                             continue;
                         }
@@ -1687,6 +1794,7 @@ impl SmtpServerSession {
                         250,
                         format!("{} Aloha {domain}\n{extensions}", self.params.hostname,),
                         None,
+                        RejectDisconnect::If421,
                     )
                     .await?;
 
@@ -1703,12 +1811,17 @@ impl SmtpServerSession {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message, Some(line))
+                        self.write_response(rej.code, rej.message, Some(line), rej.disconnect)
                             .await?;
                         continue;
                     }
-                    self.write_response(250, format!("Hello {domain}!"), None)
-                        .await?;
+                    self.write_response(
+                        250,
+                        format!("Hello {domain}!"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                     self.meta.set_meta("ehlo_domain", domain.clone());
                     self.said_hello.replace(domain);
                 }
@@ -1721,6 +1834,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.0 MAIL FROM already issued; you must RSET first",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1733,7 +1847,7 @@ impl SmtpServerSession {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message, Some(line))
+                        self.write_response(rej.code, rej.message, Some(line), rej.disconnect)
                             .await?;
                         continue;
                     }
@@ -1743,8 +1857,13 @@ impl SmtpServerSession {
                         recipients: vec![],
                         _timer: TXN_LATENCY.start_timer(),
                     });
-                    self.write_response(250, format!("OK {address:?}"), None)
-                        .await?;
+                    self.write_response(
+                        250,
+                        format!("OK {address:?}"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                 }
                 Ok(Command::RcptTo {
                     address,
@@ -1755,6 +1874,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.0 MAIL FROM must be issued first",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1769,6 +1889,7 @@ impl SmtpServerSession {
                             550,
                             format!("5.7.1 relaying not permitted for {}", self.peer_address),
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1776,8 +1897,13 @@ impl SmtpServerSession {
 
                     if let Some(state) = &self.state {
                         if state.recipients.len() == self.params.max_recipients_per_message {
-                            self.write_response(451, "4.5.3 too many recipients", Some(line))
-                                .await?;
+                            self.write_response(
+                                451,
+                                "4.5.3 too many recipients",
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
                             continue;
                         }
 
@@ -1790,6 +1916,7 @@ impl SmtpServerSession {
                                         self.params.hostname
                                     ),
                                     Some(line),
+                                    RejectDisconnect::If421,
                                 )
                                 .await?;
                                 return Ok(());
@@ -1798,6 +1925,7 @@ impl SmtpServerSession {
                                     451,
                                     "4.5.3 too many recipients on this connection",
                                     Some(line),
+                                    RejectDisconnect::If421,
                                 )
                                 .await?;
                                 continue;
@@ -1808,6 +1936,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.0 MAIL FROM must be issued first",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1820,12 +1949,17 @@ impl SmtpServerSession {
                         )
                         .await?
                     {
-                        self.write_response(rej.code, rej.message, Some(line))
+                        self.write_response(rej.code, rej.message, Some(line), rej.disconnect)
                             .await?;
                         continue;
                     }
-                    self.write_response(250, format!("OK {address:?}"), None)
-                        .await?;
+                    self.write_response(
+                        250,
+                        format!("OK {address:?}"),
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                     self.state
                         .as_mut()
                         .expect("checked state above")
@@ -1838,6 +1972,7 @@ impl SmtpServerSession {
                             503,
                             "5.5.0 MAIL FROM must be issued first",
                             Some(line),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         continue;
@@ -1848,26 +1983,46 @@ impl SmtpServerSession {
                         .map(|s| s.recipients.is_empty())
                         .unwrap_or(true)
                     {
-                        self.write_response(503, "5.5.0 RCPT TO must be issued first", Some(line))
-                            .await?;
+                        self.write_response(
+                            503,
+                            "5.5.0 RCPT TO must be issued first",
+                            Some(line),
+                            RejectDisconnect::If421,
+                        )
+                        .await?;
                         continue;
                     }
 
-                    self.write_response(354, "Send body; end with CRLF.CRLF", None)
-                        .await?;
+                    self.write_response(
+                        354,
+                        "Send body; end with CRLF.CRLF",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
 
                     let read_data_timer = READ_DATA_LATENCY.start_timer();
                     let data = match self.read_data().await? {
                         ReadData::Disconnected => return Ok(()),
                         ReadData::Data(data) => data,
                         ReadData::TooBig => {
-                            self.write_response(552, "5.3.4 message too big", Some(line))
-                                .await?;
+                            self.write_response(
+                                552,
+                                "5.3.4 message too big",
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
                             continue;
                         }
                         ReadData::TooLong => {
-                            self.write_response(500, "5.2.3 line too long", Some(line))
-                                .await?;
+                            self.write_response(
+                                500,
+                                "5.2.3 line too long",
+                                Some(line),
+                                RejectDisconnect::If421,
+                            )
+                            .await?;
                             continue;
                         }
                         ReadData::TimedOut => {
@@ -1875,6 +2030,7 @@ impl SmtpServerSession {
                                 421,
                                 format!("4.3.2 {} idle too long", self.params.hostname),
                                 Some(line),
+                                RejectDisconnect::If421,
                             )
                             .await?;
                             return Ok(());
@@ -1884,6 +2040,7 @@ impl SmtpServerSession {
                                 421,
                                 format!("4.3.2 {} shutting down", self.params.hostname),
                                 Some(line),
+                                RejectDisconnect::If421,
                             )
                             .await?;
                             return Ok(());
@@ -1896,15 +2053,26 @@ impl SmtpServerSession {
                 }
                 Ok(Command::Rset) => {
                     self.state.take();
-                    self.write_response(250, "Reset state", None).await?;
+                    self.write_response(250, "Reset state", None, RejectDisconnect::If421)
+                        .await?;
                 }
                 Ok(Command::Noop(_)) => {
-                    self.write_response(250, "the goggles do nothing", None)
-                        .await?;
+                    self.write_response(
+                        250,
+                        "the goggles do nothing",
+                        None,
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                 }
                 Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
-                    self.write_response(502, format!("5.5.1 Command unimplemented"), Some(line))
-                        .await?;
+                    self.write_response(
+                        502,
+                        format!("5.5.1 Command unimplemented"),
+                        Some(line),
+                        RejectDisconnect::If421,
+                    )
+                    .await?;
                 }
                 Ok(Command::DataDot) => unreachable!(),
             }
@@ -1932,6 +2100,7 @@ impl SmtpServerSession {
                         552,
                         "5.6.0 message data must use CRLF for line endings",
                         Some("DATA".into()),
+                        RejectDisconnect::If421,
                     )
                     .await?;
                     return Ok(());
@@ -2026,6 +2195,7 @@ impl SmtpServerSession {
                             451,
                             "4.4.5 data_processing_timeout exceeded (rx)",
                             Some("DATA".into()),
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         return Ok(());
@@ -2035,8 +2205,13 @@ impl SmtpServerSession {
                         // Rejecting any one message from a batch in
                         // smtp_server_message_received will reject the
                         // entire batch
-                        self.write_response(rej.code, rej.message, Some("DATA".into()))
-                            .await?;
+                        self.write_response(
+                            rej.code,
+                            rej.message,
+                            Some("DATA".into()),
+                            rej.disconnect,
+                        )
+                        .await?;
                         return Ok(());
                     }
                     Ok(Err(err)) => {
@@ -2068,6 +2243,7 @@ impl SmtpServerSession {
                         451,
                         "4.4.5 data_processing_timeout exceeded (resolve)",
                         Some("DATA".into()),
+                        RejectDisconnect::If421,
                     )
                     .await?;
                     return Ok(());
@@ -2080,6 +2256,7 @@ impl SmtpServerSession {
                             421,
                             format!("4.3.2 {} shutting down", self.params.hostname),
                             None,
+                            RejectDisconnect::If421,
                         )
                         .await?;
                         return Ok(());
@@ -2149,6 +2326,7 @@ impl SmtpServerSession {
                                 451,
                                 "4.4.5 data_processing_timeout exceeded (spool)",
                                 Some("DATA".into()),
+                                RejectDisconnect::If421,
                             )
                             .await?;
                             return Ok(());
@@ -2226,8 +2404,13 @@ impl SmtpServerSession {
         }
 
         if !black_holed && !relayed_any && !was_arf_or_oob {
-            self.write_response(550, "5.7.1 relaying not permitted", Some("DATA".into()))
-                .await?;
+            self.write_response(
+                550,
+                "5.7.1 relaying not permitted",
+                Some("DATA".into()),
+                RejectDisconnect::If421,
+            )
+            .await?;
         } else if !failed.is_empty() && failed.len() == ids.len() {
             // All potentials failed, report error.
 
@@ -2237,6 +2420,7 @@ impl SmtpServerSession {
                     451,
                     "4.4.5 data_processing_timeout exceeded (insert)",
                     Some("DATA".into()),
+                    RejectDisconnect::If421,
                 )
                 .await?;
                 return Ok(());
@@ -2252,8 +2436,13 @@ impl SmtpServerSession {
             let disposition = if !failed.is_empty() { "PARTIAL" } else { "OK" };
 
             let ids = ids.join(" ");
-            self.write_response(250, format!("{disposition} ids={ids}"), None)
-                .await?;
+            self.write_response(
+                250,
+                format!("{disposition} ids={ids}"),
+                None,
+                RejectDisconnect::If421,
+            )
+            .await?;
         }
 
         Ok(())

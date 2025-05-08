@@ -14,7 +14,7 @@ use uuid::Uuid;
 pub mod rfc3464;
 pub mod rfc5965;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResolvedAddress {
     pub name: String,
     pub addr: HostAddress,

@@ -799,7 +799,10 @@ impl SmtpDispatcher {
         .await
     }
 
-    fn update_state_for_reconnect(&mut self, dispatcher: &mut Dispatcher) {
+    /// Prepare for a potential reconnect.
+    /// Returns true if there are potential addresses that we could
+    /// reconnect to
+    fn update_state_for_reconnect(&mut self, dispatcher: &mut Dispatcher) -> bool {
         match dispatcher.path_config.borrow().reconnect_strategy {
             ReconnectStrategy::TerminateSession => {
                 self.addresses.clear();
@@ -825,6 +828,8 @@ impl SmtpDispatcher {
         if self.addresses.is_empty() {
             self.terminated_ok = self.attempted_message_send;
         }
+
+        !self.addresses.is_empty()
     }
 }
 
@@ -914,6 +919,10 @@ impl QueueDispatcher for SmtpDispatcher {
             .submit(|| SmtpClientTraceEventPayload::MessageObtained);
 
         self.attempted_message_send = true;
+        let try_next_host_on_transport_error = dispatcher
+            .path_config
+            .borrow()
+            .try_next_host_on_transport_error;
 
         match self
             .client
@@ -964,6 +973,7 @@ impl QueueDispatcher for SmtpDispatcher {
                         tracing::error!("smtp_client_rewrite_delivery_status event failed: {err:#}. Preserving original DSN");
                     }
                 }
+                let due_to_message = response.was_due_to_message();
 
                 if response.code == 503 || (response.code >= 300 && response.code < 400) {
                     // 503 is a "permanent" failure response but it indicates
@@ -994,6 +1004,11 @@ impl QueueDispatcher for SmtpDispatcher {
                             dispatcher.session_id,
                         );
                     }
+
+                    dispatcher.metrics.inc_transfail();
+                    // Break this connection
+                    let have_more_connection_candidates =
+                        self.update_state_for_reconnect(dispatcher);
                     if let Some(msg) = dispatcher.msgs.pop() {
                         self.log_disposition(
                             dispatcher,
@@ -1002,21 +1017,28 @@ impl QueueDispatcher for SmtpDispatcher {
                             response.clone(),
                         )
                         .await;
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
+
+                        if !due_to_message
+                            && try_next_host_on_transport_error
+                            && have_more_connection_candidates
+                        {
+                            // Try it on the next connection
+                            dispatcher.msgs.push(msg);
+                        } else {
+                            spawn(
+                                "requeue message",
+                                QueueManager::requeue_message(
+                                    msg,
+                                    IncrementAttempts::Yes,
+                                    None,
+                                    response,
+                                    InsertReason::LoggedTransientFailure.into(),
+                                ),
+                            )?;
+                        }
                     }
-                    dispatcher.metrics.inc_transfail();
-                    // Break this connection
-                    self.update_state_for_reconnect(dispatcher);
-                    anyhow::bail!("Protocol synchronization error!");
+                    // We handled requeue
+                    return Ok(());
                 } else if response.code >= 400 && response.code < 500 {
                     // Transient failure
                     tracing::debug!(
@@ -1024,11 +1046,17 @@ impl QueueDispatcher for SmtpDispatcher {
                         dispatcher.name,
                         self.client_address
                     );
-                    if response.code == 421 {
+                    dispatcher.metrics.inc_transfail();
+
+                    let reconnect = response.code == 421;
+
+                    let have_more_connection_candidates = if reconnect {
                         // We're effectively disconnected, so prepare
                         // for reconnecting for the next message.
-                        self.update_state_for_reconnect(dispatcher);
-                    }
+                        self.update_state_for_reconnect(dispatcher)
+                    } else {
+                        false
+                    };
 
                     if let Some(msg) = dispatcher.msgs.pop() {
                         self.log_disposition(
@@ -1038,18 +1066,28 @@ impl QueueDispatcher for SmtpDispatcher {
                             response.clone(),
                         )
                         .await;
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
+
+                        if !due_to_message
+                            && try_next_host_on_transport_error
+                            && have_more_connection_candidates
+                        {
+                            // Try it on the next connection
+                            dispatcher.msgs.push(msg);
+                        } else {
+                            spawn(
+                                "requeue message",
+                                QueueManager::requeue_message(
+                                    msg,
+                                    IncrementAttempts::Yes,
+                                    None,
+                                    response,
+                                    InsertReason::LoggedTransientFailure.into(),
+                                ),
+                            )?;
+                        }
                     }
-                    dispatcher.metrics.inc_transfail();
+
+                    return Ok(());
                 } else if response.code >= 200 && response.code < 300 {
                     tracing::debug!("Delivered OK! {response:?}");
                     if let Some(msg) = dispatcher.msgs.pop() {
@@ -1077,17 +1115,25 @@ impl QueueDispatcher for SmtpDispatcher {
                     }
                 }
             }
-            Err(ClientError::TimeOutRequest { commands, duration }) => {
+            Err(
+                ref err @ ClientError::TimeOutRequest {
+                    ref commands,
+                    duration,
+                },
+            ) => {
                 // Transient failure
                 let reason = format!(
-                    "failed to send message to {} {:?}: \
+                    "KumoMTA internal: failed to send message to {} {:?}: \
                     Timed Out waiting {duration:?} to write {commands:?}",
                     dispatcher.name, self.client_address
                 );
                 tracing::debug!("{reason}");
+                dispatcher.metrics.inc_transfail();
+
+                // Move on to the next host
+                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
+
                 if let Some(msg) = dispatcher.msgs.pop() {
-                    let commands: Vec<String> =
-                        commands.into_iter().map(|cmd| cmd.encode()).collect();
                     let response = Response {
                         code: 421,
                         enhanced_code: Some(EnhancedStatusCode {
@@ -1096,7 +1142,7 @@ impl QueueDispatcher for SmtpDispatcher {
                             detail: 2,
                         }),
                         content: reason.clone(),
-                        command: Some(commands.join("")),
+                        command: err.command(),
                     };
                     self.log_disposition(
                         dispatcher,
@@ -1105,31 +1151,38 @@ impl QueueDispatcher for SmtpDispatcher {
                         response.clone(),
                     )
                     .await;
-                    spawn(
-                        "requeue message",
-                        QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::Yes,
-                            None,
-                            response,
-                            InsertReason::LoggedTransientFailure.into(),
-                        ),
-                    )?;
+
+                    if try_next_host_on_transport_error && have_more_connection_candidates {
+                        // Try it on the next connection
+                        dispatcher.msgs.push(msg);
+                    } else {
+                        spawn(
+                            "requeue message",
+                            QueueManager::requeue_message(
+                                msg,
+                                IncrementAttempts::Yes,
+                                None,
+                                response,
+                                InsertReason::LoggedTransientFailure.into(),
+                            ),
+                        )?;
+                    }
                 }
-                dispatcher.metrics.inc_transfail();
-                // Move on to the next host
-                self.update_state_for_reconnect(dispatcher);
-                anyhow::bail!("{reason}");
+                return Ok(());
             }
             Err(ClientError::TimeOutResponse { command, duration }) => {
                 // Transient failure
                 let reason = format!(
-                    "failed to send message to {} {:?}: \
+                    "KumoMTA internal: failed to send message to {} {:?}: \
                     Timed Out waiting {duration:?} for response to {command:?}",
                     dispatcher.name, self.client_address
                 );
 
                 tracing::debug!("{reason}");
+                dispatcher.metrics.inc_transfail();
+                // Move on to the next host
+                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
+
                 if let Some(msg) = dispatcher.msgs.pop() {
                     let response = Response {
                         code: 421,
@@ -1148,31 +1201,75 @@ impl QueueDispatcher for SmtpDispatcher {
                         response.clone(),
                     )
                     .await;
-                    spawn(
-                        "requeue message",
-                        QueueManager::requeue_message(
-                            msg,
-                            IncrementAttempts::Yes,
-                            None,
-                            response,
-                            InsertReason::LoggedTransientFailure.into(),
-                        ),
-                    )?;
+
+                    if try_next_host_on_transport_error && have_more_connection_candidates {
+                        // Try it on the next connection
+                        dispatcher.msgs.push(msg);
+                    } else {
+                        spawn(
+                            "requeue message",
+                            QueueManager::requeue_message(
+                                msg,
+                                IncrementAttempts::Yes,
+                                None,
+                                response,
+                                InsertReason::LoggedTransientFailure.into(),
+                            ),
+                        )?;
+                    }
                 }
-                dispatcher.metrics.inc_transfail();
-                // Move on to the next host
-                self.update_state_for_reconnect(dispatcher);
-                anyhow::bail!("{reason}");
+                return Ok(());
             }
             Err(err) => {
-                // Transient failure; continue with another host
-                self.update_state_for_reconnect(dispatcher);
+                // Some other kind of error; we consider this to be a Transient failure,
+                // and we will prefer to continue with another host
                 tracing::debug!(
                     "failed to send message to {} {:?}: {err:#}",
                     dispatcher.name,
                     self.client_address
                 );
-                return Err(err.into());
+
+                dispatcher.metrics.inc_transfail();
+                let due_to_message = err.was_due_to_message();
+                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
+
+                if let Some(msg) = dispatcher.msgs.pop() {
+                    let response = Response {
+                        code: 400,
+                        enhanced_code: None,
+                        content: format!("KumoMTA internal: failed to send message: {err:#}"),
+                        command: err.command(),
+                    };
+
+                    self.log_disposition(
+                        dispatcher,
+                        RecordType::TransientFailure,
+                        msg.clone(),
+                        response.clone(),
+                    )
+                    .await;
+
+                    if !due_to_message
+                        && try_next_host_on_transport_error
+                        && have_more_connection_candidates
+                    {
+                        // Try it on the next connection
+                        dispatcher.msgs.push(msg);
+                    } else {
+                        spawn(
+                            "requeue message",
+                            QueueManager::requeue_message(
+                                msg,
+                                IncrementAttempts::Yes,
+                                None,
+                                response,
+                                InsertReason::LoggedTransientFailure.into(),
+                            ),
+                        )?;
+                    }
+                }
+
+                return Ok(());
             }
             Ok(response) => {
                 tracing::debug!("Delivered OK! {response:?}");

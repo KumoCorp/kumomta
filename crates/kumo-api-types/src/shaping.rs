@@ -1978,6 +1978,7 @@ MergedEntry {
         readyq_pool_name: None,
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
+        try_next_host_on_transport_error: false,
     },
     sources: {},
     automation: [
@@ -2125,6 +2126,7 @@ MergedEntry {
         readyq_pool_name: None,
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
+        try_next_host_on_transport_error: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2185,6 +2187,7 @@ MergedEntry {
             readyq_pool_name: None,
             low_memory_reduction_policy: ShrinkDataAndMeta,
             no_memory_reduction_policy: ShrinkDataAndMeta,
+            try_next_host_on_transport_error: false,
         },
     },
     automation: [
@@ -2338,6 +2341,7 @@ MergedEntry {
         readyq_pool_name: None,
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
+        try_next_host_on_transport_error: false,
     },
     sources: {},
     automation: [

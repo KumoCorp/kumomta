@@ -1,6 +1,7 @@
 #![cfg(test)]
 mod auth_deliver;
 mod auth_deliver_invalid_password;
+mod disconnect_in_data;
 mod disconnect_in_mail_from;
 mod disconnect_reconnect_same_host;
 mod disconnect_terminate_ok;

@@ -1,3 +1,4 @@
+use crate::Command;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -210,6 +211,43 @@ impl Response {
         }
 
         builder.build(None)
+    }
+
+    /// If the error contents were likely caused by something
+    /// about the mostly recently attempted message, rather than
+    /// a transport issue, or a carry-over from a prior message
+    /// (eg: previous message was rejected and destination chose
+    /// to drop the connection, which we detect later in RSET
+    /// on the next message), then we return true.
+    /// The expectation is that the caller will transiently
+    /// fail the message for later retry.
+    /// If we return false then the caller might decide to
+    /// try that same message again more immediately on
+    /// a separate connection
+    pub fn was_due_to_message(&self) -> bool {
+        if let Some(command) = &self.command {
+            if let Ok(cmd) = Command::parse(command) {
+                return match cmd {
+                    Command::MailFrom { .. }
+                    | Command::RcptTo { .. }
+                    | Command::Data
+                    | Command::DataDot => true,
+                    Command::Ehlo(_)
+                    | Command::Helo(_)
+                    | Command::Lhlo(_)
+                    | Command::Rset
+                    | Command::Quit
+                    | Command::StartTls
+                    | Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Noop(_)
+                    | Command::Help(_)
+                    | Command::Auth { .. } => false,
+                };
+            }
+        }
+
+        true
     }
 }
 

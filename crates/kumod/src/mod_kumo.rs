@@ -1,7 +1,7 @@
 use crate::egress_source::{EgressPool, EgressSource};
 use crate::queue::QueueConfig;
 use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
-use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectError};
+use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
 use kumo_server_common::http_server::HttpListenerParams;
@@ -130,8 +130,25 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set(
         "reject",
         lua.create_function(move |_lua, (code, message): (u16, String)| {
-            Err::<(), mlua::Error>(mlua::Error::external(RejectError { code, message }))
+            Err::<(), mlua::Error>(mlua::Error::external(RejectError {
+                code,
+                message,
+                disconnect: RejectDisconnect::If421,
+            }))
         })?,
+    )?;
+
+    kumo_mod.set(
+        "disconnect",
+        lua.create_function(
+            move |_lua, (code, message, disconnect): (u16, String, Option<RejectDisconnect>)| {
+                Err::<(), mlua::Error>(mlua::Error::external(RejectError {
+                    code,
+                    message,
+                    disconnect: disconnect.unwrap_or(RejectDisconnect::ForceDisconnect),
+                }))
+            },
+        )?,
     )?;
 
     kumo_mod.set(

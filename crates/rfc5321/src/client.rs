@@ -72,6 +72,59 @@ pub enum ClientError {
     NoUsableDaneTlsa { hostname: String, tlsa: Vec<TLSA> },
 }
 
+impl ClientError {
+    /// Returns the command(s) string suitable for passing into a Response
+    pub fn command(&self) -> Option<String> {
+        match self {
+            Self::TimeOutResponse {
+                command: Some(command),
+                ..
+            }
+            | Self::ReadError {
+                command: Some(command),
+                ..
+            } => Some(command.encode()),
+            Self::TimeOutRequest { commands, .. } | Self::WriteError { commands, .. }
+                if !commands.is_empty() =>
+            {
+                let commands: Vec<String> = commands.into_iter().map(|cmd| cmd.encode()).collect();
+                Some(commands.join(""))
+            }
+            _ => None,
+        }
+    }
+
+    /// If the error contents were likely caused by something
+    /// about the mostly recently attempted message, rather than
+    /// a transport issue, or a carry-over from a prior message
+    /// (eg: previous message was rejected and destination chose
+    /// to drop the connection, which we detect later in RSET
+    /// on the next message), then we return true.
+    /// The expectation is that the caller will transiently
+    /// fail the message for later retry.
+    /// If we return false then the caller might decide to
+    /// try that same message again more immediately on
+    /// a separate connection
+    pub fn was_due_to_message(&self) -> bool {
+        match self {
+            Self::Utf8(_)
+            | Self::MalformedResponseLine(_)
+            | Self::ResponseTooLong
+            | Self::NotConnected
+            | Self::InvalidDnsName(_)
+            | Self::TimeOutResponse { .. }
+            | Self::TimeOutRequest { .. }
+            | Self::ReadError { .. }
+            | Self::FlushError { .. }
+            | Self::WriteError { .. }
+            | Self::TimeOutData
+            | Self::SslErrorStack(_)
+            | Self::NoUsableDaneTlsa { .. } => false,
+            Self::Rejected(response) => response.was_due_to_message(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EsmtpCapability {
     pub name: String,

@@ -332,6 +332,12 @@ pub struct EgressPathConfig {
     /// What to do to newly inserted messages when memory is over the soft limit
     #[serde(default)]
     pub no_memory_reduction_policy: MemoryReductionPolicy,
+
+    /// If we experience a transport error during SMTP, should we retry the
+    /// current message on the next host in the connection plan, or
+    /// immediately consider it a transient failure for that message?
+    #[serde(default)]
+    pub try_next_host_on_transport_error: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -387,6 +393,7 @@ impl Default for EgressPathConfig {
             no_memory_reduction_policy: MemoryReductionPolicy::default(),
             maintainer_wakeup_strategy: WakeupStrategy::default(),
             dispatcher_wakeup_strategy: WakeupStrategy::default(),
+            try_next_host_on_transport_error: false,
         }
     }
 }
