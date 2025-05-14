@@ -33,7 +33,7 @@ your system configuration.
 |KumoMTA Version|Hickory DNS ResolverOpts|
 |---------------|------------------------|
 |2025.03.19-1d3f1f67|[hickory DNS 0.24](https://docs.rs/hickory-resolver/0.24.1/hickory_resolver/config/struct.ResolverOpts.html)|
-|{{since('2025.05.06-b29689af', inline=True)}}|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
+|2025.05.06-b29689af|[hickory DNS 0.25](https://docs.rs/hickory-resolver/0.25.1/hickory_resolver/config/struct.ResolverOpts.html)|
 
 ```lua
 kumo.on('init', function()
@@ -53,8 +53,8 @@ kumo.on('init', function()
       },
     },
     options = {
-      edns = true, -- in dev builds, this is called `edns0`
-      use_hosts_file = true, -- in dev builds, use "Auto" as the value
+      edns0 = true,
+      use_hosts_file = 'Auto',
     },
   }
 end)
