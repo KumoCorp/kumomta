@@ -670,6 +670,23 @@ impl EsmtpListenerParams {
 }
 
 #[derive(Error, Debug, Clone)]
+#[error("shutting down")]
+pub struct ShuttingDownError;
+
+impl ShuttingDownError {
+    pub fn is_shutting_down(err: &anyhow::Error) -> bool {
+        if err
+            .root_cause()
+            .downcast_ref::<ShuttingDownError>()
+            .is_some()
+        {
+            return true;
+        }
+        format!("{err:#}").contains("shutting down")
+    }
+}
+
+#[derive(Error, Debug, Clone)]
 #[error("{code} {message}")]
 #[must_use]
 pub struct RejectError {
@@ -2248,10 +2265,10 @@ impl SmtpServerSession {
                     .await?;
                     return Ok(());
                 }
-                Ok(Err(err)) => {
-                    let err = format!("{err:#}");
+                Ok(Err(error)) => {
+                    let err = format!("{error:#}");
 
-                    if activity.is_shutting_down() && err.contains("shutting down") {
+                    if activity.is_shutting_down() && ShuttingDownError::is_shutting_down(&error) {
                         self.write_response(
                             421,
                             format!("4.3.2 {} shutting down", self.params.hostname),

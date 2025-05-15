@@ -5,6 +5,7 @@ use crate::queue::queue::{Queue, QueueHandle};
 use crate::queue::strategy::{QueueStructure, WheelV1Entry, SINGLETON_WHEEL, SINGLETON_WHEEL_V2};
 use crate::queue::wait_for_message_batch;
 use crate::ready_queue::ReadyQueueManager;
+use crate::smtp_server::ShuttingDownError;
 use crate::Utc;
 use anyhow::Context;
 use kumo_server_lifecycle::{Activity, ShutdownSubcription};
@@ -235,7 +236,9 @@ async fn reinsert_batch(messages: Vec<(Message, QueueHandle)>, total_scheduled: 
                         .insert_ready(msg, InsertReason::DueTimeWasReached.into(), None)
                         .await
                     {
-                        tracing::error!("Error reinserting message: {err:#}");
+                        if !ShuttingDownError::is_shutting_down(&err) {
+                            tracing::error!("Error reinserting message: {err:#}");
+                        }
                     }
                 }
             })

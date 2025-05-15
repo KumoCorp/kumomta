@@ -5,6 +5,7 @@ use crate::http_server::admin_trace_smtp_client_v1::{
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{IncrementAttempts, InsertReason, QueueManager, QueueState};
 use crate::ready_queue::{Dispatcher, QueueDispatcher};
+use crate::smtp_server::ShuttingDownError;
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -294,7 +295,7 @@ impl SmtpDispatcher {
                     tokio::select! {
                         _ = tokio::time::sleep(delay) => {},
                         _ = shutdown.shutting_down() => {
-                            anyhow::bail!("shutting down");
+                            return Err(ShuttingDownError.into());
                         }
                     };
                 } else {
@@ -416,7 +417,7 @@ impl SmtpDispatcher {
         self.source_address.take();
         let (mut client, source_address) = tokio::select! {
             _ = shutdown.shutting_down() => {
-                anyhow::bail!("shutting down");
+                return Err(ShuttingDownError.into());
             }
             result = make_connection => { result? },
         }

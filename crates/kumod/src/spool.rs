@@ -1,5 +1,6 @@
 use crate::logging::disposition::{log_disposition, LogDisposition, RecordType};
 use crate::queue::{InsertReason, Queue, QueueManager};
+use crate::smtp_server::ShuttingDownError;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use config::{any_err, from_lua_value, get_or_create_module, CallbackSignature};
@@ -405,7 +406,7 @@ impl SpoolManager {
 
         loop {
             let entry = tokio::select! {
-                _ = shutdown.shutting_down() => anyhow::bail!("shutting down"),
+                _ = shutdown.shutting_down() => return Err(ShuttingDownError.into()),
                 entry = rx.recv_async() => { entry },
             }?;
 

@@ -15,7 +15,7 @@ use crate::queue::{
     QueueManager, QueueState,
 };
 use crate::smtp_dispatcher::{MxListEntry, OpportunisticInsecureTlsHandshakeError, SmtpDispatcher};
-use crate::smtp_server::DeferredSmtpInjectionDispatcher;
+use crate::smtp_server::{DeferredSmtpInjectionDispatcher, ShuttingDownError};
 use crate::spool::SpoolManager;
 use anyhow::Context;
 use arc_swap::ArcSwap;
@@ -1652,7 +1652,7 @@ impl Dispatcher {
         )) {
             Some(a) => a,
             None => {
-                anyhow::bail!("shutting down");
+                return Err(ShuttingDownError.into());
             }
         };
 
@@ -1713,7 +1713,7 @@ impl Dispatcher {
             self.readyq_spawn("reinserting".to_string(), async move {
                 for msg in msgs {
                     if let Err(err) = Self::reinsert_message(msg, context.clone()).await {
-                        if err.to_string() != "shutting down" {
+                        if !ShuttingDownError::is_shutting_down(&err) {
                             tracing::error!("error reinserting message: {err:#}");
                         }
                     }
