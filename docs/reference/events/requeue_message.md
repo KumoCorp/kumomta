@@ -1,3 +1,7 @@
+---
+title: requeue_message
+---
+
 # `kumo.on('requeue_message', function(message, smtp_response))`
 
 {{since('2024.11.08-d383b033')}}

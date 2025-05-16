@@ -1,3 +1,7 @@
+---
+title: http_message_generated
+---
+
 # `kumo.on('http_message_generated', function(message))`
 
 Called by the HTTP injection API endpoint after generating a message, but prior

@@ -1,3 +1,7 @@
+---
+title: smtp_server_ehlo
+---
+
 # `kumo.on('smtp_server_ehlo', function(domain, conn_meta))`
 
 Called by the ESMTP server in response to the client issuing either a `"HELO"`

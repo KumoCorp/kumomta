@@ -1,3 +1,7 @@
+---
+title: smtp_server_message_received
+---
+
 # `kumo.on('smtp_server_message_received', function(message, conn_meta))`
 
 Called by the ESMTP server after receiving the message data, but before

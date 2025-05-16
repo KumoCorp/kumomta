@@ -1,3 +1,7 @@
+---
+title: get_queue_config
+---
+
 # `kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain))`
 
 !!! note

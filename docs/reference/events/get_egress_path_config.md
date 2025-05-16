@@ -1,3 +1,7 @@
+---
+title: get_egress_path_config
+---
+
 # `kumo.on('get_egress_path_config', function(routing_domain, egress_source, site_name))`
 
 The `routing_domain` parameter corresponds to the effective `routing_domain` of

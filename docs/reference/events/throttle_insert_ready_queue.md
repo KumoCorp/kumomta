@@ -1,3 +1,7 @@
+---
+title: throttle_insert_ready_queue
+---
+
 # `kumo.on('throttle_insert_ready_queue', function(message))`
 
 {{since('2024.11.08-d383b033')}}

@@ -1,3 +1,7 @@
+---
+title: get_egress_pool
+---
+
 # `kumo.on('get_egress_pool', function(pool_name))`
 
 ```lua

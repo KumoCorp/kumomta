@@ -1,3 +1,7 @@
+---
+title: get_egress_source
+---
+
 # `kumo.on('get_egress_source', function(source_name))`
 
 ```lua

@@ -1,3 +1,7 @@
+---
+title: http_server_validate_auth_basic
+---
+
 # `kumo.on('http_server_validate_auth_basic', function(USER, PASSWORD))`
 
 Called by the HTTP listener to validate HTTP Basic authentication

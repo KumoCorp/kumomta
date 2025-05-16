@@ -1,3 +1,7 @@
+---
+title: pre_init
+---
+
 # `kumo.on('pre_init', FUNCTION)`
 
 {{since('2023.11.28-b5252a41')}}

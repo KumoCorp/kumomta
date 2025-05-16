@@ -1,3 +1,7 @@
+---
+title: smtp_server_rcpt_to
+---
+
 # `kumo.on('smtp_server_rcpt_to', function(recipient, conn_meta))`
 
 Called by the ESMTP server in response to the client issuing a `"RCPT TO"`

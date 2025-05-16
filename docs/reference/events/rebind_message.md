@@ -1,3 +1,7 @@
+---
+title: rebind_message
+---
+
 # `kumo.on('rebind_message', function(message, data))`
 
 {{since('2024.09.02-c5476b89')}}

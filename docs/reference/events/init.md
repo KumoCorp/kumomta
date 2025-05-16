@@ -1,3 +1,7 @@
+---
+title: init
+---
+
 # `kumo.on('init', FUNCTION)`
 
 The `init` event is triggered once when the `kumod` process initializes.

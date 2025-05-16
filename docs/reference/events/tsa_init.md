@@ -1,3 +1,7 @@
+---
+title: tsa_init
+---
+
 # `kumo.on('tsa_init', FUNCTION)`
 
 {{since('2023.08.22-4d895015')}}

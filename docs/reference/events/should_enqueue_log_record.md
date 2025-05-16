@@ -1,4 +1,5 @@
 ---
+title: should_enqueue_log_record
 tags:
  - logging
 ---

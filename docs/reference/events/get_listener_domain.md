@@ -1,3 +1,7 @@
+---
+title: get_listener_domain
+---
+
 # `kumo.on('get_listener_domain', function(domain, listener, conn_meta))`
 
 This event is triggered by the SMTP server to retrieve information about

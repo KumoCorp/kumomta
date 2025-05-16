@@ -1,3 +1,7 @@
+---
+title: tsa_load_shaping_data
+---
+
 # `kumo.on('tsa_load_shaping_data', FUNCTION)`
 
 {{since('2023.08.22-4d895015')}}
