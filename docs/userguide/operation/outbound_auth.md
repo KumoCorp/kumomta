@@ -11,16 +11,19 @@ While not used when delivering messages to remote hosts under normal circumstanc
 The following example shows how SMTP AUTH information can be added to an egress_path config:
 
 ```lua
-kumo.on('get_egress_path_config', function(domain, site_name)
-  return kumo.make_egress_path {
-    enable_tls = 'Required',
-    smtp_auth_plain_username = 'scott',
-    -- The password can be any keysource value
-    smtp_auth_plain_password = {
-      key_data = 'tiger',
-    },
-  }
-end)
+kumo.on(
+  'get_egress_path_config',
+  function(routing_domain, egress_source, site_name)
+    return kumo.make_egress_path {
+      enable_tls = 'Required',
+      smtp_auth_plain_username = 'scott',
+      -- The password can be any keysource value
+      smtp_auth_plain_password = {
+        key_data = 'tiger',
+      },
+    }
+  end
+)
 ```
 
 !!!warning
@@ -35,19 +38,22 @@ Storing credentials in a static policy file is not recommended. KumoMTA supports
 When using a keysource, the value of `smtp_auth_plain_password is any [keysource](../../reference/keysource.md), which allows for specifying the password via a credential manager such as HashiCorp Vault.
 
 ```lua
-kumo.on('get_egress_path_config', function(domain, site_name)
-  return kumo.make_egress_path {
-    enable_tls = 'Required',
-    smtp_auth_plain_username = 'scott',
-    -- The password can be any keysource value.
-    -- Here we are loading the credential for the domain
-    -- from HashiCorp vault
-    smtp_auth_plain_password = {
-      vault_mount = 'secret',
-      vault_path = 'smtp-auth/' .. domain,
-    },
-  }
-end)
+kumo.on(
+  'get_egress_path_config',
+  function(routing_domain, egress_source, site_name)
+    return kumo.make_egress_path {
+      enable_tls = 'Required',
+      smtp_auth_plain_username = 'scott',
+      -- The password can be any keysource value.
+      -- Here we are loading the credential for the domain
+      -- from HashiCorp vault
+      smtp_auth_plain_password = {
+        vault_mount = 'secret',
+        vault_path = 'smtp-auth/' .. routing_domain,
+      },
+    }
+  end
+)
 ```
 
 See the [keysource](https://docs.kumomta.com/reference/keysource/) section of the Reference Manual for more information.
