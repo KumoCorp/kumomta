@@ -1,4 +1,8 @@
-# `message:set_data(payload)`
+# set_data
+
+```lua
+message:set_data(payload)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

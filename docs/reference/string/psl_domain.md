@@ -1,4 +1,8 @@
-# `kumo.string.psl_domain(STRING)`
+# kumo.string.psl_domain
+
+```lua
+kumo.string.psl_domain(STRING)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

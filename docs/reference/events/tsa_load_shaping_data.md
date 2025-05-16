@@ -1,8 +1,8 @@
----
-title: tsa_load_shaping_data
----
+# tsa_load_shaping_data
 
-# `kumo.on('tsa_load_shaping_data', FUNCTION)`
+```lua
+kumo.on('tsa_load_shaping_data', function() end)
+```
 
 {{since('2023.08.22-4d895015')}}
 

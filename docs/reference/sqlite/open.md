@@ -1,4 +1,8 @@
-# `sqlite.open(PATH, [BUSY_TIMEOUT=500])`
+# sqlite.open
+
+```
+sqlite.open(PATH, [BUSY_TIMEOUT=500])
+```
 
 Opens the sqlite database at `PATH` and returns a connection handle.
 

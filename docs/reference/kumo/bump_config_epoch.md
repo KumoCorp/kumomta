@@ -1,4 +1,8 @@
-# `kumo.bump_config_epoch()`
+# kumo.bump_config_epoch
+
+```lua
+kumo.bump_config_epoch()
+```
 
 {{since('2024.11.08-d383b033')}}
 

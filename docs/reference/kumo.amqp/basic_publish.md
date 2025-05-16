@@ -1,4 +1,8 @@
-# `kumo.amqp.basic_publish {PARAMS}`
+# basic_publish
+
+```lua
+kumo.amqp.basic_publish { PARAMS }
+```
 
 {{since('2024.09.02-c5476b89')}}
 

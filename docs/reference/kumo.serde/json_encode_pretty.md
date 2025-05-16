@@ -1,4 +1,8 @@
-# `kumo.serde.json_encode_pretty(VALUE)`
+# kumo.serde.json_encode_pretty
+
+```lua
+kumo.serde.json_encode_pretty(VALUE)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

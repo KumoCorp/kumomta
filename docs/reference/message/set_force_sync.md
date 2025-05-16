@@ -1,4 +1,8 @@
-# `message:set_force_sync(force)`
+# set_force_sync
+
+```lua
+message:set_force_sync(force)
+```
 
 When `force` is `true`, each future attempt to save the message metadata or
 data will use a high durability write, delaying further processing until the

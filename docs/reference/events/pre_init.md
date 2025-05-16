@@ -1,8 +1,8 @@
----
-title: pre_init
----
+# pre_init
 
-# `kumo.on('pre_init', FUNCTION)`
+```lua
+kumo.on('pre_init', function() end)
+```
 
 {{since('2023.11.28-b5252a41')}}
 

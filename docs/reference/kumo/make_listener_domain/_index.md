@@ -1,4 +1,8 @@
-# `kumo.make_listener_domain {PARAMS}`
+# kumo.make_listener_domain
+
+```lua
+kumo.make_listener_domain { PARAMS }
+```
 
 Make a listener-domain configuration object.
 
@@ -13,3 +17,4 @@ relaying is denied.
 
 `PARAMS` is a lua table that can accept the keys listed below.
 
+## Listener Domain Parameters { data-search-exclude }

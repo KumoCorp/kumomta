@@ -3,7 +3,11 @@ tags:
  - logging
  - debugging
 ---
-# `kumo.set_diagnostic_log_filter(FILTER)`
+# kumo.set_diagnostic_log_filter
+
+```lua
+kumo.set_diagnostic_log_filter(FILTER)
+```
 
 Changes the filtering configuration for the diagnostic log.
 

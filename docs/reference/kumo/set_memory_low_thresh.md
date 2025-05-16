@@ -3,7 +3,11 @@ tags:
  - memory
 ---
 
-# `kumo.set_memory_low_thresh(THRESH)`
+# kumo.set_memory_low_thresh
+
+```lua
+kumo.set_memory_low_thresh(THRESH)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

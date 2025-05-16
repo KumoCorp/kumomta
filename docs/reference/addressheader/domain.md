@@ -1,4 +1,8 @@
-# `addressheader.domain`
+# domain
+
+```lua
+local domain = addressheader.domain
+```
 
 If the address header consists of a single simple address, returns the domain
 portion of the address. For example, if the address is

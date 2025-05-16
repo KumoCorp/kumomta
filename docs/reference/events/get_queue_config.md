@@ -1,14 +1,11 @@
----
-title: get_queue_config
----
+# get_queue_config
 
-# `kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain))`
-
-!!! note
-    This event handler is in flux and may change significantly
-
-Not the final form of this API, but this is currently how
-we retrieve configuration used for managing a queue.
+```lua
+kumo.on(
+  'get_queue_config',
+  function(domain, tenant, campaign, routing_domain) end
+)
+```
 
 The parameters correspond to the `domain`, `tenant`, `campaign` and `routing_domain`
 fields from the *scheduled queue* name, as discussed in [Queues](../queues.md).

@@ -1,4 +1,8 @@
-# `kumo.set_max_spare_lua_contexts(limit)`
+# kumo.set_max_spare_lua_contexts
+
+```lua
+kumo.set_max_spare_lua_contexts(limit)
+```
 
 KumoMTA maintains a pool of lua contexts so that the overhead of evaluating
 lua for any given event handler is reduced.

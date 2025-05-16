@@ -1,4 +1,8 @@
-# `kumo.make_throttle(NAME, SPEC)`
+# kumo.make_throttle
+
+```lua
+kumo.make_throttle(NAME, SPEC)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

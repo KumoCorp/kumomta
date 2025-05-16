@@ -1,4 +1,8 @@
-# `message:dkim_sign(SIGNER)`
+# dkim_sign
+
+```lua
+message:dkim_sign(SIGNER)
+```
 
 Computes the DKIM signature for the message using the provided SIGNER and
 prepends it to the message.

@@ -1,3 +1,5 @@
+# now
+
 ```rust
 pub fn now() -> Value
 ```

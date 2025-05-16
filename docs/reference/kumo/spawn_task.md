@@ -1,4 +1,8 @@
-# `kumo.spawn_task{PARAMS}`
+# kumo.spawn_task
+
+```lua
+kumo.spawn_task { PARAMS }
+```
 
 {{since('2024.06.10-84e84b89')}}
 

@@ -1,4 +1,8 @@
-# `kumo.string.trim(STRING)`
+# kumo.string.trim
+
+```lua
+kumo.string.trim(STRING)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

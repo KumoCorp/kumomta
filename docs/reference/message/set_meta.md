@@ -3,7 +3,11 @@ tags:
  - meta
 ---
 
-# `message:set_meta(KEY, VALUE)`
+# set_meta
+
+```lua
+message:set_meta(KEY, VALUE)
+```
 
 Messages are associated with some metadata. You can think of this metadata
 as being equivalent to a JSON object.

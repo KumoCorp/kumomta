@@ -16,5 +16,5 @@ parsed out set of addresses, regardless of how many are present.
 Note that you can use `tostring(address)` to get a JSON rendition of the parsed
 address information.
 
-## Available Fields
+## Available Fields { data-search-exclude }
 

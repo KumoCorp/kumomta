@@ -1,4 +1,8 @@
-# `kumo.start_esmtp_listener {PARAMS}`
+# kumo.start_esmtp_listener
+
+```lua
+kumo.start_esmtp_listener { PARAMS }
+```
 
 Configure and start ESMTP service.
 
@@ -30,3 +34,5 @@ end)
 
 `PARAMS` is a lua table that can accept the keys listed below:
 
+
+## ESMTP Listener Parameters { data-search-exclude }

@@ -1,4 +1,12 @@
-# `kumo.toml_load(FILENAME)`
+---
+status: deprecated
+---
+
+# kumo.toml_load
+
+```lua
+kumo.toml_load(FILENAME)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

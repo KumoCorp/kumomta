@@ -1,4 +1,8 @@
-# `kumo.shaping.load({PATHS}, {OPTIONS})`
+# kumo.shaping.load
+
+```lua
+kumo.shaping.load({ PATHS }, { OPTIONS })
+```
 
 {{since('2023.08.22-4d895015')}}
 

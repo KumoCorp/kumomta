@@ -1,8 +1,8 @@
----
-title: init
----
+# init
 
-# `kumo.on('init', FUNCTION)`
+```lua
+kumo.on('init', function() end)
+```
 
 The `init` event is triggered once when the `kumod` process initializes.
 The intent is that you use this event to define the spool storage and

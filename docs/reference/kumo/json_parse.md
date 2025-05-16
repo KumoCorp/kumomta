@@ -1,4 +1,12 @@
-# `kumo.json_parse(STRING)`
+---
+status: deprecated
+---
+
+# kumo.json_parse
+
+```lua
+kumo.json_parse(STRING)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

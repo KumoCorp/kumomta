@@ -1,4 +1,8 @@
-# `message:num_attempts()`
+# num_attempts
+
+```lua
+message:num_attempts()
+```
 
 {{since('2024.06.10-84e84b89')}}
 

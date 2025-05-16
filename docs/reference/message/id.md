@@ -1,4 +1,8 @@
-# `message:id()`
+# id
+
+```lua
+message:id()
+```
 
 Each message is uniquely identified by the system using an id.
 

@@ -1,4 +1,8 @@
-# `message:import_scheduling_header(HEADER_NAME, REMOVE)`
+# import_scheduling_header
+
+```lua
+message:import_scheduling_header(HEADER_NAME, REMOVE)
+```
 
 Reads the header specified and attempts to parse it as JSON-encoded version of
 the [message:set_scheduling()](set_scheduling.md) parameters. If successful, it

@@ -1,4 +1,8 @@
-# `kumo.regex.escape(PATTERN)`
+# kumo.regex.escape
+
+```lua
+kumo.regex.escape(PATTERN)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

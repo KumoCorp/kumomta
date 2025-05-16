@@ -1,4 +1,8 @@
-# `kumo.http.build_url(base, {PARAMS})`
+# kumo.http.build_url
+
+```lua
+kumo.http.build_url(base, { PARAMS })
+```
 
 Given a base URL and a set of parameters, combine the two together
 and return the result as a string.

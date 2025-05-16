@@ -1,4 +1,8 @@
-# `kumo.uuid.parse(UUID)`
+# kumo.uuid.parse
+
+```lua
+kumo.uuid.parse(UUID)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

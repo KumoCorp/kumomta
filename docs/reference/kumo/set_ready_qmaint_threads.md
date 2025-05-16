@@ -3,7 +3,11 @@ tags:
  - threadpool
 ---
 
-# `kumo.set_ready_qmaint_threads(N)`
+# kumo.set_ready_qmaint_threads
+
+```lua
+kumo.set_ready_qmaint_threads(N)
+```
 
 {{since('2025.05.06-b29689af')}}
 

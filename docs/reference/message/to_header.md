@@ -1,4 +1,8 @@
-# `message:to_header()`
+# to_header
+
+```lua
+message:to_header()
+```
 
 Gets the `"To"` header, parses it as a list of mailboxes and groups, and returns an [addressheader](../addressheader/index.md) object.
 

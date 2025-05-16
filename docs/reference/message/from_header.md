@@ -1,4 +1,8 @@
-# `message:from_header()`
+# from_header
+
+```lua
+message:from_header()
+```
 
 Gets the `"From"` header, parses it as a list of mailboxes and groups, and returns an [addressheader](../addressheader/index.md) object.
 

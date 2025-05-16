@@ -1,4 +1,8 @@
-# `redis.open { PARAMS }`
+# redis.open
+
+```lua
+redis.open { PARAMS }
+```
 
 Opens a connection to a [Redis](https://redis.io/) data store and returns a connection handle.
 

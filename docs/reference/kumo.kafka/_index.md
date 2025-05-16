@@ -2,4 +2,4 @@
 
 This module provides Apache Kafka client functionality.
 
-## Available Functions
+## Available Functions { data-search-exclude }

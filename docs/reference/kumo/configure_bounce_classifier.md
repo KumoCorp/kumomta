@@ -1,4 +1,8 @@
-# `kumo.configure_bounce_classifier {PARAMS}`
+# kumo.configure_bounce_classifier
+
+```lua
+kumo.configure_bounce_classifier { PARAMS }
+```
 
 Configures the bounce classifier. The purpose of the classifier
 is to attempt to digest complex and wide-ranging responses into

@@ -1,4 +1,8 @@
-# `kumo.domain_map.new([{MAP}])`
+# kumo.domain_map.new
+
+```
+kumo.domain_map.new([{MAP}])
+```
 
 Create a new *domain map*, optionally seeded with an initial set of
 key/value pairs.

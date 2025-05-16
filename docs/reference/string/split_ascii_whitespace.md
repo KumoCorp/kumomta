@@ -1,4 +1,8 @@
-# `kumo.string.split_ascii_whitespace(STRING)`
+# kumo.string.split_ascii_whitespace
+
+```lua
+kumo.string.split_ascii_whitespace(STRING)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

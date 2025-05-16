@@ -1,4 +1,8 @@
-# `kumo.serde.toml_load(FILENAME)`
+# kumo.serde.toml_load
+
+```lua
+kumo.serde.toml_load(FILENAME)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

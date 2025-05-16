@@ -1,4 +1,8 @@
-# `kumo.on(EVENT, FUNCTION)`
+# kumo.on
+
+```lua
+kumo.on(EVENT, FUNCTION)
+```
 
 Register a handler for a named event.
 

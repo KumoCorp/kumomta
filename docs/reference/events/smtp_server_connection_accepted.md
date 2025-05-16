@@ -1,8 +1,8 @@
----
-title: smtp_server_connection_accepted
----
+# smtp_server_connection_accepted
 
-# `kumo.on('smtp_server_connection_accepted', function(conn_meta))`
+```lua
+kumo.on('smtp_server_connection_accepted', function(conn_meta) end)
+```
 
 {{since('2025.05.06-b29689af')}}
 

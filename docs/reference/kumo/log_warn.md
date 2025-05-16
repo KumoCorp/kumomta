@@ -4,7 +4,11 @@ tags:
  - debugging
 ---
 
-# `kumo.log_warn(ARGS)`
+# kumo.log_warn
+
+```lua
+kumo.log_warn(ARGS)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

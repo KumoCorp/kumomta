@@ -1,4 +1,8 @@
-# `kumo.serde.yaml_encode(VALUE)`
+# kumo.serde.yaml_encode
+
+```lua
+kumo.serde.yaml_encode(VALUE)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

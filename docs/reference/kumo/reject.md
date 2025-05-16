@@ -1,4 +1,8 @@
-# `kumo.reject(CODE, MESSAGE)`
+# kumo.reject
+
+```lua
+kumo.reject(CODE, MESSAGE)
+```
 
 Calling `kumo.reject` will raise a lua error that will cause the
 current ESMTP event to respond with the SMTP error code and message

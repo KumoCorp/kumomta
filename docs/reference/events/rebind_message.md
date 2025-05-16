@@ -1,8 +1,8 @@
----
-title: rebind_message
----
+# rebind_message
 
-# `kumo.on('rebind_message', function(message, data))`
+```lua
+kumo.on('rebind_message', function(message, data) end)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

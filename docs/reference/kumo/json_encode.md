@@ -1,4 +1,12 @@
-# `kumo.json_encode(VALUE)`
+---
+status: deprecated
+---
+
+# kumo.json_encode
+
+```lua
+kumo.json_encode(VALUE)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

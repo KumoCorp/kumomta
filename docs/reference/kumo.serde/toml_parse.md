@@ -1,4 +1,8 @@
-# `kumo.serde.toml_parse(STRING)`
+# kumo.serde.toml_parse
+
+```lua
+kumo.serde.toml_parse(STRING)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

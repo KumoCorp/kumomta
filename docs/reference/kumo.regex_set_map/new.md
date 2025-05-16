@@ -1,4 +1,8 @@
-# `kumo.regex_set_map.new([{MAP}])`
+# kumo.regex_set_map.new
+
+```
+kumo.regex_set_map.new([{MAP}])
+```
 
 {{since('2023.11.28-b5252a41')}}
 

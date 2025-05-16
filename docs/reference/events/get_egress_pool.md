@@ -1,8 +1,10 @@
----
-title: get_egress_pool
----
+# get_egress_pool
 
-# `kumo.on('get_egress_pool', function(pool_name))`
+```lua
+kumo.on('get_egress_pool', function(pool_name) end)
+```
+
+Called by the system to determine the composition of a specific named egress pool.
 
 ```lua
 kumo.on('get_egress_pool', function(pool_name)

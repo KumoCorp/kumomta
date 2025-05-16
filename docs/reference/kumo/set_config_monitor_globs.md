@@ -1,4 +1,8 @@
-# `kumo.set_config_monitor_globs(GLOBS)`
+# kumo.set_config_monitor_globs
+
+```lua
+kumo.set_config_monitor_globs(GLOBS)
+```
 
 {{since('2024.11.08-d383b033')}}
 

@@ -1,4 +1,8 @@
-# `kumo.make_egress_pool { PARAMS }`
+# kumo.make_egress_pool
+
+```lua
+kumo.make_egress_pool { PARAMS }
+```
 
 Defines an *egress pool*, which is a collection of weighted *egress sources*
 associated with the source of outbound traffic from the MTA.
@@ -26,3 +30,4 @@ This function is intended to be used inside your
 
 `PARAMS` is a lua table which may have the following keys:
 
+## Egress Pool Parameters { data-search-exclude }

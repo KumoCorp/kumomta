@@ -1,4 +1,8 @@
-# `kumo.encode.base32_encode(STRING)`
+# kumo.encode.base32_encode
+
+```lua
+kumo.encode.base32_encode(STRING)
+```
 
 {{since('2023.08.22-4d895015')}}
 

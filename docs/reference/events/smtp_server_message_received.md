@@ -1,8 +1,8 @@
----
-title: smtp_server_message_received
----
+# smtp_server_message_received
 
-# `kumo.on('smtp_server_message_received', function(message, conn_meta))`
+```lua
+kumo.on('smtp_server_message_received', function(message, conn_meta) end)
+```
 
 Called by the ESMTP server after receiving the message data, but before
 responding to the client in the live SMTP session.

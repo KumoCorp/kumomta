@@ -3,7 +3,11 @@ tags:
  - memory
 ---
 
-# `kumo.set_memory_hard_limit(LIMIT)`
+# kumo.set_memory_hard_limit
+
+```lua
+kumo.set_memory_hard_limit(LIMIT)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

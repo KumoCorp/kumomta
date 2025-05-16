@@ -1,5 +1,12 @@
-# `message:set_scheduling { SCHED }`
-# `message:set_scheduling(nil)`
+# set_scheduling
+
+```lua
+message:set_scheduling { SCHED }
+```
+
+```lua
+message:set_scheduling(nil)
+```
 
 Allows setting schedule constraints on the message.
 

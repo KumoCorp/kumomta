@@ -1,4 +1,8 @@
-# `kumo.configure_redis_throttles { PARAMS }`
+# kumo.configure_redis_throttles
+
+```lua
+kumo.configure_redis_throttles { PARAMS }
+```
 
 Configure the throttle layer to use a [Redis](https://redis.io/) data store to
 manage throttling across multiple MTA nodes.

@@ -1,4 +1,8 @@
-# `kumo.dns.configure_unbound_resolver{PARAMS}`
+# configure_unbound_resolver
+
+```lua
+kumo.dns.configure_unbound_resolver { PARAMS }
+```
 
 {{since('2023.11.28-b5252a41')}}
 

@@ -1,4 +1,8 @@
-# `kumo.string.splitn(STRING, LIMIT, PATTERN)`
+# kumo.string.splitn
+
+```lua
+kumo.string.splitn(STRING, LIMIT, PATTERN)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

@@ -1,4 +1,12 @@
-# `kumo.json_load(FILENAME)`
+---
+status: deprecated
+---
+
+# kumo.json_load
+
+```lua
+kumo.json_load(FILENAME)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

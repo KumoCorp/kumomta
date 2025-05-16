@@ -1,4 +1,8 @@
-# `kumo.amqp.build_client(URI)`
+# build_client
+
+```lua
+kumo.amqp.build_client(URI)
+```
 
 Constructs an AMQP client object, using the underlying
 [lapin](https://docs.rs/lapin/) client implementation.

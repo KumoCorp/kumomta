@@ -3,7 +3,11 @@ tags:
  - logging
 ---
 
-# `kumo.configure_log_hook {PARAMS}`
+# kumo.configure_log_hook
+
+```lua
+kumo.configure_log_hook { PARAMS }
+```
 
 Configures the lua logging hook. When enabled, each matching log event will
 cause a new [Message](../message/index.md) to be generated and have its body

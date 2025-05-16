@@ -1,4 +1,8 @@
-# `kumo.make_egress_path { PARAMS }`
+# kumo.make_egress_path
+
+```lua
+kumo.make_egress_path { PARAMS }
+```
 
 Constructs a configuration object that specifies how traffic travelling the
 path from a *source* to a *site* will behave.
@@ -9,3 +13,4 @@ configuration for the requested site.
 
 The following keys are possible:
 
+## Egress Path Parameters { data-search-exclude }

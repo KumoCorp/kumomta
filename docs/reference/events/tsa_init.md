@@ -1,8 +1,8 @@
----
-title: tsa_init
----
+# tsa_init
 
-# `kumo.on('tsa_init', FUNCTION)`
+```lua
+kumo.on('tsa_init', function() end)
+```
 
 {{since('2023.08.22-4d895015')}}
 

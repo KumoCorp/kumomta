@@ -1,4 +1,8 @@
-# `message:append_text_plain(content)`
+# append_text_plain
+
+```lua
+message:append_text_plain(content)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

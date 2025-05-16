@@ -2,4 +2,4 @@
 
 This module provides functions that are useful when working with secrets and credentials.
 
-## Available Functions
+## Available Functions { data-search-exclude }

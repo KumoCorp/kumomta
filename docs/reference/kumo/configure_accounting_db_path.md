@@ -1,4 +1,8 @@
-# `kumo.configure_accounting_db_path("PATH")`
+# kumo.configure_accounting_db_path
+
+```lua
+kumo.configure_accounting_db_path 'PATH'
+```
 
 {{since('2023.11.28-b5252a41')}}
 

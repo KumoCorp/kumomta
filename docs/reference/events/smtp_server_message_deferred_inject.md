@@ -1,8 +1,11 @@
----
-title: smtp_server_message_deferred_inject
----
+# smtp_server_message_deferred_inject
 
-# `kumo.on('smtp_server_message_deferred_inject', function(message, conn_meta))`
+```lua
+kumo.on(
+  'smtp_server_message_deferred_inject',
+  function(message, conn_meta) end
+)
+```
 
 {{since('2025.01.23-7273d2bc')}}
 

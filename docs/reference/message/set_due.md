@@ -1,4 +1,8 @@
-# `message:set_due(due)`
+# set_due
+
+```lua
+message:set_due(due)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

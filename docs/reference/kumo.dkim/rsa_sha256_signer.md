@@ -1,4 +1,8 @@
-# `kumo.dkim.rsa_sha256_signer {PARAMS}`
+# rsa_sha256_signer
+
+```lua
+kumo.dkim.rsa_sha256_signer { PARAMS }
+```
 
 Create a DKIM signer that uses RSA SHA256.
 

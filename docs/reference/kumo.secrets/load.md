@@ -1,4 +1,8 @@
-# `kumo.secrets.load(SOURCE)`
+# kumo.secrets.load
+
+```lua
+kumo.secrets.load(SOURCE)
+```
 
 Given a [keysource](../keysource.md), load and return the bytes stored in that source.
 

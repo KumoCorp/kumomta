@@ -1,4 +1,13 @@
-# `kumo.string.eval_template(NAME, SOURCE, CONTEXT)`
+---
+tags:
+  - templates
+---
+
+# kumo.string.eval_template
+
+```lua
+kumo.string.eval_template(NAME, SOURCE, CONTEXT)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

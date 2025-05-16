@@ -1,4 +1,8 @@
-# `kumo.make_queue_config { PARAMS }`
+# kumo.make_queue_config
+
+```lua
+kumo.make_queue_config { PARAMS }
+```
 
 Constructs a configuration object that specifies how a *queue* will behave.
 
@@ -8,3 +12,4 @@ configuration for the requested queue.
 
 The following keys are possible:
 
+## Scheduled Queue Configuration Parameters { data-search-exclude }

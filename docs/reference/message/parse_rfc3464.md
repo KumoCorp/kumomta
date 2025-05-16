@@ -1,4 +1,8 @@
-# `message:parse_rfc3464()`
+# parse_rfc3464
+
+```lua
+message:parse_rfc3464()
+```
 
 Parses the message data as an RFC 3464 delivery status report.
 

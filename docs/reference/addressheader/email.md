@@ -1,4 +1,8 @@
-# `addressheader.email`
+# email
+
+```lua
+local email = addressheader.email
+```
 
 If the address header consists of a single simple address, returns the email
 address portion of the address. For example, if the address is `"John Smith

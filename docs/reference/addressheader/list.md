@@ -1,4 +1,8 @@
-# `addressheader.list`
+# list
+
+```lua
+local list = addressheader.list
+```
 
 Returns a lua table consisting of one entry per address in the header. Each
 entry is a single simple address object that has `domain`, `user`, `email` and

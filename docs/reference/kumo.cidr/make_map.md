@@ -1,4 +1,8 @@
-# `kumo.cidr.make_map([{MAP}])`
+# make_map
+
+```lua
+kumo.cidr.make_map(MAP)
+```
 
 Create a new *CIDR map*, optionally seeded with an initial set of
 key/value pairs.

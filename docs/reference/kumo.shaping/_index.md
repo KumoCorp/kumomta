@@ -7,4 +7,4 @@ This module provides functions to configure the KumoMTA Traffic Shaping Automati
 This module is only present in the `tsa-daemon` process; attempting to
 reference it elsewhere will fail.
 
-## Available Functions
+## Available Functions { data-search-exclude }

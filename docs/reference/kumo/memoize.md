@@ -1,4 +1,8 @@
-# `kumo.memoize(FUNCTION, {PARAMS})`
+# kumo.memoize
+
+```lua
+kumo.memoize(FUNCTION, { PARAMS })
+```
 
 This function allows you to create functions that cache the result of a
 computation.  This technique is known as

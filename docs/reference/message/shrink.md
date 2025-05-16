@@ -1,4 +1,8 @@
-# `message:shrink()`
+# shrink
+
+```lua
+message:shrink()
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

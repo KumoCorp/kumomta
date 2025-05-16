@@ -2,4 +2,4 @@
 
 This module provides AMQP/RabbitMQ client functionality.
 
-## Available Functions
+## Available Functions { data-search-exclude }

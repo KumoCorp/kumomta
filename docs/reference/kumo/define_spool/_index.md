@@ -1,4 +1,8 @@
-# `kumo.define_spool {PARAMS}`
+# kumo.define_spool
+
+```lua
+kumo.define_spool { PARAMS }
+```
 
 Defines a named spool storage backend.
 
@@ -23,3 +27,4 @@ end)
 
 PARAMS is a lua table that can accept the keys listed below:
 
+## Spool Parameters { data-search-exclude }

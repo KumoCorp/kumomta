@@ -4,7 +4,11 @@ tags:
  - filesystem
 ---
 
-# `kumo.read_dir(path)`
+# kumo.read_dir
+
+```lua
+kumo.read_dir(path)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

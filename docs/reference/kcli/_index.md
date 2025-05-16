@@ -63,4 +63,4 @@ Full docs available at: <https://docs.kumomta.com>
 
 
 
-## Available Subcommands
+## Available Subcommands { data-search-exclude }

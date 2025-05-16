@@ -1,8 +1,8 @@
----
-title: smtp_server_ehlo
----
+# smtp_server_ehlo
 
-# `kumo.on('smtp_server_ehlo', function(domain, conn_meta))`
+```lua
+kumo.on('smtp_server_ehlo', function(domain, conn_meta) end)
+```
 
 Called by the ESMTP server in response to the client issuing either a `"HELO"`
 or `"EHLO"` command.  The event handler is passed the *domain* parameter from

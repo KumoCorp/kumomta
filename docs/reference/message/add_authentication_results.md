@@ -1,4 +1,8 @@
-# `message:add_authentication_results(server_id, results)`
+# add_authentication_results
+
+```lua
+message:add_authentication_results(server_id, results)
+```
 
 {{since('2023.11.28-b5252a41')}}
 

@@ -1,8 +1,11 @@
----
-title: smtp_server_get_dynamic_parameters
----
+# smtp_server_get_dynamic_parameters
 
-# `kumo.on('smtp_server_get_dynamic_parameters', function(listener, conn_meta))`
+```lua
+kumo.on(
+  'smtp_server_get_dynamic_parameters',
+  function(listener, conn_meta) end
+)
+```
 
 {{since('2025.05.06-b29689af')}}
 

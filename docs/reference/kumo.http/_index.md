@@ -2,4 +2,4 @@
 
 This module provides HTTP client functionality.
 
-## Available Functions
+## Available Functions { data-search-exclude }

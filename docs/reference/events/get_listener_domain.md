@@ -1,8 +1,8 @@
----
-title: get_listener_domain
----
+# get_listener_domain
 
-# `kumo.on('get_listener_domain', function(domain, listener, conn_meta))`
+```lua
+kumo.on('get_listener_domain', function(domain, listener, conn_meta) end)
+```
 
 This event is triggered by the SMTP server to retrieve information about
 either a source or destination domain to help determine whether the message

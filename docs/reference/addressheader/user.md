@@ -1,4 +1,8 @@
-# `addressheader.user`
+# user
+
+```lua
+local user = addressheader.user
+```
 
 If the address header consists of a single simple address, returns the mailbox
 portion of the address. For example, if the address is

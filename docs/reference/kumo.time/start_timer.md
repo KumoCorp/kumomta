@@ -1,4 +1,8 @@
-# `kumo.time.start_timer(LABEL)`
+# kumo.time.start_timer
+
+```lua
+kumo.time.start_timer(LABEL)
+```
 
 {{since('2025.01.23-7273d2bc')}}
 

@@ -1,4 +1,8 @@
-# `kumo.kafka.build_producer(URI)`
+# kumo.kafka.build_producer
+
+```lua
+kumo.kafka.build_producer(URI)
+```
 
 Constructs a Kafka client object.
 

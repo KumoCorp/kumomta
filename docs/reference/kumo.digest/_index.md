@@ -42,4 +42,4 @@ assert(d.base64url == 'qvTGHdzF6KLavt4PO0gs2a6pQ00=')
 assert(d.base64url_nopad == 'qvTGHdzF6KLavt4PO0gs2a6pQ00')
 ```
 
-## Available Functions
+## Available Functions { data-search-exclude }

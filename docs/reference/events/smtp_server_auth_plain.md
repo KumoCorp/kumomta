@@ -1,8 +1,11 @@
----
-title: smtp_server_auth_plain
----
+# smtp_server_auth_plain
 
-# `kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta))`
+```lua
+kumo.on(
+  'smtp_server_auth_plain',
+  function(authz, authc, password, conn_meta) end
+)
+```
 
 Called by the ESMTP server in response to the client issuing an `"AUTH PLAIN"`
 authentication attempt.

@@ -1,3 +1,5 @@
+# datetimeformat
+
 ```rust
 pub fn datetimeformat(
     state: &State<'_, '_>,

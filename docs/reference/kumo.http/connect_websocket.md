@@ -1,4 +1,8 @@
-# `kumo.http.connect_websocket(URL)`
+# kumo.http.connect_websocket
+
+```lua
+kumo.http.connect_websocket(URL)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

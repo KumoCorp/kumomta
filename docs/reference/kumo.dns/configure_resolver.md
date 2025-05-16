@@ -1,4 +1,8 @@
-# `kumo.dns.configure_resolver{PARAMS}`
+# configure_resolver
+
+```lua
+kumo.dns.configure_resolver { PARAMS }
+```
 
 {{since('2023.08.22-4d895015')}}
 

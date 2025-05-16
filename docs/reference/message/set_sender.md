@@ -1,4 +1,8 @@
-# `message:set_sender(ENVELOPE)`
+# set_sender
+
+```lua
+message:set_sender(ENVELOPE)
+```
 
 {{since('2023.08.22-4d895015')}}
 

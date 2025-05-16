@@ -1,4 +1,12 @@
-# `kumo.sleep(SECONDS)`
+---
+status: deprecated
+---
+
+# kumo.sleep
+
+```lua
+kumo.sleep(SECONDS)
+```
 
 !!! warning
     This function has moved to the [kumo.time](../kumo.time/index.md) module and

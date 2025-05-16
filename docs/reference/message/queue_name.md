@@ -1,4 +1,8 @@
-# `message:queue_name()`
+# queue_name
+
+```lua
+message:queue_name()
+```
 
 {{since('2024.06.10-84e84b89')}}
 

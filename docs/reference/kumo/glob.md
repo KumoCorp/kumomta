@@ -4,7 +4,11 @@ tags:
  - filesystem
 ---
 
-# `kumo.glob(pattern [, relative_to, [, ttl_seconds]])`
+# kumo.glob
+
+```
+kumo.glob(pattern [, relative_to, [, ttl_seconds]])
+```
 
 {{since('2024.06.10-84e84b89')}}
 

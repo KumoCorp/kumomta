@@ -1,4 +1,8 @@
-# `kumo.set_max_lua_context_age(seconds)`
+# kumo.set_max_lua_context_age
+
+```lua
+kumo.set_max_lua_context_age(seconds)
+```
 
 KumoMTA maintains a pool of lua contexts so that the overhead of evaluating
 lua for any given event handler is reduced.

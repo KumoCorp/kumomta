@@ -1,4 +1,8 @@
-# `message:remove_x_headers([NAMES])`
+# remove_x_headers
+
+```
+message:remove_x_headers([NAMES])
+```
 
 When called with no parameters, removes all headers with an `"X-"` prefix from
 the message.

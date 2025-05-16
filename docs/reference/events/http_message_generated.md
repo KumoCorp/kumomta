@@ -1,8 +1,8 @@
----
-title: http_message_generated
----
+# http_message_generated
 
-# `kumo.on('http_message_generated', function(message))`
+```lua
+kumo.on('http_message_generated', function(message) end)
+```
 
 Called by the HTTP injection API endpoint after generating a message, but prior
 to injecting it into the queue.

@@ -1,4 +1,8 @@
-# `kumo.serde.json_load(FILENAME)`
+# kumo.serde.json_load
+
+```lua
+kumo.serde.json_load(FILENAME)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

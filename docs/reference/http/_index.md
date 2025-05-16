@@ -15,7 +15,7 @@ All HTTP endpoints require that the client satisfy one of the follow conditions:
   [http_server_validate_auth_basic](../events/http_server_validate_auth_basic.md)
   event handler
 
-## Endpoints
+## Endpoints { data-search-exclude }
 
 The following endpoints are available:
 

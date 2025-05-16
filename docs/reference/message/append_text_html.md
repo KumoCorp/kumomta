@@ -1,4 +1,8 @@
-# `message:append_text_html(content)`
+# append_text_html
+
+```lua
+message:append_text_html(content)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

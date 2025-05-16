@@ -1,4 +1,8 @@
-# `message:check_fix_conformance(CHECKS, FIXES)`
+# check_fix_conformance
+
+```lua
+message:check_fix_conformance(CHECKS, FIXES)
+```
 
 {{since('2023.11.28-b5252a41')}}
 

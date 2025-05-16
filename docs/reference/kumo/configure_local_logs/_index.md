@@ -3,7 +3,11 @@ tags:
  - logging
 ---
 
-# `kumo.configure_local_logs {PARAMS}`
+# kumo.configure_local_logs
+
+```lua
+kumo.configure_local_logs { PARAMS }
+```
 
 Enables local logging of reception and delivery events to the specified
 `log_dir` directory.
@@ -25,3 +29,5 @@ end)
 ```
 
 PARAMS is a lua table that can accept the keys listed below:
+
+## Local Log File Parameters { data-search-exclude }

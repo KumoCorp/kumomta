@@ -1,4 +1,8 @@
-# `kumo.spf.check_host()`
+# kumo.spf.check_host
+
+```lua
+kumo.spf.check_host { PARAMS }
+```
 
 {{since('2024.11.08-d383b033')}}
 

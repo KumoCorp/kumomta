@@ -1,4 +1,8 @@
-# `kumo.dns.set_mx_concurrency_limit(LIMIT)`
+# set_mx_concurrency_limit
+
+```lua
+kumo.dns.set_mx_concurrency_limit(LIMIT)
+```
 
 {{since('2025.05.06-b29689af')}}
 

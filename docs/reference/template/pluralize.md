@@ -1,3 +1,5 @@
+# pluralize
+
 ```rust
 pub fn pluralize(
     v: Value,

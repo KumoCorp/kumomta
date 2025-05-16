@@ -1,4 +1,12 @@
-# `kumo.toml_encode(VALUE)`
+---
+status: deprecated
+---
+
+# kumo.toml_encode
+
+```lua
+kumo.toml_encode(VALUE)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

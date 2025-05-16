@@ -1,4 +1,8 @@
-# `kumo.dns.lookup_mx(DOMAIN)`
+# lookup_mx
+
+```lua
+kumo.dns.lookup_mx(DOMAIN)
+```
 
 Resolve the MX information for the requested `DOMAIN`.
 

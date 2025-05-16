@@ -1,4 +1,8 @@
-# `kumo.set_lruttl_cache_capacity(NAME, CAPACITY)`
+# kumo.set_lruttl_cache_capacity
+
+```lua
+kumo.set_lruttl_cache_capacity(NAME, CAPACITY)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

@@ -2,4 +2,4 @@
 
 This module provides message injection functionality
 
-## Available Functions
+## Available Functions { data-search-exclude }

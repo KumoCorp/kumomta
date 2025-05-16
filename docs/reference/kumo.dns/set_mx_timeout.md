@@ -1,4 +1,8 @@
-# `kumo.dns.set_mx_timeout(DURATION)`
+# set_mx_timeout
+
+```lua
+kumo.dns.set_mx_timeout(DURATION)
+```
 
 {{since('2025.03.19-1d3f1f67')}}
 

@@ -1,4 +1,8 @@
-# `kumo.time.sleep(SECONDS)`
+# kumo.time.sleep
+
+```lua
+kumo.time.sleep(SECONDS)
+```
 
 {{since('2025.01.23-7273d2bc')}}
 

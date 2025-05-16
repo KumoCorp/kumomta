@@ -1,4 +1,8 @@
-# `addressheader.name`
+# name
+
+```lua
+local name = addressheader.name
+```
 
 If the address header consists of a single simple address, returns the display name
 portion of the address. For example, if the address is

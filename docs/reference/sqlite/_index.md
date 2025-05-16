@@ -2,4 +2,4 @@
 
 The sqlite module provides access to sqlite databases.
 
-## Available Functions
+## Available Functions { data-search-exclude }

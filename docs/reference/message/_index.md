@@ -7,5 +7,5 @@ delivered.
 Messages are created by the system and are then passed to your policy script
 via various events when the system needs your input into acting on the message.
 
-## Available Methods
+## Available Methods { data-search-exclude }
 

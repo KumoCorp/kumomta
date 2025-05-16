@@ -1,4 +1,8 @@
-# `kumo.digest.sha1(ARGS)`
+# sha1
+
+```lua
+kumo.digest.sha1(ARGS)
+```
 
 Computes a SHA1 digest over each of the arguments in ARGS.
 

@@ -1,10 +1,13 @@
 ---
-title: should_enqueue_log_record
 tags:
  - logging
 ---
 
-# `kumo.on('should_enqueue_log_record', function(message, hook_name))`
+# should_enqueue_log_record
+
+```lua
+kumo.on('should_enqueue_log_record', function(message, hook_name) end)
+```
 
 This event is triggered when
 [kumo.configure_log_hook](../kumo/configure_log_hook.md) has been used to

@@ -1,4 +1,8 @@
-# `kumo.regex.compile(PATTERN)`
+# kumo.regex.compile
+
+```lua
+kumo.regex.compile(PATTERN)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

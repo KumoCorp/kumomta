@@ -1,4 +1,8 @@
-# `kumo.configure_tsa_db_path(PATH)`
+# kumo.configure_tsa_db_path
+
+```lua
+kumo.configure_tsa_db_path(PATH)
+```
 
 {{since('2023.08.22-4d895015')}}
 

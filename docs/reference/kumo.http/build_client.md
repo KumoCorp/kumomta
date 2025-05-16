@@ -1,4 +1,8 @@
-# `kumo.http.build_client({PARAMS})`
+# kumo.http.build_client
+
+```lua
+kumo.http.build_client { PARAMS }
+```
 
 Constructs an HTTP client object.
 

@@ -1,8 +1,11 @@
----
-title: get_egress_path_config
----
+# get_egress_path_config
 
-# `kumo.on('get_egress_path_config', function(routing_domain, egress_source, site_name))`
+```lua
+kumo.on(
+  'get_egress_path_config',
+  function(routing_domain, egress_source, site_name) end
+)
+```
 
 The `routing_domain` parameter corresponds to the effective `routing_domain` of
 the originating *scheduled queue*.  This will be the same as the recipient

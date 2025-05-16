@@ -1,3 +1,7 @@
+---
+tags:
+  - templates
+---
 # Template Syntax
 
 A number of components and facilities in KumoMTA allow you to use the [Mini
@@ -15,4 +19,5 @@ complete list.
 
 * Builtin filters: [see here](https://docs.rs/minijinja/latest/minijinja/filters/index.html)
 
+## Template Functions and Filters { data-search-exclude }
 

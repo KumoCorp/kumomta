@@ -1,8 +1,8 @@
----
-title: smtp_server_rcpt_to
----
+# smtp_server_rcpt_to
 
-# `kumo.on('smtp_server_rcpt_to', function(recipient, conn_meta))`
+```lua
+kumo.on('smtp_server_rcpt_to', function(recipient, conn_meta) end)
+```
 
 Called by the ESMTP server in response to the client issuing a `"RCPT TO"`
 command.  The event handler is passed the *recipient address* parameter from

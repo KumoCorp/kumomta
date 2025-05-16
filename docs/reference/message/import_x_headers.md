@@ -3,7 +3,11 @@ tags:
  - meta
 ---
 
-# `message:import_x_headers([NAMES])`
+# import_x_headers
+
+```
+message:import_x_headers([NAMES])
+```
 
 When called with no parameters, iterates the headers of the message, and for
 each header with an `"X-"` prefix, imports the header into the message

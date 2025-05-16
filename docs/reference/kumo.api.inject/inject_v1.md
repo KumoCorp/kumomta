@@ -1,4 +1,8 @@
-# `kumo.api.inject.inject_v1(request)`
+# inject_v1
+
+```lua
+kumo.api.inject.inject_v1(request)
+```
 
 {{since('2024.06.10-84e84b89')}}
 

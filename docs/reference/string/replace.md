@@ -1,4 +1,8 @@
-# `kumo.string.replace(STRING, FROM, TO)`
+# kumo.string.replace
+
+```lua
+kumo.string.replace(STRING, FROM, TO)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

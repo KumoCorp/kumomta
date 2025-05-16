@@ -2,4 +2,4 @@
 
 This module provides functions that help with making wildcard domain name -> value maps.
 
-## Available Functions
+## Available Functions { data-search-exclude }

@@ -1,4 +1,12 @@
-# `kumo.toml_parse(STRING)`
+---
+status: deprecated
+---
+
+# kumo.toml_parse
+
+```lua
+kumo.toml_parse(STRING)
+```
 
 !!! warning
     This function has moved to the [kumo.serde](../kumo.serde/index.md) module and

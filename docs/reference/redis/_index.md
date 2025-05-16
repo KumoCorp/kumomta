@@ -2,4 +2,4 @@
 
 The redis module provides access to redis data stores.
 
-## Available Functions
+## Available Functions { data-search-exclude }

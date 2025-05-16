@@ -1,8 +1,8 @@
----
-title: spool_message_enumerated
----
+# spool_message_enumerated
 
-# `kumo.on('spool_message_enumerated', function(message))`
+```lua
+kumo.on('spool_message_enumerated', function(message) end)
+```
 
 Called by the spool layer during spool enumeration during server startup.
 

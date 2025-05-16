@@ -1,8 +1,8 @@
----
-title: requeue_message
----
+# requeue_message
 
-# `kumo.on('requeue_message', function(message, smtp_response))`
+```lua
+kumo.on('requeue_message', function(message, smtp_response) end)
+```
 
 {{since('2024.11.08-d383b033')}}
 

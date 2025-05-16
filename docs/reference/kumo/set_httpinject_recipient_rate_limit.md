@@ -1,4 +1,8 @@
-# `kumo.set_httpinject_recipient_rate_limit(SPEC)`
+# kumo.set_httpinject_recipient_rate_limit
+
+```lua
+kumo.set_httpinject_recipient_rate_limit(SPEC)
+```
 
 {{since('2024.11.08-d383b033')}}
 

@@ -1,4 +1,8 @@
-# `message:save()`
+# save
+
+```lua
+message:save()
+```
 
 Save the message data and metadata to the spool.
 

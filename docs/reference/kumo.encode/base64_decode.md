@@ -1,4 +1,8 @@
-# `kumo.encode.base64_decode(STRING)`
+# kumo.encode.base64_decode
+
+```lua
+kumo.encode.base64_decode(STRING)
+```
 
 {{since('2023.08.22-4d895015')}}
 

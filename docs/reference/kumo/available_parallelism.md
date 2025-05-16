@@ -3,7 +3,11 @@ tags:
  - threadpool
 ---
 
-# `kumo.available_parallelism()`
+# kumo.available_parallelism
+
+```lua
+kumo.available_parallelism()
+```
 
 {{since('2024.06.10-84e84b89')}}
 

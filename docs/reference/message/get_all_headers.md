@@ -1,4 +1,8 @@
-# `message:get_all_headers()`
+# get_all_headers
+
+```lua
+message:get_all_headers()
+```
 
 Gets the all the headers, decode the values to UTF-8 and
 return them in a lua array style table of tables:

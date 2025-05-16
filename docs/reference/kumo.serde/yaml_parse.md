@@ -1,4 +1,8 @@
-# `kumo.serde.yaml_parse(STRING)`
+# kumo.serde.yaml_parse
+
+```lua
+kumo.serde.yaml_parse(STRING)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

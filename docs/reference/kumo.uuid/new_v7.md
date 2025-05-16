@@ -1,4 +1,8 @@
-# `kumo.uuid.new_v7()`
+# kumo.uuid.new_v7
+
+```lua
+kumo.uuid.new_v7()
+```
 
 {{since('2024.09.02-c5476b89')}}
 

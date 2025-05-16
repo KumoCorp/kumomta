@@ -4,7 +4,11 @@ tags:
  - filesystem
 ---
 
-# `kumo.uncached_glob(pattern [, relative_to])`
+# kumo.uncached_glob
+
+```
+kumo.uncached_glob(pattern [, relative_to])
+```
 
 {{since('2024.06.10-84e84b89')}}
 

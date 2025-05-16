@@ -1,3 +1,5 @@
+# filesizeformat
+
 ```rust
 pub fn filesizeformat(value: f64, binary: Option<bool>) -> String
 ```

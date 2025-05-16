@@ -1,4 +1,8 @@
-# `kumo.serde.toml_encode(VALUE)`
+# kumo.serde.toml_encode
+
+```lua
+kumo.serde.toml_encode(VALUE)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

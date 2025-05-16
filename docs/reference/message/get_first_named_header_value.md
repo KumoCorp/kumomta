@@ -1,4 +1,8 @@
-# `message:get_first_named_header_value(NAME)`
+# get_first_named_header_value
+
+```lua
+message:get_first_named_header_value(NAME)
+```
 
 Gets the first header whose name matches `NAME`, decode it to UTF-8 and return
 it.

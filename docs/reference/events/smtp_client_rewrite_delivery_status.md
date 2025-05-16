@@ -1,8 +1,11 @@
----
-title: smtp_client_rewrite_delivery_status
----
+# smtp_client_rewrite_delivery_status
 
-# `kumo.on('smtp_client_rewrite_delivery_status', function(response, domain, tenant, campaign, routing_domain))`
+```lua
+kumo.on(
+  'smtp_client_rewrite_delivery_status',
+  function(response, domain, tenant, campaign, routing_domain) end
+)
+```
 
 {{since('2023.11.28-b5252a41')}}
 

@@ -2,5 +2,5 @@
 
 This module provides functions that help with making regex -> value maps.
 
-## Available Functions
+## Available Functions { data-search-exclude }
 

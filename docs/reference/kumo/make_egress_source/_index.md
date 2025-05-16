@@ -1,4 +1,8 @@
-# `kumo.make_egress_source {PARAMS}`
+# kumo.make_egress_source
+
+```lua
+kumo.make_egress_source { PARAMS }
+```
 
 Defines an *egress source*, which is an entity associated with the source of
 outbound traffic from the MTA.  A source must be referenced by a
@@ -11,3 +15,4 @@ A source must have at a minimum a *name*, which will be used in logging/reportin
 
 `PARAMS` is a lua table which may have the following keys:
 
+## Egress Source Parameters { data-search-exclude }

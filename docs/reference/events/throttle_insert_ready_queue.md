@@ -1,8 +1,8 @@
----
-title: throttle_insert_ready_queue
----
+# throttle_insert_ready_queue
 
-# `kumo.on('throttle_insert_ready_queue', function(message))`
+```lua
+kumo.on('throttle_insert_ready_queue', function(message) end)
+```
 
 {{since('2024.11.08-d383b033')}}
 

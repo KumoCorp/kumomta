@@ -1,4 +1,8 @@
-# `kumo.serde.yaml_load(FILENAME)`
+# kumo.serde.yaml_load
+
+```lua
+kumo.serde.yaml_load(FILENAME)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

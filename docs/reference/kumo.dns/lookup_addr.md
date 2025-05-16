@@ -1,4 +1,8 @@
-# `kumo.dns.lookup_addr(NAME)`
+# lookup_addr
+
+```lua
+kumo.dns.lookup_addr(NAME)
+```
 
 {{since('2023.08.22-4d895015')}}
 

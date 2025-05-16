@@ -1,4 +1,8 @@
-# `kumo.dns.lookup_txt(DOMAIN)`
+# lookup_txt
+
+```lua
+kumo.dns.lookup_txt(DOMAIN)
+```
 
 {{since('2024.09.02-c5476b89')}}
 

@@ -1,4 +1,8 @@
-# `kumo.dkim.ed25519_signer {PARAMS}`
+# ed25519_signer
+
+```lua
+kumo.dkim.ed25519_signer { PARAMS }
+```
 
 Create a DKIM signer that uses ED25519 keys.
 

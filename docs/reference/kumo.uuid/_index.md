@@ -38,4 +38,4 @@ assert(
 )
 ```
 
-## Available Functions
+## Available Functions { data-search-exclude }

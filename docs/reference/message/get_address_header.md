@@ -1,4 +1,8 @@
-# `message:get_address_header(NAME)`
+# get_address_header
+
+```lua
+message:get_address_header(NAME)
+```
 
 Gets the first header whose name matches `NAME`, parses it as a list of mailboxes and groups, and returns an [addressheader](../addressheader/index.md) object.
 

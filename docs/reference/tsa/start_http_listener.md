@@ -1,4 +1,8 @@
-# `kumo.start_http_listener { PARAMS }`
+# kumo.start_http_listener
+
+```lua
+kumo.start_http_listener { PARAMS }
+```
 
 {{since('2023.08.22-4d895015')}}
 
