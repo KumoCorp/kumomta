@@ -103,7 +103,9 @@ impl SubCommand {
                     if idx == 0 {
                         std::fs::write(
                             "docs/reference/kcli/_index.md",
-                            format!("{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"),
+                            format!(
+                                "{chunk}\n\n## Available Subcommands {{ data-search-exclude }}"
+                            ),
                         )?;
                     } else {
                         let (sub_command, remainder) = chunk.split_once('`').unwrap();
