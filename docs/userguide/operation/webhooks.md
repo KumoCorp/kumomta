@@ -51,7 +51,7 @@ log_hooks:new_json {
     The default traffic shaping rules that are likely present in your [Shaping Helper](../configuration/trafficshaping.md) configuration will also affect messages queued for delivery via webhooks. To avoid issues, add throttle configuration specific to your webhook queue (based on the name provided when creating a webhook):
 
     ```toml
-    ["webhook"]
+    ['webhook.log_hook']
     mx_rollup = false
     connection_limit = 100
     max_deliveries_per_connection = 100000
