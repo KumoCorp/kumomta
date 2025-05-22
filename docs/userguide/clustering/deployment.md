@@ -44,7 +44,7 @@ subgraph "MTA Node 2"
     tsa_daemon2["tsa-daemon"]
 end
 
-redis[("Redis\n(Throttles)")]
+redis[("Redis (Throttles)")]
 
     kumod1 --> redis
     kumod1 ---> tsa_daemon1
