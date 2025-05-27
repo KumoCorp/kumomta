@@ -280,7 +280,8 @@ impl<'a> MimePart<'a> {
                 let bytes = data.as_bytes();
                 BASE64_RFC2045.decode(bytes).map_err(|err| {
                     let b = bytes[err.position] as char;
-                    let region = &bytes[err.position.saturating_sub(8)..err.position + 8];
+                    let region =
+                        &bytes[err.position.saturating_sub(8)..(err.position + 8).min(bytes.len())];
                     let region = String::from_utf8_lossy(region);
                     MailParsingError::BodyParse(format!(
                         "base64 decode: {err:#} b={b:?} in {region}"
@@ -903,6 +904,27 @@ From: Someone <someone@example.com>\r
 I am the body\r
 
 "#
+        );
+    }
+
+    #[test]
+    fn mime_bogus_body() {
+        let message = concat!(
+            "Subject: hello there\n",
+            "From: Someone <someone@example.com>\n",
+            "Mime-Version: 1.0\n",
+            "Content-Type: text/plain\n",
+            "Content-Transfer-Encoding: base64\n",
+            "\n",
+            "hello\n"
+        );
+
+        let part = MimePart::parse(message).unwrap();
+        assert_eq!(
+            part.body().unwrap_err(),
+            MailParsingError::BodyParse(
+                "base64 decode: invalid length at 4 b='o' in hello\n".to_string()
+            )
         );
     }
 

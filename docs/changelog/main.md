@@ -11,3 +11,5 @@
 
 ## Fixes
 
+ * `msg:check_fix_conformance` could panic when attempting to fix messages with
+   broken base64 parts
