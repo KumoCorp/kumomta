@@ -94,6 +94,9 @@ match=[
         {MXSuffix=".google.com"},
         {MXSuffix=".googlemail.com"},
 ]
+# NOTE: Google will tempfail and rate limit senders who attempt to inject messages without TLS, so for
+# Google domains enable_tls should be set to required.
+enable_tls = 'Required'
 max_deliveries_per_connection = 50
 provider_connection_limit = 5
 consecutive_connection_failures_before_delay = 5
