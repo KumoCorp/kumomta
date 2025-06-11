@@ -154,6 +154,7 @@ max_deliveries_per_connection = 5
 # https://spa.xfinity.com/postmaster
 # https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
 ["comcast.net"]
+enable_tls = 'Required'
 connection_limit = 25
 max_deliveries_per_connection = 1000
 enable_tls = "Required"
