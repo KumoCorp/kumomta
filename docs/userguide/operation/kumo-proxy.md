@@ -16,7 +16,8 @@ KumoProxy can be configured as a systemd service
 
 Note that this has only been tested for Ubuntu 24.  Your OS may require slightly different configuration.
 
-You will need sudo access to perform these changes:
+You will need sudo access to perform these changes.  Start by creating a service file.
+
 `sudo vi /etc/systemd/system/kumoproxy.service`
 
 Populate it with:
@@ -36,10 +37,12 @@ TimeoutStopSec=10
 WantedBy=multi-user.target
 ```
 
-Create an environment file where you can add your system variables:
+Next, create an environment file where you can add your system variables.
+
 `sudo vi /opt/kumomta/etc/kumoproxy.env`
 
 Populate with your IP and Port
+
 IE:
 ```console
 PROXY_IP="172.31.37.164"
