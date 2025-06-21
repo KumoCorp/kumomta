@@ -30,12 +30,6 @@
 
 #===== GMAIL
 [["gmail.com".automation]]
-regex = "Our system has detected an unusual rate"
-trigger = {Threshold="2/hr"}
-action = {SetConfig={name="max_message_rate", value="1/minute"}}
-duration = "30m"
-
-[["gmail.com".automation]]
 regex = "Our system has detected that this message"
 trigger = {Threshold="5/hr"}
 action = "Suspend"
