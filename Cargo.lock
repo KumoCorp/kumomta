@@ -3313,6 +3313,7 @@ dependencies = [
  "metrics-tracing-context",
  "mlua",
  "mod-amqp",
+ "mod-crypto",
  "mod-digest",
  "mod-dns-resolver",
  "mod-encode",
@@ -4132,6 +4133,18 @@ dependencies = [
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tracing",
+]
+
+[[package]]
+name = "mod-crypto"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "data-encoding",
+ "mlua",
+ "ring",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,12 @@
+[package]
+name = "mod-crypto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = {workspace=true}
+config = {path="../config"}
+data-encoding = {workspace=true}
+mlua = {workspace=true, features=["serialize"]}
+ring = {workspace=true}
+serde_json = {workspace=true}
