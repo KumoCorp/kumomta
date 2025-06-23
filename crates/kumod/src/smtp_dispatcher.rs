@@ -438,6 +438,8 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
+        let certificate = path_config.certificate.clone();
+        let private_key = path_config.private_key.clone();
         let openssl_options = path_config.openssl_options;
         let openssl_cipher_list = path_config.openssl_cipher_list.clone();
         let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
@@ -572,6 +574,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate,
+                        private_key,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
@@ -647,6 +651,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate,
+                        private_key,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
