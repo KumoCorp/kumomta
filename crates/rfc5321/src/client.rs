@@ -1031,6 +1031,14 @@ impl TlsOptions {
         let mut builder =
             openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
+        if let Some(ca_file) = &self.certificate {
+            builder.set_certificate_file(ca_file, openssl::ssl::SslFiletype::PEM)?;
+        }
+
+        if let Some(private_key) = &self.private_key {
+            builder.set_private_key_file(private_key, openssl::ssl::SslFiletype::PEM)?;
+        }
+
         if let Some(list) = &self.openssl_cipher_list {
             builder.set_cipher_list(list)?;
         }

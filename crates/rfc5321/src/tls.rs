@@ -78,6 +78,8 @@ pub struct TlsOptions {
     pub alt_name: Option<String>,
     pub dane_tlsa: Vec<TLSA>,
     pub prefer_openssl: bool,
+    pub certificate: Option<String>,
+    pub private_key: Option<String>,
     pub openssl_cipher_list: Option<String>,
     pub openssl_cipher_suites: Option<String>,
     pub openssl_options: Option<SslOptions>,
