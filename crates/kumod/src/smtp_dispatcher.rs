@@ -10,6 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
+use data_loader::KeySource;
 use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
@@ -31,6 +32,10 @@ use tracing::Level;
 
 lruttl::declare_cache! {
 static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
+}
+
+lruttl::declare_cache! {
+static CLIENT_CERT: LruCacheWithTtl<KeySource, Option<Vec<u8>>>::new("client_certificate", 1024);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -71,6 +76,12 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub error: ClientError,
     pub address: String,
     pub label: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct CertificateKeyPair {
+    certificate: Vec<u8>,
+    key: Vec<u8>,
 }
 
 impl OpportunisticInsecureTlsHandshakeError {
@@ -438,14 +449,45 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
-        let mut certificate_from_pem = None;
+        let mut certificate_from_pem: Option<Vec<u8>> = None;
+        let mut private_key_from_pem: Option<Vec<u8>> = None;
+
         if let Some(pem) = &path_config.certificate {
-            certificate_from_pem = Some(pem.get().await?);
+            if let Some(cached) = CLIENT_CERT.get(pem) {
+                certificate_from_pem = cached;
+            }
+            match certificate_from_pem {
+                None => {
+                    certificate_from_pem = Some(pem.get().await?);
+                    CLIENT_CERT
+                        .insert(
+                            pem.clone(),
+                            certificate_from_pem.clone(),
+                            tokio::time::Instant::now() + tokio::time::Duration::new(300, 0),
+                        )
+                        .await;
+                }
+                _ => {}
+            }
         }
 
-        let mut private_key_from_pem = None;
         if let Some(pem) = &path_config.private_key {
-            private_key_from_pem = Some(pem.get().await?);
+            if let Some(cached) = CLIENT_CERT.get(pem) {
+                private_key_from_pem = cached;
+            }
+            match private_key_from_pem {
+                None => {
+                    private_key_from_pem = Some(pem.get().await?);
+                    CLIENT_CERT
+                        .insert(
+                            pem.clone(),
+                            private_key_from_pem.clone(),
+                            tokio::time::Instant::now() + tokio::time::Duration::new(300, 0),
+                        )
+                        .await;
+                }
+                _ => {}
+            }
         }
 
         let openssl_options = path_config.openssl_options;
