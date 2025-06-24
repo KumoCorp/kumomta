@@ -7,6 +7,7 @@ use crate::{
 use hickory_proto::rr::rdata::tlsa::{CertUsage, Matching, Selector};
 use hickory_proto::rr::rdata::TLSA;
 use memchr::memmem::Finder;
+use openssl::pkey::PKey;
 use openssl::ssl::{DaneMatchType, DaneSelector, DaneUsage, SslOptions};
 use openssl::x509::{X509Ref, X509};
 use serde::{Deserialize, Serialize};
@@ -1031,12 +1032,14 @@ impl TlsOptions {
         let mut builder =
             openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
-        if let Some(ca_file) = &self.certificate {
-            builder.set_certificate_file(ca_file, openssl::ssl::SslFiletype::PEM)?;
+        if let Some(cert_data) = &self.certificate_from_pem {
+            let cert = X509::from_pem(&cert_data)?;
+            builder.set_certificate(&cert.as_ref())?;
         }
 
-        if let Some(private_key) = &self.private_key {
-            builder.set_private_key_file(private_key, openssl::ssl::SslFiletype::PEM)?;
+        if let Some(key_data) = &self.private_key_from_pem {
+            let key = PKey::private_key_from_pem(&key_data)?;
+            builder.set_private_key(key.as_ref())?;
         }
 
         if let Some(list) = &self.openssl_cipher_list {

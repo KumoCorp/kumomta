@@ -201,10 +201,10 @@ pub struct EgressPathConfig {
     pub tls_prefer_openssl: bool,
 
     #[serde(default)]
-    pub certificate: Option<String>,
+    pub certificate: Option<KeySource>,
 
     #[serde(default)]
-    pub private_key: Option<String>,
+    pub private_key: Option<KeySource>,
 
     #[serde(default)]
     pub openssl_cipher_list: Option<String>,
