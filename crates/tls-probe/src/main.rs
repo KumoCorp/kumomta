@@ -36,9 +36,9 @@ struct ProbeCommand {
     #[arg(long, value_parser=clap::builder::ValueParser::new(find_suite))]
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
     #[arg(long)]
-    certificate: Option<String>,
+    certificate_from_pem: Option<Vec<u8>>,
     #[arg(long)]
-    private_key: Option<String>,
+    private_key_from_pem: Option<Vec<u8>>,
     #[arg(long)]
     openssl_cipher_list: Option<String>,
     #[arg(long)]
@@ -92,8 +92,8 @@ async fn main() -> anyhow::Result<()> {
                         alt_name: None,
                         dane_tlsa: vec![],
                         rustls_cipher_suites: probe.rustls_cipher_suites,
-                        private_key: probe.private_key,
-                        certificate: probe.certificate,
+                        private_key_from_pem: probe.private_key_from_pem,
+                        certificate_from_pem: probe.certificate_from_pem,
                         openssl_cipher_list: probe.openssl_cipher_list,
                         openssl_cipher_suites: probe.openssl_cipher_suites,
                         openssl_options: probe.openssl_options,
