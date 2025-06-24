@@ -10,6 +10,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum AesError {
     InvalidKeyLength,
+    InternalError,
 }
 
 
@@ -17,6 +18,7 @@ impl std::error::Error for AesError {}
 impl fmt::Display for AesError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            AesError::InternalError => write!(f, "Internal Erorr occurred"),
             AesError::InvalidKeyLength => write!(f, "Invalid AES key length. Must be 16, 24, or 32 bytes (128, 192, or 256 bits)."),
         }
     }
@@ -55,8 +57,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
        crypto.set(
         "aes_encrypt",
         lua.create_function(|_, (value, enc_key, key_length_bits): (String, String, usize)| {
-        aes_encrypt( value.as_bytes(), enc_key.as_bytes(), key_length_bits);
-        Ok(())
+        let encryption_result = aes_encrypt( value.as_bytes(), enc_key.as_bytes(), key_length_bits);
+        // not sure how we handle Errors 
+        match encryption_result {
+    Ok(encrypted_vec) => {
+        // Success: Do something with the `encrypted_vec`
+         println!("encryption OK")
+    },
+    Err(e) => {
+        // not sure how to handle errors
+          println!("some error")
+    } 
+}
+  Ok(())
             })?,
         )?;
        crypto.set(
