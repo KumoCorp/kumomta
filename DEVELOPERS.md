@@ -28,6 +28,14 @@ delayed_count{queue="gmail.com"} 1
 
 ## Contributing
 
+To contribute to this project, fork it, make your edits, test and then submit a PR from the fork.
+
+Please make one change request per PR to make it easier to approve.
+
+Document your PR clearly with an explanation of your reasons and the changes requested.
+
+If you include or link to any 3rd party code, fully document the source and the reason.
+
 Ensure that the code is formatted before submitting a PR.
 
 You need to install [StyLua](https://github.com/JohnnyMorganz/StyLua) to
@@ -43,6 +51,20 @@ Then you can format both the rust and the lua code:
 $ rustup toolchain install nightly
 $ make fmt
 ```
+
+If you are making documentation edits, you should also make sure Black is installed. One of these should work for you:
+
+```console
+pip install black
+sudo apt install black
+```
+Now you can edit files under `~\kumomta\docs\`
+
+Remember to update the Navigation menus in `generate-toc.py` if pages were added or deleted.
+
+Build the new docs if needed with `docs/build.sh` from ~/kumomta/
+
+
 
 ### Docker build
 
