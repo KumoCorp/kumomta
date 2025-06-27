@@ -28,6 +28,8 @@ memchr = {workspace=true}
 openssl = {workspace=true, optional=true}
 pest = {workspace=true}
 pest_derive = {workspace=true}
+rustls = {workspace=true}
+rustls-pemfile = { workspace = true }
 rustls-platform-verifier = {workspace=true,optional=true}
 serde = {workspace=true}
 thiserror = {workspace=true}

@@ -1,6 +1,9 @@
 #![cfg(feature = "client")]
 use hickory_proto::rr::rdata::TLSA;
 use openssl::ssl::SslOptions;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls_pemfile::certs;
+use std::io::BufReader;
 use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 use tokio_rustls::rustls::client::danger::ServerCertVerifier;
@@ -98,7 +101,6 @@ impl TlsOptions {
             insecure: self.insecure,
             rustls_cipher_suites: self.rustls_cipher_suites.clone(),
         };
-
         if let Some(config) = key.get() {
             return TlsConnector::from(config);
         }
@@ -119,17 +121,109 @@ impl TlsOptions {
             Arc::new(rustls_platform_verifier::Verifier::new().with_provider(provider.clone()))
         };
 
-        let config = Arc::new(
-            ClientConfig::builder_with_provider(provider)
-                .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
-                .expect("inconsistent cipher-suite/versions selected")
-                .dangerous()
-                .with_custom_certificate_verifier(verifier)
-                .with_no_client_auth(),
-        );
+        let mut rustls_certificate: Option<Arc<Vec<CertificateDer<'static>>>> = None;
+        let mut rustls_private_key: Option<Arc<PrivateKeyDer<'static>>> = None;
+
+        match &self.private_key_from_pem {
+            None => {}
+            Some(pem) => match self.load_private_key(&pem).await {
+                Ok(key) => {
+                    rustls_private_key = Some(Arc::new(key));
+                }
+                Err(err) => {
+                    tracing::error!("failed to load private key: {err:#}");
+                }
+            },
+        }
+
+        match &self.certificate_from_pem {
+            None => {}
+            Some(pem) => match self.load_tls_cert(&pem).await {
+                Ok(cert) => {
+                    rustls_certificate = Some(Arc::new(cert));
+                }
+                Err(err) => {
+                    tracing::error!("failed to load certificate: {err:#}");
+                }
+            },
+        }
+
+        let builder = ClientConfig::builder_with_provider(provider.clone())
+            .with_protocol_versions(tokio_rustls::rustls::DEFAULT_VERSIONS)
+            .expect("inconsistent cipher-suite/versions selected")
+            .dangerous()
+            .with_custom_certificate_verifier(verifier.clone());
+        let config = match (&rustls_certificate, &rustls_private_key) {
+            (Some(certs), Some(key)) => match builder
+                .clone()
+                .with_client_auth_cert(certs.as_ref().clone(), key.as_ref().clone_key())
+            {
+                Ok(cfg) => Arc::new(cfg),
+                Err(err) => {
+                    tracing::error!("invalid client side certificate: {err:#}");
+                    Arc::new(builder.with_no_client_auth())
+                }
+            },
+            _ => Arc::new(builder.with_no_client_auth()),
+        };
         key.set(config.clone()).await;
 
         TlsConnector::from(config)
+    }
+
+    async fn load_tls_cert(&self, data: &Vec<u8>) -> std::io::Result<Vec<CertificateDer<'static>>> {
+        let mut reader = BufReader::new(data.as_slice());
+        let certs = certs(&mut reader)
+            .into_iter()
+            .map(|r| r.map(CertificateDer::into_owned))
+            .collect::<Result<Vec<CertificateDer<'static>>, std::io::Error>>()?;
+        Ok(certs)
+    }
+
+    async fn load_private_key(&self, data: &Vec<u8>) -> std::io::Result<PrivateKeyDer<'static>> {
+        // Try to parse as PKCS#8
+        let pkcs8_keys: Vec<PrivateKeyDer<'static>> = {
+            let mut reader = BufReader::new(data.as_slice());
+            rustls_pemfile::pkcs8_private_keys(&mut reader)
+                .into_iter()
+                .map(|r| r.map(PrivateKeyDer::Pkcs8))
+                .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
+        };
+
+        if !pkcs8_keys.is_empty() {
+            return Ok(pkcs8_keys.into_iter().next().unwrap());
+        }
+
+        // Reset reader and try as RSA PKCS#1
+        let rsa_keys: Vec<PrivateKeyDer<'static>> = {
+            let mut reader = BufReader::new(data.as_slice());
+            rustls_pemfile::rsa_private_keys(&mut reader)
+                .into_iter()
+                .map(|r| r.map(PrivateKeyDer::Pkcs1))
+                .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
+        };
+
+        if !rsa_keys.is_empty() {
+            return Ok(rsa_keys.into_iter().next().unwrap());
+        }
+
+        // Reset reader and try as EC Sec1
+        let ec_keys: Vec<PrivateKeyDer<'static>> = {
+            let mut reader = BufReader::new(data.as_slice());
+            rustls_pemfile::ec_private_keys(&mut reader)
+                .into_iter()
+                .map(|r| r.map(PrivateKeyDer::Sec1))
+                .collect::<Result<Vec<PrivateKeyDer<'static>>, std::io::Error>>()?
+        };
+
+        if !ec_keys.is_empty() {
+            return Ok(ec_keys.into_iter().next().unwrap());
+        }
+
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "No private key found in PEM file",
+        ))
     }
 }
 
