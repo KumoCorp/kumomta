@@ -1042,6 +1042,13 @@ impl TlsOptions {
             builder.set_private_key(key.as_ref())?;
         }
 
+        match builder.check_private_key() {
+            Ok(_) => {}
+            Err(err) => {
+                tracing::error!("client side certificate failed to validate: {err:#}");
+            }
+        };
+
         if let Some(list) = &self.openssl_cipher_list {
             builder.set_cipher_list(list)?;
         }

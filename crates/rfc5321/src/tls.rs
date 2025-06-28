@@ -14,6 +14,8 @@ use tokio_rustls::TlsConnector;
 #[derive(Clone, Debug)]
 struct RustlsCacheKey {
     insecure: bool,
+    certificate_from_pem: Option<Vec<u8>>,
+    private_key_from_pem: Option<Vec<u8>>,
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
 }
 
@@ -47,6 +49,18 @@ impl std::hash::Hash for RustlsCacheKey {
         self.insecure.hash(hasher);
         for suite in &self.rustls_cipher_suites {
             suite.suite().as_str().hash(hasher);
+        }
+        match &self.certificate_from_pem {
+            Some(pem) => {
+                pem.hash(hasher);
+            },
+            _ => {},
+        }
+        match &self.private_key_from_pem {
+            Some(pem) => {
+                pem.hash(hasher);
+            },
+            _ => {},
         }
     }
 }
@@ -100,6 +114,8 @@ impl TlsOptions {
         let key = RustlsCacheKey {
             insecure: self.insecure,
             rustls_cipher_suites: self.rustls_cipher_suites.clone(),
+            certificate_from_pem: self.certificate_from_pem.clone(),
+            private_key_from_pem: self.private_key_from_pem.clone(),
         };
         if let Some(config) = key.get() {
             return TlsConnector::from(config);

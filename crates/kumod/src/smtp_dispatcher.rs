@@ -446,41 +446,31 @@ impl SmtpDispatcher {
         let mut certificate_from_pem: Option<Vec<u8>> = None;
         let mut private_key_from_pem: Option<Vec<u8>> = None;
 
-        if let Some(pem) = &path_config.certificate {
-            if let Some(cached) = CLIENT_CERT.get(pem) {
-                certificate_from_pem = cached;
-            }
-            match certificate_from_pem {
-                None => {
-                    certificate_from_pem = Some(pem.get().await?);
-                    CLIENT_CERT
-                        .insert(
-                            pem.clone(),
-                            certificate_from_pem.clone(),
-                            tokio::time::Instant::now() + tokio::time::Duration::new(300, 0),
-                        )
-                        .await;
+        if let Some(pem) = &path_config.tls_certificate {
+            let cached = CLIENT_CERT.get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
+                pem.get().await.map(|vec| Some(vec))
+            }).await;
+            match cached {
+                Ok(items) => {
+                    certificate_from_pem = items.item;
                 }
-                _ => {}
+                Err(err) => {
+                     tracing::error!("failed to read certificate {err:#}");
+                }
             }
         }
 
-        if let Some(pem) = &path_config.private_key {
-            if let Some(cached) = CLIENT_CERT.get(pem) {
-                private_key_from_pem = cached;
-            }
-            match private_key_from_pem {
-                None => {
-                    private_key_from_pem = Some(pem.get().await?);
-                    CLIENT_CERT
-                        .insert(
-                            pem.clone(),
-                            private_key_from_pem.clone(),
-                            tokio::time::Instant::now() + tokio::time::Duration::new(300, 0),
-                        )
-                        .await;
+        if let Some(pem) = &path_tls_config.private_key {
+            let cached = CLIENT_CERT.get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
+                pem.get().await.map(|vec| Some(vec))
+            }).await;
+            match cached {
+                Ok(items) => {
+                    private_key_from_pem = items.item;
                 }
-                _ => {}
+                Err(err) => {
+                     tracing::error!("failed to read private key {err:#}");
+                }
             }
         }
 
