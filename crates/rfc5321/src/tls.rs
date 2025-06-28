@@ -53,14 +53,14 @@ impl std::hash::Hash for RustlsCacheKey {
         match &self.certificate_from_pem {
             Some(pem) => {
                 pem.hash(hasher);
-            },
-            _ => {},
+            }
+            _ => {}
         }
         match &self.private_key_from_pem {
             Some(pem) => {
                 pem.hash(hasher);
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }

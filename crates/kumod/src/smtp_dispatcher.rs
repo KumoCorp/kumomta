@@ -447,29 +447,33 @@ impl SmtpDispatcher {
         let mut private_key_from_pem: Option<Vec<u8>> = None;
 
         if let Some(pem) = &path_config.tls_certificate {
-            let cached = CLIENT_CERT.get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
-                pem.get().await.map(|vec| Some(vec))
-            }).await;
+            let cached = CLIENT_CERT
+                .get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
+                    pem.get().await.map(|vec| Some(vec))
+                })
+                .await;
             match cached {
                 Ok(items) => {
                     certificate_from_pem = items.item;
                 }
                 Err(err) => {
-                     tracing::error!("failed to read certificate {err:#}");
+                    tracing::error!("failed to read certificate {err:#}");
                 }
             }
         }
 
         if let Some(pem) = &path_tls_config.private_key {
-            let cached = CLIENT_CERT.get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
-                pem.get().await.map(|vec| Some(vec))
-            }).await;
+            let cached = CLIENT_CERT
+                .get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
+                    pem.get().await.map(|vec| Some(vec))
+                })
+                .await;
             match cached {
                 Ok(items) => {
                     private_key_from_pem = items.item;
                 }
                 Err(err) => {
-                     tracing::error!("failed to read private key {err:#}");
+                    tracing::error!("failed to read private key {err:#}");
                 }
             }
         }
