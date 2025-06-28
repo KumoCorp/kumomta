@@ -462,7 +462,7 @@ impl SmtpDispatcher {
             }
         }
 
-        if let Some(pem) = &path_tls_config.private_key {
+        if let Some(pem) = &path_config.tls_private_key {
             let cached = CLIENT_CERT
                 .get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
                     pem.get().await.map(|vec| Some(vec))
