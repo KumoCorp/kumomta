@@ -122,7 +122,7 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
     return kumo.make_listener_domain {
       relay_to = true,
       log_oob = true,
-      log_fbl = true,
+      log_arf = true,
     }
   end
 end)
