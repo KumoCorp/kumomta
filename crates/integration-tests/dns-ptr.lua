@@ -12,9 +12,7 @@ end
 -- check if we're able to resolve back to localhost
 local ok, a = pcall(kumo.dns.lookup_ptr, '127.0.0.1')
 assert(ok, 'expected localhost for 127.0.0.1 ptr')
-if ok then
-  assert(contains(a, 'localhost.'), 'expected localhost.')
-end
+assert(contains(a, 'localhost.'), 'expected localhost.')
 
 -- see if we're able to do resolve for ipv6
 local ok, a = pcall(kumo.dns.lookup_ptr, '::1')
