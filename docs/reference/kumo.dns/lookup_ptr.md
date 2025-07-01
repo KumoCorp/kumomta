@@ -6,7 +6,7 @@ kumo.dns.lookup_ptr(IP)
 
 Resolve PTR records for the requested `IP`.
 
-Raises an error if the domain doesn't exist.
+Raises an error if there was an issue resolving the record.
 
 Returns a lua array-style table with the list of A records returned from DNS.
 
