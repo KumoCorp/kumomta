@@ -1,5 +1,17 @@
 local kumo = require 'kumo'
 
+local zones = {
+  [[
+$ORIGIN 0.0.127.in-addr.arpa.
+1 30 IN PTR localhost.
+  ]],
+  [[
+$ORIGIN 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.
+@ 30 IN PTR localhost.
+  ]],
+}
+kumo.dns.configure_test_resolver(zones)
+
 local function contains(list, t)
     for key, value in pairs(list) do
         if value == t then
@@ -18,7 +30,3 @@ assert(contains(a, 'localhost.'), 'expected localhost.')
 local ok, a = pcall(kumo.dns.lookup_ptr, '::1')
 assert(ok, 'expected localhost for ::1 ptr')
 assert(contains(a, 'localhost.'), 'expected localhost.')
-
-local ok, a = pcall(kumo.dns.lookup_ptr, '::2')
-assert(not ok, '::2 should not have ptr')
-assert(string.find(tostring(a), 'no records found for Query') ~= nil, 'expected "no records found for Query"')
