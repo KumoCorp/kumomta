@@ -555,6 +555,9 @@ pub struct GenericEsmtpListenerParams {
 
     #[serde(default)]
     line_length_hard_limit: Option<usize>,
+
+    #[serde(default)]
+    pub proxy_protocol: Option<bool>,
 }
 
 impl mlua::FromLua for GenericEsmtpListenerParams {
@@ -597,6 +600,7 @@ impl EsmtpListenerParams {
 
         let mut shutting_down = ShutdownSubcription::get();
         let connection_limiter = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
+        let proxy_protocol = self.base.proxy_protocol.unwrap_or(false);
         spawn(format!("esmtp_listener {addr:?}"), async move {
             let denied = connection_denied_counter();
             loop {
@@ -610,7 +614,7 @@ impl EsmtpListenerParams {
                         return Ok::<(), anyhow::Error>(());
                     }
                     result = listener.accept() => {
-                        let (mut socket, peer_address) = result?;
+                        let (mut socket, orig_peer_address) = result?;
                         let Ok(permit) = connection_limiter.clone().try_acquire_owned() else {
                             // We're over the limit. We make a "best effort" to respond;
                             // don't strain too hard here, as the purpose of the limit is
@@ -650,13 +654,56 @@ impl EsmtpListenerParams {
                         socket.set_nodelay(true)?;
                         let my_address = socket.local_addr()?;
                         let params = self.clone();
+                        let proxy_protocol = proxy_protocol;
                         SMTPSRV.spawn(
-                            format!("SmtpServerSession {peer_address:?}"),
+                            format!("SmtpServerSession {orig_peer_address:?}"),
                             async move {
+                                let peer_address = if proxy_protocol {
+                                    use tokio::io::AsyncReadExt;
+                                    let mut header_buf = [0u8; 16];
+                                    if let Err(e) = socket.read_exact(&mut header_buf).await {
+                                        tracing::warn!("Failed to read PROXY v2 preamble: {e:#}");
+                                        orig_peer_address
+                                    } else {
+                                        // The length of the header is at bytes 14 and 15
+                                        let len = u16::from_be_bytes([header_buf[14], header_buf[15]]) as usize;
+                                        let mut rest = vec![0u8; len];
+                                        if let Err(e) = socket.read_exact(&mut rest).await {
+                                            tracing::warn!("Failed to read the rest of the PROXY v2 header: {e:#}");
+                                            orig_peer_address
+                                        } else {
+                                            let mut full_header = header_buf.to_vec();
+                                            full_header.extend_from_slice(&rest);
+                                            match ppp::v2::Header::try_from(full_header.as_slice()) {
+                                                Ok(header) => match header.addresses {
+                                                    ppp::v2::Addresses::IPv4(addr) => {
+                                                        std::net::SocketAddr::new(
+                                                            std::net::IpAddr::V4(addr.source_address),
+                                                            addr.source_port
+                                                        )
+                                                    }
+                                                    ppp::v2::Addresses::IPv6(addr) => {
+                                                        std::net::SocketAddr::new(
+                                                            std::net::IpAddr::V6(addr.source_address),
+                                                            addr.source_port
+                                                        )
+                                                    }
+                                                    _ => orig_peer_address,
+                                                },
+                                                Err(e) => {
+                                                    tracing::warn!("Failed to parse proxy protocol header: {e:#}");
+                                                    orig_peer_address
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    orig_peer_address
+                                };
                                 if let Err(err) =
                                     Box::pin(SmtpServerSession::run(socket, my_address, peer_address, params)).await
-                                    {
-                                        tracing::error!("SmtpServerSession::run: {err:#}");
+                                {
+                                    tracing::error!("SmtpServerSession::run: {err:#}");
                                 }
                                 drop(permit);
                             }
