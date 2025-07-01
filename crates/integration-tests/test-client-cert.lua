@@ -67,51 +67,45 @@ end)
 kumo.on(
   'get_egress_path_config',
   function(routing_domain, egress_source, site_name)
-    if routing_domain == 'openssl.cert.local' then
-      kumo.log_info '### openssl'
+    local configs = {
+      ['rustls.local'] = {
+        prefer_openssl = false,
+        cert = '/tmp/kumomta/v3.crt',
+        key = '/tmp/kumomta/v3.key',
+      },
+      ['rustls.v1.local'] = {
+        prefer_openssl = false,
+        cert = '/tmp/kumomta/cert.pem',
+        key = '/tmp/kumomta/key.pem',
+      },
+      ['openssl.cert.local'] = {
+        prefer_openssl = true,
+        cert = '/tmp/kumomta/cert.pem',
+        key = '/tmp/kumomta/key.pem',
+      },
+      ['openssl.v3.local'] = {
+        prefer_openssl = true,
+        cert = '/tmp/kumomta/v3.crt',
+        key = '/tmp/kumomta/v3.key',
+      },
+      ['openssl.missing.local'] = {
+        prefer_openssl = true,
+        cert = '/tmp/kumomta/cert.fake.pem',
+        key = '/tmp/kumomta/key.pem',
+      },
+    }
+
+    local config = configs[routing_domain]
+    if config then
+      kumo.log_info('### ' .. routing_domain)
       return kumo.make_egress_path {
-        tls_prefer_openssl = true,
         enable_tls = 'OpportunisticInsecure',
-        tls_certificate = '/tmp/kumomta/cert.pem',
-        tls_private_key = '/tmp/kumomta/key.pem',
+        tls_prefer_openssl = config.prefer_openssl,
+        tls_certificate = config.cert,
+        tls_private_key = config.key,
       }
     end
-    if routing_domain == 'openssl.missing.local' then
-      kumo.log_error '### openssl, this will give an error'
-      return kumo.make_egress_path {
-        tls_prefer_openssl = true,
-        enable_tls = 'OpportunisticInsecure',
-        tls_certificate = '/tmp/kumomta/cert.fake.pem',
-        tls_private_key = '/tmp/kumomta/key.pem',
-      }
-    end
-    if routing_domain == 'openssl.v3.local' then
-      kumo.log_info '### openssl with v3'
-      return kumo.make_egress_path {
-        tls_prefer_openssl = true,
-        enable_tls = 'OpportunisticInsecure',
-        tls_certificate = '/tmp/kumomta/v3.crt',
-        tls_private_key = '/tmp/kumomta/v3.key',
-      }
-    end
-    if routing_domain == 'rustls.v1.local' then
-      kumo.log_error '### rustls v1, this will give an error'
-      return kumo.make_egress_path {
-        tls_prefer_openssl = false,
-        enable_tls = 'OpportunisticInsecure',
-        tls_certificate = '/tmp/kumomta/cert.pem',
-        tls_private_key = '/tmp/kumomta/key.pem',
-      }
-    end
-    if routing_domain == 'rustls.local' then
-      kumo.log_info '### rustls'
-      return kumo.make_egress_path {
-        tls_prefer_openssl = false,
-        enable_tls = 'OpportunisticInsecure',
-        tls_certificate = '/tmp/kumomta/v3.crt',
-        tls_private_key = '/tmp/kumomta/v3.key',
-      }
-    end
+
     kumo.log_info '### default'
     return kumo.make_egress_path {
       enable_tls = 'OpportunisticInsecure',
