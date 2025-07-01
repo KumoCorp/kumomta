@@ -19,9 +19,7 @@ end
 -- see if we're able to do resolve for ipv6
 local ok, a = pcall(kumo.dns.lookup_ptr, '::1')
 assert(ok, 'expected localhost for ::1 ptr')
-if ok then
-  assert(contains(a, 'localhost.'), 'expected localhost.')
-end
+assert(contains(a, 'localhost.'), 'expected localhost.')
 
 local ok, a = pcall(kumo.dns.lookup_ptr, '::2')
 assert(not ok, '::2 should not have ptr')
