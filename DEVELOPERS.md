@@ -36,37 +36,43 @@ Document your PR clearly with an explanation of your reasons and the changes req
 
 If you include or link to any 3rd party code, fully document the source and the reason.
 
-Ensure that the code is formatted before submitting a PR.
+### Code Formatting
 
-You need to install [StyLua](https://github.com/JohnnyMorganz/StyLua) to
-format lua:
+Ensure that the code is formatted before submitting a PR.  We use the following utilities
+to keep code formatting consistent:
 
-```bash
+* [StyLua](https://github.com/JohnnyMorganz/StyLua) to format lua
+* [Black](https://black.readthedocs.io/en/stable/index.html) to format python
+* nightly `rustfmt` for Rust
+
+Install those deps:
+
+```console
+$ rustup toolchain install nightly
 $ cargo install stylua --features lua54
+$ sudo apt install black
+$ # OR:
+$ pip install black
 ```
 
-Then you can format both the rust and the lua code:
+Then you can format the code:
 
-```bash
-$ rustup toolchain install nightly
+```console
 $ make fmt
 ```
 
-If you are making documentation edits, you should also make sure Black is installed. One of these should work for you:
+### Documentation Changes
 
-```console
-pip install black
-sudo apt install black
-```
-Now you can edit files under `~\kumomta\docs\`
+Please include appropriate documentation to go along with any changes that you
+propose.  The documentation files can be found under `docs`.
 
-Remember to update the Navigation menus in `generate-toc.py` if pages were added or deleted.
+Remember to update the Navigation menus in `docs/generate-toc.py` if pages were added or deleted.
 
-Build the new docs if needed with `docs/build.sh` from ~/kumomta/
+Build the new docs by running `./docs/build.sh` from the root of the repo.  Run
+`./docs/build.sh serve` to run a local http server that will regenerate pages
+as you make edits.
 
-
-
-### Docker build
+## Docker build
 
 To build a lightweight alpine-based docker image:
 
@@ -92,7 +98,7 @@ $ sudo docker run --rm -p 2025:25 \
     kumomta/kumod
 ```
 
-### Fuzzing
+## Fuzzing
 
 Some components have fuzzer coverage.  To run it, follow the setup from [the
 Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/setup.html)
