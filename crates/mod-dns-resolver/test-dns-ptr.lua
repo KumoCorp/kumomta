@@ -13,12 +13,12 @@ $ORIGIN 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa
 kumo.dns.configure_test_resolver(zones)
 
 local function contains(list, t)
-    for key, value in pairs(list) do
-        if value == t then
-            return true
-        end
+  for key, value in pairs(list) do
+    if value == t then
+      return true
     end
-    return false
+  end
+  return false
 end
 
 -- check if we're able to resolve back to localhost
