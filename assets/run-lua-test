@@ -36,6 +36,7 @@ test_module 'policy-extras.sources'
 test_module 'policy-extras.typing'
 
 dofile "crates/mod-memoize/test.lua"
+dofile "crates/mod-dns-resolver/test-dns-ptr.lua"
 
 end)
 EOT
