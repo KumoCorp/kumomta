@@ -67,6 +67,7 @@ throttle = {path="../throttle"}
 timeq = {path="../timeq"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-rustls = {workspace=true}
+tower-http = {workspace=true, features=["decompression-full"]}
 tracing = {workspace=true}
 utoipa = {workspace=true}
 uuid = {workspace=true, features=["v4", "fast-rng"]}
