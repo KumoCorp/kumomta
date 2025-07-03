@@ -88,14 +88,17 @@ jobs:
       if: ${{ inputs.pkg_type == 'apt' }}
       run: |
         ./assets/build-deb.sh
-    - name: Package and Sign RPM
+    - name: Package RPM
       if: ${{ inputs.pkg_type == 'yum' || inputs.pkg_type == 'dnf' }}
+      run: |
+        ./assets/build-rpm.sh
+        mv ~/rpmbuild/RPMS/*/*.rpm .
+    - name: Sign RPM
+      if: ${{ github.event_name != 'pull_request' && (inputs.pkg_type == 'yum' || inputs.pkg_type == 'dnf') }}
       env:
         PUB: ${{ secrets.OPENREPO_GPG_PUBLIC }}
         PRIV: ${{ secrets.OPENREPO_GPG_PRIVATE }}
       run: |
-        ./assets/build-rpm.sh
-        mv ~/rpmbuild/RPMS/*/*.rpm .
         ./assets/sign-rpm.sh *.rpm
 
     - name: "Upload artifact"
@@ -216,7 +219,7 @@ jobs:
           file: docker/kumod/Dockerfile.incremental
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/kumocorp/kumomta
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,push-by-digest=true,name-canonical=true
       - name: Export digest
         run: |
           mkdir -p ${{ runner.temp }}/digests
