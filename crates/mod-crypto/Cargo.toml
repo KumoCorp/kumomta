@@ -4,16 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = {workspace=true}
+anyhow.workspace = true
 config = {path="../config"}
-data-encoding = {workspace=true}
+data-encoding.workspace = true
 mlua = {workspace=true, features=["serialize"]}
 data-loader = {path="../data-loader"}
-ring = {workspace=true}
-serde_json = {workspace=true}
-serde = {workspace=true}
-aes = "0.8.4"
-block-modes = "0.9.1"
-block-padding = "0.3.3"
-cbc = "0.1.2"
+serde_json.workspace = true
+serde.workspace = true
 rand.workspace = true
+aws-lc-rs = "1.13.1"
+hex.workspace = true
