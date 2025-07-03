@@ -384,3 +384,16 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
   -- or use sqlite
   -- return sqlite_auth_check(authc, password)
 end)
+
+-- showcase encryption/decryption with aes_cbc
+local f = kumo.crypto.aes_encrypt_cbc {
+  key = '/tmp/kumo/aes_key_256.bin',
+  value = 'helloworld',
+}
+print(f)
+local b = kumo.crypto.aes_decrypt_cbc {
+  key = '/tmp/kumo/aes_key_256.bin',
+  decrypted = f,
+}
+local original = string.char(table.unpack(b))
+print(original)
