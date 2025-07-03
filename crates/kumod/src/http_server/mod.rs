@@ -6,6 +6,7 @@ use kumo_api_types::rebind::*;
 use kumo_api_types::*;
 use kumo_server_common::http_server::RouterAndDocs;
 use spool::SpoolId;
+use tower_http::decompression::RequestDecompressionLayer;
 use utoipa::OpenApi;
 
 pub mod admin_bounce_v1;
@@ -82,55 +83,58 @@ pub mod queue_name_multi_index;
 struct ApiDoc;
 
 pub fn make_router() -> RouterAndDocs {
+    let router = Router::new()
+        .route(
+            "/api/check-liveness/v1",
+            get(check_liveness_v1::check_liveness_v1),
+        )
+        .route("/api/inject/v1", post(inject_v1::inject_v1))
+        .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
+        .route("/api/admin/bounce/v1", get(admin_bounce_v1::bounce_v1_list))
+        .route(
+            "/api/admin/bounce/v1",
+            delete(admin_bounce_v1::bounce_v1_delete),
+        )
+        .route(
+            "/api/admin/ready-q-states/v1",
+            get(admin_ready_queue_states::readyq_states),
+        )
+        .route("/api/admin/rebind/v1", post(admin_rebind_v1::rebind_v1))
+        .route("/api/admin/suspend/v1", post(admin_suspend_v1::suspend))
+        .route("/api/admin/suspend/v1", get(admin_suspend_v1::list))
+        .route("/api/admin/suspend/v1", delete(admin_suspend_v1::delete))
+        .route(
+            "/api/admin/suspend-ready-q/v1",
+            post(admin_suspend_ready_q_v1::suspend),
+        )
+        .route(
+            "/api/admin/suspend-ready-q/v1",
+            get(admin_suspend_ready_q_v1::list),
+        )
+        .route(
+            "/api/admin/suspend-ready-q/v1",
+            delete(admin_suspend_ready_q_v1::delete),
+        )
+        .route(
+            "/api/admin/inspect-message/v1",
+            get(admin_inspect_message::inspect_v1),
+        )
+        .route(
+            "/api/admin/inspect-sched-q/v1",
+            get(admin_inspect_scheduled_queue::inspect_v1),
+        )
+        .route(
+            "/api/admin/trace-smtp-client/v1",
+            get(admin_trace_smtp_client_v1::trace),
+        )
+        .route(
+            "/api/admin/trace-smtp-server/v1",
+            get(admin_trace_smtp_server_v1::trace),
+        )
+        .layer(RequestDecompressionLayer::new());
+
     RouterAndDocs {
-        router: Router::new()
-            .route(
-                "/api/check-liveness/v1",
-                get(check_liveness_v1::check_liveness_v1),
-            )
-            .route("/api/inject/v1", post(inject_v1::inject_v1))
-            .route("/api/admin/bounce/v1", post(admin_bounce_v1::bounce_v1))
-            .route("/api/admin/bounce/v1", get(admin_bounce_v1::bounce_v1_list))
-            .route(
-                "/api/admin/bounce/v1",
-                delete(admin_bounce_v1::bounce_v1_delete),
-            )
-            .route(
-                "/api/admin/ready-q-states/v1",
-                get(admin_ready_queue_states::readyq_states),
-            )
-            .route("/api/admin/rebind/v1", post(admin_rebind_v1::rebind_v1))
-            .route("/api/admin/suspend/v1", post(admin_suspend_v1::suspend))
-            .route("/api/admin/suspend/v1", get(admin_suspend_v1::list))
-            .route("/api/admin/suspend/v1", delete(admin_suspend_v1::delete))
-            .route(
-                "/api/admin/suspend-ready-q/v1",
-                post(admin_suspend_ready_q_v1::suspend),
-            )
-            .route(
-                "/api/admin/suspend-ready-q/v1",
-                get(admin_suspend_ready_q_v1::list),
-            )
-            .route(
-                "/api/admin/suspend-ready-q/v1",
-                delete(admin_suspend_ready_q_v1::delete),
-            )
-            .route(
-                "/api/admin/inspect-message/v1",
-                get(admin_inspect_message::inspect_v1),
-            )
-            .route(
-                "/api/admin/inspect-sched-q/v1",
-                get(admin_inspect_scheduled_queue::inspect_v1),
-            )
-            .route(
-                "/api/admin/trace-smtp-client/v1",
-                get(admin_trace_smtp_client_v1::trace),
-            )
-            .route(
-                "/api/admin/trace-smtp-server/v1",
-                get(admin_trace_smtp_server_v1::trace),
-            ),
+        router,
         docs: ApiDoc::openapi(),
     }
 }
