@@ -42,6 +42,8 @@ pub enum ClientError {
     Rejected(Response),
     #[error("STARTTLS: {0} is not a valid DNS name")]
     InvalidDnsName(String),
+    #[error("Invalid client certificate configured: {error:?}")]
+    InvalidClientCertificate { error: String },
     #[error("Timed Out waiting {duration:?} for response to {command:?}")]
     TimeOutResponse {
         command: Option<Command>,
@@ -113,6 +115,7 @@ impl ClientError {
             | Self::ResponseTooLong
             | Self::NotConnected
             | Self::InvalidDnsName(_)
+            | Self::InvalidClientCertificate { .. }
             | Self::TimeOutResponse { .. }
             | Self::TimeOutRequest { .. }
             | Self::ReadError { .. }
@@ -713,98 +716,107 @@ impl SmtpClient {
         let mut handshake_error = None;
         let mut tls_info = TlsInformation::default();
 
-        let stream: BoxedAsyncReadAndWrite =
-            if options.prefer_openssl || !options.dane_tlsa.is_empty() {
-                let connector = options.build_openssl_connector(&self.hostname)?;
-                let ssl = connector.into_ssl(self.hostname.as_str())?;
+        let stream: BoxedAsyncReadAndWrite = if options.prefer_openssl
+            || !options.dane_tlsa.is_empty()
+        {
+            let connector = options
+                .build_openssl_connector(&self.hostname)
+                .map_err(|error| ClientError::InvalidClientCertificate {
+                    error: error.to_string(),
+                })?;
+            let ssl = connector.into_ssl(self.hostname.as_str())?;
 
-                let (stream, dup_stream) = match self.socket.take() {
-                    Some(s) => {
-                        let d = s.try_dup();
-                        (s, d)
-                    }
-                    None => return Err(ClientError::NotConnected),
-                };
-
-                let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
-
-                if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
-                    handshake_error.replace(format!("{err:#}"));
+            let (stream, dup_stream) = match self.socket.take() {
+                Some(s) => {
+                    let d = s.try_dup();
+                    (s, d)
                 }
-
-                tls_info.provider_name = "openssl".to_string();
-                tls_info.cipher = match ssl_stream.ssl().current_cipher() {
-                    Some(cipher) => cipher.standard_name().unwrap_or(cipher.name()).to_string(),
-                    None => String::new(),
-                };
-                tls_info.protocol_version = ssl_stream.ssl().version_str().to_string();
-
-                if let Some(cert) = ssl_stream.ssl().peer_certificate() {
-                    tls_info.subject_name = subject_name(&cert);
-                }
-                if let Ok(authority) = ssl_stream.ssl().dane_authority() {
-                    if let Some(cert) = &authority.cert {
-                        tls_info.subject_name = subject_name(cert);
-                    }
-                }
-
-                match (&handshake_error, dup_stream) {
-                    (Some(_), Some(dup_stream)) if !ssl_stream.ssl().is_init_finished() => {
-                        // Try falling back to clear text on the duplicate stream.
-                        // This is imperfect: in a failed validation scenario we will
-                        // end up trying to read binary data as a string and get a UTF-8
-                        // error if the peer thinks the session is encrypted.
-                        drop(ssl_stream);
-                        Box::new(dup_stream)
-                    }
-                    _ => Box::new(ssl_stream),
-                }
-            } else {
-                tls_info.provider_name = "rustls".to_string();
-                let connector = options.build_tls_connector().await;
-                let server_name = match IpAddr::from_str(self.hostname.as_str()) {
-                    Ok(ip) => ServerName::IpAddress(ip.into()),
-                    Err(_) => ServerName::try_from(self.hostname.clone())
-                        .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
-                };
-
-                match connector
-                    .connect(
-                        server_name,
-                        match self.socket.take() {
-                            Some(s) => s,
-                            None => return Err(ClientError::NotConnected),
-                        },
-                    )
-                    .into_fallible()
-                    .await
-                {
-                    Ok(stream) => {
-                        let (_, conn) = stream.get_ref();
-                        tls_info.cipher = match conn.negotiated_cipher_suite() {
-                            Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
-                            None => String::new(),
-                        };
-                        tls_info.protocol_version = match conn.protocol_version() {
-                            Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
-                            None => String::new(),
-                        };
-
-                        if let Some(certs) = conn.peer_certificates() {
-                            let peer_cert = &certs[0];
-                            if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
-                                tls_info.subject_name = subject_name(&cert);
-                            }
-                        }
-
-                        Box::new(stream)
-                    }
-                    Err((err, stream)) => {
-                        handshake_error.replace(format!("{err:#}"));
-                        stream
-                    }
-                }
+                None => return Err(ClientError::NotConnected),
             };
+
+            let mut ssl_stream = tokio_openssl::SslStream::new(ssl, stream)?;
+
+            if let Err(err) = std::pin::Pin::new(&mut ssl_stream).connect().await {
+                handshake_error.replace(format!("{err:#}"));
+            }
+
+            tls_info.provider_name = "openssl".to_string();
+            tls_info.cipher = match ssl_stream.ssl().current_cipher() {
+                Some(cipher) => cipher.standard_name().unwrap_or(cipher.name()).to_string(),
+                None => String::new(),
+            };
+            tls_info.protocol_version = ssl_stream.ssl().version_str().to_string();
+
+            if let Some(cert) = ssl_stream.ssl().peer_certificate() {
+                tls_info.subject_name = subject_name(&cert);
+            }
+            if let Ok(authority) = ssl_stream.ssl().dane_authority() {
+                if let Some(cert) = &authority.cert {
+                    tls_info.subject_name = subject_name(cert);
+                }
+            }
+
+            match (&handshake_error, dup_stream) {
+                (Some(_), Some(dup_stream)) if !ssl_stream.ssl().is_init_finished() => {
+                    // Try falling back to clear text on the duplicate stream.
+                    // This is imperfect: in a failed validation scenario we will
+                    // end up trying to read binary data as a string and get a UTF-8
+                    // error if the peer thinks the session is encrypted.
+                    drop(ssl_stream);
+                    Box::new(dup_stream)
+                }
+                _ => Box::new(ssl_stream),
+            }
+        } else {
+            tls_info.provider_name = "rustls".to_string();
+            let connector = options.build_tls_connector().await.map_err(|error| {
+                ClientError::InvalidClientCertificate {
+                    error: error.to_string(),
+                }
+            })?;
+            let server_name = match IpAddr::from_str(self.hostname.as_str()) {
+                Ok(ip) => ServerName::IpAddress(ip.into()),
+                Err(_) => ServerName::try_from(self.hostname.clone())
+                    .map_err(|_| ClientError::InvalidDnsName(self.hostname.clone()))?,
+            };
+
+            match connector
+                .connect(
+                    server_name,
+                    match self.socket.take() {
+                        Some(s) => s,
+                        None => return Err(ClientError::NotConnected),
+                    },
+                )
+                .into_fallible()
+                .await
+            {
+                Ok(stream) => {
+                    let (_, conn) = stream.get_ref();
+                    tls_info.cipher = match conn.negotiated_cipher_suite() {
+                        Some(suite) => suite.suite().as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    };
+                    tls_info.protocol_version = match conn.protocol_version() {
+                        Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                        None => String::new(),
+                    };
+
+                    if let Some(certs) = conn.peer_certificates() {
+                        let peer_cert = &certs[0];
+                        if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                            tls_info.subject_name = subject_name(&cert);
+                        }
+                    }
+
+                    Box::new(stream)
+                }
+                Err((err, stream)) => {
+                    handshake_error.replace(format!("{err:#}"));
+                    stream
+                }
+            }
+        };
 
         if let Some(tracer) = &self.tracer {
             tracer.trace_event(SmtpClientTraceEvent::Diagnostic {
@@ -1042,12 +1054,7 @@ impl TlsOptions {
             builder.set_private_key(key.as_ref())?;
         }
 
-        match builder.check_private_key() {
-            Ok(_) => {}
-            Err(err) => {
-                tracing::error!("client side certificate failed to validate: {err:#}");
-            }
-        };
+        builder.check_private_key()?;
 
         if let Some(list) = &self.openssl_cipher_list {
             builder.set_cipher_list(list)?;
