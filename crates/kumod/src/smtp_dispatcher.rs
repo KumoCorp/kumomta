@@ -35,7 +35,7 @@ static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_bro
 }
 
 lruttl::declare_cache! {
-static CLIENT_CERT: LruCacheWithTtl<KeySource, Option<Vec<u8>>>::new("client_certificate", 1024);
+static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -443,39 +443,15 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
-        let mut certificate_from_pem: Option<Vec<u8>> = None;
-        let mut private_key_from_pem: Option<Vec<u8>> = None;
+        let mut certificate_from_pem = None;
+        let mut private_key_from_pem = None;
 
         if let Some(pem) = &path_config.tls_certificate {
-            let cached = CLIENT_CERT
-                .get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
-                    pem.get().await.map(|vec| Some(vec))
-                })
-                .await;
-            match cached {
-                Ok(items) => {
-                    certificate_from_pem = items.item;
-                }
-                Err(err) => {
-                    tracing::error!("failed to read certificate {err:#}");
-                }
-            }
+            certificate_from_pem = self.resolve_cached_client_cert(pem).await?
         }
 
         if let Some(pem) = &path_config.tls_private_key {
-            let cached = CLIENT_CERT
-                .get_or_try_insert(pem, |_| tokio::time::Duration::from_secs(300), async {
-                    pem.get().await.map(|vec| Some(vec))
-                })
-                .await;
-            match cached {
-                Ok(items) => {
-                    private_key_from_pem = items.item;
-                }
-                Err(err) => {
-                    tracing::error!("failed to read private key {err:#}");
-                }
-            }
+            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
         }
 
         let openssl_options = path_config.openssl_options;
@@ -793,6 +769,25 @@ impl SmtpDispatcher {
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
         Ok(())
+    }
+
+    async fn resolve_cached_client_cert(
+        &mut self,
+        source: &KeySource,
+    ) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+        CLIENT_CERT
+            .get_or_try_insert(source, |_| tokio::time::Duration::from_secs(300), async {
+                let data = source
+                    .get()
+                    .await
+                    .map(|vec| Some(Arc::new(vec.into_boxed_slice())))
+                    .map_err(|e| e.to_string());
+                Ok::<_, anyhow::Error>(data)
+            })
+            .await
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?
+            .item
+            .map_err(|e| anyhow::Error::msg(e.to_string()))
     }
 
     async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {

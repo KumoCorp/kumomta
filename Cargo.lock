@@ -5715,6 +5715,7 @@ checksum = "fc7c8f7f733062b66dc1c63f9db168ac0b97a9210e247fa90fdc9ad08f51b302"
 name = "rfc5321"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "data-encoding",
  "duration-serde",
  "hickory-proto",
@@ -5726,6 +5727,8 @@ dependencies = [
  "openssl",
  "pest",
  "pest_derive",
+ "rustls",
+ "rustls-pemfile",
  "rustls-platform-verifier",
  "serde",
  "thiserror 1.0.69",

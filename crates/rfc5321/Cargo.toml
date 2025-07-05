@@ -17,6 +17,7 @@ client = [
 ]
 
 [dependencies]
+anyhow = {workspace=true}
 data-encoding = {workspace=true}
 duration-serde = {path="../duration-serde"}
 hickory-proto = {workspace=true, optional=true}
