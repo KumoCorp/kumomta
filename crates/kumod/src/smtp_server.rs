@@ -687,12 +687,13 @@ impl EsmtpListenerParams {
                             format!("SmtpServerSession {orig_peer_address:?}"),
                             async move {
                                 let (peer_address, client_address) = if proxy_mode.is_proxy_protocol_v2() {
-                                    match extract_proxy_protocol_peer_address(&mut socket, orig_peer_address).await {
-                                        Ok(addr) => {
-                                            (orig_peer_address, addr)
-                                        },
-                                        Err(e) => {
-                                            tracing::warn!("{e}");
+                                    match tokio::time::timeout(
+                                        Duration::from_secs(2),
+                                        extract_proxy_protocol_peer_address(&mut socket, orig_peer_address)
+                                    ).await {
+                                        Ok(Ok(addr)) => (orig_peer_address, addr),
+                                        Ok(Err(_)) | Err(_) => {
+                                            tracing::warn!("Proxy protocol v2 header invalid or timeout");
                                             let response = format!("421 4.7.1 {} proxy protocol required\r\n", orig_peer_address);
                                             let _ = tokio::time::timeout(
                                                 Duration::from_secs(2),
@@ -900,7 +901,7 @@ impl SmtpServerSession {
         socket: T,
         my_address: SocketAddr,
         peer_address: SocketAddr,
-        client_address: SocketAddr, // always set
+        client_address: SocketAddr,
         params: EsmtpListenerParams,
     ) -> anyhow::Result<()>
     where
