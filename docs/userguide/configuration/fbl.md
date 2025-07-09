@@ -53,7 +53,7 @@ like this:
 {% call toml_data() %}
 ["fbl.examplecorp.com"]
 # accept and log ARF feedback reports sent to fbl.examplecorp.com
-log_arf = true
+log_arf = "LogThenDrop" 
 {% endcall %}
 
 The preceding example designates that messages injected from remote hosts
@@ -67,14 +67,13 @@ discard the message, but in some cases it can be desirable to forward the
 message for further processing or storage, especially during testing and
 migration.
 
-To queue a message after processing, add `relay_to = true` to the domain
+To queue a message after processing, add `log_arf = "LogThenRelay"` to the domain
 configuration:
 
 {% call toml_data() %}
 ["fbl.examplecorp.com"]
 # accept and log ARF feedback reports sent to fbl.examplecorp.com
-log_arf = true
-relay_to = true
+log_arf = "LogThenRelay"
 {% endcall %}
 
 In addition, it should be noted that the MX record for your domain will still

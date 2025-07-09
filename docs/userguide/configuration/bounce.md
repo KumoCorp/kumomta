@@ -97,8 +97,8 @@ like this:
 
 {% call toml_data() %}
 ["bounce.examplecorp.com"]
-# accept and log OOB messages send to bounce.examplecorp.com
-log_oob = true
+# accept and log OOB messages sent to bounce.examplecorp.com
+log_oob = "LogThenDrop"
 {% endcall %}
 
 ## OOB Message Disposition After Processing
@@ -108,14 +108,13 @@ discard the message, but in some cases it can be desirable to forward the
 message for further processing or storage, especially during testing and
 migration.
 
-To queue a message after processing, add `relay_to = true` to the listener
+To queue a message after processing, add `log_oob = "LogThenRelay"` to the listener
 domain configuration:
 
 {% call toml_data() %}
 ["bounce.examplecorp.com"]
 # accept and log OOB messages send to bounce.examplecorp.com
-log_oob = true
-relay_to = true
+log_oob = "LogThenRelay"
 {% endcall %}
 
 In addition, it should be noted that the MX record for your domain will still
