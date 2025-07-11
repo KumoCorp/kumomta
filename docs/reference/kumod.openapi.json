@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.03.24-617612a9"
+    "version": "2025.07.03-c4642521"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -472,10 +472,10 @@
           "inject"
         ],
         "summary": "Inject a message using a given message body, with template expansion,",
-        "description": "to a list of recipients.",
+        "description": "to a list of recipients.\n\nThe request body supports gzip, deflate.\nSet the Content-Encoding header appropriately (e.g., \"gzip\", \"deflate\").",
         "operationId": "inject_v1",
         "requestBody": {
-          "description": "",
+          "description": "Message injection request. Supports compressed request bodies via Content-Encoding header (gzip, deflate).",
           "content": {
             "application/json": {
               "schema": {
