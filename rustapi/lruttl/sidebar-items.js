@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["is_name_available","purge_all_caches","set_cache_capacity","spawn_memory_monitor"],"macro":["declare_cache"],"static":["LRUTTL_VIVIFY"],"struct":["ItemLookup","LruCacheWithTtl"]};
