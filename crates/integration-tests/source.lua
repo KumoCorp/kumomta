@@ -303,6 +303,17 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     ) or false,
   }
 
+  if os.getenv 'CLIENT_CERTIFICATE' then
+    params.tls_certificate = {
+      key_data = os.getenv 'CLIENT_CERTIFICATE',
+    }
+  end
+  if os.getenv 'CLIENT_PRIVATE_KEY' then
+    params.tls_private_key = {
+      key_data = os.getenv 'CLIENT_PRIVATE_KEY',
+    }
+  end
+
   -- See if there is a source-specific rate exported to us via the environment.
   -- We assign this using additional_source_selection_rates regardless of
   -- whether we have a more generate rate specified above so that we can
