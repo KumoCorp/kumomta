@@ -2,7 +2,7 @@
 
 KumoMTA was built from the ground up to be extremely flexible infrastructure. We have built standard package builds (AKA repo install) for the most commonly used Linux Operating Systems, but if you build from source, a wide variety of Operating Systems are possible.
   
-So far we've run non-production tests on the following systems:
+So far we've run non-production tests on the following systems.
 
 
 * Rocky (8, 9)
@@ -16,7 +16,8 @@ So far we've run non-production tests on the following systems:
 * Kali (2003.1)
 * CentOS 7 (obsolete and not recommended)
 * RHEL 7,8,9
-* Mariner2
+* Mariner
+* Linux Mint (Cinnamon)
 
 KumoMTA works with x86 and Arm processors
 
