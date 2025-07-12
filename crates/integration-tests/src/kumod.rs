@@ -115,7 +115,7 @@ impl MailGenParams<'_> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[allow(unused)]
 pub struct DeliverySummary {
     pub source_counts: BTreeMap<RecordType, usize>,
