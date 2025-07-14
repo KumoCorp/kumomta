@@ -1044,17 +1044,17 @@ impl TlsOptions {
         let mut builder =
             openssl::ssl::SslConnector::builder(openssl::ssl::SslMethod::tls_client())?;
 
-        if let Some(cert_data) = &self.certificate_from_pem {
-            let cert = X509::from_pem(&cert_data)?;
-            builder.set_certificate(&cert.as_ref())?;
-        }
+        if let (Some(cert_data), Some(key_data)) =
+            (&self.certificate_from_pem, &self.private_key_from_pem)
+        {
+            let cert = X509::from_pem(cert_data)?;
+            builder.set_certificate(&cert)?;
 
-        if let Some(key_data) = &self.private_key_from_pem {
-            let key = PKey::private_key_from_pem(&key_data)?;
-            builder.set_private_key(key.as_ref())?;
-        }
+            let key = PKey::private_key_from_pem(key_data)?;
+            builder.set_private_key(&key)?;
 
-        builder.check_private_key()?;
+            builder.check_private_key()?;
+        }
 
         if let Some(list) = &self.openssl_cipher_list {
             builder.set_cipher_list(list)?;

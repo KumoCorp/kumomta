@@ -14,6 +14,32 @@ use std::time::Duration;
 
 #[tokio::test]
 #[serial]
+async fn tls_client_certificate_rustls_no_client_cert() -> anyhow::Result<()> {
+    // Test with out defining certificate
+    let ex = DeliverySummary {
+        source_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
+        sink_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
+    };
+    let r = tls_client_certificate(ex).await;
+    return r;
+}
+
+#[tokio::test]
+#[serial]
+async fn tls_client_certificate_openssl_no_client_cert() -> anyhow::Result<()> {
+    // Test with out defining certificate
+    let ex = DeliverySummary {
+        source_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
+        sink_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
+    };
+    env::set_var("PREFER_OPENSSL", "true");
+    let r = tls_client_certificate(ex).await;
+    env::remove_var("PREFER_OPENSSL");
+    return r;
+}
+
+#[tokio::test]
+#[serial]
 async fn tls_client_certificate_rustls_success() -> anyhow::Result<()> {
     // Generate certificate, private key pair vua rcgen
     // rcgen supports creating x509v3 certificate.
@@ -51,7 +77,6 @@ async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
         sink_counts: BTreeMap::new(),
     };
     let r = tls_client_certificate(ex).await;
-    env::remove_var("PREFER_OPENSSL");
     env::remove_var("CLIENT_CERTIFICATE");
     env::remove_var("CLIENT_PRIVATE_KEY");
     return r;
