@@ -19,9 +19,11 @@ maildir = {path="../maildir"}
 mailparsing = {path="../mailparsing"}
 message = {path="../message"}
 nix = {workspace=true, features=["signal", "user"]}
+rcgen = {workspace=true}
 rfc5321 = {path="../rfc5321"}
 serde = {workspace=true}
 serde_json = {workspace=true}
+serial_test = {workspace=true}
 sqlite = {workspace=true}
 tempfile = {workspace=true}
 testcontainers-modules = {workspace=true, default-features=false, features=["rabbitmq"]}
