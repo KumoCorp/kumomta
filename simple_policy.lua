@@ -18,7 +18,7 @@ kumo.on(
   listener_domains:setup {
     {
       ['auth-send.example.com'] = {
-        relay_from_authz = { 'scott' },
+        relay_from_authz = { 'daniel' },
       },
     },
   }
@@ -347,7 +347,7 @@ kumo.on(
 -- A really simple inline auth "database" for very basic HTTP authentication
 function simple_auth_check(user, password)
   local password_database = {
-    ['scott'] = 'tiger',
+    ['daniel'] = 'tiger',
   }
   if password == '' then
     return false

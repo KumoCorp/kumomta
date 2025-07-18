@@ -51,7 +51,7 @@ using a lua table:
 -- Use this to lookup and confirm a user/password credential
 kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta)
   local password_database = {
-    ['scott'] = 'tiger',
+    ['daniel'] = 'tiger',
   }
   if password == '' then
     return false
