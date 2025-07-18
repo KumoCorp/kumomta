@@ -35,7 +35,7 @@ egress_pool = 'pool-1'
 max_age = '10 hours'
 # Only the authorized identities are allowed to use this tenant
 # via the tenant_header
-require_authz = ["scott"]
+require_authz = ["daniel"]
 
 # The default set of parameters
 [queue.default]

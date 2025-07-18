@@ -39,8 +39,8 @@ which domains are allowed relaying based on the authorization id:
 ```lua
 local RELAY_BY_DOMAIN = {
   ['example.com'] = {
-    -- The user scott is permitted to relay to example.com
-    ['scott'] = true,
+    -- The user daniel is permitted to relay to example.com
+    ['daniel'] = true,
   },
 }
 
