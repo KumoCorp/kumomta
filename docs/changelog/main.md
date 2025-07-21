@@ -11,6 +11,9 @@
  * You may now specify outbound SMTP port numbers when configuring
    [make_queue_config().protocol](../reference/kumo/make_queue_config/protocol.md)
    with an `mx_list`.
+ * You may now specify outbound SMTP port numbers when assigning either the
+   `routing_domain` or the domain portion of the scheduled queue name using the
+   `queue` meta item. #352
 
 ## Fixes
 
