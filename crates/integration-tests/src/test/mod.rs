@@ -18,6 +18,7 @@ mod perm_fail;
 mod rebind;
 mod rebind_event_defined;
 mod rebind_event_missing;
+mod rebind_port;
 mod retry_schedule;
 mod source_selection_rate;
 mod source_selection_rate_pool;

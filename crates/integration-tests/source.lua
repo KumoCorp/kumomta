@@ -217,8 +217,8 @@ kumo.on('smtp_server_message_received', function(msg)
   kumo.log_info('schedule result', kumo.serde.json_encode(result))
 end)
 
-kumo.on('get_queue_config', function(domain, tenant, campaign)
-  kumo.log_warn('get_queue_config', domain, tenant, campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+  kumo.log_warn('get_queue_config', domain, tenant, campaign, routing_domain)
   if domain == 'webhook' then
     return kumo.make_queue_config {
       protocol = {
@@ -255,6 +255,16 @@ kumo.on('get_queue_config', function(domain, tenant, campaign)
     -- and go to the sink, because we DO want the dns resolution
     -- to successfully return nxdomain in order for the test to
     -- exercise the appropriate logic.
+    protocol = nil
+  end
+  if domain == 'rebind.example.com' then
+    -- This domain is used by rebind_port.rs.
+    -- In this case, we don't want the default sink route that was
+    -- established above to take effect, we want to confirm that
+    -- the port number embedded in either the domain or routing_domain
+    -- are used, so we use the default smtp protocol settings here
+    -- and rely on assertions in rebind_port.rs to validate the
+    -- behavior.
     protocol = nil
   end
 
