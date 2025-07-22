@@ -421,6 +421,10 @@ TOC = [
                 "reference/kumo.kafka",
             ),
             Gen(
+                "module: kumo.mpsc",
+                "reference/kumo.mpsc",
+            ),
+            Gen(
                 "module: kumo.regex_set_map",
                 "reference/kumo.regex_set_map",
             ),
