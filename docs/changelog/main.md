@@ -14,6 +14,8 @@
  * You may now specify outbound SMTP port numbers when assigning either the
    `routing_domain` or the domain portion of the scheduled queue name using the
    `queue` meta item. #352
+ * [kumo.dns.lookup_ptr](../reference/kumo.dns/lookup_ptr.md) function for looking
+   up PTR records. Thanks to @kayozaki! #390
 
 ## Fixes
 
