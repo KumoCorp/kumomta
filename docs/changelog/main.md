@@ -16,6 +16,8 @@
    `queue` meta item. #352
  * [kumo.dns.lookup_ptr](../reference/kumo.dns/lookup_ptr.md) function for looking
    up PTR records. Thanks to @kayozaki! #390
+ * [kumo.mpsc.define](../reference/kumo.mpsc/define.md) function for advanced
+   non-durable, non-persistent, in-memory queue processing.
 
 ## Fixes
 

@@ -3288,6 +3288,7 @@ dependencies = [
  "mod-http",
  "mod-kafka",
  "mod-memoize",
+ "mod-mpsc",
  "mod-redis",
  "mod-regex",
  "mod-serde",
@@ -4207,6 +4208,20 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "mod-mpsc"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "dashmap",
+ "mlua",
+ "mod-memoize",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

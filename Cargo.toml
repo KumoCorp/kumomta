@@ -33,6 +33,7 @@ members = [
   "crates/kumo-template",
   "crates/summarize-memory",
   "crates/kumo-address",
+  "crates/mod-mpsc",
 ]
 resolver = "2"
 
