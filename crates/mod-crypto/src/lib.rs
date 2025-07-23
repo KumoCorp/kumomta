@@ -171,7 +171,7 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
         }
 
         AesAlgo::Cbc() => {
-            dec_key = match params.key {
+            let dec_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
                     PaddedBlockDecryptingKey::cbc_pkcs7(key)?
