@@ -27,7 +27,8 @@ async fn http_inject_compression_gzip() -> anyhow::Result<()> {
     let json_data = serde_json::to_vec(&payload)?;
 
     // Compress with gzip
-    use flate2::{write::GzEncoder, Compression};
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
     use std::io::Write;
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&json_data)?;
@@ -117,7 +118,8 @@ async fn http_inject_compression_deflate() -> anyhow::Result<()> {
     let json_data = serde_json::to_vec(&payload)?;
 
     // Compress with deflate (zlib format)
-    use flate2::{write::ZlibEncoder, Compression};
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
     use std::io::Write;
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(&json_data)?;
