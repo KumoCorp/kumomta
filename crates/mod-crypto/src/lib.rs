@@ -23,8 +23,8 @@ pub struct AesParams {
 
 #[derive(Deserialize, Clone, Debug)]
 pub enum AesAlgo {
-    Ecb(),
-    Cbc(),
+    Ecb,
+    Cbc,
 }
 
 #[derive(Deserialize, Clone, Debug)]
