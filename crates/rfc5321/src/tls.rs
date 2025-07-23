@@ -51,10 +51,10 @@ impl std::hash::Hash for RustlsCacheKey {
             suite.suite().as_str().hash(hasher);
         }
         if let Some(pem) = &self.certificate_from_pem {
-                pem.as_ref().clone().into_vec().hash(hasher);
+            pem.as_ref().clone().into_vec().hash(hasher);
         }
         if let Some(pem) = &self.private_key_from_pem {
-                pem.as_ref().clone().into_vec().hash(hasher);
+            pem.as_ref().clone().into_vec().hash(hasher);
         }
     }
 }
@@ -182,7 +182,7 @@ impl TlsOptions {
                 };
 
                 if !pkcs8_keys.is_empty() {
-                    return Ok(Some(Arc::new(pkcs8_keys.into_iter().next().unwrap())));
+                    return Ok(pkcs8_keys.into_iter().next().map(Arc::new));
                 }
 
                 // Reset reader and try as RSA PKCS#1
@@ -195,7 +195,7 @@ impl TlsOptions {
                 };
 
                 if !rsa_keys.is_empty() {
-                    return Ok(Some(Arc::new(rsa_keys.into_iter().next().unwrap())));
+                    return Ok(rsa_keys.into_iter().next().map(Arc::new));
                 }
 
                 // Reset reader and try as EC Sec1
@@ -208,7 +208,7 @@ impl TlsOptions {
                 };
 
                 if !ec_keys.is_empty() {
-                    return Ok(Some(Arc::new(ec_keys.into_iter().next().unwrap())));
+                    return Ok(ec_keys.into_iter().next().map(Arc::new));
                 }
 
                 Err(std::io::Error::new(

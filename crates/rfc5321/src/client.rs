@@ -43,7 +43,7 @@ pub enum ClientError {
     #[error("STARTTLS: {0} is not a valid DNS name")]
     InvalidDnsName(String),
     #[error("Invalid client certificate configured: {error:?}")]
-    InvalidClientCertificate { error: String },
+    FailedToBuildConnector { error: String },
     #[error("Timed Out waiting {duration:?} for response to {command:?}")]
     TimeOutResponse {
         command: Option<Command>,
@@ -115,7 +115,7 @@ impl ClientError {
             | Self::ResponseTooLong
             | Self::NotConnected
             | Self::InvalidDnsName(_)
-            | Self::InvalidClientCertificate { .. }
+            | Self::FailedToBuildConnector { .. }
             | Self::TimeOutResponse { .. }
             | Self::TimeOutRequest { .. }
             | Self::ReadError { .. }
@@ -721,7 +721,7 @@ impl SmtpClient {
         {
             let connector = options
                 .build_openssl_connector(&self.hostname)
-                .map_err(|error| ClientError::InvalidClientCertificate {
+                .map_err(|error| ClientError::FailedToBuildConnector {
                     error: error.to_string(),
                 })?;
             let ssl = connector.into_ssl(self.hostname.as_str())?;
@@ -770,7 +770,7 @@ impl SmtpClient {
         } else {
             tls_info.provider_name = "rustls".to_string();
             let connector = options.build_tls_connector().await.map_err(|error| {
-                ClientError::InvalidClientCertificate {
+                ClientError::FailedToBuildConnector {
                     error: error.to_string(),
                 }
             })?;

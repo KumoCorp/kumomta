@@ -301,17 +301,18 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     try_next_host_on_transport_error = (
       (os.getenv 'KUMOD_TRY_NEXT_HOST_ON_TRANSPORT_ERROR') and true
     ) or false,
-    tls_prefer_openssl = ((os.getenv 'PREFER_OPENSSL') and true) or false,
+    tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
+      or false,
   }
 
-  if os.getenv 'CLIENT_CERTIFICATE' then
+  if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then
     params.tls_certificate = {
-      key_data = os.getenv 'CLIENT_CERTIFICATE',
+      key_data = os.getenv 'KUMOD_CLIENT_CERTIFICATE',
     }
   end
-  if os.getenv 'CLIENT_PRIVATE_KEY' then
+  if os.getenv 'KUMOD_CLIENT_PRIVATE_KEY' then
     params.tls_private_key = {
-      key_data = os.getenv 'CLIENT_PRIVATE_KEY',
+      key_data = os.getenv 'KUMOD_CLIENT_PRIVATE_KEY',
     }
   end
 

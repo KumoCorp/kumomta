@@ -1,10 +1,8 @@
 use crate::kumod::{generate_message_text, DaemonWithMaildir, MailGenParams};
 use kumo_log_types::RecordType;
 use kumo_log_types::RecordType::TransientFailure;
-use serial_test::serial;
 use std::time::Duration;
 
-#[serial]
 #[tokio::test]
 async fn tls_opportunistic_reconnect() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start_with_env(vec![
