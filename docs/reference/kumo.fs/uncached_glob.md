@@ -2,16 +2,15 @@
 tags:
  - utility
  - filesystem
-status: deprecated
 ---
 
-# kumo.uncached_glob
+# kumo.fs.uncached_glob
 
 ```
-kumo.uncached_glob(pattern [, relative_to])
+kumo.fs.uncached_glob(pattern [, relative_to])
 ```
 
-{{since('2024.06.10-84e84b89')}}
+{{since('dev')}}
 
 !!! warning
     This function can cause an expensive filesystem walk to occur, especially
@@ -41,6 +40,7 @@ be removed from the returned path. The default for for this parameter is `.`.
 local kumo = require 'kumo'
 
 -- logs the names of all of the '*.conf' files under `/etc`
-print(kumo.json_encode_pretty(kumo.uncached_glob '/etc/*.conf'))
+print(kumo.json_encode_pretty(kumo.fs.uncached_glob '/etc/*.conf'))
 ```
+
 
