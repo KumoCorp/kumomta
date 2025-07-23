@@ -50,17 +50,11 @@ impl std::hash::Hash for RustlsCacheKey {
         for suite in &self.rustls_cipher_suites {
             suite.suite().as_str().hash(hasher);
         }
-        match &self.certificate_from_pem {
-            Some(pem) => {
+        if let Some(pem) = &self.certificate_from_pem {
                 pem.as_ref().clone().into_vec().hash(hasher);
-            }
-            _ => {}
         }
-        match &self.private_key_from_pem {
-            Some(pem) => {
+        if let Some(pem) = &self.private_key_from_pem {
                 pem.as_ref().clone().into_vec().hash(hasher);
-            }
-            _ => {}
         }
     }
 }
