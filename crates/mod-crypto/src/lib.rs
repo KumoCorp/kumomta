@@ -14,7 +14,6 @@ use mlua::{Lua, MetaMethod, UserDataFields, UserDataMethods, Value, Error as Lua
 use data_loader::KeySource;
 use hex::decode;
 use std::str;
-
 use serde::Deserialize;
 
 #[derive(Deserialize, Clone, Debug)]
