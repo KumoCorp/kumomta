@@ -39,6 +39,7 @@ struct ProbeCommand {
     #[arg(long, value_parser=clap::builder::ValueParser::new(find_suite))]
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
     #[arg(long)]
+    /// path to a certificate file
     certificate: Option<String>,
     #[arg(long)]
     /// path to a private key file
