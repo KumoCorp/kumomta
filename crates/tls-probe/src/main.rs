@@ -41,6 +41,7 @@ struct ProbeCommand {
     #[arg(long)]
     certificate: Option<String>,
     #[arg(long)]
+    /// path to a private key file
     private_key: Option<String>,
     #[arg(long)]
     openssl_cipher_list: Option<String>,
