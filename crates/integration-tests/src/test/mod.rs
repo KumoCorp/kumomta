@@ -11,6 +11,7 @@ mod end_to_end_stuffed;
 mod end_to_end_webhook;
 mod end_to_end_webhook_batch;
 mod expires;
+mod http_inject_compression;
 mod log_oob_arf;
 mod max_line_length;
 mod perm_fail;

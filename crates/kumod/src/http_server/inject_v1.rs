@@ -1232,4 +1232,86 @@ Ok(
 "#
         );
     }
+
+    #[tokio::test]
+    async fn test_compression_gzip_basic() {
+        let input = r#"From: Me <me@example.com>
+Subject: Compression Test
+To: "{{ name }}" <{{ email }}>
+
+This is a test message to {{ name }}, repeated content! "#
+            .to_string()
+            + &"Repeated content! ".repeat(100);
+        let request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Rfc822(input),
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+        };
+
+        // Test that compilation works the same way regardless of compression
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        assert!(generated.contains("James Smythe"));
+        assert!(generated.contains("Compression Test"));
+    }
+
+    #[tokio::test]
+    async fn test_compression_builder_large_content() {
+        let mut request = InjectV1Request {
+            envelope_sender: "noreply@example.com".to_string(),
+            recipients: vec![Recipient {
+                email: "user@example.com".to_string(),
+                name: Some("James Smythe".to_string()),
+                substitutions: HashMap::new(),
+            }],
+            substitutions: HashMap::new(),
+            content: Content::Builder {
+                text_body: Some("Large compressible text ".repeat(1000)),
+                html_body: Some("<p>Large compressible HTML </p>".repeat(500)),
+                attachments: vec![],
+                subject: Some("Compression {{ name }} Test".to_string()),
+                from: None,
+                reply_to: None,
+                headers: Default::default(),
+            },
+            deferred_spool: true,
+            deferred_generation: false,
+            trace_headers: Default::default(),
+        };
+
+        request.normalize().unwrap();
+        let compiled = request.compile().unwrap();
+        let generated = compiled
+            .expand_for_recip(
+                &request.recipients[0],
+                &request.substitutions,
+                &request.content,
+            )
+            .unwrap();
+
+        let parsed = mailparsing::MimePart::parse(generated.as_str()).unwrap();
+        let structure = parsed.simplified_structure().unwrap();
+
+        assert!(structure.text.unwrap().contains("Large compressible text"));
+        assert!(structure.html.unwrap().contains("Large compressible HTML"));
+        assert_eq!(
+            structure.headers.subject().unwrap().unwrap(),
+            "Compression James Smythe Test"
+        );
+    }
 }
