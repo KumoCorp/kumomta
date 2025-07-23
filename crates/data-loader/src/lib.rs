@@ -20,7 +20,14 @@ pub enum KeySource {
         vault_token: Option<String>,
         vault_mount: String,
         vault_path: String,
+        #[serde(default = "default_vault_key")]
+        vault_key: String,
     },
+}
+
+#[cfg(feature = "impl")]
+fn default_vault_key() -> String {
+    "key".to_string()
 }
 
 #[cfg(feature = "impl")]
@@ -34,6 +41,7 @@ impl KeySource {
                 vault_token,
                 vault_mount,
                 vault_path,
+                vault_key,
             } => {
                 let address = match vault_address {
                     Some(a) => a.to_string(),
@@ -59,12 +67,7 @@ impl KeySource {
                         .build()?,
                 )?;
 
-                #[derive(Deserialize, Debug)]
-                struct Entry {
-                    key: String,
-                }
-
-                let entry: Entry = vaultrs::kv2::read(&client, vault_mount, vault_path)
+                let entry: serde_json::Value = vaultrs::kv2::read(&client, vault_mount, vault_path)
                     .await
                     .with_context(|| {
                         format!(
@@ -72,7 +75,16 @@ impl KeySource {
                         )
                     })?;
 
-                Ok(entry.key.into())
+                let value = entry
+                    .get(&vault_key)
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "vault secret at {vault_path} does not contain key '{vault_key}'"
+                        )
+                    })?;
+
+                Ok(value.as_bytes().to_vec())
             }
         }
     }
@@ -252,6 +264,7 @@ mod test {
                 vault_token: Some(KEY.to_string()),
                 vault_mount: "secret".to_string(),
                 vault_path: path.to_string(),
+                vault_key: "key".to_string(),
             }
         }
     }
@@ -325,6 +338,33 @@ mod test {
             .unwrap();
 
         assert_eq!(pw, "bar");
+        
+        // Test with a different key name
+        vault.put("custom_key", "custom_value").await?;
+
+        let source = KeySource::Vault {
+            vault_address: Some(vault.address()),
+            vault_token: Some(KEY.to_string()),
+            vault_mount: "secret".to_string(),
+            vault_path: "custom_key".to_string(),
+            vault_key: "custom_field".to_string(),
+        };
+        
+        // This should fail because the vault secret has "key" but we're looking for "custom_field"
+        let result = source.get().await;
+        assert!(result.is_err());
+
+        // Test with the correct key name
+        let source = KeySource::Vault {
+            vault_address: Some(vault.address()),
+            vault_token: Some(KEY.to_string()),
+            vault_mount: "secret".to_string(),
+            vault_path: "custom_key".to_string(),
+            vault_key: "key".to_string(),
+        };
+        
+        let data = source.get().await?;
+        assert_eq!(data, b"custom_value");
 
         Ok(())
     }

@@ -274,7 +274,9 @@ local function common_processing(msg)
       --[[
       key = {
         vault_mount = "secret",
-        vault_path = "dkim/" .. msg:sender().domain
+        vault_path = "dkim/" .. msg:sender().domain,
+        -- Optional: specify a custom key name (defaults to "key")
+        -- vault_key = "private_key"
       }
       ]]
     }

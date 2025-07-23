@@ -17,6 +17,8 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
   key = {
     vault_mount = 'secret',
     vault_path = 'dkim/' .. msg:from_header().domain,
+    -- Optional: specify a custom key name (defaults to "key")
+    -- vault_key = "private_key"
     -- vault_address = "http://127.0.0.1:8200"
     -- vault_token = "hvs.TOKENTOKENTOKEN"
   },
@@ -72,6 +74,28 @@ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
 ```
 
 It is important to ensure you are storing Version-2 secrets with a "key=<value>" format. In the preceding example, the `key` points to a filename `example-private-dkim-key.pem`.
+
+## Using Custom Key Names
+
+By default, KumoMTA looks for a field named `key` in your vault secret. If you want to use a different field name, you can specify it with the `vault_key` parameter:
+
+```lua
+local vault_signer = kumo.dkim.rsa_sha256_signer {
+  key = {
+    vault_mount = 'secret',
+    vault_path = 'dkim/' .. msg:from_header().domain,
+    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+  },
+}
+```
+
+And store it in vault like this:
+
+```bash
+vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-key.pem
+```
+
+This is particularly useful when you have multiple keys stored in the same vault secret or when your vault secrets follow a different naming convention.
 
 ## Ways to Use Vault With KumoMTA
 
