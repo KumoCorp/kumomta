@@ -3,7 +3,6 @@ use aws_lc_rs::cipher::{
     AES_128, AES_256, DecryptionContext, PaddedBlockDecryptingKey, PaddedBlockEncryptingKey,
     UnboundCipherKey,
 };
-
 use data_encoding::{
     BASE32, BASE32HEX, BASE32HEX_NOPAD, BASE32_NOPAD, BASE64, BASE64URL, BASE64URL_NOPAD,
     BASE64_NOPAD, HEXLOWER,
