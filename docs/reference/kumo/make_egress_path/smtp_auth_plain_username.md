@@ -11,7 +11,7 @@ of the credential over an unencrypted link.
 kumo.on('get_egress_path_config', function(domain, site_name)
   return kumo.make_egress_path {
     enable_tls = 'Required',
-    smtp_auth_plain_username = 'scott',
+    smtp_auth_plain_username = 'daniel',
     -- The password can be any keysource value
     smtp_auth_plain_password = {
       key_data = 'tiger',

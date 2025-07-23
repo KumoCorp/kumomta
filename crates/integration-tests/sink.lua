@@ -34,7 +34,7 @@ end)
 
 function simple_auth_check(user, password)
   local password_database = {
-    ['scott'] = 'tiger',
+    ['daniel'] = 'tiger',
   }
   if password == '' then
     return false

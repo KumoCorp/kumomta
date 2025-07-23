@@ -5,7 +5,7 @@ use std::time::Duration;
 #[tokio::test]
 async fn auth_deliver_invalid_password() -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start_with_env(vec![
-        ("KUMOD_SMTP_AUTH_USERNAME", "scott"),
+        ("KUMOD_SMTP_AUTH_USERNAME", "daniel"),
         ("KUMOD_SMTP_AUTH_PASSWORD", "incorrect-password"),
     ])
     .await?;

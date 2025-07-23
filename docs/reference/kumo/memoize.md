@@ -103,19 +103,19 @@ The parameters it accepts are:
 In the example above calling:
 
 ```lua
-cached_sqlite_auth_check('scott', 'tiger')
+cached_sqlite_auth_check('daniel', 'tiger')
 ```
 
-the first time would be a cache miss, because no calls have yet been made with `{'scott', 'tiger'}` as parameters, so the memoized function would internally call:
+the first time would be a cache miss, because no calls have yet been made with `{'daniel', 'tiger'}` as parameters, so the memoized function would internally call:
 
 ```lua
-sqlite_auth_check('scott', 'tiger')
+sqlite_auth_check('daniel', 'tiger')
 ```
 
-The next time that `cached_sqlite_auth_check('scott', 'tiger')` is called there
+The next time that `cached_sqlite_auth_check('daniel', 'tiger')` is called there
 is a cache hit and the previously computed result would be returned, provided that
 5 minutes have not expired since the first call.
 
-When the value expires, another call to `sqlite_auth_check('scott', 'tiger')` will
+When the value expires, another call to `sqlite_auth_check('daniel', 'tiger')` will
 be made to determine the value.
 

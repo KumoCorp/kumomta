@@ -10,6 +10,7 @@ use hickory_resolver::proto::xfer::Protocol;
 use hickory_resolver::{Name, TokioResolver};
 use mlua::{Lua, LuaSerdeExt, Value};
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 
 pub fn register(lua: &Lua) -> anyhow::Result<()> {
@@ -44,6 +45,16 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         lua.create_function(move |lua, duration: Value| {
             let duration: duration_serde::Wrap<Duration> = lua.from_value(duration)?;
             set_mx_negative_cache_ttl(duration.into_inner()).map_err(any_err)
+        })?,
+    )?;
+
+    dns_mod.set(
+        "lookup_ptr",
+        lua.create_async_function(|lua, ip_str: String| async move {
+            let resolver = get_resolver();
+            let addr = std::net::IpAddr::from_str(&ip_str).map_err(any_err)?;
+            let answer = resolver.resolve_ptr(addr).await.map_err(any_err)?;
+            Ok(lua.to_value_with(&*answer, serialize_options()))
         })?,
     )?;
 

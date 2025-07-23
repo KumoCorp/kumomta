@@ -42,7 +42,7 @@ const lines = nonsense.repeat(num_lines);
 const big_lines = nonsense.repeat(num_lines * 2);
 
 export default function () {
-  // const credentials = "scott:tiger";
+  // const credentials = "daniel:tiger";
   // const encodedCredentials = encoding.b64encode(credentials);
   const url = "http://127.0.0.1:8000/api/inject/v1";
 

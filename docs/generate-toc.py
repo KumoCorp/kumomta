@@ -413,12 +413,20 @@ TOC = [
                 "reference/kumo.domain_map",
             ),
             Gen(
+                "module: kumo.fs",
+                "reference/kumo.fs",
+            ),
+            Gen(
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
             Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.mpsc",
+                "reference/kumo.mpsc",
             ),
             Gen(
                 "module: kumo.regex_set_map",

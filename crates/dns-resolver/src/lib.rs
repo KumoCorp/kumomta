@@ -5,6 +5,7 @@ use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::proto::ProtoError;
 pub use hickory_resolver::Name;
 use kumo_address::host::HostAddress;
+use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_log_types::ResolvedAddress;
 use lruttl::declare_cache;
 use rand::prelude::SliceRandom;
@@ -30,7 +31,7 @@ static RESOLVER: LazyLock<ArcSwap<Box<dyn Resolver>>> =
     LazyLock::new(|| ArcSwap::from_pointee(Box::new(default_resolver())));
 
 declare_cache! {
-static MX_CACHE: LruCacheWithTtl<Name, Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
+static MX_CACHE: LruCacheWithTtl<(Name, Option<u16>), Result<Arc<MailExchanger>, String>>::new("dns_resolver_mx", 64 * 1024);
 }
 declare_cache! {
 static IPV4_CACHE: LruCacheWithTtl<Name, Arc<Vec<IpAddr>>>::new("dns_resolver_ipv4", 1024);
@@ -201,6 +202,108 @@ pub async fn resolve_dane(hostname: &str, port: u16) -> anyhow::Result<Vec<TLSA>
     Ok(result)
 }
 
+/// If the provided parameter ends with `:PORT` and `PORT` is a valid u16,
+/// then crack apart and return the LABEL and PORT number portions.
+/// Otherwise, returns None
+pub fn has_colon_port(a: &str) -> Option<(&str, u16)> {
+    let (label, maybe_port) = a.rsplit_once(':')?;
+
+    // v6 addresses can look like `::1` and confuse us. Try not
+    // to be confused here
+    if label.contains(':') {
+        return None;
+    }
+
+    let port = maybe_port.parse::<u16>().ok()?;
+    Some((label, port))
+}
+
+/// Helper to reason about a domain name string.
+/// It can either be name that needs to be resolved, or some kind
+/// of IP literal.
+/// We also allow for an optional port number to be present in
+/// the domain name string.
+pub enum DomainClassification {
+    /// A DNS Name pending resolution, plus an optional port number
+    Domain(Name, Option<u16>),
+    /// A literal IP address (no port), or socket address (with port)
+    Literal(HostOrSocketAddress),
+}
+
+impl DomainClassification {
+    pub fn classify(domain_name: &str) -> anyhow::Result<Self> {
+        let (domain_name, mut opt_port) = match has_colon_port(domain_name) {
+            Some((domain_name, port)) => (domain_name, Some(port)),
+            None => (domain_name, None),
+        };
+
+        if domain_name.starts_with('[') {
+            if !domain_name.ends_with(']') {
+                anyhow::bail!(
+                    "domain_name `{domain_name}` is a malformed literal \
+                     domain with no trailing `]`"
+                );
+            }
+
+            let lowered = domain_name.to_ascii_lowercase();
+            let literal = &lowered[1..lowered.len() - 1];
+
+            let literal = match has_colon_port(literal) {
+                Some((_, _)) if opt_port.is_some() => {
+                    anyhow::bail!("invalid address: `{domain_name}` specifies a port both inside and outside a literal address enclosed in square brackets");
+                }
+                Some((literal, port)) => {
+                    opt_port.replace(port);
+                    literal
+                }
+                None => literal,
+            };
+
+            if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
+                match v6_literal.parse::<Ipv6Addr>() {
+                    Ok(addr) => {
+                        let mut host_addr: HostOrSocketAddress = addr.into();
+                        if let Some(port) = opt_port {
+                            host_addr.set_port(port);
+                        }
+                        return Ok(Self::Literal(host_addr));
+                    }
+                    Err(err) => {
+                        anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
+                    }
+                }
+            }
+
+            // Try to interpret the literal as either an IPv4 or IPv6 address.
+            // Note that RFC5321 doesn't actually permit using an untagged
+            // IPv6 address, so this is non-conforming behavior.
+            match literal.parse::<IpAddr>() {
+                Ok(ip_addr) => {
+                    let mut host_addr: HostOrSocketAddress = ip_addr.into();
+                    if let Some(port) = opt_port {
+                        host_addr.set_port(port);
+                    }
+                    return Ok(Self::Literal(host_addr));
+                }
+                Err(err) => {
+                    anyhow::bail!("invalid address: `{literal}`: {err:#}");
+                }
+            }
+        }
+
+        let name_fq = fully_qualify(domain_name)?;
+        Ok(Self::Domain(name_fq, opt_port))
+    }
+
+    pub fn has_port(&self) -> bool {
+        match self {
+            Self::Domain(_, Some(_)) => true,
+            Self::Domain(_, None) => false,
+            Self::Literal(addr) => addr.port().is_some(),
+        }
+    }
+}
+
 pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<ResolvedAddress>> {
     if domain_name.starts_with('[') {
         // It's a literal address, no DNS lookup necessary
@@ -236,7 +339,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
             Ok(addr) => {
                 return Ok(vec![ResolvedAddress {
                     name: domain_name.to_string(),
-                    addr,
+                    addr: addr.into(),
                 }]);
             }
             Err(err) => {
@@ -248,7 +351,7 @@ pub async fn resolve_a_or_aaaa(domain_name: &str) -> anyhow::Result<Vec<Resolved
         if let Ok(addr) = domain_name.parse::<HostAddress>() {
             return Ok(vec![ResolvedAddress {
                 name: domain_name.to_string(),
-                addr,
+                addr: addr.into(),
             }]);
         }
     }
@@ -282,70 +385,27 @@ impl MailExchanger {
     }
 
     async fn resolve_impl(domain_name: &str) -> anyhow::Result<Arc<Self>> {
-        if domain_name.starts_with('[') {
-            // It's a literal address, no DNS lookup necessary
-
-            if !domain_name.ends_with(']') {
-                anyhow::bail!(
-                    "domain_name `{domain_name}` is a malformed literal \
-                     domain with no trailing `]`"
-                );
+        let (name_fq, opt_port) = match DomainClassification::classify(domain_name)? {
+            DomainClassification::Literal(addr) => {
+                let mut by_pref = BTreeMap::new();
+                by_pref.insert(1, vec![addr.to_string()]);
+                return Ok(Arc::new(Self {
+                    domain_name: domain_name.to_string(),
+                    hosts: vec![addr.to_string()],
+                    site_name: addr.to_string(),
+                    by_pref,
+                    is_domain_literal: true,
+                    is_secure: false,
+                    is_mx: false,
+                    expires: None,
+                }));
             }
-
-            let lowered = domain_name.to_ascii_lowercase();
-            let literal = &lowered[1..lowered.len() - 1];
-
-            if let Some(v6_literal) = literal.strip_prefix("ipv6:") {
-                match v6_literal.parse::<Ipv6Addr>() {
-                    Ok(addr) => {
-                        let mut by_pref = BTreeMap::new();
-                        by_pref.insert(1, vec![addr.to_string()]);
-                        return Ok(Arc::new(Self {
-                            domain_name: domain_name.to_string(),
-                            hosts: vec![addr.to_string()],
-                            site_name: addr.to_string(),
-                            by_pref,
-                            is_domain_literal: true,
-                            is_secure: false,
-                            is_mx: false,
-                            expires: None,
-                        }));
-                    }
-                    Err(err) => {
-                        anyhow::bail!("invalid ipv6 address: `{v6_literal}`: {err:#}");
-                    }
-                }
-            }
-
-            // Try to interpret the literal as either an IPv4 or IPv6 address.
-            // Note that RFC5321 doesn't actually permit using an untagged
-            // IPv6 address, so this is non-conforming behavior.
-            match literal.parse::<IpAddr>() {
-                Ok(addr) => {
-                    let mut by_pref = BTreeMap::new();
-                    by_pref.insert(1, vec![addr.to_string()]);
-                    return Ok(Arc::new(Self {
-                        domain_name: domain_name.to_string(),
-                        hosts: vec![addr.to_string()],
-                        site_name: addr.to_string(),
-                        by_pref,
-                        is_domain_literal: true,
-                        is_secure: false,
-                        is_mx: false,
-                        expires: None,
-                    }));
-                }
-                Err(err) => {
-                    anyhow::bail!("invalid address: `{literal}`: {err:#}");
-                }
-            }
-        }
-
-        let name_fq = fully_qualify(domain_name)?;
+            DomainClassification::Domain(name_fq, opt_port) => (name_fq, opt_port),
+        };
 
         let lookup_result = MX_CACHE
             .get_or_try_insert(
-                &name_fq,
+                &(name_fq.clone(), opt_port),
                 |mx_result| {
                     if let Ok(mx) = mx_result {
                         if let Some(exp) = mx.expires {
@@ -359,7 +419,7 @@ impl MailExchanger {
                 async {
                     MX_QUERIES.inc();
                     let start = Instant::now();
-                    let (by_pref, expires) = match lookup_mx_record(&name_fq).await {
+                    let (mut by_pref, expires) = match lookup_mx_record(&name_fq).await {
                         Ok((by_pref, expires)) => (by_pref, expires),
                         Err(err) => {
                             let error = format!(
@@ -373,8 +433,11 @@ impl MailExchanger {
                     };
 
                     let mut hosts = vec![];
-                    for pref in &by_pref {
-                        for host in &pref.hosts {
+                    for pref in &mut by_pref {
+                        for host in &mut pref.hosts {
+                            if let Some(port) = opt_port {
+                                *host = format!("{host}:{port}");
+                            };
                             hosts.push(host.to_string());
                         }
                     }
@@ -436,7 +499,15 @@ impl MailExchanger {
                 }
 
                 // Handle the literal address case
+                let (mx_host, opt_port) = match has_colon_port(mx_host) {
+                    Some((domain_name, port)) => (domain_name, Some(port)),
+                    None => (mx_host.as_str(), None),
+                };
                 if let Ok(addr) = mx_host.parse::<IpAddr>() {
+                    let mut addr: HostOrSocketAddress = addr.into();
+                    if let Some(port) = opt_port {
+                        addr.set_port(port);
+                    }
                     by_pref.push(ResolvedAddress {
                         name: mx_host.to_string(),
                         addr: addr.into(),
@@ -451,9 +522,13 @@ impl MailExchanger {
                     }
                     Ok((addresses, _expires)) => {
                         for addr in addresses.iter() {
+                            let mut addr: HostOrSocketAddress = (*addr).into();
+                            if let Some(port) = opt_port {
+                                addr.set_port(port);
+                            }
                             by_pref.push(ResolvedAddress {
                                 name: mx_host.to_string(),
-                                addr: (*addr).into(),
+                                addr,
                             });
                         }
                     }
@@ -637,19 +712,28 @@ fn factor_names<S: AsRef<str>>(name_strings: &[S]) -> String {
     let mut names = vec![];
 
     for name in name_strings {
-        if let Ok(name) = fully_qualify(name.as_ref()) {
-            names.push(name.to_lowercase());
+        let (name, opt_port) = match has_colon_port(name.as_ref()) {
+            Some((name, port)) => (name, Some(port)),
+            None => (name.as_ref(), None),
+        };
+        if let Ok(name) = fully_qualify(name) {
+            names.push((name.to_lowercase(), opt_port));
         }
     }
 
     let mut elements: Vec<Vec<&str>> = vec![];
 
     let mut split_names = vec![];
-    for name in names {
+    for (name, opt_port) in names {
         let mut fields: Vec<_> = name
             .iter()
             .map(|s| String::from_utf8_lossy(s).to_string())
             .collect();
+        if let Some(port) = opt_port {
+            fields.last_mut().map(|s| {
+                s.push_str(&format!(":{port}"));
+            });
+        }
         fields.reverse();
         max_element_count = max_element_count.max(fields.len());
         split_names.push(fields);
@@ -843,6 +927,23 @@ Addresses(
                 "alt4.gmail-smtp-in.l.google.com",
             ]),
             "(alt1|alt2|alt3|alt4)?.gmail-smtp-in.l.google.com".to_string()
+        );
+
+        assert_eq!(
+            factor_names(&[
+                "mta5.am0.yahoodns.net:123",
+                "mta6.am0.yahoodns.net:123",
+                "mta7.am0.yahoodns.net:123"
+            ]),
+            "(mta5|mta6|mta7).am0.yahoodns.net:123".to_string()
+        );
+        assert_eq!(
+            factor_names(&[
+                "mta5.am0.yahoodns.net:123",
+                "mta6.am0.yahoodns.net:456",
+                "mta7.am0.yahoodns.net:123"
+            ]),
+            "(mta5|mta6|mta7).am0.yahoodns.(net:123|net:456)".to_string()
         );
     }
 

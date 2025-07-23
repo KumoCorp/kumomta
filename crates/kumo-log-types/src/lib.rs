@@ -1,7 +1,7 @@
 use crate::rfc5965::ARFReport;
 use bounce_classify::BounceClass;
 use chrono::{DateTime, Utc};
-use kumo_address::host::HostAddress;
+use kumo_address::host_or_socket::HostOrSocketAddress;
 use kumo_address::socket::SocketAddress;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub mod rfc5965;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ResolvedAddress {
     pub name: String,
-    pub addr: HostAddress,
+    pub addr: HostOrSocketAddress,
 }
 
 impl std::fmt::Display for ResolvedAddress {

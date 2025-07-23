@@ -1,3 +1,8 @@
+---
+tags:
+ - port
+---
+
 # protocol
 
 Configure the delivery protocol. The default is to use SMTP to the
@@ -34,6 +39,26 @@ kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
   return kumo.make_queue_config {}
 end)
 ```
+
+{{since('dev', indent=True)}}
+    You may now use port numbers to override the outbound port number.
+
+    ```lua
+    return kumo.make_queue_config {
+      protocol = {
+        smtp = {
+          mx_list = {
+            'smart.host.local:2025',
+            { name = 'mx.example.com', addr = '10.0.0.1:2025' },
+          },
+        },
+      },
+    }
+    ```
+
+    Note that a `remote_port` defined in the egress source will override a port
+    that you define here.  A port number defined here in `mx_list` overrides a
+    port number defined by `make_egress_path` in your shaping configuration.
 
 ### Example of using the Maildir protocol
 

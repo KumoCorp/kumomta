@@ -10,7 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
-use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
@@ -48,6 +48,49 @@ pub enum MxListEntry {
 
     /// A pre-resolved name and IP address
     Resolved(ResolvedAddress),
+}
+
+impl MxListEntry {
+    /// Resolve self into 1 or more `ResolvedAddress` and append to the
+    /// supplied `addresses` vector.
+    pub async fn resolve_into(&self, addresses: &mut Vec<ResolvedAddress>) -> anyhow::Result<()> {
+        match self {
+            Self::Name(a) => {
+                if let Some((label, port)) = has_colon_port(a) {
+                    let resolved = resolve_a_or_aaaa(label)
+                        .await
+                        .with_context(|| format!("resolving mx_list entry {a}"))?;
+                    for mut r in resolved {
+                        r.addr.set_port(port);
+                        addresses.push(r);
+                    }
+
+                    return Ok(());
+                }
+
+                addresses.append(
+                    &mut resolve_a_or_aaaa(a)
+                        .await
+                        .with_context(|| format!("resolving mx_list entry {a}"))?,
+                );
+            }
+            Self::Resolved(addr) => {
+                addresses.push(addr.clone());
+            }
+        };
+        Ok(())
+    }
+
+    /// Return a label that will be used as part of the synthesized site_name
+    /// for a manually provided mx_list style site, rather than the more
+    /// typical resolved-via-MX-records site name.
+    /// We return the stringy versions of those manually specified addresses
+    pub fn label(&self) -> String {
+        match self {
+            Self::Name(a) => a.to_string(),
+            Self::Resolved(addr) => addr.addr.to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -114,18 +157,7 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                match a {
-                    MxListEntry::Name(a) => {
-                        addresses.append(
-                            &mut resolve_a_or_aaaa(a)
-                                .await
-                                .with_context(|| format!("resolving mx_list entry {a}"))?,
-                        );
-                    }
-                    MxListEntry::Resolved(addr) => {
-                        addresses.append(&mut vec![addr.clone()]);
-                    }
-                }
+                a.resolve_into(&mut addresses).await?;
             }
             ResolvedMxAddresses::Addresses(addresses)
         };
@@ -323,6 +355,7 @@ impl SmtpDispatcher {
         let port = dispatcher
             .egress_source
             .remote_port
+            .or_else(|| address.addr.port())
             .unwrap_or(path_config.smtp_port);
 
         let target_address: SocketAddress = match address.addr.ip() {

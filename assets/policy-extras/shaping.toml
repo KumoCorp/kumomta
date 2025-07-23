@@ -151,8 +151,8 @@ provider_connection_limit = 10
 max_deliveries_per_connection = 5
 
 # PROVIDED DIRECTLY BY COMCAST
-# https://spa.xfinity.com/postmaster
-# https://spa.xfinity.com/postmaster?faq=comcast-mail-errors
+# https://spa.xfinity.com/help/postmaster
+# https://spa.xfinity.com/help/postmaster?faq=comcast-mail-errors
 ["comcast.net"]
 connection_limit = 25
 max_deliveries_per_connection = 1000

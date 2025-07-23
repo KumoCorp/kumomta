@@ -13,7 +13,7 @@ The simplest implementation of AUTH checking could be implemented by checking ag
 -- Use this to lookup and confirm a user/password credential
 kumo.on('smtp_server_auth_plain', function(authz, authc, password, conn_meta)
   local password_database = {
-    ['scott'] = 'tiger',
+    ['daniel'] = 'tiger',
   }
   if password == '' then
     return false
@@ -86,7 +86,7 @@ To prevent this, you can use the `require_authz` option in the helper:
 egress_pool = 'pool-1'
 
 # Only the authorized identities are allowed to use this tenant via the tenant_header
-require_authz = ["scott"]
+require_authz = ["daniel"]
 {% endcall %}
 
-This prevents users other than **scott** (multiple users can be specified) from using the tenant for sending.
+This prevents users other than **daniel** (multiple users can be specified) from using the tenant for sending.

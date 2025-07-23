@@ -1,0 +1,14 @@
+[package]
+name = "mod-mpsc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = {workspace=true}
+config = {path="../config"}
+dashmap.workspace = true
+tokio = {workspace=true, features=["sync"]}
+mod-memoize = { path = "../mod-memoize" }
+mlua = {workspace=true, features=["vendored", "lua54", "async", "macros", "send", "serialize"]}
+serde = {workspace=true}
+serde_json = {workspace=true}

@@ -121,8 +121,8 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
   if domain == 'example.com' then
     return kumo.make_listener_domain {
       relay_to = true,
-      log_oob = true,
-      log_arf = true,
+      log_oob = 'LogThenDrop',
+      log_arf = 'LogThenDrop',
     }
   end
 end)
