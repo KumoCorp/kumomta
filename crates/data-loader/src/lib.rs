@@ -25,7 +25,6 @@ pub enum KeySource {
     },
 }
 
-#[cfg(feature = "impl")]
 fn default_vault_key() -> String {
     "key".to_string()
 }
@@ -79,9 +78,7 @@ impl KeySource {
                     .get(&vault_key)
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| {
-                        anyhow!(
-                            "vault secret at {vault_path} does not contain key '{vault_key}'"
-                        )
+                        anyhow!("vault secret at {vault_path} does not contain key '{vault_key}'")
                     })?;
 
                 Ok(value.as_bytes().to_vec())
@@ -338,7 +335,7 @@ mod test {
             .unwrap();
 
         assert_eq!(pw, "bar");
-        
+
         // Test with a different key name
         vault.put("custom_key", "custom_value").await?;
 
@@ -349,7 +346,7 @@ mod test {
             vault_path: "custom_key".to_string(),
             vault_key: "custom_field".to_string(),
         };
-        
+
         // This should fail because the vault secret has "key" but we're looking for "custom_field"
         let result = source.get().await;
         assert!(result.is_err());
@@ -362,7 +359,7 @@ mod test {
             vault_path: "custom_key".to_string(),
             vault_key: "key".to_string(),
         };
-        
+
         let data = source.get().await?;
         assert_eq!(data, b"custom_value");
 
