@@ -26,6 +26,12 @@
    deprecated in favor of functions with the same names in `kumo.fs`.  In
    addition, a new [kumo.fs.open](../reference/kumo.fs/open.md) function that
    can create async capable file handles is now provided.
+ * SMTP Receptions made via TLS now: #100
+    * Show in the trace headers as ESMTPS/ESMTPSA along with the TLS version
+      and cipher as a comment. eg: `with ESMTPS (TLSv1_3:TLS13_AES_256_GCM_SHA384)`
+    * Are recorded as `tls_cipher`, `tls_protocol_version` and
+      `tls_peer_subject_name` in the meta values for the message and in the
+      `Reception` log record.
 
 ## Fixes
 

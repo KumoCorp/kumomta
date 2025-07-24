@@ -3438,6 +3438,7 @@ dependencies = [
  "mta-sts",
  "nix 0.28.0",
  "num-format",
+ "openssl",
  "parking_lot",
  "ppp",
  "prometheus",

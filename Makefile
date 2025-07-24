@@ -31,6 +31,9 @@ test: build test-lua
 	./docs/update-openapi.sh
 	cargo nextest run --no-fail-fast
 
+test-adhoc: build
+	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- tls_info_log
+
 test-kumod:
 	cargo nextest run --no-fail-fast -p kumod
 

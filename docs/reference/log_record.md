@@ -139,6 +139,7 @@ The log record is a JSON object with the following shape:
     "nodeid": "557f3ad4-2c8c-11ee-976e-782d7e12e173",
 
     // Information about TLS used for outgoing SMTP, if applicable.
+    // Incoming TLS info is available {{since('dev', inline=True)}}.
     "tls_cipher": "TLS_AES_256_GCM_SHA384",
     "tls_protocol_version": "TLSv1.3",
     "tls_peer_subject_name": ["C=US","ST=CA","L=SanFrancisco","O=Fort-Funston",
