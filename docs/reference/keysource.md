@@ -82,6 +82,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
     -- vault_token = "hvs.TOKENTOKENTOKEN"
     
     -- Optional: specify the key name within the vault secret
+    -- {{since('dev', inline=True)}}
     -- Defaults to "key" if not specified
     -- vault_key = "my_custom_key_name"
   },
