@@ -1,6 +1,6 @@
-use crate::kumod::{generate_message_text, DaemonWithMaildir, DeliverySummary, MailGenParams};
+use crate::kumod::{DaemonWithMaildir, DeliverySummary, MailGenParams};
+use k9::assert_equal;
 use kumo_log_types::RecordType;
-use kumo_log_types::RecordType::TransientFailure;
 use rcgen::{generate_simple_self_signed, CertifiedKey};
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -18,8 +18,7 @@ async fn tls_client_certificate_rustls_no_client_cert() -> anyhow::Result<()> {
         sink_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
     };
     let env = vec![("KUMOD_ENABLE_TLS", "OpportunisticInsecure")];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 #[tokio::test]
@@ -33,8 +32,7 @@ async fn tls_client_certificate_openssl_no_client_cert() -> anyhow::Result<()> {
         ("KUMOD_ENABLE_TLS", "OpportunisticInsecure"),
         ("KUMOD_PREFER_OPENSSL", "true"),
     ];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 #[tokio::test]
@@ -56,8 +54,7 @@ async fn tls_client_certificate_rustls_success() -> anyhow::Result<()> {
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", &key_pem),
     ];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 #[tokio::test]
@@ -78,8 +75,7 @@ async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", "FAKE"),
     ];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 #[tokio::test]
@@ -99,8 +95,7 @@ async fn tls_client_certificate_rustls_openssl_success() -> anyhow::Result<()> {
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", &key_pem),
     ];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 #[tokio::test]
@@ -122,8 +117,7 @@ async fn tls_client_certificate_rustls_openssl_fail() -> anyhow::Result<()> {
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", "FAKE"),
     ];
-    let r = tls_client_certificate(env, ex).await;
-    return r;
+    tls_client_certificate(env, ex).await
 }
 
 async fn tls_client_certificate(
@@ -131,21 +125,14 @@ async fn tls_client_certificate(
     expected: DeliverySummary,
 ) -> anyhow::Result<()> {
     let mut daemon = DaemonWithMaildir::start_with_env(env).await?;
-
     let mut client = daemon.smtp_client().await?;
 
-    let body = generate_message_text(1024, 78);
-    let response = MailGenParams {
-        body: Some(&body),
-        ..Default::default()
-    }
-    .send(&mut client)
-    .await?;
+    let response = MailGenParams::default().send(&mut client).await?;
     anyhow::ensure!(response.code == 250);
 
     daemon
         .wait_for_source_summary(
-            |summary| summary.get(&TransientFailure).copied().unwrap_or(0) > 0,
+            |summary| *summary == expected.source_counts,
             Duration::from_secs(50),
         )
         .await;
@@ -154,6 +141,17 @@ async fn tls_client_certificate(
     println!("Stopped!");
 
     let delivery_summary = daemon.dump_logs().await?;
-    assert_eq!(delivery_summary, expected,);
+    assert_equal!(delivery_summary, expected);
+
+    if expected.sink_counts.contains_key(&RecordType::Delivery) {
+        let sink_logs = daemon.sink.collect_logs().await?;
+        let reception = sink_logs
+            .iter()
+            .find(|record| record.kind == RecordType::Reception)
+            .unwrap();
+        eprintln!("sink: {reception:#?}");
+        assert!(!reception.tls_protocol_version.as_ref().unwrap().is_empty());
+        assert!(!reception.tls_cipher.as_ref().unwrap().is_empty());
+    }
     Ok(())
 }
