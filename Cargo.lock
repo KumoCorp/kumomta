@@ -2847,6 +2847,7 @@ dependencies = [
  "mailparsing",
  "message",
  "nix 0.28.0",
+ "rcgen",
  "rfc5321",
  "serde",
  "serde_json",
@@ -5755,6 +5756,7 @@ checksum = "95325155c684b1c89f7765e30bc1c42e4a6da51ca513615660cb8a62ef9a88e3"
 name = "rfc5321"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "data-encoding",
  "duration-serde",
  "hickory-proto",
@@ -5766,6 +5768,8 @@ dependencies = [
  "openssl",
  "pest",
  "pest_derive",
+ "rustls",
+ "rustls-pemfile",
  "rustls-platform-verifier",
  "serde",
  "thiserror 1.0.69",

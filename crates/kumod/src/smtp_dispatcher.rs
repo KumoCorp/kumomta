@@ -10,6 +10,7 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
+use data_loader::KeySource;
 use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
@@ -31,6 +32,10 @@ use tracing::Level;
 
 lruttl::declare_cache! {
 static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
+}
+
+lruttl::declare_cache! {
+static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -114,6 +119,12 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub error: ClientError,
     pub address: String,
     pub label: String,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct CertificateKeyPair {
+    certificate: Vec<u8>,
+    key: Vec<u8>,
 }
 
 impl OpportunisticInsecureTlsHandshakeError {
@@ -471,6 +482,17 @@ impl SmtpDispatcher {
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
 
+        let mut certificate_from_pem = None;
+        let mut private_key_from_pem = None;
+
+        if let Some(pem) = &path_config.tls_certificate {
+            certificate_from_pem = self.resolve_cached_client_cert(pem).await?
+        }
+
+        if let Some(pem) = &path_config.tls_private_key {
+            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
+        }
+
         let openssl_options = path_config.openssl_options;
         let openssl_cipher_list = path_config.openssl_cipher_list.clone();
         let openssl_cipher_suites = path_config.openssl_cipher_suites.clone();
@@ -605,6 +627,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate_from_pem,
+                        private_key_from_pem,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
@@ -680,6 +704,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate_from_pem,
+                        private_key_from_pem,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
@@ -782,6 +808,25 @@ impl SmtpDispatcher {
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
         Ok(())
+    }
+
+    async fn resolve_cached_client_cert(
+        &mut self,
+        source: &KeySource,
+    ) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+        CLIENT_CERT
+            .get_or_try_insert(source, |_| tokio::time::Duration::from_secs(300), async {
+                let data = source
+                    .get()
+                    .await
+                    .map(|vec| Some(Arc::new(vec.into_boxed_slice())))
+                    .map_err(|e| e.to_string());
+                Ok::<_, anyhow::Error>(data)
+            })
+            .await
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?
+            .item
+            .map_err(|e| anyhow::Error::msg(e.to_string()))
     }
 
     async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {

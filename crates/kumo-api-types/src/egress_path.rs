@@ -201,6 +201,12 @@ pub struct EgressPathConfig {
     pub tls_prefer_openssl: bool,
 
     #[serde(default)]
+    pub tls_certificate: Option<KeySource>,
+
+    #[serde(default)]
+    pub tls_private_key: Option<KeySource>,
+
+    #[serde(default)]
     pub openssl_cipher_list: Option<String>,
     #[serde(default)]
     pub openssl_cipher_suites: Option<String>,
@@ -374,6 +380,8 @@ impl Default for EgressPathConfig {
             smtp_auth_plain_password: None,
             aggressive_connection_opening: false,
             rustls_cipher_suites: vec![],
+            tls_certificate: None,
+            tls_private_key: None,
             openssl_cipher_list: None,
             openssl_cipher_suites: None,
             openssl_options: None,
