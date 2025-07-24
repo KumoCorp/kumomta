@@ -96,7 +96,7 @@ For example, you might populate it like this:
 $ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
 ```
 
-If you want to use a different field name, you can specify it with `vault_key`:
+If you want to use a different field name, you can specify it with `vault_key` {{since('dev', inline=True)}}:
 
 ```lua
 local vault_signer = kumo.dkim.rsa_sha256_signer {
