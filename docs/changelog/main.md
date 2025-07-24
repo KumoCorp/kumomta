@@ -16,6 +16,16 @@
    `queue` meta item. #352
  * [kumo.dns.lookup_ptr](../reference/kumo.dns/lookup_ptr.md) function for looking
    up PTR records. Thanks to @kayozaki! #390
+ * [kumo.mpsc.define](../reference/kumo.mpsc/define.md) function for advanced
+   non-durable, non-persistent, in-memory queue processing.
+ * [kumo.fs](../reference/kumo.fs/index.md) module for efficiently working with
+   the filesystem.  The functions
+   [kumo.read_dir](../reference/kumo/read_dir.md),
+   [kumo.glob](../reference/kumo/glob.md) and
+   [kumo.uncached_glob](../reference/kumo/uncached_glob.md) have been
+   deprecated in favor of functions with the same names in `kumo.fs`.  In
+   addition, a new [kumo.fs.open](../reference/kumo.fs/open.md) function that
+   can create async capable file handles is now provided.
 
 ## Fixes
 

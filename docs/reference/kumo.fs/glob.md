@@ -2,20 +2,15 @@
 tags:
  - utility
  - filesystem
-status: deprecated
 ---
 
-# kumo.glob
+# kumo.fs.glob
 
 ```
-kumo.glob(pattern [, relative_to, [, ttl_seconds]])
+kumo.fs.glob(pattern [, relative_to, [, ttl_seconds]])
 ```
 
-{{since('2024.06.10-84e84b89')}}
-
-!!! note
-    This function is deprecated in favor of [kumo.fs.glob](../kumo.fs/glob.md).
-
+{{since('dev')}}
 
 This function evalutes the glob `pattern` and returns an array containing the
 absolute file names of the matching results.  Due to limitations in the lua
@@ -48,7 +43,7 @@ results until the TTL expires.  The default TTL is `60` seconds.
 local kumo = require 'kumo'
 
 -- logs the names of all of the '*.conf' files under `/etc`
-print(kumo.json_encode_pretty(kumo.glob '/etc/*.conf'))
+print(kumo.json_encode_pretty(kumo.fs.glob '/etc/*.conf'))
 ```
 
 

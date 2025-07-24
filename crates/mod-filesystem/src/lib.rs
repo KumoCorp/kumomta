@@ -1,7 +1,9 @@
 use anyhow::anyhow;
-use config::get_or_create_module;
+use config::{get_or_create_module, get_or_create_sub_module};
 use mlua::Lua;
 use tokio::time::{Duration, Instant};
+
+mod file;
 
 const GLOB_CACHE_CAPACITY: usize = 32;
 const DEFAULT_CACHE_TTL: f32 = 60.;
@@ -21,6 +23,13 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     kumo_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
     kumo_mod.set("glob", lua.create_async_function(cached_glob)?)?;
     kumo_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
+
+    let fs_mod = get_or_create_sub_module(lua, "fs")?;
+    fs_mod.set("open", lua.create_async_function(file::AsyncFile::open)?)?;
+    fs_mod.set("read_dir", lua.create_async_function(read_dir)?)?;
+    fs_mod.set("glob", lua.create_async_function(cached_glob)?)?;
+    fs_mod.set("uncached_glob", lua.create_async_function(uncached_glob)?)?;
+
     Ok(())
 }
 
