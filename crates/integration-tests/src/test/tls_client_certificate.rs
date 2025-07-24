@@ -1,14 +1,13 @@
 use crate::kumod::{DaemonWithMaildir, DeliverySummary, MailGenParams};
 use k9::assert_equal;
 use kumo_log_types::RecordType;
-use rcgen::{generate_simple_self_signed, CertifiedKey};
+use rustls_cert_gen::{Ca, CertificateBuilder, EndEntity};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 // These test do not confirm the client side certificates are being sent to the server.
 // They confirm the client side certificate paramters are being honored and loaded. Confirmed
 // they're valid before proceeding with delivery. Failure in validation would result in temp failure..
-// Add unit test for server side client side certificate handling once that feature is implemented.
 
 #[tokio::test]
 async fn tls_client_certificate_rustls_no_client_cert() -> anyhow::Result<()> {
@@ -35,15 +34,15 @@ async fn tls_client_certificate_openssl_no_client_cert() -> anyhow::Result<()> {
     tls_client_certificate(env, ex).await
 }
 
+/// Generate certificate, private key pair vua rcgen
+/// rcgen supports creating x509v3 certificate.
+/// Use rustls as TLS library and confirm delivery is successful
 #[tokio::test]
 async fn tls_client_certificate_rustls_success() -> anyhow::Result<()> {
-    // Generate certificate, private key pair vua rcgen
-    // rcgen supports creating x509v3 certificate.
-    // Use rustls as TLS library and confirm delivery is successful
-    let subject_alt_names = vec!["smtp.example.com".to_string()];
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)?;
-    let cert_pem = cert.pem();
-    let key_pem = key_pair.serialize_pem();
+    let (ca, entity) = generate_certs()?;
+    let ca_pem = ca.serialize_pem().cert_pem;
+    let cert_pem = entity.serialize_pem().cert_pem;
+    let key_pem = entity.serialize_pem().private_key_pem;
     let ex = DeliverySummary {
         source_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
         sink_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
@@ -53,16 +52,16 @@ async fn tls_client_certificate_rustls_success() -> anyhow::Result<()> {
         ("KUMOD_PREFER_OPENSSL", "true"),
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", &key_pem),
+        ("KUMOD_CLIENT_REQUIRED_CA", &ca_pem),
     ];
     tls_client_certificate(env, ex).await
 }
 
+/// Adding fake private key to confirm rustls injection succeeds
 #[tokio::test]
 async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
-    // Adding fake private key to confirm rustls injection succeeds
-    let subject_alt_names = vec!["smtp.example.com".to_string()];
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)?;
-    let cert_pem = cert.pem();
+    let (_ca, entity) = generate_certs()?;
+    let cert_pem = entity.serialize_pem().cert_pem;
     let ex = DeliverySummary {
         source_counts: BTreeMap::from([
             (RecordType::Reception, 1),
@@ -78,32 +77,56 @@ async fn tls_client_certificate_rustls_fail() -> anyhow::Result<()> {
     tls_client_certificate(env, ex).await
 }
 
+const COMMON_NAME: &str = "Testing Common Name";
+
+fn generate_certs() -> anyhow::Result<(Ca, EndEntity)> {
+    let ca = CertificateBuilder::new()
+        .certificate_authority()
+        .country_name("GB")?
+        .organization_name("kumo-testing")
+        .build()?;
+
+    let mut entity = CertificateBuilder::new()
+        .end_entity()
+        .common_name(COMMON_NAME)
+        .subject_alternative_names(vec![rcgen::SanType::DnsName(
+            "smtp.example.com".try_into().unwrap(),
+        )]);
+    entity.client_auth();
+
+    let entity = entity.build(&ca)?;
+
+    Ok((ca, entity))
+}
+
+/// Use openssl as TLS library, confirm delivery succeeds
 #[tokio::test]
 async fn tls_client_certificate_rustls_openssl_success() -> anyhow::Result<()> {
-    // Use openssl as TLS library, confirm delivery succeeds
-    let subject_alt_names = vec!["smtp.example.com".to_string()];
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)?;
-    let cert_pem = cert.pem();
-    let key_pem = key_pair.serialize_pem();
+    let (ca, entity) = generate_certs()?;
+    let ca_pem = ca.serialize_pem().cert_pem;
+    let cert_pem = entity.serialize_pem().cert_pem;
+    let key_pem = entity.serialize_pem().private_key_pem;
+
     let ex = DeliverySummary {
         source_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
         sink_counts: BTreeMap::from([(RecordType::Reception, 1), (RecordType::Delivery, 1)]),
     };
+
     let env = vec![
         ("KUMOD_ENABLE_TLS", "OpportunisticInsecure"),
         ("KUMOD_PREFER_OPENSSL", "true"),
         ("KUMOD_CLIENT_CERTIFICATE", &cert_pem),
         ("KUMOD_CLIENT_PRIVATE_KEY", &key_pem),
+        ("KUMOD_CLIENT_REQUIRED_CA", &ca_pem),
     ];
     tls_client_certificate(env, ex).await
 }
 
+/// Adding fake private key to confirm openssl injection would temp fail
 #[tokio::test]
 async fn tls_client_certificate_rustls_openssl_fail() -> anyhow::Result<()> {
-    // Adding fake private key to confirm openssl injection would temp fail
-    let subject_alt_names = vec!["smtp.example.com".to_string()];
-    let CertifiedKey { cert, .. } = generate_simple_self_signed(subject_alt_names)?;
-    let cert_pem = cert.pem();
+    let (_ca, entity) = generate_certs()?;
+    let cert_pem = entity.serialize_pem().cert_pem;
     let ex = DeliverySummary {
         source_counts: BTreeMap::from([
             (RecordType::Reception, 1),
@@ -124,6 +147,9 @@ async fn tls_client_certificate(
     env: Vec<(&str, &str)>,
     expected: DeliverySummary,
 ) -> anyhow::Result<()> {
+    let expect_peer = env
+        .iter()
+        .any(|(name, _)| *name == "KUMOD_CLIENT_REQUIRED_CA");
     let mut daemon = DaemonWithMaildir::start_with_env(env).await?;
     let mut client = daemon.smtp_client().await?;
 
@@ -152,6 +178,13 @@ async fn tls_client_certificate(
         eprintln!("sink: {reception:#?}");
         assert!(!reception.tls_protocol_version.as_ref().unwrap().is_empty());
         assert!(!reception.tls_cipher.as_ref().unwrap().is_empty());
+        eprintln!("expect_peer={expect_peer}");
+        if expect_peer {
+            assert_equal!(
+                reception.tls_peer_subject_name.as_ref().unwrap(),
+                &vec![format!("CN={COMMON_NAME}")]
+            );
+        }
     }
     Ok(())
 }

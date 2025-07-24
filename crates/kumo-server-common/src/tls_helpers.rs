@@ -2,13 +2,30 @@ use anyhow::Context;
 use data_loader::KeySource;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use rustls::ServerConfig;
+use rustls::server::WebPkiClientVerifier;
+use rustls::{RootCertStore, ServerConfig};
 use std::sync::Arc;
+
+fn read_trust_anchor(trust_anchor: &[u8]) -> anyhow::Result<RootCertStore> {
+    let mut store = RootCertStore::empty();
+    let mut added = 0;
+    for cert in CertificateDer::pem_slice_iter(trust_anchor) {
+        store.add(cert?)?;
+        added += 1;
+    }
+
+    if added == 0 {
+        anyhow::bail!("failed to parse certs");
+    }
+
+    Ok(store)
+}
 
 pub async fn make_server_config(
     hostname: &str,
     tls_private_key: &Option<KeySource>,
     tls_certificate: &Option<KeySource>,
+    required_client_ca: &Option<KeySource>,
 ) -> anyhow::Result<Arc<ServerConfig>> {
     let mut certificates = vec![];
     let private_key = match tls_private_key {
@@ -28,9 +45,16 @@ pub async fn make_server_config(
             .with_context(|| format!("loading certificates from {cert_file:?}"))?;
     }
 
-    let config = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certificates, private_key)?;
+    let config = ServerConfig::builder();
+    let config = match required_client_ca {
+        Some(client_ca) => {
+            let ca = client_ca.get().await?;
+            let verifier = WebPkiClientVerifier::builder(read_trust_anchor(&ca)?.into()).build()?;
+            config.with_client_cert_verifier(verifier)
+        }
+        None => config.with_no_client_auth(),
+    };
+    let config = config.with_single_cert(certificates, private_key)?;
 
     Ok(Arc::new(config))
 }

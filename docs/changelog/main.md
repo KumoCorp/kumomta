@@ -32,6 +32,9 @@
     * Are recorded as `tls_cipher`, `tls_protocol_version` and
       `tls_peer_subject_name` in the meta values for the message and in the
       `Reception` log record.
+ * New
+   [tls_required_client_ca](../reference/kumo/start_esmtp_listener/tls_required_client_ca.md)
+   parameter to aid in configuring mTLS
 
 ## Fixes
 

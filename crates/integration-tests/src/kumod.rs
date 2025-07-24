@@ -143,14 +143,15 @@ impl DaemonWithMaildir {
     }
 
     pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
-        let sink = KumoDaemon::spawn_maildir().await.context("spawn_maildir")?;
-        let smtp = sink.listener("smtp");
-
         let mut env: Vec<(String, String)> = env
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
+        let sink = KumoDaemon::spawn_maildir_env(env.clone())
+            .await
+            .context("spawn_maildir")?;
+        let smtp = sink.listener("smtp");
         env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
 
         let source = KumoDaemon::spawn(KumoArgs {
@@ -362,9 +363,13 @@ pub struct KumoArgs {
 
 impl KumoDaemon {
     pub async fn spawn_maildir() -> anyhow::Result<Self> {
+        KumoDaemon::spawn_maildir_env(vec![]).await
+    }
+
+    pub async fn spawn_maildir_env(env: Vec<(String, String)>) -> anyhow::Result<Self> {
         KumoDaemon::spawn(KumoArgs {
             policy_file: "maildir-sink.lua".to_string(),
-            env: vec![],
+            env,
         })
         .await
     }

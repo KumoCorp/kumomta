@@ -327,6 +327,7 @@ struct TlsAcceptorConfigKey {
     pub hostname: String,
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
+    pub tls_required_client_ca: Option<KeySource>,
 }
 
 /// The effective set of parameters for a given SmtpServerSession
@@ -338,6 +339,7 @@ pub struct ConcreteEsmtpListenerParams {
 
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
+    pub tls_required_client_ca: Option<KeySource>,
 
     pub deferred_spool: bool,
     pub deferred_queue: bool,
@@ -365,6 +367,7 @@ impl ConcreteEsmtpListenerParams {
             hostname: self.hostname.clone(),
             tls_private_key: self.tls_private_key.clone(),
             tls_certificate: self.tls_certificate.clone(),
+            tls_required_client_ca: self.tls_required_client_ca.clone(),
         };
 
         let lookup = TLS_CONFIG
@@ -375,6 +378,7 @@ impl ConcreteEsmtpListenerParams {
                     &self.hostname,
                     &self.tls_private_key,
                     &self.tls_certificate,
+                    &self.tls_required_client_ca,
                 ),
             )
             .await
@@ -405,6 +409,9 @@ impl ConcreteEsmtpListenerParams {
         }
         if let Some(tls_private_key) = base.tls_private_key {
             self.tls_private_key.replace(tls_private_key);
+        }
+        if let Some(tls_required_client_ca) = base.tls_required_client_ca {
+            self.tls_required_client_ca.replace(tls_required_client_ca);
         }
         if let Some(deferred_spool) = base.deferred_spool {
             self.deferred_spool = deferred_spool;
@@ -488,6 +495,7 @@ impl Default for ConcreteEsmtpListenerParams {
             banner: "KumoMTA".to_string(),
             tls_certificate: None,
             tls_private_key: None,
+            tls_required_client_ca: None,
             deferred_spool: false,
             deferred_queue: false,
             trace_headers: TraceHeaders::default(),
@@ -517,6 +525,8 @@ pub struct GenericEsmtpListenerParams {
     pub tls_certificate: Option<KeySource>,
     #[serde(default)]
     pub tls_private_key: Option<KeySource>,
+    #[serde(default)]
+    pub tls_required_client_ca: Option<KeySource>,
 
     #[serde(default)]
     pub deferred_spool: Option<bool>,
