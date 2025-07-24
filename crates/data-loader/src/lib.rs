@@ -349,7 +349,8 @@ mod test {
 
         // This should fail because the vault secret has "key" but we're looking for "custom_field"
         let result = source.get().await;
-        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("vault secret at custom_key does not contain key 'custom_field'"));
 
         // Test with the correct key name
         let source = KeySource::Vault {
