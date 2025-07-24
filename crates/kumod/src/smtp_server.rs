@@ -25,9 +25,12 @@ use memchr::memmem::Finder;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::LuaUserData;
 use mlua::{FromLuaMulti, IntoLuaMulti, LuaSerdeExt, UserData, UserDataMethods};
+use openssl::x509::X509;
 use parking_lot::FairMutex as Mutex;
 use prometheus::{Histogram, HistogramTimer};
-use rfc5321::{AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response};
+use rfc5321::{
+    subject_name, AsyncReadAndWrite, BoxedAsyncReadAndWrite, Command, Response, TlsInformation,
+};
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -324,6 +327,7 @@ struct TlsAcceptorConfigKey {
     pub hostname: String,
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
+    pub tls_required_client_ca: Option<KeySource>,
 }
 
 /// The effective set of parameters for a given SmtpServerSession
@@ -335,6 +339,7 @@ pub struct ConcreteEsmtpListenerParams {
 
     pub tls_certificate: Option<KeySource>,
     pub tls_private_key: Option<KeySource>,
+    pub tls_required_client_ca: Option<KeySource>,
 
     pub deferred_spool: bool,
     pub deferred_queue: bool,
@@ -362,6 +367,7 @@ impl ConcreteEsmtpListenerParams {
             hostname: self.hostname.clone(),
             tls_private_key: self.tls_private_key.clone(),
             tls_certificate: self.tls_certificate.clone(),
+            tls_required_client_ca: self.tls_required_client_ca.clone(),
         };
 
         let lookup = TLS_CONFIG
@@ -372,6 +378,7 @@ impl ConcreteEsmtpListenerParams {
                     &self.hostname,
                     &self.tls_private_key,
                     &self.tls_certificate,
+                    &self.tls_required_client_ca,
                 ),
             )
             .await
@@ -402,6 +409,9 @@ impl ConcreteEsmtpListenerParams {
         }
         if let Some(tls_private_key) = base.tls_private_key {
             self.tls_private_key.replace(tls_private_key);
+        }
+        if let Some(tls_required_client_ca) = base.tls_required_client_ca {
+            self.tls_required_client_ca.replace(tls_required_client_ca);
         }
         if let Some(deferred_spool) = base.deferred_spool {
             self.deferred_spool = deferred_spool;
@@ -485,6 +495,7 @@ impl Default for ConcreteEsmtpListenerParams {
             banner: "KumoMTA".to_string(),
             tls_certificate: None,
             tls_private_key: None,
+            tls_required_client_ca: None,
             deferred_spool: false,
             deferred_queue: false,
             trace_headers: TraceHeaders::default(),
@@ -514,6 +525,8 @@ pub struct GenericEsmtpListenerParams {
     pub tls_certificate: Option<KeySource>,
     #[serde(default)]
     pub tls_private_key: Option<KeySource>,
+    #[serde(default)]
+    pub tls_required_client_ca: Option<KeySource>,
 
     #[serde(default)]
     pub deferred_spool: Option<bool>,
@@ -801,7 +814,7 @@ pub struct SmtpServerSession {
     said_hello: Option<String>,
     peer_address: SocketAddr,
     my_address: SocketAddr,
-    tls_active: bool,
+    tls_active: Option<TlsInformation>,
     read_buffer: DebugabbleReadBuffer,
     params: ConcreteEsmtpListenerParams,
     shutdown: ShutdownSubcription,
@@ -868,7 +881,7 @@ impl SmtpServerSession {
             said_hello: None,
             peer_address,
             my_address,
-            tls_active: false,
+            tls_active: None,
             read_buffer: DebugabbleReadBuffer(Vec::with_capacity(1024)),
             params: concrete_params,
             shutdown: ShutdownSubcription::get(),
@@ -1560,7 +1573,7 @@ impl SmtpServerSession {
                     return Ok(());
                 }
                 Ok(Command::StartTls) => {
-                    if self.tls_active {
+                    if self.tls_active.is_some() {
                         self.write_response(
                             501,
                             "Cannot STARTTLS as TLS is already active",
@@ -1579,7 +1592,46 @@ impl SmtpServerSession {
                         .await
                     {
                         Ok(stream) => {
-                            self.tls_active = true;
+                            let (_io, conn) = stream.get_ref();
+                            let mut tls_info = TlsInformation::default();
+
+                            tls_info.provider_name = "rustls".to_string();
+                            tls_info.cipher = match conn.negotiated_cipher_suite() {
+                                Some(suite) => {
+                                    suite.suite().as_str().unwrap_or("UNKNOWN").to_string()
+                                }
+                                None => String::new(),
+                            };
+                            tls_info.protocol_version = match conn.protocol_version() {
+                                Some(version) => version.as_str().unwrap_or("UNKNOWN").to_string(),
+                                None => String::new(),
+                            };
+
+                            if let Some(certs) = conn.peer_certificates() {
+                                let peer_cert = &certs[0];
+                                if let Ok(cert) = X509::from_der(peer_cert.as_ref()) {
+                                    tls_info.subject_name = subject_name(&cert);
+                                }
+                            }
+
+                            if !tls_info.cipher.is_empty() {
+                                self.meta.set_meta("tls_cipher", tls_info.cipher.clone());
+                            }
+                            if !tls_info.protocol_version.is_empty() {
+                                self.meta.set_meta(
+                                    "tls_protocol_version",
+                                    tls_info.protocol_version.clone(),
+                                );
+                            }
+                            if !tls_info.subject_name.is_empty() {
+                                self.meta.set_meta(
+                                    "tls_peer_subject_name",
+                                    tls_info.subject_name.clone(),
+                                );
+                            }
+
+                            self.tls_active = Some(tls_info);
+
                             Box::new(stream)
                         }
                         Err((err, stream)) => {
@@ -1623,7 +1675,7 @@ impl SmtpServerSession {
                         .await?;
                         continue;
                     }
-                    if !self.tls_active {
+                    if self.tls_active.is_none() {
                         self.write_response(
                             524,
                             format!("5.7.11 AUTH {sasl_mech} requires an encrypted channel"),
@@ -1785,7 +1837,7 @@ impl SmtpServerSession {
                     let domain = domain.to_string();
 
                     let mut extensions = vec!["PIPELINING", "ENHANCEDSTATUSCODES"];
-                    if !self.tls_active {
+                    if self.tls_active.is_none() {
                         extensions.push("STARTTLS");
                     } else {
                         extensions.push("AUTH PLAIN");
@@ -2159,11 +2211,20 @@ impl SmtpServerSession {
 
         for recip in state.recipients {
             let id = SpoolId::new();
-            let protocol = "ESMTP"; // FIXME: update SmtpServerSession ctor if we change this.
-                                    // OR: just read this from self.meta?
-
             let mut body = if self.params.trace_headers.received_header {
                 let received = {
+                    let protocol = match (&self.authentication_id, &self.tls_active) {
+                        (Some(_auth), Some(_tls)) => "ESMTPSA",
+                        (Some(_auth), None) => "ESMTP", // There is no ESMTPA
+                        (None, Some(_tls)) => "ESMTPS",
+                        (None, None) => "ESMTP",
+                    };
+
+                    let tls_info = match &self.tls_active {
+                        Some(info) => format!(" ({}:{}) ", info.protocol_version, info.cipher),
+                        None => String::new(),
+                    };
+
                     let from_domain = self.said_hello.as_deref().unwrap_or("unspecified");
                     let peer_address = self.peer_address.ip();
                     let my_address = self.my_address.ip();
@@ -2171,9 +2232,9 @@ impl SmtpServerSession {
                     let recip = recip.to_string();
                     format!(
                         "Received: from {from_domain} ({peer_address})\r\n  \
-                                       by {hostname} (KumoMTA {my_address}) \r\n  \
-                                       with {protocol} id {id} for <{recip}>;\r\n  \
-                                       {datestamp}\r\n"
+                            by {hostname} (KumoMTA {my_address}) \r\n  \
+                            with {protocol}{tls_info} id {id} for <{recip}>;\r\n  \
+                            {datestamp}\r\n"
                     )
                 };
 
@@ -2372,7 +2433,7 @@ impl SmtpServerSession {
                 egress_source: None,
                 relay_disposition: Some(relay_disposition),
                 delivery_protocol: None,
-                tls_info: None, // TODO: populate with peer info
+                tls_info: self.tls_active.as_ref(),
                 source_address: None,
                 provider: None,
                 session_id: Some(self.session_id),

@@ -311,7 +311,20 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     try_next_host_on_transport_error = (
       (os.getenv 'KUMOD_TRY_NEXT_HOST_ON_TRANSPORT_ERROR') and true
     ) or false,
+    tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
+      or false,
   }
+
+  if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then
+    params.tls_certificate = {
+      key_data = os.getenv 'KUMOD_CLIENT_CERTIFICATE',
+    }
+  end
+  if os.getenv 'KUMOD_CLIENT_PRIVATE_KEY' then
+    params.tls_private_key = {
+      key_data = os.getenv 'KUMOD_CLIENT_PRIVATE_KEY',
+    }
+  end
 
   -- See if there is a source-specific rate exported to us via the environment.
   -- We assign this using additional_source_selection_rates regardless of

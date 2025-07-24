@@ -5,6 +5,9 @@ use rfc5321::openssl::ssl::SslOptions;
 use rfc5321::tokio_rustls::rustls::crypto::aws_lc_rs::ALL_CIPHER_SUITES;
 use rfc5321::tokio_rustls::rustls::SupportedCipherSuite;
 use rfc5321::{SmtpClient, SmtpClientTimeouts, TlsOptions};
+use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 /// Show information about available TLS ciphers and capabilities
 /// of a remote host.
@@ -36,6 +39,12 @@ struct ProbeCommand {
     #[arg(long, value_parser=clap::builder::ValueParser::new(find_suite))]
     rustls_cipher_suites: Vec<SupportedCipherSuite>,
     #[arg(long)]
+    /// path to a certificate file
+    certificate: Option<String>,
+    #[arg(long)]
+    /// path to a private key file
+    private_key: Option<String>,
+    #[arg(long)]
     openssl_cipher_list: Option<String>,
     #[arg(long)]
     openssl_cipher_suites: Option<String>,
@@ -47,6 +56,19 @@ struct ProbeCommand {
 fn find_suite(name: &str) -> anyhow::Result<SupportedCipherSuite> {
     kumo_api_types::egress_path::find_rustls_cipher_suite(name)
         .ok_or_else(|| anyhow::anyhow!("{name} is not a valid rustls cipher suite"))
+}
+
+async fn load_file(filename: Option<String>) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+    match &filename {
+        Some(f) => {
+            let mut file = File::open(f).await?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer).await?;
+            let boxed: Box<[u8]> = buffer.into_boxed_slice();
+            Ok(Some(Arc::new(boxed)))
+        }
+        None => Ok(None),
+    }
 }
 
 #[tokio::main]
@@ -80,6 +102,9 @@ async fn main() -> anyhow::Result<()> {
             let caps = client.ehlo("there").await?;
             println!("{caps:#?}");
 
+            let certificate_from_pem = load_file(probe.certificate).await?;
+            let private_key_from_pem = load_file(probe.private_key).await?;
+
             if caps.contains_key("STARTTLS") {
                 let tls_result = client
                     .starttls(TlsOptions {
@@ -88,6 +113,8 @@ async fn main() -> anyhow::Result<()> {
                         alt_name: None,
                         dane_tlsa: vec![],
                         rustls_cipher_suites: probe.rustls_cipher_suites,
+                        private_key_from_pem: private_key_from_pem,
+                        certificate_from_pem: certificate_from_pem,
                         openssl_cipher_list: probe.openssl_cipher_list,
                         openssl_cipher_suites: probe.openssl_cipher_suites,
                         openssl_options: probe.openssl_options,

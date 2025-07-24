@@ -158,6 +158,8 @@ ring = "0.17"
 rmp-serde = "1.3.0"
 rocksdb = {version="0.22", features=["jemalloc"]}
 rustls = "0.23"
+rustls-cert-gen = "0.2"
+rustls-pemfile = "2.2.0"
 rustls-platform-verifier = "0.5"
 scopeguard = "1.2"
 self_cell = "1.0"
