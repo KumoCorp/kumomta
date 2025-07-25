@@ -38,6 +38,9 @@
  * HTTP endpoints now support decompressing `deflate` and `gzip` compressed
    request bodies, which helps to reduce bandwidth usage particularly with the
    injection API. Thanks to @dschaaff! #394
+ * You may now consume HashiCorp Vault secrets stored with keys named something
+   other than `key` by using the new optional `vault_key` field in a
+   [KeySource](../reference/keysource.md). Thanks to @pankajrathi95! #399
 
 ## Fixes
 
