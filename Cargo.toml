@@ -84,6 +84,7 @@ foreign-types = "0.3"
 futures = "0.3.28"
 futures-util = "0.3"
 futures-lite = "2.3"
+flate2 = "1.0"
 gcd = "2.3"
 gethostname = "0.5"
 getrandom = "0.2"
@@ -195,7 +196,7 @@ tokio-splice = "0.2"
 tokio-tungstenite = "0.24"
 toml = "0.8"
 toml_edit = "0.22"
-tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip"]}
+tower-http = {version="0.6", features=["trace", "compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = {version="0.3", features=["env-filter", "std", "fmt", "json"]}

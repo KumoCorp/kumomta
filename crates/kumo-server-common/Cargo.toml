@@ -58,7 +58,7 @@ throttle = {path="../throttle"}
 tokio = {workspace=true, features=["full", "tracing"]}
 tokio-metrics = {workspace=true}
 tokio-metrics-collector = {workspace=true}
-tower-http = {workspace=true}
+tower-http = {workspace=true, features=["compression-deflate", "compression-gzip", "decompression-deflate", "decompression-gzip"]}
 tracing = {workspace=true}
 tracing-appender = {workspace=true}
 tracing-subscriber = {workspace=true}

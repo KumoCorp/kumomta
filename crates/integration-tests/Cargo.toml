@@ -33,3 +33,5 @@ tokio-executor-trait = {workspace=true}
 tokio-reactor-trait = {workspace=true}
 tokio-tungstenite.workspace = true
 zstd = {workspace=true}
+flate2 = {workspace=true}
+reqwest = {workspace=true, features=["json"]}
