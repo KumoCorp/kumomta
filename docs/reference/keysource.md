@@ -80,13 +80,36 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 
     -- vault_address = "http://127.0.0.1:8200"
     -- vault_token = "hvs.TOKENTOKENTOKEN"
+    
+    -- Optional: specify the key name within the vault secret
+    -- {{since('dev', inline=True)}}
+    -- Defaults to "key" if not specified
+    -- vault_key = "my_custom_key_name"
   },
 }
 ```
 
-The key must be stored as `key` under the `path` specified.
+The key must be stored under the `path` specified. By default, it looks for a field named `key` in the vault secret.
 For example, you might populate it like this:
 
 ```console
 $ vault kv put -mount=secret dkim/example.org key=@example-private-dkim-key.pem
+```
+
+If you want to use a different field name, you can specify it with `vault_key` {{since('dev', inline=True)}}:
+
+```lua
+local vault_signer = kumo.dkim.rsa_sha256_signer {
+  key = {
+    vault_mount = 'secret',
+    vault_path = 'dkim/' .. msg:from_header().domain,
+    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+  },
+}
+```
+
+And store it in vault like this:
+
+```console
+$ vault kv put -mount=secret dkim/example.org private_key=@example-private-dkim-key.pem
 ```

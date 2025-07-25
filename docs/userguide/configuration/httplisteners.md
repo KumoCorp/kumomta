@@ -46,6 +46,8 @@ kumo.start_http_listener {
    tls_certificate = {
     vault_mount = 'secret',
     vault_path = 'tls/mail.example.com.cert',
+    -- Optional: specify a custom key name (defaults to "key")
+    -- vault_key = "certificate"
     vault_address = "http://127.0.0.1:8200",
     vault_token = "hvs.TOKENTOKENTOKEN",
   },

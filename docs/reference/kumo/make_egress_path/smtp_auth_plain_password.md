@@ -18,6 +18,8 @@ kumo.on('get_egress_path_config', function(domain, site_name)
     smtp_auth_plain_password = {
       vault_mount = 'secret',
       vault_path = 'smtp-auth/' .. domain,
+      -- Optional: specify a custom key name (defaults to "key")
+      -- vault_key = "password"
     },
   }
 end)

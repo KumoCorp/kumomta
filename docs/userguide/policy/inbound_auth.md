@@ -64,6 +64,8 @@ function vault_auth_check(user, password)
     == kumo.secrets.load {
       vault_mount = 'secret',
       vault_path = 'smtp-auth/' .. user,
+      -- Optional: specify a custom key name (defaults to "key")
+      -- vault_key = "password"
     }
 end
 

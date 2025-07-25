@@ -183,6 +183,8 @@ at `/opt/kumomta/etc/dkim_data.toml` in this example.
 # of reading from disk
 vault_mount = "secret"
 vault_path_prefix = "dkim"
+# Optional: specify a custom key name (defaults to "key")
+# vault_key = "private_key"
 
 # To do double or triple signing, add each additional
 # signature name to this list and see the `signature."MyESPName"`
