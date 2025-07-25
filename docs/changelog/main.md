@@ -35,6 +35,9 @@
  * New
    [tls_required_client_ca](../reference/kumo/start_esmtp_listener/tls_required_client_ca.md)
    parameter to aid in configuring mTLS
+ * HTTP endpoints now support decompressing `deflate` and `gzip` compressed
+   request bodies, which helps to reduce bandwidth usage particularly with the
+   injection API. Thanks to @dschaaff! #394
 
 ## Fixes
 
