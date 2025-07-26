@@ -84,7 +84,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
   key = {
     vault_mount = 'secret',
     vault_path = 'dkim/' .. msg:from_header().domain,
-    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+    vault_key = 'private_key', -- Look for 'private_key' instead of 'key'
   },
 }
 ```

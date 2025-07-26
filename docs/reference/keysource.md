@@ -80,7 +80,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
 
     -- vault_address = "http://127.0.0.1:8200"
     -- vault_token = "hvs.TOKENTOKENTOKEN"
-    
+
     -- Optional: specify the key name within the vault secret
     -- {{since('dev', inline=True)}}
     -- Defaults to "key" if not specified
@@ -103,7 +103,7 @@ local vault_signer = kumo.dkim.rsa_sha256_signer {
   key = {
     vault_mount = 'secret',
     vault_path = 'dkim/' .. msg:from_header().domain,
-    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+    vault_key = 'private_key', -- Look for 'private_key' instead of 'key'
   },
 }
 ```

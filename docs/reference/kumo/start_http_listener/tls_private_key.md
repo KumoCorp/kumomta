@@ -46,7 +46,7 @@ kumo.start_http_listener {
   tls_private_key = {
     vault_mount = 'secret',
     vault_path = 'tls/mail.example.com.key',
-    vault_key = 'private_key',  -- Look for 'private_key' instead of 'key'
+    vault_key = 'private_key', -- Look for 'private_key' instead of 'key'
   },
 }
 ```

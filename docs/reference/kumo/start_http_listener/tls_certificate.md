@@ -47,7 +47,7 @@ kumo.start_http_listener {
   tls_certificate = {
     vault_mount = 'secret',
     vault_path = 'tls/mail.example.com.cert',
-    vault_key = 'certificate',  -- Look for 'certificate' instead of 'key'
+    vault_key = 'certificate', -- Look for 'certificate' instead of 'key'
   },
 }
 ```
