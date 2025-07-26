@@ -32,7 +32,29 @@ kumo.on('get_egress_source', function(source_name)
       name = 'ip-1',
 
       -- The SOCKS5 proxy server address and port
+      -- Can be specified as SocketAddr or hostname
       socks5_proxy_server = '10.0.5.10:5000',
+
+      -- Used by the SOCKS5 proxy server to connect to the destination address
+      socks5_proxy_source_address = '10.0.0.1',
+
+      ehlo_domain = 'mta1.examplecorp.com',
+    }
+  end
+end)
+```
+
+Example with hostname:
+
+```lua
+kumo.on('get_egress_source', function(source_name)
+  if source_name == 'ip-1' then
+    -- Make a source that will emit from 10.0.0.1, via a proxy server using hostname
+    return kumo.make_egress_source {
+      name = 'ip-1',
+
+      -- The SOCKS5 proxy server address and port (using hostname)
+      socks5_proxy_server = 'socks5.example.com:5000',
 
       -- Used by the SOCKS5 proxy server to connect to the destination address
       socks5_proxy_source_address = '10.0.0.1',
@@ -73,7 +95,29 @@ kumo.on('get_egress_source', function(source_name)
       name = 'ip-1',
 
       -- The HAProxy server address and port
+      -- Can be specified as SocketAddr or hostname
       ha_proxy_server = '10.0.5.10:5000',
+
+      -- Used by HAProxy to connect to the destination address
+      ha_proxy_source_address = '10.0.0.1',
+
+      ehlo_domain = 'mta1.examplecorp.com',
+    }
+  end
+end)
+```
+
+Example with hostname:
+
+```lua
+kumo.on('get_egress_source', function(source_name)
+  if source_name == 'ip-1' then
+    -- Make a source that will emit from 10.0.0.1, via a proxy server using hostname
+    return kumo.make_egress_source {
+      name = 'ip-1',
+
+      -- The HAProxy server address and port (using hostname)
+      ha_proxy_server = 'haproxy.example.com:5000',
 
       -- Used by HAProxy to connect to the destination address
       ha_proxy_source_address = '10.0.0.1',
