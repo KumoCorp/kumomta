@@ -8,10 +8,18 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 kumo.on('init', function()
   kumo.configure_accounting_db_path ':memory:'
 
-  kumo.start_esmtp_listener {
+  local smtp_params = {
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
   }
+  local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
+  if client_ca then
+    smtp_params.tls_required_client_ca = {
+      key_data = client_ca,
+    }
+  end
+
+  kumo.start_esmtp_listener(smtp_params)
 
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',

@@ -15,6 +15,7 @@ use serde::Deserialize;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use tower_http::compression::CompressionLayer;
+use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::openapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use utoipa::OpenApi;
@@ -149,7 +150,7 @@ impl HttpListenerParams {
             .deflate(true)
             .gzip(true)
             .quality(tower_http::CompressionLevel::Fastest);
-
+        let decompression_layer = RequestDecompressionLayer::new().deflate(true).gzip(true);
         let app = router_and_docs
             .router
             .layer(DefaultBodyLimit::max(
@@ -173,6 +174,7 @@ impl HttpListenerParams {
                 auth_middleware,
             ))
             .layer(compression_layer)
+            .layer(decompression_layer)
             .layer(TraceLayer::new_for_http());
         let socket = TcpListener::bind(&self.listen)
             .with_context(|| format!("listen on {}", self.listen))?;
@@ -213,6 +215,7 @@ impl HttpListenerParams {
             &self.hostname,
             &self.tls_private_key,
             &self.tls_certificate,
+            &None,
         )
         .await?;
         Ok(RustlsConfig::from_config(config))

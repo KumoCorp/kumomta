@@ -755,6 +755,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bpaf"
+version = "0.9.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "473976d7a8620bb1e06dcdd184407c2363fe4fec8e983ee03ed9197222634a31"
+dependencies = [
+ "bpaf_derive",
+]
+
+[[package]]
+name = "bpaf_derive"
+version = "0.5.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fefb4feeec9a091705938922f26081aad77c64cd2e76cd1c4a9ece8e42e1618a"
+dependencies = [
+ "proc-macro2 1.0.95",
+ "quote 1.0.40",
+ "syn 2.0.104",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,6 +2856,7 @@ dependencies = [
  "axum",
  "axum-server",
  "chrono",
+ "flate2",
  "futures",
  "futures-lite 2.6.0",
  "k9",
@@ -2847,8 +2868,10 @@ dependencies = [
  "mailparsing",
  "message",
  "nix 0.28.0",
- "rcgen",
+ "reqwest",
+ "rcgen 0.14.3",
  "rfc5321",
+ "rustls-cert-gen",
  "serde",
  "serde_json",
  "sqlite",
@@ -3300,7 +3323,7 @@ dependencies = [
  "nix 0.28.0",
  "num-format",
  "prometheus",
- "rcgen",
+ "rcgen 0.13.2",
  "regex-set-map",
  "rustls",
  "serde",
@@ -3438,6 +3461,7 @@ dependencies = [
  "mta-sts",
  "nix 0.28.0",
  "num-format",
+ "openssl",
  "parking_lot",
  "ppp",
  "prometheus",
@@ -5513,6 +5537,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0068c5b3cab1d4e271e0bb6539c87563c43411cad90b057b15c79958fbeb41f7"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "rdkafka"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5970,6 +6007,20 @@ dependencies = [
  "rustls-webpki 0.103.4",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-cert-gen"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0207d48722efec7effe77a631b6482bb8eaff6fb5d56ca334c32dfb59a046170"
+dependencies = [
+ "anyhow",
+ "bpaf",
+ "pem",
+ "rcgen 0.14.3",
+ "ring",
+ "rustls-pki-types",
 ]
 
 [[package]]
@@ -7406,6 +7457,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
  "tokio",

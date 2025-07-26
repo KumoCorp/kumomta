@@ -1156,7 +1156,7 @@ fn apply_dot_stuffing(data: &[u8]) -> Option<Vec<u8>> {
 /// ["C=US", "ST=CA", "L=SanFrancisco", "O=Fort-Funston", "OU=MyOrganizationalUnit",
 /// "CN=do.havedane.net", "name=EasyRSA", "emailAddress=me@myhost.mydomain"]
 /// ```
-fn subject_name(cert: &X509Ref) -> Vec<String> {
+pub fn subject_name(cert: &X509Ref) -> Vec<String> {
     let mut subject_name = vec![];
     for entry in cert.subject_name().entries() {
         if let Ok(obj) = entry.object().nid().short_name() {
