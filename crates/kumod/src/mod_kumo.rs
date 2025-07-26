@@ -1,5 +1,5 @@
 use crate::egress_source::{EgressPool, EgressSource};
-use crate::queue::QueueConfig;
+use crate::queue::{InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
 use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError};
 use config::{any_err, from_lua_value, get_or_create_module};
@@ -250,6 +250,21 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )
                 .map_err(any_err)
+            },
+        )?,
+    )?;
+    kumo_mod.set(
+        "inject_message",
+        lua.create_async_function(
+            move |_lua, (msg, deferred_spool): (Message, Option<bool>)| async move {
+                let deferred_spool = deferred_spool.unwrap_or(false);
+                let queue_name = msg.get_queue_name().map_err(any_err)?;
+                if !deferred_spool {
+                    msg.save(None).await.map_err(any_err)?;
+                }
+                QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                    .await
+                    .map_err(any_err)
             },
         )?,
     )?;
