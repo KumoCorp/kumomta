@@ -43,6 +43,53 @@ impl SocketAddrOrHostname {
                 .ok_or_else(|| anyhow::anyhow!("no addresses found for hostname: {hostname}")),
         }
     }
+
+    /// Basic hostname validation
+    fn is_valid_hostname(hostname: &str) -> bool {
+        // Check if it contains exactly one port separator (last colon)
+        if let Some((host, port)) = hostname.rsplit_once(':') {
+            // Validate port
+            if port.parse::<u16>().is_err() {
+                return false;
+            }
+            
+            // Check that there are no other colons in the host part
+            if host.contains(':') {
+                return false;
+            }
+            
+            // Basic hostname validation
+            if host.is_empty() || host.len() > 253 {
+                return false;
+            }
+            
+            // Check each label
+            for label in host.split('.') {
+                if label.is_empty() || label.len() > 63 {
+                    return false;
+                }
+                // Check for valid characters (letters, digits, hyphens, but not starting/ending with hyphen)
+                if !label.chars().all(|c| c.is_alphanumeric() || c == '-') 
+                   || label.starts_with('-') 
+                   || label.ends_with('-') {
+                    return false;
+                }
+            }
+            
+            // Additional validation: ensure it looks like a proper hostname
+            // Must have at least one dot or be a valid single label
+            if !host.contains('.') {
+                // Single label hostnames should be simple
+                if host.len() > 63 || !host.chars().all(|c| c.is_alphanumeric() || c == '-') {
+                    return false;
+                }
+            }
+            
+            true
+        } else {
+            false // No port specified
+        }
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for SocketAddrOrHostname {
@@ -51,23 +98,33 @@ impl<'de> serde::Deserialize<'de> for SocketAddrOrHostname {
         D: serde::Deserializer<'de>,
     {
         use serde::Deserialize;
-
+        
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum SocketAddrOrString {
             SocketAddr(SocketAddr),
             String(String),
         }
-
+        
         let value = SocketAddrOrString::deserialize(deserializer)?;
-
+        
         match value {
             SocketAddrOrString::SocketAddr(addr) => Ok(SocketAddrOrHostname::SocketAddr(addr)),
             SocketAddrOrString::String(hostname) => {
-                // Try to parse as SocketAddr first, if that fails, treat as hostname
+                // Try to parse as SocketAddr first, if that fails, validate as hostname
                 match hostname.parse::<SocketAddr>() {
                     Ok(addr) => Ok(SocketAddrOrHostname::SocketAddr(addr)),
-                    Err(_) => Ok(SocketAddrOrHostname::Hostname(hostname)),
+                    Err(_) => {
+                        // Basic hostname validation
+                        if Self::is_valid_hostname(&hostname) {
+                            Ok(SocketAddrOrHostname::Hostname(hostname))
+                        } else {
+                            Err(serde::de::Error::custom(format!(
+                                "invalid socket address syntax: '{}' is not a valid SocketAddr or hostname",
+                                hostname
+                            )))
+                        }
+                    }
                 }
             }
         }
@@ -859,6 +916,26 @@ mod test {
         assert_eq!(counts["one"], 50, "one");
         assert_eq!(counts["two"], 20, "two");
         assert_eq!(counts["three"], 30, "three");
+    }
+
+    #[test]
+    fn test_is_valid_hostname() {
+        // Valid hostnames with ports
+        assert!(SocketAddrOrHostname::is_valid_hostname("example.com:8080"));
+        assert!(SocketAddrOrHostname::is_valid_hostname("localhost:5000"));
+        assert!(SocketAddrOrHostname::is_valid_hostname("api.example.org:443"));
+        
+        // Valid single label hostnames
+        assert!(SocketAddrOrHostname::is_valid_hostname("api:8080"));
+        assert!(SocketAddrOrHostname::is_valid_hostname("test:5000"));
+        
+        // Invalid cases
+        assert!(!SocketAddrOrHostname::is_valid_hostname("example.com")); // No port
+        assert!(!SocketAddrOrHostname::is_valid_hostname("example.com:invalid")); // Invalid port
+        assert!(!SocketAddrOrHostname::is_valid_hostname("")); // Empty string
+        assert!(!SocketAddrOrHostname::is_valid_hostname(":8080")); // No hostname
+        assert!(!SocketAddrOrHostname::is_valid_hostname("example.com:8080:extra")); // Multiple colons
+        assert!(!SocketAddrOrHostname::is_valid_hostname("test@example.com:8080")); // Invalid characters
     }
 
     #[test]
