@@ -5,6 +5,7 @@ Optional string.
 If both `ha_proxy_server` and `ha_proxy_source_address` are specified, then
 SMTP connections will be made via an HA Proxy server.
 
+hostname support {{since('dev', inline=True)}}
 `ha_proxy_server` specifies the address and port of the proxy server. This can be specified as either:
 
 * A SocketAddr (e.g., "127.0.0.1:8080" or "[::1]:8080")
