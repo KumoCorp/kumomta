@@ -204,7 +204,7 @@ impl LogThreadState {
                     tracing::debug!("LogCommand::Terminate received. Stopping writing logs");
                     break;
                 }
-                LogCommand::Record(record) => {
+                LogCommand::Record(record, _msg) => {
                     if let Err(err) = self.do_record(record) {
                         tracing::error!("failed to log: {err:#}");
                     };
