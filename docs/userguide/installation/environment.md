@@ -7,6 +7,9 @@ KumoMTA can be installed in a physical server, public cloud, or private cloud.  
 * GCP
 * VMWare
 * bare metal
+* IBM Cloud
+* Oracle Cloud
+* Contabo
 
 Note that most public cloud platforms block port 25 outbound so you will need to ask for specific permission to use that outbound port.
 
