@@ -111,6 +111,13 @@ EMPTY = queue:is_empty()
 
 Returns `true` if the queue is empty, or `false` otherwise.
 
+!!! caution
+    This method can only be called by the task that is processing the queue. It
+    cannot successfully be called concurrently with an outstanding `recv`,
+    `try_recv` or `recv_many` call because only a single consumer is allowed to
+    operate on an MPSC queue.  This method will raise an error if it is unable
+    to acquire exclusive access to the consumer side of the queue.
+
 ### queue:len
 
 ```lua
@@ -118,6 +125,14 @@ LENGTH = queue:len()
 ```
 
 Returns the number of items in the queue.
+
+!!! caution
+    This method can only be called by the task that is processing the queue. It
+    cannot successfully be called concurrently with an outstanding `recv`,
+    `try_recv` or `recv_many` call because only a single consumer is allowed to
+    operate on an MPSC queue.  This method will raise an error if it is unable
+    to acquire exclusive access to the consumer side of the queue.
+
 
 ### queue:send
 
@@ -236,6 +251,13 @@ kumo.on('my.queue.task', function(args)
 end)
 ```
 
+!!! caution
+    This method can only be called by the task that is processing the queue. It
+    cannot successfully be called concurrently with any other outstanding
+    `try_recv` or `recv_many` call because only a single consumer is allowed to
+    operate on an MPSC queue.  This method will raise an error if it is unable
+    to acquire exclusive access to the consumer side of the queue.
+
 ### queue:try_recv
 
 ```lua
@@ -255,6 +277,14 @@ if item then
   print('got', item)
 end
 ```
+
+!!! caution
+    This method can only be called by the task that is processing the queue. It
+    cannot successfully be called concurrently with any other outstanding
+    `recv` or `recv_many` call because only a single consumer is allowed to
+    operate on an MPSC queue.  This method will raise an error if it is unable
+    to acquire exclusive access to the consumer side of the queue.
+
 
 ### queue:recv_many
 
@@ -296,5 +326,17 @@ kumo.on('my.queue.task', function(args)
     end
   end
 end)
+
+kumo.on('shutdown_logging', function()
+  local q = get_queue()
+  q:close()
+end)
 ```
+
+!!! caution
+    This method can only be called by the task that is processing the queue. It
+    cannot successfully be called concurrently with any other outstanding
+    `recv` or `try_recv` call because only a single consumer is allowed to
+    operate on an MPSC queue.  This method will raise an error if it is unable
+    to acquire exclusive access to the consumer side of the queue.
 

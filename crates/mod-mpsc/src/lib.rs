@@ -112,18 +112,30 @@ impl ReceiverWrapper {
 }
 
 struct Queue {
-    sender: Arc<SenderWrapper>,
+    sender: Mutex<Option<Arc<SenderWrapper>>>,
     receiver: Arc<Mutex<ReceiverWrapper>>,
 }
 
 struct QueueHandle(Arc<Queue>);
+
+impl QueueHandle {
+    async fn get_sender(&self) -> Option<Arc<SenderWrapper>> {
+        let sender = self.0.sender.lock().await;
+        sender.clone()
+    }
+}
 
 impl LuaUserData for QueueHandle {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_async_method(
             "send",
             move |_lua, this: LuaUserDataRef<QueueHandle>, value: CacheValue| async move {
-                this.0.sender.send(value).await.map_err(any_err)?;
+                this.get_sender()
+                    .await
+                    .ok_or_else(|| LuaError::external("cannot send to closed channel"))?
+                    .send(value)
+                    .await
+                    .map_err(any_err)?;
                 Ok(())
             },
         );
@@ -133,8 +145,9 @@ impl LuaUserData for QueueHandle {
             move |_lua,
                   this: LuaUserDataRef<QueueHandle>,
                   (value, timeout_seconds): (CacheValue, f32)| async move {
-                this.0
-                    .sender
+                this.get_sender()
+                    .await
+                    .ok_or_else(|| LuaError::external("cannot send to closed channel"))?
                     .send_timeout(value, Duration::from_secs_f32(timeout_seconds))
                     .await
                     .map_err(any_err)?;
@@ -142,30 +155,48 @@ impl LuaUserData for QueueHandle {
             },
         );
 
-        methods.add_method(
+        methods.add_async_method(
             "try_send",
-            move |_lua, this: &QueueHandle, value: CacheValue| match this.0.sender.try_send(value) {
-                Ok(()) => Ok(true),
-                Err(_) => Ok(false),
+            move |_lua, this: LuaUserDataRef<QueueHandle>, value: CacheValue| async move {
+                match this
+                    .get_sender()
+                    .await
+                    .ok_or_else(|| LuaError::external("cannot send to closed channel"))?
+                    .try_send(value)
+                {
+                    Ok(()) => Ok(true),
+                    Err(_) => Ok(false),
+                }
             },
         );
 
         methods.add_async_method(
             "close",
             move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
-                let mut rx = this.0.receiver.lock().await;
-                Ok(rx.close())
+                let mut sender = this.get_sender().await;
+                sender.take();
+
+                if let Ok(mut rx) = this.0.receiver.try_lock() {
+                    rx.close();
+                }
+                Ok(())
             },
         );
 
-        methods.add_method("is_closed", move |_lua, this: &QueueHandle, ()| {
-            Ok(this.0.sender.is_closed())
-        });
+        methods.add_async_method(
+            "is_closed",
+            move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
+                Ok(match this.get_sender().await {
+                    None => true,
+                    Some(sender) => sender.is_closed(),
+                })
+            },
+        );
 
         methods.add_async_method(
             "is_empty",
             move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
-                let rx = this.0.receiver.lock().await;
+                let rx = this.0.receiver.try_lock().map_err(any_err)?;
                 Ok(rx.is_empty())
             },
         );
@@ -173,7 +204,7 @@ impl LuaUserData for QueueHandle {
         methods.add_async_method(
             "len",
             move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
-                let rx = this.0.receiver.lock().await;
+                let rx = this.0.receiver.try_lock().map_err(any_err)?;
                 Ok(rx.len())
             },
         );
@@ -181,7 +212,7 @@ impl LuaUserData for QueueHandle {
         methods.add_async_method(
             "recv",
             move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
-                let mut rx = this.0.receiver.lock().await;
+                let mut rx = this.0.receiver.try_lock().map_err(any_err)?;
                 Ok(rx.recv().await)
             },
         );
@@ -189,7 +220,7 @@ impl LuaUserData for QueueHandle {
         methods.add_async_method(
             "try_recv",
             move |_lua, this: LuaUserDataRef<QueueHandle>, ()| async move {
-                let mut rx = this.0.receiver.lock().await;
+                let mut rx = this.0.receiver.try_lock().map_err(any_err)?;
                 Ok(rx.try_recv())
             },
         );
@@ -197,7 +228,7 @@ impl LuaUserData for QueueHandle {
         methods.add_async_method(
             "recv_many",
             move |_lua, this: LuaUserDataRef<QueueHandle>, limit: usize| async move {
-                let mut rx = this.0.receiver.lock().await;
+                let mut rx = this.0.receiver.try_lock().map_err(any_err)?;
                 Ok(rx.recv_many(limit).await)
             },
         );
@@ -211,7 +242,7 @@ impl Queue {
         let queue = QUEUES.entry(name.to_string()).or_insert_with(|| {
             let (sender, receiver) = unbounded_channel();
             Arc::new(Queue {
-                sender: Arc::new(SenderWrapper::Unbounded(sender)),
+                sender: Mutex::new(Some(Arc::new(SenderWrapper::Unbounded(sender)))),
                 receiver: Arc::new(Mutex::new(ReceiverWrapper::Unbounded(receiver))),
             })
         });
@@ -223,7 +254,7 @@ impl Queue {
         let queue = QUEUES.entry(name.to_string()).or_insert_with(|| {
             let (sender, receiver) = channel(buffer);
             Arc::new(Queue {
-                sender: Arc::new(SenderWrapper::Bounded(sender)),
+                sender: Mutex::new(Some(Arc::new(SenderWrapper::Bounded(sender)))),
                 receiver: Arc::new(Mutex::new(ReceiverWrapper::Bounded(receiver))),
             })
         });

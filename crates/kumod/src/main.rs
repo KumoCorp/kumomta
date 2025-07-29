@@ -302,6 +302,15 @@ async fn perform_init(opts: Opt) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn emit_shutdown_logging_event() {
+    let Ok(mut config) = config::load_config().await else {
+        return;
+    };
+
+    let shutdown_sig = CallbackSignature::<(), ()>::new("shutdown_logging");
+    config.async_call_callback(&shutdown_sig, ()).await.ok();
+}
+
 async fn run(opts: Opt) -> anyhow::Result<()> {
     kumo_server_runtime::assign_main_runtime(tokio::runtime::Handle::current());
     config::VALIDATE_ONLY.store(opts.validate, std::sync::atomic::Ordering::Relaxed);
@@ -334,7 +343,10 @@ async fn run(opts: Opt) -> anyhow::Result<()> {
                 perform_init(opts).await
             }
         },
-        crate::logging::Logger::signal_shutdown(),
+        async move {
+            emit_shutdown_logging_event().await;
+            crate::logging::Logger::signal_shutdown().await;
+        }
     )
     .await;
 
