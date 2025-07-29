@@ -694,7 +694,7 @@ impl EsmtpListenerParams {
                                         Ok(Ok(addr)) => (orig_peer_address, addr),
                                         Ok(Err(_)) | Err(_) => {
                                             tracing::warn!("Proxy protocol v2 header invalid or timeout");
-                                            let response = format!("421 4.7.1 {} proxy protocol required\r\n", orig_peer_address);
+                                            let response = format!("421 4.7.1 {hostname} {} proxy protocol required\r\n", orig_peer_address);
                                             let _ = tokio::time::timeout(
                                                 Duration::from_secs(2),
                                                 async {
