@@ -18,22 +18,24 @@ impl EnvelopeAddress {
             let fields: Vec<&str> = text.split('@').collect();
             anyhow::ensure!(fields.len() == 2, "expected user@domain");
             // TODO: stronger validation of local part and domain
-
-            // Ensure that there are no port numbers in the domain portion.
-            // These are no allowed by SMTP. We don't allow them during
-            // RCPT TO in the incoming SMTP, but it is possible for
-            // addresses to be constructed in a few other code paths,
-            // so it is prudent to explicitly validate that here
             let domain = &fields[1];
-            let classified = DomainClassification::classify(domain)?;
-            if classified.has_port() {
-                anyhow::bail!(
-                    "EnvelopeAddress does not allow port numbers in the domain ({domain})"
-                );
-            }
-
+            Self::validate_domain(domain)?;
             Ok(Self(text.to_string()))
         }
+    }
+
+    fn validate_domain(domain: &str) -> anyhow::Result<()> {
+        // Ensure that there are no port numbers in the domain portion.
+        // These are no allowed by SMTP. We don't allow them during
+        // RCPT TO in the incoming SMTP, but it is possible for
+        // addresses to be constructed in a few other code paths,
+        // so it is prudent to explicitly validate that here
+        let classified = DomainClassification::classify(domain)?;
+        if classified.has_port() {
+            anyhow::bail!("EnvelopeAddress does not allow port numbers in the domain ({domain})");
+        }
+
+        Ok(())
     }
 
     pub fn user(&self) -> &str {
@@ -56,6 +58,20 @@ impl EnvelopeAddress {
 
     pub fn to_string(&self) -> String {
         self.0.to_string()
+    }
+}
+
+impl TryInto<EnvelopeAddress> for &Mailbox {
+    type Error = anyhow::Error;
+    fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
+        EnvelopeAddress::parse(&self.address.encode_value())
+    }
+}
+
+impl TryInto<EnvelopeAddress> for &Address {
+    type Error = anyhow::Error;
+    fn try_into(self) -> anyhow::Result<EnvelopeAddress> {
+        EnvelopeAddress::parse(&self.encode_value())
     }
 }
 

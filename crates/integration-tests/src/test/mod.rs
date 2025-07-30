@@ -16,6 +16,7 @@ mod log_oob_arf;
 mod max_line_length;
 mod no_ports_in_rcpt_domain;
 mod perm_fail;
+mod queue_ndr;
 mod rebind;
 mod rebind_event_defined;
 mod rebind_event_missing;

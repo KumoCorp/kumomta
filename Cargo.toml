@@ -207,6 +207,7 @@ utoipa = {version="4", features=["axum_extras", "time", "uuid"]}
 utoipa-rapidoc = { version="4.0", features = ["axum"] }
 url = "2.4"
 uuid = "1.4"
+uuid-helper = { path = "crates/uuid-helper" }
 vaultrs = "0.7"
 walkdir = "2.3"
 which = "7"

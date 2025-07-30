@@ -483,6 +483,31 @@ impl<'a> MimePart<'a> {
         Ok(())
     }
 
+    pub fn new_no_transfer_encoding(content_type: &str, bytes: &[u8]) -> Result<Self> {
+        if bytes.iter().any(|b| !b.is_ascii()) {
+            return Err(MailParsingError::EightBit);
+        }
+
+        let mut headers = HeaderMap::default();
+
+        let ct = MimeParameters::new(content_type);
+        headers.set_content_type(ct)?;
+
+        let bytes = String::from_utf8_lossy(bytes).to_string();
+        let body_len = bytes.len();
+
+        Ok(Self {
+            bytes: bytes.into(),
+            headers,
+            body_offset: 0,
+            body_len,
+            conformance: MessageConformance::default(),
+            parts: vec![],
+            intro: "".into(),
+            outro: "".into(),
+        })
+    }
+
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64

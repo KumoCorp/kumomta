@@ -1486,9 +1486,39 @@ pub enum Address {
 #[serde(deny_unknown_fields, transparent)]
 pub struct AddressList(pub Vec<Address>);
 
+impl std::ops::Deref for AddressList {
+    type Target = Vec<Address>;
+    fn deref(&self) -> &Vec<Address> {
+        &self.0
+    }
+}
+
+impl AddressList {
+    pub fn extract_first_mailbox(&self) -> Option<&Mailbox> {
+        let address = self.0.first()?;
+        match address {
+            Address::Mailbox(mailbox) => Some(mailbox),
+            Address::Group { entries, .. } => entries.extract_first_mailbox(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, transparent)]
 pub struct MailboxList(pub Vec<Mailbox>);
+
+impl std::ops::Deref for MailboxList {
+    type Target = Vec<Mailbox>;
+    fn deref(&self) -> &Vec<Mailbox> {
+        &self.0
+    }
+}
+
+impl MailboxList {
+    pub fn extract_first_mailbox(&self) -> Option<&Mailbox> {
+        self.0.first()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

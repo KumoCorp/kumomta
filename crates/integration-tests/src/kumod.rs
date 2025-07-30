@@ -113,6 +113,7 @@ impl MailGenParams<'_> {
         message.text_plain(body);
         message.prepend("X-Test1", "Test1");
         message.prepend("X-Another", "Another");
+        message.set_stable_content(true);
         Ok(message.build()?.to_message_string())
     }
 }

@@ -22,4 +22,6 @@ pub enum MailParsingError {
     ChronoError(chrono::format::ParseError),
     #[error("Mime Tree has too many child parts")]
     TooManyParts,
+    #[error("8-bit found when 7-bit is required")]
+    EightBit,
 }
