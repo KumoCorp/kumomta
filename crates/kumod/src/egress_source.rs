@@ -24,6 +24,68 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpSocket, TcpStream};
 
+/// A type that can represent either a SocketAddr or a hostname string
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocketAddrOrHostname {
+    SocketAddr(SocketAddr),
+    Hostname(String),
+}
+
+impl SocketAddrOrHostname {
+    /// Resolve to a SocketAddr, either directly or by resolving the hostname
+    pub async fn resolve(&self) -> anyhow::Result<SocketAddr> {
+        match self {
+            SocketAddrOrHostname::SocketAddr(addr) => Ok(*addr),
+            SocketAddrOrHostname::Hostname(hostname) => tokio::net::lookup_host(hostname)
+                .await
+                .with_context(|| format!("failed to resolve hostname: {hostname}"))?
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("no addresses found for hostname: {hostname}")),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for SocketAddrOrHostname {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::Deserialize;
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum SocketAddrOrString {
+            SocketAddr(SocketAddr),
+            String(String),
+        }
+
+        let value = SocketAddrOrString::deserialize(deserializer)?;
+
+        match value {
+            SocketAddrOrString::SocketAddr(addr) => Ok(SocketAddrOrHostname::SocketAddr(addr)),
+            SocketAddrOrString::String(hostname) => {
+                // Try to parse as SocketAddr first, if that fails, treat as hostname
+                match hostname.parse::<SocketAddr>() {
+                    Ok(addr) => Ok(SocketAddrOrHostname::SocketAddr(addr)),
+                    Err(_) => Ok(SocketAddrOrHostname::Hostname(hostname)),
+                }
+            }
+        }
+    }
+}
+
+impl serde::Serialize for SocketAddrOrHostname {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            SocketAddrOrHostname::SocketAddr(addr) => addr.serialize(serializer),
+            SocketAddrOrHostname::Hostname(hostname) => hostname.serialize(serializer),
+        }
+    }
+}
+
 declare_cache! {
 static SOURCES: LruCacheWithTtl<String, EgressSource>::new("egress_source_sources", 128);
 }
@@ -51,14 +113,15 @@ pub struct EgressSource {
     pub remote_port: Option<u16>,
 
     /// The host:port of the haproxy that should be used
-    pub ha_proxy_server: Option<SocketAddr>,
+    /// Can be specified as either a SocketAddr (e.g., "127.0.0.1:8080") or a hostname (e.g., "haproxy.example.com:5000")
+    pub ha_proxy_server: Option<SocketAddrOrHostname>,
 
     /// Ask ha_proxy to bind to this address when it is making
     /// a connection
     pub ha_proxy_source_address: Option<IpAddr>,
 
     /// The host:port of the SOCKS5 server that should be used
-    pub socks5_proxy_server: Option<SocketAddr>,
+    pub socks5_proxy_server: Option<SocketAddrOrHostname>,
 
     /// Ask the SOCKS5 proxy to bind to this address when it is making
     /// a connection
@@ -104,67 +167,83 @@ impl EgressSource {
             .map(|lookup| lookup.item)
     }
 
-    fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
+    async fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 
-        match (self.ha_proxy_server, self.ha_proxy_source_address) {
-            (Some(server), Some(source)) => match (source, address) {
-                (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
-                    return Ok(ProxyProto::HA {
-                        server,
-                        source,
-                        addresses: Addresses::IPv4(IPv4::new(
-                            src_ip,
-                            *dest_ip.ip(),
-                            0,
-                            dest_ip.port(),
-                        )),
-                    })
+        match (&self.ha_proxy_server, self.ha_proxy_source_address) {
+            (Some(server), Some(source)) => {
+                // Resolve the server address (either SocketAddr or hostname)
+                let server_addr = server
+                    .resolve()
+                    .await
+                    .with_context(|| format!("failed to resolve haproxy server: {server:?}"))?;
+
+                match (source, address) {
+                    (IpAddr::V4(src_ip), SocketAddr::V4(dest_ip)) => {
+                        return Ok(ProxyProto::HA {
+                            server: server_addr,
+                            source,
+                            addresses: Addresses::IPv4(IPv4::new(
+                                src_ip,
+                                *dest_ip.ip(),
+                                0,
+                                dest_ip.port(),
+                            )),
+                        })
+                    }
+                    (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
+                        return Ok(ProxyProto::HA {
+                            server: server_addr,
+                            source,
+                            addresses: Addresses::IPv6(IPv6::new(
+                                src_ip,
+                                *dest_ip.ip(),
+                                0,
+                                dest_ip.port(),
+                            )),
+                        })
+                    }
+                    (source, server) => anyhow::bail!(
+                        "Skipping {source_name} because \
+                         ha_proxy_source_address {source} address family does \
+                         not match the destination address family {server}"
+                    ),
                 }
-                (IpAddr::V6(src_ip), SocketAddr::V6(dest_ip)) => {
-                    return Ok(ProxyProto::HA {
-                        server,
-                        source,
-                        addresses: Addresses::IPv6(IPv6::new(
-                            src_ip,
-                            *dest_ip.ip(),
-                            0,
-                            dest_ip.port(),
-                        )),
-                    })
-                }
-                (source, server) => anyhow::bail!(
-                    "Skipping {source_name} because \
-                     ha_proxy_source_address {source} address family does \
-                     not match the destination address family {server}"
-                ),
-            },
+            }
             _ => {}
         };
 
-        match (self.socks5_proxy_server, self.socks5_proxy_source_address) {
-            (Some(server), Some(source)) => match (source, address) {
-                (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {
-                    return Ok(ProxyProto::Socks5 {
-                        server,
-                        source,
-                        destination: address,
-                        username_and_password: match (
-                            &self.socks5_proxy_username,
-                            &self.socks5_proxy_password,
-                        ) {
-                            (Some(user), Some(pass)) => Some((user, pass)),
-                            _ => None,
-                        },
-                    })
+        match (&self.socks5_proxy_server, self.socks5_proxy_source_address) {
+            (Some(server), Some(source)) => {
+                // Resolve the server address (either SocketAddr or hostname)
+                let server_addr = server
+                    .resolve()
+                    .await
+                    .with_context(|| format!("failed to resolve socks5 server: {server:?}"))?;
+
+                match (source, address) {
+                    (IpAddr::V6(_), SocketAddr::V6(_)) | (IpAddr::V4(_), SocketAddr::V4(_)) => {
+                        return Ok(ProxyProto::Socks5 {
+                            server: server_addr,
+                            source,
+                            destination: address,
+                            username_and_password: match (
+                                &self.socks5_proxy_username,
+                                &self.socks5_proxy_password,
+                            ) {
+                                (Some(user), Some(pass)) => Some((user, pass)),
+                                _ => None,
+                            },
+                        })
+                    }
+                    (source, server) => anyhow::bail!(
+                        "Skipping {source_name} because \
+                         socks5_proxy_source_address {source} address family does \
+                         not match the destination address family {server}"
+                    ),
                 }
-                (source, server) => anyhow::bail!(
-                    "Skipping {source_name} because \
-                     socks5_proxy_source_address {source} address family does \
-                     not match the destination address family {server}"
-                ),
-            },
+            }
             _ => Ok(ProxyProto::None),
         }
     }
@@ -176,7 +255,7 @@ impl EgressSource {
     ) -> anyhow::Result<(TcpStream, MaybeProxiedSourceAddress)> {
         let source_name = &self.name;
 
-        let proxy_proto = self.resolve_proxy_protocol(address)?;
+        let proxy_proto = self.resolve_proxy_protocol(address).await?;
         let transport_address = proxy_proto.transport_address(address);
 
         let transport_context = format!("{transport_address:?} {proxy_proto:?}");
@@ -780,6 +859,122 @@ mod test {
         assert_eq!(counts["one"], 50, "one");
         assert_eq!(counts["two"], 20, "two");
         assert_eq!(counts["three"], 30, "three");
+    }
+
+    #[test]
+    fn test_socket_addr_or_hostname_deserialize() {
+        use serde_json;
+
+        // Test SocketAddr deserialization
+        let json = r#""127.0.0.1:8080""#;
+        let result: SocketAddrOrHostname = serde_json::from_str(json).unwrap();
+        match result {
+            SocketAddrOrHostname::SocketAddr(addr) => {
+                assert_eq!(addr, "127.0.0.1:8080".parse().unwrap());
+            }
+            _ => panic!("Expected SocketAddr variant"),
+        }
+
+        // Test hostname deserialization
+        let json = r#""haproxy.example.com:5000""#;
+        let result: SocketAddrOrHostname = serde_json::from_str(json).unwrap();
+        match result {
+            SocketAddrOrHostname::Hostname(hostname) => {
+                assert_eq!(hostname, "haproxy.example.com:5000");
+            }
+            _ => panic!("Expected Hostname variant"),
+        }
+
+        // Test IPv6 SocketAddr deserialization
+        let json = r#""[::1]:8080""#;
+        let result: SocketAddrOrHostname = serde_json::from_str(json).unwrap();
+        match result {
+            SocketAddrOrHostname::SocketAddr(addr) => {
+                assert_eq!(addr, "[::1]:8080".parse().unwrap());
+            }
+            _ => panic!("Expected SocketAddr variant"),
+        }
+    }
+
+    #[test]
+    fn test_socket_addr_or_hostname_serialize() {
+        use serde_json;
+
+        // Test SocketAddr serialization
+        let addr = SocketAddrOrHostname::SocketAddr("127.0.0.1:8080".parse().unwrap());
+        let json = serde_json::to_string(&addr).unwrap();
+        assert_eq!(json, r#""127.0.0.1:8080""#);
+
+        // Test hostname serialization
+        let hostname = SocketAddrOrHostname::Hostname("example.com:8080".to_string());
+        let json = serde_json::to_string(&hostname).unwrap();
+        assert_eq!(json, r#""example.com:8080""#);
+    }
+
+    #[test]
+    fn test_socket_addr_or_hostname_resolve_socket_addr() {
+        let addr = SocketAddrOrHostname::SocketAddr("127.0.0.1:8080".parse().unwrap());
+
+        // This should resolve immediately without DNS lookup
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(addr.resolve()).unwrap();
+        assert_eq!(result, "127.0.0.1:8080".parse().unwrap());
+    }
+
+    #[test]
+    fn test_egress_source_with_hostname() {
+        let source = EgressSource {
+            name: "test-source".to_string(),
+            ehlo_domain: None,
+            source_address: None,
+            remote_port: None,
+            ha_proxy_server: Some(SocketAddrOrHostname::Hostname(
+                "proxy.example.com:8080".to_string(),
+            )),
+            ha_proxy_source_address: Some("127.0.0.1".parse().unwrap()),
+            socks5_proxy_server: None,
+            socks5_proxy_source_address: None,
+            socks5_proxy_username: None,
+            socks5_proxy_password: None,
+            ttl: default_ttl(),
+        };
+
+        assert_eq!(source.name, "test-source");
+        assert!(source.ha_proxy_server.is_some());
+        match source.ha_proxy_server.unwrap() {
+            SocketAddrOrHostname::Hostname(hostname) => {
+                assert_eq!(hostname, "proxy.example.com:8080");
+            }
+            _ => panic!("Expected Hostname variant"),
+        }
+    }
+
+    #[test]
+    fn test_egress_source_with_socket_addr() {
+        let source = EgressSource {
+            name: "test-source".to_string(),
+            ehlo_domain: None,
+            source_address: None,
+            remote_port: None,
+            ha_proxy_server: Some(SocketAddrOrHostname::SocketAddr(
+                "127.0.0.1:8080".parse().unwrap(),
+            )),
+            ha_proxy_source_address: Some("127.0.0.1".parse().unwrap()),
+            socks5_proxy_server: None,
+            socks5_proxy_source_address: None,
+            socks5_proxy_username: None,
+            socks5_proxy_password: None,
+            ttl: default_ttl(),
+        };
+
+        assert_eq!(source.name, "test-source");
+        assert!(source.ha_proxy_server.is_some());
+        match source.ha_proxy_server.unwrap() {
+            SocketAddrOrHostname::SocketAddr(addr) => {
+                assert_eq!(addr, "127.0.0.1:8080".parse().unwrap());
+            }
+            _ => panic!("Expected SocketAddr variant"),
+        }
     }
 }
 
