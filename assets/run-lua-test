@@ -39,6 +39,7 @@ dofile "crates/mod-memoize/test.lua"
 dofile "crates/mod-dns-resolver/test-dns-ptr.lua"
 dofile "crates/mod-mpsc/test.lua"
 dofile "crates/mod-filesystem/test.lua"
+dofile "crates/mod-digest/test.lua"
 
 end)
 EOT
