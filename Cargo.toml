@@ -68,6 +68,7 @@ cidr = {version="0.3", features=["serde", "bitstring"]}
 clap = {version="4.5", features=["derive", "wrap_help"]}
 clap-markdown = "0.1"
 colorgrad = "0.7"
+crc32fast = "1.5.0"
 criterion = "0.5"
 crossbeam-queue= "0.3"
 crossbeam-skiplist= "0.1"

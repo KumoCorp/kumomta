@@ -4171,6 +4171,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "config",
+ "crc32fast",
  "data-encoding",
  "mlua",
  "ring",
