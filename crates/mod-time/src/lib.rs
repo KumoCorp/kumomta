@@ -2,6 +2,7 @@ use config::{get_or_create_module, get_or_create_sub_module};
 use mlua::{Lua, MetaMethod, UserData, UserDataMethods};
 use prometheus::{HistogramTimer, HistogramVec};
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Duration;
 
 static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
@@ -22,6 +23,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     time_mod.set("sleep", sleep_fn)?;
 
     time_mod.set("start_timer", lua.create_function(Timer::start)?)?;
+    time_mod.set("epoch_millis", lua.create_function(epoch_millis)?)?;
+    time_mod.set("since_millis", lua.create_function(since_millis)?)?;
 
     Ok(())
 }
@@ -70,4 +73,19 @@ impl UserData for Timer {
 async fn sleep(_lua: Lua, seconds: f64) -> mlua::Result<()> {
     tokio::time::sleep(Duration::from_secs_f64(seconds)).await;
     Ok(())
+}
+
+fn epoch_millis(_lua: &Lua, _: ()) -> mlua::Result<u128> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| mlua::Error::RuntimeError(format!("Failed to get epoch millis: {}", e)))?;
+    Ok(now.as_millis())
+}
+
+fn since_millis(_lua: &Lua, epoch_millis: u128) -> mlua::Result<i128> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| mlua::Error::RuntimeError(format!("Failed to get epoch millis: {}", e)))?
+        .as_millis() as i128;
+    Ok(now - epoch_millis as i128)
 }
