@@ -1,8 +1,10 @@
+use chrono::format::strftime::StrftimeItems;
+use chrono::{DateTime, Utc};
 use config::{get_or_create_module, get_or_create_sub_module};
 use mlua::{Lua, MetaMethod, UserData, UserDataMethods};
 use prometheus::{HistogramTimer, HistogramVec};
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use tokio::time::Duration;
 
 static LATENCY_HIST: LazyLock<HistogramVec> = LazyLock::new(|| {
@@ -23,9 +25,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
     time_mod.set("sleep", sleep_fn)?;
 
     time_mod.set("start_timer", lua.create_function(Timer::start)?)?;
-    time_mod.set("epoch_millis", lua.create_function(epoch_millis)?)?;
-    time_mod.set("since_millis", lua.create_function(since_millis)?)?;
-
+    time_mod.set("now", lua.create_function(Time::now)?)?;
     Ok(())
 }
 
@@ -75,17 +75,44 @@ async fn sleep(_lua: Lua, seconds: f64) -> mlua::Result<()> {
     Ok(())
 }
 
-fn epoch_millis(_lua: &Lua, _: ()) -> mlua::Result<u128> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| mlua::Error::RuntimeError(format!("Failed to get epoch millis: {}", e)))?;
-    Ok(now.as_millis())
+struct Time {
+    time: Option<SystemTime>,
 }
 
-fn since_millis(_lua: &Lua, epoch_millis: u128) -> mlua::Result<i128> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| mlua::Error::RuntimeError(format!("Failed to get epoch millis: {}", e)))?
-        .as_millis() as i128;
-    Ok(now - epoch_millis as i128)
+impl Time {
+    fn now(_lua: &Lua, _: ()) -> mlua::Result<Self> {
+        Ok(Self {
+            time: Some(SystemTime::now()),
+        })
+    }
+
+    fn elapsed(&self) -> mlua::Result<i128> {
+        match self.time {
+            Some(t) => {
+                let dur = t.elapsed().map_err(|e| {
+                    mlua::Error::RuntimeError(format!("Failed to get elapsed time: {}", e))
+                })?;
+                Ok(dur.as_nanos() as i128)
+            }
+            None => Err(mlua::Error::RuntimeError("No time set".to_string())),
+        }
+    }
+
+    fn format(&self, fmt: String) -> mlua::Result<String> {
+        match self.time {
+            Some(t) => {
+                let dt = DateTime::<Utc>::from(t);
+                let items = StrftimeItems::new(&fmt);
+                Ok(dt.format_with_items(items).to_string()) // This may panic with invalid input
+            }
+            None => Err(mlua::Error::RuntimeError("No time set".to_string())),
+        }
+    }
+}
+
+impl UserData for Time {
+    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("elapsed", |_, this, ()| this.elapsed());
+        methods.add_method("format", |_, this, fmt: String| this.format(fmt));
+    }
 }
