@@ -1,4 +1,5 @@
 use config::{any_err, get_or_create_sub_module};
+use crc32fast::Hasher;
 use data_encoding::{
     BASE32, BASE32HEX, BASE32HEX_NOPAD, BASE32_NOPAD, BASE64, BASE64URL, BASE64URL_NOPAD,
     BASE64_NOPAD, HEXLOWER,
@@ -97,6 +98,24 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
             digest_helper(&SHA512_256, args).map_err(any_err)
         })?,
     )?;
-
+    digest_mod.set(
+        "crc32",
+        lua.create_function(|_, args: Variadic<Value>| {
+            let mut hasher = Hasher::new();
+            for item in args.iter() {
+                match item {
+                    Value::String(s) => {
+                        hasher.update(&s.as_bytes());
+                    }
+                    _ => {
+                        let json = serde_json::to_string(item).map_err(any_err)?;
+                        hasher.update(json.as_bytes());
+                    }
+                }
+            }
+            let crc = hasher.finalize();
+            Ok(DigestResult(crc.to_be_bytes().to_vec()))
+        })?,
+    )?;
     Ok(())
 }
