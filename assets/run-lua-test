@@ -1,47 +1,140 @@
-#!/bin/bash
-# This is a little helper script that is used to run unit
-# tests that may be defined in .lua files.
-# The "protocol" is that the module defines a mod:test() method
-# that will be called to perform regression tests
-CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-${PWD}/target}
+#!/usr/bin/env python3
+import asyncio
+import glob
+import os
+import sys
+import tempfile
+from pathlib import Path
 
-for candidate in "${CARGO_TARGET_DIR}/debug/kumod" "${CARGO_TARGET_DIR}/release/kumod" /opt/kumomta/sbin/kumod ;  do
-  if test -x "${candidate}" ; then
-    KUMOD="${candidate}"
-    break;
-  fi
-done
 
-if ! test -x "${KUMOD}" ; then
-  echo "Couldn't find kumod"
-  exit 1
-fi
+def find_target_dir():
+    return os.environ.get("CARGO_TARGET_DIR") or os.getcwd() + "/target"
 
-script=$(mktemp)
-trap "rm -f -- '$script'" EXIT
-cat >${script} <<-EOT
+
+CARGO_TARGET_DIR = find_target_dir()
+
+
+def find_kumod():
+    for mode in ["/debug/", "/release/"]:
+        candidate = CARGO_TARGET_DIR + mode + "kumod"
+        if os.path.isfile(candidate):
+            return candidate
+    raise Error("could not find kumod")
+
+
+KUMOD = find_kumod()
+
+
+# module tests have a mod:test() method defined inside
+def discover_module_tests():
+    module_tests = []
+    for candidate in glob.glob("assets/policy-extras/**/*.lua", recursive=True):
+        with open(candidate, "r") as f:
+            contents = f.read()
+            if "mod:test" in contents:
+                module_tests.append(candidate)
+    module_tests.sort()
+    return module_tests
+
+
+# crate tests are executed via dofile
+def discover_crate_tests():
+    crate_tests = []
+    for candidate in glob.glob("crates/*/**/test*.lua", recursive=True):
+        crate_tests.append(candidate)
+    crate_tests.sort()
+    return crate_tests
+
+
+module_tests = discover_module_tests()
+crate_tests = discover_crate_tests()
+
+
+def print_output(test_file, stdout, stderr):
+    def do_print(test_file, output):
+        if not output:
+            return
+        for line in output.decode("utf-8").split("\n"):
+            print(test_file, line)
+
+    do_print(test_file, stdout)
+    do_print(test_file, stderr)
+
+
+async def wait_proc(test_file, proc):
+    (stdout, stderr) = await proc.communicate()
+    print_output(test_file, stdout, stderr)
+
+    if proc.returncode != 0:
+        return test_file
+
+
+async def run_module_test(test_file):
+    with tempfile.TemporaryDirectory() as td:
+        runner = td + "/test_" + test_file.name
+        module_name = "policy-extras." + test_file.stem
+        script = f"""
 local kumo = require 'kumo'
 package.path = 'assets/?.lua;' .. package.path
 
 kumo.on('main', function()
-
-local function test_module(name)
-  local mod = require(name)
+  local mod = require("{module_name}")
   mod:test()
-end
-
-test_module 'policy-extras.listener_domains'
-test_module 'policy-extras.queue'
-test_module 'policy-extras.sources'
-test_module 'policy-extras.typing'
-
-dofile "crates/mod-memoize/test.lua"
-dofile "crates/mod-dns-resolver/test-dns-ptr.lua"
-dofile "crates/mod-mpsc/test.lua"
-dofile "crates/mod-filesystem/test.lua"
-
 end)
-EOT
 
-${KUMOD} --user `id -un` --policy $script --script
+"""
+        with open(runner, "w") as f:
+            f.write(script)
 
+        proc = await asyncio.create_subprocess_exec(
+            KUMOD,
+            "--policy",
+            runner,
+            "--script",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        return await wait_proc(test_file, proc)
+
+
+async def run_crate_test(test_file):
+    with tempfile.TemporaryDirectory() as td:
+        runner = td + "/test_" + test_file.name
+        script = f"""
+local kumo = require 'kumo'
+package.path = 'assets/?.lua;' .. package.path
+
+kumo.on('main', function()
+  dofile "{test_file}"
+end)
+
+"""
+        with open(runner, "w") as f:
+            f.write(script)
+
+        proc = await asyncio.create_subprocess_exec(
+            KUMOD,
+            "--policy",
+            runner,
+            "--script",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return await wait_proc(test_file, proc)
+
+
+async def main():
+    tasks = []
+    for mt in module_tests:
+        tasks.append(run_module_test(Path(mt)))
+    for ct in crate_tests:
+        tasks.append(run_crate_test(Path(ct)))
+    results = [f for f in await asyncio.gather(*tasks) if f is not None]
+    if results:
+        for file in results:
+            print("FAILED", str(file))
+        sys.exit(1)
+
+
+asyncio.run(main())
