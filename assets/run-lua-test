@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import asyncio
+import getpass
 import glob
 import os
 import sys
@@ -69,6 +70,21 @@ async def wait_proc(test_file, proc):
         return test_file
 
 
+async def run_script(test_file, script_path):
+    proc = await asyncio.create_subprocess_exec(
+        KUMOD,
+        "--user",
+        getpass.getuser(),
+        "--policy",
+        script_path,
+        "--script",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    return await wait_proc(test_file, proc)
+
+
 async def run_module_test(test_file):
     with tempfile.TemporaryDirectory() as td:
         runner = td + "/test_" + test_file.name
@@ -86,16 +102,7 @@ end)
         with open(runner, "w") as f:
             f.write(script)
 
-        proc = await asyncio.create_subprocess_exec(
-            KUMOD,
-            "--policy",
-            runner,
-            "--script",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        return await wait_proc(test_file, proc)
+        return await run_script(test_file, runner)
 
 
 async def run_crate_test(test_file):
@@ -113,15 +120,7 @@ end)
         with open(runner, "w") as f:
             f.write(script)
 
-        proc = await asyncio.create_subprocess_exec(
-            KUMOD,
-            "--policy",
-            runner,
-            "--script",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        return await wait_proc(test_file, proc)
+        return await run_script(test_file, runner)
 
 
 async def main():
