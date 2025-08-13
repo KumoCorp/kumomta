@@ -5893,6 +5893,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-lua-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "filenamegen",
+ "futures-util",
+ "nix 0.28.0",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"

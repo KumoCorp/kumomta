@@ -1,0 +1,12 @@
+[package]
+name = "run-lua-tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+filenamegen.workspace = true
+futures-util.workspace = true
+nix = {workspace=true, features=["user"]}
+tempfile.workspace = true
+tokio = {workspace=true, features=["full"]}

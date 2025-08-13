@@ -25,7 +25,7 @@ fc:
 	RUSTFLAGS="--cfg tokio_unstable -D warnings" cargo fc check --fail-fast
 
 test-lua:
-	./assets/run-lua-test
+	cargo run -p run-lua-tests
 
 test: build test-lua
 	./docs/update-openapi.sh
@@ -78,7 +78,7 @@ clippy:
 fmt:
 	cargo +nightly fmt
 	stylua --config-path stylua.toml .
-	black docs/generate-toc.py assets/ci/build-builder-images.py assets/ci/emit-builder-dockerfile.py assets/bt assets/log-filter.py assets/run-lua-test
+	black docs/generate-toc.py assets/ci/build-builder-images.py assets/ci/emit-builder-dockerfile.py assets/bt assets/log-filter.py
 
 sink: unsink
 	sudo iptables -t nat -A OUTPUT -p tcp \! -d 192.168.1.0/24 --dport 25 -j DNAT --to-destination 127.0.0.1:2026
