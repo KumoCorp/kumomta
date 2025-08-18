@@ -82,7 +82,7 @@ jobs:
             runs_on: kumo-linux-16core-amd64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Compute Docker File
         run: |
           ${{ matrix.ISARM }} assets/ci/emit-builder-dockerfile.py ${{ matrix.IMAGE }}:${{ matrix.VERSION }} > Dockerfile.builder
