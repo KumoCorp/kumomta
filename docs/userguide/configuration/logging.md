@@ -21,8 +21,9 @@ kumo.configure_local_logs {
 For multiple log files, the `configure_local_logs` function can be called
 multiple times with different parameters.
 
+<!-- prettier-ignore -->
 !!!note
-Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
+    Logs can also be published as webhooks. See the [Publishing Log Events Via Webhooks](../operation/webhooks.md) chapter.
 
 ## OS Considerations
 
