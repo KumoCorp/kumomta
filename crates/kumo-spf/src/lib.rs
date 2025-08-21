@@ -104,7 +104,6 @@ impl SpfResult {
     }
 }
 
-#[derive(Debug, Deserialize)]
 pub struct CheckHostParams {
     /// Domain that provides the sought-after authorization information.
     ///
