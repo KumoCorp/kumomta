@@ -120,7 +120,7 @@ impl MailEntry {
         Ok(())
     }
 
-    pub fn parsed(&mut self) -> Result<MimePart, MailEntryError> {
+    pub fn parsed(&'_ mut self) -> Result<MimePart<'_>, MailEntryError> {
         self.read_data()?;
         let bytes = self
             .data
@@ -130,7 +130,7 @@ impl MailEntry {
         MimePart::parse(bytes).map_err(MailEntryError::ParseError)
     }
 
-    pub fn headers(&mut self) -> Result<HeaderMap, MailEntryError> {
+    pub fn headers(&'_ mut self) -> Result<HeaderMap<'_>, MailEntryError> {
         self.read_data()?;
         let bytes = self
             .data

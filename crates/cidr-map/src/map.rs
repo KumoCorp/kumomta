@@ -505,7 +505,7 @@ where
     }
 
     /// Iterate over all values in the map
-    pub fn iter(&self) -> Iter<V> {
+    pub fn iter(&'_ self) -> Iter<'_, V> {
         Iter::new(self)
     }
 }

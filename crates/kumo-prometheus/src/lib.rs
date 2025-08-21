@@ -33,7 +33,7 @@ const CHUNK_SIZE: usize = 4 * 1024;
 impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingCollector
     for CounterRegistryInner<K, V>
 {
-    fn stream_text(&self, prefix: &Option<String>) -> BoxStream<String> {
+    fn stream_text(&'_ self, prefix: &Option<String>) -> BoxStream<'_, String> {
         /*
         # HELP tokio_total_overflow_count The number of times worker threads saturated their local queues.
         # TYPE tokio_total_overflow_count counter
@@ -94,7 +94,7 @@ impl<K: Clone + MetricLabel + Send + Sync, V: AtomicCounterEntry> StreamingColle
         .boxed()
     }
 
-    fn stream_json(&self) -> BoxStream<String> {
+    fn stream_json(&'_ self) -> BoxStream<'_, String> {
         let mut target = String::with_capacity(CHUNK_SIZE);
         target.push_str(",\n\"");
         target.push_str(self.name);

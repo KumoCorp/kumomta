@@ -104,7 +104,7 @@ impl EgressSource {
             .map(|lookup| lookup.item)
     }
 
-    fn resolve_proxy_protocol(&self, address: SocketAddr) -> anyhow::Result<ProxyProto> {
+    fn resolve_proxy_protocol(&'_ self, address: SocketAddr) -> anyhow::Result<ProxyProto<'_>> {
         use ppp::v2::{Addresses, IPv4, IPv6};
         let source_name = &self.name;
 

@@ -5,7 +5,7 @@ use std::fmt::{Debug, Write};
 pub(crate) type Span<'a> = LocatedSpan<&'a str>;
 pub(crate) type IResult<'a, A, B> = nom::IResult<A, B, ParseError<Span<'a>>>;
 
-pub fn make_span(s: &str) -> Span {
+pub fn make_span(s: &'_ str) -> Span<'_> {
     Span::new(s)
 }
 

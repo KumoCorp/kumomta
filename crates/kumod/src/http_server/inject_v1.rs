@@ -373,7 +373,7 @@ impl InjectV1Request {
         }
     }
 
-    fn compile(&self) -> anyhow::Result<Compiled> {
+    fn compile(&'_ self) -> anyhow::Result<Compiled<'_>> {
         let mut env = TemplateEngine::new();
         let mut id = 0;
 
@@ -465,7 +465,7 @@ impl InjectV1Request {
         })
     }
 
-    fn attachment_data(&self) -> anyhow::Result<Vec<MimePart>> {
+    fn attachment_data(&'_ self) -> anyhow::Result<Vec<MimePart<'_>>> {
         match &self.content {
             Content::Rfc822(_) => Ok(vec![]),
             Content::Builder { attachments, .. } => {

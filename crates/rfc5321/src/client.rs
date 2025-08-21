@@ -1017,7 +1017,7 @@ impl Drop for SmtpClient {
         }
     }
 }
-fn parse_response_line(line: &str) -> Result<ResponseLine, ClientError> {
+fn parse_response_line(line: &'_ str) -> Result<ResponseLine<'_>, ClientError> {
     if line.len() < 4 {
         return Err(ClientError::MalformedResponseLine(line.to_string()));
     }

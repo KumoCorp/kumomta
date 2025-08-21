@@ -84,7 +84,7 @@ impl<'haystack> Iterator for IterLines<'haystack> {
     }
 }
 
-fn iter_lines(haystack: &[u8]) -> IterLines {
+fn iter_lines(haystack: &'_ [u8]) -> IterLines<'_> {
     static CRLF: LazyLock<Finder> = LazyLock::new(|| memchr::memmem::Finder::new("\r\n"));
     IterLines {
         haystack,
