@@ -255,7 +255,7 @@ impl<'a> MimePart<'a> {
     }
 
     /// Obtains a reference to the headers
-    pub fn headers(&self) -> &HeaderMap {
+    pub fn headers(&'_ self) -> &'_ HeaderMap<'_> {
         &self.headers
     }
 
@@ -265,13 +265,13 @@ impl<'a> MimePart<'a> {
     }
 
     /// Get the raw, transfer-encoded body
-    pub fn raw_body(&self) -> SharedString {
+    pub fn raw_body(&'_ self) -> SharedString<'_> {
         self.bytes
             .slice(self.body_offset..self.body_len.max(self.body_offset))
     }
 
     /// Decode transfer decoding and return the body
-    pub fn body(&self) -> Result<DecodedBody> {
+    pub fn body(&'_ self) -> Result<DecodedBody<'_>> {
         let info = Rfc2045Info::new(&self.headers)?;
 
         let bytes = match info.encoding {
