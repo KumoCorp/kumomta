@@ -317,12 +317,13 @@ impl Directive {
             }
         };
 
-        Ok(match matched {
-            true => Some(SpfResult {
+        Ok(if matched {
+            Some(SpfResult {
                 disposition: SpfDisposition::from(self.qualifier),
                 context: format!("matched '{self}' directive"),
-            }),
-            false => None,
+            })
+        } else {
+            None
         })
     }
 }

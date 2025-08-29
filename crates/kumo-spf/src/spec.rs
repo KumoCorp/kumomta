@@ -129,9 +129,10 @@ impl MacroSpec {
                 MacroName::LocalPart => buf.push_str(cx.local_part),
                 MacroName::SenderDomain => buf.push_str(cx.sender_domain),
                 MacroName::Domain => buf.push_str(cx.domain),
-                MacroName::ReverseDns => buf.push_str(match cx.client_ip.is_ipv4() {
-                    true => "in-addr",
-                    false => "ip6",
+                MacroName::ReverseDns => buf.push_str(if cx.client_ip.is_ipv4() {
+                    "in-addr"
+                } else {
+                    "ip6"
                 }),
                 MacroName::ClientIp => {
                     buf.write_fmt(format_args!("{}", cx.client_ip)).unwrap();

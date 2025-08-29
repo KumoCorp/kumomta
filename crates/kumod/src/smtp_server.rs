@@ -135,9 +135,10 @@ impl Into<serde_json::Value> for LogReportDisposition {
 
 impl From<bool> for LogReportDisposition {
     fn from(v: bool) -> Self {
-        match v {
-            true => Self::LogThenRelay,
-            false => Self::Ignore,
+        if v {
+            Self::LogThenRelay
+        } else {
+            Self::Ignore
         }
     }
 }
