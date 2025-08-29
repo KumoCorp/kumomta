@@ -184,32 +184,35 @@ impl<'a> SpfContext<'a> {
                 // Per <https://www.rfc-editor.org/rfc/rfc7208#section-4.3>, invalid
                 // domain names yield a "none" result during initial processing.
                 let context = format!("invalid domain name: {}", self.domain);
-                return match initial {
-                    true => SpfResult {
+                return if initial {
+                    SpfResult {
                         disposition: SpfDisposition::None,
                         context,
-                    },
-                    false => SpfResult {
+                    }
+                } else {
+                    SpfResult {
                         disposition: SpfDisposition::TempError,
                         context,
-                    },
+                    }
                 };
             }
         };
 
         let initial_txt = match resolver.resolve(name, RecordType::TXT).await {
-            Ok(answer) => match answer.records.is_empty() || answer.nxdomain {
-                true => {
+            Ok(answer) => {
+                if answer.records.is_empty() || answer.nxdomain {
                     return SpfResult {
                         disposition: SpfDisposition::None,
-                        context: match answer.records.is_empty() {
-                            true => format!("no SPF records found for {}", &self.domain),
-                            false => format!("domain {} not found", &self.domain),
+                        context: if answer.records.is_empty() {
+                            format!("no SPF records found for {}", &self.domain)
+                        } else {
+                            format!("domain {} not found", &self.domain)
                         },
-                    }
+                    };
+                } else {
+                    answer.as_txt()
                 }
-                false => answer.as_txt(),
-            },
+            }
             Err(err) => {
                 return SpfResult {
                     disposition: match err {
