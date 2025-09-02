@@ -4,7 +4,7 @@ use dns_resolver::{DnsError, Resolver};
 use hickory_resolver::proto::rr::RecordType;
 use hickory_resolver::Name;
 use instant_xml::{FromXml, ToXml};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use std::fmt;
 use std::net::IpAddr;
 use std::time::SystemTime;
