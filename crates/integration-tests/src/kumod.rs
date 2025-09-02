@@ -139,16 +139,42 @@ pub fn target_bin(tool: &str) -> anyhow::Result<PathBuf> {
     std::fs::canonicalize(&path).with_context(|| format!("canonicalize {path}"))
 }
 
+pub struct DaemonWithMaildirOptions {
+    policy_file: String,
+    env: Vec<(String, String)>,
+}
+
+impl DaemonWithMaildirOptions {
+    pub fn new() -> Self {
+        Self {
+            policy_file: "source.lua".to_string(),
+            env: vec![],
+        }
+    }
+
+    #[allow(unused)]
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn policy_file(mut self, file: impl Into<String>) -> Self {
+        self.policy_file = file.into();
+        self
+    }
+
+    pub async fn start(self) -> anyhow::Result<DaemonWithMaildir> {
+        DaemonWithMaildir::start_with_options(self).await
+    }
+}
+
 impl DaemonWithMaildir {
     pub async fn start() -> anyhow::Result<Self> {
         Self::start_with_env(vec![]).await
     }
 
-    pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
-        let mut env: Vec<(String, String)> = env
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
+    pub async fn start_with_options(options: DaemonWithMaildirOptions) -> anyhow::Result<Self> {
+        let mut env = options.env;
 
         let sink = KumoDaemon::spawn_maildir_env(env.clone())
             .await
@@ -157,13 +183,25 @@ impl DaemonWithMaildir {
         env.push(("KUMOD_SMTP_SINK_PORT".to_string(), smtp.port().to_string()));
 
         let source = KumoDaemon::spawn(KumoArgs {
-            policy_file: "source.lua".to_string(),
+            policy_file: options.policy_file,
             env,
         })
         .await
         .context("KumoDaemon::spawn")?;
 
         Ok(Self { source, sink })
+    }
+
+    pub async fn start_with_env(env: Vec<(&str, &str)>) -> anyhow::Result<Self> {
+        DaemonWithMaildirOptions {
+            env: env
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..DaemonWithMaildirOptions::new()
+        }
+        .start()
+        .await
     }
 
     pub async fn smtp_client(&self) -> anyhow::Result<SmtpClient> {
