@@ -93,6 +93,15 @@ impl<'a> Header<'a> {
         }
     }
 
+    pub fn to_owned(&'a self) -> Header<'static> {
+        Header {
+            name: self.name.to_owned(),
+            value: self.value.to_owned(),
+            separator: self.separator.to_owned(),
+            conformance: self.conformance,
+        }
+    }
+
     pub fn new<N: Into<SharedString<'a>>>(name: N, value: impl EncodeHeaderValue) -> Self {
         let name = name.into();
         let value = value.encode_value();

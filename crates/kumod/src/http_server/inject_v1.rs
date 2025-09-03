@@ -284,7 +284,7 @@ impl<'a> Compiled<'a> {
                     .with_context(|| format!("failed to rebuild content {content}"))?;
 
                 if msg.headers().mime_version()?.is_none() {
-                    msg.headers_mut().set_mime_version("1.0");
+                    msg.headers_mut().set_mime_version("1.0")?;
                 }
 
                 Ok(msg.to_message_string())
@@ -312,7 +312,7 @@ impl<'a> Compiled<'a> {
                 builder.set_to(Address::Mailbox(Mailbox {
                     name: recip.name.clone(),
                     address: AddrSpec::parse(&recip.email)?,
-                }));
+                }))?;
 
                 #[allow(clippy::for_kv_map)]
                 for (name, _value) in headers {
@@ -488,7 +488,7 @@ impl InjectV1Request {
                             a.data.as_bytes()
                         },
                         Some(&opts),
-                    );
+                    )?;
 
                     attached.push(part);
                 }

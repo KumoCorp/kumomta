@@ -63,26 +63,28 @@ macro_rules! accessor {
         }
 
         paste! {
-            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) {
-
+            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) -> Result<()> {
                 if let Some(idx) = self
                     .headers
                     .iter()
                     .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
                 {
                     if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
+                        hdr.$parser()?;
                         self.headers[idx] = hdr;
                     } else {
                         self.headers[idx].assign(v);
                     }
                 } else {
                     if let Some(hdr) = v.as_header($header_name) {
+                        hdr.$parser()?;
                         self.headers.push(hdr);
                     } else {
-                    self.headers
-                        .push(Header::with_name_value($header_name, v.encode_value()));
+                        self.headers
+                            .push(Header::with_name_value($header_name, v.encode_value()));
                     }
                 }
+                Ok(())
             }
         }
     };
@@ -91,6 +93,12 @@ macro_rules! accessor {
 impl<'a> HeaderMap<'a> {
     pub fn new(headers: Vec<Header<'a>>) -> Self {
         Self { headers }
+    }
+
+    pub fn to_owned(&'a self) -> HeaderMap<'static> {
+        HeaderMap {
+            headers: self.headers.iter().map(|h: &Header| h.to_owned()).collect(),
+        }
     }
 
     pub fn remove_all_named(&mut self, name: &str) {

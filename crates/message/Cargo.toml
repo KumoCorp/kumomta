@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["impl"]
-impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua"]
+impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart"]
 
 [dependencies]
 anyhow = {workspace=true}
@@ -25,6 +25,7 @@ kumo-log-types = {path="../kumo-log-types"}
 linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
+mod-mimepart = {path="../mod-mimepart", optional=true}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}
 parking_lot.workspace = true
 prometheus = {workspace=true}

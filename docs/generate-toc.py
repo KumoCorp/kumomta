@@ -425,6 +425,10 @@ TOC = [
                 "reference/kumo.kafka",
             ),
             Gen(
+                "module: kumo.mimepart",
+                "reference/kumo.mimepart",
+            ),
+            Gen(
                 "module: kumo.mpsc",
                 "reference/kumo.mpsc",
             ),
@@ -492,6 +496,14 @@ TOC = [
                 "object: connectionmeta",
                 "reference/connectionmeta.md",
             ),
+            Gen(
+                "object: headermap",
+                "reference/headermap",
+            ),
+            Gen(
+                "object: header",
+                "reference/header",
+            ),
             Page(
                 "object: keysource",
                 "reference/keysource.md",
@@ -499,6 +511,10 @@ TOC = [
             Gen(
                 "object: message",
                 "reference/message",
+            ),
+            Gen(
+                "object: mimepart",
+                "reference/mimepart",
             ),
             Gen(
                 "events",

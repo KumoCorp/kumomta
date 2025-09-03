@@ -843,6 +843,17 @@ impl Message {
         Ok(results)
     }
 
+    /// Parses the content into an owned MimePart.
+    /// Changes to that MimePart are NOT reflected in the underlying
+    /// message; you must re-assign the message data if you wish to modify
+    /// the message content.
+    pub async fn parse(&self) -> anyhow::Result<MimePart<'static>> {
+        self.load_data_if_needed().await?;
+        let data = self.get_data();
+        let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
+        Ok(MimePart::parse(owned_data)?)
+    }
+
     pub fn parse_rfc3464(&self) -> anyhow::Result<Option<Report>> {
         let data = self.get_data();
         Report::parse(&data)
@@ -1045,7 +1056,7 @@ impl Message {
                     let mut text = text.as_str().to_string();
                     text.push_str("\r\n");
                     text.push_str(content);
-                    p.replace_text_body("text/plain", &text);
+                    p.replace_text_body("text/plain", &text)?;
 
                     let new_data = msg.to_message_string();
                     self.assign_data(new_data.into_bytes());
@@ -1081,7 +1092,7 @@ impl Message {
                         }
                     }
 
-                    p.replace_text_body("text/html", &text);
+                    p.replace_text_body("text/html", &text)?;
 
                     let new_data = msg.to_message_string();
                     self.assign_data(new_data.into_bytes());
@@ -1133,11 +1144,11 @@ impl Message {
             }
 
             if to_fix.contains(MessageConformance::MISSING_DATE_HEADER) {
-                msg.headers_mut().set_date(Utc::now());
+                msg.headers_mut().set_date(Utc::now())?;
             }
 
             if to_fix.contains(MessageConformance::MISSING_MIME_VERSION) {
-                msg.headers_mut().set_mime_version("1.0");
+                msg.headers_mut().set_mime_version("1.0")?;
             }
 
             if to_fix.contains(MessageConformance::MISSING_MESSAGE_ID_HEADER) {
@@ -1145,7 +1156,7 @@ impl Message {
                 let domain = sender.domain();
                 let id = *self.id();
                 msg.headers_mut()
-                    .set_message_id(mailparsing::MessageID(format!("{id}@{domain}")));
+                    .set_message_id(mailparsing::MessageID(format!("{id}@{domain}")))?;
             }
 
             let new_data = msg.to_message_string();
@@ -1218,6 +1229,14 @@ impl UserData for Message {
         methods.add_method("set_data", move |_lua, this, data: mlua::String| {
             this.assign_data(data.as_bytes().to_vec());
             Ok(())
+        });
+
+        methods.add_async_method("parse_mime", move |_lua, this, _: ()| async move {
+            this.load_data_if_needed().await.map_err(any_err)?;
+            let data = this.get_data();
+            let owned_data = String::from_utf8_lossy(data.as_ref().as_ref()).to_string();
+            let part = MimePart::parse(owned_data).map_err(any_err)?;
+            Ok(mod_mimepart::PartRef::new(part))
         });
 
         methods.add_method("append_text_plain", move |_lua, this, data: String| {

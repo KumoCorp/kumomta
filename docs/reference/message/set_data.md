@@ -12,4 +12,5 @@ canonical CRLF line endings, and uses appropriate transfer-encoding, otherwise
 the system will misbehave when delivering the message.
 
 See also:
-* [msg:get_data()](get_data.md)
+
+  * [msg:get_data()](get_data.md)

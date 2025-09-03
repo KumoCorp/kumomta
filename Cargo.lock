@@ -3338,6 +3338,7 @@ dependencies = [
  "mod-http",
  "mod-kafka",
  "mod-memoize",
+ "mod-mimepart",
  "mod-mpsc",
  "mod-redis",
  "mod-regex",
@@ -3963,6 +3964,7 @@ dependencies = [
  "lruttl",
  "mailparsing",
  "mlua",
+ "mod-mimepart",
  "parking_lot",
  "prometheus",
  "rand 0.8.5",
@@ -4259,6 +4261,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "mod-mimepart"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "config",
+ "mailparsing",
+ "mlua",
+ "parking_lot",
+ "serde",
 ]
 
 [[package]]

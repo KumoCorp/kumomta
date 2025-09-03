@@ -41,6 +41,10 @@
  * You may now consume HashiCorp Vault secrets stored with keys named something
    other than `key` by using the new optional `vault_key` field in a
    [KeySource](../reference/keysource.md). Thanks to @pankajrathi95! #399
+ * Powerful MIME parsing API exposed to lua. Use
+   [msg:parse_mime](../reference/message/parse_mime.md) to parse incoming
+   messages, or [kumo.mimepart](../reference/kumo.mimepart/index.md) to parse
+   and/or (re)build messages independently from the incoming message flow. #117
 
 ## Fixes
 

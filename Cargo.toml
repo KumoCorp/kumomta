@@ -35,6 +35,7 @@ members = [
   "crates/kumo-address",
   "crates/mod-mpsc",
   "crates/run-lua-tests",
+  "crates/mod-mimepart",
 ]
 resolver = "2"
 

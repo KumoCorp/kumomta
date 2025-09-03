@@ -110,6 +110,17 @@ impl SharedString<'_> {
             Self::Sliced { range, .. } => range.len(),
         }
     }
+
+    pub fn to_owned(&'_ self) -> SharedString<'static> {
+        match self {
+            SharedString::Owned(s) => SharedString::Owned(Arc::clone(s)),
+            SharedString::Borrowed(s) => SharedString::Owned(Arc::new(s.to_string())),
+            SharedString::Sliced { other, range } => SharedString::Sliced {
+                other: other.clone(),
+                range: range.clone(),
+            },
+        }
+    }
 }
 
 impl From<String> for SharedString<'_> {

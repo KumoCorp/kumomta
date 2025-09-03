@@ -1147,7 +1147,7 @@ fn content_type(input: Span) -> IResult<Span, MimeParameters> {
 
 fn content_transfer_encoding(input: Span) -> IResult<Span, MimeParameters> {
     let (loc, (value, _, parameters)) = context(
-        "content_type",
+        "content_transfer_encoding",
         preceded(
             opt(cfws),
             tuple((
@@ -1361,6 +1361,7 @@ impl Parser {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticationResults {
     pub serv_id: String,
     pub version: Option<u32>,
@@ -1417,6 +1418,7 @@ impl EncodeHeaderValue for AuthenticationResults {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthenticationResult {
     pub method: String,
     pub method_version: Option<u32>,
@@ -1425,7 +1427,8 @@ pub struct AuthenticationResult {
     pub props: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AddrSpec {
     pub local_part: String,
     pub domain: String,
@@ -1472,25 +1475,30 @@ impl EncodeHeaderValue for AddrSpec {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Address {
     Mailbox(Mailbox),
     Group { name: String, entries: MailboxList },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, transparent)]
 pub struct AddressList(pub Vec<Address>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, transparent)]
 pub struct MailboxList(pub Vec<Mailbox>);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Mailbox {
     pub name: Option<String>,
     pub address: AddrSpec,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct MessageID(pub String);
 
 impl EncodeHeaderValue for MessageID {
@@ -1534,6 +1542,33 @@ impl MimeParameters {
             value: value.to_string(),
             parameters: vec![],
         }
+    }
+
+    /// Decode all named parameters per RFC 2231 and return a map
+    /// of the parameter names to parameters values.
+    /// Incorrectly encoded parameters are silently ignored
+    /// and are not returned in the resulting map.
+    pub fn parameter_map(&self) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+
+        fn contains_key_ignore_case(map: &BTreeMap<String, String>, key: &str) -> bool {
+            for k in map.keys() {
+                if k.eq_ignore_ascii_case(key) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        for entry in &self.parameters {
+            if !contains_key_ignore_case(&map, &entry.name) {
+                if let Some(value) = self.get(&entry.name) {
+                    map.insert(entry.name.to_string(), value);
+                }
+            }
+        }
+
+        map
     }
 
     /// Retrieve the value for a named parameter.

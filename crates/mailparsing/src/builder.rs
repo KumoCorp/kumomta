@@ -28,16 +28,23 @@ impl<'a> MessageBuilder<'a> {
         self.html.replace(html.to_string());
     }
 
-    pub fn attach(&mut self, content_type: &str, data: &[u8], opts: Option<&AttachmentOptions>) {
+    pub fn attach(
+        &mut self,
+        content_type: &str,
+        data: &[u8],
+        opts: Option<&AttachmentOptions>,
+    ) -> Result<(), MailParsingError> {
         let is_inline = opts.map(|opt| opt.inline).unwrap_or(false);
 
-        let part = MimePart::new_binary(content_type, data, opts);
+        let part = MimePart::new_binary(content_type, data, opts)?;
 
         if is_inline {
             self.inline.push(part);
         } else {
             self.attached.push(part);
         }
+
+        Ok(())
     }
 
     pub fn attach_part(&mut self, part: MimePart<'a>) {
@@ -61,15 +68,15 @@ impl<'a> MessageBuilder<'a> {
         let content_node = match (text, html) {
             (Some(t), Some(h)) => MimePart::new_multipart(
                 "multipart/alternative",
-                vec![t, h],
+                vec![t?, h?],
                 if self.stable_content {
                     Some("ma-boundary")
                 } else {
                     None
                 },
-            ),
-            (Some(t), None) => t,
-            (None, Some(h)) => h,
+            )?,
+            (Some(t), None) => t?,
+            (None, Some(h)) => h?,
             (None, None) => {
                 return Err(MailParsingError::BuildError(
                     "no text or html part was specified",
@@ -89,7 +96,7 @@ impl<'a> MessageBuilder<'a> {
                 } else {
                     None
                 },
-            )
+            )?
         } else {
             content_node
         };
@@ -106,7 +113,7 @@ impl<'a> MessageBuilder<'a> {
                 } else {
                     None
                 },
-            )
+            )?
         } else {
             content_node
         };
@@ -114,7 +121,7 @@ impl<'a> MessageBuilder<'a> {
         root.headers_mut().headers.extend(self.headers.headers);
 
         if root.headers().mime_version()?.is_none() {
-            root.headers_mut().set_mime_version("1.0");
+            root.headers_mut().set_mime_version("1.0")?;
         }
 
         if root.headers().date()?.is_none() {
@@ -122,9 +129,9 @@ impl<'a> MessageBuilder<'a> {
                 root.headers_mut().set_date(
                     chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200")
                         .expect("test date to be valid"),
-                );
+                )?;
             } else {
-                root.headers_mut().set_date(chrono::Utc::now());
+                root.headers_mut().set_date(chrono::Utc::now())?;
             };
         }
 
@@ -157,7 +164,7 @@ mod test {
     fn basic() {
         let mut b = MessageBuilder::new();
         b.set_stable_content(true);
-        b.set_subject("Hello there! 🍉");
+        b.set_subject("Hello there! 🍉").unwrap();
         b.text_plain("This is the body! 👻");
         b.text_html("<b>this is html 🚀</b>");
         let msg = b.build().unwrap();

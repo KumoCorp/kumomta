@@ -76,7 +76,9 @@ impl MailGenParams<'_> {
     pub async fn send(&self, client: &mut SmtpClient) -> anyhow::Result<Response> {
         let sender = self.sender.unwrap_or("sender@example.com");
         let recip = self.recip.unwrap_or("recip@example.com");
-        let body = self.generate()?;
+        let body = self
+            .generate()
+            .context("generation of message body failed")?;
 
         Ok(client
             .send_mail(
@@ -105,9 +107,9 @@ impl MailGenParams<'_> {
         let sender = self.sender.unwrap_or("sender@example.com");
         let recip = self.recip.unwrap_or("recip@example.com");
         let mut message = MessageBuilder::new();
-        message.set_from(sender);
-        message.set_to(recip);
-        message.set_subject(self.subject.unwrap_or("Hello! This is a test"));
+        message.set_from(sender)?;
+        message.set_to(recip).ok(); // the no_ports test assigns an address that is invalid in To:
+        message.set_subject(self.subject.unwrap_or("Hello! This is a test"))?;
         message.text_plain(body);
         message.prepend("X-Test1", "Test1");
         message.prepend("X-Another", "Another");
