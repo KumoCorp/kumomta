@@ -1,5 +1,6 @@
 import json
 import glob
+import os
 import subprocess
 
 # https://mkdocs-macros-plugin.readthedocs.io/en/latest/macros/
@@ -27,7 +28,31 @@ def define_env(env):
 
             # Determine the relative path traversal to the root,
             # so that we can emit the link to the install page
-            rel_root = "../" * (len(env.page.url.split('/')) - 2)
+
+            page_url = env.page.url
+            # Annoying dance because we don't know if we are `foo/index.md` or `foo.md`
+            # the url for both is `/foo/` but the number of `../` we need to emit for
+            # them is different.  Make an educated guess about which we are processing.
+            # It would be great if we knew the source path from the page object,
+            # but I don't see a public way to access that.
+            if page_url.endswith('/'):
+                page_url = page_url[:-1]
+
+            index_url = page_url + "/index.md"
+            direct_url = page_url + ".md"
+
+            if os.path.exists('docs/' + index_url):
+                # Looks like we have the foo/index.md variant
+                page_url = index_url
+            else:
+                # foo.md variant
+                page_url = direct_url
+
+            # Compute the appropriate amount of ../ to reach the root.
+            # Why not simply use an absolute link? Because mkdocs doesn't
+            # support it and will not generate the appropriate link.
+            levels = len(page_url.split('/')) - 1
+            rel_root = "../" * levels
             blurb = f"""
     *The functionality described in this {scope} requires a dev build of KumoMTA.
     You can obtain a dev build by following the instructions in the
