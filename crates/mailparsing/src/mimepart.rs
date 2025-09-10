@@ -38,23 +38,42 @@ pub struct MimePart<'a> {
 
 pub struct Rfc2045Info {
     pub encoding: ContentTransferEncoding,
-    pub charset: Charset,
+    pub charset: Result<Charset>,
     pub content_type: Option<MimeParameters>,
     pub is_text: bool,
     pub is_multipart: bool,
     pub attachment_options: Option<AttachmentOptions>,
+    pub invalid_mime_headers: bool,
 }
 
 impl Rfc2045Info {
-    fn new(headers: &HeaderMap) -> Result<Self> {
-        let content_transfer_encoding = headers.content_transfer_encoding()?;
-
-        let encoding = match &content_transfer_encoding {
-            Some(cte) => ContentTransferEncoding::from_str(&cte.value)?,
-            None => ContentTransferEncoding::SevenBit,
+    // This must be infallible so that a basic mime structure can be parsed
+    // even if the mime headers are a bit borked
+    fn new(headers: &HeaderMap) -> Self {
+        let mut invalid_mime_headers = false;
+        let encoding = match headers.content_transfer_encoding() {
+            Ok(Some(cte)) => match ContentTransferEncoding::from_str(&cte.value) {
+                Ok(encoding) => encoding,
+                Err(_) => {
+                    invalid_mime_headers = true;
+                    ContentTransferEncoding::SevenBit
+                }
+            },
+            Ok(None) => ContentTransferEncoding::SevenBit,
+            Err(_) => {
+                invalid_mime_headers = true;
+                ContentTransferEncoding::SevenBit
+            }
         };
 
-        let content_type = headers.content_type()?;
+        let content_type = match headers.content_type() {
+            Ok(ct) => ct,
+            Err(_) => {
+                invalid_mime_headers = true;
+                None
+            }
+        };
+
         let charset = if let Some(ct) = &content_type {
             ct.get("charset")
         } else {
@@ -63,7 +82,7 @@ impl Rfc2045Info {
         let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
 
         let charset = Charset::for_label_no_replacement(charset.as_bytes())
-            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")))?;
+            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")));
 
         let (is_text, is_multipart) = if let Some(ct) = &content_type {
             (ct.is_text(), ct.is_multipart())
@@ -71,11 +90,23 @@ impl Rfc2045Info {
             (true, false)
         };
 
-        let content_disposition = headers.content_disposition()?;
+        let content_disposition = match headers.content_disposition() {
+            Ok(cd) => cd,
+            Err(_) => {
+                invalid_mime_headers = true;
+                None
+            }
+        };
         let attachment_options = match content_disposition {
             Some(cd) => {
                 let inline = cd.value == "inline";
-                let content_id = headers.content_id()?;
+                let content_id = match headers.content_id() {
+                    Ok(cid) => cid,
+                    Err(_) => {
+                        invalid_mime_headers = true;
+                        None
+                    }
+                };
                 let file_name = cd.get("filename");
 
                 Some(AttachmentOptions {
@@ -87,14 +118,15 @@ impl Rfc2045Info {
             None => None,
         };
 
-        Ok(Self {
+        Self {
             encoding,
             charset,
             content_type,
             is_text,
             is_multipart,
             attachment_options,
-        })
+            invalid_mime_headers,
+        }
     }
 }
 
@@ -190,7 +222,10 @@ impl<'a> MimePart<'a> {
     }
 
     fn recursive_parse(&mut self) -> Result<()> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
+        if info.invalid_mime_headers {
+            self.conformance |= MessageConformance::INVALID_MIME_HEADERS;
+        }
         if let Some((boundary, true)) = info
             .content_type
             .as_ref()
@@ -285,13 +320,13 @@ impl<'a> MimePart<'a> {
             .slice(self.body_offset..self.body_len.max(self.body_offset))
     }
 
-    pub fn rfc2045_info(&self) -> Result<Rfc2045Info> {
+    pub fn rfc2045_info(&self) -> Rfc2045Info {
         Rfc2045Info::new(&self.headers)
     }
 
     /// Decode transfer decoding and return the body
     pub fn body(&'_ self) -> Result<DecodedBody<'_>> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
 
         let bytes = match info.encoding {
             ContentTransferEncoding::Base64 => {
@@ -329,7 +364,7 @@ impl<'a> MimePart<'a> {
         };
 
         if info.is_text {
-            let (decoded, _malformed) = info.charset.decode_without_bom_handling(&bytes);
+            let (decoded, _malformed) = info.charset?.decode_without_bom_handling(&bytes);
             Ok(DecodedBody::Text(decoded.to_string().into()))
         } else {
             Ok(DecodedBody::Binary(bytes))
@@ -343,7 +378,7 @@ impl<'a> MimePart<'a> {
     /// but may come at the cost of "losing" the non-sensical or otherwise
     /// out of spec elements in the rebuilt message
     pub fn rebuild(&self) -> Result<Self> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
 
         let mut children = vec![];
         for part in &self.parts {
@@ -421,7 +456,7 @@ impl<'a> MimePart<'a> {
             out.write_all(self.raw_body().as_bytes())
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
         } else {
-            let info = Rfc2045Info::new(&self.headers)?;
+            let info = Rfc2045Info::new(&self.headers);
             let ct = info.content_type.ok_or({
                 MailParsingError::WriteMessageWtf(
                     "expected to have Content-Type when there are child parts",
@@ -745,7 +780,7 @@ impl<'a> MimePart<'a> {
         &self,
         my_idx: Option<u8>,
     ) -> Result<SimplifiedStructurePointers> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
         let is_inline = info
             .attachment_options
             .as_ref()

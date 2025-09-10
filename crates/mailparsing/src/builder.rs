@@ -194,4 +194,50 @@ Content-Transfer-Encoding: quoted-printable\r
 "#
         );
     }
+
+    #[test]
+    fn utf8_attachment_name() {
+        let mut b = MessageBuilder::new();
+        b.set_stable_content(true);
+        b.set_subject("Hello there! 🍉").unwrap();
+        b.text_plain("This is the body! 👻");
+        b.attach(
+            "text/plain",
+            b"hello",
+            Some(&AttachmentOptions {
+                content_id: None,
+                file_name: Some("日本語の添付.txt".to_string()),
+                inline: false,
+            }),
+        )
+        .unwrap();
+        let msg = b.build().unwrap();
+        k9::snapshot!(
+            msg.to_message_string(),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="mm-boundary"\r
+Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
+Mime-Version: 1.0\r
+Date: Tue, 1 Jul 2003 10:52:37 +0200\r
+\r
+--mm-boundary\r
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+This is the body! =F0=9F=91=BB\r
+--mm-boundary\r
+Content-Type: text/plain\r
+Content-Transfer-Encoding: base64\r
+Content-Disposition: attachment;\r
+\tfilename*0*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E6%B7%BB%E4%BB%98.;\r
+\tfilename*1*=txt\r
+\r
+aGVsbG8=\r
+--mm-boundary--\r
+
+"#
+        );
+    }
 }

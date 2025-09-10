@@ -127,18 +127,17 @@ impl UserData for PartRef {
                 let mut content_id = None;
                 let mut content_type = None;
 
-                if let Ok(info) = a_part.rfc2045_info() {
-                    if let Some(mut opts) = info.attachment_options {
-                        if let Some(name) = opts.file_name.take() {
-                            file_name = name;
-                        }
-                        inline = opts.inline;
-                        content_id = opts.content_id;
+                let info = a_part.rfc2045_info();
+                if let Some(mut opts) = info.attachment_options {
+                    if let Some(name) = opts.file_name.take() {
+                        file_name = name;
                     }
+                    inline = opts.inline;
+                    content_id = opts.content_id;
+                }
 
-                    if let Some(ct) = info.content_type {
-                        content_type.replace(ct.value);
-                    }
+                if let Some(ct) = info.content_type {
+                    content_type.replace(ct.value);
                 }
 
                 attach.set("file_name", file_name)?;

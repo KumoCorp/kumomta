@@ -2056,7 +2056,7 @@ impl EncodeHeaderValue for AddressList {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Header, MimePart};
+    use crate::{Header, MessageConformance, MimePart};
 
     #[test]
     fn mailbox_encodes_at() {
@@ -2347,12 +2347,21 @@ Some(
     #[test]
     fn attachment_filename_mess_aberrant() {
         // Quotes are missing and the = = thing is totally borked;
-        // this content is expected to fail to parse
+        // this header is expected to fail to parse
         let message = concat!(
             "Content-Disposition: attachment; filename= =?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\n",
             "\n\n"
         );
-        MimePart::parse(message).unwrap_err();
+        let msg = MimePart::parse(message).unwrap();
+        assert!(msg
+            .conformance()
+            .contains(MessageConformance::INVALID_MIME_HEADERS));
+        msg.headers().content_disposition().unwrap_err();
+
+        // There is no Content-Disposition in the rebuilt message, because
+        // there was no valid Content-Disposition in what we parsed
+        let rebuilt = msg.rebuild().unwrap();
+        k9::assert_equal!(rebuilt.headers().content_disposition(), Ok(None));
     }
 
     #[test]
