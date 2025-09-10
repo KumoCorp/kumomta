@@ -37,6 +37,7 @@ pub struct MimePart<'a> {
     outro: SharedString<'a>,
 }
 
+#[derive(PartialEq, Debug)]
 pub struct Rfc2045Info {
     pub encoding: ContentTransferEncoding,
     pub charset: Result<Charset>,
@@ -75,7 +76,9 @@ impl Rfc2045Info {
             }
         };
 
+        let mut ct_name = None;
         let charset = if let Some(ct) = &content_type {
+            ct_name = ct.get("name");
             ct.get("charset")
         } else {
             None
@@ -91,32 +94,41 @@ impl Rfc2045Info {
             (true, false)
         };
 
-        let content_disposition = match headers.content_disposition() {
-            Ok(cd) => cd,
+        let mut inline = false;
+        let mut cd_file_name = None;
+
+        match headers.content_disposition() {
+            Ok(Some(cd)) => {
+                inline = cd.value == "inline";
+                cd_file_name = cd.get("filename");
+            }
+            Ok(None) => {}
+            Err(_) => {
+                invalid_mime_headers = true;
+            }
+        };
+
+        let content_id = match headers.content_id() {
+            Ok(cid) => cid.map(|cid| cid.0),
             Err(_) => {
                 invalid_mime_headers = true;
                 None
             }
         };
-        let attachment_options = match content_disposition {
-            Some(cd) => {
-                let inline = cd.value == "inline";
-                let content_id = match headers.content_id() {
-                    Ok(cid) => cid,
-                    Err(_) => {
-                        invalid_mime_headers = true;
-                        None
-                    }
-                };
-                let file_name = cd.get("filename");
 
-                Some(AttachmentOptions {
-                    file_name,
-                    inline,
-                    content_id: content_id.map(|cid| cid.0),
-                })
-            }
-            None => None,
+        let file_name = match (cd_file_name, ct_name) {
+            (Some(name), _) | (None, Some(name)) => Some(name),
+            (None, None) => None,
+        };
+
+        let attachment_options = if inline || file_name.is_some() || content_id.is_some() {
+            Some(AttachmentOptions {
+                file_name,
+                inline,
+                content_id,
+            })
+        } else {
+            None
         };
 
         Self {
@@ -1405,6 +1417,73 @@ Ok(
     },
 )
 "
+        );
+    }
+
+    #[test]
+    fn attachment_name_order_prefers_content_disposition() {
+        let message = concat!(
+            "Content-Type: multipart/mixed;\r\n",
+            "	boundary=\"woot\"\r\n",
+            "\r\n",
+            "--woot\r\n",
+            "Content-Type: text/plain;\r\n",
+            "	charset=\"us-ascii\"\r\n",
+            "\r\n",
+            "Hello, I am the main message content\r\n",
+            "--woot\r\n",
+            "Content-Disposition: attachment;\r\n",
+            "	filename=cdname\r\n",
+            "Content-Type: application/octet-stream;\r\n",
+            "	name=ctname\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "u6o=\r\n",
+            "--woot--\r\n"
+        );
+        let part = MimePart::parse(message).unwrap();
+        let structure = part.simplified_structure().unwrap();
+
+        k9::assert_equal!(
+            structure.attachments[0].rfc2045_info().attachment_options,
+            Some(AttachmentOptions {
+                content_id: None,
+                inline: false,
+                file_name: Some("cdname".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn attachment_name_accepts_content_type_name() {
+        let message = concat!(
+            "Content-Type: multipart/mixed;\r\n",
+            "	boundary=\"woot\"\r\n",
+            "\r\n",
+            "--woot\r\n",
+            "Content-Type: text/plain;\r\n",
+            "	charset=\"us-ascii\"\r\n",
+            "\r\n",
+            "Hello, I am the main message content\r\n",
+            "--woot\r\n",
+            "Content-Disposition: attachment\r\n",
+            "Content-Type: application/octet-stream;\r\n",
+            "	name=ctname\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "u6o=\r\n",
+            "--woot--\r\n"
+        );
+        let part = MimePart::parse(message).unwrap();
+        let structure = part.simplified_structure().unwrap();
+
+        k9::assert_equal!(
+            structure.attachments[0].rfc2045_info().attachment_options,
+            Some(AttachmentOptions {
+                content_id: None,
+                inline: false,
+                file_name: Some("ctname".to_string()),
+            })
         );
     }
 

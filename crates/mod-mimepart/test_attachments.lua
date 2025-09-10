@@ -28,7 +28,7 @@ end
 
 utils.assert_eq(attachments, {
   {
-    'attachment1',
+    nil,
     'text/plain',
     'I am a plain text file with no options specified',
   },

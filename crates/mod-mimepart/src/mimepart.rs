@@ -122,7 +122,7 @@ impl UserData for PartRef {
                 let a_part = a.resolve().map_err(any_err)?;
                 let attach = lua.create_table()?;
 
-                let mut file_name = format!("attachment{}", a.ptr.id_string());
+                let mut file_name = None;
                 let mut inline = true;
                 let mut content_id = None;
                 let mut content_type = None;
@@ -130,7 +130,7 @@ impl UserData for PartRef {
                 let info = a_part.rfc2045_info();
                 if let Some(mut opts) = info.attachment_options {
                     if let Some(name) = opts.file_name.take() {
-                        file_name = name;
+                        file_name.replace(name);
                     }
                     inline = opts.inline;
                     content_id = opts.content_id;

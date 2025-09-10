@@ -25,9 +25,8 @@ Each attachment table entry has the following fields:
 
   * `file_name` - The suggested name to use when saving the attachment. If the
     `Content-Disposition` header defined the file name, then that will be used.
-    Otherwise, a name will be synthesized based on the position of the
-    attachment within the MIME tree and will look something like `attachment1`
-    or `attachment2.3`.
+    Otherwise, the `Content-Type` `name` parameter will be used. If neither is
+    present, then the `file_name` field will not be set (effectively `nil`).
   * `inline` - will be `true` if the attachment was marked as having an inline
     disposition, `false` otherwise.
   * `content_id` - if the `Content-ID` header is defined, this field will hold
