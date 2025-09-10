@@ -228,11 +228,12 @@ Content-Transfer-Encoding: quoted-printable\r
 \r
 This is the body! =F0=9F=91=BB\r
 --mm-boundary\r
-Content-Type: text/plain\r
-Content-Transfer-Encoding: base64\r
 Content-Disposition: attachment;\r
 \tfilename*0*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E6%B7%BB%E4%BB%98.;\r
 \tfilename*1*=txt\r
+Content-Type: text/plain;\r
+\tname="=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?="\r
+Content-Transfer-Encoding: base64\r
 \r
 aGVsbG8=\r
 --mm-boundary--\r

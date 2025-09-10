@@ -1182,10 +1182,56 @@ fn parameter(input: Span) -> IResult<Span, MimeParameter> {
     context(
         "parameter",
         alt((
+            // Note that RFC2047 explicitly prohibits both of
+            // these 2047 cases from appearing here, but that
+            // major MUAs produce this sort of prohibited content
+            // and we thus need to accommodate it
+            param_with_unquoted_rfc2047,
+            param_with_quoted_rfc2047,
             regular_parameter,
             extended_param_with_charset,
             extended_param_no_charset,
         )),
+    )(input)
+}
+
+fn param_with_unquoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "param_with_unquoted_rfc2047",
+        map(
+            tuple((attribute, opt(cfws), char('='), opt(cfws), encoded_word)),
+            |(name, _, _, _, value)| MimeParameter {
+                name: name.to_string(),
+                value,
+                section: None,
+                encoding: MimeParameterEncoding::UnquotedRfc2047,
+                mime_charset: None,
+                mime_language: None,
+            },
+        ),
+    )(input)
+}
+
+fn param_with_quoted_rfc2047(input: Span) -> IResult<Span, MimeParameter> {
+    context(
+        "param_with_quoted_rfc2047",
+        map(
+            tuple((
+                attribute,
+                opt(cfws),
+                char('='),
+                opt(cfws),
+                delimited(char('"'), encoded_word, char('"')),
+            )),
+            |(name, _, _, _, value)| MimeParameter {
+                name: name.to_string(),
+                value,
+                section: None,
+                encoding: MimeParameterEncoding::QuotedRfc2047,
+                mime_charset: None,
+                mime_language: None,
+            },
+        ),
     )(input)
 }
 
@@ -1214,7 +1260,7 @@ fn extended_param_with_charset(input: Span) -> IResult<Span, MimeParameter> {
                 section,
                 mime_charset: mime_charset.map(|s| s.to_string()),
                 mime_language: mime_language.map(|s| s.to_string()),
-                uses_encoding: true,
+                encoding: MimeParameterEncoding::Rfc2231,
                 value,
             },
         ),
@@ -1245,7 +1291,11 @@ fn extended_param_no_charset(input: Span) -> IResult<Span, MimeParameter> {
                 section,
                 mime_charset: None,
                 mime_language: None,
-                uses_encoding: star.is_some(),
+                encoding: if star.is_some() {
+                    MimeParameterEncoding::Rfc2231
+                } else {
+                    MimeParameterEncoding::None
+                },
                 value,
             },
         ),
@@ -1295,7 +1345,7 @@ fn regular_parameter(input: Span) -> IResult<Span, MimeParameter> {
                 name: name.to_string(),
                 value,
                 section: None,
-                uses_encoding: false,
+                encoding: MimeParameterEncoding::None,
                 mime_charset: None,
                 mime_language: None,
             },
@@ -1550,13 +1600,29 @@ impl EncodeHeaderValue for Vec<MessageID> {
     }
 }
 
+// In theory, everyone would be aware of RFC 2231 and we can stop here,
+// but in practice, things are messy.  At some point someone started
+// to emit encoded-words insides quoted-string values, and for the sake
+// of compatibility what we see now is technically illegal stuff like
+// Content-Disposition: attachment; filename="=?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?="
+// being used to represent UTF-8 filenames.
+// As such, in our RFC 2231 handling, we also need to accommodate
+// these bogus representations, hence their presence in this enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MimeParameterEncoding {
+    None,
+    Rfc2231,
+    UnquotedRfc2047,
+    QuotedRfc2047,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MimeParameter {
     pub name: String,
     pub section: Option<u32>,
     pub mime_charset: Option<String>,
     pub mime_language: Option<String>,
-    pub uses_encoding: bool,
+    pub encoding: MimeParameterEncoding,
     pub value: String,
 }
 
@@ -1625,86 +1691,70 @@ impl MimeParameters {
                 mime_charset = Charset::for_label_no_replacement(cset.as_bytes());
             }
 
-            if let Some((charset, true)) =
-                mime_charset.as_ref().map(|cset| (cset, ele.uses_encoding))
-            {
-                let mut chars = ele.value.chars();
-                let mut bytes: Vec<u8> = vec![];
+            match ele.encoding {
+                MimeParameterEncoding::Rfc2231 => {
+                    if let Some(charset) = mime_charset.as_ref() {
+                        let mut chars = ele.value.chars();
+                        let mut bytes: Vec<u8> = vec![];
 
-                fn char_to_bytes(c: char, bytes: &mut Vec<u8>) {
-                    let mut buf = [0u8; 8];
-                    let s = c.encode_utf8(&mut buf);
-                    for b in s.bytes() {
-                        bytes.push(b);
-                    }
-                }
+                        fn char_to_bytes(c: char, bytes: &mut Vec<u8>) {
+                            let mut buf = [0u8; 8];
+                            let s = c.encode_utf8(&mut buf);
+                            for b in s.bytes() {
+                                bytes.push(b);
+                            }
+                        }
 
-                'next_char: while let Some(c) = chars.next() {
-                    match c {
-                        '%' => {
-                            let mut value = 0u8;
-                            for _ in 0..2 {
-                                match chars.next() {
-                                    Some(n) => match n {
-                                        '0'..='9' => {
-                                            value <<= 4;
-                                            value |= n as u32 as u8 - b'0';
+                        'next_char: while let Some(c) = chars.next() {
+                            match c {
+                                '%' => {
+                                    let mut value = 0u8;
+                                    for _ in 0..2 {
+                                        match chars.next() {
+                                            Some(n) => match n {
+                                                '0'..='9' => {
+                                                    value <<= 4;
+                                                    value |= n as u32 as u8 - b'0';
+                                                }
+                                                'a'..='f' => {
+                                                    value <<= 4;
+                                                    value |= (n as u32 as u8 - b'a') + 10;
+                                                }
+                                                'A'..='F' => {
+                                                    value <<= 4;
+                                                    value |= (n as u32 as u8 - b'A') + 10;
+                                                }
+                                                _ => {
+                                                    char_to_bytes('%', &mut bytes);
+                                                    char_to_bytes(n, &mut bytes);
+                                                    break 'next_char;
+                                                }
+                                            },
+                                            None => {
+                                                char_to_bytes('%', &mut bytes);
+                                                break 'next_char;
+                                            }
                                         }
-                                        'a'..='f' => {
-                                            value <<= 4;
-                                            value |= (n as u32 as u8 - b'a') + 10;
-                                        }
-                                        'A'..='F' => {
-                                            value <<= 4;
-                                            value |= (n as u32 as u8 - b'A') + 10;
-                                        }
-                                        _ => {
-                                            char_to_bytes('%', &mut bytes);
-                                            char_to_bytes(n, &mut bytes);
-                                            break 'next_char;
-                                        }
-                                    },
-                                    None => {
-                                        char_to_bytes('%', &mut bytes);
-                                        break 'next_char;
                                     }
+
+                                    bytes.push(value);
+                                }
+                                c => {
+                                    char_to_bytes(c, &mut bytes);
                                 }
                             }
+                        }
 
-                            bytes.push(value);
-                        }
-                        c => {
-                            char_to_bytes(c, &mut bytes);
-                        }
+                        let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
+                        result.push_str(&decoded);
+                    } else {
+                        result.push_str(&ele.value);
                     }
                 }
-
-                let (decoded, _malformed) = charset.decode_without_bom_handling(&bytes);
-                result.push_str(&decoded);
-            } else {
-                result.push_str(&ele.value);
-            }
-        }
-
-        // In theory, everyone would be aware of RFC 2231 and we can stop here,
-        // but in practice, things are messy.  At some point someone started
-        // to emit encoded-words insides quoted-string values, and for the sake
-        // of compatibility what we see now is technically illegal stuff like
-        // Content-Disposition: attachment; filename="=?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?="
-        // being used to represent UTF-8 filenames.
-        //
-        // What we do here is speculatively check for this and fix it up.
-        //
-        // For context, see:
-        // <https://blog.nodemailer.com/2017/01/27/the-mess-that-is-attachment-filenames/>
-        if mime_charset.is_none() {
-            // if the quoted content matches an encoded_word
-            if let Ok((loc, decoded)) = encoded_word(make_span(&result)) {
-                // and if quoted content fully matches (eg: no trailing data after the match)
-                if loc.fragment().is_empty() {
-                    // then we assume that it is a "legitimate" use case
-                    // for this bogus encoding of a mime parameter field
-                    result = decoded;
+                MimeParameterEncoding::UnquotedRfc2047
+                | MimeParameterEncoding::QuotedRfc2047
+                | MimeParameterEncoding::None => {
+                    result.push_str(&ele.value);
                 }
             }
         }
@@ -1719,6 +1769,15 @@ impl MimeParameters {
     }
 
     pub fn set(&mut self, name: &str, value: &str) {
+        self.set_with_encoding(name, value, MimeParameterEncoding::None)
+    }
+
+    pub(crate) fn set_with_encoding(
+        &mut self,
+        name: &str,
+        value: &str,
+        encoding: MimeParameterEncoding,
+    ) {
         self.remove(name);
 
         self.parameters.push(MimeParameter {
@@ -1727,7 +1786,7 @@ impl MimeParameters {
             section: None,
             mime_charset: None,
             mime_language: None,
-            uses_encoding: false,
+            encoding,
         });
     }
 
@@ -1743,120 +1802,139 @@ impl MimeParameters {
 impl EncodeHeaderValue for MimeParameters {
     fn encode_value(&self) -> SharedString<'static> {
         let mut result = self.value.to_string();
-        let mut names: Vec<&str> = self.parameters.iter().map(|p| p.name.as_str()).collect();
-        names.sort();
-        names.dedup();
+        let names: BTreeMap<&str, MimeParameterEncoding> = self
+            .parameters
+            .iter()
+            .map(|p| (p.name.as_str(), p.encoding))
+            .collect();
 
-        for name in names {
+        for (name, stated_encoding) in names {
             let value = self.get(name).expect("name to be present");
 
-            let needs_encoding = value.chars().any(|c| !is_mime_token(c) || !c.is_ascii());
-            // Prefer to use quoted_string representation when possible, as it doesn't
-            // require any RFC 2231 encoding
-            let use_quoted_string = value
-                .chars()
-                .all(|c| (is_qtext(c) || is_quoted_pair(c)) && c.is_ascii());
+            match stated_encoding {
+                MimeParameterEncoding::UnquotedRfc2047 => {
+                    let encoded = qp_encode(&value);
+                    result.push_str(&format!(";\r\n\t{name}={encoded}"));
+                }
+                MimeParameterEncoding::QuotedRfc2047 => {
+                    let encoded = qp_encode(&value);
+                    result.push_str(&format!(";\r\n\t{name}=\"{encoded}\""));
+                }
+                MimeParameterEncoding::None | MimeParameterEncoding::Rfc2231 => {
+                    let needs_encoding = value.chars().any(|c| !is_mime_token(c) || !c.is_ascii());
+                    // Prefer to use quoted_string representation when possible, as it doesn't
+                    // require any RFC 2231 encoding
+                    let use_quoted_string = value
+                        .chars()
+                        .all(|c| (is_qtext(c) || is_quoted_pair(c)) && c.is_ascii());
 
-            let mut params = vec![];
-            let mut chars = value.chars().peekable();
-            while chars.peek().is_some() {
-                let count = params.len();
-                let is_first = count == 0;
-                let prefix = if use_quoted_string {
-                    "\""
-                } else if is_first && needs_encoding {
-                    "UTF-8''"
-                } else {
-                    ""
-                };
-                let limit = 74 - (name.len() + 4 + prefix.len());
+                    let mut params = vec![];
+                    let mut chars = value.chars().peekable();
+                    while chars.peek().is_some() {
+                        let count = params.len();
+                        let is_first = count == 0;
+                        let prefix = if use_quoted_string {
+                            "\""
+                        } else if is_first && needs_encoding {
+                            "UTF-8''"
+                        } else {
+                            ""
+                        };
+                        let limit = 74 - (name.len() + 4 + prefix.len());
 
-                let mut encoded = String::new();
+                        let mut encoded = String::new();
 
-                while encoded.len() < limit {
-                    let c = match chars.next() {
-                        Some(c) => c,
-                        None => break,
-                    };
+                        while encoded.len() < limit {
+                            let c = match chars.next() {
+                                Some(c) => c,
+                                None => break,
+                            };
 
-                    if use_quoted_string {
-                        if c == '"' || c == '\\' {
-                            encoded.push('\\');
+                            if use_quoted_string {
+                                if c == '"' || c == '\\' {
+                                    encoded.push('\\');
+                                }
+                                encoded.push(c);
+                            } else if is_mime_token(c) && (!needs_encoding || c != '%') {
+                                encoded.push(c);
+                            } else {
+                                let mut buf = [0u8; 8];
+                                let s = c.encode_utf8(&mut buf);
+                                for b in s.bytes() {
+                                    encoded.push('%');
+                                    encoded.push(HEX_CHARS[(b as usize) >> 4] as char);
+                                    encoded.push(HEX_CHARS[(b as usize) & 0x0f] as char);
+                                }
+                            }
                         }
-                        encoded.push(c);
-                    } else if is_mime_token(c) && (!needs_encoding || c != '%') {
-                        encoded.push(c);
-                    } else {
-                        let mut buf = [0u8; 8];
-                        let s = c.encode_utf8(&mut buf);
-                        for b in s.bytes() {
-                            encoded.push('%');
-                            encoded.push(HEX_CHARS[(b as usize) >> 4] as char);
-                            encoded.push(HEX_CHARS[(b as usize) & 0x0f] as char);
+
+                        if use_quoted_string {
+                            encoded.push('"');
                         }
+
+                        params.push(MimeParameter {
+                            name: name.to_string(),
+                            section: Some(count as u32),
+                            mime_charset: if is_first {
+                                Some("UTF-8".to_string())
+                            } else {
+                                None
+                            },
+                            mime_language: None,
+                            encoding: if needs_encoding {
+                                MimeParameterEncoding::Rfc2231
+                            } else {
+                                MimeParameterEncoding::None
+                            },
+                            value: encoded,
+                        })
+                    }
+                    if params.len() == 1 {
+                        params.last_mut().map(|p| p.section = None);
+                    }
+                    for p in params {
+                        result.push_str(";\r\n\t");
+                        let charset_tick = if !use_quoted_string
+                            && (p.mime_charset.is_some() || p.mime_language.is_some())
+                        {
+                            "'"
+                        } else {
+                            ""
+                        };
+                        let lang_tick = if !use_quoted_string
+                            && (p.mime_language.is_some() || p.mime_charset.is_some())
+                        {
+                            "'"
+                        } else {
+                            ""
+                        };
+
+                        let section = p
+                            .section
+                            .map(|s| format!("*{s}"))
+                            .unwrap_or_else(String::new);
+
+                        let uses_encoding =
+                            if !use_quoted_string && p.encoding == MimeParameterEncoding::Rfc2231 {
+                                "*"
+                            } else {
+                                ""
+                            };
+                        let charset = if use_quoted_string {
+                            "\""
+                        } else {
+                            p.mime_charset.as_deref().unwrap_or("")
+                        };
+                        let lang = p.mime_language.as_deref().unwrap_or("");
+
+                        let line = format!(
+                            "{name}{section}{uses_encoding}={charset}{charset_tick}{lang}{lang_tick}{value}",
+                            name = &p.name,
+                            value = &p.value
+                        );
+                        result.push_str(&line);
                     }
                 }
-
-                if use_quoted_string {
-                    encoded.push('"');
-                }
-
-                params.push(MimeParameter {
-                    name: name.to_string(),
-                    section: Some(count as u32),
-                    mime_charset: if is_first {
-                        Some("UTF-8".to_string())
-                    } else {
-                        None
-                    },
-                    mime_language: None,
-                    uses_encoding: needs_encoding,
-                    value: encoded,
-                })
-            }
-            if params.len() == 1 {
-                params.last_mut().map(|p| p.section = None);
-            }
-            for p in params {
-                result.push_str(";\r\n\t");
-                let charset_tick = if !use_quoted_string
-                    && (p.mime_charset.is_some() || p.mime_language.is_some())
-                {
-                    "'"
-                } else {
-                    ""
-                };
-                let lang_tick = if !use_quoted_string
-                    && (p.mime_language.is_some() || p.mime_charset.is_some())
-                {
-                    "'"
-                } else {
-                    ""
-                };
-
-                let section = p
-                    .section
-                    .map(|s| format!("*{s}"))
-                    .unwrap_or_else(String::new);
-
-                let uses_encoding = if !use_quoted_string && p.uses_encoding {
-                    "*"
-                } else {
-                    ""
-                };
-                let charset = if use_quoted_string {
-                    "\""
-                } else {
-                    p.mime_charset.as_deref().unwrap_or("")
-                };
-                let lang = p.mime_language.as_deref().unwrap_or("");
-
-                let line = format!(
-                    "{name}{section}{uses_encoding}={charset}{charset_tick}{lang}{lang_tick}{value}",
-                    name = &p.name,
-                    value = &p.value
-                );
-                result.push_str(&line);
             }
         }
         result.into()
@@ -2345,14 +2423,11 @@ Some(
     }
 
     #[test]
-    fn attachment_filename_mess_aberrant() {
-        // Quotes are missing and the = = thing is totally borked;
-        // this header is expected to fail to parse
-        let message = concat!(
-            "Content-Disposition: attachment; filename= =?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\n",
-            "\n\n"
-        );
+    fn attachment_filename_mess_totally_bogus() {
+        let message = concat!("Content-Disposition: attachment; filename=@\n", "\n\n");
         let msg = MimePart::parse(message).unwrap();
+        eprintln!("{msg:#?}");
+
         assert!(msg
             .conformance()
             .contains(MessageConformance::INVALID_MIME_HEADERS));
@@ -2362,6 +2437,21 @@ Some(
         // there was no valid Content-Disposition in what we parsed
         let rebuilt = msg.rebuild().unwrap();
         k9::assert_equal!(rebuilt.headers().content_disposition(), Ok(None));
+    }
+
+    #[test]
+    fn attachment_filename_mess_aberrant() {
+        let message = concat!(
+            "Content-Disposition: attachment; filename= =?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\n",
+            "\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+
+        let cd = msg.headers().content_disposition().unwrap().unwrap();
+        k9::assert_equal!(cd.get("filename").unwrap(), "日本語の添付");
+
+        let encoded = cd.encode_value();
+        k9::assert_equal!(encoded, "attachment;\r\n\tfilename==?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98?=");
     }
 
     #[test]
@@ -2376,6 +2466,8 @@ Some(
 
         let cd = msg.headers().content_disposition().unwrap().unwrap();
         k9::assert_equal!(cd.get("filename").unwrap(), "日本語の添付");
+        let encoded = cd.encode_value();
+        k9::assert_equal!(encoded, "attachment;\r\n\tfilename=\"=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98?=\"");
 
         let ct = msg.headers().content_type().unwrap().unwrap();
         k9::assert_equal!(ct.get("name").unwrap(), "日本語の添付");
@@ -2713,7 +2805,7 @@ MimeParameters {
             section: None,
             mime_charset: None,
             mime_language: None,
-            uses_encoding: false,
+            encoding: None,
             value: "us-ascii",
         },
     ],
@@ -2739,7 +2831,7 @@ Some(
                 section: None,
                 mime_charset: None,
                 mime_language: None,
-                uses_encoding: false,
+                encoding: None,
                 value: "us-ascii",
             },
         ],
@@ -2793,7 +2885,7 @@ MimeParameters {
             mime_language: Some(
                 "en",
             ),
-            uses_encoding: true,
+            encoding: Rfc2231,
             value: "This%20is%20even%20more%20",
         },
         MimeParameter {
@@ -2803,7 +2895,7 @@ MimeParameters {
             ),
             mime_charset: None,
             mime_language: None,
-            uses_encoding: true,
+            encoding: Rfc2231,
             value: "%2A%2A%2Afun%2A%2A%2A%20",
         },
         MimeParameter {
@@ -2813,7 +2905,7 @@ MimeParameters {
             ),
             mime_charset: None,
             mime_language: None,
-            uses_encoding: false,
+            encoding: None,
             value: "isn't it!",
         },
     ],

@@ -2,7 +2,8 @@ use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
 use crate::strings::IntoSharedString;
 use crate::{
-    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameters, Result, SharedString,
+    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
+    Result, SharedString,
 };
 use charset::Charset;
 use serde::{Deserialize, Serialize};
@@ -651,13 +652,18 @@ impl<'a> MimePart<'a> {
         }
         let mut headers = HeaderMap::default();
 
-        headers.set_content_type(MimeParameters::new(content_type))?;
-        headers.set_content_transfer_encoding(MimeParameters::new("base64"))?;
+        let mut ct = MimeParameters::new(content_type);
 
         if let Some(opts) = options {
             let mut cd = MimeParameters::new(if opts.inline { "inline" } else { "attachment" });
             if let Some(name) = &opts.file_name {
                 cd.set("filename", name);
+                let encoding = if name.chars().any(|c| !c.is_ascii()) {
+                    MimeParameterEncoding::QuotedRfc2047
+                } else {
+                    MimeParameterEncoding::None
+                };
+                ct.set_with_encoding("name", name, encoding);
             }
             headers.set_content_disposition(cd)?;
 
@@ -665,6 +671,9 @@ impl<'a> MimePart<'a> {
                 headers.set_content_id(MessageID(id.to_string()))?;
             }
         }
+
+        headers.set_content_type(ct)?;
+        headers.set_content_transfer_encoding(MimeParameters::new("base64"))?;
 
         let body_len = encoded.len();
 
@@ -1351,11 +1360,12 @@ Content-Type: text/html;\r
 \r
 <b>rich</b> text\r
 --my-boundary\r
-Content-Type: application/octet-stream\r
-Content-Transfer-Encoding: base64\r
 Content-Disposition: attachment;\r
 \tfilename="woot.bin"\r
 Content-ID: <woot.id>\r
+Content-Type: application/octet-stream;\r
+\tname="woot.bin"\r
+Content-Transfer-Encoding: base64\r
 \r
 AAECAw==\r
 --my-boundary--\r
