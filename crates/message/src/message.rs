@@ -1,3 +1,6 @@
+use serde_with::serde_as;
+use serde_with::OneOrMany;
+use serde_with::formats::PreferOne;
 use crate::address::HeaderAddressList;
 #[cfg(feature = "impl")]
 use crate::dkim::Signer;
@@ -246,10 +249,12 @@ impl WeakMessage {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct MetaData {
     sender: EnvelopeAddress,
-    recipient: EnvelopeAddress,
+    #[serde_as(as = "OneOrMany<_, PreferOne>")]
+    recipient: Vec<EnvelopeAddress>,
     meta: serde_json::Value,
     #[serde(default)]
     schedule: Option<Scheduling>,
@@ -287,7 +292,7 @@ impl Message {
                 inner: Mutex::new(MessageInner {
                     metadata: Some(Box::new(MetaData {
                         sender,
-                        recipient,
+                        recipient: vec![recipient],
                         meta,
                         schedule: None,
                     })),
@@ -629,7 +634,10 @@ impl Message {
     pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
-            Some(meta) => Ok(meta.recipient.clone()),
+            Some(meta) => match meta.recipient.first() {
+                Some(recip) => Ok(recip.clone()),
+                None => anyhow::bail!("recipient list is empty!?"),
+            },
             None => anyhow::bail!("metadata is not loaded"),
         }
     }
@@ -638,7 +646,7 @@ impl Message {
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
-                meta.recipient = recipient;
+                meta.recipient = vec![recipient];
                 inner.flags.set(MessageFlags::DATA_DIRTY, true);
                 Ok(())
             }

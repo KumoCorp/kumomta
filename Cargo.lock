@@ -4168,6 +4168,7 @@ dependencies = [
  "rfc5321",
  "serde",
  "serde_json",
+ "serde_with",
  "spool",
  "timeq",
  "tokio",
