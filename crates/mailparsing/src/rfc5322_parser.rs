@@ -1686,6 +1686,29 @@ impl MimeParameters {
             }
         }
 
+        // In theory, everyone would be aware of RFC 2231 and we can stop here,
+        // but in practice, things are messy.  At some point someone started
+        // to emit encoded-words insides quoted-string values, and for the sake
+        // of compatibility what we see now is technically illegal stuff like
+        // Content-Disposition: attachment; filename="=?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?="
+        // being used to represent UTF-8 filenames.
+        //
+        // What we do here is speculatively check for this and fix it up.
+        //
+        // For context, see:
+        // <https://blog.nodemailer.com/2017/01/27/the-mess-that-is-attachment-filenames/>
+        if mime_charset.is_none() {
+            // if the quoted content matches an encoded_word
+            if let Ok((loc, decoded)) = encoded_word(make_span(&result)) {
+                // and if quoted content fully matches (eg: no trailing data after the match)
+                if loc.fragment().is_empty() {
+                    // then we assume that it is a "legitimate" use case
+                    // for this bogus encoding of a mime parameter field
+                    result = decoded;
+                }
+            }
+        }
+
         Some(result)
     }
 
@@ -2318,6 +2341,59 @@ Some(
         k9::assert_equal!(
             msg.headers().subject().unwrap().unwrap(),
             "Hello =?ISO-8859-1?B?SWYgeW91IGNhb!ByZWFkIHRoaXMgeW8=?= u understand the example."
+        );
+    }
+
+    #[test]
+    fn attachment_filename_mess_aberrant() {
+        // Quotes are missing and the = = thing is totally borked;
+        // this content is expected to fail to parse
+        let message = concat!(
+            "Content-Disposition: attachment; filename= =?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\n",
+            "\n\n"
+        );
+        MimePart::parse(message).unwrap_err();
+    }
+
+    #[test]
+    fn attachment_filename_mess_gmail() {
+        let message = concat!(
+            "Content-Disposition: attachment; filename=\"=?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\"\n",
+            "Content-Type: text/plain;\n",
+            "   name=\"=?UTF-8?B?5pel5pys6Kqe44Gu5re75LuY?=\"\n",
+            "\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+
+        let cd = msg.headers().content_disposition().unwrap().unwrap();
+        k9::assert_equal!(cd.get("filename").unwrap(), "日本語の添付");
+
+        let ct = msg.headers().content_type().unwrap().unwrap();
+        k9::assert_equal!(ct.get("name").unwrap(), "日本語の添付");
+    }
+
+    #[test]
+    fn attachment_filename_mess_fastmail() {
+        let message = concat!(
+            "Content-Disposition: attachment;\n",
+            "  filename*0*=utf-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E6%B7%BB%E4%BB%98;\n",
+            "  filename*1*=.txt\n",
+            "Content-Type: text/plain;\n",
+            "   name=\"=?UTF-8?Q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?=\"\n",
+            "   x-name=\"=?UTF-8?Q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?=bork\"\n",
+            "\n\n"
+        );
+        let msg = MimePart::parse(message).unwrap();
+
+        let cd = msg.headers().content_disposition().unwrap().unwrap();
+        k9::assert_equal!(cd.get("filename").unwrap(), "日本語の添付.txt");
+
+        let ct = msg.headers().content_type().unwrap().unwrap();
+        eprintln!("{ct:#?}");
+        k9::assert_equal!(ct.get("name").unwrap(), "日本語の添付.txt");
+        k9::assert_equal!(
+            ct.get("x-name").unwrap(),
+            "=?UTF-8?Q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?=bork"
         );
     }
 
