@@ -406,6 +406,7 @@ pub struct TraceSmtpV1Event {
     pub when: DateTime<Utc>,
 }
 
+#[serde_as]
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema, PartialEq)]
 pub enum TraceSmtpV1Payload {
     Connected,
@@ -428,7 +429,8 @@ pub enum TraceSmtpV1Payload {
         queue: String,
         meta: serde_json::Value,
         sender: String,
-        recipient: String,
+        #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
+        recipient: Vec<String>,
         id: SpoolId,
         #[serde(default)]
         was_arf_or_oob: Option<bool>,

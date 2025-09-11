@@ -367,6 +367,7 @@ pub struct ConcreteEsmtpListenerParams {
     pub client_timeout: Duration,
 
     pub data_processing_timeout: Duration,
+    pub batch_handling: BatchHandling,
 
     max_messages_per_connection: usize,
     max_recipients_per_message: usize,
@@ -421,6 +422,9 @@ impl ConcreteEsmtpListenerParams {
         }
         if let Some(banner) = base.banner {
             self.banner = banner;
+        }
+        if let Some(batch_handling) = base.batch_handling {
+            self.batch_handling = batch_handling;
         }
         if let Some(tls_certificate) = base.tls_certificate {
             self.tls_certificate.replace(tls_certificate);
@@ -513,6 +517,7 @@ impl Default for ConcreteEsmtpListenerParams {
         Self {
             hostname: default_hostname(),
             relay_hosts: CidrSet::default_trusted_hosts(),
+            batch_handling: BatchHandling::default(),
             banner: "KumoMTA".to_string(),
             tls_certificate: None,
             tls_private_key: None,
@@ -533,6 +538,17 @@ impl Default for ConcreteEsmtpListenerParams {
     }
 }
 
+#[derive(Deserialize, Serialize, Copy, Clone, Debug, Default, PartialEq)]
+pub enum BatchHandling {
+    /// Ever incoming recipient is given a separate message batch,
+    /// so they each have a batch of 1
+    #[default]
+    BifurcateAlways,
+    /// Extract the domains of the recipients and batch the recipients
+    /// by domain
+    BatchByDomain,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct GenericEsmtpListenerParams {
@@ -542,6 +558,9 @@ pub struct GenericEsmtpListenerParams {
     pub relay_hosts: Option<CidrSet>,
     #[serde(default)]
     pub banner: Option<String>,
+
+    #[serde(default)]
+    pub batch_handling: Option<BatchHandling>,
 
     #[serde(default)]
     pub tls_certificate: Option<KeySource>,
@@ -2430,7 +2449,37 @@ impl SmtpServerSession {
 
         let datestamp = Utc::now().to_rfc2822();
 
-        for recip in state.recipients {
+        // For multiple recipients, we need to batch things according to policy.
+        // We'll introduce a config enum for this:
+        // * BifurcateAlways - every recipient is split into their own message
+        // * BatchByDomain - group recipients by unique domain
+        // and also allow for a hook point that allows returning the batched
+        // recipients for use cases where something more advanced is desired.
+
+        let mut batches: Vec<Vec<EnvelopeAddress>> = vec![];
+        match self.params.batch_handling {
+            BatchHandling::BifurcateAlways => {
+                for recip in state.recipients {
+                    batches.push(vec![recip]);
+                }
+            }
+            BatchHandling::BatchByDomain => {
+                let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
+                for recip in state.recipients {
+                    by_domain
+                        .entry(recip.domain().to_lowercase())
+                        .or_insert_with(Vec::new)
+                        .push(recip);
+                }
+
+                batches = by_domain
+                    .into_iter()
+                    .map(|(_keys, values)| values)
+                    .collect();
+            }
+        }
+
+        for recip_list in batches {
             let id = SpoolId::new();
             let mut body = if self.params.trace_headers.received_header {
                 let received = {
@@ -2450,7 +2499,10 @@ impl SmtpServerSession {
                     let peer_address = self.peer_address.ip();
                     let my_address = self.my_address.ip();
                     let hostname = &self.params.hostname;
-                    let recip = recip.to_string();
+                    // RFC 5321 section 4.4: If the FOR clause appears,
+                    // it MUST contain exactly one <path> entry, even
+                    // when multiple RCPT commands have been given.
+                    let recip = recip_list[0].to_string();
                     format!(
                         "Received: from {from_domain} ({peer_address})\r\n  \
                             by {hostname} (KumoMTA {my_address}) \r\n  \
@@ -2471,7 +2523,7 @@ impl SmtpServerSession {
             let message = Message::new_dirty(
                 id,
                 state.sender.clone(),
-                vec![recip], // FIXME: multiple recipients
+                recip_list,
                 self.meta.clone_inner(),
                 Arc::new(body.into_boxed_slice()),
             )?;
@@ -2574,8 +2626,12 @@ impl SmtpServerSession {
 
             let queue_name = message.get_queue_name()?;
 
+            // Assumption: that the relayability of the recipient list in a
+            // message is represented fully by the first recipient in that list.
+            // If you have different relaying requirements per recipient, they
+            // must not be in the same batch.
             let relay_disposition = self
-                .check_relaying(&message.sender()?, &message.recipient()?)
+                .check_relaying(&message.sender()?, &message.first_recipient()?)
                 .await?;
 
             let mut relay_this_one = relay_disposition.relay;
@@ -2606,10 +2662,7 @@ impl SmtpServerSession {
                         .sender()
                         .map(|s| s.to_string())
                         .expect("have sender"),
-                    recipient: message
-                        .recipient()
-                        .map(|s| s.to_string())
-                        .expect("have recipient"),
+                    recipient: message.recipient_list_string().expect("have recipients"),
                     id: *message.id(),
                 },
                 when: Utc::now(),
