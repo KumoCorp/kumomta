@@ -270,7 +270,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 let msg = Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::null_sender(),
-                    recip,
+                    vec![recip],
                     serde_json::json!({}),
                     Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )?;
@@ -298,7 +298,7 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 Message::new_dirty(
                     SpoolId::new(),
                     EnvelopeAddress::parse(&sender).map_err(any_err)?,
-                    EnvelopeAddress::parse(&recip).map_err(any_err)?,
+                    vec![EnvelopeAddress::parse(&recip).map_err(any_err)?], // FIXME: multiple recips
                     serde_json::json!({}),
                     Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )

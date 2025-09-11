@@ -355,7 +355,7 @@ mod test {
         let msg = Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
-            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
             serde_json::json!({}),
             Arc::new(
                 "Subject: hello\r\n\r\nwoot"

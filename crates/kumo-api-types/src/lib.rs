@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use cidr_map::CidrSet;
 use serde::{Deserialize, Serialize};
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use spool::SpoolId;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -357,6 +359,7 @@ pub struct InspectQueueV1Response {
     pub last_changed: DateTime<Utc>,
 }
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub struct MessageInformation {
     /// The envelope sender
@@ -364,7 +367,8 @@ pub struct MessageInformation {
     pub sender: String,
     /// The envelope-to address
     #[schema(example = "recipient@example.com")]
-    pub recipient: String,
+    #[serde_as(as = "OneOrMany<_, PreferOne>")] // FIXME: json schema
+    pub recipient: Vec<String>,
     /// The message metadata
     #[schema(example=json!({
         "received_from": "10.0.0.1:3488"

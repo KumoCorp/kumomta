@@ -542,7 +542,7 @@ fn make_message<'a>(
     let message = Message::new_dirty(
         id,
         sender.clone(),
-        recip_addr,
+        vec![recip_addr],
         serde_json::json!({}),
         Arc::new(normalized.into_boxed_slice()),
     )?;
@@ -640,7 +640,7 @@ async fn queue_deferred(
     let message = message::Message::new_dirty(
         id,
         sender.clone(),
-        EnvelopeAddress::null_sender(),
+        vec![EnvelopeAddress::null_sender()],
         serde_json::json!({}),
         Arc::new(payload.into_boxed_slice()),
     )?;

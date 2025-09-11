@@ -344,8 +344,14 @@ impl ShapingInner {
     pub async fn match_rules(&self, record: &JsonLogRecord) -> anyhow::Result<Vec<Rule>> {
         use rfc5321::ForwardPath;
         // Extract the domain from the recipient.
-        let recipient = ForwardPath::try_from(record.recipient.as_str())
-            .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
+        let recipient = ForwardPath::try_from(
+            record
+                .recipient
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("no recipients!?"))?
+                .as_str(),
+        )
+        .map_err(|err| anyhow::anyhow!("parsing record.recipient: {err}"))?;
 
         let recipient = match recipient {
             ForwardPath::Postmaster => {
@@ -1730,7 +1736,7 @@ match_internal = true
                 kind: RecordType::TransientFailure,
                 id: String::new(),
                 sender: String::new(),
-                recipient: recipient.to_string(),
+                recipient: vec![recipient.to_string()],
                 queue: String::new(),
                 site: site.to_string(),
                 size: 0,

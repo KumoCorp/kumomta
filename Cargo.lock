@@ -3468,6 +3468,7 @@ dependencies = [
  "rfc5321",
  "serde",
  "serde_json",
+ "serde_with",
  "uuid",
  "uuid-helper",
 ]

@@ -1301,7 +1301,7 @@ impl Queue {
                 let engine = TemplateEngine::new();
                 let queue_name = msg.get_queue_name()?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let recipient = msg.recipient()?;
+                let recipient = msg.recipient()?; // FIXME: deliver to each recipient
                 let sender = msg.sender()?;
                 let expanded_maildir_path = engine.render(
                     "maildir_path",

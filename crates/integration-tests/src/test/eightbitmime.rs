@@ -111,7 +111,7 @@ DeliverySummary {
             bounces.push(format!(
                 "from=<{}> to=<{}> why='{}' subject={}",
                 record.sender,
-                record.recipient,
+                record.recipient.join(","),
                 record.response.content,
                 record.headers.get("Subject").unwrap().to_string(),
             ));
@@ -229,7 +229,7 @@ DeliverySummary {
             bounces.push(format!(
                 "from=<{}> to=<{}> why='{}' subject={}",
                 record.sender,
-                record.recipient,
+                record.recipient.join(","),
                 record.response.content,
                 record.headers.get("Subject").unwrap().to_string(),
             ));

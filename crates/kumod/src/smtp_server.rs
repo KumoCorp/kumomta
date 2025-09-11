@@ -301,8 +301,23 @@ impl TraceHeaders {
         let mut object = json!({
             // Marker to identify encoded supplemental header
             "_@_": "\\_/",
-            "recipient": message.recipient()?,
         });
+
+        let recips = message.recipient_list_string()?;
+        match recips.len() {
+            1 => {
+                object.as_object_mut().unwrap().insert(
+                    "recipient".to_string(),
+                    recips.into_iter().next().unwrap().into(),
+                );
+            }
+            _ => {
+                object
+                    .as_object_mut()
+                    .unwrap()
+                    .insert("recipient".to_string(), recips.into());
+            }
+        }
 
         for name in &self.include_meta_names {
             if let Ok(value) = message.get_meta(name) {
@@ -2456,7 +2471,7 @@ impl SmtpServerSession {
             let message = Message::new_dirty(
                 id,
                 state.sender.clone(),
-                recip,
+                vec![recip], // FIXME: multiple recipients
                 self.meta.clone_inner(),
                 Arc::new(body.into_boxed_slice()),
             )?;

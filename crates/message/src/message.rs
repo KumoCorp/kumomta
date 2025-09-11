@@ -1,6 +1,3 @@
-use serde_with::serde_as;
-use serde_with::OneOrMany;
-use serde_with::formats::PreferOne;
 use crate::address::HeaderAddressList;
 #[cfg(feature = "impl")]
 use crate::dkim::Signer;
@@ -26,6 +23,8 @@ use mlua::{LuaSerdeExt, UserData, UserDataMethods};
 use parking_lot::Mutex;
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use spool::{get_data_spool, get_meta_spool, Spool, SpoolId};
 use std::hash::Hash;
 use std::sync::{Arc, LazyLock, Weak};
@@ -278,7 +277,7 @@ impl Message {
     pub fn new_dirty(
         id: SpoolId,
         sender: EnvelopeAddress,
-        recipient: EnvelopeAddress,
+        recipient: Vec<EnvelopeAddress>,
         meta: serde_json::Value,
         data: Arc<Box<[u8]>>,
     ) -> anyhow::Result<Self> {
@@ -292,7 +291,7 @@ impl Message {
                 inner: Mutex::new(MessageInner {
                     metadata: Some(Box::new(MetaData {
                         sender,
-                        recipient: vec![recipient],
+                        recipient,
                         meta,
                         schedule: None,
                     })),
@@ -631,7 +630,12 @@ impl Message {
         }
     }
 
+    #[deprecated = "use recipient_list or first_recipient instead"]
     pub fn recipient(&self) -> anyhow::Result<EnvelopeAddress> {
+        self.first_recipient()
+    }
+
+    pub fn first_recipient(&self) -> anyhow::Result<EnvelopeAddress> {
         let inner = self.msg_and_id.inner.lock();
         match &inner.metadata {
             Some(meta) => match meta.recipient.first() {
@@ -642,11 +646,32 @@ impl Message {
         }
     }
 
+    pub fn recipient_list(&self) -> anyhow::Result<Vec<EnvelopeAddress>> {
+        let inner = self.msg_and_id.inner.lock();
+        match &inner.metadata {
+            Some(meta) => Ok(meta.recipient.clone()),
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
+    pub fn recipient_list_string(&self) -> anyhow::Result<Vec<String>> {
+        let inner = self.msg_and_id.inner.lock();
+        match &inner.metadata {
+            Some(meta) => Ok(meta.recipient.iter().map(|a| a.to_string()).collect()),
+            None => anyhow::bail!("metadata is not loaded"),
+        }
+    }
+
+    #[deprecated = "use set_recipient_list instead"]
     pub fn set_recipient(&self, recipient: EnvelopeAddress) -> anyhow::Result<()> {
+        self.set_recipient_list(vec![recipient])
+    }
+
+    pub fn set_recipient_list(&self, recipient: Vec<EnvelopeAddress>) -> anyhow::Result<()> {
         let mut inner = self.msg_and_id.inner.lock();
         match &mut inner.metadata {
             Some(meta) => {
-                meta.recipient = vec![recipient];
+                meta.recipient = recipient;
                 inner.flags.set(MessageFlags::DATA_DIRTY, true);
                 Ok(())
             }
@@ -803,7 +828,7 @@ impl Message {
                 let name = QueueNameComponents::format(
                     self.get_meta_string("campaign")?,
                     self.get_meta_string("tenant")?,
-                    self.recipient()?.domain().to_string().to_lowercase(),
+                    self.first_recipient()?.domain().to_string().to_lowercase(),
                     self.get_meta_string("routing_domain")?,
                 );
                 name.to_string()
@@ -1548,7 +1573,7 @@ mod test {
         Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
-            EnvelopeAddress::parse("recip@example.com").unwrap(),
+            vec![EnvelopeAddress::parse("recip@example.com").unwrap()],
             serde_json::json!({}),
             Arc::new(s.as_ref().to_vec().into_boxed_slice()),
         )

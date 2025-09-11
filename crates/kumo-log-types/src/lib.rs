@@ -6,6 +6,8 @@ use kumo_address::socket::SocketAddress;
 use rfc5321::Response;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_with::formats::PreferOne;
+use serde_with::{serde_as, OneOrMany};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -195,6 +197,7 @@ macro_rules! ts_serializer {
 ts_serializer!(ts_serializer, TimestampSerializer, timestamp, event_time);
 ts_serializer!(ct_serializer, CreationTimeSerializer, created, created_time);
 
+#[serde_as]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonLogRecord {
     /// What kind of record this is
@@ -205,7 +208,8 @@ pub struct JsonLogRecord {
     /// The envelope sender
     pub sender: String,
     /// The envelope recipient
-    pub recipient: String,
+    #[serde_as(as = "OneOrMany<_, PreferOne>")]
+    pub recipient: Vec<String>,
     /// Which named queue the message was associated with
     pub queue: String,
     /// Which MX site the message was being delivered to

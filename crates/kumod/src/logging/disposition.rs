@@ -141,9 +141,8 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                 .map(|addr| addr.to_string())
                 .unwrap_or_else(|err| format!("{err:#}")),
             recipient: msg
-                .recipient()
-                .map(|addr| addr.to_string())
-                .unwrap_or_else(|err| format!("{err:#}")),
+                .recipient_list_string()
+                .unwrap_or_else(|err| vec![format!("{err:#}")]),
             queue: msg
                 .get_queue_name()
                 .unwrap_or_else(|err| format!("{err:#}")),
@@ -183,7 +182,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     // This incoming bounce report is addressed to
                     // the envelope from of the original message
                     let sender = msg
-                        .recipient()
+                        .first_recipient()
                         .map(|addr| addr.to_string())
                         .unwrap_or_else(|err| format!("{err:#}"));
                     let queue = msg
@@ -224,12 +223,12 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             id: msg.id().to_string(),
                             size: 0,
                             sender: sender.clone(),
-                            recipient: recip
+                            recipient: vec![recip
                                 .original_recipient
                                 .as_ref()
                                 .unwrap_or(&recip.final_recipient)
                                 .recipient
-                                .to_string(),
+                                .to_string()],
                             queue: queue.to_string(),
                             site: site.to_string(),
                             peer_address: Some(ResolvedAddress {

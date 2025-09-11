@@ -31,7 +31,7 @@ pub async fn inspect_v1(
 
     for msg in queue.iter(request.limit) {
         if msg.load_meta_if_needed().await.is_ok() {
-            let recipient = msg.recipient()?.to_string();
+            let recipient = msg.recipient_list_string()?;
             let sender = msg.sender()?.to_string();
             let meta = msg.get_meta_obj()?;
             let scheduling = msg

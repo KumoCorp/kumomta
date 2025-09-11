@@ -6,7 +6,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "2025.07.21-fc739b66"
+    "version": "2025.09.10-91c0c2ac"
   },
   "paths": {
     "/api/admin/bounce/v1": {
@@ -925,7 +925,10 @@
             "minimum": 0
           },
           "recipient": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "The envelope-to address",
             "example": "recipient@example.com"
           },
