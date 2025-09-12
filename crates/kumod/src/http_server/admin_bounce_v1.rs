@@ -170,6 +170,7 @@ impl AdminBounceEntry {
                 tls_info: None,
                 source_address: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }

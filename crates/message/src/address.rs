@@ -89,6 +89,12 @@ impl TryInto<ReversePath> for EnvelopeAddress {
     }
 }
 
+impl From<ForwardPath> for EnvelopeAddress {
+    fn from(fp: ForwardPath) -> EnvelopeAddress {
+        EnvelopeAddress(fp.to_string())
+    }
+}
+
 #[cfg(feature = "impl")]
 impl UserData for EnvelopeAddress {
     fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {

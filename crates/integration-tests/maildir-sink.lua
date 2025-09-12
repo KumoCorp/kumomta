@@ -11,6 +11,7 @@ kumo.on('init', function()
   local smtp_params = {
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
+    batch_handling = 'BatchByDomain',
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then

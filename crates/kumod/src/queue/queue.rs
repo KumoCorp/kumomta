@@ -40,6 +40,7 @@ use throttle::ThrottleResult;
 use timeq::TimerEntryWithDelay;
 use tokio::sync::Notify;
 use tracing::instrument;
+use uuid::Uuid;
 
 pub type QueueHandle = Arc<Queue>;
 
@@ -481,6 +482,7 @@ impl Queue {
                 source_address: None,
                 provider: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }
@@ -593,6 +595,7 @@ impl Queue {
                                 source_address: None,
                                 provider: self.queue_config.borrow().provider_name.as_deref(),
                                 session_id: None,
+                                recipient_list: None,
                             })
                             .await;
                             SpoolManager::remove_from_spool(id).await?;
@@ -651,6 +654,7 @@ impl Queue {
                         source_address: None,
                         provider: self.queue_config.borrow().provider_name.as_deref(),
                         session_id: None,
+                        recipient_list: None,
                     })
                     .await;
                     SpoolManager::remove_from_spool(id).await?;
@@ -723,6 +727,7 @@ impl Queue {
                     source_address: None,
                     provider: self.queue_config.borrow().provider_name.as_deref(),
                     session_id: None,
+                    recipient_list: None,
                 })
                 .await;
                 SpoolManager::remove_from_spool(id).await?;
@@ -885,6 +890,7 @@ impl Queue {
                 source_address: None,
                 provider: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
         }
@@ -963,6 +969,7 @@ impl Queue {
                 tls_info: None,
                 source_address: None,
                 session_id: None,
+                recipient_list: None,
             })
             .await;
 
@@ -1148,6 +1155,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1184,6 +1192,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1217,6 +1226,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1273,6 +1283,7 @@ impl Queue {
                             source_address: None,
                             provider: self.queue_config.borrow().provider_name.as_deref(),
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         context.note(InsertReason::LoggedTransientFailure);
@@ -1298,112 +1309,155 @@ impl Queue {
             } => {
                 opt_timeout_at(deadline, msg.load_data_if_needed()).await?;
 
-                let engine = TemplateEngine::new();
+                let mut successes = vec![];
+                let mut failures = vec![];
+
                 let queue_name = msg.get_queue_name()?;
                 let components = QueueNameComponents::parse(&queue_name);
-                let recipient = msg.recipient()?; // FIXME: deliver to each recipient
                 let sender = msg.sender()?;
-                let expanded_maildir_path = engine.render(
-                    "maildir_path",
-                    maildir_path,
-                    context! {
-                        meta => msg.get_meta_obj()?,
-                        queue => queue_name,
-                        campaign => components.campaign,
-                        tenant => components.tenant,
-                        domain => components.domain,
-                        routing_domain => components.routing_domain,
-                        local_part => recipient.user(),
-                        domain_part => recipient.domain(),
-                        email => recipient.to_string(),
-                        sender_local_part => sender.user(),
-                        sender_domain_part => sender.domain(),
-                        sender_email => sender.to_string(),
-                    },
-                )?;
 
-                tracing::trace!(
-                    "Deliver msg {} to maildir at {maildir_path} -> {expanded_maildir_path}",
-                    msg.id(),
-                );
-                let dir_mode = *dir_mode;
-                let file_mode = *file_mode;
+                for recipient in msg.recipient_list()? {
+                    let engine = TemplateEngine::new();
+                    let expanded_maildir_path = engine.render(
+                        "maildir_path",
+                        maildir_path,
+                        context! {
+                            meta => msg.get_meta_obj()?,
+                            queue => queue_name,
+                            campaign => components.campaign,
+                            tenant => components.tenant,
+                            domain => components.domain,
+                            routing_domain => components.routing_domain,
+                            local_part => recipient.user(),
+                            domain_part => recipient.domain(),
+                            email => recipient.to_string(),
+                            sender_local_part => sender.user(),
+                            sender_domain_part => sender.domain(),
+                            sender_email => sender.to_string(),
+                        },
+                    )?;
 
-                let name = self.name.to_string();
-                let result: anyhow::Result<String> = spawn_blocking_on(
-                    "write to maildir",
-                    {
-                        let msg = msg.clone();
-                        move || {
-                            let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
-                            md.set_dir_mode(dir_mode);
-                            md.set_file_mode(file_mode);
-                            md.create_dirs().with_context(|| {
-                                format!(
+                    tracing::trace!(
+                        "Deliver msg {} to maildir at {maildir_path} -> {expanded_maildir_path}",
+                        msg.id(),
+                    );
+                    let dir_mode = *dir_mode;
+                    let file_mode = *file_mode;
+
+                    let name = self.name.to_string();
+                    let result: anyhow::Result<String> = spawn_blocking_on(
+                        "write to maildir",
+                        {
+                            let msg = msg.clone();
+                            move || {
+                                let mut md = maildir::Maildir::with_path(&expanded_maildir_path);
+                                md.set_dir_mode(dir_mode);
+                                md.set_file_mode(file_mode);
+                                md.create_dirs().with_context(|| {
+                                    format!(
                                     "creating dirs for maildir {expanded_maildir_path} in queue {}",
                                     name
                                 )
-                            })?;
-                            Ok(md.store_new(&msg.get_data())?)
-                        }
-                    },
-                    &get_main_runtime(),
-                )?
-                .await?;
+                                })?;
+                                Ok(md.store_new(&msg.get_data())?)
+                            }
+                        },
+                        &get_main_runtime(),
+                    )?
+                    .await?;
 
-                match result {
-                    Ok(id) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::Delivery,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 200,
-                                enhanced_code: None,
-                                content: format!("wrote to maildir with id={id}"),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: Some("Maildir"),
-                            tls_info: None,
-                            source_address: None,
-                            provider: None,
-                            session_id: None,
-                        })
-                        .await;
-                        spawn("remove from spool", async move {
-                            SpoolManager::remove_from_spool(*msg.id()).await
-                        })?;
-                        Ok(())
+                    match result {
+                        Ok(id) => {
+                            successes.push((recipient, id));
+                        }
+                        Err(err) => {
+                            failures.push((recipient, err));
+                        }
                     }
-                    Err(err) => {
-                        log_disposition(LogDisposition {
-                            kind: RecordType::TransientFailure,
-                            msg: msg.clone(),
-                            site: "",
-                            peer_address: None,
-                            response: Response {
-                                code: 400,
-                                enhanced_code: None,
-                                content: format!("failed to write to maildir: {err:#}"),
-                                command: None,
-                            },
-                            egress_pool: None,
-                            egress_source: None,
-                            relay_disposition: None,
-                            delivery_protocol: Some("Maildir"),
-                            tls_info: None,
-                            source_address: None,
-                            provider: None,
-                            session_id: None,
-                        })
-                        .await;
-                        context.note(InsertReason::LoggedTransientFailure);
-                        anyhow::bail!("failed maildir store: {err:#}");
+                }
+
+                // Allow correlation of successful and failed attempts from this
+                // same maildir writing "session"
+                let session_id = Uuid::new_v4();
+
+                if !successes.is_empty() {
+                    let mut status = vec![];
+                    for (recipient, id) in successes {
+                        status.push(format!(
+                            "{}: wrote to maildir with id={id}",
+                            recipient.to_string()
+                        ));
                     }
+                    let status = status.join(", ");
+                    log_disposition(LogDisposition {
+                        kind: RecordType::Delivery,
+                        msg: msg.clone(),
+                        site: "",
+                        peer_address: None,
+                        response: Response {
+                            code: 200,
+                            enhanced_code: None,
+                            content: status,
+                            command: None,
+                        },
+                        egress_pool: None,
+                        egress_source: None,
+                        relay_disposition: None,
+                        delivery_protocol: Some("Maildir"),
+                        tls_info: None,
+                        source_address: None,
+                        provider: None,
+                        session_id: Some(session_id),
+                        recipient_list: None,
+                    })
+                    .await;
+                }
+
+                if !failures.is_empty() {
+                    let mut remaining_recipient_list = vec![];
+                    let mut status = vec![];
+                    for (recipient, err) in failures {
+                        status.push(format!(
+                            "{}: failed to write to maildir: {err:#}",
+                            recipient.to_string()
+                        ));
+                        remaining_recipient_list.push(recipient);
+                    }
+                    let status = status.join(", ");
+                    log_disposition(LogDisposition {
+                        kind: RecordType::TransientFailure,
+                        msg: msg.clone(),
+                        site: "",
+                        peer_address: None,
+                        response: Response {
+                            code: 400,
+                            enhanced_code: None,
+                            content: status.clone(),
+                            command: None,
+                        },
+                        egress_pool: None,
+                        egress_source: None,
+                        relay_disposition: None,
+                        delivery_protocol: Some("Maildir"),
+                        tls_info: None,
+                        source_address: None,
+                        provider: None,
+                        session_id: Some(session_id),
+                        recipient_list: None,
+                    })
+                    .await;
+                    context.note(InsertReason::LoggedTransientFailure);
+                    // Adjust for remaining recipients
+                    msg.set_recipient_list(remaining_recipient_list)?;
+                    anyhow::bail!("failed maildir store: {status}");
+                } else {
+                    // Every recipient in the batch was successful; this
+                    // message has reached its final disposition and
+                    // must now be removed
+                    spawn("remove from spool", async move {
+                        SpoolManager::remove_from_spool(*msg.id()).await
+                    })?;
+                    Ok(())
                 }
             }
         }

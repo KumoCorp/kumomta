@@ -1473,6 +1473,7 @@ impl Dispatcher {
                             source_address: None,
                             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                             session_id: Some(dispatcher.session_id),
+                            recipient_list: None,
                         })
                         .await;
                         QueueManager::requeue_message(
@@ -1530,6 +1531,7 @@ impl Dispatcher {
                         source_address: None,
                         provider: dispatcher.path_config.borrow().provider_name.as_deref(),
                         session_id: Some(dispatcher.session_id),
+                        recipient_list: None,
                     })
                     .await;
                     QueueManager::requeue_message(
@@ -1795,6 +1797,7 @@ impl Dispatcher {
                 source_address: None,
                 provider: path_config.provider_name.as_deref(),
                 session_id: Some(self.session_id),
+                recipient_list: None,
             })
             .await;
 
@@ -1897,6 +1900,7 @@ impl Dispatcher {
                             tls_info: None,
                             source_address: None,
                             session_id: Some(self.session_id),
+                            recipient_list: None,
                         })
                         .await;
 

@@ -2711,6 +2711,7 @@ impl SmtpServerSession {
                 source_address: None,
                 provider: None,
                 session_id: Some(self.session_id),
+                recipient_list: None,
             })
             .await;
             if queue_name != "null" {
@@ -3033,6 +3034,7 @@ impl QueueDispatcher for DeferredSmtpInjectionDispatcher {
             source_address: None,
             provider: None,
             session_id: None,
+            recipient_list: None,
         })
         .await;
 

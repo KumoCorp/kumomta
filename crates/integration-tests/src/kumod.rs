@@ -9,7 +9,9 @@ use kumo_log_types::*;
 use maildir::{MailEntry, Maildir};
 use mailparsing::MessageBuilder;
 use nix::unistd::{Uid, User};
-use rfc5321::{ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts};
+use rfc5321::{
+    BatchSendSuccess, ForwardPath, Response, ReversePath, SmtpClient, SmtpClientTimeouts,
+};
 use sqlite::{Connection, State};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -32,6 +34,7 @@ pub struct MailGenParams<'a> {
     pub body: Option<&'a str>,
     pub full_content: Option<&'a str>,
     pub ignore_8bit_checks: bool,
+    pub recip_list: Option<Vec<&'a str>>,
 }
 
 /// Generate a single nonsense string with no spaces with
@@ -74,10 +77,28 @@ pub fn generate_message_text(n_bytes: usize, wrap: usize) -> String {
 }
 
 impl MailGenParams<'_> {
+    pub fn recipient_list(&self) -> Vec<&str> {
+        let mut recipients = vec![];
+        if let Some(recip) = &self.recip {
+            recipients.push(*recip);
+        }
+        if let Some(recips) = &self.recip_list {
+            for &r in recips {
+                recipients.push(r);
+            }
+        }
+        if recipients.is_empty() {
+            recipients.push("recip@example.com");
+        }
+        recipients
+    }
+
     pub async fn send(&self, client: &mut SmtpClient) -> anyhow::Result<Response> {
         client.set_ignore_8bit_checks(self.ignore_8bit_checks);
         let sender = self.sender.unwrap_or("sender@example.com");
-        let recip = self.recip.unwrap_or("recip@example.com");
+        let recips = self.recipient_list();
+        anyhow::ensure!(recips.len() == 1, "use send_batch for multi-recipient!");
+        let recip = recips[0];
         let body = self
             .generate()
             .context("generation of message body failed")?;
@@ -88,6 +109,22 @@ impl MailGenParams<'_> {
                 ForwardPath::try_from(recip).unwrap(),
                 &body,
             )
+            .await?)
+    }
+
+    pub async fn send_batch(&self, client: &mut SmtpClient) -> anyhow::Result<BatchSendSuccess> {
+        let sender = self.sender.unwrap_or("sender@example.com");
+        let recips = self
+            .recipient_list()
+            .into_iter()
+            .map(|r| ForwardPath::try_from(r).unwrap())
+            .collect();
+        let body = self
+            .generate()
+            .context("generation of message body failed")?;
+
+        Ok(client
+            .send_mail_multi_recip(ReversePath::try_from(sender).unwrap(), recips, &body)
             .await?)
     }
 
@@ -107,10 +144,10 @@ impl MailGenParams<'_> {
             &body_owner
         };
         let sender = self.sender.unwrap_or("sender@example.com");
-        let recip = self.recip.unwrap_or("recip@example.com");
+        let recip = self.recipient_list().join(", ");
         let mut message = MessageBuilder::new();
         message.set_from(sender)?;
-        message.set_to(recip).ok(); // the no_ports test assigns an address that is invalid in To:
+        message.set_to(&*recip).ok(); // the no_ports test assigns an address that is invalid in To:
         message.set_subject(self.subject.unwrap_or("Hello! This is a test"))?;
         message.text_plain(body);
         message.prepend("X-Test1", "Test1");

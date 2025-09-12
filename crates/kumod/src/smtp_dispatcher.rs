@@ -25,6 +25,7 @@ use rfc5321::{
     TlsInformation, TlsOptions, TlsStatus,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UnixStream;
@@ -852,6 +853,7 @@ impl SmtpDispatcher {
         dispatcher: &Dispatcher,
         kind: RecordType,
         msg: Message,
+        recipient_list: Option<Vec<String>>,
         response: Response,
     ) {
         log_disposition(LogDisposition {
@@ -868,6 +870,7 @@ impl SmtpDispatcher {
             source_address: self.source_address.clone(),
             provider: dispatcher.path_config.borrow().provider_name.as_deref(),
             session_id: Some(dispatcher.session_id),
+            recipient_list: recipient_list,
         })
         .await
     }
@@ -957,14 +960,15 @@ impl QueueDispatcher for SmtpDispatcher {
             .sender()?
             .try_into()
             .map_err(|err| anyhow::anyhow!("{err}"))?;
-        let recipient: ForwardPath = msg
-            .recipient()?
-            .try_into()
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
+        let mut recipients: Vec<ForwardPath> = vec![];
+        for recip in msg.recipient_list()? {
+            recipients.push(recip.try_into().map_err(|err| anyhow::anyhow!("{err:#}"))?);
+        }
 
         self.tracer.set_meta("message_id", msg.id().to_string());
         self.tracer.set_meta("sender", sender.to_string());
-        self.tracer.set_meta("recipient", recipient.to_string());
+        self.tracer
+            .set_meta("recipient", msg.recipient_list_string()?);
         if let Ok(name) = msg.get_queue_name() {
             let components = QueueNameComponents::parse(&name);
             self.tracer.set_meta("domain", components.domain);
@@ -1000,24 +1004,116 @@ impl QueueDispatcher for SmtpDispatcher {
         self.client.as_mut().map(|client| {
             client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
         });
-
-        match self
+        let send_result = self
             .client
             .as_mut()
             .unwrap()
-            .send_mail(sender, recipient, &*data)
-            .await
-        {
-            Err(ClientError::Rejected(mut response)) => {
-                let queue_name = msg.get_queue_name()?;
-                let components = QueueNameComponents::parse(&queue_name);
+            .send_mail_multi_recip(sender, recipients.clone(), &*data)
+            .await;
+
+        let mut result_per_rcpt = vec![];
+        let mut rewrite_eligible = false;
+        let mut break_connection = false;
+        let mut overall_response = None;
+
+        match send_result {
+            Err(ClientError::RejectedBatch(responses)) => {
+                rewrite_eligible = true;
+                for resp in responses {
+                    result_per_rcpt.push(resp.clone());
+                }
+            }
+            Err(ClientError::Rejected(response)) => {
+                rewrite_eligible = true;
+                for _recip in &recipients {
+                    result_per_rcpt.push(response.clone());
+                }
+            }
+            Err(
+                ref err @ ClientError::TimeOutRequest {
+                    ref commands,
+                    duration,
+                },
+            ) => {
+                break_connection = true;
+                let reason = format!(
+                    "KumoMTA internal: failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} to write {commands:?}",
+                    dispatcher.name, self.client_address
+                );
+                tracing::debug!("{reason}");
+
+                for _recip in &recipients {
+                    result_per_rcpt.push(Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: err.command(),
+                    });
+                }
+            }
+            Err(ClientError::TimeOutResponse { command, duration }) => {
+                break_connection = true;
+                let reason = format!(
+                    "KumoMTA internal: failed to send message to {} {:?}: \
+                    Timed Out waiting {duration:?} for response to {command:?}",
+                    dispatcher.name, self.client_address
+                );
+
+                for _recip in &recipients {
+                    result_per_rcpt.push(Response {
+                        code: 421,
+                        enhanced_code: Some(EnhancedStatusCode {
+                            class: 4,
+                            subject: 4,
+                            detail: 2,
+                        }),
+                        content: reason.clone(),
+                        command: command.as_ref().map(|c| c.encode()),
+                    });
+                }
+            }
+            Err(err) => {
+                for _recip in &recipients {
+                    result_per_rcpt.push(Response {
+                        code: 400,
+                        enhanced_code: None,
+                        content: format!("KumoMTA internal: failed to send message: {err:#}"),
+                        command: err.command(),
+                    });
+                }
+            }
+            Ok(status) => {
+                for resp in &status.rcpt_responses {
+                    if resp.code == 250 {
+                        result_per_rcpt.push(status.response.clone());
+                    } else {
+                        rewrite_eligible = true;
+                        result_per_rcpt.push(resp.clone());
+                    }
+                }
+                overall_response.replace(status.response);
+            }
+        }
+
+        if rewrite_eligible {
+            let queue_name = msg.get_queue_name()?;
+            let components = QueueNameComponents::parse(&queue_name);
+
+            let sig = CallbackSignature::<
+                (String, &str, Option<&str>, Option<&str>, &str),
+                Option<u16>,
+            >::new("smtp_client_rewrite_delivery_status");
+
+            for response in result_per_rcpt.iter_mut() {
+                if response.code == 250 {
+                    continue;
+                }
                 let mut config = load_config().await.context("load_config")?;
-
-                let sig = CallbackSignature::<
-                    (String, &str, Option<&str>, Option<&str>, &str),
-                    Option<u16>,
-                >::new("smtp_client_rewrite_delivery_status");
-
                 let rewritten_code: anyhow::Result<Option<u16>> = config
                     .async_call_callback(
                         &sig,
@@ -1050,327 +1146,142 @@ impl QueueDispatcher for SmtpDispatcher {
                         tracing::error!("smtp_client_rewrite_delivery_status event failed: {err:#}. Preserving original DSN");
                     }
                 }
-                let due_to_message = response.was_due_to_message();
-
-                if response.code == 503 || (response.code >= 300 && response.code < 400) {
-                    // 503 is a "permanent" failure response but it indicates
-                    // that there was a protocol synchronization issue.
-                    //
-                    // For 3xx: there isn't a valid RFC-defined 300 final
-                    // disposition for submitting an email message.  In order
-                    // to get here there has most likely been a protocol
-                    // synchronization issue.
-                    //
-                    // We should consider the connection to be broken and we
-                    // should allow the message to be retried later on.
-                    if !self
-                        .client_address
-                        .as_ref()
-                        .map(|a| a.name.contains("icloud.com"))
-                        .unwrap_or(false)
-                    {
-                        tracing::error!(
-                            "Unexpected {} response while sending message \
-                            to {} {:?}: {response:?}. \
-                            Probable protocol synchronization error, please report this! \
-                            Session ID={}. \
-                            Message will be re-queued.",
-                            response.code,
-                            dispatcher.name,
-                            self.client_address,
-                            dispatcher.session_id,
-                        );
-                    }
-
-                    dispatcher.metrics.inc_transfail();
-                    // Break this connection
-                    let have_more_connection_candidates =
-                        self.update_state_for_reconnect(dispatcher);
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::TransientFailure,
-                            msg.clone(),
-                            response.clone(),
-                        )
-                        .await;
-
-                        if !due_to_message
-                            && try_next_host_on_transport_error
-                            && have_more_connection_candidates
-                        {
-                            // Try it on the next connection
-                            dispatcher.msgs.push(msg);
-                        } else {
-                            spawn(
-                                "requeue message",
-                                QueueManager::requeue_message(
-                                    msg,
-                                    IncrementAttempts::Yes,
-                                    None,
-                                    response,
-                                    InsertReason::LoggedTransientFailure.into(),
-                                ),
-                            )?;
-                        }
-                    }
-                    // We handled requeue
-                    return Ok(());
-                } else if response.code >= 400 && response.code < 500 {
-                    // Transient failure
-                    tracing::debug!(
-                        "failed to send message to {} {:?}: {response:?}",
-                        dispatcher.name,
-                        self.client_address
-                    );
-                    dispatcher.metrics.inc_transfail();
-
-                    let reconnect = response.code == 421;
-
-                    let have_more_connection_candidates = if reconnect {
-                        // We're effectively disconnected, so prepare
-                        // for reconnecting for the next message.
-                        self.update_state_for_reconnect(dispatcher)
-                    } else {
-                        false
-                    };
-
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::TransientFailure,
-                            msg.clone(),
-                            response.clone(),
-                        )
-                        .await;
-
-                        if !due_to_message
-                            && try_next_host_on_transport_error
-                            && have_more_connection_candidates
-                        {
-                            // Try it on the next connection
-                            dispatcher.msgs.push(msg);
-                        } else {
-                            spawn(
-                                "requeue message",
-                                QueueManager::requeue_message(
-                                    msg,
-                                    IncrementAttempts::Yes,
-                                    None,
-                                    response,
-                                    InsertReason::LoggedTransientFailure.into(),
-                                ),
-                            )?;
-                        }
-                    }
-
-                    return Ok(());
-                } else if response.code >= 200 && response.code < 300 {
-                    tracing::debug!("Delivered OK! {response:?}");
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(
-                            dispatcher,
-                            RecordType::Delivery,
-                            msg.clone(),
-                            response,
-                        )
-                        .await;
-                        SpoolManager::remove_from_spool(*msg.id()).await?;
-                    }
-                    dispatcher.metrics.inc_delivered();
-                } else {
-                    dispatcher.metrics.inc_fail();
-                    tracing::debug!(
-                        "failed to send message to {} {:?}: {response:?}",
-                        dispatcher.name,
-                        self.client_address
-                    );
-                    if let Some(msg) = dispatcher.msgs.pop() {
-                        self.log_disposition(dispatcher, RecordType::Bounce, msg.clone(), response)
-                            .await;
-                        SpoolManager::remove_from_spool(*msg.id()).await?;
-                    }
-                }
             }
-            Err(
-                ref err @ ClientError::TimeOutRequest {
-                    ref commands,
-                    duration,
-                },
-            ) => {
-                // Transient failure
-                let reason = format!(
-                    "KumoMTA internal: failed to send message to {} {:?}: \
-                    Timed Out waiting {duration:?} to write {commands:?}",
-                    dispatcher.name, self.client_address
-                );
-                tracing::debug!("{reason}");
-                dispatcher.metrics.inc_transfail();
-
-                // Move on to the next host
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 421,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 4,
-                            subject: 4,
-                            detail: 2,
-                        }),
-                        content: reason.clone(),
-                        command: err.command(),
-                    };
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if try_next_host_on_transport_error && have_more_connection_candidates {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-                return Ok(());
-            }
-            Err(ClientError::TimeOutResponse { command, duration }) => {
-                // Transient failure
-                let reason = format!(
-                    "KumoMTA internal: failed to send message to {} {:?}: \
-                    Timed Out waiting {duration:?} for response to {command:?}",
-                    dispatcher.name, self.client_address
-                );
-
-                tracing::debug!("{reason}");
-                dispatcher.metrics.inc_transfail();
-                // Move on to the next host
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 421,
-                        enhanced_code: Some(EnhancedStatusCode {
-                            class: 4,
-                            subject: 4,
-                            detail: 2,
-                        }),
-                        content: reason.clone(),
-                        command: command.map(|c| c.encode()),
-                    };
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if try_next_host_on_transport_error && have_more_connection_candidates {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-                return Ok(());
-            }
-            Err(err) => {
-                // Some other kind of error; we consider this to be a Transient failure,
-                // and we will prefer to continue with another host
-                tracing::debug!(
-                    "failed to send message to {} {:?}: {err:#}",
-                    dispatcher.name,
-                    self.client_address
-                );
-
-                dispatcher.metrics.inc_transfail();
-                let due_to_message = err.was_due_to_message();
-                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
-
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    let response = Response {
-                        code: 400,
-                        enhanced_code: None,
-                        content: format!("KumoMTA internal: failed to send message: {err:#}"),
-                        command: err.command(),
-                    };
-
-                    self.log_disposition(
-                        dispatcher,
-                        RecordType::TransientFailure,
-                        msg.clone(),
-                        response.clone(),
-                    )
-                    .await;
-
-                    if !due_to_message
-                        && try_next_host_on_transport_error
-                        && have_more_connection_candidates
-                    {
-                        // Try it on the next connection
-                        dispatcher.msgs.push(msg);
-                    } else {
-                        spawn(
-                            "requeue message",
-                            QueueManager::requeue_message(
-                                msg,
-                                IncrementAttempts::Yes,
-                                None,
-                                response,
-                                InsertReason::LoggedTransientFailure.into(),
-                            ),
-                        )?;
-                    }
-                }
-
-                return Ok(());
-            }
-            Ok(response) => {
-                tracing::debug!("Delivered OK! {response:?}");
-                if let Some(msg) = dispatcher.msgs.pop() {
-                    self.log_disposition(dispatcher, RecordType::Delivery, msg.clone(), response)
-                        .await;
-                    SpoolManager::remove_from_spool(*msg.id()).await?;
-                }
-                dispatcher.metrics.inc_delivered();
-            }
-        };
-
-        let is_connected = self
-            .client
-            .as_ref()
-            .map(|c| c.is_connected())
-            .unwrap_or(false);
-        if !is_connected {
-            self.update_state_for_reconnect(dispatcher);
-            anyhow::bail!(
-                "after previous send attempt, client is unexpectedly no longer connected"
-            );
         }
 
-        Ok(())
+        // Group by distinct response for logging purposes
+        let mut by_status = HashMap::new();
+
+        // This will hold the list of recipients that have not
+        // reached a terminal disposition
+        let mut revised_recipient_list = vec![];
+
+        fn classify_record(response: &Response) -> RecordType {
+            if response.code == 503 || (response.code >= 300 && response.code < 500) {
+                // 503 is a "permanent" failure response but it indicates
+                // that there was a protocol synchronization issue.
+                //
+                // For 3xx: there isn't a valid RFC-defined 300 final
+                // disposition for submitting an email message.  In order
+                // to get here there has most likely been a protocol
+                // synchronization issue.
+                RecordType::TransientFailure
+            } else if response.code >= 200 && response.code < 300 {
+                RecordType::Delivery
+            } else {
+                RecordType::Bounce
+            }
+        }
+
+        let mut retry_immediately = false;
+
+        for (recipient, response) in recipients.iter().zip(result_per_rcpt.iter()) {
+            let record_type = classify_record(&response);
+
+            if record_type == RecordType::TransientFailure {
+                revised_recipient_list.push(recipient.clone().into());
+            }
+            if record_type != RecordType::Delivery && overall_response.is_none() {
+                overall_response.replace(response.clone());
+            }
+            match record_type {
+                RecordType::TransientFailure => {
+                    dispatcher.metrics.inc_transfail();
+                }
+                RecordType::Delivery => {
+                    dispatcher.metrics.inc_delivered();
+                }
+                RecordType::Bounce => {
+                    dispatcher.metrics.inc_fail();
+                }
+                _ => unreachable!(),
+            }
+
+            if !response.was_due_to_message() {
+                retry_immediately = true;
+            }
+
+            if response.code == 421 {
+                break_connection = true;
+            }
+
+            by_status
+                .entry(response.clone())
+                .or_insert_with(Vec::new)
+                .push(recipient.clone());
+        }
+
+        // Log the various outcomes
+        for (response, recips) in by_status {
+            let record_type = classify_record(&response);
+            self.log_disposition(
+                dispatcher,
+                record_type,
+                msg.clone(),
+                Some(recips.into_iter().map(|fp| fp.to_string()).collect()),
+                response,
+            )
+            .await;
+        }
+
+        if revised_recipient_list.is_empty() {
+            // No more recipients means that we can stop tracking
+            // this message and remove it from the spool
+            dispatcher.msgs.pop();
+            SpoolManager::remove_from_spool(*msg.id()).await?;
+
+            let is_connected = self
+                .client
+                .as_ref()
+                .map(|c| c.is_connected())
+                .unwrap_or(false);
+            if !is_connected {
+                self.update_state_for_reconnect(dispatcher);
+                anyhow::bail!(
+                    "after previous send attempt, client is unexpectedly no longer connected"
+                );
+            }
+
+            Ok(())
+        } else {
+            // Revise the recipient list; all delivered and bounced
+            // recipients are removed leaving just those that need
+            // the message to be re-attempted
+            msg.set_recipient_list(revised_recipient_list)?;
+            dispatcher.msgs.pop();
+
+            if retry_immediately && try_next_host_on_transport_error {
+                break_connection = true;
+            }
+
+            let have_more_connection_candidates = if break_connection {
+                self.update_state_for_reconnect(dispatcher)
+            } else {
+                false
+            };
+
+            if retry_immediately && have_more_connection_candidates {
+                // Try it on the next connection
+                dispatcher.msgs.push(msg);
+                return Ok(());
+            }
+
+            spawn(
+                "requeue message",
+                QueueManager::requeue_message(
+                    msg,
+                    IncrementAttempts::Yes,
+                    None,
+                    overall_response.take().unwrap_or_else(|| Response {
+                        code: 400,
+                        enhanced_code: None,
+                        command: None,
+                        content: "KumoMTA internal: retrying failed batch".to_string(),
+                    }),
+                    InsertReason::LoggedTransientFailure.into(),
+                ),
+            )?;
+            Ok(())
+        }
     }
 }

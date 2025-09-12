@@ -11,6 +11,7 @@ local AMQP_HOST_PORT = os.getenv 'KUMOD_AMQP_HOST_PORT'
 local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 local DEFERRED_SMTP_SERVER_MSG_INJECT =
   os.getenv 'KUMOD_DEFERRED_SMTP_SERVER_MSG_INJECT'
+local BATCH_HANDLING = (os.getenv 'KUMOD_BATCH_HANDLING') or 'BifurcateAlways'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
@@ -35,6 +36,7 @@ kumo.on('init', function()
         banner = 'what do you get when you multiply six by nine?',
       },
     },
+    batch_handling = BATCH_HANDLING,
   }
 
   kumo.start_http_listener {

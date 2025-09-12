@@ -332,6 +332,7 @@ impl SpoolManager {
                             source_address: None,
                             provider: None,
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         self.remove_from_spool_impl(id).await?;
@@ -375,6 +376,7 @@ impl SpoolManager {
                             source_address: None,
                             provider: None,
                             session_id: None,
+                            recipient_list: None,
                         })
                         .await;
                         self.remove_from_spool_impl(id).await?;
@@ -485,6 +487,7 @@ impl SpoolManager {
                                     source_address: None,
                                     provider: None,
                                     session_id: None,
+                                    recipient_list: None,
                                 })
                                 .await;
                                 self.remove_from_spool_impl(id).await?;
