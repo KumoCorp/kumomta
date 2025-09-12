@@ -92,6 +92,109 @@ impl RecordType {
     }
 }
 
+/// Unfortunately, when we defined the `timestamp` and `created` fields
+/// in the log structure, we made the decision to log as the integer
+/// unix timestamp format, which causes us to discard the sub-second
+/// information that we otherwise have available.
+///
+/// We'd like to now include the full info in the serialized log
+/// record, without bloating the in-memory representation, or otherwise
+/// explicitly duplicating data to arrange for serde to emit it for us.
+///
+/// That's where this macro comes in; it allows us to serialize those
+/// fields via a proxy type that effectively causes serde to emit two
+/// different serializations of the same value.
+///
+/// Usage is: `ts_serializer(MODULE_NAME, STRUCT_NAME, SECONDS_FIELD, FULL_FIELD)`
+///
+/// The MODULE_NAME and STRUCT_NAME are not especially important and
+/// are really present just for namespacing.
+///
+/// The SECONDS_FIELD defines the name of the field to be emitted
+/// as the unix timestamp (in seconds).
+///
+/// The FULL_FIELD defines the name of the field to be emitted
+/// as the full RFC 3339 datetime.
+///
+/// The macro defines a module and struct that can be used as a proxy
+/// for serialization.
+///
+/// To actually use it, you need to annotate the field in the struct;
+///
+/// ```norun
+/// #[serde(flatten, with = "ts_serializer")]
+/// pub timestamp: DateTime<Utc>,
+/// ```
+///
+/// It is important that `flatten` is used to avoid serde emitting
+/// a nested/child struct, and the `with` attribute is what points
+/// the serialization to the defined proxy module; it must
+/// reference the MODULE_NAME you defined.
+macro_rules! ts_serializer {
+    ($module:ident, $name:ident, $seconds:ident, $full:ident) => {
+        mod $module {
+            use super::*;
+            use serde::{Deserializer, Serializer};
+
+            #[derive(Serialize, Deserialize, Copy, Clone, Eq, Hash, Default, Debug, PartialEq)]
+            struct $name {
+                #[serde(with = "chrono::serde::ts_seconds")]
+                pub $seconds: DateTime<Utc>,
+
+                /// Optional for backwards compatibility: we don't
+                /// expect $full to be present, but we'll take it
+                /// if it is!
+                #[serde(default)]
+                pub $full: Option<DateTime<Utc>>,
+            }
+
+            impl std::ops::Deref for $name {
+                type Target = DateTime<Utc>;
+                fn deref(&self) -> &DateTime<Utc> {
+                    self.$full.as_ref().unwrap_or(&self.$seconds)
+                }
+            }
+
+            impl<T: chrono::TimeZone> From<DateTime<T>> for $name
+            where
+                DateTime<Utc>: From<DateTime<T>>,
+            {
+                fn from(value: DateTime<T>) -> $name {
+                    let timestamp: DateTime<Utc> = value.into();
+                    $name {
+                        $seconds: timestamp,
+                        $full: Some(timestamp),
+                    }
+                }
+            }
+
+            impl From<$name> for DateTime<Utc> {
+                fn from(value: $name) -> DateTime<Utc> {
+                    *value
+                }
+            }
+
+            pub fn serialize<S>(d: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                let proxy: $name = (*d).into();
+                proxy.serialize(s)
+            }
+
+            pub fn deserialize<'a, D>(d: D) -> Result<DateTime<Utc>, D::Error>
+            where
+                D: Deserializer<'a>,
+            {
+                $name::deserialize(d).map(|p| p.into())
+            }
+        }
+    };
+}
+
+ts_serializer!(ts_serializer, TimestampSerializer, timestamp, event_time);
+ts_serializer!(ct_serializer, CreationTimeSerializer, created, created_time);
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JsonLogRecord {
     /// What kind of record this is
@@ -115,10 +218,10 @@ pub struct JsonLogRecord {
     /// hostname or EHLO domain
     pub peer_address: Option<ResolvedAddress>,
     /// The time at which we are logging this event
-    #[serde(with = "chrono::serde::ts_seconds")]
+    #[serde(flatten, with = "ts_serializer")]
     pub timestamp: DateTime<Utc>,
     /// The time at which the message was initially received and created
-    #[serde(with = "chrono::serde::ts_seconds")]
+    #[serde(flatten, with = "ct_serializer")]
     pub created: DateTime<Utc>,
     /// The number of delivery attempts that have been made.
     /// Note that this may be approximate after a restart; use the

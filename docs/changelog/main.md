@@ -47,6 +47,9 @@
    and/or (re)build messages independently from the incoming message flow. #117
  * [kumo.generate_rfc3464_message](../reference/kumo/generate_rfc3464_message.md)
    can be used to generate RFC 3464 non-delivery-reports.
+ * New `event_time` and `created_time` fields in [Log
+   Record](../reference/log_record.md) provide sub-second time stamp
+   granularity. #405
 
 ## Fixes
 

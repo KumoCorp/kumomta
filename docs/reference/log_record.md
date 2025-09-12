@@ -73,11 +73,19 @@ The log record is a JSON object with the following shape:
 
     // The time at which this record was generated, expressed
     // as a unix timestamp: seconds since the unix epoch
-    "timestamp": 1678069691,
+    "timestamp": 1757675281,
+
+    // The time at which this record was generated, expressed
+    // as an RFC 3339 string {{since('dev', inline=True)}}
+    "event_time": "2025-09-12T11:08:01.440526026Z",
 
     // The time at which the message was received, expressed
     // as a unix timestamp: seconds since the unix epoch
-    "created": 1678069691,
+    "created": 1757675281,
+
+    // The time at which the message was received, expressed
+    // as an RFC 3339 string {{since('dev', inline=True)}}
+    "created_time": "2025-09-12T11:08:01.440526026Z",
 
     // The number of delivery attempts.
     "num_attempts": 0,
