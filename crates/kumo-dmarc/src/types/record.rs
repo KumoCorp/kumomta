@@ -1,21 +1,39 @@
+use dns_resolver::Resolver;
+
 use crate::types::feedback_address::FeedbackAddress;
 use crate::types::format::Format;
 use crate::types::mode::Mode;
 use crate::types::policy::Policy;
 use crate::types::report_failure::ReportFailure;
+use crate::types::results::DmarcResultWithContext;
+use crate::{DmarcContext, DmarcResult};
 use std::str::FromStr;
 
+#[derive(Debug)]
 pub struct Record {
-    align_dkim: Mode,
-    align_spf: Mode,
+    pub align_dkim: Mode,
+    pub align_spf: Mode,
     report_failure: ReportFailure,
-    policy: Policy,
+    pub policy: Policy,
     rate: u8,
     format: Format,
     interval: u32,
     aggregate_feedback: Vec<FeedbackAddress>,
     message_failure: Vec<FeedbackAddress>,
     subdomain_policy: Policy,
+}
+
+impl Record {
+    pub(crate) async fn evaluate(
+        &self,
+        _cx: &DmarcContext<'_>,
+        _resolver: &dyn Resolver,
+    ) -> DmarcResultWithContext {
+        DmarcResultWithContext {
+            result: DmarcResult::Pass,
+            context: "Success".into(),
+        }
+    }
 }
 
 impl FromStr for Record {

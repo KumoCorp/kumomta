@@ -3,6 +3,7 @@ use crate::types::policy::Policy;
 use crate::types::policy_override::PolicyOverrideReason;
 use instant_xml::{FromXml, ToXml};
 use kumo_spf::SpfDisposition;
+use serde::Serialize;
 use std::net::IpAddr;
 
 #[derive(Debug, Eq, FromXml, PartialEq, ToXml)]
@@ -55,11 +56,19 @@ pub struct DkimAuthResult {
     human_result: Option<String>,
 }
 
-#[derive(Debug, Eq, PartialEq, ToXml)]
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize)]
 #[xml(scalar, rename_all = "lowercase")]
 pub enum DmarcResult {
     Pass,
     Fail,
+}
+
+// A synthetic type to bundle the result with a reason
+#[derive(Debug, Eq, PartialEq, ToXml, Serialize)]
+#[xml(rename_all = "lowercase")]
+pub struct DmarcResultWithContext {
+    pub result: DmarcResult,
+    pub context: String,
 }
 
 #[derive(Debug, Eq, PartialEq, ToXml)]
