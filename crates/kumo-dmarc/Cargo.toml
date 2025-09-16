@@ -5,5 +5,12 @@ edition = "2021"
 
 [dependencies]
 chrono = {workspace=true}
+dns-resolver = {path="../dns-resolver"}
+hickory-resolver = {workspace=true}
 instant-xml = {workspace=true}
 kumo-spf = { path = "../kumo-spf" }
+serde = {workspace=true}
+
+[dev-dependencies]
+k9 = {workspace=true}
+tokio = {workspace = true, features = ["full", "tracing"]}

@@ -3263,8 +3263,13 @@ name = "kumo-dmarc"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dns-resolver",
+ "hickory-resolver",
  "instant-xml",
+ "k9",
  "kumo-spf",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -3468,6 +3473,7 @@ dependencies = [
  "kumo-address",
  "kumo-api-types",
  "kumo-chrono-helper",
+ "kumo-dmarc",
  "kumo-log-types",
  "kumo-prometheus",
  "kumo-server-common",
