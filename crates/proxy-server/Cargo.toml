@@ -9,6 +9,7 @@ clap = {workspace=true}
 env_logger = {workspace=true}
 libc = {workspace=true}
 log = {workspace=true}
+nix = {workspace=true, features=["resource", "user"]}
 socksv5 = {workspace=true}
 tokio = {workspace=true, features=["full", "tracing"]}
 

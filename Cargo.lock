@@ -5310,6 +5310,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log",
+ "nix 0.28.0",
  "socksv5",
  "tokio",
  "tokio-splice",

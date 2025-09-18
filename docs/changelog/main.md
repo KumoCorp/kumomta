@@ -58,3 +58,7 @@
 
  * `msg:check_fix_conformance` could panic when attempting to fix messages with
    broken base64 parts
+ * The kumo `proxy-server` now increases its soft `NOFILE` limit to match its
+   hard limit on startup (just as we do in `kumod` and `tsa-daemon`), which
+   helps to avoid issues with running out of file descriptors when no explicit
+   tunings have been deployed for the proxy server.
