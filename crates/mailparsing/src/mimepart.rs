@@ -428,14 +428,59 @@ impl<'a> MimePart<'a> {
         };
 
         for hdr in self.headers.iter() {
-            // Skip rfc2045 associated headers; we already rebuilt
-            // those above
             let name = hdr.get_name();
-            if name.eq_ignore_ascii_case("Content-Type")
-                || name.eq_ignore_ascii_case("Content-Transfer-Encoding")
-                || name.eq_ignore_ascii_case("Content-Disposition")
-                || name.eq_ignore_ascii_case("Content-ID")
-            {
+            if name.eq_ignore_ascii_case("Content-ID") {
+                continue;
+            }
+
+            // Merge in any MimeParameters that we might otherwise have lost
+            // in the rebuild
+            if name.eq_ignore_ascii_case("Content-Type") {
+                if let Ok(params) = hdr.as_content_type() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_type()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_type(dest)?;
+                }
+                continue;
+            }
+            if name.eq_ignore_ascii_case("Content-Transfer-Encoding") {
+                if let Ok(params) = hdr.as_content_transfer_encoding() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_transfer_encoding()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_transfer_encoding(dest)?;
+                }
+                continue;
+            }
+            if name.eq_ignore_ascii_case("Content-Disposition") {
+                if let Ok(params) = hdr.as_content_disposition() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_disposition()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_disposition(dest)?;
+                }
                 continue;
             }
 
@@ -1518,5 +1563,90 @@ Ok(
         let body = rebuilt.body().unwrap();
 
         assert_eq!(body, DecodedBody::Binary(expect.to_vec()));
+    }
+
+    /// Validate that we don't lose supplemental mime parameters like:
+    /// `Content-Type: text/calendar; method=REQUEST`
+    #[test]
+    fn rebuild_invitation() {
+        let message = concat!(
+            "Subject: Test for events 2\r\n",
+            "Content-Type: multipart/mixed;\r\n",
+            " boundary=8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Type: multipart/alternative;\r\n",
+            " boundary=a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "Content-Type: text/plain; charset=UTF-8\r\n",
+            "\r\n",
+            "This is a test for calendar event invitation\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "Content-Type: text/html; charset=UTF-8\r\n",
+            "\r\n",
+            "<p>This is a test for calendar event invitation</p>\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f--\r\n",
+            "\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Disposition: inline; name=\"Invitation.ics\"\r\n",
+            "Content-Type: text/calendar; method=REQUEST; name=\"Invitation.ics\"\r\n",
+            "\r\n",
+            "Invitation\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Disposition: attachment; filename=\"event.ics\"\r\n",
+            "Content-Type: application/ics\r\n",
+            "\r\n",
+            "Event\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r\n",
+            "\r\n"
+        );
+
+        let part = MimePart::parse(message).unwrap();
+        let rebuilt = part.rebuild().unwrap();
+
+        k9::snapshot!(
+            rebuilt.to_message_string(),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3"\r
+Subject: Test for events 2\r
+\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Type: multipart/alternative;\r
+\tboundary="a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f"\r
+\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+This is a test for calendar event invitation\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r
+Content-Type: text/html;\r
+\tcharset="us-ascii"\r
+\r
+<p>This is a test for calendar event invitation</p>\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f--\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Type: text/calendar;\r
+\tcharset="us-ascii";\r
+\tmethod="REQUEST";\r
+\tname="Invitation.ics"\r
+\r
+Invitation\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Disposition: attachment;\r
+\tfilename="event.ics"\r
+Content-Type: application/ics;\r
+\tname="event.ics"\r
+Content-Transfer-Encoding: base64\r
+\r
+RXZlbnQNCg==\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r
+
+"#
+        );
     }
 }
