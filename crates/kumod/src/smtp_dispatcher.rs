@@ -121,12 +121,6 @@ pub struct OpportunisticInsecureTlsHandshakeError {
     pub label: String,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct CertificateKeyPair {
-    certificate: Vec<u8>,
-    key: Vec<u8>,
-}
-
 impl OpportunisticInsecureTlsHandshakeError {
     pub fn is_match_anyhow(err: &anyhow::Error) -> bool {
         Self::is_match(err.root_cause())
