@@ -70,19 +70,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
 #[test]
 fn test_decode_padding() {
     assert_eq!(
-        str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2").unwrap()).unwrap(),
+        std::str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2").unwrap()).unwrap(),
         "2email.log\0.csv"
     );
     assert_eq!(
-        str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2=").unwrap()).unwrap(),
+        std::str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2=").unwrap()).unwrap(),
         "2email.log\0.csv"
     );
     assert_eq!(
-        str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2==").unwrap()).unwrap(),
+        std::str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2==").unwrap()).unwrap(),
         "2email.log\0.csv"
     );
     assert_eq!(
-        str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2===").unwrap()).unwrap(),
+        std::str::from_utf8(&decode(&BASE64, b"MmVtYWlsLmxvZwAuY3N2===").unwrap()).unwrap(),
         "2email.log\0.csv"
     );
 }
