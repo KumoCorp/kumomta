@@ -50,7 +50,7 @@
  * New `event_time` and `created_time` fields in [Log
    Record](../reference/log_record.md) provide sub-second time stamp
    granularity. #405
- * [kumo.encode](../reference/kumo.encode) is now a bit more relaxed
+ * [kumo.encode](../reference/kumo.encode/index.md) is now a bit more relaxed
    about excess (but otherwise harmless) padding in the various
    `baseXX` encoding schemes.
 
