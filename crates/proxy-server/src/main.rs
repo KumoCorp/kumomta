@@ -1,6 +1,6 @@
-use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use anyhow::Context;
 use clap::Parser;
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use tokio::net::TcpListener;
 
 mod proxy_handler;
