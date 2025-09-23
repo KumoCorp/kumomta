@@ -1111,9 +1111,11 @@ impl Message {
         &self,
         check: MessageConformance,
         fix: MessageConformance,
+        settings: Option<&CheckFixSettings>,
     ) -> anyhow::Result<()> {
         let data = self.get_data();
-        let mut msg = MimePart::parse(data.as_ref().as_ref())?;
+        let data_bytes = data.as_ref().as_ref();
+        let mut msg = MimePart::parse(data_bytes)?;
 
         let conformance = msg.conformance();
 
@@ -1138,6 +1140,39 @@ impl Message {
                 .is_empty();
 
             if !missing_headers_only {
+                if to_fix.contains(MessageConformance::NEEDS_TRANSFER_ENCODING) {
+                    // Something is 8-bit. If we're lucky, it's simply UTF-8,
+                    // but it could be some other "legacy" charset encoding.
+                    // If we've been asked to detect an encoding, try that now,
+                    // and re-parse the message with the re-coded input.
+                    // Otherwise, we'll attempt a lossy conversion to UTF-8
+                    // and the resulting message will likely include unicode
+                    // replacement characters.
+
+                    if let Some(settings) = settings {
+                        if settings.detect_encoding {
+                            use charset_normalizer_rs::entity::NormalizerSettings;
+
+                            let norm_settings = NormalizerSettings {
+                                include_encodings: settings.include_encodings.clone(),
+                                exclude_encodings: settings.exclude_encodings.clone(),
+                                ..Default::default()
+                            };
+
+                            let guess = charset_normalizer_rs::from_bytes(
+                                &data_bytes.to_vec(),
+                                Some(norm_settings),
+                            )
+                            .map_err(|err| anyhow::anyhow!("{err}"))?;
+                            if let Some(best) = guess.get_best() {
+                                if let Some(decoded) = best.decoded_payload() {
+                                    msg = MimePart::parse(decoded.to_string())?;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 msg = msg.rebuild().with_context(|| {
                     format!("Rebuilding message to correct conformance issues: {problems}")
                 })?;
@@ -1443,18 +1478,31 @@ impl UserData for Message {
 
         methods.add_async_method(
             "check_fix_conformance",
-            |_, this, (check, fix): (String, String)| async move {
+            |lua, this, (check, fix, settings): (String, String, Option<mlua::Value>)| async move {
                 use std::str::FromStr;
                 let check = MessageConformance::from_str(&check).map_err(any_err)?;
                 let fix = MessageConformance::from_str(&fix).map_err(any_err)?;
 
-                match this.check_fix_conformance(check, fix) {
+                let settings = match settings {
+                    Some(v) => Some(lua.from_value(v).map_err(any_err)?),
+                    None => None,
+                };
+
+                match this.check_fix_conformance(check, fix, settings.as_ref()) {
                     Ok(_) => Ok(None),
                     Err(err) => Ok(Some(format!("{err:#}"))),
                 }
             },
         );
     }
+}
+
+#[derive(Default, Debug, Clone)]
+#[cfg_attr(feature = "impl", derive(Deserialize))]
+pub struct CheckFixSettings {
+    pub detect_encoding: bool,
+    pub include_encodings: Vec<String>,
+    pub exclude_encodings: Vec<String>,
 }
 
 impl TimerEntryWithDelay for WeakMessage {
@@ -1488,13 +1536,13 @@ mod test {
     use super::*;
     use serde_json::json;
 
-    fn new_msg_body<S: AsRef<str>>(s: S) -> Message {
+    fn new_msg_body<S: AsRef<[u8]>>(s: S) -> Message {
         Message::new_dirty(
             SpoolId::new(),
             EnvelopeAddress::parse("sender@example.com").unwrap(),
             EnvelopeAddress::parse("recip@example.com").unwrap(),
             serde_json::json!({}),
-            Arc::new(s.as_ref().as_bytes().to_vec().into_boxed_slice()),
+            Arc::new(s.as_ref().to_vec().into_boxed_slice()),
         )
         .unwrap()
     }
@@ -1837,6 +1885,7 @@ Hello";
             msg.check_fix_conformance(
                 MessageConformance::MISSING_MESSAGE_ID_HEADER,
                 MessageConformance::empty(),
+                None,
             )
             .unwrap_err(),
             "Message has conformance issues: MISSING_MESSAGE_ID_HEADER"
@@ -1845,6 +1894,7 @@ Hello";
         msg.check_fix_conformance(
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
             MessageConformance::MISSING_MESSAGE_ID_HEADER,
+            None,
         )
         .unwrap();
 
@@ -1877,6 +1927,7 @@ Hello this is a really long line Hello this is a really long line
         msg.check_fix_conformance(
             MessageConformance::MISSING_COLON_VALUE,
             MessageConformance::MISSING_MESSAGE_ID_HEADER | MessageConformance::LINE_TOO_LONG,
+            None,
         )
         .unwrap();
 
@@ -1911,6 +1962,7 @@ Hello this is a really long line Hello this is a really long line
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::MISSING_MIME_VERSION,
+            None,
         )
         .unwrap();
         k9::snapshot!(
@@ -1931,6 +1983,7 @@ Body
         msg.check_fix_conformance(
             MessageConformance::default(),
             MessageConformance::MISSING_MIME_VERSION | MessageConformance::NAME_ENDS_WITH_SPACE,
+            None,
         )
         .unwrap();
         k9::snapshot!(
@@ -1949,6 +2002,30 @@ Body\r
 
 "#
         );
+    }
+
+    #[test]
+    fn check_fix_latin_input() {
+        // Note that the encoding_rs crate unifies latin1 into cp1252
+        const POUNDS: &str = "Subject: £\r\n\r\nGBP\r\n";
+        let (content, _, _) = encoding_rs::WINDOWS_1252.encode(POUNDS);
+        let msg = new_msg_body(&*content);
+        msg.check_fix_conformance(
+            MessageConformance::default(),
+            MessageConformance::NEEDS_TRANSFER_ENCODING,
+            Some(&CheckFixSettings {
+                detect_encoding: true,
+                include_encodings: vec!["iso-8859-1".to_string()],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+
+        let subject = msg
+            .get_first_named_header_value("subject")
+            .unwrap()
+            .unwrap();
+        assert_eq!(subject, "£");
     }
 
     #[test]

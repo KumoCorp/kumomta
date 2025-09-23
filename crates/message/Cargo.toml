@@ -11,12 +11,14 @@ impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "d
 anyhow = {workspace=true}
 bitflags = {workspace=true}
 kumo-dkim = {path="../dkim", optional=true}
+charset-normalizer-rs.workspace = true
 config = {path="../config"}
 chrono = {workspace=true, default-features=false, features=["serde", "clock"]}
 chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
 dns-resolver = {path="../dns-resolver"}
 duration-serde = {path="../duration-serde"}
+encoding_rs.workspace = true
 futures = {workspace=true}
 intrusive-collections.workspace = true
 kumo-address = {path="../kumo-address"}
