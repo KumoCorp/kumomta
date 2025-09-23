@@ -19,7 +19,7 @@ use kumo_log_types::rfc5965::ARFReport;
 use mailparsing::{AuthenticationResult, AuthenticationResults, EncodeHeaderValue};
 use mailparsing::{DecodedBody, Header, HeaderParseResult, MessageConformance, MimePart};
 #[cfg(feature = "impl")]
-use mlua::{LuaSerdeExt, UserData, UserDataMethods};
+use mlua::{IntoLua, LuaSerdeExt, UserData, UserDataMethods};
 use parking_lot::Mutex;
 use prometheus::{Histogram, IntGauge};
 use serde::{Deserialize, Serialize};
@@ -1345,19 +1345,38 @@ impl UserData for Message {
             this.set_sender(sender).map_err(any_err)
         });
 
-        methods.add_method("recipient", move |_, this, _: ()| {
-            this.recipient().map_err(any_err)
+        methods.add_method("recipient", move |lua, this, _: ()| {
+            let mut recipients = this.recipient_list().map_err(any_err)?;
+            match recipients.len() {
+                0 => Ok(mlua::Value::Nil),
+                1 => {
+                    let recip: EnvelopeAddress = recipients.pop().expect("have 1");
+                    recip.into_lua(lua)
+                }
+                _ => recipients.into_lua(lua),
+            }
+        });
+
+        methods.add_method("recipient_list", move |lua, this, _: ()| {
+            let recipients = this.recipient_list().map_err(any_err)?;
+            recipients.into_lua(lua)
         });
 
         methods.add_method("set_recipient", move |lua, this, value: mlua::Value| {
-            let recipient = match value {
+            let recipients = match value {
                 mlua::Value::String(s) => {
                     let s = s.to_str()?;
-                    EnvelopeAddress::parse(&s).map_err(any_err)?
+                    vec![EnvelopeAddress::parse(&s).map_err(any_err)?]
                 }
-                _ => lua.from_value::<EnvelopeAddress>(value.clone())?,
+                _ => {
+                    if let Ok(recips) = lua.from_value::<Vec<EnvelopeAddress>>(value.clone()) {
+                        recips
+                    } else {
+                        vec![lua.from_value::<EnvelopeAddress>(value.clone())?]
+                    }
+                }
             };
-            this.set_recipient(recipient).map_err(any_err)
+            this.set_recipient_list(recipients).map_err(any_err)
         });
 
         #[cfg(feature = "impl")]

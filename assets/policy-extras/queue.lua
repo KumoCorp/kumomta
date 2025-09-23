@@ -389,7 +389,7 @@ local function apply_impl(msg, data)
     msg:set_meta('tenant', tenant)
   end
 
-  local recip = msg:recipient()
+  local recip = msg:recipient_list()[1]
   if recip then
     local composed = resolve_config(
       data,
@@ -761,6 +761,11 @@ egress_pool = "bar"
   end
 
   local msg = new_msg 'recip@example.com'
+  apply_impl(msg, data)
+  utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
+
+  local msg = new_msg 'recip@example.com'
+  msg:set_recipient { 'a@example.com', 'b@example.com' }
   apply_impl(msg, data)
   utils.assert_eq(msg:get_meta 'tenant', 'mytenant')
 
