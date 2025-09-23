@@ -126,14 +126,14 @@ macro_rules! label_key {
                 }
             }
 
-            impl<'a> PartialEq for (dyn [<$name Trait>] + 'a) {
+            impl<'a> PartialEq for dyn [<$name Trait>] + 'a {
                 fn eq(&self, other: &Self) -> bool {
                     self.key().eq(&other.key())
                 }
             }
 
-            impl<'a> Eq for (dyn [<$name Trait>] + 'a) {}
-            impl<'a> ::std::hash::Hash for (dyn [<$name Trait>] + 'a) {
+            impl<'a> Eq for dyn [<$name Trait>] + 'a {}
+            impl<'a> ::std::hash::Hash for dyn [<$name Trait>] + 'a {
                 fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                     self.key().hash(state)
                 }
