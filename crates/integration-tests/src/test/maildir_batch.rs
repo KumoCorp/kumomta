@@ -15,7 +15,16 @@ async fn maildir_batch() -> anyhow::Result<()> {
     let mut client = daemon.smtp_client().await.context("make smtp_client")?;
 
     let status = MailGenParams {
-        recip_list: Some(vec!["recip1@example.com", "recip2@example.com"]),
+        recip_list: Some(vec![
+            "recip1@example.com",
+            "recip2@example.com",
+            "recip3@example.com",
+            "recip4@example.com",
+            // maildir-sink.lua is configured with max_recipients_per_message=4,
+            // so we expect this additional recipient to be rejected in the
+            // initial batch
+            "recip5@example.com",
+        ]),
         ..Default::default()
     }
     .send_batch(&mut client)
@@ -38,11 +47,12 @@ async fn maildir_batch() -> anyhow::Result<()> {
 DeliverySummary {
     source_counts: {
         Reception: 1,
-        Delivery: 1,
+        Delivery: 2,
     },
     sink_counts: {
-        Reception: 1,
-        Delivery: 1,
+        Reception: 2,
+        Delivery: 2,
+        Rejection: 1,
     },
 }
 "
@@ -51,14 +61,14 @@ DeliverySummary {
         daemon.source.accounting_stats()?,
         "
 AccountingStats {
-    received: 2,
-    delivered: 2,
+    received: 5,
+    delivered: 5,
 }
 "
     );
 
     let messages = daemon.extract_maildir_messages()?;
-    assert_equal!(messages.len(), 2);
+    assert_equal!(messages.len(), 5);
 
     Ok(())
 }

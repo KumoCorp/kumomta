@@ -2021,7 +2021,7 @@ impl SmtpServerSession {
                     if let Some(state) = &self.state {
                         if state.recipients.len() == self.params.max_recipients_per_message {
                             self.write_response(
-                                451,
+                                452,
                                 "4.5.3 too many recipients",
                                 Some(line),
                                 RejectDisconnect::If421,
@@ -2045,7 +2045,7 @@ impl SmtpServerSession {
                                 return Ok(());
                             } else {
                                 self.write_response(
-                                    451,
+                                    452,
                                     "4.5.3 too many recipients on this connection",
                                     Some(line),
                                     RejectDisconnect::If421,

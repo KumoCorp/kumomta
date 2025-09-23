@@ -1151,13 +1151,17 @@ impl QueueDispatcher for SmtpDispatcher {
 
         // Group by distinct response for logging purposes
         let mut by_status = HashMap::new();
+        let mut by_class = HashMap::new();
 
         // This will hold the list of recipients that have not
         // reached a terminal disposition
         let mut revised_recipient_list = vec![];
 
         fn classify_record(response: &Response) -> RecordType {
-            if response.code == 503 || (response.code >= 300 && response.code < 500) {
+            if response.is_too_many_recipients()
+                || response.code == 503
+                || (response.code >= 300 && response.code < 500)
+            {
                 // 503 is a "permanent" failure response but it indicates
                 // that there was a protocol synchronization issue.
                 //
@@ -1174,6 +1178,7 @@ impl QueueDispatcher for SmtpDispatcher {
         }
 
         let mut retry_immediately = false;
+        let mut transport_error = false;
 
         for (recipient, response) in recipients.iter().zip(result_per_rcpt.iter()) {
             let record_type = classify_record(&response);
@@ -1197,10 +1202,11 @@ impl QueueDispatcher for SmtpDispatcher {
                 _ => unreachable!(),
             }
 
-            if !response.was_due_to_message() {
+            if response.is_too_many_recipients() {
                 retry_immediately = true;
+            } else if !response.was_due_to_message() {
+                transport_error = true;
             }
-
             if response.code == 421 {
                 break_connection = true;
             }
@@ -1209,11 +1215,30 @@ impl QueueDispatcher for SmtpDispatcher {
                 .entry(response.clone())
                 .or_insert_with(Vec::new)
                 .push(recipient.clone());
+            *by_class.entry(record_type).or_insert(0) += 1;
         }
+
+        let mut logged_transient = false;
 
         // Log the various outcomes
         for (response, recips) in by_status {
             let record_type = classify_record(&response);
+
+            if record_type == RecordType::TransientFailure {
+                if response.is_too_many_recipients()
+                    && by_class[&RecordType::TransientFailure] == 1
+                    && by_class.len() > 1
+                {
+                    // Skip logging a transient failure for the too many
+                    // recipients case if it looks like something got through
+                    // OK.  We'll retry the excess recipients immediately
+                    // and have a log record for those imminently.
+                    continue;
+                }
+
+                logged_transient = true;
+            }
+
             self.log_disposition(
                 dispatcher,
                 record_type,
@@ -1250,18 +1275,26 @@ impl QueueDispatcher for SmtpDispatcher {
             msg.set_recipient_list(revised_recipient_list)?;
             dispatcher.msgs.pop();
 
-            if retry_immediately && try_next_host_on_transport_error {
+            if transport_error && try_next_host_on_transport_error {
                 break_connection = true;
             }
 
-            let have_more_connection_candidates = if break_connection {
-                self.update_state_for_reconnect(dispatcher)
-            } else {
-                false
-            };
+            if break_connection && try_next_host_on_transport_error {
+                let have_more_connection_candidates = self.update_state_for_reconnect(dispatcher);
+                if have_more_connection_candidates {
+                    // Try it on the next connection
+                    dispatcher.msgs.push(msg);
+                    return Ok(());
+                }
+            }
 
-            if retry_immediately && have_more_connection_candidates {
-                // Try it on the next connection
+            let is_connected = self
+                .client
+                .as_ref()
+                .map(|c| c.is_connected())
+                .unwrap_or(false);
+
+            if retry_immediately && is_connected {
                 dispatcher.msgs.push(msg);
                 return Ok(());
             }
@@ -1278,9 +1311,20 @@ impl QueueDispatcher for SmtpDispatcher {
                         command: None,
                         content: "KumoMTA internal: retrying failed batch".to_string(),
                     }),
-                    InsertReason::LoggedTransientFailure.into(),
+                    if logged_transient {
+                        InsertReason::LoggedTransientFailure.into()
+                    } else {
+                        InsertReason::TooManyRecipients.into()
+                    },
                 ),
             )?;
+
+            if !is_connected {
+                self.update_state_for_reconnect(dispatcher);
+                anyhow::bail!(
+                    "after previous send attempt, client is unexpectedly no longer connected"
+                );
+            }
             Ok(())
         }
     }

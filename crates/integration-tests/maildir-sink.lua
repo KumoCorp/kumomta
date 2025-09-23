@@ -12,6 +12,7 @@ kumo.on('init', function()
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
     batch_handling = 'BatchByDomain',
+    max_recipients_per_message = 4,
   }
   local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
   if client_ca then

@@ -9,3 +9,6 @@
 
 ## Fixes
 
+ * smtp server would incorrectly return a 451 instead of a 452 status when
+   `max_recipients_per_message` or `max_messages_per_connection` limits
+   were exceeded.

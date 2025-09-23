@@ -191,6 +191,13 @@ impl Response {
         self.code >= 500 && self.code < 600
     }
 
+    pub fn is_too_many_recipients(&self) -> bool {
+        // RFC 5321 4.5.3.1.10: RFC 821 incorrectly ... "too many recipients" ..
+        // as having reply code 552 ... the correct reply ... is 452.
+        // Clients should treat 552 ... as a temporary
+        self.code == 452 || self.code == 552
+    }
+
     pub fn with_code_and_message(code: u16, message: &str) -> Self {
         let lines: Vec<&str> = message.lines().collect();
 
