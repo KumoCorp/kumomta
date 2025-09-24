@@ -58,6 +58,14 @@ static TLS_CONFIG: LruCacheWithTtl<TlsAcceptorConfigKey, Arc<ServerConfig>>::new
 }
 
 declare_event! {
+static SMTP_SERVER_DATA: Single(
+    "smtp_server_data",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> ();
+}
+
+declare_event! {
 static SMTP_SERVER_MSG_RX: Single(
     "smtp_server_message_received",
     message: Message,
@@ -2439,6 +2447,55 @@ impl SmtpServerSession {
             }
         }
 
+        // Create a message to dispatch to the smtp_server_data event.
+        // This allows a policy to do any initial processing on the "raw"
+        // data input prior to breaking it into batches
+        let base_message = Message::new_dirty(
+            SpoolId::new(),
+            state.sender.clone(),
+            state.recipients.clone(),
+            self.meta.clone_inner(),
+            Arc::new(data.clone().into_boxed_slice()),
+        )?;
+
+        match timeout_at(
+            deadline.into(),
+            Box::pin(
+                self.call_callback_sig(
+                    &SMTP_SERVER_DATA,
+                    (base_message.clone(), self.meta.clone()),
+                ),
+            ),
+        )
+        .await
+        {
+            Ok(Ok(Ok(_))) => {}
+            Err(_) => {
+                self.write_response(
+                    451,
+                    "4.4.5 data_processing_timeout exceeded (rx)",
+                    Some("DATA".into()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(());
+            }
+            Ok(Ok(Err(rej))) => {
+                // Explicity kumo.reject'ed.
+                // Rejecting any one message from a batch in
+                // smtp_server_message_received will reject the
+                // entire batch
+                self.write_response(rej.code, rej.message, Some("DATA".into()), rej.disconnect)
+                    .await?;
+                return Ok(());
+            }
+            Ok(Err(err)) => {
+                // Let the technical difficulties handler deal with
+                // the response for this
+                return Err(err);
+            }
+        }
+
         let mut ids = vec![];
 
         // If anything decides to reject at this phase, it needs to apply to
@@ -2459,13 +2516,13 @@ impl SmtpServerSession {
         let mut batches: Vec<Vec<EnvelopeAddress>> = vec![];
         match self.params.batch_handling {
             BatchHandling::BifurcateAlways => {
-                for recip in state.recipients {
+                for recip in base_message.recipient_list()? {
                     batches.push(vec![recip]);
                 }
             }
             BatchHandling::BatchByDomain => {
                 let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
-                for recip in state.recipients {
+                for recip in base_message.recipient_list()? {
                     by_domain
                         .entry(recip.domain().to_lowercase())
                         .or_insert_with(Vec::new)
@@ -2481,7 +2538,7 @@ impl SmtpServerSession {
 
         for recip_list in batches {
             let id = SpoolId::new();
-            let mut body = if self.params.trace_headers.received_header {
+            let body = if self.params.trace_headers.received_header {
                 let received = {
                     let protocol = match (&self.authentication_id, &self.tls_active) {
                         (Some(_auth), Some(_tls)) => "ESMTPSA",
@@ -2513,19 +2570,18 @@ impl SmtpServerSession {
 
                 let mut body = Vec::with_capacity(data.len() + received.len());
                 body.extend_from_slice(received.as_bytes());
-                body
+                body.extend_from_slice(&data);
+                Arc::new(body.into_boxed_slice())
             } else {
-                Vec::with_capacity(data.len())
+                base_message.get_data()
             };
-
-            body.extend_from_slice(&data);
 
             let message = Message::new_dirty(
                 id,
                 state.sender.clone(),
                 recip_list,
-                self.meta.clone_inner(),
-                Arc::new(body.into_boxed_slice()),
+                base_message.get_meta_obj()?,
+                body,
             )?;
 
             if self.params.deferred_queue {

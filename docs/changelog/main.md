@@ -6,6 +6,9 @@
 
  * [msg:check_fix_conformance](../reference/message/check_fix_conformance.md#fixing-8-bit-content)
    now supports optionally detecting and fixing 8-bit charsets.
+ * [smtp_server_data](../reference/events/smtp_server_data.md) event enables
+   once-per-transaction processing of a message and recipient list modification
+   for alias expansion and legal capture.
 
 ## Fixes
 

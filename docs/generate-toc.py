@@ -372,6 +372,7 @@ TOC = [
             Page("Predefined Metadata", "reference/metadata.md"),
             Page("Queues", "reference/queues.md"),
             Page("Configuration Lifecycle", "reference/configuration.md"),
+            Page("SMTP Server Events", "reference/smtp_server_events.md"),
             Page("Memory Management", "reference/memory.md"),
             Gen("Template Syntax", "reference/template"),
             Page("Log Record", "reference/log_record.md"),

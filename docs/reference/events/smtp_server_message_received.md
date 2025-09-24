@@ -12,8 +12,10 @@ each one will result in a separate message being created, and this event
 will be triggered for each of them.
 
 The event handler will be passed a [Message](../message/index.md) object.
-The Message will always have a `Received` header prepended that captures trace
-information about the sender.
+Depending on the
+[start_esmtp_listener.trace_headers](../kumo/start_esmtp_listener/trace_headers.md)
+configuration, the Message will have a `Received` header prepended that
+captures trace information about the sender.
 
 {{since('2023.08.22-4d895015', indent=True)}}
     The *conn_meta* parameter represents the connection metadata and
