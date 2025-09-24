@@ -1004,11 +1004,29 @@ impl QueueDispatcher for SmtpDispatcher {
         self.client.as_mut().map(|client| {
             client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
         });
+
+        // This will hold the list of recipients that have not
+        // reached a terminal disposition
+        let mut revised_recipient_list = vec![];
+        let mut recipients_this_batch = vec![];
+        let mut retry_immediately = false;
+
+        let path_config = dispatcher.path_config.borrow();
+        for recip in recipients {
+            if recipients_this_batch.len() < path_config.max_recipients_per_batch {
+                recipients_this_batch.push(recip);
+            } else {
+                revised_recipient_list.push(recip.into());
+                // The excess is ready to go immediately
+                retry_immediately = true;
+            }
+        }
+
         let send_result = self
             .client
             .as_mut()
             .unwrap()
-            .send_mail_multi_recip(sender, recipients.clone(), &*data)
+            .send_mail_multi_recip(sender, recipients_this_batch.clone(), &*data)
             .await;
 
         let mut result_per_rcpt = vec![];
@@ -1025,7 +1043,7 @@ impl QueueDispatcher for SmtpDispatcher {
             }
             Err(ClientError::Rejected(response)) => {
                 rewrite_eligible = true;
-                for _recip in &recipients {
+                for _recip in &recipients_this_batch {
                     result_per_rcpt.push(response.clone());
                 }
             }
@@ -1043,7 +1061,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 );
                 tracing::debug!("{reason}");
 
-                for _recip in &recipients {
+                for _recip in &recipients_this_batch {
                     result_per_rcpt.push(Response {
                         code: 421,
                         enhanced_code: Some(EnhancedStatusCode {
@@ -1064,7 +1082,7 @@ impl QueueDispatcher for SmtpDispatcher {
                     dispatcher.name, self.client_address
                 );
 
-                for _recip in &recipients {
+                for _recip in &recipients_this_batch {
                     result_per_rcpt.push(Response {
                         code: 421,
                         enhanced_code: Some(EnhancedStatusCode {
@@ -1078,7 +1096,7 @@ impl QueueDispatcher for SmtpDispatcher {
                 }
             }
             Err(err) => {
-                for _recip in &recipients {
+                for _recip in &recipients_this_batch {
                     result_per_rcpt.push(Response {
                         code: 400,
                         enhanced_code: None,
@@ -1153,10 +1171,6 @@ impl QueueDispatcher for SmtpDispatcher {
         let mut by_status = HashMap::new();
         let mut by_class = HashMap::new();
 
-        // This will hold the list of recipients that have not
-        // reached a terminal disposition
-        let mut revised_recipient_list = vec![];
-
         fn classify_record(response: &Response) -> RecordType {
             if response.is_too_many_recipients()
                 || response.code == 503
@@ -1177,10 +1191,9 @@ impl QueueDispatcher for SmtpDispatcher {
             }
         }
 
-        let mut retry_immediately = false;
         let mut transport_error = false;
 
-        for (recipient, response) in recipients.iter().zip(result_per_rcpt.iter()) {
+        for (recipient, response) in recipients_this_batch.iter().zip(result_per_rcpt.iter()) {
             let record_type = classify_record(&response);
 
             if record_type == RecordType::TransientFailure {

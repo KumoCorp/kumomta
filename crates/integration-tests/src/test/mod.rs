@@ -15,6 +15,7 @@ mod expires;
 mod http_inject_compression;
 mod log_oob_arf;
 mod maildir_batch;
+mod maildir_batch_max_per_batch;
 mod maildir_batch_split_hook;
 mod max_line_length;
 mod no_ports_in_rcpt_domain;

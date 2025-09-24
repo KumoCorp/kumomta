@@ -1967,6 +1967,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",
@@ -2118,6 +2119,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 100,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",
@@ -2182,6 +2184,7 @@ MergedEntry {
             additional_source_selection_rates: {},
             max_connection_rate: None,
             max_deliveries_per_connection: 1024,
+            max_recipients_per_batch: 100,
             prohibited_hosts: {
                 "127.0.0.0/8",
                 "::1",
@@ -2339,6 +2342,7 @@ MergedEntry {
             100/m,
         ),
         max_deliveries_per_connection: 20,
+        max_recipients_per_batch: 100,
         prohibited_hosts: {
             "127.0.0.0/8",
             "::1",

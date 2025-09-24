@@ -12,6 +12,8 @@ local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 local DEFERRED_SMTP_SERVER_MSG_INJECT =
   os.getenv 'KUMOD_DEFERRED_SMTP_SERVER_MSG_INJECT'
 local BATCH_HANDLING = (os.getenv 'KUMOD_BATCH_HANDLING') or 'BifurcateAlways'
+local MAX_RECIPIENTS_PER_BATCH = (os.getenv 'KUMOD_MAX_RECIPIENTS_PER_BATCH')
+  or 100
 local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
 
 kumo.on('init', function()
@@ -351,6 +353,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     ) or false,
     tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
       or false,
+    max_recipients_per_batch = tonumber(MAX_RECIPIENTS_PER_BATCH),
   }
 
   if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then

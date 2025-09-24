@@ -269,6 +269,9 @@ pub struct EgressPathConfig {
     #[serde(default = "EgressPathConfig::default_max_deliveries_per_connection")]
     pub max_deliveries_per_connection: usize,
 
+    #[serde(default = "EgressPathConfig::default_max_recipients_per_batch")]
+    pub max_recipients_per_batch: usize,
+
     #[serde(default = "CidrSet::default_prohibited_hosts")]
     pub prohibited_hosts: CidrSet,
 
@@ -376,6 +379,7 @@ impl Default for EgressPathConfig {
             max_message_rate: None,
             max_connection_rate: None,
             max_deliveries_per_connection: Self::default_max_deliveries_per_connection(),
+            max_recipients_per_batch: Self::default_max_recipients_per_batch(),
             client_timeouts: SmtpClientTimeouts::default(),
             system_shutdown_timeout: None,
             prohibited_hosts: CidrSet::default_prohibited_hosts(),
@@ -448,6 +452,10 @@ impl EgressPathConfig {
 
     fn default_max_deliveries_per_connection() -> usize {
         1024
+    }
+
+    fn default_max_recipients_per_batch() -> usize {
+        100
     }
 
     fn default_refresh_interval() -> Duration {
