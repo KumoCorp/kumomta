@@ -2514,12 +2514,11 @@ impl SmtpServerSession {
 
         let datestamp = Utc::now().to_rfc2822();
 
-        // For multiple recipients, we need to batch things according to policy.
-        // We'll introduce a config enum for this:
-        // * BifurcateAlways - every recipient is split into their own message
-        // * BatchByDomain - group recipients by unique domain
-        // and also allow for a hook point that allows returning the batched
-        // recipients for use cases where something more advanced is desired.
+        // For multiple recipient messages, `batches` holds how we will
+        // split and track delivery.
+        // We allow the user to perform advanced batching via the
+        // SMTP_SERVER_SPLIT_TXN event, but we also have the simpler
+        // and more common cases handled by the BatchHandling enum
 
         let mut batches: Vec<Vec<EnvelopeAddress>> = vec![];
 
@@ -2686,7 +2685,6 @@ impl SmtpServerSession {
         // At this point we've nominally accepted the batch; let's
         // get to work on logging and injecting into the queues
 
-        let mut messages = vec![];
         let mut was_arf_or_oob = false;
         let mut black_holed = false;
 
@@ -2727,6 +2725,7 @@ impl SmtpServerSession {
             }
         }
 
+        let mut messages: Vec<(/* queue_name */ String, Message)> = vec![];
         for message in accepted_messages {
             self.params.trace_headers.apply_supplemental(&message)?;
 
@@ -2779,7 +2778,39 @@ impl SmtpServerSession {
             if relay_this_one && queue_name != "null" && !self.params.deferred_spool {
                 match message.save(Some(deadline)).await {
                     Err(err) => {
-                        // FIXME: unwind rest of batch
+                        // Assume that any other saves that we try right now
+                        // are likely to fail for similar reasons, and since
+                        // SMTP doesn't provide a means for reporting a partial
+                        // failure, we have to unwind any other messages that
+                        // we just spooled as part of this same "transaction".
+                        for (_queue_name, prior) in messages {
+                            SpoolManager::remove_from_spool(*prior.id()).await.ok();
+                            log_disposition(LogDisposition {
+                                kind: RecordType::Bounce,
+                                msg: prior.clone(),
+                                site: "",
+                                peer_address: None,
+                                response: Response {
+                                    code: 500,
+                                    enhanced_code: None,
+                                    command: None,
+                                    content: format!(
+                                        "KumoMTA internal: Message::save failed for other \
+                                        messages in the same batch during reception: {err:#}"
+                                    ),
+                                },
+                                egress_source: None,
+                                egress_pool: None,
+                                relay_disposition: None,
+                                delivery_protocol: None,
+                                tls_info: None,
+                                source_address: None,
+                                provider: None,
+                                session_id: None,
+                                recipient_list: None,
+                            })
+                            .await;
+                        }
 
                         if err.root_cause().is::<tokio::time::error::Elapsed>() {
                             self.write_response(
