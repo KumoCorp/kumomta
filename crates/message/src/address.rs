@@ -2,13 +2,26 @@ use config::any_err;
 use dns_resolver::DomainClassification;
 use mailparsing::{Address, AddressList, EncodeHeaderValue, Mailbox};
 #[cfg(feature = "impl")]
-use mlua::{MetaMethod, UserData, UserDataFields, UserDataMethods};
+use mlua::{FromLua, MetaMethod, UserData, UserDataFields, UserDataMethods};
 use rfc5321::{ForwardPath, ReversePath};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq)]
 #[serde(transparent)]
 pub struct EnvelopeAddress(String);
+
+#[cfg(feature = "impl")]
+impl FromLua for EnvelopeAddress {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        match value {
+            mlua::Value::String(s) => EnvelopeAddress::parse(&s.to_str()?).map_err(any_err),
+            _ => {
+                let ud = mlua::UserDataRef::<EnvelopeAddress>::from_lua(value, lua)?;
+                Ok(ud.clone())
+            }
+        }
+    }
+}
 
 impl EnvelopeAddress {
     pub fn parse(text: &str) -> anyhow::Result<Self> {

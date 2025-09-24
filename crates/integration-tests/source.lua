@@ -12,6 +12,7 @@ local LISTENER_MAP = os.getenv 'KUMOD_LISTENER_DOMAIN_MAP'
 local DEFERRED_SMTP_SERVER_MSG_INJECT =
   os.getenv 'KUMOD_DEFERRED_SMTP_SERVER_MSG_INJECT'
 local BATCH_HANDLING = (os.getenv 'KUMOD_BATCH_HANDLING') or 'BifurcateAlways'
+local USE_SPLIT_TXN = os.getenv 'KUMOD_USE_SPLIT_TXN'
 
 kumo.on('init', function()
   kumo.configure_accounting_db_path(TEST_DIR .. '/accounting.db')
@@ -223,6 +224,31 @@ kumo.on('get_listener_domain', function(domain, listener, conn_meta)
     log_arf = true,
   }
 end)
+
+if USE_SPLIT_TXN then
+  kumo.on('smtp_server_split_transaction', function(msg, conn)
+    -- This toy implementation batches by the first letter of
+    -- the local part and the same domain. It is NOT an example
+    -- of a valid production use case, it is merely exercising
+    -- the logic to prove that it is functioning
+    local batches = {}
+
+    local keyed = {}
+    for _, recip in ipairs(msg:recipient_list()) do
+      local key = recip.user:sub(1, 1) .. '@' .. recip.domain:lower()
+      if not keyed[key] then
+        keyed[key] = {}
+      end
+      table.insert(keyed[key], recip)
+    end
+
+    for _, batch in pairs(keyed) do
+      table.insert(batches, batch)
+    end
+
+    return batches
+  end)
+end
 
 kumo.on('smtp_server_message_received', function(msg)
   local result = msg:import_scheduling_header 'X-Schedule'

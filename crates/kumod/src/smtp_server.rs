@@ -66,6 +66,14 @@ static SMTP_SERVER_DATA: Single(
 }
 
 declare_event! {
+static SMTP_SERVER_SPLIT_TXN: Single(
+    "smtp_server_split_transaction",
+    message: Message,
+    connection_metadata: ConnectionMetaData
+) -> Option<Vec<Vec<EnvelopeAddress>>>;
+}
+
+declare_event! {
 static SMTP_SERVER_MSG_RX: Single(
     "smtp_server_message_received",
     message: Message,
@@ -548,7 +556,7 @@ impl Default for ConcreteEsmtpListenerParams {
 
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default, PartialEq)]
 pub enum BatchHandling {
-    /// Ever incoming recipient is given a separate message batch,
+    /// Every incoming recipient is given a separate message batch,
     /// so they each have a batch of 1
     #[default]
     BifurcateAlways,
@@ -2514,25 +2522,69 @@ impl SmtpServerSession {
         // recipients for use cases where something more advanced is desired.
 
         let mut batches: Vec<Vec<EnvelopeAddress>> = vec![];
-        match self.params.batch_handling {
-            BatchHandling::BifurcateAlways => {
-                for recip in base_message.recipient_list()? {
-                    batches.push(vec![recip]);
+
+        match timeout_at(
+            deadline.into(),
+            Box::pin(self.call_callback_sig(
+                &SMTP_SERVER_SPLIT_TXN,
+                (base_message.clone(), self.meta.clone()),
+            )),
+        )
+        .await
+        {
+            Ok(Ok(Ok(Some(batch_result)))) => {
+                // Definitively returned a list of recipients,
+                // which may be empty!
+                batches = batch_result;
+            }
+            Ok(Ok(Ok(None))) => {
+                // No handler defined, or it returned, explicitly
+                // or implicitly, nil.
+                // In this case, fall back to batch_handling.
+                // This is likely the common path for the majority
+                // of messages entering the system
+                match self.params.batch_handling {
+                    BatchHandling::BifurcateAlways => {
+                        for recip in base_message.recipient_list()? {
+                            batches.push(vec![recip]);
+                        }
+                    }
+                    BatchHandling::BatchByDomain => {
+                        let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
+                        for recip in base_message.recipient_list()? {
+                            by_domain
+                                .entry(recip.domain().to_lowercase())
+                                .or_insert_with(Vec::new)
+                                .push(recip);
+                        }
+
+                        batches = by_domain
+                            .into_iter()
+                            .map(|(_keys, values)| values)
+                            .collect();
+                    }
                 }
             }
-            BatchHandling::BatchByDomain => {
-                let mut by_domain: HashMap<String, Vec<EnvelopeAddress>> = HashMap::new();
-                for recip in base_message.recipient_list()? {
-                    by_domain
-                        .entry(recip.domain().to_lowercase())
-                        .or_insert_with(Vec::new)
-                        .push(recip);
-                }
-
-                batches = by_domain
-                    .into_iter()
-                    .map(|(_keys, values)| values)
-                    .collect();
+            Err(_) => {
+                self.write_response(
+                    451,
+                    "4.4.5 data_processing_timeout exceeded (rx)",
+                    Some("DATA".into()),
+                    RejectDisconnect::If421,
+                )
+                .await?;
+                return Ok(());
+            }
+            Ok(Ok(Err(rej))) => {
+                // Explicity kumo.reject'ed.
+                self.write_response(rej.code, rej.message, Some("DATA".into()), rej.disconnect)
+                    .await?;
+                return Ok(());
+            }
+            Ok(Err(err)) => {
+                // Let the technical difficulties handler deal with
+                // the response for this
+                return Err(err);
             }
         }
 
