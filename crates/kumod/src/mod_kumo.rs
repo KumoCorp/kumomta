@@ -2,7 +2,9 @@ use crate::egress_source::{EgressPool, EgressSource};
 use crate::logging::rfc3464::Report;
 use crate::queue::{InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
-use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError};
+use crate::smtp_server::{
+    EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError, TraceHeaders,
+};
 use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
@@ -316,6 +318,19 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
                     .await
                     .map_err(any_err)
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "apply_supplemental_trace_header",
+        lua.create_function(
+            move |lua, (message, params): (Message, Option<mlua::Value>)| {
+                let params: TraceHeaders = match params {
+                    Some(params) => from_lua_value(lua, params)?,
+                    None => TraceHeaders::default(),
+                };
+                params.apply_supplemental(&message).map_err(any_err)
             },
         )?,
     )?;
