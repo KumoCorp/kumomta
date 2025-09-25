@@ -344,6 +344,12 @@ pub struct EgressPathConfig {
     /// immediately consider it a transient failure for that message?
     #[serde(default)]
     pub try_next_host_on_transport_error: bool,
+
+    /// If true, don't check for 8bit compatibility issues during
+    /// sending, instead, leave it to the remote host to raise
+    /// an error.
+    #[serde(default)]
+    pub ignore_8bit_checks: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -402,6 +408,7 @@ impl Default for EgressPathConfig {
             maintainer_wakeup_strategy: WakeupStrategy::default(),
             dispatcher_wakeup_strategy: WakeupStrategy::default(),
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
         }
     }
 }

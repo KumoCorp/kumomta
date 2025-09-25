@@ -55,6 +55,15 @@
    `baseXX` encoding schemes.
  * `received_via` and `hostname` are now set in the message metadata for
    messages injected via HTTP. #417
+ * `SMTPUTF8` and `8BITMIME` are now advertised by the ESMTP listener. If the
+   next SMTP hop doesn't advertise these extensions and the current message is
+   8bit, then the message will be marked as permanently failed with a reason
+   explaining that the content is incompatible with the next hop.  Previously,
+   we'd try to send the 8bit data anyway, and the remote host would respond
+   with its own error informing of the incompatibility. See
+   [ignore_8bit_checks](../reference/kumo/make_egress_path/ignore_8bit_checks.md)
+   for more discussion on this topic and the ability to disable this send-time
+   checking.  #327
 
 ## Fixes
 

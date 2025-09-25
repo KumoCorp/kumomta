@@ -1981,6 +1981,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [
@@ -2131,6 +2132,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2194,6 +2196,7 @@ MergedEntry {
             low_memory_reduction_policy: ShrinkDataAndMeta,
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
         },
     },
     automation: [
@@ -2350,6 +2353,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [

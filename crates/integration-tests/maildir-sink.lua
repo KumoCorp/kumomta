@@ -105,3 +105,21 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
   )
   return simple_auth_check(authc, password)
 end)
+
+kumo.on('smtp_server_ehlo', function(domain, conn_meta, extensions)
+  local revised = {}
+  for _, ext in ipairs(extensions) do
+    local include = true
+    if ext == '8BITMIME' and os.getenv 'KUMOD_HIDE_8BITMIME' then
+      include = false
+    end
+    if ext == 'SMTPUTF8' and os.getenv 'KUMOD_HIDE_SMTPUTF8' then
+      include = false
+    end
+    if include then
+      table.insert(revised, ext)
+    end
+  end
+
+  return revised
+end)

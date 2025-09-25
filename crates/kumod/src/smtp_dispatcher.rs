@@ -997,6 +997,10 @@ impl QueueDispatcher for SmtpDispatcher {
             .borrow()
             .try_next_host_on_transport_error;
 
+        self.client.as_mut().map(|client| {
+            client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
+        });
+
         match self
             .client
             .as_mut()

@@ -5,6 +5,7 @@ mod disconnect_in_data;
 mod disconnect_in_mail_from;
 mod disconnect_reconnect_same_host;
 mod disconnect_terminate_ok;
+mod eightbitmime;
 mod end_to_end;
 mod end_to_end_deferred_queue;
 mod end_to_end_stuffed;

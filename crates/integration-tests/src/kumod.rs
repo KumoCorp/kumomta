@@ -31,6 +31,7 @@ pub struct MailGenParams<'a> {
     pub subject: Option<&'a str>,
     pub body: Option<&'a str>,
     pub full_content: Option<&'a str>,
+    pub ignore_8bit_checks: bool,
 }
 
 /// Generate a single nonsense string with no spaces with
@@ -74,6 +75,7 @@ pub fn generate_message_text(n_bytes: usize, wrap: usize) -> String {
 
 impl MailGenParams<'_> {
     pub async fn send(&self, client: &mut SmtpClient) -> anyhow::Result<Response> {
+        client.set_ignore_8bit_checks(self.ignore_8bit_checks);
         let sender = self.sender.unwrap_or("sender@example.com");
         let recip = self.recip.unwrap_or("recip@example.com");
         let body = self

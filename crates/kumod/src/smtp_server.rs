@@ -1837,7 +1837,8 @@ impl SmtpServerSession {
                 Ok(Command::Ehlo(domain)) => {
                     let domain = domain.to_string();
 
-                    let mut extensions = vec!["PIPELINING", "ENHANCEDSTATUSCODES"];
+                    let mut extensions =
+                        vec!["PIPELINING", "ENHANCEDSTATUSCODES", "8BITMIME", "SMTPUTF8"];
                     if self.tls_active.is_none() {
                         extensions.push("STARTTLS");
                     } else {

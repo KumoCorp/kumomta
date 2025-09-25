@@ -207,6 +207,7 @@ pub struct SmtpClient {
     use_rset: bool,
     enable_rset: bool,
     enable_pipelining: bool,
+    ignore_8bit_checks: bool,
 }
 
 fn extract_hostname(hostname: &str) -> &str {
@@ -256,7 +257,13 @@ impl SmtpClient {
             use_rset: false,
             enable_rset: false,
             enable_pipelining: false,
+            ignore_8bit_checks: false,
         }
+    }
+
+    /// Setting this to true causes 8BITMIME and SMTPUTF8 checks to be ignored
+    pub fn set_ignore_8bit_checks(&mut self, enable: bool) {
+        self.ignore_8bit_checks = enable;
     }
 
     pub fn is_connected(&self) -> bool {
@@ -859,18 +866,49 @@ impl SmtpClient {
         let envelope_is_8bit = !sender.is_ascii() || !recipient.is_ascii();
 
         let mut mail_from_params = vec![];
-        if data_is_8bit && self.capabilities.contains_key("8BITMIME") {
-            mail_from_params.push(EsmtpParameter {
-                name: "BODY".to_string(),
-                value: Some("8BITMIME".to_string()),
-            });
+        if data_is_8bit {
+            if self.capabilities.contains_key("8BITMIME") {
+                mail_from_params.push(EsmtpParameter {
+                    name: "BODY".to_string(),
+                    value: Some("8BITMIME".to_string()),
+                });
+            } else if !self.ignore_8bit_checks {
+                return Err(ClientError::Rejected(Response {
+                    code: 554,
+                    command: None,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 6,
+                        detail: 3,
+                    }),
+                    content: "KumoMTA internal: DATA is 8bit, destination does \
+                        not support 8BITMIME. Conversion via msg:check_fix_conformance \
+                        during reception is required"
+                        .to_string(),
+                }));
+            }
         }
 
-        if envelope_is_8bit && self.capabilities.contains_key("SMTPUTF8") {
-            mail_from_params.push(EsmtpParameter {
-                name: "SMTPUTF8".to_string(),
-                value: None,
-            });
+        if envelope_is_8bit {
+            if self.capabilities.contains_key("SMTPUTF8") {
+                mail_from_params.push(EsmtpParameter {
+                    name: "SMTPUTF8".to_string(),
+                    value: None,
+                });
+            } else if !self.ignore_8bit_checks {
+                return Err(ClientError::Rejected(Response {
+                    code: 554,
+                    command: None,
+                    enhanced_code: Some(EnhancedStatusCode {
+                        class: 5,
+                        subject: 6,
+                        detail: 7,
+                    }),
+                    content: "KumoMTA internal: envelope is 8bit, destination does \
+                        not support SMTPUTF8."
+                        .to_string(),
+                }));
+            }
         }
 
         let mut commands = vec![];
