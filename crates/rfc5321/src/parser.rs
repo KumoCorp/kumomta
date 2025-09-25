@@ -29,6 +29,7 @@ impl Parser {
             Rule::help => Self::parse_help(result.into_inner()),
             Rule::noop => Self::parse_noop(result.into_inner()),
             Rule::auth => Self::parse_auth(result.into_inner()),
+            Rule::xclient => Self::parse_xclient(result.into_inner()),
             _ => Err(format!("unexpected {result:?}")),
         }
     }
@@ -71,6 +72,18 @@ impl Parser {
             sasl_mech,
             initial_response,
         })
+    }
+
+    fn parse_xclient(mut pairs: Pairs<Rule>) -> Result<Command, String> {
+        let mut params = vec![];
+
+        while let Some(param_name) = pairs.next() {
+            let name = param_name.as_str().to_string();
+            let value = xtext_decode(pairs.next().unwrap().as_str())?;
+            params.push(XClientParameter { name, value });
+        }
+
+        Ok(Command::XClient(params))
     }
 
     fn parse_rcpt(mut pairs: Pairs<Rule>) -> Result<Command, String> {
@@ -371,6 +384,80 @@ impl ToString for Domain {
     }
 }
 
+fn xtext_encode(s: &str) -> Result<String, String> {
+    let mut result = String::new();
+
+    for c in s.chars() {
+        let ival = c as u32;
+        if (ival >= 33 && ival <= 126) && c != '+' && c != '=' {
+            result.push(c);
+            continue;
+        }
+
+        if ival > 0xff {
+            return Err(format!("xtext_encode: char {c} cannot be xtext encoded"));
+        }
+
+        result.push_str(&format!("+{ival:02x}"));
+    }
+    Ok(result)
+}
+
+fn xtext_decode(s: &str) -> Result<String, String> {
+    let mut bytes = vec![];
+
+    let mut iter = s.chars();
+    while let Some(c) = iter.next() {
+        if c == '+' {
+            // Decode a hex char
+            let hi = iter
+                .next()
+                .ok_or_else(|| "xtext_decode: missing high nybble of hexchar".to_string())?;
+            let lo = iter
+                .next()
+                .ok_or_else(|| "xtext_decode: missing low nybble of hexchar".to_string())?;
+
+            let hi = hi
+                .to_digit(16)
+                .ok_or_else(|| "xtext_decode: high nybble is not a valid hexchar".to_string())?;
+            let lo = lo
+                .to_digit(16)
+                .ok_or_else(|| "xtext_decode: low nybble is not a valid hexchar".to_string())?;
+
+            let byte = ((hi << 4) | lo) as u8;
+
+            bytes.push(byte);
+        } else {
+            let mut utf8 = [0u8; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut utf8).as_bytes());
+        }
+    }
+
+    String::from_utf8(bytes)
+        .map_err(|err| format!("xtext_decode: decoded bytes are not valid utf8: {err:#}"))
+}
+
+#[cfg(test)]
+#[test]
+fn test_xtext() {
+    for (input, expect) in [
+        ("hello", "hello"),
+        ("extra+", "extra+2b"),
+        ("1+1=2", "1+2b1+3d2"),
+    ] {
+        let encoded = xtext_encode(input).unwrap();
+        assert_eq!(encoded, expect, "encode error input={input}");
+
+        let decoded = xtext_decode(&encoded).unwrap();
+        assert_eq!(decoded, input, "decode error input={input}");
+    }
+
+    assert_eq!(
+        xtext_encode("space👾").unwrap_err(),
+        "xtext_encode: char 👾 cannot be xtext encoded"
+    );
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EsmtpParameter {
     pub name: String,
@@ -383,6 +470,22 @@ impl ToString for EsmtpParameter {
             Some(value) => format!("{}={}", self.name, value),
             None => self.name.to_string(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XClientParameter {
+    pub name: String,
+    pub value: String,
+}
+
+impl ToString for XClientParameter {
+    fn to_string(&self) -> String {
+        let value = match xtext_encode(&self.value) {
+            Ok(s) => s,
+            Err(s) => s,
+        };
+        format!("{}={value}", self.name)
     }
 }
 
@@ -412,6 +515,7 @@ pub enum Command {
         sasl_mech: String,
         initial_response: Option<String>,
     },
+    XClient(Vec<XClientParameter>),
 }
 
 impl Command {
@@ -467,6 +571,14 @@ impl Command {
                 sasl_mech,
                 initial_response: Some(resp),
             } => format!("AUTH {sasl_mech} {resp}\r\n"),
+            Self::XClient(params) => {
+                let mut s = String::new();
+                for p in params {
+                    s.push(' ');
+                    s.push_str(&p.to_string());
+                }
+                format!("XCLIENT{s}\r\n")
+            }
         }
     }
 
@@ -484,6 +596,7 @@ impl Command {
                 timeouts.idle_timeout
             }
             Self::Auth { .. } => timeouts.auth_timeout,
+            Self::XClient { .. } => timeouts.auth_timeout, // FIXME: xclient specific timeout
         }
     }
 
@@ -871,6 +984,23 @@ mod test {
         assert!(is_valid_domain("he-llo"));
         assert!(is_valid_domain("he.llo"));
         assert!(is_valid_domain("he.llo-"));
+    }
+
+    #[test]
+    fn parse_xclient() {
+        assert_eq!(
+            Parser::parse_command("XCLIENT NAME=spike.porcupine.org ADDR=10.0.0.1").unwrap(),
+            Command::XClient(vec![
+                XClientParameter {
+                    name: "NAME".to_string(),
+                    value: "spike.porcupine.org".to_string()
+                },
+                XClientParameter {
+                    name: "ADDR".to_string(),
+                    value: "10.0.0.1".to_string()
+                },
+            ])
+        );
     }
 }
 

@@ -242,7 +242,8 @@ impl Response {
                     | Command::Expn(_)
                     | Command::Noop(_)
                     | Command::Help(_)
-                    | Command::Auth { .. } => false,
+                    | Command::Auth { .. }
+                    | Command::XClient(_) => false,
                 };
             }
         }

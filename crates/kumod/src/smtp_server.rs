@@ -2136,7 +2136,13 @@ impl SmtpServerSession {
                     )
                     .await?;
                 }
-                Ok(Command::Vrfy(_) | Command::Expn(_) | Command::Help(_) | Command::Lhlo(_)) => {
+                Ok(
+                    Command::Vrfy(_)
+                    | Command::Expn(_)
+                    | Command::Help(_)
+                    | Command::Lhlo(_)
+                    | Command::XClient(_),
+                ) => {
                     self.write_response(
                         502,
                         format!("5.5.1 Command unimplemented"),

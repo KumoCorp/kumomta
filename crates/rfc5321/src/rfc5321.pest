@@ -68,6 +68,9 @@ sasl_mech = { mech_char{1,20} }
 initial_response = { base64+ }
 base64 = { 'A'..'Z' | 'a'..'z' | '0'..'9' | "+" | "/" | "=" }
 
+xclient_attr_name = { ^"NAME" | ^"ADDR" | ^"PORT" | ^"HELO" | ^"LOGIN" | ^"DESTADDR" | ^"DESTPORT" }
+xclient_attr_value = { xtext }
+
 ehlo = { ^"EHLO " ~ ( domain | address_literal ) }
 helo = { ^"HELO " ~ ( domain | address_literal ) }
 data = { ^"DATA" }
@@ -79,5 +82,6 @@ help = { ^"HELP" ~ (" " ~ string)? }
 noop = { ^"NOOP" ~ (" " ~ string)? }
 starttls = { ^"STARTTLS" }
 auth = { ^"AUTH " ~ sasl_mech ~ (" " ~ initial_response)? }
+xclient = { ^"XCLIENT" ~ (" " ~ xclient_attr_name ~ "=" ~ xclient_attr_value )+ }
 
-command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit | starttls | auth ~ EOI }
+command = _{ SOI ~ mail | rcpt | ehlo | helo | data | rset | vrfy | expn | help | noop | quit | starttls | auth | xclient ~ EOI }
