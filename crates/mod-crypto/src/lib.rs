@@ -87,7 +87,7 @@ fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyh
             Ok(buf_ciphertext)
         }
         AesAlgo::Cbc() => {
-            enc_key = match params.key {
+            let enc_key = match params.key {
                 AesKey::Aes128(k) => {
                     let key = UnboundCipherKey::new(&AES_128, &k)?;
                     PaddedBlockEncryptingKey::cbc_pkcs7(key)?
