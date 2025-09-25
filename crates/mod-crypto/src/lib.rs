@@ -211,16 +211,6 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                 })?;
             let aes_key = AesKey::from_bytes(&aes_k).map_err(any_err)?;
 
-            let algo = match params.algorithm.to_lowercase().as_str() {
-                "cbc" => AesAlgo::Cbc(),
-                "ecb" => AesAlgo::Ecb(),
-                _ => {
-                    return Err(LuaError::external(format!(
-                        "Invalid algorithm '{}'. Expected 'cbc' or 'ecb'",
-                        params.algorithm
-                    )));
-                }
-            };
             let p = AesParams {
                 key: aes_key,
                 algorithm: algo,
