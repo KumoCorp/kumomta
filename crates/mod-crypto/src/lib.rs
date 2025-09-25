@@ -31,7 +31,7 @@ pub enum AesAlgo {
 pub struct LuaCfg {
     pub key: KeySource,
     pub value: String,
-    pub algorithm: String,
+    pub algorithm: AesAlgo,
 }
 
 #[derive(Deserialize, Clone, Debug)]
