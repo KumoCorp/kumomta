@@ -183,16 +183,14 @@ fn aes_decrypt_block(ciphertext_buf: &[u8], params: AesParams) -> anyhow::Result
             };
 
             // CBC expects the IV to be prepended to the ciphertext.
-            if ciphertext_buf.len() < 16 {
-                return Err(anyhow!(
-                    "Ciphertext is too short to contain an IV (expected at least 16 bytes for IV)"
-                ));
-            }
-
-            let (iv_bytes, actual_ciphertext) = ciphertext_buf.split_at(16); // Split into IV and actual ciphertext
-            let iv: [u8; 16] = iv_bytes
+            anyhow::ensure!(ciphertext_buf.len() >= CBC_IV_LEN,
+                    "Ciphertext is too short to contain an IV (expected at least {CBC_IV_LEN} bytes for IV)"
+                );
+                
+            let (iv_bytes, actual_ciphertext) = ciphertext_buf.split_at(CBC_IV_LEN); // Split into IV and actual ciphertext
+            let iv: [u8; CBC_IV_LEN] = iv_bytes
                 .try_into()
-                .map_err(|_| anyhow!("IV length is incorrect, expected 16 bytes"))?;
+                .map_err(|_| anyhow!("IV length is incorrect, expected {CBC_IV_LEN} bytes"))?;
 
             let mut decrypt_buffer = actual_ciphertext.to_vec(); // Create a mutable buffer for decryption
             let plaintext_slice =
