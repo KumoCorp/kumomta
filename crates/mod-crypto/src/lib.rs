@@ -108,7 +108,7 @@ fn aes_encrypt_block(plaintext: &str, params: AesParams) -> Result<Vec<u8>, anyh
                     result.extend_from_slice(&buf_ciphertext); // Append the actual ciphertext after the IV
                     Ok(result)
                 }
-                _ => Err(anyhow!("Unexpected IV context for encrypting in CBC mode")),
+                unsupported => anyhow::bail!("Unexpected IV context {unsupported:?} for encrypting in CBC mode"),
             }
         }
     }
