@@ -38,7 +38,7 @@ pub struct LuaCfg {
 pub struct LuaCfgDecrypt {
     pub key: KeySource,
     pub value: Vec<u8>,
-    pub algorithm: String,
+    pub algorithm: AesAlgo,
 }
 
 #[derive(Deserialize, Clone, Debug)]
