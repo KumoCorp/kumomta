@@ -1,5 +1,6 @@
 use anyhow::Context;
 use clap::Parser;
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 use tokio::net::TcpListener;
 
 mod proxy_handler;
@@ -26,6 +27,9 @@ async fn main() -> anyhow::Result<()> {
     if opts.listen.is_empty() {
         anyhow::bail!("No listeners defined! use the --listen option to specify at least one!");
     }
+
+    let (_no_file_soft, no_file_hard) = getrlimit(Resource::RLIMIT_NOFILE)?;
+    setrlimit(Resource::RLIMIT_NOFILE, no_file_hard, no_file_hard).context("setrlimit NOFILE")?;
 
     for endpoint in &opts.listen {
         start_listener(

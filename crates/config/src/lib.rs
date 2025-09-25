@@ -588,6 +588,41 @@ pub fn materialize_to_lua_value(lua: &Lua, value: mlua::Value) -> mlua::Result<m
     }
 }
 
+/// Helper wrapper type for passing/returning serde encoded values from/to lua
+pub struct SerdeWrappedValue<T>(pub T);
+
+impl<T: serde::Serialize> SerdeWrappedValue<T> {
+    pub fn to_lua_value(&self, lua: &Lua) -> mlua::Result<mlua::Value> {
+        lua.to_value_with(&self.0, serialize_options())
+    }
+}
+
+impl<T: serde::Serialize> IntoLua for SerdeWrappedValue<T> {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
+        lua.to_value_with(&self.0, serialize_options())
+    }
+}
+
+impl<T: serde::de::DeserializeOwned> FromLua for SerdeWrappedValue<T> {
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<SerdeWrappedValue<T>> {
+        let inner: T = from_lua_value(lua, value)?;
+        Ok(SerdeWrappedValue(inner))
+    }
+}
+
+impl<T> std::ops::Deref for SerdeWrappedValue<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for SerdeWrappedValue<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
 /// Convert from a lua value to a deserializable type,
 /// with a slightly more helpful error message in case of failure.
 /// NOTE: the ", while processing" portion of the error messages generated

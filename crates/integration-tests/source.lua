@@ -217,7 +217,8 @@ kumo.on('smtp_server_message_received', function(msg)
   kumo.log_info('schedule result', kumo.serde.json_encode(result))
 end)
 
-kumo.on('get_queue_config', function(domain, _tenant, _campaign)
+kumo.on('get_queue_config', function(domain, tenant, campaign, routing_domain)
+  kumo.log_warn('get_queue_config', domain, tenant, campaign, routing_domain)
   if domain == 'webhook' then
     return kumo.make_queue_config {
       protocol = {
@@ -231,7 +232,7 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
   local protocol = {
     -- Redirect traffic to the sink
     smtp = {
-      mx_list = { 'localhost' },
+      mx_list = { 'localhost:' .. SINK_PORT },
     },
   }
 
@@ -240,8 +241,8 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
       -- Redirect traffic to the sink, but with two hosts in the connection plan
       smtp = {
         mx_list = {
-          { name = 'localhost-1', addr = '127.0.0.1' },
-          { name = 'localhost-2', addr = '127.0.0.1' },
+          { name = 'localhost-1', addr = '127.0.0.1:' .. SINK_PORT },
+          { name = 'localhost-2', addr = '127.0.0.1:' .. SINK_PORT },
         },
       },
     }
@@ -254,6 +255,16 @@ kumo.on('get_queue_config', function(domain, _tenant, _campaign)
     -- and go to the sink, because we DO want the dns resolution
     -- to successfully return nxdomain in order for the test to
     -- exercise the appropriate logic.
+    protocol = nil
+  end
+  if domain == 'rebind.example.com' then
+    -- This domain is used by rebind_port.rs.
+    -- In this case, we don't want the default sink route that was
+    -- established above to take effect, we want to confirm that
+    -- the port number embedded in either the domain or routing_domain
+    -- are used, so we use the default smtp protocol settings here
+    -- and rely on assertions in rebind_port.rs to validate the
+    -- behavior.
     protocol = nil
   end
 
@@ -292,7 +303,6 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     enable_tls = os.getenv 'KUMOD_ENABLE_TLS' or 'OpportunisticInsecure',
     reconnect_strategy = os.getenv 'KUMOD_RECONNECT_STRATEGY'
       or 'ConnectNextHost',
-    smtp_port = SINK_PORT,
     prohibited_hosts = {},
     opportunistic_tls_reconnect_on_failed_handshake = (
       (os.getenv 'KUMOD_OPPORTUNISTIC_TLS_RECONNECT') and true
@@ -301,7 +311,20 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     try_next_host_on_transport_error = (
       (os.getenv 'KUMOD_TRY_NEXT_HOST_ON_TRANSPORT_ERROR') and true
     ) or false,
+    tls_prefer_openssl = ((os.getenv 'KUMOD_PREFER_OPENSSL') and true)
+      or false,
   }
+
+  if os.getenv 'KUMOD_CLIENT_CERTIFICATE' then
+    params.tls_certificate = {
+      key_data = os.getenv 'KUMOD_CLIENT_CERTIFICATE',
+    }
+  end
+  if os.getenv 'KUMOD_CLIENT_PRIVATE_KEY' then
+    params.tls_private_key = {
+      key_data = os.getenv 'KUMOD_CLIENT_PRIVATE_KEY',
+    }
+  end
 
   -- See if there is a source-specific rate exported to us via the environment.
   -- We assign this using additional_source_selection_rates regardless of
@@ -336,7 +359,7 @@ kumo.on('get_egress_path_config', function(domain, source_name, _site_name)
     params.connection_limit = 1
   end
 
-  print('get_egress_path_config *******************', domain)
+  kumo.log_warn('get_egress_path_config *******************', domain)
 
   return kumo.make_egress_path(params)
 end)

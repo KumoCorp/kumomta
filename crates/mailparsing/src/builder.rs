@@ -28,16 +28,23 @@ impl<'a> MessageBuilder<'a> {
         self.html.replace(html.to_string());
     }
 
-    pub fn attach(&mut self, content_type: &str, data: &[u8], opts: Option<&AttachmentOptions>) {
+    pub fn attach(
+        &mut self,
+        content_type: &str,
+        data: &[u8],
+        opts: Option<&AttachmentOptions>,
+    ) -> Result<(), MailParsingError> {
         let is_inline = opts.map(|opt| opt.inline).unwrap_or(false);
 
-        let part = MimePart::new_binary(content_type, data, opts);
+        let part = MimePart::new_binary(content_type, data, opts)?;
 
         if is_inline {
             self.inline.push(part);
         } else {
             self.attached.push(part);
         }
+
+        Ok(())
     }
 
     pub fn attach_part(&mut self, part: MimePart<'a>) {
@@ -61,15 +68,15 @@ impl<'a> MessageBuilder<'a> {
         let content_node = match (text, html) {
             (Some(t), Some(h)) => MimePart::new_multipart(
                 "multipart/alternative",
-                vec![t, h],
+                vec![t?, h?],
                 if self.stable_content {
                     Some("ma-boundary")
                 } else {
                     None
                 },
-            ),
-            (Some(t), None) => t,
-            (None, Some(h)) => h,
+            )?,
+            (Some(t), None) => t?,
+            (None, Some(h)) => h?,
             (None, None) => {
                 return Err(MailParsingError::BuildError(
                     "no text or html part was specified",
@@ -89,7 +96,7 @@ impl<'a> MessageBuilder<'a> {
                 } else {
                     None
                 },
-            )
+            )?
         } else {
             content_node
         };
@@ -106,7 +113,7 @@ impl<'a> MessageBuilder<'a> {
                 } else {
                     None
                 },
-            )
+            )?
         } else {
             content_node
         };
@@ -114,7 +121,7 @@ impl<'a> MessageBuilder<'a> {
         root.headers_mut().headers.extend(self.headers.headers);
 
         if root.headers().mime_version()?.is_none() {
-            root.headers_mut().set_mime_version("1.0");
+            root.headers_mut().set_mime_version("1.0")?;
         }
 
         if root.headers().date()?.is_none() {
@@ -122,9 +129,9 @@ impl<'a> MessageBuilder<'a> {
                 root.headers_mut().set_date(
                     chrono::DateTime::parse_from_rfc2822("Tue, 1 Jul 2003 10:52:37 +0200")
                         .expect("test date to be valid"),
-                );
+                )?;
             } else {
-                root.headers_mut().set_date(chrono::Utc::now());
+                root.headers_mut().set_date(chrono::Utc::now())?;
             };
         }
 
@@ -157,7 +164,7 @@ mod test {
     fn basic() {
         let mut b = MessageBuilder::new();
         b.set_stable_content(true);
-        b.set_subject("Hello there! 🍉");
+        b.set_subject("Hello there! 🍉").unwrap();
         b.text_plain("This is the body! 👻");
         b.text_html("<b>this is html 🚀</b>");
         let msg = b.build().unwrap();
@@ -183,6 +190,53 @@ Content-Transfer-Encoding: quoted-printable\r
 \r
 <b>this is html =F0=9F=9A=80</b>\r
 --ma-boundary--\r
+
+"#
+        );
+    }
+
+    #[test]
+    fn utf8_attachment_name() {
+        let mut b = MessageBuilder::new();
+        b.set_stable_content(true);
+        b.set_subject("Hello there! 🍉").unwrap();
+        b.text_plain("This is the body! 👻");
+        b.attach(
+            "text/plain",
+            b"hello",
+            Some(&AttachmentOptions {
+                content_id: None,
+                file_name: Some("日本語の添付.txt".to_string()),
+                inline: false,
+            }),
+        )
+        .unwrap();
+        let msg = b.build().unwrap();
+        k9::snapshot!(
+            msg.to_message_string(),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="mm-boundary"\r
+Subject: =?UTF-8?q?Hello_there!_=F0=9F=8D=89?=\r
+Mime-Version: 1.0\r
+Date: Tue, 1 Jul 2003 10:52:37 +0200\r
+\r
+--mm-boundary\r
+Content-Type: text/plain;\r
+\tcharset="utf-8"\r
+Content-Transfer-Encoding: quoted-printable\r
+\r
+This is the body! =F0=9F=91=BB\r
+--mm-boundary\r
+Content-Disposition: attachment;\r
+\tfilename*0*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E%E3%81%AE%E6%B7%BB%E4%BB%98.;\r
+\tfilename*1*=txt\r
+Content-Type: text/plain;\r
+\tname="=?UTF-8?q?=E6=97=A5=E6=9C=AC=E8=AA=9E=E3=81=AE=E6=B7=BB=E4=BB=98.txt?="\r
+Content-Transfer-Encoding: base64\r
+\r
+aGVsbG8=\r
+--mm-boundary--\r
 
 "#
         );

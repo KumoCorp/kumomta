@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 bitflags::bitflags! {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-    pub struct MessageConformance: u8 {
+    pub struct MessageConformance: u16 {
         const MISSING_COLON_VALUE = 0b0000_0001;
         const NON_CANONICAL_LINE_ENDINGS = 0b0000_0010;
         const NAME_ENDS_WITH_SPACE = 0b0000_0100;
@@ -19,6 +19,7 @@ bitflags::bitflags! {
         const MISSING_DATE_HEADER = 0b0010_0000;
         const MISSING_MESSAGE_ID_HEADER = 0b0100_0000;
         const MISSING_MIME_VERSION = 0b1000_0000;
+        const INVALID_MIME_HEADERS = 0b0001_0000_0000;
     }
 }
 
@@ -90,6 +91,15 @@ impl<'a> Header<'a> {
             value,
             separator: ": ".into(),
             conformance: MessageConformance::default(),
+        }
+    }
+
+    pub fn to_owned(&'a self) -> Header<'static> {
+        Header {
+            name: self.name.to_owned(),
+            value: self.value.to_owned(),
+            separator: self.separator.to_owned(),
+            conformance: self.conformance,
         }
     }
 
@@ -770,6 +780,7 @@ Some(
         k9::assert_equal!(
             MessageConformance::from_str("LINE_TOO_LONG|spoon").unwrap_err(),
             "invalid MessageConformance flag 'spoon', possible values are \
+            'INVALID_MIME_HEADERS', \
             'LINE_TOO_LONG', 'MISSING_COLON_VALUE', 'MISSING_DATE_HEADER', \
             'MISSING_MESSAGE_ID_HEADER', 'MISSING_MIME_VERSION', 'NAME_ENDS_WITH_SPACE', \
             'NEEDS_TRANSFER_ENCODING', 'NON_CANONICAL_LINE_ENDINGS'"

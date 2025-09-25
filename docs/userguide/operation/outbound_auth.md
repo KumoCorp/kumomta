@@ -16,7 +16,7 @@ kumo.on(
   function(routing_domain, egress_source, site_name)
     return kumo.make_egress_path {
       enable_tls = 'Required',
-      smtp_auth_plain_username = 'scott',
+      smtp_auth_plain_username = 'daniel',
       -- The password can be any keysource value
       smtp_auth_plain_password = {
         key_data = 'tiger',
@@ -43,13 +43,15 @@ kumo.on(
   function(routing_domain, egress_source, site_name)
     return kumo.make_egress_path {
       enable_tls = 'Required',
-      smtp_auth_plain_username = 'scott',
+      smtp_auth_plain_username = 'daniel',
       -- The password can be any keysource value.
       -- Here we are loading the credential for the domain
       -- from HashiCorp vault
       smtp_auth_plain_password = {
         vault_mount = 'secret',
         vault_path = 'smtp-auth/' .. routing_domain,
+        -- Optional: specify a custom key name (defaults to "key")
+        -- vault_key = "password"
       },
     }
   end
@@ -69,8 +71,8 @@ For example, to use a keysource with a local host, the following could be added 
 {% call toml_data() %}
 ["192.168.1.10"]
 mx_rollup = false
-smtp_auth_plain_username = "scott"
-smtp_auth_plain_password = { vault_mount = "secret", vault_path = "smtp-auth/local" }
+smtp_auth_plain_username = "daniel"
+smtp_auth_plain_password = { vault_mount = "secret", vault_path = "smtp-auth/local", vault_key = "password" }
 {% endcall %}
 
 See the [traffic shaping](../configuration/trafficshaping.md#using-the-shapinglua-helper) section of the User Guide for additional information.

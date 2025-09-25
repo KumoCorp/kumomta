@@ -201,6 +201,12 @@ pub struct EgressPathConfig {
     pub tls_prefer_openssl: bool,
 
     #[serde(default)]
+    pub tls_certificate: Option<KeySource>,
+
+    #[serde(default)]
+    pub tls_private_key: Option<KeySource>,
+
+    #[serde(default)]
     pub openssl_cipher_list: Option<String>,
     #[serde(default)]
     pub openssl_cipher_suites: Option<String>,
@@ -338,6 +344,12 @@ pub struct EgressPathConfig {
     /// immediately consider it a transient failure for that message?
     #[serde(default)]
     pub try_next_host_on_transport_error: bool,
+
+    /// If true, don't check for 8bit compatibility issues during
+    /// sending, instead, leave it to the remote host to raise
+    /// an error.
+    #[serde(default)]
+    pub ignore_8bit_checks: bool,
 }
 
 #[cfg(feature = "lua")]
@@ -374,6 +386,8 @@ impl Default for EgressPathConfig {
             smtp_auth_plain_password: None,
             aggressive_connection_opening: false,
             rustls_cipher_suites: vec![],
+            tls_certificate: None,
+            tls_private_key: None,
             openssl_cipher_list: None,
             openssl_cipher_suites: None,
             openssl_options: None,
@@ -394,6 +408,7 @@ impl Default for EgressPathConfig {
             maintainer_wakeup_strategy: WakeupStrategy::default(),
             dispatcher_wakeup_strategy: WakeupStrategy::default(),
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
         }
     }
 }

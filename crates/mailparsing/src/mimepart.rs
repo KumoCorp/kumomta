@@ -2,9 +2,11 @@ use crate::header::{HeaderParseResult, MessageConformance};
 use crate::headermap::HeaderMap;
 use crate::strings::IntoSharedString;
 use crate::{
-    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameters, Result, SharedString,
+    has_lone_cr_or_lf, Header, MailParsingError, MessageID, MimeParameterEncoding, MimeParameters,
+    Result, SharedString,
 };
 use charset::Charset;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::str::FromStr;
 
@@ -35,26 +37,48 @@ pub struct MimePart<'a> {
     outro: SharedString<'a>,
 }
 
-struct Rfc2045Info {
-    encoding: ContentTransferEncoding,
-    charset: Charset,
-    content_type: Option<MimeParameters>,
-    is_text: bool,
-    is_multipart: bool,
-    attachment_options: Option<AttachmentOptions>,
+#[derive(PartialEq, Debug)]
+pub struct Rfc2045Info {
+    pub encoding: ContentTransferEncoding,
+    pub charset: Result<Charset>,
+    pub content_type: Option<MimeParameters>,
+    pub is_text: bool,
+    pub is_multipart: bool,
+    pub attachment_options: Option<AttachmentOptions>,
+    pub invalid_mime_headers: bool,
 }
 
 impl Rfc2045Info {
-    fn new(headers: &HeaderMap) -> Result<Self> {
-        let content_transfer_encoding = headers.content_transfer_encoding()?;
-
-        let encoding = match &content_transfer_encoding {
-            Some(cte) => ContentTransferEncoding::from_str(&cte.value)?,
-            None => ContentTransferEncoding::SevenBit,
+    // This must be infallible so that a basic mime structure can be parsed
+    // even if the mime headers are a bit borked
+    fn new(headers: &HeaderMap) -> Self {
+        let mut invalid_mime_headers = false;
+        let encoding = match headers.content_transfer_encoding() {
+            Ok(Some(cte)) => match ContentTransferEncoding::from_str(&cte.value) {
+                Ok(encoding) => encoding,
+                Err(_) => {
+                    invalid_mime_headers = true;
+                    ContentTransferEncoding::SevenBit
+                }
+            },
+            Ok(None) => ContentTransferEncoding::SevenBit,
+            Err(_) => {
+                invalid_mime_headers = true;
+                ContentTransferEncoding::SevenBit
+            }
         };
 
-        let content_type = headers.content_type()?;
+        let content_type = match headers.content_type() {
+            Ok(ct) => ct,
+            Err(_) => {
+                invalid_mime_headers = true;
+                None
+            }
+        };
+
+        let mut ct_name = None;
         let charset = if let Some(ct) = &content_type {
+            ct_name = ct.get("name");
             ct.get("charset")
         } else {
             None
@@ -62,7 +86,7 @@ impl Rfc2045Info {
         let charset = charset.unwrap_or_else(|| "us-ascii".to_string());
 
         let charset = Charset::for_label_no_replacement(charset.as_bytes())
-            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")))?;
+            .ok_or_else(|| MailParsingError::BodyParse(format!("unsupported charset {charset}")));
 
         let (is_text, is_multipart) = if let Some(ct) = &content_type {
             (ct.is_text(), ct.is_multipart())
@@ -70,30 +94,52 @@ impl Rfc2045Info {
             (true, false)
         };
 
-        let content_disposition = headers.content_disposition()?;
-        let attachment_options = match content_disposition {
-            Some(cd) => {
-                let inline = cd.value == "inline";
-                let content_id = headers.content_id()?;
-                let file_name = cd.get("filename");
+        let mut inline = false;
+        let mut cd_file_name = None;
 
-                Some(AttachmentOptions {
-                    file_name,
-                    inline,
-                    content_id: content_id.map(|cid| cid.0),
-                })
+        match headers.content_disposition() {
+            Ok(Some(cd)) => {
+                inline = cd.value == "inline";
+                cd_file_name = cd.get("filename");
             }
-            None => None,
+            Ok(None) => {}
+            Err(_) => {
+                invalid_mime_headers = true;
+            }
         };
 
-        Ok(Self {
+        let content_id = match headers.content_id() {
+            Ok(cid) => cid.map(|cid| cid.0),
+            Err(_) => {
+                invalid_mime_headers = true;
+                None
+            }
+        };
+
+        let file_name = match (cd_file_name, ct_name) {
+            (Some(name), _) | (None, Some(name)) => Some(name),
+            (None, None) => None,
+        };
+
+        let attachment_options = if inline || file_name.is_some() || content_id.is_some() {
+            Some(AttachmentOptions {
+                file_name,
+                inline,
+                content_id,
+            })
+        } else {
+            None
+        };
+
+        Self {
             encoding,
             charset,
             content_type,
             is_text,
             is_multipart,
             attachment_options,
-        })
+            invalid_mime_headers,
+        }
     }
 }
 
@@ -105,6 +151,20 @@ impl<'a> MimePart<'a> {
     {
         let (bytes, base_conformance) = bytes.into_shared_string();
         Self::parse_impl(bytes, base_conformance, true)
+    }
+
+    /// Obtain a version of self that has a static lifetime
+    pub fn to_owned(&self) -> MimePart<'static> {
+        MimePart {
+            bytes: self.bytes.to_owned(),
+            headers: self.headers.to_owned(),
+            body_offset: self.body_offset,
+            body_len: self.body_len,
+            conformance: self.conformance,
+            parts: self.parts.iter().map(|p| p.to_owned()).collect(),
+            intro: self.intro.to_owned(),
+            outro: self.outro.to_owned(),
+        }
     }
 
     fn parse_impl(
@@ -175,7 +235,10 @@ impl<'a> MimePart<'a> {
     }
 
     fn recursive_parse(&mut self) -> Result<()> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
+        if info.invalid_mime_headers {
+            self.conformance |= MessageConformance::INVALID_MIME_HEADERS;
+        }
         if let Some((boundary, true)) = info
             .content_type
             .as_ref()
@@ -255,7 +318,7 @@ impl<'a> MimePart<'a> {
     }
 
     /// Obtains a reference to the headers
-    pub fn headers(&self) -> &HeaderMap {
+    pub fn headers(&'_ self) -> &'_ HeaderMap<'_> {
         &self.headers
     }
 
@@ -265,14 +328,18 @@ impl<'a> MimePart<'a> {
     }
 
     /// Get the raw, transfer-encoded body
-    pub fn raw_body(&self) -> SharedString {
+    pub fn raw_body(&'_ self) -> SharedString<'_> {
         self.bytes
             .slice(self.body_offset..self.body_len.max(self.body_offset))
     }
 
+    pub fn rfc2045_info(&self) -> Rfc2045Info {
+        Rfc2045Info::new(&self.headers)
+    }
+
     /// Decode transfer decoding and return the body
-    pub fn body(&self) -> Result<DecodedBody> {
-        let info = Rfc2045Info::new(&self.headers)?;
+    pub fn body(&'_ self) -> Result<DecodedBody<'_>> {
+        let info = Rfc2045Info::new(&self.headers);
 
         let bytes = match info.encoding {
             ContentTransferEncoding::Base64 => {
@@ -310,7 +377,7 @@ impl<'a> MimePart<'a> {
         };
 
         if info.is_text {
-            let (decoded, _malformed) = info.charset.decode_without_bom_handling(&bytes);
+            let (decoded, _malformed) = info.charset?.decode_without_bom_handling(&bytes);
             Ok(DecodedBody::Text(decoded.to_string().into()))
         } else {
             Ok(DecodedBody::Binary(bytes))
@@ -324,7 +391,7 @@ impl<'a> MimePart<'a> {
     /// but may come at the cost of "losing" the non-sensical or otherwise
     /// out of spec elements in the rebuilt message
     pub fn rebuild(&self) -> Result<Self> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
 
         let mut children = vec![];
         for part in &self.parts {
@@ -340,7 +407,7 @@ impl<'a> MimePart<'a> {
                         .as_ref()
                         .map(|ct| ct.value.as_str())
                         .unwrap_or("text/plain");
-                    Self::new_text(ct, text.as_str())
+                    Self::new_text(ct, text.as_str())?
                 }
                 DecodedBody::Binary(data) => {
                     let ct = info
@@ -348,7 +415,7 @@ impl<'a> MimePart<'a> {
                         .as_ref()
                         .map(|ct| ct.value.as_str())
                         .unwrap_or("application/octet-stream");
-                    Self::new_binary(ct, &data, info.attachment_options.as_ref())
+                    Self::new_binary(ct, &data, info.attachment_options.as_ref())?
                 }
             }
         } else {
@@ -357,18 +424,63 @@ impl<'a> MimePart<'a> {
                     "multipart message has no content-type information!?".to_string(),
                 )
             })?;
-            Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())
+            Self::new_multipart(&ct.value, children, ct.get("boundary").as_deref())?
         };
 
         for hdr in self.headers.iter() {
-            // Skip rfc2045 associated headers; we already rebuilt
-            // those above
             let name = hdr.get_name();
-            if name.eq_ignore_ascii_case("Content-Type")
-                || name.eq_ignore_ascii_case("Content-Transfer-Encoding")
-                || name.eq_ignore_ascii_case("Content-Disposition")
-                || name.eq_ignore_ascii_case("Content-ID")
-            {
+            if name.eq_ignore_ascii_case("Content-ID") {
+                continue;
+            }
+
+            // Merge in any MimeParameters that we might otherwise have lost
+            // in the rebuild
+            if name.eq_ignore_ascii_case("Content-Type") {
+                if let Ok(params) = hdr.as_content_type() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_type()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_type(dest)?;
+                }
+                continue;
+            }
+            if name.eq_ignore_ascii_case("Content-Transfer-Encoding") {
+                if let Ok(params) = hdr.as_content_transfer_encoding() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_transfer_encoding()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_transfer_encoding(dest)?;
+                }
+                continue;
+            }
+            if name.eq_ignore_ascii_case("Content-Disposition") {
+                if let Ok(params) = hdr.as_content_disposition() {
+                    let Some(mut dest) = rebuilt.headers_mut().content_disposition()? else {
+                        continue;
+                    };
+
+                    for (k, v) in params.parameter_map() {
+                        if dest.get(&k).is_none() {
+                            dest.set(&k, &v);
+                        }
+                    }
+
+                    rebuilt.headers_mut().set_content_disposition(dest)?;
+                }
                 continue;
             }
 
@@ -402,7 +514,7 @@ impl<'a> MimePart<'a> {
             out.write_all(self.raw_body().as_bytes())
                 .map_err(|_| MailParsingError::WriteMessageIOError)?;
         } else {
-            let info = Rfc2045Info::new(&self.headers)?;
+            let info = Rfc2045Info::new(&self.headers);
             let ct = info.content_type.ok_or({
                 MailParsingError::WriteMessageWtf(
                     "expected to have Content-Type when there are child parts",
@@ -434,8 +546,8 @@ impl<'a> MimePart<'a> {
         String::from_utf8_lossy(&out).to_string()
     }
 
-    pub fn replace_text_body(&mut self, content_type: &str, content: &str) {
-        let mut new_part = Self::new_text(content_type, content);
+    pub fn replace_text_body(&mut self, content_type: &str, content: &str) -> Result<()> {
+        let mut new_part = Self::new_text(content_type, content)?;
         self.bytes = new_part.bytes;
         self.body_offset = new_part.body_offset;
         self.body_len = new_part.body_len;
@@ -446,12 +558,53 @@ impl<'a> MimePart<'a> {
         self.headers.remove_all_named("Content-Transfer-Encoding");
         // And add any from the new part
         self.headers.append(&mut new_part.headers.headers);
+        Ok(())
+    }
+
+    pub fn replace_binary_body(&mut self, content_type: &str, content: &[u8]) -> Result<()> {
+        let mut new_part = Self::new_binary(content_type, content, None)?;
+        self.bytes = new_part.bytes;
+        self.body_offset = new_part.body_offset;
+        self.body_len = new_part.body_len;
+        // Remove any rfc2047 headers that might reflect how the content
+        // is encoded. Note that we preserve Content-Disposition as that
+        // isn't related purely to the how the content is encoded
+        self.headers.remove_all_named("Content-Type");
+        self.headers.remove_all_named("Content-Transfer-Encoding");
+        // And add any from the new part
+        self.headers.append(&mut new_part.headers.headers);
+        Ok(())
+    }
+
+    pub fn new_no_transfer_encoding(content_type: &str, bytes: &[u8]) -> Result<Self> {
+        if bytes.iter().any(|b| !b.is_ascii()) {
+            return Err(MailParsingError::EightBit);
+        }
+
+        let mut headers = HeaderMap::default();
+
+        let ct = MimeParameters::new(content_type);
+        headers.set_content_type(ct)?;
+
+        let bytes = String::from_utf8_lossy(bytes).to_string();
+        let body_len = bytes.len();
+
+        Ok(Self {
+            bytes: bytes.into(),
+            headers,
+            body_offset: 0,
+            body_len,
+            conformance: MessageConformance::default(),
+            parts: vec![],
+            intro: "".into(),
+            outro: "".into(),
+        })
     }
 
     /// Constructs a new part with textual utf8 content.
     /// quoted-printable transfer encoding will be applied,
     /// unless it is smaller to represent the text in base64
-    pub fn new_text(content_type: &str, content: &str) -> Self {
+    pub fn new_text(content_type: &str, content: &str) -> Result<Self> {
         // We'll probably use qp, so speculatively do the work
         let qp_encoded = quoted_printable::encode(content);
 
@@ -482,17 +635,17 @@ impl<'a> MimePart<'a> {
                 "utf-8"
             },
         );
-        headers.set_content_type(ct);
+        headers.set_content_type(ct)?;
 
         if let Some(encoding) = encoding {
-            headers.set_content_transfer_encoding(MimeParameters::new(encoding));
+            headers.set_content_transfer_encoding(MimeParameters::new(encoding))?;
         }
 
         let body_len = encoded.len();
         let bytes =
             String::from_utf8(encoded).expect("transfer encoder to produce valid ASCII output");
 
-        Self {
+        Ok(Self {
             bytes: bytes.into(),
             headers,
             body_offset: 0,
@@ -501,18 +654,22 @@ impl<'a> MimePart<'a> {
             parts: vec![],
             intro: "".into(),
             outro: "".into(),
-        }
+        })
     }
 
-    pub fn new_text_plain(content: &str) -> Self {
+    pub fn new_text_plain(content: &str) -> Result<Self> {
         Self::new_text("text/plain", content)
     }
 
-    pub fn new_html(content: &str) -> Self {
+    pub fn new_html(content: &str) -> Result<Self> {
         Self::new_text("text/html", content)
     }
 
-    pub fn new_multipart(content_type: &str, parts: Vec<Self>, boundary: Option<&str>) -> Self {
+    pub fn new_multipart(
+        content_type: &str,
+        parts: Vec<Self>,
+        boundary: Option<&str>,
+    ) -> Result<Self> {
         let mut headers = HeaderMap::default();
 
         let mut ct = MimeParameters::new(content_type);
@@ -527,9 +684,9 @@ impl<'a> MimePart<'a> {
                 ct.set("boundary", &boundary);
             }
         }
-        headers.set_content_type(ct);
+        headers.set_content_type(ct)?;
 
-        Self {
+        Ok(Self {
             bytes: "".into(),
             headers,
             body_offset: 0,
@@ -538,38 +695,46 @@ impl<'a> MimePart<'a> {
             parts,
             intro: "".into(),
             outro: "".into(),
-        }
+        })
     }
 
     pub fn new_binary(
         content_type: &str,
         content: &[u8],
         options: Option<&AttachmentOptions>,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut encoded = BASE64_RFC2045.encode(content);
         if !encoded.ends_with("\r\n") {
             encoded.push_str("\r\n");
         }
         let mut headers = HeaderMap::default();
 
-        headers.set_content_type(MimeParameters::new(content_type));
-        headers.set_content_transfer_encoding(MimeParameters::new("base64"));
+        let mut ct = MimeParameters::new(content_type);
 
         if let Some(opts) = options {
             let mut cd = MimeParameters::new(if opts.inline { "inline" } else { "attachment" });
             if let Some(name) = &opts.file_name {
                 cd.set("filename", name);
+                let encoding = if name.chars().any(|c| !c.is_ascii()) {
+                    MimeParameterEncoding::QuotedRfc2047
+                } else {
+                    MimeParameterEncoding::None
+                };
+                ct.set_with_encoding("name", name, encoding);
             }
-            headers.set_content_disposition(cd);
+            headers.set_content_disposition(cd)?;
 
             if let Some(id) = &opts.content_id {
-                headers.set_content_id(MessageID(id.to_string()));
+                headers.set_content_id(MessageID(id.to_string()))?;
             }
         }
 
+        headers.set_content_type(ct)?;
+        headers.set_content_transfer_encoding(MimeParameters::new("base64"))?;
+
         let body_len = encoded.len();
 
-        Self {
+        Ok(Self {
             bytes: encoded.into(),
             headers,
             body_offset: 0,
@@ -578,7 +743,7 @@ impl<'a> MimePart<'a> {
             parts: vec![],
             intro: "".into(),
             outro: "".into(),
-        }
+        })
     }
 
     /// Returns a SimplifiedStructure representation of the mime tree,
@@ -681,7 +846,7 @@ impl<'a> MimePart<'a> {
         &self,
         my_idx: Option<u8>,
     ) -> Result<SimplifiedStructurePointers> {
-        let info = Rfc2045Info::new(&self.headers)?;
+        let info = Rfc2045Info::new(&self.headers);
         let is_inline = info
             .attachment_options
             .as_ref()
@@ -716,14 +881,18 @@ impl<'a> MimePart<'a> {
                 for (i, p) in self.parts.iter().enumerate() {
                     let part_idx = i.try_into().map_err(|_| MailParsingError::TooManyParts)?;
                     if let Ok(mut s) = p.simplified_structure_pointers_impl(Some(part_idx)) {
-                        if text_part.is_none() {
-                            if let Some(p) = s.text_part {
+                        if let Some(p) = s.text_part {
+                            if text_part.is_none() {
                                 text_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                            } else {
+                                attachments.push(p);
                             }
                         }
-                        if html_part.is_none() {
-                            if let Some(p) = s.html_part {
+                        if let Some(p) = s.html_part {
+                            if html_part.is_none() {
                                 html_part.replace(PartPointer::root_or_nth(my_idx).append(p));
+                            } else {
+                                attachments.push(p);
                             }
                         }
                         attachments.append(&mut s.attachments);
@@ -791,6 +960,17 @@ impl PartPointer {
         self.0.append(&mut other.0);
         Self(self.0)
     }
+
+    pub fn id_string(&self) -> String {
+        let mut id = String::new();
+        for p in &self.0 {
+            if !id.is_empty() {
+                id.push('.');
+            }
+            id.push_str(&p.to_string());
+        }
+        id
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -813,10 +993,14 @@ pub struct SimplifiedStructure<'a> {
     pub attachments: Vec<MimePart<'a>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttachmentOptions {
+    #[serde(default)]
     pub file_name: Option<String>,
+    #[serde(default)]
     pub inline: bool,
+    #[serde(default)]
     pub content_id: Option<String>,
 }
 
@@ -1119,7 +1303,7 @@ After the final boundary stuff gets ignored.\r
 
     #[test]
     fn replace_text_body() {
-        let mut part = MimePart::new_text_plain("Hello 👻\r\n");
+        let mut part = MimePart::new_text_plain("Hello 👻\r\n").unwrap();
         let encoded = part.to_message_string();
         k9::snapshot!(
             &encoded,
@@ -1133,7 +1317,8 @@ SGVsbG8g8J+Ruw0K\r
 "#
         );
 
-        part.replace_text_body("text/plain", "Hello 🚀\r\n");
+        part.replace_text_body("text/plain", "Hello 🚀\r\n")
+            .unwrap();
         let encoded = part.to_message_string();
         k9::snapshot!(
             &encoded,
@@ -1152,7 +1337,7 @@ SGVsbG8g8J+agA0K\r
     fn construct_1() {
         let input_text = "Well, hello there! This is the plaintext version, in utf-8. Here's a Euro: €, and here are some emoji 👻 🍉 💩 and this long should be long enough that we wrap it in the returned part, let's see how that turns out!\r\n";
 
-        let part = MimePart::new_text_plain(input_text);
+        let part = MimePart::new_text_plain(input_text).unwrap();
 
         let encoded = part.to_message_string();
         k9::snapshot!(
@@ -1199,8 +1384,8 @@ Ok(
         let msg = MimePart::new_multipart(
             "multipart/mixed",
             vec![
-                MimePart::new_text_plain("plain text"),
-                MimePart::new_html("<b>rich</b> text"),
+                MimePart::new_text_plain("plain text").unwrap(),
+                MimePart::new_html("<b>rich</b> text").unwrap(),
                 MimePart::new_binary(
                     "application/octet-stream",
                     &[0, 1, 2, 3],
@@ -1209,10 +1394,12 @@ Ok(
                         inline: false,
                         content_id: Some("woot.id".to_string()),
                     }),
-                ),
+                )
+                .unwrap(),
             ],
             Some("my-boundary"),
-        );
+        )
+        .unwrap();
         k9::snapshot!(
             msg.to_message_string(),
             r#"
@@ -1230,11 +1417,12 @@ Content-Type: text/html;\r
 \r
 <b>rich</b> text\r
 --my-boundary\r
-Content-Type: application/octet-stream\r
-Content-Transfer-Encoding: base64\r
 Content-Disposition: attachment;\r
 \tfilename="woot.bin"\r
 Content-ID: <woot.id>\r
+Content-Type: application/octet-stream;\r
+\tname="woot.bin"\r
+Content-Transfer-Encoding: base64\r
 \r
 AAECAw==\r
 --my-boundary--\r
@@ -1278,6 +1466,73 @@ Ok(
     }
 
     #[test]
+    fn attachment_name_order_prefers_content_disposition() {
+        let message = concat!(
+            "Content-Type: multipart/mixed;\r\n",
+            "	boundary=\"woot\"\r\n",
+            "\r\n",
+            "--woot\r\n",
+            "Content-Type: text/plain;\r\n",
+            "	charset=\"us-ascii\"\r\n",
+            "\r\n",
+            "Hello, I am the main message content\r\n",
+            "--woot\r\n",
+            "Content-Disposition: attachment;\r\n",
+            "	filename=cdname\r\n",
+            "Content-Type: application/octet-stream;\r\n",
+            "	name=ctname\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "u6o=\r\n",
+            "--woot--\r\n"
+        );
+        let part = MimePart::parse(message).unwrap();
+        let structure = part.simplified_structure().unwrap();
+
+        k9::assert_equal!(
+            structure.attachments[0].rfc2045_info().attachment_options,
+            Some(AttachmentOptions {
+                content_id: None,
+                inline: false,
+                file_name: Some("cdname".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn attachment_name_accepts_content_type_name() {
+        let message = concat!(
+            "Content-Type: multipart/mixed;\r\n",
+            "	boundary=\"woot\"\r\n",
+            "\r\n",
+            "--woot\r\n",
+            "Content-Type: text/plain;\r\n",
+            "	charset=\"us-ascii\"\r\n",
+            "\r\n",
+            "Hello, I am the main message content\r\n",
+            "--woot\r\n",
+            "Content-Disposition: attachment\r\n",
+            "Content-Type: application/octet-stream;\r\n",
+            "	name=ctname\r\n",
+            "Content-Transfer-Encoding: base64\r\n",
+            "\r\n",
+            "u6o=\r\n",
+            "--woot--\r\n"
+        );
+        let part = MimePart::parse(message).unwrap();
+        let structure = part.simplified_structure().unwrap();
+
+        k9::assert_equal!(
+            structure.attachments[0].rfc2045_info().attachment_options,
+            Some(AttachmentOptions {
+                content_id: None,
+                inline: false,
+                file_name: Some("ctname".to_string()),
+            })
+        );
+    }
+
+    #[test]
     fn funky_headers() {
         let message = concat!(
             "Subject\r\n",
@@ -1302,11 +1557,96 @@ Ok(
     #[test]
     fn rebuild_binary() {
         let expect = &[0, 1, 2, 3, 0xbe, 4, 5];
-        let part = MimePart::new_binary("applicat/octet-stream", expect, None);
+        let part = MimePart::new_binary("applicat/octet-stream", expect, None).unwrap();
 
         let rebuilt = part.rebuild().unwrap();
         let body = rebuilt.body().unwrap();
 
         assert_eq!(body, DecodedBody::Binary(expect.to_vec()));
+    }
+
+    /// Validate that we don't lose supplemental mime parameters like:
+    /// `Content-Type: text/calendar; method=REQUEST`
+    #[test]
+    fn rebuild_invitation() {
+        let message = concat!(
+            "Subject: Test for events 2\r\n",
+            "Content-Type: multipart/mixed;\r\n",
+            " boundary=8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Type: multipart/alternative;\r\n",
+            " boundary=a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "Content-Type: text/plain; charset=UTF-8\r\n",
+            "\r\n",
+            "This is a test for calendar event invitation\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n",
+            "Content-Type: text/html; charset=UTF-8\r\n",
+            "\r\n",
+            "<p>This is a test for calendar event invitation</p>\r\n",
+            "--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f--\r\n",
+            "\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Disposition: inline; name=\"Invitation.ics\"\r\n",
+            "Content-Type: text/calendar; method=REQUEST; name=\"Invitation.ics\"\r\n",
+            "\r\n",
+            "Invitation\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r\n",
+            "Content-Disposition: attachment; filename=\"event.ics\"\r\n",
+            "Content-Type: application/ics\r\n",
+            "\r\n",
+            "Event\r\n",
+            "--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r\n",
+            "\r\n"
+        );
+
+        let part = MimePart::parse(message).unwrap();
+        let rebuilt = part.rebuild().unwrap();
+
+        k9::snapshot!(
+            rebuilt.to_message_string(),
+            r#"
+Content-Type: multipart/mixed;\r
+\tboundary="8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3"\r
+Subject: Test for events 2\r
+\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Type: multipart/alternative;\r
+\tboundary="a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f"\r
+\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r
+Content-Type: text/plain;\r
+\tcharset="us-ascii"\r
+\r
+This is a test for calendar event invitation\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f\r
+Content-Type: text/html;\r
+\tcharset="us-ascii"\r
+\r
+<p>This is a test for calendar event invitation</p>\r
+--a4e0aff9e05c7d94e2e13bd5590302f7802daac1e952c065207790d15a9f--\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Type: text/calendar;\r
+\tcharset="us-ascii";\r
+\tmethod="REQUEST";\r
+\tname="Invitation.ics"\r
+\r
+Invitation\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3\r
+Content-Disposition: attachment;\r
+\tfilename="event.ics"\r
+Content-Type: application/ics;\r
+\tname="event.ics"\r
+Content-Transfer-Encoding: base64\r
+\r
+RXZlbnQNCg==\r
+--8a54d64d7ad7c04a084478052b36cbe1609b33bf3a41203aaee8dd642cd3--\r
+
+"#
+        );
     }
 }

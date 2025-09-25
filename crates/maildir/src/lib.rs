@@ -110,17 +110,21 @@ impl MailEntry {
         &self.id
     }
 
-    fn read_data(&mut self) -> std::io::Result<()> {
+    pub fn read_data(&mut self) -> std::io::Result<&[u8]> {
         if self.data.is_none() {
             let mut f = fs::File::open(&self.path)?;
             let mut d = Vec::<u8>::new();
             f.read_to_end(&mut d)?;
             self.data = MailData::Bytes(d);
         }
-        Ok(())
+
+        match &self.data {
+            MailData::None => unreachable!(),
+            MailData::Bytes(b) => Ok(&b),
+        }
     }
 
-    pub fn parsed(&mut self) -> Result<MimePart, MailEntryError> {
+    pub fn parsed(&'_ mut self) -> Result<MimePart<'_>, MailEntryError> {
         self.read_data()?;
         let bytes = self
             .data
@@ -130,7 +134,7 @@ impl MailEntry {
         MimePart::parse(bytes).map_err(MailEntryError::ParseError)
     }
 
-    pub fn headers(&mut self) -> Result<HeaderMap, MailEntryError> {
+    pub fn headers(&'_ mut self) -> Result<HeaderMap<'_>, MailEntryError> {
         self.read_data()?;
         let bytes = self
             .data

@@ -8,10 +8,18 @@ local TEST_DIR = os.getenv 'KUMOD_TEST_DIR'
 kumo.on('init', function()
   kumo.configure_accounting_db_path ':memory:'
 
-  kumo.start_esmtp_listener {
+  local smtp_params = {
     listen = '127.0.0.1:0',
     relay_hosts = { '0.0.0.0/0' },
   }
+  local client_ca = os.getenv 'KUMOD_CLIENT_REQUIRED_CA'
+  if client_ca then
+    smtp_params.tls_required_client_ca = {
+      key_data = client_ca,
+    }
+  end
+
+  kumo.start_esmtp_listener(smtp_params)
 
   kumo.configure_local_logs {
     log_dir = TEST_DIR .. '/logs',
@@ -74,7 +82,7 @@ end)
 
 function simple_auth_check(user, password)
   local password_database = {
-    ['scott'] = 'tiger',
+    ['daniel'] = 'tiger',
   }
   if password == '' then
     return false
@@ -96,4 +104,22 @@ kumo.on('smtp_server_auth_plain', function(authz, authc, password)
     )
   )
   return simple_auth_check(authc, password)
+end)
+
+kumo.on('smtp_server_ehlo', function(domain, conn_meta, extensions)
+  local revised = {}
+  for _, ext in ipairs(extensions) do
+    local include = true
+    if ext == '8BITMIME' and os.getenv 'KUMOD_HIDE_8BITMIME' then
+      include = false
+    end
+    if ext == 'SMTPUTF8' and os.getenv 'KUMOD_HIDE_SMTPUTF8' then
+      include = false
+    end
+    if include then
+      table.insert(revised, ext)
+    end
+  end
+
+  return revised
 end)

@@ -61,7 +61,7 @@ pub async fn log_rejection(args: LogRejection) {
             provider_name: None,
             session_id: args.session_id,
         };
-        if let Err(err) = logger.log(record).await {
+        if let Err(err) = logger.log(record, None).await {
             tracing::error!("failed to log: {err:#}");
         }
     }

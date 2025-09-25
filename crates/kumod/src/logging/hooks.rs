@@ -97,7 +97,7 @@ impl LogHookState {
                     tracing::debug!("LogCommand::Terminate received. Stopping writing logs");
                     break;
                 }
-                LogCommand::Record(record) => {
+                LogCommand::Record(record, _msg) => {
                     if let Err(err) = self.do_record(record).await {
                         tracing::error!("failed to log: {err:#}");
                     };

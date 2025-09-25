@@ -13,6 +13,36 @@ local QueueConfig = Record('QueueConfig', {
   _dynamic = queue_module.is_queue_config_option,
 })
 
+local DispHookOptions = Record('DispHookOptions', {
+  name = String,
+  hook = typing.Function,
+})
+
+function mod:new_disposition_hook(options)
+  local options = DispHookOptions(options)
+
+  if mod.CONFIGURED[options.name] then
+    error(
+      string.format(
+        "log_hook with name '%s' has already been configured",
+        options.name
+      )
+    )
+  end
+  mod.CONFIGURED[options.name] = options
+
+  kumo.on('pre_init', function()
+    local log_parameters = {
+      name = options.name,
+    }
+    -- utils.merge_into(options.log_parameters, log_parameters)
+    kumo.configure_log_disposition_hook(log_parameters)
+  end)
+
+  local hook_name = 'log_disposition_' .. options.name
+  kumo.on(hook_name, options.hook)
+end
+
 local LogHookOptions = Record('LogHookOptions', {
   name = String,
   log_parameters = Option(Map(String, Any)),

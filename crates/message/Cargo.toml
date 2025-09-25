@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = ["impl"]
-impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:dns-resolver", "dep:mlua"]
+impl = ["dep:kumo-dkim", "dep:data-loader", "data-loader/impl", "dep:lruttl", "dep:mlua", "dep:mod-mimepart"]
 
 [dependencies]
 anyhow = {workspace=true}
@@ -15,15 +15,17 @@ config = {path="../config"}
 chrono = {workspace=true, default-features=false, features=["serde", "clock"]}
 chrono-tz = {workspace=true}
 data-loader = {path="../data-loader", optional=true, default-features=false}
-dns-resolver = {path="../dns-resolver", optional=true}
+dns-resolver = {path="../dns-resolver"}
 duration-serde = {path="../duration-serde"}
 futures = {workspace=true}
 intrusive-collections.workspace = true
+kumo-address = {path="../kumo-address"}
 kumo-chrono-helper = {path="../kumo-chrono-helper"}
 kumo-log-types = {path="../kumo-log-types"}
 linkme.workspace = true
 lruttl = {path="../lruttl", optional=true}
 mailparsing = {path="../mailparsing"}
+mod-mimepart = {path="../mod-mimepart", optional=true}
 mlua = {workspace=true, features=["vendored", "macros", "lua54", "async", "send", "serialize"], optional=true}
 parking_lot.workspace = true
 prometheus = {workspace=true}

@@ -1925,6 +1925,8 @@ MergedEntry {
         enable_pipelining: true,
         enable_rset: true,
         tls_prefer_openssl: false,
+        tls_certificate: None,
+        tls_private_key: None,
         openssl_cipher_list: None,
         openssl_cipher_suites: None,
         openssl_options: None,
@@ -1979,6 +1981,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [
@@ -2073,6 +2076,8 @@ MergedEntry {
         enable_pipelining: true,
         enable_rset: true,
         tls_prefer_openssl: false,
+        tls_certificate: None,
+        tls_private_key: None,
         openssl_cipher_list: None,
         openssl_cipher_suites: None,
         openssl_options: None,
@@ -2127,6 +2132,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {
         "my source name": EgressPathConfig {
@@ -2138,6 +2144,8 @@ MergedEntry {
             enable_pipelining: true,
             enable_rset: true,
             tls_prefer_openssl: false,
+            tls_certificate: None,
+            tls_private_key: None,
             openssl_cipher_list: None,
             openssl_cipher_suites: None,
             openssl_options: None,
@@ -2188,6 +2196,7 @@ MergedEntry {
             low_memory_reduction_policy: ShrinkDataAndMeta,
             no_memory_reduction_policy: ShrinkDataAndMeta,
             try_next_host_on_transport_error: false,
+            ignore_8bit_checks: false,
         },
     },
     automation: [
@@ -2288,6 +2297,8 @@ MergedEntry {
         enable_pipelining: true,
         enable_rset: true,
         tls_prefer_openssl: false,
+        tls_certificate: None,
+        tls_private_key: None,
         openssl_cipher_list: None,
         openssl_cipher_suites: None,
         openssl_options: None,
@@ -2342,6 +2353,7 @@ MergedEntry {
         low_memory_reduction_policy: ShrinkDataAndMeta,
         no_memory_reduction_policy: ShrinkDataAndMeta,
         try_next_host_on_transport_error: false,
+        ignore_8bit_checks: false,
     },
     sources: {},
     automation: [

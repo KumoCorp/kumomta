@@ -2,6 +2,7 @@
 tags:
  - utility
  - filesystem
+status: deprecated
 ---
 
 # kumo.read_dir
@@ -11,6 +12,9 @@ kumo.read_dir(path)
 ```
 
 {{since('2024.06.10-84e84b89')}}
+
+!!! note
+    This function is deprecated in favor of [kumo.fs.read_dir](../kumo.fs/read_dir.md).
 
 This function returns an array containing the absolute file names of the
 directory specified.  Due to limitations in the lua bindings, all of the paths

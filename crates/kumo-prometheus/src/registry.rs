@@ -7,9 +7,9 @@ use std::sync::{Arc, LazyLock};
 
 pub trait StreamingCollector {
     /// Stream chunks of text in prometheus text exposition format
-    fn stream_text(&self, prefix: &Option<String>) -> BoxStream<String>;
+    fn stream_text(&'_ self, prefix: &Option<String>) -> BoxStream<'_, String>;
     /// Stream chunks in our json format, as chunks of text
-    fn stream_json(&self) -> BoxStream<String>;
+    fn stream_json(&'_ self) -> BoxStream<'_, String>;
     /// Prune any stale entries from this collector
     fn prune(&self);
 }

@@ -1,11 +1,18 @@
 use crate::egress_source::{EgressPool, EgressSource};
-use crate::queue::QueueConfig;
+use crate::logging::rfc3464::Report;
+use crate::queue::{InsertReason, QueueConfig, QueueManager};
 use crate::ready_queue::GET_EGRESS_PATH_CONFIG_SIG;
-use crate::smtp_server::{EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError};
+use crate::smtp_server::{
+    EsmtpDomain, EsmtpListenerParams, RejectDisconnect, RejectError, TraceHeaders,
+};
+use anyhow::Context;
 use config::{any_err, from_lua_value, get_or_create_module};
 use kumo_api_types::egress_path::EgressPathConfig;
+use kumo_log_types::rfc3464::ReportGenerationParams;
+use kumo_log_types::JsonLogRecord;
 use kumo_server_common::http_server::HttpListenerParams;
 use kumo_server_lifecycle::ShutdownSubcription;
+use mailparsing::MimePart;
 use message::{EnvelopeAddress, Message};
 use mlua::prelude::*;
 use mlua::{Lua, UserDataMethods, Value};
@@ -238,6 +245,52 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         })?,
     )?;
 
+    async fn generate_rfc3464_message(
+        params: ReportGenerationParams,
+        log_record: JsonLogRecord,
+        orig_msg: Option<Message>,
+    ) -> anyhow::Result<Option<Message>> {
+        let orig_msg_data;
+        let orig_msg = match orig_msg {
+            Some(msg) => {
+                msg.load_data_if_needed().await?;
+                orig_msg_data = msg.get_data();
+                Some(MimePart::parse(orig_msg_data.as_ref().as_ref())?)
+            }
+            None => None,
+        };
+
+        let report = Report::generate(&params, orig_msg.as_ref(), &log_record)?;
+        match report {
+            Some(report) => {
+                let recip = EnvelopeAddress::parse(&log_record.sender)
+                    .context("log_record is somehow an invalid EnvelopeAddress")?;
+                let body = report.to_message_string();
+
+                let msg = Message::new_dirty(
+                    SpoolId::new(),
+                    EnvelopeAddress::null_sender(),
+                    recip,
+                    serde_json::json!({}),
+                    Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
+                )?;
+                Ok(Some(msg))
+            }
+            None => Ok(None),
+        }
+    }
+
+    kumo_mod.set("generate_rfc3464_message",
+        lua.create_async_function(
+            move |lua, (params, orig_msg, log_record):
+            (mlua::Value, Option<Message>, mlua::Value)| async move {
+                let params: ReportGenerationParams = lua.from_value(params)?;
+                let log_record: JsonLogRecord = lua.from_value(log_record)?;
+                generate_rfc3464_message(params, log_record, orig_msg).await.map_err(any_err)
+            },
+        )?,
+    )?;
+
     kumo_mod.set(
         "make_message",
         lua.create_function(
@@ -250,6 +303,34 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
                     Arc::new(body.as_bytes().to_vec().into_boxed_slice()),
                 )
                 .map_err(any_err)
+            },
+        )?,
+    )?;
+    kumo_mod.set(
+        "inject_message",
+        lua.create_async_function(
+            move |_lua, (msg, deferred_spool): (Message, Option<bool>)| async move {
+                let deferred_spool = deferred_spool.unwrap_or(false);
+                let queue_name = msg.get_queue_name().map_err(any_err)?;
+                if !deferred_spool {
+                    msg.save(None).await.map_err(any_err)?;
+                }
+                QueueManager::insert(&queue_name, msg, InsertReason::Received.into())
+                    .await
+                    .map_err(any_err)
+            },
+        )?,
+    )?;
+
+    kumo_mod.set(
+        "apply_supplemental_trace_header",
+        lua.create_function(
+            move |lua, (message, params): (Message, Option<mlua::Value>)| {
+                let params: TraceHeaders = match params {
+                    Some(params) => from_lua_value(lua, params)?,
+                    None => TraceHeaders::default(),
+                };
+                params.apply_supplemental(&message).map_err(any_err)
             },
         )?,
     )?;

@@ -169,7 +169,7 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
             provider_name: provider.map(|s| s.to_string()),
             session_id,
         };
-        if let Err(err) = logger.log(record).await {
+        if let Err(err) = logger.log(record, Some(msg.clone())).await {
             tracing::error!("failed to log: {err:#}");
         }
 
@@ -189,6 +189,9 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                     let queue = msg
                         .get_queue_name()
                         .unwrap_or_else(|err| format!("{err:#}"));
+
+                    let reconstructed_original_msg = None; // FIXME: try to build this from the
+                                                           // parsed rfc3464 report?
 
                     for recip in &report.per_recipient {
                         if recip.action != ReportAction::Failed {
@@ -261,7 +264,9 @@ pub async fn log_disposition(args: LogDisposition<'_>) {
                             session_id,
                         };
 
-                        if let Err(err) = logger.log(record).await {
+                        if let Err(err) =
+                            logger.log(record, reconstructed_original_msg.clone()).await
+                        {
                             tracing::error!("failed to log: {err:#}");
                         }
                     }

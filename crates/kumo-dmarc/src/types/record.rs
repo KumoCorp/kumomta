@@ -86,9 +86,10 @@ impl FromStr for Record {
             }
         }
 
-        match policy {
-            true => Ok(new),
-            false => Err(format!("missing policy in {s:?}")),
+        if policy {
+            Ok(new)
+        } else {
+            Err(format!("missing policy in {s:?}"))
         }
     }
 }

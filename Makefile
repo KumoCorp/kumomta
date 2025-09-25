@@ -25,11 +25,14 @@ fc:
 	RUSTFLAGS="--cfg tokio_unstable -D warnings" cargo fc check --fail-fast
 
 test-lua:
-	./assets/run-lua-test
+	cargo run -p run-lua-tests
 
 test: build test-lua
 	./docs/update-openapi.sh
-	cargo nextest run --no-fail-fast
+	RUST_BACKTRACE=1 cargo nextest run --no-fail-fast
+
+test-adhoc: build
+	cargo nextest run --no-fail-fast --no-capture -p integration-tests -- queue_ndr
 
 test-kumod:
 	cargo nextest run --no-fail-fast -p kumod

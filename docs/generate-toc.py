@@ -413,12 +413,24 @@ TOC = [
                 "reference/kumo.domain_map",
             ),
             Gen(
+                "module: kumo.fs",
+                "reference/kumo.fs",
+            ),
+            Gen(
                 "module: kumo.http",
                 "reference/kumo.http",
             ),
             Gen(
                 "module: kumo.kafka",
                 "reference/kumo.kafka",
+            ),
+            Gen(
+                "module: kumo.mimepart",
+                "reference/kumo.mimepart",
+            ),
+            Gen(
+                "module: kumo.mpsc",
+                "reference/kumo.mpsc",
             ),
             Gen(
                 "module: kumo.regex_set_map",
@@ -484,6 +496,14 @@ TOC = [
                 "object: connectionmeta",
                 "reference/connectionmeta.md",
             ),
+            Gen(
+                "object: headermap",
+                "reference/headermap",
+            ),
+            Gen(
+                "object: header",
+                "reference/header",
+            ),
             Page(
                 "object: keysource",
                 "reference/keysource.md",
@@ -491,6 +511,10 @@ TOC = [
             Gen(
                 "object: message",
                 "reference/message",
+            ),
+            Gen(
+                "object: mimepart",
+                "reference/mimepart",
             ),
             Gen(
                 "events",

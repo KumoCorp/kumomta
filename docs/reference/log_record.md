@@ -73,11 +73,19 @@ The log record is a JSON object with the following shape:
 
     // The time at which this record was generated, expressed
     // as a unix timestamp: seconds since the unix epoch
-    "timestamp": 1678069691,
+    "timestamp": 1757675281,
+
+    // The time at which this record was generated, expressed
+    // as an RFC 3339 string {{since('dev', inline=True)}}
+    "event_time": "2025-09-12T11:08:01.440526026Z",
 
     // The time at which the message was received, expressed
     // as a unix timestamp: seconds since the unix epoch
-    "created": 1678069691,
+    "created": 1757675281,
+
+    // The time at which the message was received, expressed
+    // as an RFC 3339 string {{since('dev', inline=True)}}
+    "created_time": "2025-09-12T11:08:01.440526026Z",
 
     // The number of delivery attempts.
     "num_attempts": 0,
@@ -139,6 +147,7 @@ The log record is a JSON object with the following shape:
     "nodeid": "557f3ad4-2c8c-11ee-976e-782d7e12e173",
 
     // Information about TLS used for outgoing SMTP, if applicable.
+    // Incoming TLS info is available {{since('dev', inline=True)}}.
     "tls_cipher": "TLS_AES_256_GCM_SHA384",
     "tls_protocol_version": "TLSv1.3",
     "tls_peer_subject_name": ["C=US","ST=CA","L=SanFrancisco","O=Fort-Funston",

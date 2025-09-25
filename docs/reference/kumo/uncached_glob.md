@@ -2,6 +2,7 @@
 tags:
  - utility
  - filesystem
+status: deprecated
 ---
 
 # kumo.uncached_glob

@@ -37,6 +37,8 @@ pub fn register(lua: &Lua) -> anyhow::Result<()> {
         mod_dns_resolver::register,
         mod_kafka::register,
         mod_memoize::register,
+        mod_mimepart::register,
+        mod_mpsc::register,
         mod_uuid::register,
         kumo_api_types::shaping::register,
         regex_set_map::register,

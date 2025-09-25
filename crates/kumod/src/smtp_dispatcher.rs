@@ -10,7 +10,8 @@ use crate::spool::SpoolManager;
 use anyhow::Context;
 use async_trait::async_trait;
 use config::{load_config, CallbackSignature};
-use dns_resolver::{resolve_a_or_aaaa, ResolvedMxAddresses};
+use data_loader::KeySource;
+use dns_resolver::{has_colon_port, resolve_a_or_aaaa, ResolvedMxAddresses};
 use kumo_address::socket::SocketAddress;
 use kumo_api_types::egress_path::{EgressPathConfig, ReconnectStrategy, Tls};
 use kumo_log_types::{MaybeProxiedSourceAddress, ResolvedAddress};
@@ -33,6 +34,10 @@ lruttl::declare_cache! {
 static BROKEN_TLS_BY_SITE: LruCacheWithTtl<String, ()>::new("smtp_dispatcher_broken_tls", 64 * 1024);
 }
 
+lruttl::declare_cache! {
+static CLIENT_CERT: LruCacheWithTtl<KeySource, Result<Option<Arc<Box<[u8]>>>, String>>::new("smtp_dispatcher_client_certificate", 1024);
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SmtpProtocol {
     #[serde(default)]
@@ -48,6 +53,49 @@ pub enum MxListEntry {
 
     /// A pre-resolved name and IP address
     Resolved(ResolvedAddress),
+}
+
+impl MxListEntry {
+    /// Resolve self into 1 or more `ResolvedAddress` and append to the
+    /// supplied `addresses` vector.
+    pub async fn resolve_into(&self, addresses: &mut Vec<ResolvedAddress>) -> anyhow::Result<()> {
+        match self {
+            Self::Name(a) => {
+                if let Some((label, port)) = has_colon_port(a) {
+                    let resolved = resolve_a_or_aaaa(label)
+                        .await
+                        .with_context(|| format!("resolving mx_list entry {a}"))?;
+                    for mut r in resolved {
+                        r.addr.set_port(port);
+                        addresses.push(r);
+                    }
+
+                    return Ok(());
+                }
+
+                addresses.append(
+                    &mut resolve_a_or_aaaa(a)
+                        .await
+                        .with_context(|| format!("resolving mx_list entry {a}"))?,
+                );
+            }
+            Self::Resolved(addr) => {
+                addresses.push(addr.clone());
+            }
+        };
+        Ok(())
+    }
+
+    /// Return a label that will be used as part of the synthesized site_name
+    /// for a manually provided mx_list style site, rather than the more
+    /// typical resolved-via-MX-records site name.
+    /// We return the stringy versions of those manually specified addresses
+    pub fn label(&self) -> String {
+        match self {
+            Self::Name(a) => a.to_string(),
+            Self::Resolved(addr) => addr.addr.to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -114,18 +162,7 @@ impl SmtpDispatcher {
         } else {
             let mut addresses = vec![];
             for a in proto_config.mx_list.iter() {
-                match a {
-                    MxListEntry::Name(a) => {
-                        addresses.append(
-                            &mut resolve_a_or_aaaa(a)
-                                .await
-                                .with_context(|| format!("resolving mx_list entry {a}"))?,
-                        );
-                    }
-                    MxListEntry::Resolved(addr) => {
-                        addresses.append(&mut vec![addr.clone()]);
-                    }
-                }
+                a.resolve_into(&mut addresses).await?;
             }
             ResolvedMxAddresses::Addresses(addresses)
         };
@@ -323,6 +360,7 @@ impl SmtpDispatcher {
         let port = dispatcher
             .egress_source
             .remote_port
+            .or_else(|| address.addr.port())
             .unwrap_or(path_config.smtp_port);
 
         let target_address: SocketAddress = match address.addr.ip() {
@@ -437,6 +475,17 @@ impl SmtpDispatcher {
 
         let mut dane_tlsa = vec![];
         let mut mta_sts_eligible = true;
+
+        let mut certificate_from_pem = None;
+        let mut private_key_from_pem = None;
+
+        if let Some(pem) = &path_config.tls_certificate {
+            certificate_from_pem = self.resolve_cached_client_cert(pem).await?
+        }
+
+        if let Some(pem) = &path_config.tls_private_key {
+            private_key_from_pem = self.resolve_cached_client_cert(pem).await?
+        }
 
         let openssl_options = path_config.openssl_options;
         let openssl_cipher_list = path_config.openssl_cipher_list.clone();
@@ -572,6 +621,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate_from_pem,
+                        private_key_from_pem,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
@@ -647,6 +698,8 @@ impl SmtpDispatcher {
                         prefer_openssl,
                         alt_name: None,
                         dane_tlsa,
+                        certificate_from_pem,
+                        private_key_from_pem,
                         openssl_options,
                         openssl_cipher_list,
                         openssl_cipher_suites,
@@ -749,6 +802,25 @@ impl SmtpDispatcher {
         self.client_address.replace(address);
         dispatcher.delivered_this_connection = 0;
         Ok(())
+    }
+
+    async fn resolve_cached_client_cert(
+        &mut self,
+        source: &KeySource,
+    ) -> anyhow::Result<Option<Arc<Box<[u8]>>>> {
+        CLIENT_CERT
+            .get_or_try_insert(source, |_| tokio::time::Duration::from_secs(300), async {
+                let data = source
+                    .get()
+                    .await
+                    .map(|vec| Some(Arc::new(vec.into_boxed_slice())))
+                    .map_err(|e| e.to_string());
+                Ok::<_, anyhow::Error>(data)
+            })
+            .await
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?
+            .item
+            .map_err(|e| anyhow::Error::msg(e.to_string()))
     }
 
     async fn remember_broken_tls(&mut self, site_name: &str, path_config: &EgressPathConfig) {
@@ -924,6 +996,10 @@ impl QueueDispatcher for SmtpDispatcher {
             .path_config
             .borrow()
             .try_next_host_on_transport_error;
+
+        self.client.as_mut().map(|client| {
+            client.set_ignore_8bit_checks(dispatcher.path_config.borrow().ignore_8bit_checks)
+        });
 
         match self
             .client

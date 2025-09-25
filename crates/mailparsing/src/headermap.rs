@@ -1,6 +1,6 @@
 use crate::{
-    AddressList, AuthenticationResults, Header, Mailbox, MailboxList, MessageID, MimeParameters,
-    Result, SharedString,
+    AddressList, AuthenticationResults, Header, MailParsingError, Mailbox, MailboxList, MessageID,
+    MimeParameters, Result, SharedString,
 };
 use chrono::{DateTime, FixedOffset, TimeZone};
 use paste::paste;
@@ -58,31 +58,48 @@ macro_rules! accessor {
         pub fn $func_name(&self) -> Result<Option<$ty>> {
             match self.get_first($header_name) {
                 None => Ok(None),
-                Some(header) => Ok(Some(header.$parser()?)),
+                Some(header) => Ok(Some(header.$parser().map_err(|error| {
+                    MailParsingError::InvalidHeaderValueDuringGet {
+                        header_name: $header_name.to_string(),
+                        error: error.into(),
+                    }
+                })?)),
             }
         }
 
         paste! {
-            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) {
-
+            pub fn [<set_ $func_name>](&mut self, v: impl EncodeHeaderValue) -> Result<()> {
                 if let Some(idx) = self
                     .headers
                     .iter()
                     .position(|header| header.get_name().eq_ignore_ascii_case($header_name))
                 {
                     if let Some(hdr) = v.as_header(self.headers[idx].get_name()) {
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers[idx] = hdr;
                     } else {
                         self.headers[idx].assign(v);
                     }
                 } else {
                     if let Some(hdr) = v.as_header($header_name) {
+                        hdr.$parser().map_err(|error| {
+                            MailParsingError::InvalidHeaderValueDuringAssignment {
+                                header_name: $header_name.to_string(),
+                                error: error.into(),
+                            }
+                        })?;
                         self.headers.push(hdr);
                     } else {
-                    self.headers
-                        .push(Header::with_name_value($header_name, v.encode_value()));
+                        self.headers
+                            .push(Header::with_name_value($header_name, v.encode_value()));
                     }
                 }
+                Ok(())
             }
         }
     };
@@ -91,6 +108,12 @@ macro_rules! accessor {
 impl<'a> HeaderMap<'a> {
     pub fn new(headers: Vec<Header<'a>>) -> Self {
         Self { headers }
+    }
+
+    pub fn to_owned(&'a self) -> HeaderMap<'static> {
+        HeaderMap {
+            headers: self.headers.iter().map(|h: &Header| h.to_owned()).collect(),
+        }
     }
 
     pub fn remove_all_named(&mut self, name: &str) {

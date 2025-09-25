@@ -4,6 +4,16 @@ use thiserror::Error;
 pub enum MailParsingError {
     #[error("invalid header: {0}")]
     HeaderParse(String),
+    #[error("while assigning header '{header_name}': {error}")]
+    InvalidHeaderValueDuringAssignment {
+        header_name: String,
+        error: Box<MailParsingError>,
+    },
+    #[error("while parsing header '{header_name}': {error}")]
+    InvalidHeaderValueDuringGet {
+        header_name: String,
+        error: Box<MailParsingError>,
+    },
     #[error("Header {0} not found in mime part")]
     MissingHeader(String),
     #[error("Unknown Mime-Version: {0}")]
@@ -22,4 +32,6 @@ pub enum MailParsingError {
     ChronoError(chrono::format::ParseError),
     #[error("Mime Tree has too many child parts")]
     TooManyParts,
+    #[error("8-bit found when 7-bit is required")]
+    EightBit,
 }
